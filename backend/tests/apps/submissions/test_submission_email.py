@@ -1,6 +1,7 @@
 """Tests for the submission confirmation email."""
 from datetime import timedelta
 
+from django.conf import settings
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -63,6 +64,7 @@ class SubmissionEmailTests(TestCase):
 
     def _complete_and_submit(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {
             "storage_key": "x/poster.pdf", "name": "poster.pdf",
@@ -80,24 +82,18 @@ class SubmissionEmailTests(TestCase):
             ],
         )
 
-    def test_everyone_on_the_team_is_emailed(self):
+    def test_the_team_gets_one_email_students_in_to_and_staff_in_cc(self):
         self._complete_and_submit()
 
-        self.assertCountEqual(
-            [message.to[0] for message in mail.outbox],
-            [
-                "mentor@test.local", "student1@test.local",
-                "student2@test.local", "supervisor@test.local",
-            ],
-        )
-
-    def test_no_student_can_see_a_teammates_address(self):
-        self._complete_and_submit()
-
-        for message in mail.outbox:
-            self.assertEqual(len(message.to), 1)
-            self.assertFalse(message.cc)
-            self.assertFalse(message.bcc)
+        # One email for the team, as the Notify emails go.
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertCountEqual(message.to, ["student1@test.local", "student2@test.local"])
+        self.assertCountEqual(message.cc, ["mentor@test.local", "supervisor@test.local"])
+        self.assertFalse(message.bcc)
+        # Replies go back to the sender, info@.
+        self.assertEqual(message.reply_to, [])
+        self.assertIn(settings.EMAIL_FROM_ADDRESS, message.from_email)
 
     def test_everyone_on_the_team_receives_the_same_email(self):
         self._complete_and_submit()
@@ -145,6 +141,7 @@ class SubmissionEmailTests(TestCase):
 
     def test_a_prototype_link_alone_counts_as_submitted(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {"storage_key": "x/p.pdf", "name": "p.pdf", "mime": "", "size": 1}
         submission.prototype_url = "https://example.com/demo"

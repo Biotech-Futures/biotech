@@ -79,7 +79,7 @@ def get_mentor_list(requesting_user=None) -> List[Dict[str, Any]]:
     }
     
     # 4. Certificates per mentor
-    from apps.certificates.models import MentorCertificate, CertificateType
+    from apps.certificates.models import MentorCertificate
     
     certificate_rows = (
         MentorCertificate.objects

@@ -26,12 +26,14 @@ declare module '@tiptap/core' {
 }
 
 // Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py.
+// Text (emailTextStyle.ts) and tables (emailTables.ts) use them too: height
+// draws a divider line, border-collapse and width lay out a table.
 const STYLE_PROPERTIES = new Set([
-  'background-color', 'border', 'border-radius', 'color', 'display',
-  'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
+  'background-color', 'border', 'border-collapse', 'border-radius', 'color', 'display',
+  'font-family', 'font-size', 'font-weight', 'height', 'letter-spacing', 'line-height',
   'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
   'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'text-align', 'text-decoration'
+  'text-align', 'text-decoration', 'text-transform', 'vertical-align', 'width', 'word-break'
 ])
 
 export interface EmailLook {
@@ -81,9 +83,20 @@ export const BUTTON_LOOKS: readonly EmailLook[] = [
 /** Used when a box or button's own style can't be read. */
 export const BOX_STYLE = BOX_LOOKS[1].style
 export const BUTTON_STYLE = BUTTON_LOOKS[2].style
+/** The space around a button unless the gap tool sets another. */
+export const BUTTON_SPACE = 'margin:20px 0'
+
+/** Just the margins of a style: "margin:20px 0; margin-bottom:0". */
+export const marginsOf = (style: string) =>
+  cleanEmailStyle(
+    style
+      .split(';')
+      .filter((declaration) => /^\s*margin(-top|-bottom|-left|-right)?\s*:/i.test(declaration))
+      .join(';')
+  )
 
 /** "#017151" and "rgb(1, 113, 81)" both become "1,113,81". */
-function colourKey(value: string): string {
+export function colourKey(value: string): string {
   const colour = value.trim().toLowerCase()
   const hex = colour.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/)
   if (hex) {
@@ -160,6 +173,17 @@ function templateButtonLink(wrapper: HTMLElement): HTMLAnchorElement | null {
   return clean(wrapper.textContent) === clean(links[0].textContent) ? links[0] : null
 }
 
+/** Whether the editor keeps a `<div>` as a box or a button (any other div's
+ *  layout is lost, its text read as plain paragraphs). */
+export function keptAsBlock(div: HTMLElement): boolean {
+  return (
+    div.classList.contains('email-box') ||
+    div.classList.contains('email-button') ||
+    drawsBox(styleOf(div)) ||
+    !!templateButtonLink(div)
+  )
+}
+
 function buttonAttributes(wrapper: HTMLElement, link: HTMLAnchorElement | null) {
   if (!link) return false
   // Main's buttons paint their colour on the cell around the link.
@@ -218,7 +242,12 @@ export const EmailBox = Node.create({
         contentElement: (table) => cardCell(table as HTMLElement) as HTMLElement,
         getAttrs: (element) => {
           const cell = cardCell(element as HTMLElement)
-          return cell ? { style: cleanEmailStyle(styleOf(element as HTMLElement), styleOf(cell)) } : false
+          // A box needs the card's look, not the table's layout.
+          const look = cleanEmailStyle(styleOf(element as HTMLElement), styleOf(cell))
+            .split('; ')
+            .filter((declaration) => !/^(border-collapse|width|vertical-align):/.test(declaration))
+            .join('; ')
+          return cell ? { style: look } : false
         }
       }
     ]
@@ -255,7 +284,9 @@ export const EmailButton = Node.create({
     return {
       href: { default: '', ...ruleOnly },
       style: { default: BUTTON_STYLE, ...ruleOnly },
-      align: { default: 'left', ...ruleOnly }
+      align: { default: 'left', ...ruleOnly },
+      // The space around the button (its wrapper's margins), set by the gap tool.
+      wrapperStyle: { default: BUTTON_SPACE, ...ruleOnly }
     }
   },
 
@@ -265,8 +296,11 @@ export const EmailButton = Node.create({
         tag: 'div.email-button',
         priority: 110,
         contentElement: 'a',
-        getAttrs: (element) =>
-          buttonAttributes(element as HTMLElement, (element as HTMLElement).querySelector('a'))
+        getAttrs: (element) => {
+          const wrapper = element as HTMLElement
+          const attributes = buttonAttributes(wrapper, wrapper.querySelector('a'))
+          return attributes && { ...attributes, wrapperStyle: marginsOf(styleOf(wrapper)) || BUTTON_SPACE }
+        }
       },
       ...(['table', 'div'] as const).map((tag) => ({
         tag,
@@ -278,9 +312,10 @@ export const EmailButton = Node.create({
   },
 
   renderHTML({ node }) {
+    const space = node.attrs.wrapperStyle || BUTTON_SPACE
     return [
       'div',
-      { class: 'email-button', style: `margin:20px 0; text-align:${node.attrs.align === 'center' ? 'center' : 'left'}` },
+      { class: 'email-button', style: `${space}; text-align:${node.attrs.align === 'center' ? 'center' : 'left'}` },
       ['a', { class: 'cta-link', href: node.attrs.href, style: node.attrs.style || BUTTON_STYLE }, 0]
     ]
   },

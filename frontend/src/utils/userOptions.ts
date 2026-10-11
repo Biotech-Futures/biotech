@@ -15,8 +15,6 @@ export const INTEREST_OPTIONS = [
   'Ethical & Societal Impacts of Emerging Tech'
 ]
 
-export const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
-
 export interface AdminUserFilters {
   role: UserRole | 'all'
   country: string

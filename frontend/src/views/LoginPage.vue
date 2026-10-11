@@ -155,16 +155,8 @@
               <!-- Email submission form. -->
               <form class="auth-form" @submit.prevent="handleLogin" novalidate>
                 <div class="login-mode-switch" role="tablist" :aria-label="t('loginMethod')">
-                  <button
-                    type="button"
-                    class="login-mode-button"
-                    :class="{ active: loginMode === 'password' }"
-                    role="tab"
-                    :aria-selected="loginMode === 'password'"
-                    @click="setLoginMode('password')"
-                  >
-                    {{ t('passwordSignIn') }}
-                  </button>
+                  <!-- Magic link first: it is the default mode, so it reads
+                       left-to-right in the same order as the selection. -->
                   <button
                     type="button"
                     class="login-mode-button"
@@ -174,6 +166,16 @@
                     @click="setLoginMode('code')"
                   >
                     {{ t('emailCodeSignIn') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="login-mode-button"
+                    :class="{ active: loginMode === 'password' }"
+                    role="tab"
+                    :aria-selected="loginMode === 'password'"
+                    @click="setLoginMode('password')"
+                  >
+                    {{ t('passwordSignIn') }}
                   </button>
                 </div>
 
@@ -1385,7 +1387,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-logo-icon {
@@ -1407,7 +1409,7 @@ onBeforeUnmount(() => {
 .legacy-info-title {
   margin: 0 0 0.75rem;
   font-size: 1.75rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-custom-content p {
@@ -1418,7 +1420,7 @@ onBeforeUnmount(() => {
 
 .legacy-info-list {
   margin: 0.75rem 0 1rem 1.25rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-info-list li + li {

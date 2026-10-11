@@ -91,15 +91,25 @@ class GroupsTests(TestCase):
         obj = Groups.objects.get(group_name='team_beta')
         self.assertIsNone(obj.deleted_at)
 
-    def test_duplicate_group_name_is_allowed(self):
+    def test_duplicate_group_name_is_refused(self):
         url = reverse('groups-list')
         self.client.force_authenticate(user=self.admin_user)
         resp1 = self.client.post(url, {'group_name': 'dup'}, format='json')
         self.assertEqual(resp1.status_code, status.HTTP_201_CREATED)
-        resp2 = self.client.post(url, {'group_name': 'dup'}, format='json')
-        self.assertEqual(resp2.status_code, status.HTTP_201_CREATED)
-        self.assertNotEqual(resp1.json()['id'], resp2.json()['id'])
-        self.assertEqual(Groups.objects.filter(group_name='dup').count(), 2)
+        resp2 = self.client.post(url, {'group_name': ' DUP '}, format='json')
+        self.assertEqual(resp2.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('A group named DUP already exists in', str(resp2.json()))
+        self.assertEqual(Groups.objects.filter(group_name__iexact='dup').count(), 1)
+
+    def test_rename_to_a_name_taken_this_year_is_refused(self):
+        url = reverse('groups-detail', args=[self.group1.id])
+        self.client.force_authenticate(user=self.admin_user)
+        Groups.objects.create(group_name='Taken Name')
+        response = self.client.patch(url, {'group_name': 'taken name'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('A group named taken name already exists in', str(response.json()))
+        self.group1.refresh_from_db()
+        self.assertEqual(self.group1.group_name, 'Group One')
 
     def test_update_requires_admin(self):
         url = reverse('groups-detail', args=[self.group1.id])
@@ -175,7 +185,7 @@ class GroupsTests(TestCase):
         self.assertIsNone(deleted.deleted_at)
         self.assertIsNone(response.data["deleted_at"])
 
-    def test_restore_group_allows_overlapping_name(self):
+    def test_restore_group_refuses_a_name_now_taken_this_year(self):
         deleted = self.make_deleted_group(name="Conflicting Group")
         Groups.objects.create(group_name="Conflicting Group")
         url = reverse("groups-restore", args=[deleted.id])
@@ -183,10 +193,11 @@ class GroupsTests(TestCase):
 
         response = self.client.post(url)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("A group named Conflicting Group already exists in", str(response.json()))
+        self.assertIn("Rename one of them first.", str(response.json()))
         deleted.refresh_from_db()
-        self.assertIsNone(deleted.deleted_at)
-        self.assertEqual(Groups.objects.filter(group_name="Conflicting Group").count(), 2)
+        self.assertIsNotNone(deleted.deleted_at)
 
     def test_non_staff_cannot_include_deleted_even_with_flag(self):
         deleted = self.make_deleted_group()

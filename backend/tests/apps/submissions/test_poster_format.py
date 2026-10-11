@@ -162,7 +162,10 @@ class PosterFormatUploadTests(TestCase):
         self._upload(_upload_file(*A2, text="a@b.edu.au but no code"))
         self.client.put(
             self.detail_url,
-            {"answers": {q.key: "An answer." for q in SubmissionQuestion.active()}},
+            {
+                "project_title": "Our Project",
+                "answers": {q.key: "An answer." for q in SubmissionQuestion.active()},
+            },
             format="json",
         )
 

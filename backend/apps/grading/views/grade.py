@@ -4,8 +4,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import generics
 
+from apps.common.rbac import IsStaffOrAdmin
+
 from ..models import ComponentFeedback, Grade, RubricCriterion
-from ..permissions import IsGrader
 from ..serializers import GradeBulkRequestSerializer, GradeSerializer
 from ..services import content
 
@@ -15,13 +16,18 @@ class GradeUpdateView(generics.UpdateAPIView):
 
     queryset = Grade.objects.all()
     serializer_class = GradeSerializer
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     http_method_names = ["patch"]
 
     def perform_update(self, serializer):
         # graded_at is auto_now, so it re-stamps on every save; graded_by we
         # set explicitly so the audit trail reflects the last mutator.
         serializer.save(graded_by=self.request.user)
+
+
+def _listed(names: list[str]) -> str:
+    """"Content", "Content and Clarity", "Content, Clarity and the overall comment"."""
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 class GradeBulkView(APIView):
@@ -43,9 +49,13 @@ class GradeBulkView(APIView):
         (a code) is required whenever the entry spans more than one component,
         since the submission id alone cannot say which comment this is.
       - All-or-nothing: any invalid item rolls the whole batch back.
+      - An item or overall comment may say what it started from
+        (``expected_mark`` and ``expected_comment``). If another marker has
+        changed that since, the whole save is refused (409), naming what
+        changed, rather than writing over their marks.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @transaction.atomic
     def post(self, request):
@@ -120,27 +130,59 @@ class GradeBulkView(APIView):
                     )},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            feedback_targets.append((matches[0], entry_item["comment"]))
+            feedback_targets.append((matches[0], entry_item))
 
-        for entry, comment in feedback_targets:
+        # Stored grades, locked until this save ends, so nobody changes them
+        # between the check below and the writes.
+        existing_grades = {
+            (g.submission_id, g.criterion_id): g
+            for g in Grade.objects.select_for_update().filter(
+                submission_id__in={i["submission"] for i in items},
+                criterion_id__in=criterion_ids,
+            )
+        }
+
+        # Refuse, before writing anything, a save started from values another
+        # marker has since changed.
+        changed = []
+        for item in items:
+            if "expected_comment" not in item:
+                continue
+            existing = existing_grades.get((item["submission"], item["criterion"]))
+            stored = (existing.mark, (existing.comment or "").strip()) if existing else (None, "")
+            if stored != (item.get("expected_mark"), item["expected_comment"].strip()):
+                changed.append(criteria[item["criterion"]].name)
+        for entry, entry_item in feedback_targets:
+            if "expected_comment" not in entry_item:
+                continue
+            stored = ComponentFeedback.objects.filter(
+                group_id=entry.group_id, component_id=entry.component_id,
+            ).values_list("comment", flat=True).first() or ""
+            if stored.strip() != entry_item["expected_comment"].strip():
+                changed.append("the overall comment")
+        if changed:
+            return Response(
+                {
+                    "detail": (
+                        f"Another marker changed {_listed(changed)} since you opened this group. "
+                        "Reload to see their marks."
+                    ),
+                    "changed": changed,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        for entry, entry_item in feedback_targets:
+            comment = entry_item["comment"]
             ComponentFeedback.objects.update_or_create(
                 group_id=entry.group_id,
                 component_id=entry.component_id,
                 defaults={"comment": comment, "updated_by": request.user},
             )
 
-        # Preload existing grades so untouched criteria don't get phantom
-        # rows and unchanged ones don't get a re-stamped graded_by — the
-        # form sends the whole rubric, but only real edits are marking
-        # actions (same rule as the bulk upload).
-        existing_grades = {
-            (g.submission_id, g.criterion_id): g
-            for g in Grade.objects.filter(
-                submission_id__in={i["submission"] for i in items},
-                criterion_id__in=criterion_ids,
-            )
-        }
-
+        # Untouched criteria get no phantom rows, and unchanged ones keep their
+        # graded_by: only real edits are marking actions (same rule as the
+        # bulk upload).
         saved = []
         for item in items:
             mark = item.get("mark")

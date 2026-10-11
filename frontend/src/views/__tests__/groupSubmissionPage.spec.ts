@@ -9,6 +9,7 @@ const saveDraft = vi.fn()
 const submitEntry = vi.fn()
 const reopenEntry = vi.fn()
 const fetchSubmission = vi.fn()
+const uploadSubmissionFile = vi.fn()
 
 vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/submissionsAPI')>()
@@ -18,10 +19,14 @@ vi.mock('@/utils/submissionsAPI', async (importOriginal) => {
     saveDraft: (...args: unknown[]) => saveDraft(...args),
     submitEntry: (...args: unknown[]) => submitEntry(...args),
     reopenEntry: (...args: unknown[]) => reopenEntry(...args),
-    fetchPreviewObjectUrl: vi.fn().mockResolvedValue(''),
-    releasePreview: vi.fn(),
+    uploadSubmissionFile: (...args: unknown[]) => uploadSubmissionFile(...args),
   }
 })
+
+const fetchFinalist = vi.fn()
+vi.mock('@/utils/finalistAPI', () => ({
+  fetchFinalist: (...args: unknown[]) => fetchFinalist(...args),
+}))
 
 // Imported after the mock is registered so the component picks up the stubs.
 const GroupSubmissionPage = (await import('../GroupSubmissionPage.vue')).default
@@ -46,13 +51,17 @@ const QUESTIONS = [
 const POSTER = { storage_key: 'x/p.pdf', name: 'poster.pdf', mime: 'application/pdf', size: 2048 }
 const ANSWERED = { solution_purpose: 'An answer.', inspiration: 'Another answer.' }
 
+const TITLE = 'Coral Rescue Kit'
+
 const emptyRecord = (): SubmissionRecord => ({
+  project_title: '',
   answers: {},
   poster: null,
   poster_checks: null,
   report: null,
   prototype: null,
   prototype_url: '',
+  submitted_project_title: '',
   submitted_answers: null,
   submitted_poster: null,
   submitted_poster_checks: null,
@@ -155,10 +164,37 @@ const goToLastStep = async () => {
   await flushPromises()
 }
 
+/** Stands in for the live connection, so no test reaches a real server. */
+class FakeSocket {
+  static OPEN = 1
+  static instances: FakeSocket[] = []
+  readyState = 0
+  sent: unknown[] = []
+  onopen: (() => void) | null = null
+  onmessage: ((event: { data: string }) => void) | null = null
+  onclose: ((event: { code: number }) => void) | null = null
+
+  constructor(public url: string) {
+    FakeSocket.instances.push(this)
+  }
+
+  send(data: string) {
+    this.sent.push(JSON.parse(data))
+  }
+
+  close(code = 1000) {
+    this.readyState = 3
+    this.onclose?.({ code })
+  }
+}
+
 beforeEach(() => {
+  FakeSocket.instances = []
+  vi.stubGlobal('WebSocket', FakeSocket)
   pinia = createPinia()
   setActivePinia(pinia)
   vi.clearAllMocks()
+  fetchFinalist.mockRejectedValue(Object.assign(new Error('Not a finalist'), { status: 403 }))
   vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
   // jsdom has no scrollTo; stubbed to keep test output readable.
   vi.stubGlobal('scrollTo', vi.fn())
@@ -174,19 +210,24 @@ afterEach(() => {
 describe('required-answer progress', () => {
   it('counts nothing complete on a brand new entry', async () => {
     await mountPage(buildDetail({ submission: null }))
-    expect(wrapper!.text()).toContain('0 of 2')
+    expect(wrapper!.text()).toContain('0 of 3')
   })
 
   it('does not count whitespace as an answer', async () => {
     await mountPage(
       buildDetail({ submission: { answers: { solution_purpose: 'Real.', inspiration: '   ' } } }),
     )
-    expect(wrapper!.text()).toContain('1 of 2')
+    expect(wrapper!.text()).toContain('1 of 3')
   })
 
   it('reports every required question answered', async () => {
-    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
-    expect(wrapper!.text()).toContain('2 of 2')
+    await mountPage(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED } }))
+    expect(wrapper!.text()).toContain('3 of 3')
+  })
+
+  it('counts a blank project title as outstanding', async () => {
+    await mountPage(buildDetail({ submission: { project_title: '   ', answers: ANSWERED } }))
+    expect(wrapper!.text()).toContain('2 of 3')
   })
 })
 
@@ -238,7 +279,7 @@ describe('submitting', () => {
   it('sends the student to the first unanswered question, not merely back a step', async () => {
     await mountPage(
       buildDetail({
-        submission: { answers: { solution_purpose: 'Done.' }, poster: POSTER },
+        submission: { project_title: TITLE, answers: { solution_purpose: 'Done.' }, poster: POSTER },
       }),
     )
     await goToLastStep()
@@ -251,7 +292,9 @@ describe('submitting', () => {
   })
 
   it('sends the student to the poster step when only the poster is missing', async () => {
-    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: null } }))
+    await mountPage(
+      buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: null } }),
+    )
     await goToLastStep()
 
     await buttonNamed(/^Submit$/)!.trigger('click')
@@ -278,8 +321,53 @@ describe('submitting', () => {
     expect(submitEntry).not.toHaveBeenCalled()
   })
 
+  it('sends the student to the project title when only the title is missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'A project title is required before the entry can be submitted.',
+    )
+    expect(wrapper!.find('[aria-current="step"]').text()).toContain('Questions')
+    expect(document.activeElement?.id).toBe('project-title')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('names the title and the poster when both are missing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: null } }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'A project title is required, and no poster has been uploaded.',
+    )
+  })
+
+  it('saves the project title with the draft', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.find('#project-title').setValue(TITLE)
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).toHaveBeenCalledWith('1', expect.objectContaining({ project_title: TITLE }))
+  })
+
+  it('caps the project title at 150 characters', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#project-title').attributes('maxlength')).toBe('150')
+  })
+
   it('calls the API when submit is pressed', async () => {
-    const detail = buildDetail({ submission: { answers: ANSWERED, poster: POSTER } })
+    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } })
     await mountPage(detail)
     await goToLastStep()
     saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
@@ -413,15 +501,249 @@ describe('a closed deadline', () => {
     const boxes = wrapper!.findAll('textarea')
     expect(boxes.length).toBeGreaterThan(0)
     boxes.forEach((box) => expect(box.attributes('disabled')).toBeDefined())
+    expect(wrapper!.find('#project-title').attributes('disabled')).toBeDefined()
   })
 
-  it('does not offer submit at all', async () => {
+  it('does not offer submit or uploads at all', async () => {
     await mountPage(
       buildDetail({ isOpen: false, submission: { answers: ANSWERED, poster: POSTER } }),
     )
     await goToLastStep()
     expect(buttonNamed(/^Submit$/)).toBeUndefined()
-    expect(buttonNamed(/New Attempt/i)).toBeUndefined()
+    expect(buttonNamed(/^(Upload|Replace|Remove)$/)).toBeUndefined()
+  })
+
+  it('shuts the preview of a file that was never uploaded', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    const toggle = wrapper!.find('[data-testid="toggle-poster-preview"]')
+    expect(toggle.attributes('disabled')).toBeDefined()
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper!.find('#poster-preview-body').isVisible()).toBe(false)
+
+    await toggle.trigger('click')
+    expect(wrapper!.find('#poster-preview-body').isVisible()).toBe(false)
+  })
+
+  it('keeps the preview of an uploaded file available once closed', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    await mountPage(detail)
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    const toggle = wrapper!.find('[data-testid="toggle-poster-preview"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('#poster-preview-body').isVisible()).toBe(true)
+  })
+
+  it('leaves an empty preview open while uploads are still possible', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="toggle-poster-preview"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('hides an empty prototype link once it can no longer be edited', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#prototype-url').exists()).toBe(false)
+  })
+
+  it('still shows a prototype link that was given', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    detail.submission!.submitted_prototype_url = 'https://example.com/demo'
+    await mountPage(detail)
+
+    const link = wrapper!.find('#prototype-url')
+    expect((link.element as HTMLInputElement).value).toBe('https://example.com/demo')
+    expect(link.attributes('disabled')).toBeDefined()
+  })
+
+  it('keeps the empty link box while the entry is editable', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#prototype-url').exists()).toBe(true)
+  })
+
+
+
+
+  it('brings the form back when an extension reopens the entry', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: null }))
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeDefined()
+
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
+    expect(buttonNamed(/^Submit$/)).toBeTruthy()
+  })
+})
+
+describe('a deadline changed while the page is open', () => {
+  it('reopens a closed page when the window regains focus', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: null }))
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeDefined()
+
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('.status-line').text()).not.toContain('Submissions are closed')
+  })
+
+  it('keeps unsaved typing when the deadline moves while open', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    await wrapper!.findAll('textarea')[0].setValue('Typed but not saved yet.')
+
+    const moved = buildDetail({ submission: { answers: { solution_purpose: 'Server copy.' } } })
+    moved.deadline.closes_at = new Date(Date.now() + 9 * 86_400_000).toISOString()
+    fetchSubmission.mockResolvedValue(moved)
+    window.dispatchEvent(new Event('focus'))
+    await flushPromises()
+
+    expect((wrapper!.findAll('textarea')[0].element as HTMLTextAreaElement).value).toBe(
+      'Typed but not saved yet.',
+    )
+  })
+
+  it('checks again when the Submission tab is opened', async () => {
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: false, submission: null }))
+    const router = createRouter({ history: createWebHashHistory(), routes: ROUTES })
+    await router.push('/groups/1/submission')
+    await router.isReady()
+    wrapper = mount(GroupSubmissionPage, { global: { plugins: [router, pinia] } })
+    await flushPromises()
+
+    fetchSubmission.mockResolvedValue(buildDetail({ isOpen: true, submission: null }))
+    await router.push('/groups/1')
+    await router.push('/groups/1/submission')
+    await flushPromises()
+
+    expect(fetchSubmission).toHaveBeenCalledTimes(2)
+    expect(wrapper!.find('textarea').attributes('disabled')).toBeUndefined()
+  })
+})
+
+describe('dropping a file onto a slot', () => {
+  const pdf = (bytes = 2048) =>
+    new File([new Uint8Array(bytes)], 'poster.pdf', { type: 'application/pdf' })
+  const drop = (slot: string, file: File) =>
+    wrapper!.find(`[data-testid="drop-${slot}"]`).trigger('drop', {
+      dataTransfer: { files: [file], types: ['Files'] },
+    })
+
+  it('uploads a dropped poster through the same path as the file picker', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+    const file = pdf()
+
+    await drop('poster', file)
+    await flushPromises()
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', file, expect.any(Function))
+  })
+
+  it('accepts drops on the report and prototype slots too', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+
+    await drop('report', pdf())
+    await flushPromises()
+    await drop('prototype', new File(['zip'], 'model.zip'))
+    await flushPromises()
+
+    expect(uploadSubmissionFile.mock.calls.map((call) => call[1])).toEqual(['report', 'prototype'])
+  })
+
+  it('refuses an oversized dropped file before uploading it', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    await drop('poster', pdf(11_000_000))
+    await flushPromises()
+
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('The limit is')
+  })
+
+  it('ignores a drop once submissions are closed', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    await drop('poster', pdf())
+    await flushPromises()
+
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+  })
+
+  it('ignores a drop on a locked entry', async () => {
+    await mountPage(submittedDetail())
+
+    await drop('poster', pdf())
+    await flushPromises()
+
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+  })
+
+  it('still uploads a file chosen with the picker', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+    const file = pdf()
+    const input = wrapper!.find('[data-testid="drop-poster"] input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', file, expect.any(Function))
+  })
+
+  it('uploads a file dropped onto the preview panel', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission })
+
+    for (const slot of ['poster', 'report']) {
+      await wrapper!
+        .find(`[data-testid="drop-${slot}"] .preview-panel`)
+        .trigger('drop', { dataTransfer: { files: [pdf()], types: ['Files'] } })
+      await flushPromises()
+    }
+
+    expect(uploadSubmissionFile.mock.calls.map((call) => call[1])).toEqual(['poster', 'report'])
+  })
+
+  it('lets drags pass through the preview frame while a file is dragged', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const root = wrapper!.find('.content-area')
+
+    window.dispatchEvent(Object.assign(new Event('dragenter'), { dataTransfer: { types: ['Files'] } }))
+    await flushPromises()
+    expect(root.classes()).toContain('is-dragging-file')
+
+    window.dispatchEvent(new Event('drop'))
+    await flushPromises()
+    expect(root.classes()).not.toContain('is-dragging-file')
+  })
+
+  it('highlights the slot while a file is dragged over it', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const slot = wrapper!.find('[data-testid="drop-poster"]')
+
+    await slot.trigger('dragover', { dataTransfer: { types: ['Files'], dropEffect: 'none' } })
+    expect(slot.classes()).toContain('is-drop-target')
+
+    await slot.trigger('dragleave', { relatedTarget: null })
+    expect(slot.classes()).not.toContain('is-drop-target')
   })
 })
 
@@ -879,6 +1201,15 @@ describe('which copy of the entry is shown', () => {
     expect(wrapper!.findAll('textarea')[0].element.value).toBe('SUBMITTED.')
   })
 
+  it('shows the submitted project title once the window has closed', async () => {
+    const detail = midRevision(false)
+    detail.submission!.project_title = 'Draft title'
+    detail.submission!.submitted_project_title = 'Submitted title'
+    await mountPage(detail)
+
+    expect((wrapper!.find('#project-title').element as HTMLInputElement).value).toBe('Submitted title')
+  })
+
   it('shows the submitted poster once the window has closed', async () => {
     await mountPage(midRevision(false))
     await buttonNamed(/Poster/)!.trigger('click')
@@ -1125,5 +1456,287 @@ describe('as a section of the group page', () => {
     expect(wrapper!.find('.status-line').exists()).toBe(true)
     expect(wrapper!.find('.submission-steps').exists()).toBe(true)
     expect(buttonNamed(/^Submit$/)).toBeTruthy()
+  })
+})
+
+describe('the Finalist step', () => {
+  // The finalist round has a section of its own on the group page.
+  it('is not a step of the entry, even for a finalist group', async () => {
+    fetchFinalist.mockResolvedValue({})
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    const labels = wrapper!.findAll('.submission-step__label').map((label) => label.text())
+    expect(labels).toEqual(['Questions', 'Poster', 'Additional materials'])
+    expect(buttonNamed(/Finalist/)).toBeUndefined()
+  })
+})
+
+
+describe('live typing', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const teammateTyping = (field: string) =>
+    socket().onmessage?.({
+      data: JSON.stringify({ type: 'typing', user: { id: 9, name: 'Ben' }, field, typing: true }),
+    })
+
+  it('joins the team’s room while the questions are open for editing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(socket().url).toContain('/ws/live/submission/1/')
+  })
+
+  it('holds no connection once the round has closed', async () => {
+    await mountPage(buildDetail({ isOpen: false, submission: { answers: ANSWERED } }))
+
+    expect(FakeSocket.instances.every((s) => s.readyState === 3)).toBe(true)
+  })
+
+  it('stays connected to a submitted entry, so a reopen elsewhere arrives', async () => {
+    await mountPage(submittedDetail())
+
+    expect(socket().readyState).not.toBe(3)
+  })
+
+  it('tells teammates which question is being typed in', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    await wrapper!.find('#inspiration').setValue('A new thought')
+
+    expect(socket().sent).toContainEqual({ type: 'typing', field: 'inspiration', typing: true })
+  })
+
+  it('shows a teammate typing under that question only', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    teammateTyping('inspiration')
+    await flushPromises()
+
+    const field = wrapper!.find('#inspiration').element.closest('.submission-field')!
+    expect(field.textContent).toContain('Ben is typing…')
+    expect(wrapper!.findAll('.typing-indicator')).toHaveLength(1)
+  })
+
+  it('shows a teammate typing the project title', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    teammateTyping('project-title')
+    await flushPromises()
+
+    const field = wrapper!.find('#project-title').element.closest('.submission-field')!
+    expect(field.textContent).toContain('Ben is typing…')
+  })
+})
+
+describe('live text', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const fromBen = (message: object) =>
+    socket().onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+
+  it('shares what you type with teammates', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    await wrapper!.find('#inspiration').setValue('A new thought')
+
+    expect(socket().sent).toContainEqual({ type: 'text', field: 'inspiration', text: 'A new thought', caret: 13 })
+  })
+
+  it('shows a teammate’s text as they type and locks that box only', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft' })
+    await flushPromises()
+
+    const box = wrapper!.find('#inspiration')
+    expect((box.element as HTMLTextAreaElement).value).toBe('Ben’s draft')
+    expect(box.attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('#solution_purpose').attributes('disabled')).toBeUndefined()
+
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await flushPromises()
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
+  })
+
+  it('never saves a teammate’s text as your own', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft' })
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps your own unsaved edits elsewhere when a teammate’s text arrives', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    openSocket()
+
+    await wrapper!.find('#solution_purpose').setValue('My change')
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft' })
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).toHaveBeenCalledTimes(1)
+    expect(saveDraft.mock.calls[0]![1].answers).toEqual({ solution_purpose: 'My change' })
+  })
+
+  it('shows a teammate typing the project title', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'text', field: 'project-title', text: 'Coral Rescue' })
+    await flushPromises()
+
+    expect((wrapper!.find('#project-title').element as HTMLInputElement).value).toBe('Coral Rescue')
+  })
+})
+
+describe('bringing boxes back in line after live text', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const fromBen = (message: object) =>
+    socket().onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+  const savedByBen = (inspiration: string) =>
+    buildDetail({ submission: { answers: { ...ANSWERED, inspiration } } })
+
+  async function benFinishes(saved: string) {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draf' })
+    fetchSubmission.mockResolvedValue(savedByBen(saved))
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    await flushPromises()
+  }
+
+  it('shows what was actually saved once a teammate’s box unlocks', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    await benFinishes('Ben’s draft, finished')
+
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s draft, finished')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('leaves a box you are editing alone', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockReturnValue(new Promise(() => undefined))
+
+    await wrapper!.find('#solution_purpose').setValue('My unsaved change')
+    await benFinishes('Ben’s draft, finished')
+
+    expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('My unsaved change')
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s draft, finished')
+  })
+})
+
+describe('live panel and title', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const fromBen = (message: object) =>
+    socket().onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+
+  it('swaps a locked box for the live panel with the cursor', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+
+    fromBen({ type: 'text', field: 'inspiration', text: 'Ben’s draft', caret: 5 })
+    await flushPromises()
+
+    const field = wrapper!.find('#inspiration').element.closest('.submission-field')!
+    expect(field.querySelector('[data-testid="live-text"]')).not.toBeNull()
+    expect(field.querySelector('.live-text__caret')).not.toBeNull()
+    expect(wrapper!.find('#inspiration').isVisible()).toBe(false)
+  })
+
+  it('only sends the title when it was changed here', async () => {
+    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED } })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.find('#inspiration').setValue('An edit')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+    expect(saveDraft.mock.calls[0]![1]).not.toHaveProperty('project_title')
+
+    await wrapper!.find('#project-title').setValue('A new title')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+    expect(saveDraft.mock.calls[1]![1]).toHaveProperty('project_title', 'A new title')
+  })
+})
+
+describe('changes made elsewhere', () => {
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const openSocket = () => {
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    socket().onmessage?.({ data: JSON.stringify({ type: 'hello', user: { id: 1, name: 'Me' } }) })
+  }
+  const changed = (item: string) =>
+    socket().onmessage?.({ data: JSON.stringify({ type: 'changed', item, user: { id: 9, name: 'Matt' } }) })
+
+  it('shows at once when a teammate submits', async () => {
+    await mountPage(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } }))
+    openSocket()
+    fetchSubmission.mockResolvedValue(submittedDetail())
+
+    changed('submitted')
+    await flushPromises()
+
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('.submission-message').exists()).toBe(false)
+  })
+
+  it('opens up at once when a teammate reopens the entry', async () => {
+    await mountPage(submittedDetail())
+    openSocket()
+    fetchSubmission.mockResolvedValue(reopenedDetail())
+
+    changed('reopened')
+    await flushPromises()
+
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('.submission-message').exists()).toBe(false)
+  })
+
+  it('picks up a teammate’s new poster without touching what you are typing', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+    await wrapper!.find('#inspiration').setValue('Half typed')
+    const withPoster = buildDetail({ submission: { answers: ANSWERED, poster: POSTER } })
+    fetchSubmission.mockResolvedValue(withPoster)
+    // Leaving the step saves the typing; the server's reply already includes the poster.
+    saveDraft.mockResolvedValue({ deadline: withPoster.deadline, submission: withPoster.submission! })
+
+    changed('files')
+    await flushPromises()
+
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Half typed')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('poster.pdf')
   })
 })

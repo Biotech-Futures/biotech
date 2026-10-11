@@ -1,4 +1,4 @@
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
@@ -9,9 +9,9 @@ from rest_framework.test import APIClient
 from apps.events.models import Events
 from apps.groups.models import Groups
 from apps.matching_runtime.models import MatchRecommendation, MatchRun
-from apps.users.models import AdminScope
+from apps.users.models import AdminScope, StudentProfile
 from apps.groups.models import Countries, CountryStates
-from apps.resources.models import Roles
+from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR
 
 
@@ -483,6 +483,44 @@ class MePatchPrivilegeEscalationTests(TestCase):
         )
 
 
+class StudentProfileDashboardFieldsTests(TestCase):
+    def test_me_exposes_guardian_email_and_permission_timestamp(self):
+        client = APIClient()
+        student = User.objects.create_user(
+            email="dashboard-student@test.com",
+            password="StudentPass123",
+            first_name="Dashboard",
+            last_name="Student",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        student_role = Roles.objects.create(role_name=ROLE_STUDENT)
+        RoleAssignmentHistory.objects.create(
+            user=student,
+            role=student_role,
+            valid_from=timezone.now(),
+        )
+        granted_at = timezone.now()
+        StudentProfile.objects.create(
+            user=student,
+            pg_first_name="Grace",
+            pg_last_name="Guardian",
+            pg_email="guardian@test.com",
+            school_name="Dashboard High",
+            year_lvl="10",
+            parent_guardian_flag=True,
+            has_join_permission=True,
+            joinperm_granted_at=granted_at,
+        )
+
+        client.force_authenticate(user=student)
+        response = client.get(reverse("MeListHTMLView"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pg_email"], "guardian@test.com")
+        self.assertTrue(response.data["join_perm"])
+        self.assertIsNotNone(response.data["joinperm_granted_at"])
+
+
 class ReceiveJoinPermissionTokenTests(TestCase):
     """The legacy ``AllowAny`` on ``ReceiveJoinPermissionView`` let any anonymous
     caller flip ``has_join_permission`` for any student email — CONSOLIDATED 1.2.
@@ -683,6 +721,33 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["pg_email"], "")
         self.assertEqual(row["joinperm_response_id"], "")
         self.assertIsNone(row["joinperm_granted_at"])
+        self.assertIsNone(row["signature"])
+
+    def test_roster_includes_drawn_consent_signature(self):
+        import io
+
+        from PIL import Image, ImageDraw
+
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent, StudentProfile
+
+        image = Image.new("RGBA", (80, 40), (0, 0, 0, 0))
+        ImageDraw.Draw(image).line([(5, 30), (70, 10)], fill=(0, 0, 0, 255), width=3)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+
+        profile = StudentProfile.objects.get(user=self.student)
+        GuardianConsent.objects.create(
+            student=profile,
+            guardian_full_name="Pat Parent",
+            guardian_email="pat@example.com",
+            media_consent=True,
+            signature_png=buffer.getvalue(),
+            consent_version=CURRENT_VERSION,
+        )
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertTrue(row["signature"].startswith("data:image/png;base64,"))
 
     def test_non_supervisor_is_forbidden(self):
         self.client.force_login(self.outsider)
@@ -721,20 +786,74 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_supervisor_cannot_edit_profile_before_permission(self):
+    def test_supervisor_can_edit_name_and_email_before_permission(self):
         self.client.force_login(self.supervisor)
         response = self.client.patch(
             f"/api/v1/users/supervised-students/{self.student.id}/",
             {
                 "first_name": "Alexa",
                 "last_name": "Student",
+                "email": "alexa.student@test.com",
                 "school_name": "Test High",
                 "year_lvl": "12",
-                "interests": ["Robotics"],
             },
             format="json",
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        row = response.json()
+        self.assertEqual(row["first_name"], "Alexa")
+        self.assertEqual(row["email"], "alexa.student@test.com")
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.email, "alexa.student@test.com")
+
+    def test_supervisor_cannot_reuse_another_account_email(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.student.id}/",
+            {
+                "first_name": "Alex",
+                "last_name": "Student",
+                "email": self.outsider.email,
+                "school_name": "Test High",
+                "year_lvl": "11",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_supervisor_cannot_set_student_email_to_guardian_email(self):
+        from apps.users.models import StudentProfile
+
+        profile = StudentProfile.objects.get(user=self.student)
+        profile.pg_email = "pat.parent@test.com"
+        profile.save(update_fields=["pg_email"])
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.student.id}/",
+            {
+                "first_name": "Alex",
+                "last_name": "Student",
+                "email": "pat.parent@test.com",
+                "school_name": "Test High",
+                "year_lvl": "11",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_supervisor_cannot_set_guardian_email_to_student_email(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {
+                "student_ids": [self.student.id],
+                "pg_first_name": "Pat",
+                "pg_last_name": "Parent",
+                "pg_email": self.student.email,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_supervisor_can_edit_permitted_student_profile(self):
         from apps.users.models import StudentProfile, UserInterest
@@ -783,3 +902,434 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    FRONTEND_BASE_URL="https://connect.example.com",
+)
+class SupervisedStudentEmailViewTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.supervisor = User.objects.create_user(
+            email="supervisor-mail@test.com",
+            first_name="Sam",
+            last_name="Supervisor",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        self.sup_profile = SupervisorProfile.objects.create(
+            user=self.supervisor, school_name="Test High"
+        )
+        self.pending_details = User.objects.create_user(
+            email="needs-details@test.com",
+            first_name="Alex",
+            last_name="Student",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        StudentProfile.objects.create(
+            user=self.pending_details,
+            pg_first_name="Alex",
+            pg_last_name="Student",
+            parent_guardian_flag=False,
+            supervisor=self.sup_profile,
+            school_name="Test High",
+            year_lvl="11",
+        )
+        self.pending_consent = User.objects.create_user(
+            email="needs-consent@test.com",
+            first_name="Blake",
+            last_name="Student",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        StudentProfile.objects.create(
+            user=self.pending_consent,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat@example.com",
+            parent_guardian_flag=True,
+            supervisor=self.sup_profile,
+            school_name="Test High",
+            year_lvl="10",
+        )
+        self.outsider = User.objects.create_user(
+            email="outsider-mail@test.com",
+            first_name="Out",
+            last_name="Sider",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+
+    def _post(self, student_ids, kind, user=None):
+        self.client.force_login(user or self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/email/",
+            {"student_ids": student_ids, "kind": kind},
+            format="json",
+        )
+
+    def test_supervisor_can_email_student_for_guardian_details(self):
+        from django.core import mail
+
+        response = self._post([self.pending_details.id], "guardian_details")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 1)
+        self.assertEqual(mail.outbox[0].to, ["needs-details@test.com"])
+        self.assertIn("Parent/Guardian Contact", mail.outbox[0].subject)
+        self.assertIn(
+            "https://connect.example.com/#/profile?guardian=edit",
+            mail.outbox[0].alternatives[0][0],
+        )
+
+    def test_supervisor_can_email_guardian_for_consent(self):
+        from django.core import mail
+
+        response = self._post([self.pending_consent.id], "guardian_consent")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 1)
+        self.assertEqual(mail.outbox[0].to, ["pat@example.com"])
+        self.assertIn("permission form", mail.outbox[0].subject.lower())
+
+    def test_email_all_sends_each_selected_student(self):
+        from django.core import mail
+
+        second = User.objects.create_user(
+            email="also-needs-details@test.com",
+            first_name="Casey",
+            last_name="Student",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        from apps.users.models import StudentProfile
+
+        StudentProfile.objects.create(
+            user=second,
+            pg_first_name="Casey",
+            pg_last_name="Student",
+            parent_guardian_flag=False,
+            supervisor=self.sup_profile,
+            school_name="Test High",
+            year_lvl="9",
+        )
+        response = self._post(
+            [self.pending_details.id, second.id],
+            "guardian_details",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 2)
+        self.assertEqual(
+            sorted(message.to[0] for message in mail.outbox),
+            ["also-needs-details@test.com", "needs-details@test.com"],
+        )
+
+    def test_skips_details_email_when_guardian_already_on_file(self):
+        response = self._post([self.pending_consent.id], "guardian_details")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["sent"], 0)
+        self.assertIn("already has a guardian email", response.json()["msg"])
+
+    def test_non_supervisor_is_forbidden(self):
+        response = self._post([self.pending_details.id], "guardian_details", user=self.outsider)
+        self.assertEqual(response.status_code, 403)
+
+    def test_cannot_email_unlinked_student(self):
+        response = self._post([self.outsider.id], "guardian_details")
+        self.assertEqual(response.status_code, 403)
+
+
+class MeGuardianDetailsTests(TestCase):
+    """/users/me/ carries the guardian details shown on the student profile."""
+
+    def setUp(self):
+        from apps.resources.models import RoleAssignmentHistory
+        from apps.users.models import StudentProfile
+
+        self.client = APIClient()
+        self.student = User.objects.create_user(
+            email="guardian-view@test.com",
+            first_name="Alex",
+            last_name="Student",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.student,
+            role=Roles.objects.create(role_name=ROLE_STUDENT),
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.student,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat.parent@test.com",
+            parent_guardian_flag=True,
+            school_name="Test High",
+            year_lvl="11",
+        )
+        self.client.force_authenticate(user=self.student)
+        self.url = reverse("MeListHTMLView")
+
+    def test_returns_guardian_details_without_consent(self):
+        data = self.client.get(self.url).json()
+
+        self.assertEqual(data["pg_firstname"], "Pat")
+        self.assertEqual(data["pg_lastname"], "Parent")
+        self.assertEqual(data["pg_email"], "pat.parent@test.com")
+        self.assertFalse(data["join_perm"])
+        self.assertIsNone(data["join_perm_granted_at"])
+
+    def test_returns_when_consent_was_granted(self):
+        granted_at = timezone.now() - timedelta(days=3)
+        self.profile.has_join_permission = True
+        self.profile.joinperm_granted_at = granted_at
+        self.profile.save()
+
+        data = self.client.get(self.url).json()
+
+        self.assertTrue(data["join_perm"])
+        self.assertEqual(data["join_perm_granted_at"], granted_at.isoformat())
+
+    def test_guardian_fields_are_null_for_non_students(self):
+        mentor = User.objects.create_user(
+            email="mentor-guardian@test.com",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        self.client.force_authenticate(user=mentor)
+
+        data = self.client.get(self.url).json()
+
+        self.assertIsNone(data["pg_email"])
+        self.assertIsNone(data["join_perm_granted_at"])
+
+
+class MeGuardianUpdateTests(TestCase):
+    """Students update their guardian; one consenting guardian stays on file
+    until a new guardian consents."""
+
+    def setUp(self):
+        from apps.resources.models import RoleAssignmentHistory
+        from apps.users.models import StudentProfile
+
+        self.client = APIClient()
+        self.student = User.objects.create_user(
+            email="guardian-edit@test.com",
+            first_name="Alex",
+            last_name="Student",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        RoleAssignmentHistory.objects.create(
+            user=self.student,
+            role=Roles.objects.create(role_name=ROLE_STUDENT),
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.profile = StudentProfile.objects.create(
+            user=self.student,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat.parent@test.com",
+            parent_guardian_flag=True,
+            school_name="Test High",
+            year_lvl="11",
+        )
+        self.client.force_authenticate(user=self.student)
+        self.url = reverse("me-guardian")
+        self.new_guardian = {
+            "first_name": "Robin",
+            "last_name": "Carer",
+            "email": "Robin.Carer@test.com",
+        }
+
+    def _grant_consent(self):
+        self.granted_at = timezone.now() - timedelta(days=10)
+        self.profile.has_join_permission = True
+        self.profile.joinperm_responseID = "R_old"
+        self.profile.joinperm_granted_at = self.granted_at
+        self.profile.save()
+
+    def _post_consent(self, response_id):
+        with self.settings(JOIN_PERMISSION_WEBHOOK_TOKEN="secret-token"):
+            return self.client.post(
+                reverse("join_perm"),
+                {"body": {"Email": self.student.email, "ResponseID": response_id}},
+                format="json",
+                HTTP_X_JOIN_PERMISSION_TOKEN="secret-token",
+            )
+
+    def test_before_consent_the_change_applies_straight_away(self):
+        self.profile.parent_guardian_flag = False
+        self.profile.save()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertTrue(self.profile.parent_guardian_flag)
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertIsNone(response.json()["pending_guardian"])
+
+    def test_after_consent_the_consenting_guardian_stays_on_file(self):
+        self._grant_consent()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertEqual(self.profile.pg_email, "pat.parent@test.com")
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertEqual(self.profile.joinperm_granted_at, self.granted_at)
+        pending = response.json()["pending_guardian"]
+        self.assertEqual(pending["first_name"], "Robin")
+        self.assertEqual(pending["email"], "robin.carer@test.com")
+
+    def test_new_guardians_consent_replaces_the_old_guardian(self):
+        self._grant_consent()
+        self.client.put(self.url, self.new_guardian, format="json")
+
+        response = self._post_consent("R_new")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_last_name, "Carer")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.joinperm_responseID, "R_new")
+        self.assertGreater(self.profile.joinperm_granted_at, self.granted_at)
+
+    def test_resubmitting_the_consenting_guardian_drops_the_pending_change(self):
+        self._grant_consent()
+        self.client.put(self.url, self.new_guardian, format="json")
+
+        self.client.put(
+            self.url,
+            {"first_name": "Pat", "last_name": "Parent", "email": "PAT.parent@test.com"},
+            format="json",
+        )
+
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_pending_guardian)
+
+    def test_withdrawing_a_pending_change(self):
+        self._grant_consent()
+        self.client.put(self.url, self.new_guardian, format="json")
+
+        response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+
+    def test_student_cannot_use_their_own_email(self):
+        response = self.client.put(
+            self.url,
+            {**self.new_guardian, "email": "Guardian-Edit@test.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+
+    def test_all_fields_are_required(self):
+        response = self.client.put(
+            self.url, {"first_name": "Robin", "last_name": "", "email": ""}, format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_non_student_is_forbidden(self):
+        mentor = User.objects.create_user(
+            email="mentor-guardian-edit@test.com",
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        self.client.force_authenticate(user=mentor)
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class RegistrationThenConsentTests(TestCase):
+    """A self-registered student must be able to receive consent through the
+    webhook. Registration used to leave ``parent_guardian_flag`` False unless
+    the guardian's email matched the supervisor's, so the consent save hit the
+    ``permission_requires_parent_guardian`` constraint and the webhook 500'd."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        self.client = APIClient()
+        for name in [ROLE_STUDENT, ROLE_SUPERVISOR]:
+            Roles.objects.get_or_create(role_name=name)
+        payload = {
+            "body": {
+                "Title": "kid@example.com",
+                "FirstName": "Kid",
+                "Surname": "Student",
+                "Country": "Australia",
+                "Region": "NSW",
+                "SupervisorEmail": "sup@example.com",
+                "SupervisorFirstName": "Sam",
+                "SupervisorSurname": "Super",
+                "GuardianEmail": " Parent@Example.com ",
+                "GuardianName": "Pat",
+                "GuardianSurname": "Parent",
+                "SchoolName": "Test High",
+                "YearLevel": "10",
+                "Areaofinterest": "Biotechnology",
+            }
+        }
+        response = self.client.post(reverse("registration"), payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        from apps.users.models import StudentProfile
+        self.profile = StudentProfile.objects.get(user__email="kid@example.com")
+
+    def _post_consent(self):
+        with self.settings(JOIN_PERMISSION_WEBHOOK_TOKEN="secret-token"):
+            return self.client.post(
+                reverse("join_perm"),
+                {"body": {"Email": "kid@example.com", "ResponseID": "R_reg"}},
+                format="json",
+                HTTP_X_JOIN_PERMISSION_TOKEN="secret-token",
+            )
+
+    def test_registration_records_the_guardian(self):
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertEqual(self.profile.pg_last_name, "Parent")
+        self.assertEqual(self.profile.pg_email, "parent@example.com")
+        self.assertTrue(self.profile.parent_guardian_flag)
+        self.assertFalse(self.profile.has_join_permission)
+
+    def test_consent_is_recorded_for_a_registered_student(self):
+        response = self._post_consent()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertEqual(self.profile.joinperm_responseID, "R_reg")
+
+    def test_consent_is_recorded_for_a_student_registered_before_the_fix(self):
+        # Rows already stored with the flag off must not crash the webhook.
+        self.profile.parent_guardian_flag = False
+        self.profile.save()
+
+        response = self._post_consent()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertTrue(self.profile.parent_guardian_flag)

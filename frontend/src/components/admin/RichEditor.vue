@@ -6,7 +6,19 @@ import Image from '@tiptap/extension-image'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
-import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
+import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, colourKey, lookOf, swatchOf } from './emailBlocks'
+import { EmailTable, EmailTableCell, EmailTableHeader } from './emailTables'
+import {
+  EmailTextStyle,
+  EmailTextStyles,
+  TEXT_COLOURS,
+  TEXT_GAPS,
+  TEXT_SIZES,
+  gapBelowSelection,
+  hasGapTarget,
+  styleValue,
+  textStyleAt
+} from './emailTextStyle'
 import { FontFamily, FONT_STYLES, type AllowedFont } from './fontFamilyExtension'
 import {
   TextColor,
@@ -15,6 +27,8 @@ import {
   type AllowedColorHex
 } from './textColorExtension'
 import LinkDialog from './LinkDialog.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
+import { formatHtml, visualLosses } from './emailHtml'
 
 interface Props {
   modelValue?: string
@@ -23,21 +37,30 @@ interface Props {
   /**
    * Email bodies are sanitised server-side with nh3, which strips base64
    * images, `data:` URLs and uploaded-file links. Hiding those insert tools
-   * (and the table context bar) keeps the editor honest about what will
-   * actually survive a save.
+   * keeps the editor honest about what will actually survive a save. Tables
+   * do survive, drawn with lines and padding the server keeps.
    */
   emailMode?: boolean
+  /** The Box and Button tools, as in email mode, with every other tool kept:
+   *  for announcements. */
+  blocks?: boolean
   /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
   compact?: boolean
   /** Email mode: the email's link placeholders, offered in the link dialog. */
   linkPlaceholders?: string[]
 }
 
+// Inline code in an email, as the editor shows it.
+const EMAIL_CODE_STYLE =
+  'background-color:#f3f4f6; color:#1a2e23; padding:2px 4px; border-radius:4px; ' +
+  "font-family:Menlo, Consolas, 'Courier New', monospace; font-size:13px"
+
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
   placeholder: undefined,
   readOnly: false,
   emailMode: false,
+  blocks: false,
   compact: false,
   linkPlaceholders: () => []
 })
@@ -64,6 +87,11 @@ const oversizedAttachmentFile = ref<File | null>(null)
 const acknowledgedOversizedAttachment = ref(false)
 const rawMode = ref(false)
 const rawHtml = ref(props.modelValue || '')
+// Whether the visual view has changed the content since it came in: until
+// then rawHtml is exactly the HTML it was given, which the HTML view shows.
+const visualEdited = ref(false)
+// A switch to the visual view waiting on the admin, and what it would drop.
+const visualSwitch = ref<{ open: boolean; losses: string[] }>({ open: false, losses: [] })
 const uploadingAttachment = ref(false)
 const attachmentError = ref<string | null>(null)
 const showHeadingDropdown = ref(false)
@@ -77,23 +105,32 @@ const updateTick = ref(0)
 const editor = useEditor({
   extensions: [
     StarterKit.configure({
+      // No code blocks: neither emails nor announcements use them.
+      codeBlock: false,
+      // In emails inline code carries its own look, since email apps ignore
+      // the editor's stylesheet; the server keeps it.
+      ...(props.emailMode ? { code: { HTMLAttributes: { style: EMAIL_CODE_STYLE } } } : {}),
       link: {
         openOnClick: props.readOnly,
         HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }
       }
     }),
     FontFamily,
-    TextColor,
+    ...(!props.emailMode ? [TextColor] : []),
     Image.configure({ inline: false, allowBase64: true }),
-    Table.configure({ resizable: false }),
-    TableRow,
-    TableHeader,
-    TableCell,
+    // In emails a table draws its own lines, since email clients ignore the
+    // page's stylesheet, or none for a template's layout (emailTables.ts).
+    ...(props.emailMode
+      ? [EmailTable.configure({ resizable: false }), TableRow, EmailTableHeader, EmailTableCell]
+      : [Table.configure({ resizable: false }), TableRow, TableHeader, TableCell]),
     Placeholder.configure({
       placeholder: resolvedPlaceholder.value
     }),
-    // Emails keep the boxes and buttons of their built-in design.
-    ...(props.emailMode ? [EmailBox, EmailButton] : [])
+    // Emails keep the boxes and buttons of their built-in design; announcements
+    // can have them too.
+    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : []),
+    // Emails also keep their text's colours, sizes and spacing.
+    ...(props.emailMode ? [EmailTextStyle, EmailTextStyles] : [])
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -101,6 +138,7 @@ const editor = useEditor({
     if (!props.readOnly && !rawMode.value) {
       const html = ed.getHTML()
       rawHtml.value = html
+      visualEdited.value = true
       emit('update:modelValue', html)
       emit('change', html)
     }
@@ -122,6 +160,7 @@ watch(
     if (currentHTML !== newVal) {
       editor.value.commands.setContent(newVal || '', { emitUpdate: false })
       rawHtml.value = newVal || ''
+      visualEdited.value = false
     }
   }
 )
@@ -131,9 +170,6 @@ watch(
   (isReadOnly) => {
     if (!editor.value) return
     editor.value.setEditable(!isReadOnly)
-    if (isReadOnly && rawMode.value) {
-      rawMode.value = false
-    }
   }
 )
 
@@ -183,10 +219,12 @@ function selectFont(font: AllowedFont) {
 const currentTextColor = computed<AllowedColorHex>(() => {
   void updateTick.value
   if (!editor.value) return selectedColor.value
-  const rawColor = editor.value.getAttributes('textColor')?.color
+  const rawColor = props.emailMode
+    ? shownColour.value
+    : editor.value.getAttributes('textColor')?.color
   const normalized = normalizeAllowedColor(rawColor)
   if (normalized) return normalized
-  if (editor.value.isActive('textColor')) {
+  if (!props.emailMode && editor.value.isActive('textColor')) {
     return selectedColor.value
   }
   return '#000000'
@@ -212,7 +250,11 @@ function toggleColorDropdown(event: MouseEvent) {
 function selectColor(color: AllowedColorHex) {
   if (!editor.value) return
   selectedColor.value = color
-  editor.value.chain().focus().setTextColor(color).run()
+  if (props.emailMode) {
+    editor.value.chain().focus().setTextColour(color).run()
+  } else {
+    editor.value.chain().focus().setTextColor(color).run()
+  }
   showColorDropdown.value = false
 }
 
@@ -230,6 +272,12 @@ function onDocumentClick(e: MouseEvent) {
 const isInTable = computed(() => {
   void updateTick.value
   return editor.value?.isActive('table') ?? false
+})
+
+/** Whether the table the cursor is in draws its lines (email mode). */
+const tableHasLines = computed(() => {
+  void updateTick.value
+  return editor.value?.getAttributes('table').lines !== false
 })
 
 const canUndo = computed(() => {
@@ -290,7 +338,7 @@ function removeLink() {
 
 // -- Email boxes and buttons (email mode) ------------------------------------
 
-const emailMenu = ref<'box' | 'button' | null>(null)
+const emailMenu = ref<'box' | 'button' | 'colour' | 'size' | 'gap' | null>(null)
 const emailMenuOnRight = ref(false)
 
 /** The look of the box or button the cursor is in, if it's one of the offered looks. */
@@ -306,7 +354,74 @@ const buttonLook = computed(() => {
   return lookOf(BUTTON_LOOKS, editor.value.getAttributes('emailButton').style ?? '')?.id ?? null
 })
 
-function toggleEmailMenu(menu: 'box' | 'button', event: MouseEvent) {
+/** The colour and size on the selected text, if it has its own. */
+const colourAt = computed(() => {
+  void updateTick.value
+  return editor.value ? textStyleAt(editor.value.state, 'color') : { own: null, shown: null }
+})
+
+const sizeAt = computed(() => {
+  void updateTick.value
+  return editor.value ? textStyleAt(editor.value.state, 'font-size') : { own: null, shown: null }
+})
+
+// The colour or size set on the text itself (the tool can take it off), and
+// the one the text shows, which may come from its paragraph or heading.
+const textColour = computed(() => colourAt.value.own)
+const shownColour = computed(() => colourAt.value.shown)
+const textSize = computed(() => sizeAt.value.own)
+const shownSize = computed(() => sizeAt.value.shown)
+
+const isShownColour = (colour: string) => !!shownColour.value && colourKey(colour) === colourKey(shownColour.value)
+
+/** The colour or size now, when it isn't one on offer: "Now: 26px", or
+ *  "Now: default" when nothing sets one (the email's own). */
+const colourNote = computed(() =>
+  TEXT_COLOURS.some((colour) => isShownColour(colour.value)) ? null : shownColour.value ? `Now: ${shownColour.value}` : 'Now: default'
+)
+const sizeNote = computed(() =>
+  TEXT_SIZES.some((size) => size.value === shownSize.value) ? null : shownSize.value ? `Now: ${shownSize.value}` : 'Now: default'
+)
+
+/** Colour the selected text, or (null) take its colour off. */
+function chooseTextColour(colour: string | null) {
+  emailMenu.value = null
+  editor.value?.chain().focus().setTextColour(colour).run()
+}
+
+/** Resize the selected text, or (null) take its size off. */
+function chooseTextSize(size: string | null) {
+  emailMenu.value = null
+  editor.value?.chain().focus().setTextSize(size).run()
+}
+
+/** The gap below the selected paragraph, e.g. "24px", if it's set. */
+const gapBelow = computed(() => {
+  void updateTick.value
+  return editor.value ? gapBelowSelection(editor.value.state) : null
+})
+
+/** Whether the cursor is somewhere a gap can be set: text, a box or a button. */
+const canSetGap = computed(() => {
+  void updateTick.value
+  return !!editor.value && hasGapTarget(editor.value.state)
+})
+
+/** The gap now, when it isn't one of the offered gaps: "Now: 16px", or
+ *  "Now: default" when none is set (the email app's usual space). */
+const gapNote = computed(() => {
+  if (!canSetGap.value) return 'Click in text, a box or a button first'
+  if (TEXT_GAPS.some((gap) => gap.value === gapBelow.value)) return null
+  return gapBelow.value ? `Now: ${gapBelow.value}` : 'Now: default'
+})
+
+/** Set the gap below the selected paragraphs and headings. */
+function chooseGap(gap: string) {
+  emailMenu.value = null
+  editor.value?.chain().focus().setGapBelow(gap).run()
+}
+
+function toggleEmailMenu(menu: 'box' | 'button' | 'colour' | 'size' | 'gap', event: MouseEvent) {
   if (emailMenu.value === menu) {
     emailMenu.value = null
     return
@@ -472,17 +587,45 @@ async function onOversizeAckChange() {
 function toggleRawMode() {
   if (!editor.value) return
   if (rawMode.value) {
-    rawMode.value = false
-    editor.value.commands.setContent(rawHtml.value || '')
-    emit('update:modelValue', rawHtml.value)
-    emit('change', rawHtml.value)
+    // In emails the visual view can't hold everything HTML can: say what goes first.
+    const losses = props.emailMode ? visualLosses(rawHtml.value) : []
+    if (losses.length) {
+      visualSwitch.value = { open: true, losses }
+      return
+    }
+    showVisual()
   } else {
     rawMode.value = true
-    const current = editor.value.getHTML()
-    rawHtml.value = current.replace(/></g, '>\n<')
-    emit('update:modelValue', rawHtml.value)
-    emit('change', rawHtml.value)
+    // Exactly as given, unless the visual view has changed it since.
+    if (visualEdited.value) {
+      rawHtml.value = formatHtml(editor.value.getHTML())
+      emit('update:modelValue', rawHtml.value)
+      emit('change', rawHtml.value)
+    }
   }
+}
+
+/** Back to the visual view, rebuilt from the HTML (which still holds as typed). */
+function showVisual() {
+  if (!editor.value) return
+  rawMode.value = false
+  // Not an edit: the HTML as typed is what's kept until the visual view changes it.
+  editor.value.commands.setContent(rawHtml.value || '', { emitUpdate: false })
+  visualEdited.value = false
+  emit('update:modelValue', rawHtml.value)
+  emit('change', rawHtml.value)
+}
+
+/** Switched despite the warning: the content is now what the visual view holds. */
+function showVisualAnyway() {
+  visualSwitch.value = { open: false, losses: [] }
+  showVisual()
+  if (!editor.value) return
+  const rebuilt = editor.value.getHTML()
+  rawHtml.value = rebuilt
+  visualEdited.value = true
+  emit('update:modelValue', rebuilt)
+  emit('change', rebuilt)
 }
 
 function handleRawInput(e: Event) {
@@ -614,6 +757,134 @@ defineExpose({ insertText })
               </button>
             </div>
           </div>
+
+          <!-- Text colour and size, kept on save (email mode) -->
+          <template v-if="emailMode">
+            <div class="toolbar-sep"></div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                :class="{ active: !!textColour }"
+                title="Colour the selected text"
+                data-test="text-colour"
+                @mousedown.prevent="toggleEmailMenu('colour', $event)"
+              >
+                <i class="fas fa-palette"></i>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'colour'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <template v-if="colourNote">
+                  <div class="dropdown-item email-look-item text-now active" data-test="colour-now">
+                    <span v-if="shownColour" class="email-look-swatch" :style="{ backgroundColor: shownColour }"></span>
+                    {{ colourNote }}
+                  </div>
+                  <div class="email-look-sep"></div>
+                </template>
+                <button
+                  v-for="colour in TEXT_COLOURS"
+                  :key="colour.value"
+                  type="button"
+                  class="dropdown-item email-look-item"
+                  :class="{ active: isShownColour(colour.value) }"
+                  @mousedown.prevent="chooseTextColour(colour.value)"
+                >
+                  <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
+                  {{ colour.label }}
+                </button>
+                <template v-if="textColour">
+                  <div class="email-look-sep"></div>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextColour(null)">
+                    No colour
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                :class="{ active: !!textSize }"
+                title="Resize the selected text"
+                data-test="text-size"
+                @mousedown.prevent="toggleEmailMenu('size', $event)"
+              >
+                <i class="fas fa-text-height"></i>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'size'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <template v-if="sizeNote">
+                  <div class="dropdown-item text-now active" data-test="size-now">{{ sizeNote }}</div>
+                  <div class="email-look-sep"></div>
+                </template>
+                <button
+                  v-for="size in TEXT_SIZES"
+                  :key="size.value"
+                  type="button"
+                  class="dropdown-item"
+                  :class="{ active: shownSize === size.value }"
+                  :style="{ fontSize: size.value }"
+                  @mousedown.prevent="chooseTextSize(size.value)"
+                >
+                  {{ size.label }}
+                </button>
+                <template v-if="textSize">
+                  <div class="email-look-sep"></div>
+                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextSize(null)">
+                    Normal size
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="heading-dropdown-container">
+              <button
+                type="button"
+                class="toolbar-btn text-icon-btn"
+                title="Gap below the selected paragraphs, box or button"
+                data-test="text-gap"
+                @mousedown.prevent="toggleEmailMenu('gap', $event)"
+              >
+                <i class="fas fa-arrows-up-down"></i>
+                <i class="fas fa-chevron-down heading-chevron"></i>
+              </button>
+              <div
+                v-if="emailMenu === 'gap'"
+                class="heading-dropdown-menu email-look-menu"
+                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              >
+                <template v-if="gapNote">
+                  <div
+                    class="dropdown-item gap-now"
+                    :class="{ active: canSetGap }"
+                    data-test="gap-now"
+                    :title="gapBelow ? undefined : 'No gap is set here: the email app puts its usual space after a paragraph'"
+                  >
+                    {{ gapNote }}
+                  </div>
+                  <div class="email-look-sep"></div>
+                </template>
+                <button
+                  v-for="gap in TEXT_GAPS"
+                  :key="gap.value"
+                  type="button"
+                  class="dropdown-item"
+                  :class="{ active: gapBelow === gap.value }"
+                  :disabled="!canSetGap"
+                  @mousedown.prevent="chooseGap(gap.value)"
+                >
+                  {{ gap.label }} ({{ gap.value }})
+                </button>
+              </div>
+            </div>
+          </template>
 
           <div class="toolbar-sep"></div>
 
@@ -758,15 +1029,6 @@ defineExpose({ insertText })
           <button
             type="button"
             class="toolbar-btn icon-btn"
-            :class="{ active: isActive('codeBlock') }"
-            title="Code block"
-            @mousedown.prevent="editor?.chain().focus().toggleCodeBlock().run()"
-          >
-            <i class="fas fa-file-code"></i>
-          </button>
-          <button
-            type="button"
-            class="toolbar-btn icon-btn"
             title="Horizontal rule"
             @mousedown.prevent="editor?.chain().focus().setHorizontalRule().run()"
           >
@@ -774,7 +1036,7 @@ defineExpose({ insertText })
           </button>
 
           <!-- Email design blocks, kept on save -->
-          <template v-if="emailMode">
+          <template v-if="emailMode || blocks">
             <div class="heading-dropdown-container">
               <button
                 type="button"
@@ -854,7 +1116,7 @@ defineExpose({ insertText })
 
           <div class="toolbar-sep"></div>
 
-          <!-- Insert Actions (hidden in email mode: nh3 strips images/files) -->
+          <!-- Insert Actions (images and files hidden in email mode: nh3 strips them) -->
           <template v-if="!emailMode">
             <button
               type="button"
@@ -875,18 +1137,18 @@ defineExpose({ insertText })
               <i class="fas fa-paperclip"></i>
               <span>{{ uploadingAttachment ? 'Uploading…' : 'File' }}</span>
             </button>
-            <button
-              type="button"
-              class="toolbar-btn text-icon-btn"
-              title="Insert table (3x3)"
-              @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
-            >
-              <i class="fas fa-table"></i>
-              <span>Table</span>
-            </button>
-
-            <div class="toolbar-sep"></div>
           </template>
+          <button
+            type="button"
+            class="toolbar-btn text-icon-btn"
+            title="Insert table (3x3)"
+            @mousedown.prevent="editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()"
+          >
+            <i class="fas fa-table"></i>
+            <span>Table</span>
+          </button>
+
+          <div class="toolbar-sep"></div>
 
           <!-- History -->
           <button
@@ -925,7 +1187,7 @@ defineExpose({ insertText })
       </div>
 
       <!-- Table Context Toolbar -->
-      <div v-if="isInTable && !rawMode && !readOnly && !emailMode" class="table-context-bar">
+      <div v-if="isInTable && !rawMode && !readOnly" class="table-context-bar">
         <div class="table-context-heading">
           <i class="fas fa-table text-blue-500"></i>
           <span class="table-context-title">Table:</span>
@@ -1002,6 +1264,23 @@ defineExpose({ insertText })
           Header col
         </button>
 
+        <!-- Lines on or off for the whole table (email mode) -->
+        <template v-if="emailMode">
+          <div class="toolbar-sep"></div>
+          <button
+            type="button"
+            class="table-action-btn"
+            :class="{ active: tableHasLines }"
+            :aria-pressed="tableHasLines"
+            title="Draw or take away this table's lines"
+            data-test="table-lines"
+            @mousedown.prevent="editor?.chain().focus().toggleTableLines().run()"
+          >
+            <i class="fas fa-border-all"></i>
+            <span>{{ tableHasLines ? 'Lines on' : 'Lines off' }}</span>
+          </button>
+        </template>
+
         <div class="toolbar-sep"></div>
 
         <button
@@ -1019,6 +1298,7 @@ defineExpose({ insertText })
       <div v-if="rawMode" class="rich-editor-raw-area">
         <textarea
           :value="rawHtml"
+          :readonly="readOnly"
           class="raw-html-textarea"
           placeholder="<p>HTML content…</p>"
           @input="handleRawInput"
@@ -1027,6 +1307,21 @@ defineExpose({ insertText })
       <div v-else class="rich-editor-content-area" @mousedown="emailMenu = null">
         <EditorContent :editor="editor" />
       </div>
+
+      <!-- Switching to the visual view would drop part of the HTML (email mode) -->
+      <ConfirmDialog
+        v-model="visualSwitch.open"
+        title="Switch to the visual view?"
+        message="The visual view can't keep everything in this HTML. Switching rebuilds it and drops:"
+        confirm-label="Switch anyway"
+        cancel-label="Stay in HTML"
+        variant="warning"
+        @confirm="showVisualAnyway"
+      >
+        <ul class="visual-losses" data-test="visual-losses">
+          <li v-for="loss in visualSwitch.losses" :key="loss">{{ loss }}</li>
+        </ul>
+      </ConfirmDialog>
     </div>
 
     <!-- Large files are allowed once the admin confirms -->
@@ -1433,6 +1728,18 @@ defineExpose({ insertText })
   letter-spacing: 0.01em;
 }
 
+/* What switching to the visual view would drop, in its warning. */
+.visual-losses {
+  margin: 0.5rem 0 0 1.25rem;
+  padding: 0;
+}
+
+/* The gap now, when it isn't one on offer: shown, not picked. */
+.dropdown-item.gap-now,
+.dropdown-item.text-now {
+  cursor: default;
+}
+
 .email-look-menu {
   min-width: 10.5rem;
 }
@@ -1536,6 +1843,11 @@ defineExpose({ insertText })
 
 .table-action-btn:hover {
   background-color: #dbeafe;
+}
+
+.table-action-btn.active {
+  background-color: #dbeafe;
+  font-weight: 600;
 }
 
 .table-action-btn.danger {
@@ -1675,21 +1987,6 @@ defineExpose({ insertText })
   border-radius: 0.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;
-}
-
-.rich-editor-content-area .tiptap.ProseMirror pre {
-  background-color: #1f2937;
-  color: #f9fafb;
-  padding: 0.75rem 1rem;
-  border-radius: 0.375rem;
-  margin: 0.75rem 0;
-  overflow-x: auto;
-}
-
-.rich-editor-content-area .tiptap.ProseMirror pre code {
-  background-color: transparent;
-  color: inherit;
-  padding: 0;
 }
 
 .rich-editor-content-area .tiptap.ProseMirror hr {

@@ -52,6 +52,17 @@ class SystemEmailAdminServiceTests(TestCase):
         by_key = {item["key"]: item for item in items}
         self.assertEqual(set(by_key), set(EMAIL_REGISTRY))
 
+        # Who a whole group's email goes to, shown above Send from.
+        to_and_cc = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
+        for key in (
+            "submission_confirmation", "submission_reminder", "finalist_notification",
+            "nonfinalist_invitation", "nonsubmission_notice",
+        ):
+            self.assertEqual(by_key[key]["delivery"], to_and_cc, key)
+        self.assertEqual(by_key["results_team"]["delivery"], "Each group gets one email: its students and mentors in To.")
+        self.assertEqual(by_key["login_code"]["delivery"], "")
+        self.assertEqual(by_key["results_supervisor"]["delivery"], "")
+
         login = by_key["login_code"]
         self.assertTrue(login["locked"])
         self.assertTrue(login["enabled"])
@@ -188,10 +199,10 @@ class SystemEmailAdminServiceTests(TestCase):
         '<div class="email-box" style="padding: 12px 14px; background-color: rgb(233, 246, 241); '
         'position: absolute; background: url(https://tracker.example/x.png);"><p>Important</p></div>'
         '<div class="email-button" style="margin: 20px 0px; text-align: left;">'
-        '<a class="cta-link sneaky" href="{{ reset_link }}" onclick="steal()" '
+        '<a class="cta-link" href="{{ reset_link }}" onclick="steal()" '
         'style="display: inline-block; background-color: rgb(1, 113, 81); color: rgb(255, 255, 255);">'
         "Reset</a></div>"
-        '<p style="color: red;">Plain text stays plain.</p>'
+        '<p style="color: red; position: fixed;">Text keeps its colour.</p>'
     )
 
     def assertKeepsBoxAndButton(self, html):
@@ -201,8 +212,8 @@ class SystemEmailAdminServiceTests(TestCase):
         self.assertIn('class="email-button"', html)
         self.assertIn('class="cta-link"', html)
         self.assertIn("background-color:rgb(1, 113, 81)", html)
-        self.assertIn("<p>Plain text stays plain.</p>", html)
-        for gone in ("position", "url(", "tracker", "onclick", "sneaky"):
+        self.assertIn('<p style="color:red">Text keeps its colour.</p>', html)
+        for gone in ("position", "url(", "tracker", "onclick"):
             self.assertNotIn(gone, html)
 
     def test_update_keeps_the_editors_boxes_and_buttons(self):
@@ -212,6 +223,22 @@ class SystemEmailAdminServiceTests(TestCase):
         body = SystemEmailTemplate.objects.get(key="password_reset").body_html
         self.assertKeepsBoxAndButton(body)
         self.assertIn('href="{{ reset_link }}"', body)
+
+    def test_update_keeps_a_tables_lines_and_padding(self):
+        table = (
+            '<table style="border-collapse: collapse; min-width: 75px; position: absolute">'
+            '<tbody><tr><th style="border: 1px solid #d1d5db; padding: 6px 10px">Day</th></tr>'
+            '<tr><td style="border: 1px solid #d1d5db; padding: 6px 10px; background: url(https://x.example/t.png)">'
+            "Saturday</td></tr></tbody></table>"
+        )
+        update_email_template("password_reset", {"body": table}, requested_by=self.admin)
+        body = SystemEmailTemplate.objects.get(key="password_reset").body_html
+        self.assertIn("border-collapse:collapse", body)
+        self.assertIn("border:1px solid #d1d5db", body)
+        self.assertIn("padding:6px 10px", body)
+        self.assertIn("Saturday", body)
+        for gone in ("position", "min-width", "url("):
+            self.assertNotIn(gone, body)
 
     def test_update_rejects_unknown_merge_tag(self):
         result = update_email_template(
@@ -388,12 +415,20 @@ class SystemEmailAdminServiceTests(TestCase):
 
     # -- test send ---------------------------------------------------------
 
-    def test_test_send_goes_only_to_the_admin(self):
+    def test_test_send_goes_to_the_admin_when_no_address_is_given(self):
         mail.outbox = []
         result = send_test_email("password_reset", requested_by=self.admin)
         self.assertEqual(result["data"]["sentTo"], "admin@example.com")
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["admin@example.com"])
+
+    def test_test_send_goes_to_the_address_typed(self):
+        mail.outbox = []
+        result = send_test_email("password_reset", requested_by=self.admin, to="tester@example.com")
+        self.assertEqual(result["data"]["sentTo"], "tester@example.com")
+        # Where a test that can't be delivered comes back to.
+        self.assertEqual(result["data"]["sentFrom"], "info@biotechfutures.org")
+        self.assertEqual(mail.outbox[0].to, ["tester@example.com"])
 
     def test_test_send_works_even_when_type_is_disabled(self):
         SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
@@ -516,6 +551,51 @@ class SystemEmailAdminApiTests(TestCase):
         self.assertNotIn("position", body)
         self.assertNotIn("url(", body)
 
+    def test_patch_keeps_text_colours_and_sizes(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/password_reset/",
+            {"body": (
+                '<p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; position:fixed">Hi Pat,</p>'
+                '<h1 style="font-size:26px">Your action is required for a recent '
+                '<span style="color:#307054; background-image:url(x)">BIOTech Futures</span> registration.</h1>'
+                '<p><strong style="color:#017151">You will not be able to participate.</strong></p>'
+                '<hr style="border:none; height:1px">'
+            )},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()["data"]["body"]
+        for kept in ("color:#6d7a72", "font-size:14px", "font-size:26px", "color:#307054", "color:#017151", "height:1px"):
+            self.assertIn(kept, body)
+        self.assertNotIn("position", body)
+        self.assertNotIn("url(", body)
+
+    def test_patch_keeps_html_as_written(self):
+        # As typed in the editor's HTML view: Outlook's button code in its
+        # comments, a phone style's class name, a table laid out with attributes.
+        written = (
+            '<!--[if mso]><v:roundrect href="{{ reset_link }}" style="height:48px"><center>Reset</center>'
+            '</v:roundrect><![endif]-->'
+            '<h1 class="headline">Reset your password</h1>'
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+            '<tr><td valign="top" class="info-label">When</td></tr></table>'
+            '<p onclick="steal()">Hi</p><script>steal()</script>'
+        )
+        response = self.client.patch(
+            "/api/v1/admin/email-template/password_reset/", {"body": written}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()["data"]["body"]
+        for kept in (
+            '<!--[if mso]><v:roundrect href="{{ reset_link }}"',
+            '<h1 class="headline">',
+            'role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"',
+            'valign="top" class="info-label"',
+        ):
+            self.assertIn(kept, body)
+        self.assertNotIn("onclick", body)
+        self.assertNotIn("<script", body)
+
     def test_patch_unknown_tag_returns_400(self):
         response = self.client.patch(
             "/api/v1/admin/email-template/password_reset/",
@@ -524,6 +604,40 @@ class SystemEmailAdminApiTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("nope", response.json()["msg"])
+
+    def test_each_email_shows_its_sender_and_the_mailboxes_it_could_go_from(self):
+        items = {item["key"]: item for item in self.client.get("/api/v1/admin/email-template/").json()["data"]["items"]}
+        self.assertEqual(items["login_code"]["sender"], "info")
+        self.assertEqual(items["unread_messages"]["sender"], "connect")
+        self.assertEqual(items["login_code"]["senders"], [
+            {"key": "info", "address": "info@biotechfutures.org"},
+            {"key": "connect", "address": "connect@biotechfutures.org"},
+        ])
+
+    def test_patch_picks_a_sender_kept_through_restore_default(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/login_code/", {"sender": "connect"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["data"]["sender"], "connect")
+        self.assertEqual(SystemEmailTemplate.objects.get(key="login_code").sender, "connect")
+        # Restore default puts the wording back, not the sender.
+        response = self.client.post("/api/v1/admin/email-template/login_code/restore-default/")
+        self.assertEqual(response.json()["data"]["sender"], "connect")
+
+    def test_patch_refuses_a_sender_not_listed(self):
+        response = self.client.patch(
+            "/api/v1/admin/email-template/login_code/", {"sender": "someone@else.com"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("mailboxes listed", response.json()["msg"])
+
+    @override_settings(EMAIL_BACKEND=LOCMEM)
+    def test_test_send_goes_from_the_sender_picked(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        response = self.client.post("/api/v1/admin/email-template/password_reset/test-send/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
 
     def test_patch_locked_disable_returns_400(self):
         response = self.client.patch(
@@ -569,6 +683,18 @@ class SystemEmailAdminApiTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data"]["sentTo"], "admin@example.com")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_test_send_goes_to_a_typed_address_and_refuses_a_bad_one(self):
+        mail.outbox = []
+        url = "/api/v1/admin/email-template/password_reset/test-send/"
+        response = self.client.post(url, {"to": "tester@example.com"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["data"]["sentTo"], "tester@example.com")
+        self.assertEqual(mail.outbox[0].to, ["tester@example.com"])
+
+        response = self.client.post(url, {"to": "not an address"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_restore_clears_saved_wording(self):

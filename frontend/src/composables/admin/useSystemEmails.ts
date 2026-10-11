@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue'
 import {
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
+  fetchSystemEmailTestRecipients,
   previewSystemEmailTemplate,
   restoreSystemEmailTemplate,
   testSendSystemEmailTemplate,
@@ -12,7 +13,8 @@ import { logApiError } from '@/utils/apiError'
 import type {
   SystemEmailPreview,
   SystemEmailSettings,
-  SystemEmailTemplate
+  SystemEmailTemplate,
+  SystemEmailTestRecipient
 } from '@/utils/systemEmail'
 
 export interface SystemEmailDraft {
@@ -38,6 +40,8 @@ export function useSystemEmails() {
   const saving = ref(false)
   const previewing = ref(false)
   const testing = ref(false)
+  // How the last test send went, shown beside its button.
+  const testResult = ref<{ ok: boolean; text: string } | null>(null)
   const restoring = ref(false)
   const togglingGlobal = ref(false)
   const togglingKey = ref<string | null>(null)
@@ -47,6 +51,14 @@ export function useSystemEmails() {
   const selectedKey = ref<string | null>(null)
   const draft = ref<SystemEmailDraft>({ subject: '', body: '' })
   const preview = ref<SystemEmailPreview | null>(null)
+
+  // Who a test is "of": the email's groups or people, the first picked to
+  // start with. The test and the preview carry their details. Null when the
+  // email has nothing of a person's own.
+  const testRecipients = ref<SystemEmailTestRecipient[] | null>(null)
+  const testRecipientsLoading = ref(false)
+  const testRecipientsFailed = ref(false)
+  const testOf = ref('')
 
   const previewQueued = ref(false)
   let previewTimer: number | null = null
@@ -114,9 +126,13 @@ export function useSystemEmails() {
     return fields
   }
 
+  /** Whose details the preview and a test carry, when someone is picked. */
+  const ofPicked = (): { of?: string } => (testOf.value ? { of: testOf.value } : {})
+
   const clearMessages = () => {
     error.value = ''
     notice.value = ''
+    testResult.value = null
   }
 
   const messageFrom = (fallback: string, caught: unknown): string =>
@@ -175,7 +191,10 @@ export function useSystemEmails() {
     if (options?.quiet) previewQueued.value = false
     else error.value = ''
     try {
-      preview.value = await previewSystemEmailTemplate(template.key, draftToRender(template))
+      preview.value = await previewSystemEmailTemplate(template.key, {
+        ...draftToRender(template),
+        ...ofPicked()
+      })
     } catch (previewError) {
       logApiError('admin.system-emails.preview', previewError)
       if (!options?.quiet) {
@@ -215,17 +234,59 @@ watch(
   { flush: 'pre' }
 )
 
-const testSend = async () => {
+/** Load who the selected email's test can be "of", picking the first. */
+const loadTestRecipients = async (key: string) => {
+  testRecipients.value = null
+  testOf.value = ''
+  testRecipientsFailed.value = false
+  testRecipientsLoading.value = true
+  try {
+    const recipients = await fetchSystemEmailTestRecipients(key)
+    // Another email was picked while this one loaded.
+    if (key !== selectedKey.value) return
+    testRecipients.value = recipients
+    testOf.value = recipients?.[0]?.value ?? ''
+  } catch (recipientsError) {
+    logApiError('admin.system-emails.test-recipients', recipientsError)
+    if (key === selectedKey.value) testRecipientsFailed.value = true
+  } finally {
+    if (key === selectedKey.value) testRecipientsLoading.value = false
+  }
+}
+
+watch(selectedKey, (key) => {
+  if (key) void loadTestRecipients(key)
+})
+
+// The preview shows the one picked at once, but not the reset while the next
+// email's list loads.
+watch(testOf, () => {
+  if (!testRecipientsLoading.value) runLivePreview()
+})
+
+/**
+ * Send the email as it stands to ``to``, or the admin's own address, with the
+ * details of the one picked, else the samples.
+ */
+  const testSend = async (to?: string) => {
     const template = selected.value
     if (!template) return
     testing.value = true
     clearMessages()
     try {
-      const result = await testSendSystemEmailTemplate(template.key, draftToRender(template))
-      notice.value = `Test email sent to ${result.sentTo}.`
+      const result = await testSendSystemEmailTemplate(template.key, {
+        ...draftToRender(template),
+        ...(to ? { to } : {}),
+        ...ofPicked()
+      })
+      // A test can take a few minutes too, and bounces like the real thing.
+      const note = result.sentFrom
+        ? ` It can take a few minutes to arrive. If it can't be delivered, it comes back to ${result.sentFrom}.`
+        : ''
+      testResult.value = { ok: true, text: `Test sent to ${result.sentTo}.${note}` }
     } catch (testError) {
       logApiError('admin.system-emails.test-send', testError)
-      error.value = messageFrom('Unable to send the test email.', testError)
+      testResult.value = { ok: false, text: messageFrom('Unable to send the test email.', testError) }
     } finally {
       testing.value = false
     }
@@ -288,6 +349,21 @@ const testSend = async () => {
     }
   }
 
+  // Which mailbox it goes from; saved at once, like the on/off switch.
+  const changeSender = async (template: SystemEmailTemplate, sender: string) => {
+    if (sender === template.sender) return
+    togglingKey.value = template.key
+    clearMessages()
+    try {
+      replaceTemplate(await updateSystemEmailTemplate(template.key, { sender }))
+    } catch (senderError) {
+      logApiError('admin.system-emails.sender', senderError)
+      error.value = messageFrom('Unable to change who this email is sent from.', senderError)
+    } finally {
+      togglingKey.value = null
+    }
+  }
+
   const toggleGlobal = async (enabled: boolean) => {
     togglingGlobal.value = true
     clearMessages()
@@ -329,9 +405,15 @@ const testSend = async () => {
     setBody,
     refreshPreview,
     testSend,
+    testResult,
+    testRecipients,
+    testRecipientsLoading,
+    testRecipientsFailed,
+    testOf,
     save,
     restore,
     toggleEnabled,
+    changeSender,
     toggleGlobal
   }
 }

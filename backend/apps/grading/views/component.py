@@ -1,4 +1,3 @@
-from datetime import date
 
 from decimal import Decimal
 
@@ -8,10 +7,11 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
+from apps.submissions.services import current_cohort
 
 from ..models import Grade, Rubric, SubmissionComponent
-from ..permissions import IsGrader
 from ..serializers import SubmissionComponentSerializer
 from ..services import content
 
@@ -41,11 +41,11 @@ class ComponentMarkingListView(APIView):
     given on other components would leak into this table.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request, code: str):
         component = get_object_or_404(SubmissionComponent, code=code)
-        year = int(request.query_params.get("year") or date.today().year)
+        year = int(request.query_params.get("year") or current_cohort())
 
         rubric = Rubric.objects.filter(component=component, year=year, active=True).first()
         criteria = list(rubric.criteria.all()) if rubric else []

@@ -84,7 +84,8 @@ const mountPage = async () => {
           setup: () => ({ counts: appliedCounts }),
           template: '<button class="bulk-stub" @click="$emit(\'applied\', counts)">Upload marks</button>'
         },
-        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
+        RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+        teleport: true
       }
     }
   })
@@ -143,8 +144,8 @@ describe('the component switcher', () => {
 describe('the table', () => {
   it('shows progress, marks, lateness and markers per row', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('.component-table__stats').text()).toContain('2/3 Submitted')
-    expect(wrapper.find('.component-table__stats').text()).toContain('1/2 Fully Marked')
+    expect(wrapper.find('.data-table-stats').text()).toContain('2/3 Submitted')
+    expect(wrapper.find('.data-table-stats').text()).toContain('1/2 Fully Marked')
 
     const done = rowByName(wrapper, 'BTF-1')
     expect(done.text()).toContain('2/2')
@@ -176,13 +177,13 @@ describe('the table', () => {
     await wrapper.find('input[type="search"]').setValue('alpha')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     await wrapper.find('input[type="search"]').setValue('zzz')
-    expect(wrapper.find('.component-table__empty').text()).toBe('No groups match your search.')
+    expect(wrapper.find('.data-table-empty').text()).toBe('No groups match your search.')
   })
 
   it('sorting by group name starts ascending and toggles', async () => {
     const wrapper = await mountPage()
     const groupSort = wrapper
-      .findAll('.component-table__sort')
+      .findAll('.data-table-sort-btn')
       .find((b) => b.text().includes('Group'))!
     await groupSort.trigger('click')
     let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
@@ -195,7 +196,7 @@ describe('the table', () => {
   it('progress sort pins unsubmitted rows last in both directions', async () => {
     const wrapper = await mountPage()
     const progressSort = wrapper
-      .findAll('.component-table__sort')
+      .findAll('.data-table-sort-btn')
       .find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
     let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
@@ -211,29 +212,50 @@ describe('the table', () => {
     expect(wrapper.text()).toContain('Failed to load component "SAQ".')
     await wrapper.findAll('button').find((b) => /Try again/.test(b.text()))!.trigger('click')
     await flushPromises()
-    expect(wrapper.find('.component-table__stats').exists()).toBe(true)
+    expect(wrapper.find('.data-table-stats').exists()).toBe(true)
   })
 })
 
 describe('exports and uploads', () => {
-  it('offers the XLSX export only for SAQ', async () => {
-    const wrapper = await mountPage()
-    expect(wrapper.findAll('button').some((b) => /XLSX/.test(b.text()))).toBe(true)
+  const buttonNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+    wrapper.findAll('button').find((b) => b.text() === label)!
 
+  it('SAQ has one Download button, its popup offering xlsx, pdf and txt', async () => {
+    const wrapper = await mountPage()
+    // Download, as on the other components, then Upload marks.
+    expect(wrapper.findAll('.data-table-search-side button').map((b) => b.text())).toEqual([
+      'Download',
+      'Upload marks'
+    ])
+    expect(wrapper.find('[aria-label="Download SAQs"]').exists()).toBe(false)
+
+    await buttonNamed(wrapper, 'Download').trigger('click')
+    const popup = wrapper.find('[aria-label="Download SAQs"]')
+    expect(popup.find('.component-table__formats').findAll('button').map((b) => b.text())).toEqual([
+      'xlsx',
+      'pdf',
+      'txt'
+    ])
+    expect(startJob).not.toHaveBeenCalled()
+
+    // Each starts its export and closes the popup.
+    for (const [label, format] of [['xlsx', 'xlsx'], ['pdf', 'pdf'], ['txt', 'zip']] as const) {
+      await buttonNamed(wrapper, 'Download').trigger('click')
+      await buttonNamed(wrapper, label).trigger('click')
+      expect(startJob).toHaveBeenLastCalledWith('SAQ', format)
+      expect(wrapper.find('[aria-label="Download SAQs"]').exists()).toBe(false)
+    }
+  })
+
+  it('the other components download their uploads straight away', async () => {
     rowsMock.mockResolvedValue(
       payload({ component: { ...payload().component, code: 'POSTER' } }) as never
     )
     routeState.params.code = 'POSTER'
-    await flushPromises()
-    expect(wrapper.findAll('button').some((b) => /XLSX/.test(b.text()))).toBe(false)
-  })
-
-  it('starts the export job for the routed component', async () => {
     const wrapper = await mountPage()
-    await wrapper.findAll('button').find((b) => /XLSX/.test(b.text()))!.trigger('click')
-    expect(startJob).toHaveBeenCalledWith('SAQ', 'xlsx')
-    await wrapper.findAll('button').find((b) => /Download/.test(b.text()))!.trigger('click')
-    expect(startJob).toHaveBeenCalledWith('SAQ', 'zip')
+    await buttonNamed(wrapper, 'Download').trigger('click')
+    expect(wrapper.find('[aria-label="Download SAQs"]').exists()).toBe(false)
+    expect(startJob).toHaveBeenCalledWith('POSTER', 'zip')
   })
 
   it('a failed export shows the job error banner', async () => {

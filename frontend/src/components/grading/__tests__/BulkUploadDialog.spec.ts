@@ -3,21 +3,18 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
 import {
   bulkUploadMarks,
-  fetchSubmissionDeadline,
   type BulkUploadResponse
 } from '@/utils/gradingAPI'
 
-// The real challengeYear, so the dialog's year follows the same rule as the app.
 vi.mock('@/utils/gradingAPI', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/gradingAPI')>()),
-  bulkUploadMarks: vi.fn(),
-  fetchSubmissionDeadline: vi.fn()
+  bulkUploadMarks: vi.fn()
 }))
 const uploadMock = vi.mocked(bulkUploadMarks)
-const deadlineMock = vi.mocked(fetchSubmissionDeadline)
 
 const cleanChecks = (over: Partial<NonNullable<BulkUploadResponse['checks']>> = {}) => ({
   missing_headers: [],
+  header_order: '',
   bad_group_rows: [],
   bad_marks: [],
   ...over
@@ -53,9 +50,9 @@ const response = (over: Partial<BulkUploadResponse> = {}): BulkUploadResponse =>
   ...over
 })
 
-const mountDialog = (code = 'SAQ') =>
+const mountDialog = (code = 'SAQ', year = 2026) =>
   mount(BulkUploadDialog, {
-    props: { code },
+    props: { code, year },
     global: { stubs: { teleport: true } }
   })
 
@@ -83,7 +80,6 @@ const pickFile = async (wrapper: Wrapper, body?: BulkUploadResponse, name = 'mar
 
 beforeEach(() => {
   uploadMock.mockReset()
-  deadlineMock.mockReset().mockResolvedValue({ deadline: null })
 })
 
 describe('opening the dialog', () => {
@@ -113,10 +109,11 @@ describe('opening the dialog', () => {
     await openDialog(saq)
     const saqText = saq.text()
     expect(saqText).toContain('one row per group')
-    expect(saqText).toContain('q1')
-    expect(saqText).toContain('r1_mark')
-    expect(saqText).toContain('product_category')
-    expect(saqText).toContain('category_of_solution')
+    // The categories, then the marks and the overall comment.
+    expect(saqText).toMatch(
+      /year, group_name, type,\s*Then product_category, category_of_solution,\s*Then r1_mark\/r1_comment per criterion, and\s*overall_comment/
+    )
+    expect(saqText).toContain('Column headers must match exactly and need to be in order.')
     expect(saqText).toContain('SAQs')
     expect(saqText).not.toContain('criteria_no')
     // The comma rule sits just before the closing "Extra columns" line.
@@ -131,17 +128,8 @@ describe('opening the dialog', () => {
   })
 
   it('asks for year and group_name, not group_id, and gives the year every row carries', async () => {
-    // The challenge year follows the deadline, like the backend's current_cohort.
-    deadlineMock.mockResolvedValue({
-      deadline: {
-        closes_at: '2027-09-18T03:59:00Z',
-        grace_hours: 0,
-        is_open: true,
-        set_by: null,
-        created_at: '2027-01-01T00:00:00Z'
-      }
-    })
-    const wrapper = mountDialog('POSTER')
+    // The challenge year, as the component table has it from the server.
+    const wrapper = mountDialog('POSTER', 2027)
     await openDialog(wrapper)
     await flushPromises()
     const text = wrapper.text()
@@ -149,13 +137,6 @@ describe('opening the dialog', () => {
     expect(text).not.toContain('group_id')
     // The year line sits just before the type line.
     expect(text).toMatch(/Value of year is 2027 for all rows\s*Value of type is Poster for all rows/)
-  })
-
-  it('without a deadline, the year shown is this calendar year', async () => {
-    const wrapper = mountDialog('SAQ')
-    await openDialog(wrapper)
-    await flushPromises()
-    expect(wrapper.text()).toContain(`Value of year is ${new Date().getFullYear()} for all rows`)
   })
 
   it("once a file is previewed, the server's year is the one shown", async () => {
@@ -462,6 +443,26 @@ describe('the preview report', () => {
     const text = wrapper.text()
     expect(text).toContain('Missing Column Header(s): r2_comment')
     expect(text).not.toContain('Incorrect group details')
+  })
+
+  it('headers out of order stop the report there, saying which is out of place', async () => {
+    const wrapper = mountDialog()
+    await openDialog(wrapper)
+    await pickFile(
+      wrapper,
+      response({
+        checks: cleanChecks({ header_order: 'product_category should come before r1_mark' }),
+        errors: [{ row: 1, message: 'column headers out of order: product_category should come before r1_mark' }],
+        summary: { creates: 0, updates: 0, unchanged: 0, errors: 1 }
+      })
+    )
+    const headers = wrapper
+      .findAll('.bulk-upload__checks li')
+      .find((li) => li.text().startsWith('Missing Column Header(s):'))!
+    expect(headers.text()).toBe('Missing Column Header(s): product_category should come before r1_mark')
+    expect(headers.find('.bulk-upload__check--bad').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Incorrect mark format')
+    expect(wrapper.find('.bulk-upload__footer button').attributes('disabled')).toBeDefined()
   })
 
   it('wide-shape sheets (non SAQ) keep the Type check line', async () => {

@@ -20,6 +20,7 @@ from apps.services import email_branding
 from apps.services.email_branding import brand_context
 from apps.submissions import emails as confirmation
 from apps.submissions import reminders
+from apps.submissions.services import current_cohort
 
 
 DEFAULT_PORT = 8900
@@ -75,7 +76,7 @@ class Command(BaseCommand):
             **brand_context(),
             "LOGO_URL": _logo_data_uri(),
             "GROUP_NAME": team.group_name,
-            "YEAR": timezone.now().year,
+            "YEAR": current_cohort(),
             "DEADLINE": reminders._format_deadline(deadline),
             "SUBMISSION_URL": "https://example.org/#/submission/1",
         }

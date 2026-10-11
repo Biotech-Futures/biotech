@@ -1,5 +1,3 @@
-import hmac
-
 from django.conf import settings
 from django.db import transaction
 from django.http import Http404
@@ -13,9 +11,11 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common import email_jobs
 from apps.common.rbac import group_participant_qs, is_admin
 from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
+from apps.live.broadcast import notify_changed
 from config.errors import GroupAccessDenied
 
 from .emails import send_submission_confirmation
@@ -25,6 +25,7 @@ from .errors import (
     NotSubmittedYet,
     PosterFormatRejected,
     PosterRequired,
+    ProjectTitleRequired,
     RequiredAnswersMissing,
     SubmissionLocked,
     SubmissionsClosed,
@@ -40,7 +41,7 @@ from .serializers import (
     missing_required_answers,
 )
 from .services import active_deadline, current_cohort, deadline_for_group
-from .storage import submission_file_service
+from .storage import submission_file_name, submission_file_service
 from .uploads import (
     PDF_SLOTS,
     POSTER,
@@ -58,7 +59,7 @@ def _require_can_view(user, group_id: int) -> None:
     """Any member of the team can read it; so can admins.
 
     Staff and superusers pass alongside AdminScope admins so the definition
-    matches grading's ``IsGrader``: anyone who can mark an entry can read the
+    matches ``common.rbac.IsStaffOrAdmin``: anyone who can mark an entry can read the
     files they are marking.
     """
     if is_admin(user) or user.is_staff or user.is_superuser:
@@ -68,9 +69,9 @@ def _require_can_view(user, group_id: int) -> None:
 
 
 def _require_can_edit(user, group_id: int) -> None:
-    """Only members of the team can edit; admins can view but not author."""
-    if not group_participant_qs(user, group_id).exists():
-        raise GroupAccessDenied()
+    """Members of the team can edit, submit and reopen; so can admins, for a
+    team that needs a hand. The deadline and lock still apply to both."""
+    _require_can_view(user, group_id)
 
 
 def _require_unlocked(submission) -> None:
@@ -140,6 +141,8 @@ class GroupSubmissionView(APIView):
             )
             _require_unlocked(submission)
 
+            if "project_title" in data:
+                submission.project_title = data["project_title"]
             if "answers" in data:
                 # Merged, not replaced, so teammates on different questions do not collide.
                 submission.answers = {**(submission.answers or {}), **data["answers"]}
@@ -193,6 +196,7 @@ class GroupSubmissionFileView(APIView):
             content_type_field="mime",
             size_field="size",
             original_filename_field="name",
+            storage_name=submission_file_name(submission, slot, uploaded.name),
         ) as file_data:
             setattr(submission, slot, file_data)
             fields = [slot, "updated_at"]
@@ -210,6 +214,7 @@ class GroupSubmissionFileView(APIView):
         ):
             submission_file_service(slot).delete(previous_key)
 
+        notify_changed("submission", group.id, "files", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -237,6 +242,7 @@ class GroupSubmissionFileView(APIView):
         if key and key not in submission.submitted_storage_keys():
             submission_file_service(slot).delete(key)
 
+        notify_changed("submission", group.id, "files", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -299,6 +305,9 @@ class GroupSubmissionSubmitView(APIView):
             if not submission.poster:
                 raise PosterRequired()
 
+            if not submission.project_title.strip():
+                raise ProjectTitleRequired()
+
             # Enforced only at submit, so a half-finished draft can still be saved.
             missing = missing_required_answers(submission)
             if missing:
@@ -332,6 +341,7 @@ class GroupSubmissionSubmitView(APIView):
         # Never raises, so a failed email cannot fail the submission.
         send_submission_confirmation(submission)
 
+        notify_changed("submission", group.id, "submitted", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -353,6 +363,7 @@ class GroupSubmissionReopenView(APIView):
         submission.reopened_at = timezone.now()
         submission.save(update_fields=["reopened_at", "updated_at"])
 
+        notify_changed("submission", group.id, "reopened", by=request.user)
         return Response({
             "deadline": _deadline_payload(group.id),
             "submission": SubmissionSerializer(submission).data,
@@ -360,21 +371,11 @@ class GroupSubmissionReopenView(APIView):
 
 
 class SendSubmissionRemindersView(APIView):
-    """Daily reminder run, called by a scheduler with a shared token."""
+    """Daily reminder run, called by a scheduler with the email jobs' token."""
 
     authentication_classes = []
     permission_classes = []
 
     @extend_schema(exclude=True)
     def post(self, request):
-        expected = getattr(settings, "SUBMISSION_REMINDER_TOKEN", "") or ""
-        if not expected:
-            return Response(
-                {"detail": "Submission reminder trigger is not configured."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        provided = request.headers.get("X-Reminder-Token", "")
-        if not hmac.compare_digest(provided, expected):
-            return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
-
-        return Response(send_due_reminders(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or Response(send_due_reminders(), status=status.HTTP_200_OK)

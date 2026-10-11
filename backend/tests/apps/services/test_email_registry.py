@@ -26,11 +26,20 @@ EXPECTED_KEYS = {
     "submission_confirmation",
     "submission_reminder",
     "finalist_notification",
+    "nonfinalist_invitation",
+    "nonsubmission_notice",
+    "results_team",
+    "results_supervisor",
+    "guardian_consent_request",
+    "guardian_consent_received",
+    "guardian_details_request",
+    "guardian_details_received",
+    "guardian_consent_student_notice",
 }
 
 
 class RegistryShapeTests(SimpleTestCase):
-    def test_contains_exactly_the_ten_email_types(self):
+    def test_contains_exactly_the_expected_email_types(self):
         self.assertEqual(set(EMAIL_REGISTRY), EXPECTED_KEYS)
         self.assertEqual(len(EMAIL_TYPES), len(EXPECTED_KEYS))
 

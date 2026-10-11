@@ -4,9 +4,10 @@ Accepts an XLSX or CSV in the SAME shape the component export writes, so
 admins can download the sheet, fill it in off-platform, and upload it
 back. Every component uses one shape, one row per group:
 
-    year | group_name | type | [q1 | q2 | …]
+    year | group_name | type | [project_title | q1 | q2 | …]
+         | [product_category | category_of_solution]
          | r1_mark | r1_comment | r2_mark | r2_comment | …
-         | overall_comment | [product_category | category_of_solution]
+         | overall_comment
 
 ``type`` must match the component's label ("SAQs", "Poster", …) so a sheet
 can't land in the wrong component tab. ``rN`` maps to the component's
@@ -20,7 +21,9 @@ the Other text ("Health and Medicine, Wearables" / "App").
 Rules:
     * Missing required headers fail the file: ``year``, ``group_name``,
       ``type`` and every ``rN_mark``/``rN_comment`` of the rubric.
-      Unrecognised extra columns are simply ignored.
+      Unrecognised extra columns are simply ignored, wherever they sit.
+    * The known headers must come in the order above; one out of place
+      fails the file, so a sheet can't be read against the wrong columns.
     * ``year`` must be the current challenge year (``current_cohort``) on
       every row. The team is the one with that name among the year's teams
       that submitted this component; a name no such team has, or one that
@@ -38,6 +41,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
@@ -59,6 +63,46 @@ from .content import submission_entries
 
 
 WIDE_REQUIRED_COLUMNS = ("year", "group_name", "type")
+
+# Where each known column goes in the sheet; unknown ones can go anywhere.
+_COLUMN_PLACES = {
+    "year": (0,),
+    "group_name": (1,),
+    "type": (2,),
+    "project_title": (3,),
+    "product_category": (5,),
+    "category_of_solution": (6,),
+    "overall_comment": (8,),
+}
+_ANSWER_RE = re.compile(r"q(\d+)")
+_MARK_RE = re.compile(r"r(\d+)_(mark|comment)")
+
+
+def _column_place(name: str) -> tuple | None:
+    """A known column's place in the sheet's order, or None for an extra
+    column the upload ignores."""
+    if name in _COLUMN_PLACES:
+        return _COLUMN_PLACES[name]
+    if match := _ANSWER_RE.fullmatch(name):
+        return (4, int(match[1]))
+    if match := _MARK_RE.fullmatch(name):
+        return (7, int(match[1]), 0 if match[2] == "mark" else 1)
+    return None
+
+
+def _header_order_problem(headers: Iterable[str]) -> str:
+    """Why the sheet's known headers are out of order, e.g.
+    "product_category should come before r1_mark"; "" when they aren't."""
+    seen: list[tuple[str, tuple]] = []
+    for name in headers:
+        place = _column_place(name)
+        if place is None:
+            continue
+        for earlier, earlier_place in seen:
+            if earlier_place > place:
+                return f"{name} should come before {earlier}"
+        seen.append((name, place))
+    return ""
 
 # Friendly ``type`` labels, matching what the export writes.
 TYPE_LABELS = {"SAQ": "SAQs", "POSTER": "Poster", "REPORT": "Report", "PROTOTYPE": "Prototype"}
@@ -251,6 +295,8 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
     diff = UploadDiff()
     diff.checks = {
         "missing_headers": [],
+        # Why the known headers are out of order; "" when they are in order.
+        "header_order": "",
         "expected_type": TYPE_LABELS.get(component_code, component_code),
         "found_type": None,
         "type_ok": True,
@@ -333,6 +379,12 @@ def _parse_wide_upload(file, filename: str, component_code: str) -> UploadDiff:
                     "row": 1,
                     "message": f"missing column header(s): {', '.join(problems)}",
                 })
+                return diff
+            # The row keeps the sheet's column order.
+            order = _header_order_problem(row)
+            if order:
+                diff.checks["header_order"] = order
+                diff.errors.append({"row": 1, "message": f"column headers out of order: {order}"})
                 return diff
 
         row_type = (row.get("type") or "").strip()

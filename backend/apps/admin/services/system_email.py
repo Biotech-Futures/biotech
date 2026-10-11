@@ -37,6 +37,7 @@ from django.template.loader import get_template
 from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
+from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
 from apps.services.email_registry import (
     EMAIL_TYPES,
     get_email_type,
@@ -44,7 +45,14 @@ from apps.services.email_registry import (
     unknown_merge_tags,
 )
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
-from apps.services.system_email import build_message, clean_email_body, render_system_email
+from apps.services.system_email import (
+    build_message,
+    clean_email_body,
+    render_system_email,
+    sender_connection,
+    sender_for,
+    senders,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +101,15 @@ def _render_content_block(template_name: str, context: dict) -> str:
     return template.render(Context(context)).strip()
 
 
+def _sender_key(email_type, row) -> str:
+    """The sender it goes from: the one picked, else its type's default (as
+    ``system_email.sender_for`` sends it)."""
+    keys = {sender.key for sender in senders()}
+    if row is not None and row.sender in keys:
+        return row.sender
+    return email_type.default_sender if email_type.default_sender in keys else senders()[0].key
+
+
 def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
     """One admin-facing dict for a registry entry, merged with its saved state.
 
@@ -108,11 +125,16 @@ def _serialize_template(email_type, row: SystemEmailTemplate) -> dict:
         "description": email_type.description,
         "enabled": row.is_enabled if row is not None else True,
         "locked": email_type.locked,
+        # Who a whole group's email goes to; empty for an email to one person.
+        "delivery": email_type.delivery,
         "usingSavedContent": bool(row is not None and row.has_custom_content),
         "defaultSubject": email_type.default_subject,
         "defaultBody": _default_body(email_type),
         "subject": row.subject if row is not None else "",
         "body": row.body_html if row is not None else "",
+        # The mailbox it goes from, and those it could (settings.EMAIL_SENDERS).
+        "sender": _sender_key(email_type, row),
+        "senders": [{"key": sender.key, "address": sender.address} for sender in senders()],
         "updatedBy": _editor_name(row.updated_by) if row is not None and row.updated_by else None,
         "updatedAt": row.updated_at.isoformat() if row is not None and row.updated_at else None,
         "mergeTags": [
@@ -235,7 +257,7 @@ def update_email_template(
     *,
     requested_by,
 ) -> dict:
-    """Apply the provided ``subject`` / ``body`` / ``enabled`` edits.
+    """Apply the provided ``subject`` / ``body`` / ``enabled`` / ``sender`` edits.
 
     ``fields`` only contains keys the client actually sent (PATCH semantics),
     so toggling an email does not disturb its wording and vice versa. A blank
@@ -261,6 +283,9 @@ def update_email_template(
 
     if "enabled" in fields:
         row.is_enabled = bool(fields["enabled"])
+
+    if "sender" in fields:
+        row.sender = fields["sender"]
 
     if "subject" in fields:
         error = _validate_editable_text(key, "subject", fields.get("subject"))
@@ -344,18 +369,32 @@ def _preview_fields(key: str, subject, body) -> tuple:
     return subject, body, None
 
 
+# What templates build their lists from: once a recipient's details bring
+# these, the preview builds the list instead of showing its tag.
+_LIST_DATA = ("GROUPS", "REQUIRED_COMPONENTS", "OPTIONAL_COMPONENTS")
+
+
 def preview_email_template(
     key: str,
     subject=None,
     body=None,
+    of=None,
 ) -> dict:
     """Render email ``key`` for the editor's preview, honouring unsaved edits.
 
     Returns the finished subject and the full branded HTML + plain text.
     Recipient-specific merge tags stay visible as ``{{ tag }}`` so the admin
-    can see exactly where each person's data will go, and the logo is
-    embedded so it displays in the browser.
+    can see exactly where each person's data will go, except those that
+    recipient ``of`` (picked from ``test_recipients``) fills with their own
+    details, and the names of the files their email carries are listed. The
+    logo is embedded so it displays in the browser.
     """
+    from apps.admin.services.system_email_recipients import (
+        RecipientError,
+        recipient_context,
+        recipient_files,
+    )
+
     if not is_known_email_type(key):
         return {"msg": f"Unknown email type '{key}'", "data": None}
 
@@ -364,10 +403,21 @@ def preview_email_template(
         return {"msg": error, "data": None}
 
     email_type = get_email_type(key)
+    context = _placeholder_context(email_type)
+    attachments: list[str] = []
+    if of:
+        try:
+            own = recipient_context(key, of)
+        except RecipientError as exc:
+            return {"msg": str(exc), "data": None}
+        context.update(own)
+        attachments = recipient_files(key, of)
+        if any(name in own for name in _LIST_DATA):
+            context["SHOW_MERGE_TAGS"] = False
     try:
         rendered = render_system_email(
             key,
-            _placeholder_context(email_type),
+            context,
             subject=cleaned_subject,
             body=cleaned_body,
         )
@@ -386,7 +436,22 @@ def preview_email_template(
             "subject": rendered.subject,
             "html": _with_visible_logo(rendered.html),
             "text": rendered.text,
+            # The files the one picked would get with it; they aren't made.
+            "attachments": attachments,
         },
+    }
+
+
+def test_recipients(key: str) -> dict:
+    """Who a test of email ``key`` can be "of": its real recipients, or None
+    when it has nothing of a person's own (see ``system_email_recipients``)."""
+    from apps.admin.services.system_email_recipients import recipient_options
+
+    if not is_known_email_type(key):
+        return {"msg": f"Unknown email type '{key}'", "data": None}
+    return {
+        "msg": "Test recipients retrieved successfully",
+        "data": {"key": key, "recipients": recipient_options(key)},
     }
 
 
@@ -396,12 +461,19 @@ def send_test_email(
     requested_by,
     subject=None,
     body=None,
+    to=None,
+    of=None,
 ) -> dict:
-    """Send email ``key`` to the requesting admin's address.
+    """Send email ``key`` to ``to``, else the requesting admin's address.
 
+    It's filled with the registry's sample values, and with recipient
+    ``of``'s own details when one is picked from ``test_recipients``.
     Deliberately bypasses the enabled toggle: an admin must be able to test a
     disabled email before re-arming it. Unsaved edits are sent when provided.
     """
+    from apps.admin.services.system_email_recipients import RecipientError, recipient_context
+
+    recipient = (to or requested_by.email or "").strip()
     if not is_known_email_type(key):
         return {"msg": f"Unknown email type '{key}'", "data": None}
 
@@ -410,10 +482,16 @@ def send_test_email(
         return {"msg": error, "data": None}
 
     email_type = get_email_type(key)
+    context = _sample_context(email_type)
+    if of:
+        try:
+            context.update(recipient_context(key, of))
+        except RecipientError as exc:
+            return {"msg": str(exc), "data": None}
     try:
         rendered = render_system_email(
             key,
-            _sample_context(email_type),
+            context,
             subject=cleaned_subject,
             body=cleaned_body,
         )
@@ -423,7 +501,11 @@ def send_test_email(
             + "Write some body content and try again.",
             "data": None,
         }
-    message = build_message(rendered, requested_by.email)
+    # From the sender picked for it, as the real email goes.
+    sender = sender_for(key)
+    message = build_message(
+        rendered, recipient, from_email=sender.from_email, connection=sender_connection(sender),
+    )
 
     try:
         message.send(fail_silently=False)
@@ -440,14 +522,30 @@ def send_test_email(
         }
 
     return {
-        "msg": f"Test email sent to {requested_by.email}",
-        "data": {"key": key, "sentTo": requested_by.email},
+        "msg": f"Test email sent to {recipient}",
+        # Where mail that can't be delivered comes back to: the address it's sent from.
+        "data": {"key": key, "sentTo": recipient, "sentFrom": sender.address},
     }
 
 
 # ---------------------------------------------------------------------------
 # Global settings
 # ---------------------------------------------------------------------------
+
+def get_email_log() -> dict:
+    """The Log on System Emails: each email's last send and who it missed."""
+    return {"msg": "System email log retrieved successfully", "data": email_log()}
+
+
+def get_unseen_failures() -> dict:
+    """The count on the Failed Sending Emails button."""
+    return {"msg": "Unseen failed emails counted", "data": {"unseen": unseen_failures()}}
+
+
+def see_failures() -> dict:
+    """Clear the count on the Failed Sending Emails button, for every admin."""
+    return {"msg": "Failed emails marked as seen", "data": {"unseen": mark_failures_seen()}}
+
 
 def get_email_settings() -> dict:
     """The global on/off switch, created with defaults on first read."""

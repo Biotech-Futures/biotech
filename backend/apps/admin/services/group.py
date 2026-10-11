@@ -9,12 +9,16 @@ from django.db import transaction
 
 from apps.groups.models import (
     GroupAutoNameUnavailable,
+    GroupNameTaken,
     Groups,
     GroupMembership,
+    duplicate_group_name_error,
     generate_group_name,
     group_name_sort_key,
     next_group_number,
+    saving_group_name,
 )
+from apps.groups.models.groups import default_group_year
 from apps.chat.models import Messages
 from apps.users.models import User, StudentProfile
 from apps.audit.services import log_audit_event
@@ -508,7 +512,8 @@ def create_group(name: Optional[str] = None) -> dict:
 
     Args:
         name: The group name. Optional — when blank, the next sequential
-            ``BTF<n>`` name is used. Names may overlap; ``id`` is unique.
+            ``BTF<n>`` name is used. Refused if another active group in this
+            year already has it (ignoring case and extra spaces).
 
     Returns:
         Dictionary with the created group data or an error message
@@ -524,7 +529,15 @@ def create_group(name: Optional[str] = None) -> dict:
         except ValueError as exc:
             return {"msg": str(exc), "data": None}
 
-        group = Groups.objects.create(group_name=cleaned)
+        year = default_group_year()
+        taken = duplicate_group_name_error(cleaned, year)
+        if taken:
+            return {"msg": taken, "data": None}
+        try:
+            with saving_group_name(cleaned, year):
+                group = Groups.objects.create(group_name=cleaned)
+        except GroupNameTaken as exc:
+            return {"msg": str(exc), "data": None}
 
     base_row = _fetch_group_base_by_id(group.id)
     groups = _build_groups([base_row]) if base_row else []
@@ -541,7 +554,8 @@ def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -
 
     Args:
         group_id: The group ID as string
-        name: New group name (may overlap with other groups; ``id`` is unique)
+        name: New group name; refused if another active group in the same year
+            already has it (ignoring case and extra spaces)
         initiated_by: Admin performing the update, recorded on the audit event
 
     Returns:
@@ -566,9 +580,16 @@ def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -
             return {"msg": str(exc), "data": None}
 
         if cleaned != group.group_name:
+            taken = duplicate_group_name_error(cleaned, group.year, exclude_id=gid)
+            if taken:
+                return {"msg": taken, "data": None}
             before_state = {"name": group.group_name}
             group.group_name = cleaned
-            group.save(update_fields=["group_name"])
+            try:
+                with saving_group_name(cleaned, group.year):
+                    group.save(update_fields=["group_name"])
+            except GroupNameTaken as exc:
+                return {"msg": str(exc), "data": None}
 
             log_audit_event(
                 actor=initiated_by,

@@ -3,7 +3,7 @@
     <p v-if="actionError" class="finalists__banner finalists__banner--error">{{ actionError }}</p>
 
     <section>
-      <h3 class="card-title finalists__list-title">
+      <h3 class="subheading">
         <button
           type="button"
           class="finalists__collapse-btn"
@@ -19,115 +19,138 @@
         </button>
       </h3>
       <template v-if="showGroupMarks">
-      <div class="card finalists__search-card">
-        <div class="finalists__search-field">
-          <span class="finalists__search-label">Search</span>
-          <!-- Plain filter: no form, so Enter never flags a group. Flagging
-               goes through each row's Add button only. -->
-          <div class="finalists__form">
-            <GroupSearchInput
-              v-model="groupQuery"
-              class="finalists__picker"
-              :show-suggestions="false"
-            />
-          </div>
-        </div>
-        <p v-if="showsIncompleteKey" class="finalists__legend">* Not Marked Completely</p>
-      </div>
       <p v-if="isLoadingCandidates" class="finalists__hint">Loading…</p>
-      <div v-else class="finalists__scroll finalists__scroll--flush">
-        <table class="finalists__table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Late</th>
-              <th v-for="c in candidateComponents" :key="c.code" :title="c.name">
-                {{ c.code === 'PROTOTYPE' ? 'PROT.' : c.code }}
-              </th>
-              <th>Total</th>
-              <th>
-                Marker
-                <i
-                  class="fas fa-circle-info finalists__marker-info"
-                  data-tip="Hover over a marker's name to see who marked each part."
-                  aria-hidden="true"
-                ></i>
-              </th>
-              <th class="finalists__cell--right">Finalist</th>
-              <th class="finalists__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="candidates.length === 0">
-              <td :colspan="candidateComponents.length + 6" class="finalists__empty">
-                {{ groupQuery.trim() ? 'No groups match your search.' : 'No groups.' }}
-              </td>
-            </tr>
-            <tr v-for="r in candidates" :key="r.group_id">
-              <td class="finalists__cell--strong">{{ r.group_name }}</td>
-              <td>
-                <span v-if="r.is_late" class="finalists__late">
-                  {{ r.late_by || 'Late' }}
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td v-for="c in candidateComponents" :key="c.code">
-                <span v-if="notMarkedCompletely(r, c.code)" title="Not Marked Completely">
-                  {{ r.marks[c.code] ?? '' }}<span class="finalists__incomplete">*</span>
-                </span>
-                <span v-else-if="r.marks[c.code] != null">{{ r.marks[c.code] }}</span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--strong">
-                <span v-if="r.total != null">{{ r.total }}</span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td>
-                <span
-                  v-if="r.markers.length"
-                  class="finalists__marker"
-                  :title="markerTooltip(r)"
-                >
-                  {{ r.markers[0] }}
-                  <i
-                    v-if="r.markers.length > 1"
-                    class="fas fa-users finalists__marker-icon"
-                    aria-hidden="true"
-                  ></i>
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--right">
-                <button
-                  v-if="!r.is_finalist"
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="isMutating"
-                  @click="addFromRow(r.group_id)"
-                >
-                  Add
-                </button>
-                <span v-else class="finalists__muted">Added</span>
-              </td>
-              <td class="finalists__cell--right">
-                <RouterLink
-                  v-if="r.has_submission"
-                  :to="`/grading/groups/${r.group_id}`"
-                  class="btn btn-outline btn-sm"
-                >
-                  Open
-                </RouterLink>
-                <span v-else class="finalists__muted">No sub.</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Search and sort stay this page's own. -->
+      <AppDataTable
+        v-else
+        class="finalists__table finalists__marks-table"
+        :columns="marksTableColumns"
+        :rows="candidates as unknown as Record<string, unknown>[]"
+        row-key="group_id"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        v-model:search="groupQuery"
+        :sort="sort ?? NO_SORT"
+        search-placeholder="Group name"
+        :empty-message="groupQuery.trim() ? 'No groups match your search.' : 'No groups.'"
+        :action-columns="2"
+        :show-all-details="showDetails"
+        @update:sort="toggleSort($event.key)"
+      >
+        <template v-if="candidatesResp" #stats>
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked ·
+          {{ finalistCount }} Added as {{ finalistCount === 1 ? 'Finalist' : 'Finalists' }}
+        </template>
+        <template #search-side>
+          <!-- Each group's title and categories stay hidden until asked for. -->
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :aria-pressed="showDetails"
+            @click="showDetails = !showDetails"
+          >
+            {{ showDetails ? 'Hide Details' : 'Show Details' }}
+          </button>
+          <p v-if="showsIncompleteKey" class="finalists__legend">* Not Marked Completely</p>
+        </template>
+        <template #head-marker>
+          Marker
+          <i
+            class="fas fa-circle-info finalists__marker-info"
+            data-tip="Hover over a marker's name to see who marked each part."
+            aria-hidden="true"
+          ></i>
+        </template>
+        <template #cell-group="{ row }">
+          <span class="finalists__cell--strong">{{ candidateOf(row).group_name }}</span>
+        </template>
+        <template #cell-late="{ row }">
+          <span v-if="candidateOf(row).is_late" class="finalists__late">
+            {{ candidateOf(row).late_by || 'Late' }}
+          </span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <template v-for="c in markColumns" :key="c.key" #[`cell-${c.key}`]="{ row }">
+          <span v-if="notMarkedCompletely(candidateOf(row), c.key)" title="Not Marked Completely">
+            {{ markOf(candidateOf(row), c.key) ?? '' }}<span class="finalists__incomplete">*</span>
+          </span>
+          <span v-else-if="markOf(candidateOf(row), c.key) != null">{{ markOf(candidateOf(row), c.key) }}</span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <template #cell-total="{ row }">
+          <span v-if="candidateOf(row).total != null" class="finalists__cell--strong">
+            {{ candidateOf(row).total }}
+          </span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <template #cell-marker="{ row }">
+          <span
+            v-if="candidateOf(row).markers.length"
+            class="finalists__marker"
+            :title="markerTooltip(candidateOf(row))"
+          >
+            {{ candidateOf(row).markers[0] }}
+            <i
+              v-if="candidateOf(row).markers.length > 1"
+              class="fas fa-users finalists__marker-icon"
+              aria-hidden="true"
+            ></i>
+          </span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <!-- Add (or Added) | Open (or No sub.) -->
+        <template #actions="{ row, column }">
+          <template v-if="column === 0">
+            <button
+              v-if="!candidateOf(row).is_finalist"
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isMutating"
+              @click="addFromRow(candidateOf(row).group_id)"
+            >
+              Add
+            </button>
+            <span v-else class="finalists__muted">Added</span>
+          </template>
+          <template v-else>
+            <RouterLink
+              v-if="candidateOf(row).has_submission"
+              :to="`/grading/groups/${candidateOf(row).group_id}`"
+              class="btn btn-outline btn-sm"
+            >
+              Open
+            </RouterLink>
+            <span v-else class="finalists__muted">No sub.</span>
+          </template>
+        </template>
+        <!-- The project's details get a full-width row of their own so long
+             text can wrap; the pair reads as one group. -->
+        <template v-if="showDetails" #row-detail="{ row }">
+          <!-- Wraps to the visible width, not the table's, and a long value
+               wraps in line with itself, after its label. -->
+          <div class="finalists__details">
+            <div class="finalists__detail">
+              <span class="finalists__muted">Title:</span>
+              <span>{{ candidateOf(row).project_title || '—' }}</span>
+            </div>
+            <div class="finalists__detail-line">
+              <div class="finalists__detail">
+                <span class="finalists__muted">Category:</span>
+                <span>{{ candidateOf(row).project_category || '—' }}</span>
+              </div>
+              <div class="finalists__detail">
+                <span class="finalists__muted">Solution Category:</span>
+                <span>{{ candidateOf(row).solution_category || '—' }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </AppDataTable>
       </template>
     </section>
 
     <section>
-      <h3 class="card-title finalists__list-title">
+      <h3 class="subheading">
         <button
           type="button"
           class="finalists__collapse-btn"
@@ -148,81 +171,77 @@
         <p class="finalists__load-error">Failed to load. {{ loadError }}</p>
         <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
       </div>
-      <div v-else class="finalists__scroll">
-        <table class="finalists__table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Flagged at</th>
-              <th>Flagged by</th>
-              <th>Late</th>
-              <th>Total</th>
-              <th>
-                Marker
-                <i
-                  class="fas fa-circle-info finalists__marker-info"
-                  data-tip="Hover over a marker's name to see who marked each part."
-                  aria-hidden="true"
-                ></i>
-              </th>
-              <th class="finalists__cell--right"></th>
-              <th class="finalists__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="finalists.length === 0">
-              <td colspan="8" class="finalists__empty">No finalists yet.</td>
-            </tr>
-            <tr v-for="f in finalists" :key="f.group_id">
-              <td class="finalists__cell--strong">{{ f.group_name }}</td>
-              <td>{{ `${new Date(f.flagged_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} ${new Date(f.flagged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</td>
-              <td>{{ f.flagged_by ?? '—' }}</td>
-              <td>
-                <span v-if="candidatesByGroup.get(f.group_id)?.is_late" class="finalists__late">
-                  {{ candidatesByGroup.get(f.group_id)!.late_by || 'Late' }}
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--strong">
-                <span v-if="totalsByGroup.get(f.group_id) != null">
-                  {{ totalsByGroup.get(f.group_id) }}
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td>
-                <span
-                  v-if="candidatesByGroup.get(f.group_id)?.markers.length"
-                  class="finalists__marker"
-                  :title="markerTooltip(candidatesByGroup.get(f.group_id)!)"
-                >
-                  {{ candidatesByGroup.get(f.group_id)!.markers[0] }}
-                  <i
-                    v-if="candidatesByGroup.get(f.group_id)!.markers.length > 1"
-                    class="fas fa-users finalists__marker-icon"
-                    aria-hidden="true"
-                  ></i>
-                </span>
-                <span v-else class="finalists__muted">—</span>
-              </td>
-              <td class="finalists__cell--right">
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  :disabled="isMutating"
-                  @click="pendingRemoval = f"
-                >
-                  Remove
-                </button>
-              </td>
-              <td class="finalists__cell--right">
-                <RouterLink :to="`/grading/groups/${f.group_id}`" class="btn btn-outline btn-sm">
-                  Open
-                </RouterLink>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Kept in the order picked: no sorting. -->
+      <AppDataTable
+        v-else
+        class="finalists__table"
+        :columns="finalistColumns"
+        :rows="finalistRows"
+        row-key="id"
+        :sort="NO_SORT"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        search-placeholder="Group name"
+        empty-message="No finalists yet."
+        :action-columns="2"
+      >
+        <template #head-marker>
+          Marker
+          <i
+            class="fas fa-circle-info finalists__marker-info"
+            data-tip="Hover over a marker's name to see who marked each part."
+            aria-hidden="true"
+          ></i>
+        </template>
+        <template #cell-order="{ row }">
+          <span class="finalists__muted">{{ row.order }}</span>
+        </template>
+        <template #cell-group="{ row }">
+          <span class="finalists__cell--strong">{{ row.group }}</span>
+        </template>
+        <template #cell-late="{ row }">
+          <span v-if="candidateFor(row)?.is_late" class="finalists__late">
+            {{ candidateFor(row)!.late_by || 'Late' }}
+          </span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <template #cell-total="{ row }">
+          <span v-if="totalsByGroup.get(finalistOf(row).group_id) != null" class="finalists__cell--strong">
+            {{ totalsByGroup.get(finalistOf(row).group_id) }}
+          </span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <template #cell-marker="{ row }">
+          <span
+            v-if="candidateFor(row)?.markers.length"
+            class="finalists__marker"
+            :title="markerTooltip(candidateFor(row)!)"
+          >
+            {{ candidateFor(row)!.markers[0] }}
+            <i
+              v-if="candidateFor(row)!.markers.length > 1"
+              class="fas fa-users finalists__marker-icon"
+              aria-hidden="true"
+            ></i>
+          </span>
+          <span v-else class="finalists__muted">—</span>
+        </template>
+        <!-- Remove | Open -->
+        <template #actions="{ row, column }">
+          <button
+            v-if="column === 0"
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="isMutating"
+            @click="pendingRemoval = finalistOf(row)"
+          >
+            Remove
+          </button>
+          <RouterLink v-else :to="`/grading/groups/${finalistOf(row).group_id}`" class="btn btn-outline btn-sm">
+            Open
+          </RouterLink>
+        </template>
+      </AppDataTable>
       </template>
     </section>
 
@@ -266,7 +285,8 @@ import {
   type FinalistRow
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -274,8 +294,18 @@ const loadError = ref('')
 const actionError = ref('')
 const isMutating = ref(false)
 const groupQuery = ref('')
+const showDetails = ref(false)
 
 const finalists = computed(() => list.value?.finalists ?? [])
+// The latest flagged first, each numbered in the order picked: the
+// earliest is 1.
+const finalistsInOrder = computed(() =>
+  [...finalists.value].sort(
+    (a, b) =>
+      new Date(b.flagged_at).getTime() - new Date(a.flagged_at).getTime() ||
+      a.group_name.localeCompare(b.group_name, undefined, { numeric: true })
+  )
+)
 
 // Collapsible sections — both open by default.
 const showGroupMarks = ref(true)
@@ -298,15 +328,82 @@ const load = async () => {
 const candidatesResp = ref<FinalistCandidatesResponse | null>(null)
 const isLoadingCandidates = ref(false)
 
+const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// Above the table, as on the component pages: the groups that submitted, and
+// how many of them have every part they sent marked.
+const submittedCount = computed(
+  () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission).length
+)
+const fullyMarkedCount = computed(
+  () => (candidatesResp.value?.rows ?? []).filter((r) => r.has_submission && !r.incomplete.length).length
+)
+// And how many of the groups have been added as finalists.
+const finalistCount = computed(() => (candidatesResp.value?.rows ?? []).filter((r) => r.is_finalist).length)
+
+// The SAQ and Poster marks together: the released parts, as the marks
+// summary adds them up.
+const SAQ_POSTER = 'SAQ_POSTER'
+const saqPoster = (r: FinalistCandidateRow): string | null => {
+  const parts = [r.marks.SAQ, r.marks.POSTER].filter((mark): mark is string => mark != null)
+  return parts.length ? parts.reduce((sum, mark) => sum + Number(mark), 0).toFixed(2) : null
+}
+
+// A mark column per part, SAQ&P. straight after the poster's.
+const markColumns = computed(() =>
+  candidateComponents.value.flatMap((c) => {
+    const column = { key: c.code, label: c.code === 'PROTOTYPE' ? 'PRO.' : c.code, title: c.name }
+    return c.code === 'POSTER'
+      ? [column, { key: SAQ_POSTER, label: 'SAQ&P.', title: 'SAQ and Poster together' }]
+      : [column]
+  })
+)
+const markOf = (r: FinalistCandidateRow, key: string): string | null =>
+  key === SAQ_POSTER ? saqPoster(r) : key === 'total' ? r.total : (r.marks[key] ?? null)
+
+// Click a header to sort by it, again to reverse. Until then, the server's
+// order: highest total first. Group names sort as numbers do (BTF2 before
+// BTF10); marks start highest first, and a missing mark always sinks.
+const sort = ref<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+const toggleSort = (key: string) => {
+  sort.value =
+    sort.value?.key === key
+      ? { key, direction: sort.value.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: key === 'group' ? 'asc' : 'desc' }
+}
+// No column sorted yet: the table is told so, and leaves the server's order.
+const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
+const byName = (a: FinalistCandidateRow, b: FinalistCandidateRow) =>
+  a.group_name.localeCompare(b.group_name, undefined, { numeric: true, sensitivity: 'base' })
+
 // Live-filter the Group Marks table by the search text (group name),
 // matching the other marking tables.
 const candidates = computed(() => {
-  const rows = candidatesResp.value?.rows ?? []
+  const all = candidatesResp.value?.rows ?? []
   const q = groupQuery.value.trim().toLowerCase()
-  if (!q) return rows
-  return rows.filter((r) => r.group_name.toLowerCase().includes(q))
+  const rows = q ? all.filter((r) => r.group_name.toLowerCase().includes(q)) : all
+  const order = sort.value
+  if (!order) return rows
+  const sign = order.direction === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => {
+    if (order.key === 'group') return sign * byName(a, b)
+    const x = markOf(a, order.key)
+    const y = markOf(b, order.key)
+    if (x == null || y == null) return x == null && y == null ? byName(a, b) : x == null ? 1 : -1
+    return sign * (Number(x) - Number(y)) || byName(a, b)
+  })
 })
-const candidateComponents = computed(() => candidatesResp.value?.components ?? [])
+
+// Group Marks' columns: the group, late, a column per mark, the total and
+// the marker. Sorted by the page (toggleSort above), all but Late and Marker.
+const marksTableColumns = computed<DataTableColumn[]>(() => [
+  { key: 'group', label: 'Group' },
+  { key: 'late', label: 'Late', sortable: false },
+  ...markColumns.value.map((c) => ({ key: c.key, label: c.label, title: c.title })),
+  { key: 'total', label: 'Total' },
+  { key: 'marker', label: 'Marker', sortable: false }
+])
+const candidateOf = (row: Record<string, unknown>) => row as unknown as FinalistCandidateRow
 
 // The Group Marks ranking keyed by group, so the Current Finalists table
 // can show each finalist's total and marker.
@@ -317,16 +414,51 @@ const totalsByGroup = computed(
   () => new Map((candidatesResp.value?.rows ?? []).map((r) => [r.group_id, r.total]))
 )
 
-// The optional parts: one a team sent that still has unmarked criteria gets
-// an asterisk, after its mark so far or alone when nothing is marked yet; a
-// dash is left for parts never submitted.
-const OPTIONAL_PARTS = new Set(['REPORT', 'PROTOTYPE'])
-const notMarkedCompletely = (r: FinalistCandidateRow, code: string) =>
-  OPTIONAL_PARTS.has(code) && r.incomplete.includes(code)
-// The key above the table, whenever there is a column the asterisk can appear in.
-const showsIncompleteKey = computed(() =>
-  candidateComponents.value.some((c) => OPTIONAL_PARTS.has(c.code))
+// Current Finalists' columns, none sorted: # is the order they were picked.
+const finalistColumns: DataTableColumn[] = [
+  { key: 'order', label: '#', sortable: false },
+  { key: 'group', label: 'Group', sortable: false },
+  { key: 'flaggedAt', label: 'Flagged at', sortable: false },
+  { key: 'flaggedBy', label: 'Flagged by', sortable: false },
+  { key: 'late', label: 'Late', sortable: false },
+  { key: 'total', label: 'Total', sortable: false },
+  { key: 'marker', label: 'Marker', sortable: false }
+]
+
+const flaggedAtText = (at: string) => {
+  const when = new Date(at)
+  const date = when.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  const time = when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  return `${date} ${time}`
+}
+
+// Each finalist as a table row: plain text for search, and the finalist itself
+// for the cells drawn here.
+const finalistRows = computed(() =>
+  finalistsInOrder.value.map((f, i) => {
+    const candidate = candidatesByGroup.value.get(f.group_id)
+    return {
+      id: f.group_id,
+      finalist: f,
+      order: finalistsInOrder.value.length - i,
+      group: f.group_name,
+      flaggedAt: flaggedAtText(f.flagged_at),
+      flaggedBy: f.flagged_by ?? '—',
+      late: candidate?.is_late ? candidate.late_by || 'Late' : '—',
+      total: totalsByGroup.value.get(f.group_id) ?? '—',
+      marker: candidate?.markers[0] ?? '—'
+    }
+  })
 )
+const finalistOf = (row: Record<string, unknown>) => row.finalist as FinalistRow
+const candidateFor = (row: Record<string, unknown>) => candidatesByGroup.value.get(finalistOf(row).group_id)
+
+// A part a team sent that still has unmarked criteria gets an asterisk, after
+// its mark so far or alone when nothing is marked yet; a dash is left for
+// parts never submitted. SAQ&P. and the total never get one.
+const notMarkedCompletely = (r: FinalistCandidateRow, key: string) => r.incomplete.includes(key)
+// The key above the table, whenever a group has a part not fully marked.
+const showsIncompleteKey = computed(() => (candidatesResp.value?.rows ?? []).some((r) => r.incomplete.length))
 
 // One line per rubric criterion ("SAQ 1: Ada") with whoever last marked it;
 // falls back to the flat marker list when no per-criterion data exists.
@@ -352,12 +484,20 @@ onMounted(() => {
   void loadCandidates()
 })
 
+// After adding or removing: both tables update in place, without the
+// Loading… that replaces them, so the page keeps its place.
+const refreshInPlace = async () => {
+  const [finalistList, candidateList] = await Promise.all([fetchFinalists(), fetchFinalistCandidates()])
+  list.value = finalistList
+  candidatesResp.value = candidateList
+}
+
 const addFromRow = async (id: number) => {
   actionError.value = ''
   isMutating.value = true
   try {
     await addFinalist(id)
-    await Promise.all([load(), loadCandidates()])
+    await refreshInPlace()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -373,7 +513,7 @@ const remove = async (id: number) => {
   isMutating.value = true
   try {
     await removeFinalist(id)
-    await Promise.all([load(), loadCandidates()])
+    await refreshInPlace()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -388,10 +528,6 @@ const remove = async (id: number) => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.finalists__list-title {
-  margin-bottom: 0.5rem;
 }
 
 .finalists__collapse-btn {
@@ -422,57 +558,10 @@ const remove = async (id: number) => {
   margin-bottom: 0.75rem;
 }
 
-.finalists__form {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.finalists__picker {
-  width: 100%;
-}
-
-/* Search card sits flush on the Group Marks table — same outline treatment
-   as the other marking tables: table border instead of the card shadow,
-   square shared edge, the table's own top border draws the divider. */
-.finalists__search-card,
-.finalists__search-card:hover {
-  padding: 1rem;
-  margin-bottom: 0;
-  border: 1px solid var(--border-light);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  box-shadow: none;
-  /* Search on the left, the asterisk key on the right, both on the bottom line. */
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem 1rem;
-}
-
-.finalists__search-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  /* Same width as the By Component page's search box. */
-  flex: 0 1 252px;
-  max-width: 252px;
-}
-
 .finalists__legend {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.85rem;
-}
-
-.finalists__search-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 /* Remove-finalist confirm — same treatment as the Extend Deadline popups. */
@@ -504,7 +593,7 @@ const remove = async (id: number) => {
 .finalists__dialog-body {
   margin: 0 0 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalists__dialog-actions {
@@ -530,58 +619,44 @@ const remove = async (id: number) => {
   margin-bottom: 0.5rem;
 }
 
-.finalists__scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--surface-elevated);
+/* The details rows size to the visible width of Group Marks (cqw). */
+.finalists__marks-table :deep(.data-table-wrap) {
+  container-type: inline-size;
 }
 
-/* The Group Marks table joins the search card above it. */
-.finalists__scroll--flush {
-  border-radius: 0 0 8px 8px;
+/* Held in view while the table scrolls sideways, and as wide as the
+   visible part of it less the cell's indent, so long text wraps there. */
+.finalists__details {
+  position: sticky;
+  left: 1.25rem;
+  max-width: calc(100cqw - 2.5rem);
+  font-size: 0.85rem;
 }
 
-.finalists__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
+.finalists__detail-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.5rem;
 }
 
-.finalists__table th,
-.finalists__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
+/* The value wraps beside its label, its lines lined up after the colon. */
+.finalists__detail {
+  display: flex;
+  gap: 0.3rem;
+  min-width: 0;
 }
 
-.finalists__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.finalists__detail > :first-child {
+  flex: none;
 }
 
-.finalists__table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.finalists__empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 1.5rem 0.75rem;
+.finalists__detail > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .finalists__cell--strong {
   font-weight: 600;
-}
-
-/* Scoped under the table selector so this outweighs the generic th/td rule
-   that sets text-align: left. */
-.finalists__table .finalists__cell--right {
-  text-align: right;
 }
 
 .finalists__muted {
@@ -607,9 +682,11 @@ const remove = async (id: number) => {
   color: var(--text-muted);
 }
 
+/* Beside the Marker heading, in the heading's own colour. */
 .finalists__marker-info {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: inherit;
+  opacity: 0.8;
   margin-left: 0.2rem;
   position: relative;
 }

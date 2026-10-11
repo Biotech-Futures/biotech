@@ -3,6 +3,7 @@ The shared system email path: toggles, merge tags, rendering and sending.
 Run with: python manage.py test tests.apps.services.test_system_email
 """
 
+import re
 from datetime import datetime, timezone as dt_timezone
 from unittest import mock
 
@@ -20,6 +21,7 @@ from apps.services.system_email import (
     is_email_enabled,
     render_system_email,
     send_system_email,
+    sender_for,
 )
 
 RESET_CONTEXT = {
@@ -31,6 +33,42 @@ RESET_CONTEXT = {
 
 def disable_globally():
     SystemEmailSettings.objects.create(emails_enabled=False)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_CONNECT_HOST="smtp.connect.test",
+    EMAIL_CONNECT_HOST_USER="global@biotechfutures.org",
+)
+class SenderTests(TestCase):
+    """Each email goes from the mailbox picked for it on System Emails,
+    signed in as that mailbox."""
+
+    def test_each_type_starts_from_its_default(self):
+        self.assertEqual(sender_for("password_reset").key, "info")
+        self.assertEqual(sender_for("password_reset").address, "info@biotechfutures.org")
+        # The chat digest has its own mailbox.
+        self.assertEqual(sender_for("unread_messages").key, "connect")
+        self.assertEqual(sender_for("unread_messages").connection["username"], "global@biotechfutures.org")
+        # A key System Emails doesn't know goes from info@.
+        self.assertEqual(sender_for("not_an_email").key, "info")
+
+    def test_the_one_picked_is_used_and_a_stale_choice_falls_back(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        self.assertEqual(sender_for("password_reset").key, "connect")
+        # A sender since taken out of settings: back to the default.
+        SystemEmailTemplate.objects.filter(key="password_reset").update(sender="gone")
+        self.assertEqual(sender_for("password_reset").key, "info")
+
+    def test_it_sends_from_and_signs_in_as_the_one_picked(self):
+        SystemEmailTemplate.objects.create(key="password_reset", sender="connect")
+        from django.core.mail import get_connection as real_get_connection
+
+        with mock.patch("apps.services.system_email.get_connection", wraps=real_get_connection) as connect:
+            self.assertEqual(send_system_email("password_reset", "user@example.com", RESET_CONTEXT), SENT)
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+        self.assertEqual(connect.call_args.kwargs["username"], "global@biotechfutures.org")
+        self.assertEqual(connect.call_args.kwargs["host"], "smtp.connect.test")
 
 
 class ToggleTests(TestCase):
@@ -259,3 +297,60 @@ class HtmlToTextTests(TestCase):
 
     def test_unescapes_entities(self):
         self.assertEqual(html_to_text("<p>Tom &amp; Jerry &mdash; hi</p>"), "Tom & Jerry — hi")
+
+
+class CleanEmailBodyTests(TestCase):
+    HTML = (
+        '<!--[if mso]><v:roundrect href="https://x.test"></v:roundrect><![endif]-->'
+        '<h1 class="headline" style="color:#1a2e23">Title</h1>'
+        '<div class="email-box" style="border:1px solid #d8e1dc">Box</div>'
+    )
+
+    def test_an_email_keeps_its_comments_and_class_names(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(self.HTML)
+        self.assertIn("<!--[if mso]>", cleaned)
+        self.assertIn('<h1 class="headline" style="color:#1a2e23">', cleaned)
+
+    def test_the_site_look_keeps_only_boxes_and_buttons(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(self.HTML, site_look=True)
+        self.assertNotIn("<!--", cleaned)
+        self.assertIn("<h1>Title</h1>", cleaned)
+        self.assertIn('<div class="email-box" style="border:1px solid #d8e1dc">', cleaned)
+
+    def test_a_plain_background_colour_is_kept_and_an_image_is_not(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(
+            '<a class="cta-link" href="https://x.test" style="background:#C3EBCA; color:#007253">Go</a>'
+            '<div style="background: url(https://tracker.test/x.png); color:red">Box</div>'
+            "<p>background: #fff, said in the text</p>"
+        )
+        self.assertIn('style="background-color:#C3EBCA;color:#007253"', cleaned)
+        self.assertNotIn("url(", cleaned)
+        self.assertIn("<p>background: #fff, said in the text</p>", cleaned)
+
+    def test_saving_a_template_unchanged_keeps_every_background_colour(self):
+        # Saving without touching the body sends the template's own HTML,
+        # which writes its fills as `background:`.
+        from apps.admin.services.system_email import _default_body
+        from apps.services.email_registry import EMAIL_TYPES
+        from apps.services.system_email import clean_email_body
+
+        for email_type in EMAIL_TYPES:
+            body = re.sub(r"<!--.*?-->", "", _default_body(email_type), flags=re.S)
+            fills = len(re.findall(r"background(?:-color)?\s*:", body))
+            with self.subTest(email_type.key):
+                self.assertEqual(len(re.findall(r"background-color:", clean_email_body(body))), fills)
+
+    def test_inline_code_keeps_its_look(self):
+        from apps.services.system_email import clean_email_body
+
+        cleaned = clean_email_body(
+            '<p><code style="background-color:#f3f4f6; padding:2px 4px; font-family:Menlo, monospace">BTF-42</code></p>'
+        )
+        for kept in ('<code style="background-color:#f3f4f6;', 'padding:2px 4px;', 'monospace'):
+            self.assertIn(kept, cleaned)

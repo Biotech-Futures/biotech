@@ -17,8 +17,82 @@ from apps.grading.models import Grade, GradingJob, GroupMarkingCategories
 from apps.grading.services import zip as zip_service
 from apps.grading.services.content import ComponentEntry
 from apps.grading.services.xlsx import build_saq_xlsx
+from apps.submissions.models import Submission
 
 from .fixtures import _GradingFixture
+
+
+class SaqPdfTests(SimpleTestCase):
+    """One group's SAQ answers as a PDF: its name and title, then each
+    question with its answer; characters its fonts can't draw become "?"."""
+
+    def test_its_name_title_and_each_question_with_its_answer(self):
+        from pypdf import PdfReader
+
+        entry = ComponentEntry(
+            submission_id=1, group_id=1, group_name="BTF07", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="", link="",
+            answers=(("What problem?", "Caf\u00e9 owners\u2019 waste \u2013 \u201creal\u201d"), ("Emoji?", "\U0001f9ea yes")),
+            project_title="Plant Sensors",
+        )
+        text = PdfReader(io.BytesIO(zip_service.saq_pdf(entry))).pages[0].extract_text()
+        # The group's name alone, then "Title: ", then the questions unnumbered.
+        self.assertTrue(text.startswith("Title: Plant Sensors\nWhat problem?\n"), text[:80])
+        for expected in ("Caf\u00e9 owners\u2019 waste \u2013 \u201creal\u201d", "\nEmoji?\n", "? yes"):
+            self.assertIn(expected, text)
+        self.assertNotIn("BTF07", text)
+        self.assertNotIn("SAQs", text)
+        self.assertNotIn("1. ", text)
+
+
+class SaqAnswersInZipTests(SimpleTestCase):
+    def test_the_answers_come_as_a_pdf_under_the_project_title(self):
+        from pypdf import PdfReader
+
+        entry = ComponentEntry(
+            submission_id=1, group_id=1, group_name="BTF07", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="What problem?\nThis one.", link="",
+            answers=(("What problem?", "This one."),), project_title="Plant Sensors",
+        )
+        with mock.patch.object(zip_service, "current_cohort", return_value=2026):
+            payload = zip_service.build_submissions_zip([entry], group_folder=False)
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+        self.assertEqual(archive.namelist(), ["2026_BTF07_SAQs.pdf"])
+        text = PdfReader(io.BytesIO(archive.read("2026_BTF07_SAQs.pdf"))).pages[0].extract_text()
+        self.assertEqual(text, "Title: Plant Sensors\nWhat problem?\nThis one.")
+
+
+class ZipCompressionTests(SimpleTestCase):
+    """Files already compressed go in as they are; everything else, our text
+    files and unknown types included, is compressed."""
+
+    def test_each_file_goes_in_as_its_type_needs_and_comes_out_the_same(self):
+        payloads = {name: f"payload of {name} ".encode() * 200 for name in (
+            "poster.pdf", "photo.JPG", "slides.pptx", "bundle.zip", "demo.mp4", "model.stl", "data.weird", "noext",
+        )}
+        entries = [
+            ComponentEntry(
+                submission_id=i, group_id=i, group_name=f"G{i}", component_id=4, component_code="PROTOTYPE",
+                submitted_at=None, is_late=False, file={"storage_key": name, "name": name}, text="", link="",
+            )
+            for i, name in enumerate(payloads)
+        ]
+        entries.append(ComponentEntry(
+            submission_id=99, group_id=99, group_name="G99", component_id=1, component_code="SAQ",
+            submitted_at=None, is_late=False, file=None, text="Answers. " * 200, link="",
+            answers=(("Question?", "Answers. " * 200),),
+        ))
+        with mock.patch.object(zip_service, "open_file", side_effect=lambda e: io.BytesIO(payloads[e.file["name"]])), \
+                mock.patch.object(zip_service, "current_cohort", return_value=2026):
+            archive = zipfile.ZipFile(io.BytesIO(zip_service.build_submissions_zip(entries, group_folder=False)))
+        how = {info.filename.split("_", 2)[-1]: info.compress_type for info in archive.infolist()}
+        for stored in ("Prototype.pdf", "Prototype.JPG", "Prototype.pptx", "Prototype.zip", "Prototype.mp4", "SAQs.pdf"):
+            self.assertEqual(how[stored], zipfile.ZIP_STORED, stored)
+        for compressed in ("Prototype.stl", "Prototype.weird", "Prototype.bin"):
+            self.assertEqual(how[compressed], zipfile.ZIP_DEFLATED, compressed)
+        # Byte for byte either way.
+        self.assertEqual(archive.read("2026_G0_Prototype.pdf"), payloads["poster.pdf"])
+        self.assertEqual(archive.read("2026_G5_Prototype.stl"), payloads["model.stl"])
 
 
 class BuildSubmissionsZipTests(SimpleTestCase):
@@ -53,11 +127,12 @@ class BuildSubmissionsZipTests(SimpleTestCase):
                 raise FileNotFoundError(key)
             return io.BytesIO(blobs[key])
 
-        with mock.patch.object(zip_service, "open_file", side_effect=fake_open):
+        # Names carry the challenge year (current_cohort), not the calendar year.
+        year = 2031
+        with mock.patch.object(zip_service, "open_file", side_effect=fake_open),                 mock.patch.object(zip_service, "current_cohort", return_value=year):
             payload = zip_service.build_submissions_zip(entries, group_folder=False)
 
         zf = zipfile.ZipFile(io.BytesIO(payload))
-        year = timezone.now().year
         expected = []
         for entry in entries:
             stem = f"{year}_{entry.group_name}_Poster"
@@ -98,12 +173,15 @@ class GroupDownloadViewTests(_GradingFixture):
         # <Year>_<Group>_<Component> files at the archive root.
         year = timezone.now().year
         base = f"{year}_BTF-TEST-1"
-        self.assertIn(f"{base}_SAQs.txt", names)
+        self.assertIn(f"{base}_SAQs.pdf", names)
         self.assertIn(f"{base}_Prototype_Link.txt", names)
         # The fixture's poster storage key has no backing blob; the archive
         # notes it instead of failing.
         self.assertIn(f"{base}_Poster_MISSING.txt", names)
-        self.assertIn("Some student answers.", zf.read(f"{base}_SAQs.txt").decode())
+        from pypdf import PdfReader
+
+        saqs = PdfReader(io.BytesIO(zf.read(f"{base}_SAQs.pdf"))).pages[0].extract_text()
+        self.assertIn("Some student answers.", saqs)
         self.assertEqual(
             zf.read(f"{base}_Prototype_Link.txt").decode().strip(),
             "https://example.com/prototype",
@@ -115,7 +193,24 @@ class GroupDownloadViewTests(_GradingFixture):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
         year = timezone.now().year
-        self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.txt"])
+        self.assertEqual(names, [f"{year}_BTF-TEST-1_SAQs.pdf"])
+
+    def test_names_carry_the_challenge_year_while_its_deadline_is_current(self):
+        # January after a challenge: the calendar year has moved on, but last
+        # year's deadline is still the current one, so files keep its year.
+        from datetime import datetime
+
+        from apps.submissions.models import Deadline
+
+        last_year = timezone.now().year - 1
+        Deadline.objects.create(
+            closes_at=timezone.make_aware(datetime(last_year, 9, 25, 23, 59)), is_active=True,
+        )
+        url = reverse("grading:group-download", kwargs={"group_id": self.group.id}) + "?component=SAQ"
+        resp = self.client.get(url)
+        names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()
+        self.assertEqual(names, [f"{last_year}_BTF-TEST-1_SAQs.pdf"])
+        self.assertIn(f"{last_year}_BTF-TEST-1", resp["Content-Disposition"])
 
     def test_non_staff_denied(self):
         self.client.force_authenticate(self.non_staff)
@@ -140,10 +235,47 @@ class ComponentDownloadViewTests(_GradingFixture):
         job = GradingJob.objects.get(pk=job_id)
         self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
         self.assertTrue(job.result_url)
+        # Storage may add a suffix if the name is taken.
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs_TXT(_\w+)?\.zip$")
+        # SAQ's txt download: its answers as text files, under the title.
+        from django.core.files.storage import default_storage
+
+        with default_storage.open(job.result_url) as stored:
+            archive = zipfile.ZipFile(io.BytesIO(stored.read()))
+        self.assertEqual(archive.namelist(), [f"{timezone.now().year}_BTF-TEST-1_SAQs.txt"])
+        self.assertIn("Some student answers.", archive.read(archive.namelist()[0]).decode())
+
+    def test_saq_sheet_is_named_btf(self):
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "xlsx"}, format="json")
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs(_\w+)?\.xlsx$")
 
     def test_xlsx_only_for_saq(self):
         url = reverse("grading:component-download", kwargs={"code": "POSTER"})
         resp = self.client.post(url, {"format": "xlsx"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pdf_zips_each_groups_saq_answers_as_a_pdf(self):
+        from django.core.files.storage import default_storage
+        from pypdf import PdfReader
+
+        url = reverse("grading:component-download", kwargs={"code": "SAQ"})
+        resp = self.client.post(url, {"format": "pdf"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        job = GradingJob.objects.get(pk=resp.json()["job_id"])
+        self.assertEqual(job.status, GradingJob.STATUS_DONE, job.error)
+        self.assertRegex(job.result_url, rf"/{timezone.now().year}_BTF_SAQs_PDF(_\w+)?\.zip$")
+        with default_storage.open(job.result_url) as stored:
+            archive = zipfile.ZipFile(io.BytesIO(stored.read()))
+        self.assertEqual(archive.namelist(), [f"{timezone.now().year}_BTF-TEST-1_SAQs.pdf"])
+        text = PdfReader(io.BytesIO(archive.read(archive.namelist()[0]))).pages[0].extract_text()
+        self.assertNotIn("BTF-TEST-1", text)
+
+    def test_pdf_only_for_saq(self):
+        url = reverse("grading:component-download", kwargs={"code": "POSTER"})
+        resp = self.client.post(url, {"format": "pdf"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_bad_format_rejected(self):
@@ -156,6 +288,51 @@ class ComponentDownloadViewTests(_GradingFixture):
         url = reverse("grading:component-download", kwargs={"code": "SAQ"})
         resp = self.client.post(url, {"format": "zip"}, format="json")
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(GRADING_JOB_DISPATCH_SYNC=True)
+class GradingJobDirectDownloadTests(_GradingFixture):
+    """On Azure, a finished export's download is a redirect to a short-lived
+    signed link, so the browser fetches it straight from Azure."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.client.force_authenticate(self.staff)
+        self.job = GradingJob.objects.create(
+            kind=GradingJob.KIND_BULK_ZIP,
+            status=GradingJob.STATUS_DONE,
+            params={"kind": "all_zip"},
+            result_url="grading/jobs/1/2026_BTF_All.zip",
+        )
+
+    def test_it_redirects_to_a_signed_link_on_azure(self):
+        from apps.grading.views import download as download_views
+
+        with mock.patch.object(
+            download_views, "_direct_link", return_value="https://blob.example/2026_BTF_All.zip?sig=x",
+        ) as link:
+            resp = self.client.get(reverse("grading:job-download", kwargs={"pk": self.job.pk}))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "https://blob.example/2026_BTF_All.zip?sig=x")
+        # The content type is the system's name for a zip (it differs on Windows).
+        link.assert_called_once_with("grading/jobs/1/2026_BTF_All.zip", "2026_BTF_All.zip", mock.ANY)
+
+    def test_the_link_is_signed_short_lived_and_saves_under_its_name(self):
+        from apps.grading.views import download as download_views
+
+        class FakeAzure:
+            def url(self, name, expire=None, parameters=None):
+                return f"https://blob.example/{name}?expire={expire}&cd={parameters['content_disposition']}"
+
+        with mock.patch("storages.backends.azure_storage.AzureStorage", FakeAzure), \
+                mock.patch.object(download_views, "default_storage", FakeAzure()):
+            link = download_views._direct_link("grading/jobs/1/x.zip", "x.zip", "application/zip")
+        self.assertEqual(link, 'https://blob.example/grading/jobs/1/x.zip?expire=600&cd=attachment; filename="x.zip"')
+
+    def test_local_storage_streams_instead(self):
+        from apps.grading.views import download as download_views
+
+        self.assertIsNone(download_views._direct_link("grading/jobs/1/x.zip", "x.zip", "application/zip"))
 
 
 @override_settings(GRADING_JOB_DISPATCH_SYNC=True)
@@ -222,21 +399,24 @@ class SaqXlsxExportTests(_GradingFixture):
             solution_category="Other",
             solution_category_other="App",
         )
+        Submission.objects.filter(group=self.group).update(submitted_project_title="Plant Sensors")
         ws = load_workbook(io.BytesIO(self._export_xlsx())).active
         rows = list(ws.iter_rows(values_only=True))
         # One answered question and a two-criterion rubric.
         self.assertEqual(
             list(rows[0]),
-            ["year", "group_name", "type", "q1",
-             "r1_mark", "r1_comment", "r2_mark", "r2_comment",
-             "overall_comment", "product_category", "category_of_solution"],
+            ["year", "group_name", "type", "project_title", "q1",
+             "product_category", "category_of_solution",
+             "r1_mark", "r1_comment", "r2_mark", "r2_comment", "overall_comment"],
         )
         # One row per group.
         self.assertEqual(len(rows), 2)
-        (year, group_name, row_type, q1, r1_mark, r1_comment, r2_mark, r2_comment,
-         overall_comment, product_category, category_of_solution) = rows[1]
+        (year, group_name, row_type, project_title, q1, product_category, category_of_solution,
+         r1_mark, r1_comment, r2_mark, r2_comment, overall_comment) = rows[1]
         self.assertEqual(year, self.group.year)  # the team's challenge year
         self.assertEqual(group_name, "BTF-TEST-1")
+        # The title the team submitted.
+        self.assertEqual(project_title, "Plant Sensors")
         self.assertEqual(row_type, "SAQs")
         # The answer cell carries the answer under its question prompt.
         self.assertIn("Team answers", q1)
@@ -252,6 +432,25 @@ class SaqXlsxExportTests(_GradingFixture):
         # its place (no "Other:" prefix).
         self.assertEqual(product_category, "Health, Wearables")
         self.assertEqual(category_of_solution, "App")
+
+    def test_control_characters_pasted_from_word_are_cleaned_not_fatal(self):
+        # Word's Shift+Enter (a vertical tab) and page break (a form feed), and
+        # a stray control character, in every kind of text the sheet carries.
+        Submission.objects.filter(group=self.group).update(
+            submitted_project_title="Plant\x0cSensors",
+            submitted_answers={"q_answers": "Some\x0bstudent answers.\x01"},
+        )
+        Grade.objects.filter(criterion=self.saq_c1).update(comment="Great\x0bclaim.\x02")
+        GroupMarkingCategories.objects.create(
+            group=self.group, product_categories=["Other"], product_category_other="Wear\x01ables",
+        )
+        rows = list(load_workbook(io.BytesIO(self._export_xlsx())).active.iter_rows(values_only=True))
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(row["project_title"], "Plant Sensors")
+        self.assertIn("Some student answers.", row["q1"])
+        self.assertNotIn("\x01", row["q1"])
+        self.assertEqual(row["r1_comment"], "Great claim.")
+        self.assertEqual(row["product_category"], "Wearables")
 
     def test_export_round_trips_through_bulk_upload_without_a_diff(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -289,7 +488,10 @@ class SaqXlsxExportTests(_GradingFixture):
         )
         payload = self._export_xlsx()
         rows = list(load_workbook(io.BytesIO(payload)).active.iter_rows(values_only=True))
-        self.assertEqual(rows[1][-2:], ("Health and Medicine, Wearables, apps", "Other"))
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(
+            (row["product_category"], row["category_of_solution"]), ("Health and Medicine, Wearables, apps", "Other")
+        )
 
         upload = SimpleUploadedFile(
             "saq-export.xlsx", payload,
@@ -330,15 +532,30 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         # nobody answered gets no column.
         self.assertEqual(
             list(rows[0]),
-            ["year", "group_name", "type", "q1", "q2", "q3",
-             "overall_comment", "product_category", "category_of_solution"],
+            ["year", "group_name", "type", "project_title", "q1", "q2", "q3",
+             "product_category", "category_of_solution", "overall_comment"],
         )
-        answers = [[cell or None for cell in row[3:6]] for row in rows[1:]]
+        answers = [[cell or None for cell in row[4:7]] for row in rows[1:]]
         self.assertEqual(answers, [
             ["Q one\na1", "Q two\na2", None],
             [None, "Q two\nb2", None],
             ["Q one\nc1", None, "retired_key\nc9"],
         ])
+
+    def test_teams_come_in_natural_order(self):
+        # BTF2 before BTF10, as the Send Test Email list has them, not as text sorts.
+        entries = [
+            ComponentEntry(
+                submission_id=i, group_id=i, group_name=name,
+                component_id=1, component_code="SAQ",
+                submitted_at=None, is_late=False,
+                file=None, text="", link="", answers=(("Q one", name),),
+            )
+            for i, name in enumerate(["BTF10", "BTF2", "btf1", "BTF21"], start=1)
+        ]
+        rows = list(load_workbook(io.BytesIO(build_saq_xlsx(entries, questions=["Q one"]))).active
+                    .iter_rows(values_only=True))
+        self.assertEqual([row[1] for row in rows[1:]], ["btf1", "BTF2", "BTF10", "BTF21"])
 
     def test_layout_bold_questions_top_aligned_rows_fit_content(self):
         payload = build_saq_xlsx(
@@ -347,7 +564,7 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
         )
         ws = load_workbook(io.BytesIO(payload), rich_text=True).active
         # The question is bold; the answer below it is plain.
-        question, answer = ws["D2"].value
+        question, answer = ws["E2"].value
         self.assertEqual(question.text, "Q one")
         self.assertTrue(question.font.b)
         self.assertEqual(answer, "\na1")
@@ -356,13 +573,14 @@ class SaqXlsxQuestionColumnsTests(SimpleTestCase):
             {cell.alignment.vertical for row in ws.iter_rows() for cell in row}, {"top"}
         )
         # Question columns are 43 wide.
-        self.assertEqual(ws.column_dimensions["D"].width, 43)
-        # Comment columns (rN_comment, overall_comment) and both category
-        # columns are 30 wide and wrap; the group name keeps the default width.
+        self.assertEqual(ws.column_dimensions["E"].width, 43)
+        # Comment columns (rN_comment, overall_comment), the title and both
+        # category columns are 30 wide and wrap; the group name keeps the
+        # default width.
         headers = [cell.value for cell in ws[1]]
         for index, header in enumerate(headers, start=1):
             letter = get_column_letter(index)
-            if header.endswith("comment") or header in ("product_category", "category_of_solution"):
+            if header.endswith("comment") or header in ("project_title", "product_category", "category_of_solution"):
                 self.assertEqual(ws.column_dimensions[letter].width, 30)
                 self.assertTrue(ws[f"{letter}2"].alignment.wrap_text, header)
         self.assertNotIn("B", ws.column_dimensions)

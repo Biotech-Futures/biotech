@@ -74,6 +74,9 @@ class AnnouncementViewSet(
         if group_ids:
             audience_filter |= Q(audiences__group_id__in=group_ids)
 
+        # Announcements for some people only, this user among them.
+        audience_filter |= Q(audiences__user=user)
+
         return queryset.filter(Q(archived_at__isnull=True), audience_filter).distinct().order_by("-published_at")
 
     def perform_create(self, serializer):

@@ -32,6 +32,7 @@ const mountPreview = (props: Record<string, unknown>) =>
 
 beforeEach(() => {
   Element.prototype.setPointerCapture = vi.fn()
+  window.localStorage.clear()
 })
 
 describe('what is shown for each submission shape', () => {
@@ -72,7 +73,10 @@ describe('what is shown for each submission shape', () => {
       submission: submission({ file_url: '/media/posters/entry.pdf', file_name: 'entry.pdf' })
     })
     const frame = wrapper.find('iframe')
-    expect(frame.attributes('src')).toContain('/media/posters/entry.pdf#navpanes=0&pagemode=none')
+    // Fitted to the frame's width, so it re-fits as the dividers are dragged.
+    expect(frame.attributes('src')).toContain(
+      '/media/posters/entry.pdf#navpanes=0&pagemode=none&view=FitH&zoom=page-width'
+    )
     expect(wrapper.text()).toContain('Open')
     expect(wrapper.text()).toContain('Download')
   })
@@ -163,16 +167,53 @@ describe('the submitted stamp and markers', () => {
 })
 
 describe('resizing blocks by keyboard', () => {
+  // The report's PDF has a height handle; the A2 poster's doesn't.
+  const report = component({ code: 'REPORT', name: 'Scientific Report' })
+  const pdf = { component: report, submission: submission({ file_url: '/media/x.pdf' }) }
+
   it('grows and shrinks the PDF frame, never below the minimum', async () => {
-    const wrapper = mountPreview({
-      submission: submission({ file_url: '/media/x.pdf' })
-    })
+    const wrapper = mountPreview(pdf)
     const handle = wrapper.find('[aria-label="Resize preview height"]')
     await handle.trigger('keydown', { key: 'ArrowDown' })
     expect(wrapper.find('iframe').attributes('style')).toContain('height: 40px')
     await handle.trigger('keydown', { key: 'ArrowUp' })
     // Shrinking clamps to the minimum block height, not zero.
     expect(wrapper.find('iframe').attributes('style')).toContain('height: 240px')
+  })
+
+  it('the A2 poster has no height handle, and keeps its own height', async () => {
+    window.localStorage.setItem('grading-height:POSTER:frame', '500')
+    const wrapper = mountPreview({ submission: submission({ file_url: '/media/x.pdf' }) })
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="Resize preview height"]').exists()).toBe(false)
+    // A height saved before is ignored, and doesn't count as moved.
+    expect(wrapper.find('iframe').attributes('style')).toBeUndefined()
+    expect((wrapper.vm as unknown as { moved: boolean }).moved).toBe(false)
+  })
+
+  it("a height is remembered for that component's frame, as when Next loads another group", async () => {
+    const first = mountPreview(pdf)
+    const handle = first.find('[aria-label="Resize preview height"]')
+    await handle.trigger('keydown', { key: 'ArrowDown' })
+    await handle.trigger('keydown', { key: 'ArrowUp' })
+    first.unmount()
+    expect(mountPreview(pdf).find('iframe').attributes('style')).toContain('height: 240px')
+    // Another view of it keeps its own.
+    const elsewhere = mountPreview({ ...pdf, memory: 'elsewhere:REPORT' })
+    expect(elsewhere.find('iframe').attributes('style')).toBeUndefined()
+  })
+
+  it('says once a height was changed, and reset puts both back and forgets them', async () => {
+    const wrapper = mountPreview(pdf)
+    const preview = wrapper.vm as unknown as { moved: boolean; reset: () => void }
+    expect(preview.moved).toBe(false)
+    await wrapper.find('[aria-label="Resize preview height"]').trigger('keydown', { key: 'ArrowDown' })
+    expect(preview.moved).toBe(true)
+    preview.reset()
+    await wrapper.vm.$nextTick()
+    expect(preview.moved).toBe(false)
+    expect(wrapper.find('iframe').attributes('style')).toBeUndefined()
+    expect(window.localStorage.getItem('grading-height:REPORT:frame')).toBeNull()
   })
 
   it('the answers block shares the same mechanic', async () => {

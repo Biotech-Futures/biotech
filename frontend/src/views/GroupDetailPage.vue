@@ -1,7 +1,12 @@
 
 
 <template>
-  <div class="content-area group-detail" :data-active="activeTab" :aria-busy="isLoadingGroupDetail">
+  <div
+    class="content-area group-detail"
+    :class="{ 'group-detail--section': onSectionPage }"
+    :data-active="activeTab"
+    :aria-busy="isLoadingGroupDetail"
+  >
     <div v-if="isLoadingGroupDetail" class="group-detail-loading" role="status" aria-live="polite">
       <span class="sr-only">Loading group details...</span>
       <div class="group-hero-card group-loading-hero">
@@ -78,10 +83,33 @@
               </div>
             </div>
             <div>
-              <h2 class="gd-title">{{ group.name }}</h2>
-              <p class="gd-subtitle">{{ groupSubtitle }}</p>
-              <div v-if="groupMetaItems.length" class="gd-meta-row">
-                <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+              <!-- The name, with the Mentor chip to its right. -->
+              <div class="gd-title-line">
+                <!-- The name is a dropdown of the user's groups (an admin's is
+                     every group): picking one opens it on the same section. -->
+                <h2 class="gd-title">
+                  <!-- The name shows at title size; an invisible dropdown lies
+                       over it, so its list opens at normal size, as the other
+                       dropdowns do, rather than at the title's. -->
+                  <span v-if="availableGroups.length > 1" class="gd-title-picker">
+                    <span>{{ group.name }}</span>
+                    <i class="fas fa-chevron-down gd-title-picker__icon" aria-hidden="true"></i>
+                    <select
+                      class="gd-title-picker__select"
+                      aria-label="Group"
+                      :value="routeGroupId"
+                      @change="switchGroup"
+                    >
+                      <option v-for="option in availableGroups" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
+                  </span>
+                  <template v-else>{{ group.name }}</template>
+                </h2>
+                <div v-if="groupMetaItems.length" class="gd-meta-row">
+                  <span v-for="item in groupMetaItems" :key="item">{{ item }}</span>
+                </div>
               </div>
               <p v-if="neverLoggedInNotice" class="gd-onboarding-notice">
                 <i class="fas fa-circle-info"></i>
@@ -90,6 +118,8 @@
             </div>
           </div>
           <div class="gd-head-actions">
+            <!-- "Group since 24 Sept 2026", beside the Members button. -->
+            <p class="gd-subtitle gd-subtitle--beside-members">{{ groupSubtitle }}</p>
             <button
               type="button"
               class="group-members-btn"
@@ -887,7 +917,7 @@
                       ? 'Fetching latest messages'
                       : (wsConnectionState === 'connected'
                           ? 'Realtime updates active'
-                          : 'Realtime updates unavailable — click Reconnect to retry')
+                          : 'Realtime updates unavailable - click Reconnect to retry')
                   "
                 >
                   <i
@@ -1105,7 +1135,7 @@
               >
                 <span class="chat-empty-emoji" aria-hidden="true">👋</span>
                 <strong>It's quiet here</strong>
-                <span>Be the first to say hi — start the conversation below.</span>
+                <span>Be the first to say hi - start the conversation below.</span>
                 <button type="button" class="btn btn-outline btn-sm" @click="composer?.focus()">
                   <i class="fas fa-pen"></i> Write a message
                 </button>
@@ -1785,6 +1815,10 @@ import {
 } from '@/utils/tasksAPI'
 
 const route = useRoute()
+// Submission, Finalist or Results open: the page scrolls as a whole, rather
+// than holding the group's card and tabs while the section scrolls below.
+const SECTION_ROUTES = ['group-submission', 'group-finalist', 'group-results']
+const onSectionPage = computed(() => SECTION_ROUTES.includes(String(route.name)))
 const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
@@ -2145,11 +2179,10 @@ const groupInitials = computed(() => {
   return initials.slice(0, 2) || 'G'
 })
 
+// The member count shows on the Members button beside it.
 const groupSubtitle = computed(() => {
-  const memberCount = Number(group.value?.members || 0)
-  const memberLabel = memberCount === 1 ? '1 member' : `${memberCount} members`
   const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
-  return `${memberLabel} - Group since ${createdLabel}`
+  return `Group since ${createdLabel}`
 })
 
 const myGroupRole = computed(() => {
@@ -2429,6 +2462,14 @@ const loadGroupOptions = async () => {
     groupOptionsError.value = auth.isAdmin ? 'No groups available' : 'No groups assigned'
   }
   isLoadingGroupOptions.value = false
+}
+
+const switchGroup = (event) => {
+  const id = event.target.value
+  if (!id || id === routeGroupId.value) return
+  // Stays on the section open (Submission, Finalist or Results).
+  const name = onSectionPage.value ? String(route.name) : 'group-detail'
+  void router.push({ name, params: { id } })
 }
 
 const loadGroupMembers = async () => {
@@ -5905,6 +5946,8 @@ const reloadGroupDetail = async () => {
 watch(routeGroupId, async () => {
   await reloadGroupDetail()
   await loadMentions()
+  // A group opened from outside the list still shows in the dropdown.
+  void loadGroupOptions()
 })
 
 watch(
@@ -6027,6 +6070,8 @@ onMounted(async () => {
     // App.vue's sidebar already pulls /groups/ + /group-members/ for the
     // switcher rail — re-fetching the same data here is pure waste.
     await reloadGroupDetail()
+    // The header's dropdown; the list is the store's, shared with the sidebar.
+    void loadGroupOptions()
   } else {
     // No route id: only path that needs the group list, to pick a
     // fallback to redirect into.
@@ -6085,7 +6130,7 @@ onBeforeUnmount(() => {
 }
 .gd-title {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .gd-subtitle {
   color: #6c757d;
@@ -6116,10 +6161,18 @@ onBeforeUnmount(() => {
 }
 .gd-head-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.35rem;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
   min-width: 180px;
+}
+
+/* The member count and start date, to the left of the Members button. */
+.gd-head-actions .gd-subtitle--beside-members {
+  margin: 0;
+  text-align: right;
 }
 .group-members-btn {
   display: inline-flex;
@@ -6186,7 +6239,7 @@ onBeforeUnmount(() => {
 
 .group-members-dialog-header h3 {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.05rem;
 }
 
@@ -6251,7 +6304,7 @@ onBeforeUnmount(() => {
 }
 
 .group-member-copy strong {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
 }
 
@@ -6279,7 +6332,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: none;
   padding: 0.5rem 0.25rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 500;
   border-bottom: 3px solid transparent;
   cursor: pointer;
@@ -6379,11 +6432,11 @@ onBeforeUnmount(() => {
 .task-mode-toggle:hover {
   background: #f4f7f9;
   border-color: var(--air-force-blue);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-mode-toggle.is-active {
-  background: var(--air-force-blue, #39687b);
-  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
+  border-color: var(--air-force-blue, #26697d);
   color: #fff;
 }
 
@@ -6424,13 +6477,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 .task-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
 }
 
 .task-toolbar-controls {
@@ -6461,12 +6514,12 @@ onBeforeUnmount(() => {
 .task-toolbar-sort select:hover {
   border-color: var(--air-force-blue);
   background: #f4f7f9;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-toolbar-btn.has-active {
   border-color: var(--air-force-blue);
-  background: rgba(57, 104, 123, 0.08);
-  color: var(--charcoal);
+  background: rgba(38, 105, 125, 0.08);
+  color: var(--teal);
 }
 
 .task-filter-popover { position: relative; }
@@ -6478,7 +6531,7 @@ onBeforeUnmount(() => {
   height: 18px;
   padding: 0 0.35rem;
   border-radius: 999px;
-  background: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
   color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
@@ -6506,7 +6559,7 @@ onBeforeUnmount(() => {
 .task-filter-row input[type='date'],
 .task-filter-row .app-date-picker-wrapper {
   width: 100%;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 .task-filter-row {
@@ -6524,7 +6577,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 .task-filter-row--checkbox {
@@ -6533,7 +6586,7 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
   font-size: 0.82rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-filter-panel-footer {
   display: flex;
@@ -6559,7 +6612,7 @@ onBeforeUnmount(() => {
 .task-filter-close:hover {
   border-color: var(--air-force-blue);
   background: #f4f7f9;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-filter-clear:disabled {
   cursor: not-allowed;
@@ -6628,7 +6681,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -6703,8 +6756,8 @@ onBeforeUnmount(() => {
 .task-item:last-child { border-bottom: 0; border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
 .task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
 .task-item.is-selected {
-  background: rgba(57, 104, 123, 0.08);
-  box-shadow: inset 3px 0 0 var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.08);
+  box-shadow: inset 3px 0 0 var(--air-force-blue, #26697d);
 }
 .task-item.is-complete .task-label {
   color: #94a3a8;
@@ -6758,10 +6811,10 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, color 120ms ease, transform 160ms ease;
 }
 .task-collapse i { font-size: 0.78rem; transition: transform 160ms ease; }
-.task-collapse:hover { background: rgba(0, 0, 0, 0.05); color: var(--charcoal); }
+.task-collapse:hover { background: rgba(0, 0, 0, 0.05); color: var(--teal); }
 .task-collapse:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-collapse.is-collapsed i { transform: rotate(-90deg); }
 
@@ -6797,9 +6850,9 @@ onBeforeUnmount(() => {
 .task-state:hover:not(:disabled) { filter: brightness(0.96); }
 .task-state:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
-.task-state.is-open { box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.18); }
+.task-state.is-open { box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.18); }
 
 .task-state.is-disabled,
 .task-state:disabled {
@@ -6851,8 +6904,8 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 .task-state-menu-item:hover { background: #f4f7f9; }
-.task-state-menu-item.is-current { background: rgba(57, 104, 123, 0.08); }
-.task-state-menu-check { margin-left: auto; color: var(--air-force-blue, #39687b); }
+.task-state-menu-item.is-current { background: rgba(38, 105, 125, 0.08); }
+.task-state-menu-check { margin-left: auto; color: var(--air-force-blue, #26697d); }
 
 /* Selection box (only shown in select mode) */
 .task-select-box {
@@ -6873,16 +6926,16 @@ onBeforeUnmount(() => {
 }
 .task-select-box i { font-size: 0.7rem; }
 .task-select-box:hover:not(:disabled) {
-  border-color: var(--air-force-blue, #39687b);
-  background: rgba(57, 104, 123, 0.08);
+  border-color: var(--air-force-blue, #26697d);
+  background: rgba(38, 105, 125, 0.08);
 }
 .task-select-box.is-selected {
-  border-color: var(--air-force-blue, #39687b);
-  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #26697d);
+  background: var(--air-force-blue, #26697d);
 }
 .task-select-box:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-select-box:disabled {
   cursor: not-allowed;
@@ -6903,7 +6956,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .task-label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
   font-weight: 600;
   line-height: 1.3;
@@ -6940,8 +6993,8 @@ onBeforeUnmount(() => {
   color: #8c1f1f;
 }
 .task-chip--assignee {
-  background: rgba(57, 104, 123, 0.1);
-  color: var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.1);
+  color: var(--air-force-blue, #26697d);
 }
 .task-chip--assignee.is-self {
   background: rgba(77, 116, 94, 0.18);
@@ -6961,8 +7014,8 @@ onBeforeUnmount(() => {
   padding: 0.2rem 0.6rem;
   border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(57, 104, 123, 0.1);
-  color: var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.1);
+  color: var(--air-force-blue, #26697d);
   font: inherit;
   font-size: 0.74rem;
   font-weight: 700;
@@ -6978,12 +7031,12 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .task-assignee:hover {
-  background: rgba(57, 104, 123, 0.18);
+  background: rgba(38, 105, 125, 0.18);
   transform: translateY(-1px);
 }
 .task-assignee:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-assignee.is-self {
   background: rgba(77, 116, 94, 0.18);
@@ -6993,8 +7046,8 @@ onBeforeUnmount(() => {
   background: rgba(77, 116, 94, 0.3);
 }
 .task-assignee.is-active {
-  border-color: var(--air-force-blue, #39687b);
-  background: rgba(57, 104, 123, 0.22);
+  border-color: var(--air-force-blue, #26697d);
+  background: rgba(38, 105, 125, 0.22);
 }
 .task-assignee.is-self.is-active {
   border-color: var(--dark-green, #4d745e);
@@ -7063,11 +7116,11 @@ onBeforeUnmount(() => {
 .task-icon-btn:hover:not(:disabled) {
   background: #f1f3f5;
   border-color: var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-icon-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-icon-btn--danger:hover:not(:disabled) {
   background: #fdecec;
@@ -7099,10 +7152,10 @@ onBeforeUnmount(() => {
   gap: 0.4rem;
   margin-top: 0.4rem;
   padding: 0.45rem 0.85rem;
-  border: 1px dashed var(--air-force-blue, #39687b);
+  border: 1px dashed var(--air-force-blue, #26697d);
   border-radius: 999px;
   background: transparent;
-  color: var(--air-force-blue, #39687b);
+  color: var(--air-force-blue, #26697d);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 700;
@@ -7110,7 +7163,7 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, color 120ms ease;
 }
 .task-empty-cta:hover {
-  background: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
   color: #fff;
 }
 
@@ -7265,7 +7318,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-dialog-title i {
   width: 28px;
@@ -7273,8 +7326,8 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(57, 104, 123, 0.1);
-  color: var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.1);
+  color: var(--air-force-blue, #26697d);
   border-radius: 8px;
   font-size: 0.82rem;
 }
@@ -7298,11 +7351,11 @@ onBeforeUnmount(() => {
 }
 .task-dialog-close:hover {
   background: #f4f7f9;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-dialog-close:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 
 .task-dialog-body {
@@ -7323,12 +7376,12 @@ onBeforeUnmount(() => {
   background: transparent;
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
   outline: none;
   transition: border-color 120ms ease;
 }
 .task-dialog-title-input::placeholder { color: #a3adb3; font-weight: 600; }
-.task-dialog-title-input:focus { border-bottom-color: var(--air-force-blue, #39687b); }
+.task-dialog-title-input:focus { border-bottom-color: var(--air-force-blue, #26697d); }
 
 .task-dialog-description-input {
   width: 100%;
@@ -7336,7 +7389,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fafbfc;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.88rem;
   resize: vertical;
@@ -7346,9 +7399,9 @@ onBeforeUnmount(() => {
 .task-dialog-description-input::placeholder { color: #a3adb3; }
 .task-dialog-description-input:focus {
   outline: none;
-  border-color: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #26697d);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
 }
 
 .task-dialog-field {
@@ -7380,15 +7433,15 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.88rem;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .task-dialog-input:focus {
   outline: none;
-  border-color: var(--air-force-blue, #39687b);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  border-color: var(--air-force-blue, #26697d);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
 }
 .task-dialog-readonly {
   padding: 0.4rem 0.65rem;
@@ -7428,15 +7481,15 @@ onBeforeUnmount(() => {
 .task-segmented-option i { font-size: 0.78rem; opacity: 0.7; }
 .task-segmented-option:hover:not(:disabled):not(.is-active) {
   background: rgba(255, 255, 255, 0.6);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-segmented-option:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-segmented-option.is-active {
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 .task-segmented-option.is-active i { opacity: 1; }
@@ -7497,16 +7550,16 @@ onBeforeUnmount(() => {
 }
 .task-dialog-btn:hover:not(:disabled) {
   background: #f4f7f9;
-  border-color: var(--air-force-blue, #39687b);
-  color: var(--charcoal);
+  border-color: var(--air-force-blue, #26697d);
+  color: var(--teal);
 }
 .task-dialog-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-dialog-btn--primary {
-  background: var(--air-force-blue, #39687b);
-  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
+  border-color: var(--air-force-blue, #26697d);
   color: #fff;
 }
 .task-dialog-btn--primary:hover:not(:disabled) {
@@ -7558,7 +7611,7 @@ onBeforeUnmount(() => {
   height: 16px;
   padding: 0 0.25rem;
   border-radius: 999px;
-  background: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
   color: #fff;
   font-size: 0.65rem;
   font-weight: 700;
@@ -7566,12 +7619,12 @@ onBeforeUnmount(() => {
 }
 .task-toolbar-icon-btn:hover {
   background: #f4f7f9;
-  border-color: var(--air-force-blue, #39687b);
-  color: var(--charcoal);
+  border-color: var(--air-force-blue, #26697d);
+  color: var(--teal);
 }
 .task-toolbar-icon-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-toolbar-icon-btn.is-active {
   background: rgba(77, 116, 94, 0.15);
@@ -7600,7 +7653,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: #fff;
-  color: var(--air-force-blue, #39687b);
+  color: var(--air-force-blue, #26697d);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
@@ -7608,13 +7661,13 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .task-list-more:hover {
-  background: var(--air-force-blue, #39687b);
-  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
+  border-color: var(--air-force-blue, #26697d);
   color: #fff;
 }
 .task-list-more:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 
 /* Flat (tint off) depth-class fallback */
@@ -7834,7 +7887,7 @@ onBeforeUnmount(() => {
   gap: 0.42rem;
   max-width: calc(100% - 2rem);
   min-height: 2.2rem;
-  border: 1px solid rgba(57, 104, 123, 0.28);
+  border: 1px solid rgba(38, 105, 125, 0.28);
   border-radius: 999px;
   background: #eef7f9;
   color: var(--air-force-blue);
@@ -7907,12 +7960,12 @@ onBeforeUnmount(() => {
   content: '';
   flex: 1 1 auto;
   height: 1px;
-  background: rgba(57, 104, 123, 0.28);
+  background: rgba(38, 105, 125, 0.28);
 }
 
 .missed-message-divider span {
   flex: 0 0 auto;
-  border: 1px solid rgba(57, 104, 123, 0.24);
+  border: 1px solid rgba(38, 105, 125, 0.24);
   border-radius: 999px;
   background: #eef7f9;
   padding: 0.22rem 0.6rem;
@@ -7920,7 +7973,7 @@ onBeforeUnmount(() => {
 
 .missed-message-divider button {
   flex: 0 0 auto;
-  border: 1px solid rgba(57, 104, 123, 0.28);
+  border: 1px solid rgba(38, 105, 125, 0.28);
   border-radius: 999px;
   background: var(--white);
   color: var(--air-force-blue);
@@ -7958,7 +8011,7 @@ onBeforeUnmount(() => {
 .message-reply,
 .reply-composer {
   border-left: 3px solid var(--air-force-blue);
-  background: rgba(57, 104, 123, 0.08);
+  background: rgba(38, 105, 125, 0.08);
 }
 
 .message-reply {
@@ -8018,7 +8071,7 @@ onBeforeUnmount(() => {
 .message-edit-actions .message-edit-cancel {
   background: var(--white);
   border-color: #b9c4ca;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .message-edit-actions .message-edit-cancel:hover {
@@ -8169,7 +8222,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.55rem 0.7rem;
   text-align: left;
@@ -8214,7 +8267,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   padding: 0.55rem 1rem;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
@@ -8223,7 +8276,7 @@ onBeforeUnmount(() => {
 .message-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
+  box-shadow: 0 0 0 4px rgba(38, 105, 125, 0.10);
 }
 
 .message-search-list {
@@ -8240,7 +8293,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.62rem 0.75rem;
   text-align: left;
@@ -8272,7 +8325,7 @@ onBeforeUnmount(() => {
 
 .message-search-text {
   overflow: hidden;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.86rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -8280,17 +8333,17 @@ onBeforeUnmount(() => {
 
 .message.search-hit .message-content {
   animation: message-search-pulse 2.2s ease;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.22);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.22);
 }
 
 @keyframes message-search-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(57, 104, 123, 0);
+    box-shadow: 0 0 0 0 rgba(38, 105, 125, 0);
   }
   20%,
   70% {
-    box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.24);
+    box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.24);
   }
 }
 
@@ -8365,7 +8418,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.55rem 0.7rem;
   text-align: left;
@@ -8416,7 +8469,7 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.45rem 0.55rem;
   text-align: left;
@@ -8498,7 +8551,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   background-color: var(--white) !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -8749,7 +8802,7 @@ onBeforeUnmount(() => {
 .message-receipt:hover,
 .message-receipt.is-open {
   color: var(--air-force-blue);
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
 }
 
 .message.own .message-receipt {
@@ -9145,9 +9198,9 @@ onBeforeUnmount(() => {
   padding: 1rem 1.5rem 1.5rem;
   display: flex;
   flex-direction: column;
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--bg-light);
-  --text-primary: var(--charcoal);
+  --text-primary: var(--teal);
   --text-secondary: #6c757d;
   --text-muted: #8a949e;
   --surface-base: var(--white);
@@ -9193,12 +9246,20 @@ onBeforeUnmount(() => {
 }
 
 .gd-head-left {
-  padding-left: 0.35rem;
+  /* Keeps the group's picture clear of the card's left edge. */
+  padding-left: 0.85rem;
+  /* The name keeps to one line; the member line beside Members wraps first. */
+  flex-shrink: 0;
+}
+
+.gd-head-actions {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .gd-title {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.45rem;
   font-weight: 600;
 }
@@ -9209,6 +9270,65 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
+/* The group's name on one line: a hyphen ("TEST-BTF1") mustn't break it. */
+.gd-title {
+  white-space: nowrap;
+}
+
+/* The Mentor chip beside the name, wrapping under it when there's no room. */
+.gd-title-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.gd-title-line .gd-meta-row {
+  margin-top: 0;
+}
+
+/* Reads as the title; the arrow and a border on hover say it can change. */
+.gd-title-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  /* Lines the name up with the subtitle, past its own padding. */
+  margin-left: -0.4rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.gd-title-picker:hover {
+  border-color: var(--border-light);
+}
+
+.gd-title-picker:focus-within {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 1px;
+}
+
+.gd-title-picker__icon {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Covers the name and arrow, so a click anywhere on them opens it. */
+.gd-title-picker__select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
 .group-avatar {
   background: var(--air-force-blue);
   color: var(--white);
@@ -9217,9 +9337,22 @@ onBeforeUnmount(() => {
 
 @media (min-width: 1181px) {
   .group-detail {
-    height: calc(100vh - 64px - 2rem);
-    min-height: 0;
-    overflow: hidden;
+    /* Tasks and the Discussion Board are never shorter than this. */
+    --group-panes-min-height: 520px;
+    /* The window below the top bar, then 6% more for Tasks and the
+       Discussion Board: the window alone would give them about
+       (100vh - 284px). Their minimum below stays as it is. */
+    height: calc(100vh - 64px - 2rem + (100vh - 284px) * 0.06);
+    /* A short window scrolls the page rather than squashing them: room for
+       their minimum plus the group's card, the section tabs and the gaps. */
+    min-height: calc(var(--group-panes-min-height) + 13rem);
+    overflow: visible;
+  }
+
+  /* Submission, Finalist and Results: the page's own height, so they scroll
+     with the group's card and tabs rather than beneath them. */
+  .group-detail.group-detail--section {
+    height: auto;
   }
 
   .group-hero-card {
@@ -9228,7 +9361,8 @@ onBeforeUnmount(() => {
 
   .split {
     flex: 1 1 auto;
-    min-height: 0;
+    /* Taller windows still stretch them to the bottom. */
+    min-height: var(--group-panes-min-height);
     height: auto;
     max-height: none;
   }
@@ -9245,7 +9379,7 @@ onBeforeUnmount(() => {
 }
 
 .tab-btn {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .tab-btn.active {
@@ -9273,7 +9407,7 @@ onBeforeUnmount(() => {
 .card-header,
 .pane--discussion .chat-header {
   background: var(--white) !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -9281,7 +9415,7 @@ onBeforeUnmount(() => {
 .pane--discussion .chat-header h3,
 .task-section-title,
 .task-label {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
 }
 
 .chat-status,
@@ -9316,7 +9450,7 @@ onBeforeUnmount(() => {
 .chat-input-field,
 .chat-panel-search-input {
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   border: 1px solid var(--border-light);
   border-radius: 22px;
   padding: 0.7rem 1rem;
@@ -9335,7 +9469,7 @@ onBeforeUnmount(() => {
   outline: none;
   border-color: var(--air-force-blue);
   background: var(--white);
-  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
+  box-shadow: 0 0 0 4px rgba(38, 105, 125, 0.10);
 }
 
 .chat-input-field {
@@ -9413,7 +9547,7 @@ onBeforeUnmount(() => {
 .reaction-summary-btn {
   border: 1px solid var(--border-light);
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
@@ -9520,7 +9654,7 @@ onBeforeUnmount(() => {
 }
 
 .resource-choice-btn:hover:not(:disabled) {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
   border-color: var(--air-force-blue);
   transform: translateY(-1px);
 }
@@ -9561,7 +9695,7 @@ onBeforeUnmount(() => {
 }
 
 .message-action-btn:hover:not(:disabled) {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
 }
 
 .message.own .message-action-btn:hover:not(:disabled) {
@@ -9597,7 +9731,7 @@ onBeforeUnmount(() => {
 
 .inline-action-btn:hover:not(:disabled),
 .inline-action-btn.active {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
   color: var(--air-force-blue);
 }
 
@@ -9665,7 +9799,7 @@ onBeforeUnmount(() => {
 }
 
 .inline-kebab-item:hover:not(:disabled) {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
 }
 
 .inline-kebab-item--danger {
@@ -9840,7 +9974,7 @@ onBeforeUnmount(() => {
   margin: 0.25rem 0.9rem 0.4rem;
   width: fit-content;
   border-radius: 999px;
-  background: rgba(57, 104, 123, 0.08);
+  background: rgba(38, 105, 125, 0.08);
   color: var(--air-force-blue);
   font-size: 0.78rem;
   font-weight: 600;
@@ -10321,5 +10455,43 @@ onBeforeUnmount(() => {
   .skeleton-filter {
     width: 100%;
   }
+}
+
+/* Dark theme: the task and chat boxes take the grey other pages give their
+   inputs, rather than staying white. Light mode is unchanged. */
+:root[data-theme='dark'] .gd-meta-row span,
+:root[data-theme='dark'] .task-mode-toggle:not(.is-active),
+:root[data-theme='dark'] .task-search-input,
+:root[data-theme='dark'] .task-toolbar-btn:not(.has-active),
+:root[data-theme='dark'] .task-toolbar-sort select,
+:root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
+:root[data-theme='dark'] .task-filter-panel,
+:root[data-theme='dark'] .task-filter-row select,
+:root[data-theme='dark'] .task-filter-clear,
+:root[data-theme='dark'] .task-filter-close,
+:root[data-theme='dark'] .task-state-menu,
+:root[data-theme='dark'] .task-list,
+:root[data-theme='dark'] .pane--discussion .chat-messages {
+  background: var(--surface-elevated);
+  color: var(--teal);
+}
+
+:root[data-theme='dark'] .task-state-menu-item {
+  color: var(--teal);
+}
+
+:root[data-theme='dark'] .task-state-menu-item:hover {
+  background: var(--border-light);
+}
+
+/* Tasks keep their depth stripe, on the same grey. */
+:root[data-theme='dark'] .task-depth-0,
+:root[data-theme='dark'] .task-depth-1,
+:root[data-theme='dark'] .task-depth-2,
+:root[data-theme='dark'] .task-depth-3,
+:root[data-theme='dark'] .task-depth-4,
+:root[data-theme='dark'] .task-depth-flat {
+  --task-depth-bg: var(--surface-elevated);
+  --task-depth-border: var(--border-light);
 }
 </style>

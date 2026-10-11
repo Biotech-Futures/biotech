@@ -31,7 +31,6 @@ from config.errors import (
     PasswordResetRateLimited,
     TooManyFailedAttempts,
     UserNotFound,
-    WeakPassword,
 )
 
 logger = logging.getLogger(__name__)
@@ -284,7 +283,8 @@ PWRESET_REQUEST_PER_EMAIL_LIMIT = 3
 PWRESET_REQUEST_PER_IP_LIMIT = 10
 PWRESET_REQUEST_WINDOW_SECONDS = 900       # 15 min
 PWRESET_REQUEST_MIN_INTERVAL_SECONDS = 60  # same anti-stacking gap as login send
-PWRESET_CONFIRM_ATTEMPT_LIMIT = 5          # per token — catches accidental retries
+# No per-token cap: a password the validators reject is the user getting the
+# rules wrong, not an attack, so they can keep trying until the link expires.
 PWRESET_CONFIRM_PER_IP_LIMIT = 20          # per IP — caps brute force across many guessed tokens
 PWRESET_CONFIRM_WINDOW_SECONDS = 900       # 15 min
 
@@ -354,21 +354,18 @@ class PasswordResetConfirmView(APIView):
         new_password = serializer.validated_data["new_password"]
 
         ip = _client_ip(request)
-        attempt_key = _confirm_attempt_key(token)
         ip_key = _confirm_ip_key(ip)
-        if cache.get(attempt_key, 0) >= PWRESET_CONFIRM_ATTEMPT_LIMIT:
-            raise PasswordResetRateLimited()
         if cache.get(ip_key, 0) >= PWRESET_CONFIRM_PER_IP_LIMIT:
             raise PasswordResetRateLimited()
 
         try:
             auth_service.confirm_password_reset(token=token, new_password=new_password)
-        except (InvalidOrExpiredResetToken, WeakPassword):
-            cache.set(attempt_key, cache.get(attempt_key, 0) + 1, PWRESET_CONFIRM_WINDOW_SECONDS)
+        except InvalidOrExpiredResetToken:
+            # Only a bad token counts toward the brute-force cap. A rejected
+            # password is a legitimate user retrying, so it is never counted.
             cache.set(ip_key, cache.get(ip_key, 0) + 1, PWRESET_CONFIRM_WINDOW_SECONDS)
             raise
 
-        cache.delete(attempt_key)
         return Response(
             {"message": "Password reset successful. Please log in with your new password."},
             status=status.HTTP_200_OK,
@@ -459,10 +456,6 @@ def _email_request_key(email: str) -> str:
 
 def _ip_request_key(ip: str) -> str:
     return f"pwreset_req_ip:{ip}"
-
-
-def _confirm_attempt_key(token: str) -> str:
-    return f"pwreset_confirm:{token}"
 
 
 def _confirm_ip_key(ip: str) -> str:
