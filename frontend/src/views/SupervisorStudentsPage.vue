@@ -34,8 +34,18 @@
         :columns="section.columns"
         :rows="section.rows"
         :action-columns="section.rowActions.length"
+        clickable-rows
+        @row-click="openSheet"
       >
-        <template #toolbar="{ rows, pageRows, selectedRows }">
+        <!-- A student, or their parent/guardian, opens the student's panel. -->
+        <template #cell-student="{ row, value }">
+          <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row)">{{ value }}</button>
+        </template>
+        <template #cell-parentGuardian="{ row, value }">
+          <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row)">{{ value }}</button>
+        </template>
+        <!-- Options sits beside Search, in the table's search card. -->
+        <template #filters="{ rows, pageRows, selectedRows }">
           <SupervisorTableOptions
             :columns="section.columns"
             :rows="rows"
@@ -61,7 +71,7 @@
             class="btn btn-primary btn-sm"
             @click="onSectionAction(section.id, 'view-consent-all', section.rows)"
           >
-            Download all consent PDFs
+            Download All Consent PDFs
           </button>
         </template>
         <template #bulk="{ rows }">
@@ -128,22 +138,28 @@
             Cancel
           </button>
           <button type="button" class="btn btn-primary" :disabled="emailSending" @click="confirmSupervisedEmail">
-            {{ emailSending ? 'Sending…' : 'Send emails' }}
+            {{ emailSending ? 'Sending…' : 'Send Emails' }}
           </button>
         </div>
       </section>
     </div>
+
+    <SupervisorStudentSheet :student="sheetStudent" @close="closeSheet" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useFlashMessage } from '@/composables/useFlashMessage'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import SupervisorStudentSheet from '@/components/supervisor/SupervisorStudentSheet.vue'
 import SupervisorTableOptions from '@/components/supervisor/SupervisorTableOptions.vue'
 import { downloadConsentDocuments, viewConsentDocuments } from '@/utils/consentDocument'
 import { buildSessionHeaders } from '@/utils/csrf'
 import {
   classifyStudent,
+  fetchConsentLinks,
   fetchSupervisedStudents,
   saveGuardianDetails,
   sendSupervisedEmails,
@@ -157,7 +173,8 @@ type StudentRow = ReturnType<typeof toStudentRow>
 
 const loading = ref(true)
 const error = ref('')
-const notice = ref('')
+// Clears itself after 3.5s, like the other pages' success messages.
+const { message: notice, show: flashNotice } = useFlashMessage()
 const students = ref<SupervisedStudent[]>([])
 const guardianSaving = ref(false)
 const guardianError = ref('')
@@ -172,28 +189,33 @@ const emailConfirm = ref<{
   copy: string
 } | null>(null)
 
-const studentLink = (row: Record<string, unknown>) => ({
-  name: 'student-summary',
-  params: { id: String(row.id) },
-})
-
-const guardianLink = (row: Record<string, unknown>) => ({
-  name: 'guardian-summary',
-  params: { id: String(row.id) },
-})
+// The student whose panel is open, kept in the address (?student=12) so a
+// copied details link or a refresh opens it again.
+const route = useRoute()
+const router = useRouter()
+const sheetStudentId = computed(() => Number(route.query.student) || null)
+const sheetStudent = computed(() => students.value.find((student) => student.id === sheetStudentId.value) ?? null)
+const openSheet = (row: Record<string, unknown>) => {
+  void router.replace({ query: { ...route.query, student: String(row.id) } })
+}
+const closeSheet = () => {
+  const query = { ...route.query }
+  delete query.student
+  void router.replace({ query })
+}
 
 const pendingColumns: DataTableColumn[] = [
-  { key: 'student', label: 'Student', linkTo: studentLink },
+  { key: 'student', label: 'Student' },
   { key: 'school', label: 'School' },
-  { key: 'yearLevel', label: 'Year Level', type: 'number' },
+  { key: 'yearLevel', label: 'Year', type: 'number' },
   { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
 const registeredColumns: DataTableColumn[] = [
-  { key: 'student', label: 'Student', linkTo: studentLink },
-  { key: 'parentGuardian', label: 'Parent/Guardian', linkTo: guardianLink },
+  { key: 'student', label: 'Student' },
+  { key: 'parentGuardian', label: 'Parent/Guardian' },
   { key: 'school', label: 'School' },
-  { key: 'yearLevel', label: 'Year Level', type: 'number' },
+  { key: 'yearLevel', label: 'Year', type: 'number' },
   { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
@@ -206,14 +228,14 @@ const fullyRegisteredColumns: DataTableColumn[] = [
 type StudentAction = { value: string; label: string; needsSelection?: boolean }
 
 const pendingDetailsActions: StudentAction[] = [
-  { value: 'email-students', label: 'Email student', needsSelection: true },
-  { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
-  { value: 'enter-guardian', label: 'Enter guardian details', needsSelection: true },
+  { value: 'email-students', label: 'Email Student', needsSelection: true },
+  { value: 'copy-invite', label: 'Copy Details Link', needsSelection: true },
+  { value: 'enter-guardian', label: 'Enter Guardian Details', needsSelection: true },
 ]
 
 const pendingPermissionActions: StudentAction[] = [
-  { value: 'email-guardians', label: 'Email parent/guardian', needsSelection: true },
-  { value: 'copy-invite', label: 'Copy invite text', needsSelection: true },
+  { value: 'email-guardians', label: 'Email Parent/Guardian', needsSelection: true },
+  { value: 'copy-invite', label: 'Copy Consent Link', needsSelection: true },
 ]
 
 // One table at a time, picked from the bar above it as Management's are.
@@ -232,7 +254,7 @@ const sections = computed(() => [
     columns: pendingColumns,
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingDetailsActions,
-    emailAll: { value: 'email-students-all', label: 'Email all students' },
+    emailAll: { value: 'email-students-all', label: 'Email All Students' },
     rows: students.value.filter((student) => classifyStudent(student) === 'pendingDetails').map(toStudentRow),
   },
   {
@@ -242,7 +264,7 @@ const sections = computed(() => [
     columns: registeredColumns,
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
     bulkActions: pendingPermissionActions,
-    emailAll: { value: 'email-guardians-all', label: 'Email all parents/guardians' },
+    emailAll: { value: 'email-guardians-all', label: 'Email All Parents/Guardians' },
     rows: students.value
       .filter((student) => classifyStudent(student) === 'pendingPermission')
       .map(toStudentRow),
@@ -256,7 +278,7 @@ const sections = computed(() => [
       { value: 'open-consent', label: 'View' },
       { value: 'view-consent', label: 'Download' },
     ],
-    bulkActions: [{ value: 'view-consent-selected', label: 'Download selected PDFs' }],
+    bulkActions: [{ value: 'view-consent-selected', label: 'Download Selected PDFs' }],
     rows: students.value
       .filter((student) => classifyStudent(student) === 'fullyRegistered')
       .map(toStudentRow),
@@ -285,28 +307,46 @@ const studentIdsFrom = (rows: StudentRow[]) =>
 
 const copyText = async (value: string, success: string) => {
   if (!value.trim()) {
-    notice.value = 'Nothing to copy for the selected students.'
+    flashNotice('Nothing to copy for the selected students.')
     return
   }
   await navigator.clipboard.writeText(value)
-  notice.value = success
+  flashNotice(success)
 }
 
-const inviteText = (sectionId: SectionId, rows: StudentRow[]) => {
+// Pending details: My Students with the student's panel open.
+const detailsLink = (row: StudentRow) =>
+  new URL(router.resolve({ name: 'my-students', query: { student: String(row.id) } }).href, window.location.href).href
+
+// One student copies the link alone; several copy a "Name: link" line each.
+const linkLines = (made: { name: string; link: string }[]) =>
+  made.length === 1 ? made[0]!.link : made.map(({ name, link }) => `${name}: ${link}`).join('\n')
+
+// Pending details: each student's panel. Pending permission: each guardian's
+// consent link.
+const copyInviteLinks = async (sectionId: SectionId, rows: StudentRow[]) => {
+  error.value = ''
   if (sectionId === 'pendingDetails') {
-    return rows
-      .map(
-        (row) =>
-          `Please complete parent/guardian details for ${row.student} (${row.email}). A supervisor will follow up with the registration form when it is available.`,
-      )
-      .join('\n\n')
+    const made = rows.map((row) => ({ name: row.student, link: detailsLink(row) }))
+    await copyText(linkLines(made), made.length === 1 ? 'Details link copied.' : `${made.length} details links copied.`)
+    return
   }
-  return rows
-    .map((row) => {
-      const recipient = row.pgEmail || row.email
-      return `Please complete parent/guardian permission for ${row.student}. Contact: ${recipient}.`
+  try {
+    const links = await fetchConsentLinks(studentIdsFrom(rows))
+    const linkFor = new Map(links.map((item) => [item.studentId, item.link]))
+    const made = rows.flatMap((row) => {
+      const link = linkFor.get(Number(row.id))
+      return link ? [{ name: row.student, link }] : []
     })
-    .join('\n\n')
+    await copyText(linkLines(made), made.length === 1 ? 'Consent link copied.' : `${made.length} consent links copied.`)
+    const missed = links.filter((item) => !item.link)
+    if (missed.length && made.length) {
+      flashNotice(`${notice.value} ${missed.length} could not be made: ${missed[0]!.msg}`)
+    }
+  } catch (linkError) {
+    notice.value = ''
+    error.value = linkError instanceof Error ? linkError.message : 'Consent links could not be made.'
+  }
 }
 
 const openGuardianModal = (rows: StudentRow[]) => {
@@ -337,7 +377,7 @@ const askToSend = (
 ) => {
   const studentIds = studentIdsFrom(rows)
   if (!studentIds.length) {
-    notice.value = 'Select at least one student first.'
+    flashNotice('Select at least one student first.')
     return
   }
   emailConfirm.value = {
@@ -353,14 +393,14 @@ const askToSend = (
 
 const sendSelectedEmails = async (kind: SupervisedEmailKind, ids: number[]) => {
   if (!ids.length) {
-    notice.value = 'Select at least one student first.'
+    flashNotice('Select at least one student first.')
     return
   }
   emailSending.value = true
   error.value = ''
   try {
     const result = await sendSupervisedEmails(ids, kind)
-    notice.value = result.msg
+    flashNotice(result.msg)
   } catch (sendError) {
     notice.value = ''
     error.value = sendError instanceof Error ? sendError.message : 'Emails could not be sent.'
@@ -387,7 +427,7 @@ const submitGuardianDetails = async () => {
       pg_last_name: guardianForm.value.lastName.trim(),
       pg_email: guardianForm.value.email.trim(),
     })
-    notice.value = 'Parent/guardian details saved.'
+    flashNotice('Parent/guardian details saved.')
     closeGuardianModal()
   } catch (saveError) {
     guardianError.value =
@@ -400,7 +440,7 @@ const submitGuardianDetails = async () => {
 const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Record<string, unknown>[]) => {
   const rows = asRows(rawRows)
   if (!rows.length) {
-    notice.value = 'Select at least one student first.'
+    flashNotice('Select at least one student first.')
     return
   }
   if (value === 'email-students' || value === 'email-students-all') {
@@ -426,7 +466,7 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     return
   }
   if (value === 'copy-invite') {
-    await copyText(inviteText(sectionId, rows), 'Invite text copied.')
+    await copyInviteLinks(sectionId, rows)
     return
   }
   if (value === 'enter-guardian') {
@@ -445,16 +485,17 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
       ? asRows(sections.value.find((section) => section.id === 'fullyRegistered')?.rows || [])
       : rows
     if (!source.length) {
-      notice.value = 'No consent records are available to download.'
+      flashNotice('No consent records are available to download.')
       return
     }
     downloadConsentDocuments(source)
       .then(() => {
         error.value = ''
-        notice.value =
+        flashNotice(
           source.length === 1
             ? 'Downloaded BIOTech Futures consent PDF.'
-            : `Downloaded ${source.length} BIOTech Futures consent PDFs.`
+            : `Downloaded ${source.length} BIOTech Futures consent PDFs.`,
+        )
       })
       .catch(() => {
         notice.value = ''
@@ -467,6 +508,19 @@ onMounted(loadStudents)
 </script>
 
 <style scoped>
+/* A name that opens the student's panel, looking like the table's links. */
+.supervisor-name-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dark-green);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .supervisor-muted,
 .supervisor-error,
 .supervisor-notice {

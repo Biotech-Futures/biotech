@@ -54,7 +54,7 @@
       <div v-if="activeTab === 'groups'" class="admin-groups__actions">
         <button type="button" class="btn btn-primary" @click="openCreate">
           <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Add group</span>
+          <span>Add Group</span>
         </button>
       </div>
     </div>
@@ -226,7 +226,7 @@
 
     <FormSheet
       v-model="formOpen"
-      :title="formMode === 'create' ? 'Add group' : 'Rename group'"
+      :title="formMode === 'create' ? 'Add Group' : 'Rename Group'"
       :description="formMode === 'create'
         ? 'Leave the name blank to auto-generate the next group name.'
         : undefined"
@@ -690,7 +690,7 @@ const submitForm = async () => {
   margin-bottom: 0;
 }
 
-/* "Add group" action in toolbar */
+/* "Add Group" action in toolbar */
 .admin-groups__actions {
   display: flex;
   flex-wrap: wrap;

@@ -231,19 +231,19 @@ onMounted(async () => {
 .consent-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   margin-bottom: 18px;
 }
 
 .consent-brand__logo {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
 }
 
 .consent-brand__name {
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: 1.6rem;
 }
 
 .consent-card {

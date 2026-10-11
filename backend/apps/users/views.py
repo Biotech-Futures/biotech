@@ -41,6 +41,7 @@ from .serializers import (
     JoinPermissionRequestSerializer,
     StudentGuardianUpdateSerializer,
     SupervisedStudentEmailSerializer,
+    SupervisedStudentIdsSerializer,
     SupervisedStudentGuardianSerializer,
     SupervisedStudentProfileUpdateSerializer,
     SupervisedStudentSerializer,
@@ -468,7 +469,7 @@ class SupervisedStudentsView(APIView):
 
         profiles = list(
             StudentProfile.objects.filter(supervisor_id=request.user.id)
-            .select_related("user")
+            .select_related("user", "user__country", "user__state")
             .order_by("user__first_name", "user__last_name", "user_id")
         )
         user_ids = [profile.user_id for profile in profiles]
@@ -503,7 +504,7 @@ class SupervisedStudentsView(APIView):
                     withdrawn_at__isnull=True,
                 )
                 .order_by("student_id", "-signed_at")
-                .only("student_id", "signature_png", "signed_at")
+                .only("student_id", "signature_png", "signed_at", "media_consent", "media_withdrawn_at")
             ):
                 latest_consent_by_student.setdefault(consent.student_id, consent)
 
@@ -511,11 +512,14 @@ class SupervisedStudentsView(APIView):
         for profile in profiles:
             membership = group_by_user.get(profile.user_id)
             group = membership.group if membership else None
+            consent = latest_consent_by_student.get(profile.pk)
+            user = profile.user
             payload.append({
                 "id": profile.user_id,
-                "first_name": profile.user.first_name,
-                "last_name": profile.user.last_name,
-                "email": profile.user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "email": user.email,
+                **_account_fields(user, consent),
                 "school_name": profile.school_name or "",
                 "year_lvl": profile.year_lvl or "",
                 "interests": interests_by_user.get(profile.user_id, []),
@@ -526,9 +530,7 @@ class SupervisedStudentsView(APIView):
                 "has_join_permission": profile.has_join_permission,
                 "joinperm_response_id": profile.joinperm_responseID or "",
                 "joinperm_granted_at": profile.joinperm_granted_at,
-                "signature": latest_signature_data_url(
-                    profile, latest_consent_by_student.get(profile.pk),
-                ),
+                "signature": latest_signature_data_url(profile, consent),
                 "group_id": None if group is None or group.deleted_at else group.id,
                 "group_name": None if group is None or group.deleted_at else group.group_name,
             })
@@ -590,6 +592,21 @@ class SupervisedStudentsView(APIView):
         return self.get(request)
 
 
+def _supervised_profiles(supervisor, student_ids):
+    """The supervisor's own students among ``student_ids``. Refuses the lot if
+    any isn't on their roster."""
+    profiles = list(
+        StudentProfile.objects.select_related("user").filter(
+            supervisor_id=supervisor.id,
+            user_id__in=student_ids,
+        )
+    )
+    found_ids = {profile.user_id for profile in profiles}
+    if any(student_id not in found_ids for student_id in student_ids):
+        raise PermissionDenied("One or more students are not on your roster.")
+    return profiles
+
+
 class SupervisedStudentEmailView(APIView):
     """POST: send a System Email to supervised students or their guardians."""
 
@@ -605,16 +622,7 @@ class SupervisedStudentEmailView(APIView):
         serializer.is_valid(raise_exception=True)
         student_ids = serializer.validated_data["student_ids"]
         kind = serializer.validated_data["kind"]
-
-        profiles = list(
-            StudentProfile.objects.select_related("user").filter(
-                supervisor_id=request.user.id,
-                user_id__in=student_ids,
-            )
-        )
-        found_ids = {profile.user_id for profile in profiles}
-        if any(student_id not in found_ids for student_id in student_ids):
-            raise PermissionDenied("One or more students are not on your roster.")
+        profiles = _supervised_profiles(request.user, student_ids)
 
         from apps.admin.services.guardian_consent import send_guardian_consent_request
         from . import guardian_details
@@ -663,6 +671,56 @@ class SupervisedStudentEmailView(APIView):
         return Response(payload, status=status.HTTP_400_BAD_REQUEST)
 
 
+class SupervisedStudentConsentLinksView(APIView):
+    """POST: consent links for supervised students' guardians, to share by
+    hand. A link already out is given again, so an emailed one keeps working."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(request=SupervisedStudentIdsSerializer)
+    def post(self, request):
+        if not SupervisorProfile.objects.filter(user=request.user).exists():
+            raise PermissionDenied("Supervisor access is required.")
+
+        serializer = SupervisedStudentIdsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        profiles = _supervised_profiles(request.user, serializer.validated_data["student_ids"])
+
+        from apps.admin.services.guardian_consent import guardian_consent_link
+
+        links = []
+        for profile in profiles:
+            result = guardian_consent_link(profile.user_id, shared_by=request.user)
+            links.append({
+                "studentId": profile.user_id,
+                "link": (result["data"] or {}).get("link"),
+                "msg": result["msg"],
+            })
+
+        if any(item["link"] for item in links):
+            return Response({"links": links}, status=status.HTTP_200_OK)
+        return Response(
+            {"links": links, "msg": links[0]["msg"] if len(links) == 1 else "No links could be made."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+def _account_fields(user, consent):
+    """A roster row's account details and media consent. ``consent`` is the
+    student's newest signed form still standing, or None."""
+    return {
+        "country_name": user.country.country_name if user.country else "",
+        "state_name": user.state.state_name if user.state else "",
+        "account_status": user.get_account_status_display(),
+        # From the signed form: None when there's none on the platform.
+        "media_consent": (
+            None if consent is None
+            else consent.media_consent and consent.media_withdrawn_at is None
+        ),
+    }
+
+
 def _supervised_student_row(profile):
     interests = list(
         UserInterest.objects.filter(user_id=profile.user_id)
@@ -680,11 +738,13 @@ def _supervised_student_row(profile):
         .first()
     )
     group = membership.group if membership else None
+    consent = profile.consents.filter(withdrawn_at__isnull=True).order_by("-signed_at").first()
     return {
         "id": profile.user_id,
         "first_name": profile.user.first_name,
         "last_name": profile.user.last_name,
         "email": profile.user.email,
+        **_account_fields(profile.user, consent),
         "school_name": profile.school_name or "",
         "year_lvl": profile.year_lvl or "",
         "interests": interests,
@@ -695,7 +755,7 @@ def _supervised_student_row(profile):
         "has_join_permission": profile.has_join_permission,
         "joinperm_response_id": profile.joinperm_responseID or "",
         "joinperm_granted_at": profile.joinperm_granted_at,
-        "signature": latest_signature_data_url(profile),
+        "signature": latest_signature_data_url(profile, consent),
         "group_id": None if group is None or group.deleted_at else group.id,
         "group_name": None if group is None or group.deleted_at else group.group_name,
     }

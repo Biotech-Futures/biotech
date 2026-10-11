@@ -722,6 +722,10 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["joinperm_response_id"], "")
         self.assertIsNone(row["joinperm_granted_at"])
         self.assertIsNone(row["signature"])
+        self.assertEqual(row["country_name"], "")
+        self.assertEqual(row["state_name"], "")
+        self.assertEqual(row["account_status"], "Active")
+        self.assertIsNone(row["media_consent"])
 
     def test_roster_includes_drawn_consent_signature(self):
         import io
@@ -748,6 +752,37 @@ class SupervisedStudentsViewTests(TestCase):
         self.client.force_login(self.supervisor)
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
         self.assertTrue(row["signature"].startswith("data:image/png;base64,"))
+        self.assertTrue(row["media_consent"])
+
+    def test_roster_shows_withdrawn_media_consent_as_no(self):
+        from django.utils import timezone
+
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent, StudentProfile
+
+        GuardianConsent.objects.create(
+            student=StudentProfile.objects.get(user=self.student),
+            guardian_full_name="Pat Parent",
+            guardian_email="pat@example.com",
+            media_consent=True,
+            media_withdrawn_at=timezone.now(),
+            signature_png=b"",
+            consent_version=CURRENT_VERSION,
+        )
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertFalse(row["media_consent"])
+
+    def test_roster_includes_country_and_state(self):
+        from apps.groups.models import Countries, CountryStates
+
+        australia = Countries.objects.create(country_name="Australia")
+        self.student.country = australia
+        self.student.state = CountryStates.objects.create(country=australia, state_name="NSW")
+        self.student.save(update_fields=["country", "state"])
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertEqual((row["country_name"], row["state_name"]), ("Australia", "NSW"))
 
     def test_non_supervisor_is_forbidden(self):
         self.client.force_login(self.outsider)
@@ -1044,6 +1079,57 @@ class SupervisedStudentEmailViewTests(TestCase):
     def test_cannot_email_unlinked_student(self):
         response = self._post([self.outsider.id], "guardian_details")
         self.assertEqual(response.status_code, 403)
+
+    def _links(self, student_ids, user=None):
+        self.client.force_login(user or self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/consent-links/",
+            {"student_ids": student_ids},
+            format="json",
+        )
+
+    def test_consent_link_opens_the_consent_form(self):
+        from apps.users import guardian_consent
+
+        response = self._links([self.pending_consent.id])
+        self.assertEqual(response.status_code, 200)
+        link = response.json()["links"][0]["link"]
+        self.assertTrue(link.startswith("https://connect.example.com/#/consent/"))
+        token = link.rsplit("/", 1)[1]
+        request = guardian_consent.open_request(token)
+        self.assertEqual(request.guardian_email, "pat@example.com")
+
+    def test_consent_link_is_given_again_while_it_works(self):
+        first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertEqual(first, second)
+
+    def test_consent_link_reuses_the_emailed_link(self):
+        from django.core import mail
+
+        self._post([self.pending_consent.id], "guardian_consent")
+        link = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertIn(link, mail.outbox[0].alternatives[0][0])
+
+    def test_consent_link_is_new_once_the_old_one_has_expired(self):
+        from django.utils import timezone
+
+        from apps.users.models import GuardianConsentRequest
+
+        first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        GuardianConsentRequest.objects.update(expires_at=timezone.now())
+        second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertNotEqual(first, second)
+
+    def test_no_consent_link_without_a_guardian_email(self):
+        response = self._links([self.pending_details.id])
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(response.json()["links"][0]["link"])
+        self.assertIn("no guardian email", response.json()["msg"])
+
+    def test_consent_links_only_for_own_students(self):
+        self.assertEqual(self._links([self.outsider.id]).status_code, 403)
+        self.assertEqual(self._links([self.pending_consent.id], user=self.outsider).status_code, 403)
 
 
 class MeGuardianDetailsTests(TestCase):

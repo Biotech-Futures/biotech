@@ -33,7 +33,7 @@
         </span>
       </label>
       <div v-if="$slots.filters" class="data-table-filters">
-        <slot name="filters" />
+        <slot name="filters" :rows="filteredRows" :page-rows="pagedRows" :selected-rows="selectedRows" />
       </div>
       <p v-if="$slots.stats" class="data-table-stats"><slot name="stats" /></p>
       <div v-if="$slots['search-side']" class="data-table-search-side">
@@ -453,8 +453,12 @@ const slots = defineSlots<{
     pageRows: Record<string, unknown>[]
     selectedRows: Record<string, unknown>[]
   }) => unknown
-  // Fields beside Search, such as filters.
-  filters?: () => unknown
+  // Fields beside Search, such as filters, given the same rows as toolbar.
+  filters?: (props: {
+    rows: Record<string, unknown>[]
+    pageRows: Record<string, unknown>[]
+    selectedRows: Record<string, unknown>[]
+  }) => unknown
   // A line of counts in the middle of the search card.
   stats?: () => unknown
   // Buttons on the right of the search card.

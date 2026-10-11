@@ -7,6 +7,12 @@ export type SupervisedStudent = {
   first_name: string
   last_name: string
   email: string
+  country_name?: string
+  state_name?: string
+  /** "Active", "Pending" and so on. */
+  account_status?: string
+  /** From the signed form: null when there's none on the platform. */
+  media_consent?: boolean | null
   school_name: string
   year_lvl: string
   interests: string[]
@@ -45,18 +51,6 @@ export const classifyStudent = (student: SupervisedStudent): StudentRegistration
   if (student.has_join_permission) return 'fullyRegistered'
   if ((student.pg_email || '').trim()) return 'pendingPermission'
   return 'pendingDetails'
-}
-
-export const registrationLabel = (student: SupervisedStudent) => {
-  const bucket = classifyStudent(student)
-  if (bucket === 'fullyRegistered') return 'Fully registered with parent/guardian permission'
-  if (bucket === 'pendingPermission') return 'Pending parent/guardian permission'
-  return 'Pending parent/guardian details'
-}
-
-export const initials = (first?: string | null, last?: string | null, fallback = '—') => {
-  const letters = `${(first || '').trim().charAt(0)}${(last || '').trim().charAt(0)}`.toUpperCase()
-  return letters || fallback.charAt(0).toUpperCase() || '?'
 }
 
 export const toStudentRow = (student: SupervisedStudent) => ({
@@ -126,14 +120,6 @@ export async function updateSupervisedStudentProfile(
   return response.json()
 }
 
-export async function fetchSupervisedStudent(
-  id: number,
-  headers: HeadersInit,
-): Promise<SupervisedStudent | null> {
-  const students = await fetchSupervisedStudents(headers)
-  return students.find((student) => student.id === id) ?? null
-}
-
 export type SupervisedEmailKind = 'guardian_details' | 'guardian_consent'
 
 export type SupervisedEmailResult = {
@@ -172,6 +158,37 @@ export async function sendSupervisedEmails(
     msg: payload.msg || 'Emails sent.',
     messages: payload.messages || [],
   }
+}
+
+export type SupervisedConsentLink = {
+  studentId: number
+  /** The consent link, or null when one couldn't be made (see msg). */
+  link: string | null
+  msg: string
+}
+
+/** Consent links for the students' guardians, to share by hand. A link
+ *  already out is given again, so an emailed one keeps working. */
+export async function fetchConsentLinks(studentIds: number[]): Promise<SupervisedConsentLink[]> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/consent-links/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildSessionHeaders({
+      includeCSRF: true,
+      headers: { Accept: 'application/json' },
+    }),
+    body: JSON.stringify({ student_ids: studentIds }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as {
+    links?: SupervisedConsentLink[]
+    msg?: string
+    error?: string
+  }
+  if (!response.ok) {
+    throw new Error(payload.msg || payload.error || 'Consent links could not be made.')
+  }
+  return payload.links || []
 }
 
 export async function fetchSupervisedStudents(headers: HeadersInit): Promise<SupervisedStudent[]> {

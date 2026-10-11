@@ -385,18 +385,6 @@
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Supervised Students:</span>
-            <span class="profile-field-value">{{ user.supervisor.studentSummary }}</span>
-          </div>
-          <div
-            v-for="student in user.supervisor.students"
-            :key="student.id"
-            class="profile-field"
-          >
-            <span class="profile-field-label">{{ student.relationship }}:</span>
-            <span class="profile-field-value">{{ student.name }} ({{ student.email }})</span>
-          </div>
         </div>
       </div>
     </div>
@@ -775,23 +763,15 @@ const user = computed(() => {
   const interests = listOrEmpty(source?.interests)
   const supervisorEmail = valueOrFallback(source?.supervisor_email, unsetLabel)
   const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
-  const supervisedStudents = Array.isArray(source?.supervised_students)
-    ? source.supervised_students.map((student) => {
-      const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || student?.email || 'Student'
-      return {
-        id: student?.id || student?.email || name,
-        name,
-        email: valueOrFallback(student?.email),
-        relationship: capitalise(student?.relationship_type || 'student')
-      }
-    })
-    : []
+  // Not shown (My Students lists them), but a supervisor with students still
+  // gets the Supervisor Details section.
+  const supervisedCount = Array.isArray(source?.supervised_students) ? source.supervised_students.length : 0
   const hasStudentDetails = roleKey === 'student'
   const consentReceived = source?.join_perm === true
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
   const placeholderGuardian = isPlaceholderGuardian(source?.pg_firstname, source?.pg_lastname, source?.first_name, source?.last_name)
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
-  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
+  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedCount > 0)
 
 
   return {
@@ -846,11 +826,7 @@ const user = computed(() => {
     },
     supervisor: {
       hasDetails: hasSupervisorDetails,
-      schoolName: valueOrFallback(source?.supervisor_school_name),
-      studentSummary: supervisedStudents.length === 1
-        ? '1 student'
-        : `${supervisedStudents.length} students`,
-      students: supervisedStudents
+      schoolName: valueOrFallback(source?.supervisor_school_name)
     }
   }
 })
