@@ -44,7 +44,7 @@ from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
     delete_resource, replace_resource_file, download_resource, access_resource,
     assign_role_to_resource, remove_role_from_resource,
-    list_resource_roles, list_resource_types,
+    list_resource_roles, list_resource_types, _first_error_message,
 )
 from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
@@ -802,7 +802,10 @@ class ResourceUploadView(APIView):
             )
         except ValidationError as exc:
             return Response(
-                {"msg": exc.detail or "Failed to upload resource", "errors": exc.detail},
+                {
+                    "msg": _first_error_message(exc.detail) or "Failed to upload resource",
+                    "errors": exc.detail,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except ValueError as exc:

@@ -279,10 +279,18 @@ class ResourcesSerializer(_ResourcePublicFieldsMixin, serializers.ModelSerialize
             raise serializers.ValidationError("Resource name cannot be empty.")
 
         cleaned_name = value.strip()
+        kind = (
+            self.initial_data.get("kind")
+            if hasattr(self, "initial_data") and isinstance(self.initial_data, dict)
+            else None
+        ) or getattr(self.instance, "kind", Resources.ResourceKind.FILE)
+        if kind == Resources.ResourceKind.ATTACHMENT:
+            return cleaned_name
+
         existing_resources = Resources.objects.filter(
             name__iexact=cleaned_name,
             deleted_at__isnull=True
-        )
+        ).exclude(kind=Resources.ResourceKind.ATTACHMENT)
         if self.instance:
             existing_resources = existing_resources.exclude(id=self.instance.id)
         if existing_resources.exists():

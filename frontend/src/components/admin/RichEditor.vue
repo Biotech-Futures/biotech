@@ -44,6 +44,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  (e: 'update:needsOversizeAck', value: boolean): void
   (e: 'change', value: string): void
   (e: 'focus'): void
 }>()
@@ -52,9 +53,15 @@ const resolvedPlaceholder = computed(
   () => props.placeholder ?? (props.emailMode ? 'Write your email…' : 'Write your announcement…')
 )
 
+const LARGE_FILE_BYTES = 25 * 1024 * 1024
+
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachmentRange = ref<{ from: number; to: number } | null>(null)
+const pendingAttachmentFiles = ref<File[]>([])
+const pendingAttachmentRange = ref<{ from: number; to: number } | null>(null)
+const oversizedAttachmentFile = ref<File | null>(null)
+const acknowledgedOversizedAttachment = ref(false)
 const rawMode = ref(false)
 const rawHtml = ref(props.modelValue || '')
 const uploadingAttachment = ref(false)
@@ -384,22 +391,81 @@ function insertAttachmentLink(href: string, range: { from: number; to: number } 
   editor.value.chain().focus().setTextSelection({ from, to }).setLink({ href }).run()
 }
 
-async function handleAttachmentFiles(files: File[]) {
-  if (!files.length) return
-  const initialRange = attachmentRange.value
+function formatFileSize(bytes?: number | null): string {
+  if (!bytes || bytes <= 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = bytes
+  let idx = 0
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024
+    idx++
+  }
+  return `${size.toFixed(size >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`
+}
+
+async function uploadAndInsertAttachments(
+  files: File[],
+  range: { from: number; to: number } | null,
+  acknowledgedOversized: boolean
+) {
   uploadingAttachment.value = true
   attachmentError.value = null
   try {
     for (const [index, file] of files.entries()) {
-      const resource = await uploadLinkedResourceAttachment(file)
-      insertAttachmentLink(resource.downloadUrl || resource.accessUrl, index === 0 ? initialRange : null)
+      const resource = await uploadLinkedResourceAttachment(file, acknowledgedOversized)
+      insertAttachmentLink(
+        resource.downloadUrl || resource.accessUrl,
+        index === 0 ? range : null
+      )
     }
+    pendingAttachmentFiles.value = []
+    pendingAttachmentRange.value = null
   } catch (err: unknown) {
     console.error('Attachment upload failed:', err)
-    attachmentError.value = err instanceof Error ? err.message : 'Attachment upload failed. Please try again.'
+    attachmentError.value =
+      err instanceof Error ? err.message : 'Attachment upload failed. Please try again.'
+    if (acknowledgedOversized && pendingAttachmentFiles.value.length > 0) {
+      acknowledgedOversizedAttachment.value = false
+      emit('update:needsOversizeAck', true)
+    }
   } finally {
     attachmentRange.value = null
     uploadingAttachment.value = false
+  }
+}
+
+async function handleAttachmentFiles(files: File[]) {
+  if (!files.length) return
+  const initialRange = attachmentRange.value
+  attachmentError.value = null
+
+  const largeFile = files.find((f) => f.size > LARGE_FILE_BYTES) ?? null
+  if (largeFile) {
+    pendingAttachmentFiles.value = files
+    pendingAttachmentRange.value = initialRange
+    oversizedAttachmentFile.value = largeFile
+    acknowledgedOversizedAttachment.value = false
+    attachmentRange.value = null
+    emit('update:needsOversizeAck', true)
+    return
+  }
+
+  oversizedAttachmentFile.value = null
+  pendingAttachmentFiles.value = []
+  pendingAttachmentRange.value = null
+  acknowledgedOversizedAttachment.value = false
+  emit('update:needsOversizeAck', false)
+  await uploadAndInsertAttachments(files, initialRange, false)
+}
+
+async function onOversizeAckChange() {
+  if (acknowledgedOversizedAttachment.value && pendingAttachmentFiles.value.length > 0) {
+    emit('update:needsOversizeAck', false)
+    const filesToUpload = [...pendingAttachmentFiles.value]
+    const rangeToUse = pendingAttachmentRange.value
+    await uploadAndInsertAttachments(filesToUpload, rangeToUse, true)
+  } else if (!acknowledgedOversizedAttachment.value && pendingAttachmentFiles.value.length > 0) {
+    emit('update:needsOversizeAck', true)
   }
 }
 
@@ -963,6 +1029,25 @@ defineExpose({ insertText })
       </div>
     </div>
 
+    <!-- Large files are allowed once the admin confirms -->
+    <div v-if="oversizedAttachmentFile" class="rich-editor-oversize" role="alert">
+      <p class="rich-editor-oversize__text">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        This file is {{ formatFileSize(oversizedAttachmentFile.size) }}, over the 25 MB guideline. Large files
+        take longer to upload and open.
+      </p>
+      <label class="rich-editor-oversize__checkbox-label">
+        <input
+          id="rich-editor-oversize-ack"
+          v-model="acknowledgedOversizedAttachment"
+          type="checkbox"
+          :disabled="uploadingAttachment"
+          @change="onOversizeAckChange"
+        />
+        <span>I understand this file is large</span>
+      </label>
+    </div>
+
     <LinkDialog
       v-model="linkDialog.open"
       :kind="linkDialog.kind"
@@ -1008,6 +1093,42 @@ defineExpose({ insertText })
   flex-direction: column;
   gap: 0.5rem;
   width: 100%;
+}
+
+.rich-editor-oversize {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.rich-editor-oversize__text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #92400e;
+}
+
+.rich-editor-oversize__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--charcoal, #1f2937);
+  cursor: pointer;
+}
+
+.rich-editor-oversize__checkbox-label input {
+  accent-color: var(--dark-green, #017151);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .rich-editor-alert {

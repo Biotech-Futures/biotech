@@ -99,6 +99,8 @@ class AdminUploadSizeTests(StorageCleanupMixin, TestCase):
     def test_create_oversized_without_flag_is_rejected(self):
         response = self._create(_file("big.pdf", LARGE_PDF))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIsInstance(response.data["msg"], str)
+        self.assertIn("maximum allowed size", response.data["msg"])
         self.assertFalse(Resources.objects.filter(name="Sized Upload").exists())
 
     def test_create_oversized_with_false_flag_is_rejected(self):
@@ -110,6 +112,39 @@ class AdminUploadSizeTests(StorageCleanupMixin, TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         resource = Resources.objects.get(name="Sized Upload")
         self.assertEqual(resource.file_size, len(LARGE_PDF))
+
+    def test_repeated_oversized_attachment_with_same_filename_is_accepted(self):
+        first = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": _file("big.pdf", LARGE_PDF),
+                "resource_name": "big.pdf",
+                "resource_description": "Attachment: big.pdf",
+                "kind": "attachment",
+                "acknowledged_oversized": "true",
+            },
+            format="multipart",
+        )
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.created_storage_keys.append(
+            Resources.objects.get(id=first.data["data"]["id"]).storage_key
+        )
+
+        second = self.client.post(
+            reverse("admin_api:resource-upload"),
+            {
+                "file": _file("big.pdf", LARGE_PDF),
+                "resource_name": "big.pdf",
+                "resource_description": "Attachment: big.pdf",
+                "kind": "attachment",
+                "acknowledged_oversized": "true",
+            },
+            format="multipart",
+        )
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.data)
+        self.created_storage_keys.append(
+            Resources.objects.get(id=second.data["data"]["id"]).storage_key
+        )
 
     def test_create_disallowed_extension_rejected_even_with_flag(self):
         response = self._create(

@@ -206,6 +206,7 @@
             :key="editorKey"
             v-model="form.contentHtml"
             placeholder="Write resource page content…"
+            @update:needs-oversize-ack="pageNeedsOversizeAck = $event"
           />
           <p class="admin-resource-form__hint">
             Content will be displayed directly when users view this resource page.
@@ -238,7 +239,7 @@
           <button
             type="submit"
             class="btn btn-primary"
-            :disabled="saving || busy || loadingDetail || (form.kind !== 'page' && needsOversizeAck)"
+            :disabled="saving || busy || loadingDetail || (form.kind !== 'page' ? needsOversizeAck : pageNeedsOversizeAck)"
           >
             <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
             {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
@@ -333,6 +334,7 @@ const selectedSlidesFile = ref<File | null>(null)
 // know it's large; the backend rejects them without that confirmation.
 const LARGE_FILE_BYTES = 25 * 1024 * 1024
 const acknowledgedOversized = ref(false)
+const pageNeedsOversizeAck = ref(false)
 const isOversized = computed(() => (selectedFile.value?.size ?? 0) > LARGE_FILE_BYTES)
 const needsOversizeAck = computed(() => isOversized.value && !acknowledgedOversized.value)
 
@@ -493,6 +495,7 @@ const initForm = async (currentResource?: Resource | AdminResourceDetail | null)
   selectedFile.value = null
   selectedSlidesFile.value = null
   acknowledgedOversized.value = false
+  pageNeedsOversizeAck.value = false
   adminDetail.value = null
   editorKey.value++
   if (fileInputRef.value) {
@@ -604,6 +607,10 @@ const validateForm = (): boolean => {
     return false
   }
   if (form.kind !== 'page' && needsOversizeAck.value) {
+    formError.value = 'Please confirm you understand this file is large before uploading it.'
+    return false
+  }
+  if (form.kind === 'page' && pageNeedsOversizeAck.value) {
     formError.value = 'Please confirm you understand this file is large before uploading it.'
     return false
   }

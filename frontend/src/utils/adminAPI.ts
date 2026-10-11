@@ -842,12 +842,16 @@ export const uploadAdminResource = (formData: FormData) =>
     isFormData: true
   }).then((env) => env.data)
 
-export const uploadLinkedResourceAttachment = async (file: File) => {
+export const uploadLinkedResourceAttachment = async (
+  file: File,
+  acknowledgedOversized = false
+) => {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('resource_kind', 'attachment')
   formData.append('resource_name', file.name)
   formData.append('resource_description', `Resource attachment: ${file.name}`)
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   const resource = await uploadAdminResource(formData)
   const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
   const accessUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/access/`
