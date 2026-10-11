@@ -205,7 +205,7 @@
     </div>
 
     <!-- Rows per page, joined to the bottom of the table as the admin tables do. -->
-    <div class="data-table-bottom">
+    <div ref="bottomEl" class="data-table-bottom">
       <label class="data-table-page-size">
         <span class="sr-only">Rows per page</span>
         <select :value="pageSize" @change="onPageSizeChange">
@@ -262,6 +262,7 @@ import {
   DATA_TABLE_TWO_LINE_ROW_HEIGHT,
   cellText,
   fitPageSize,
+  tableRowRoom,
 } from '@/utils/dataTable'
 
 export type DataTableColumn = {
@@ -587,29 +588,57 @@ const toggleSort = (key: string) => {
   if (pageSorts.value) emit('update:sort', { key, direction })
 }
 
-// Until someone picks a size, a table not started on All keeps its page to the
-// rows that fit in the window, judged by the tallest row it has shown, so the
-// scrollbar under the headings stays away.
+// Until someone picks a size, a table not started on All shows as many of its
+// first rows as fit on screen with its headings and bottom bar, under the
+// site's top bar. It starts on the most that could fit, then counts the rows
+// it shows from the top, by their real heights, once they first appear and
+// again when the window is resized.
+const bottomEl = ref<HTMLElement | null>(null)
 const fitting = ref(pageSize.value !== DATA_TABLE_ALL)
 const fittedSize = ref(pageSize.value)
-let tallestRow = rowHeight
+let measurePending = fitting.value
 
-const fitToWindow = () => {
-  if (!fitting.value || !wrapEl.value) return
-  wrapEl.value.querySelectorAll<HTMLElement>('tr.data-table-row').forEach((row) => {
-    tallestRow = Math.max(tallestRow, row.offsetHeight)
-  })
-  const next = fitPageSize(tallestRow, headEl.value?.offsetHeight || undefined)
+const countRowsThatFit = () => {
+  if (!fitting.value || !measurePending || !wrapEl.value) return
+  const rows = [...wrapEl.value.querySelectorAll<HTMLElement>('tbody tr.data-table-row')]
+  if (!rows.length) return
+  measurePending = false
+  const box = wrapEl.value
+  const room = tableRowRoom(
+    headEl.value?.offsetHeight || undefined,
+    bottomEl.value?.offsetHeight || undefined,
+    box.offsetHeight - box.clientHeight || undefined,
+  )
+  let used = 0
+  let fits = 0
+  for (const row of rows) {
+    used += row.offsetHeight
+    if (used > room) break
+    fits += 1
+  }
+  // Every row shown fits: the page stays as it is, ready for more rows.
+  if (fits === rows.length) return
+  const next = Math.max(1, fits)
   fittedSize.value = next
-  if (next !== pageSize.value) pageSize.value = next
+  pageSize.value = next
 }
 
-watch(pagedRows, () => void nextTick(fitToWindow))
+// A resize starts again from the most that could fit, then counts.
+const refitToWindow = () => {
+  if (!fitting.value) return
+  measurePending = true
+  const most = fitPageSize(rowHeight, headEl.value?.offsetHeight || undefined)
+  fittedSize.value = most
+  if (most !== pageSize.value) pageSize.value = most
+  else void nextTick(countRowsThatFit)
+}
+
+watch(pagedRows, () => void nextTick(countRowsThatFit))
 onMounted(() => {
-  fitToWindow()
-  window.addEventListener('resize', fitToWindow)
+  void nextTick(countRowsThatFit)
+  window.addEventListener('resize', refitToWindow)
 })
-onBeforeUnmount(() => window.removeEventListener('resize', fitToWindow))
+onBeforeUnmount(() => window.removeEventListener('resize', refitToWindow))
 
 // 7, 15 and 30, the fitted size among them, then All.
 const sizeOptions = computed(() => {

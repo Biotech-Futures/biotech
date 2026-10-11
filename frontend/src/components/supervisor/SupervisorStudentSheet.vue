@@ -52,7 +52,13 @@
           </div>
           <div class="student-sheet__item">
             <dt>Areas of Interests</dt>
-            <dd>{{ student.interests.length ? student.interests.join(', ') : '—' }}</dd>
+            <!-- Green bubbles, as the student's page had them. -->
+            <dd v-if="student.interests.length" class="student-sheet__interests">
+              <span v-for="interest in student.interests" :key="interest" class="student-sheet__interest">
+                {{ interest }}
+              </span>
+            </dd>
+            <dd v-else>—</dd>
           </div>
         </dl>
       </section>
@@ -326,6 +332,24 @@ const saveGuardian = async () => {
   font-weight: 600;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.student-sheet__interests {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.student-sheet__interest {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: var(--accent-green-soft);
+  color: var(--dark-green);
+  font-size: 0.9rem;
 }
 
 .student-sheet__item dd {
