@@ -141,8 +141,9 @@ const onDismiss = () => {
   flex-shrink: 0;
   border: none;
   border-radius: 10px;
-  background-color: var(--light-green);
-  color: var(--dark-green);
+  /* The site's plain close button: a faint grey, not a colour. */
+  background-color: rgba(17, 30, 25, 0.05);
+  color: var(--teal);
   font-size: 0.95rem;
   cursor: pointer;
   display: inline-flex;
@@ -152,7 +153,7 @@ const onDismiss = () => {
 }
 
 .admin-sheet__close:hover {
-  background-color: #f4dccb;
+  background-color: rgba(17, 30, 25, 0.08);
   transform: translateY(-1px);
 }
 

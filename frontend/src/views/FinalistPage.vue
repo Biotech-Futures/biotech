@@ -658,6 +658,12 @@ onBeforeUnmount(() => {
 <style scoped src="../components/submission/submissionPortal.css"></style>
 
 <style scoped>
+/* The portal caps these lines at 75 characters; here they run the card's
+   full width. */
+.section-head__sub {
+  max-width: none;
+}
+
 .finalist-part + .finalist-part {
   margin-top: 1.75rem;
   padding-top: 1.5rem;

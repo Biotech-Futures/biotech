@@ -345,6 +345,23 @@ const insertIntoSubject = (token: string) => {
   min-width: 0;
 }
 
+/* System Emails' placeholder chips are white; the palette's own green stays
+   on Management's Outcome Announcement. On hover they turn light green, as
+   the tab pills (e.g. Grading's "By group") do. */
+.email-editor :deep(.merge-tags__list .merge-tags__tag) {
+  background: var(--white);
+  color: var(--black);
+}
+
+/* Black would vanish on the dark card, so dark mode keeps light text. */
+:root[data-theme='dark'] .email-editor :deep(.merge-tags__list .merge-tags__tag) {
+  color: var(--charcoal);
+}
+
+.email-editor :deep(.merge-tags__list .merge-tags__tag:hover) {
+  background: var(--accent-green-soft);
+}
+
 /* No line above the buttons here: on System Emails it sits above Preview
    instead (EmailPreview). */
 .email-editor .editor__actions {
