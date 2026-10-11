@@ -5,6 +5,7 @@ from .guardian_details_views import SendGuardianConsentRemindersView, SendGuardi
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
+    SupervisedGroupOrderView,
     SupervisedGroupsView,
     SupervisedInterestCatalogView,
     SupervisedMentorsView,
@@ -57,6 +58,7 @@ urlpatterns = [
     path("users/supervised-groups/mentors/", SupervisedMentorsView.as_view(), name="supervised-mentors"),
     path("users/supervised-groups/interests/", SupervisedInterestCatalogView.as_view(), name="supervised-group-interests"),
     path("users/supervised-groups/", SupervisedGroupsView.as_view(), name="supervised-groups"),
+    path("users/supervised-groups/order/", SupervisedGroupOrderView.as_view(), name="supervised-group-order"),
     path("users/supervised-groups/<int:pk>/members/", SupervisedGroupMembersView.as_view(), name="supervised-group-members"),
     path("users/supervised-groups/<int:pk>/", SupervisedGroupDetailView.as_view(), name="supervised-group-detail"),
     path("users/<int:pk>/", UsersRetrieveUpdateView.as_view(), name="user-detail"),
