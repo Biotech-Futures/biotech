@@ -1869,3 +1869,11 @@ describe('automated submission', () => {
     expect(wrapper!.find('.status-line').text()).toContain('By Laura Bennett on')
   })
 })
+
+describe('answer box size', () => {
+  it('opens each answer box at seven lines', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#inspiration').attributes('rows')).toBe('7')
+  })
+})

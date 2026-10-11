@@ -152,7 +152,7 @@
               :id="question.key"
               v-model="answers[question.key]"
               class="form-control submission-textarea"
-              rows="5"
+              :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
               :style="boxHeights[question.key] ? { height: `${boxHeights[question.key]}px` } : undefined"
               :disabled="!isEditable || live.isLocked(question.key)"
@@ -163,6 +163,7 @@
               class="submission-textarea"
               :text="answers[question.key] ?? ''"
               :caret="live.caretIn(question.key)"
+              :rows="ANSWER_ROWS"
               :height="boxHeights[question.key] ?? null"
             />
             <StretchHandle
@@ -725,6 +726,8 @@ const live = useLiveRoom(
   computed(() => isOpen.value && route.name === 'group-submission')
 )
 const TITLE_FIELD = 'project-title'
+/** Room for most of an answer before anyone needs to stretch the box. */
+const ANSWER_ROWS = 7
 /** Heights people have stretched answer boxes to, by question. */
 const boxHeights = reactive<Record<string, number>>({})
 
