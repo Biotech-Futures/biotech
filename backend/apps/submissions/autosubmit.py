@@ -7,6 +7,8 @@ import logging
 from django.db import transaction
 from django.utils import timezone
 
+from apps.live.broadcast import notify_changed
+
 from .models import Submission
 from .services import current_cohort, deadline_for_group
 from .submitting import complete_submission, delete_superseded, is_complete
@@ -49,6 +51,7 @@ def auto_submit_due(now=None, *, dry_run: bool = False) -> dict:
                 superseded = complete_submission(current, None, automated=True)
             delete_superseded(current, superseded)
             submitted.append(entry.group.group_name)
+            notify_changed("submission", entry.group_id, "submitted")
         except Exception:  # noqa: BLE001
             logger.exception("submissions.auto_submit_failed group=%s", entry.group_id)
     return {"submitted": submitted, "dry_run": dry_run}

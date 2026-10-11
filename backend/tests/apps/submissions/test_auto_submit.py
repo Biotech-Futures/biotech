@@ -14,7 +14,7 @@ from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.models import Deadline, GroupExtension, Submission
 from apps.submissions.services import current_cohort
 
-from .seed_data import install_question_set
+from .seed_data import CONFIRMED_CHECKLIST, install_question_set
 
 POSTER = {"storage_key": "a/poster.pdf", "name": "poster.pdf", "mime": "application/pdf", "size": 10}
 
@@ -34,6 +34,7 @@ class AutoSubmitTests(TestCase):
             "project_title": "Our Project",
             "answers": {q.key: "An answer." for q in self.questions},
             "poster": POSTER,
+            "poster_checklist": CONFIRMED_CHECKLIST,
             **fields,
         }
         return Submission.objects.create(group=group or self.group, **values)

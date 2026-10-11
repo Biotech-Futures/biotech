@@ -52,6 +52,7 @@ const POSTER = { storage_key: 'x/p.pdf', name: 'poster.pdf', mime: 'application/
 const ANSWERED = { solution_purpose: 'An answer.', inspiration: 'Another answer.' }
 
 const TITLE = 'Coral Rescue Kit'
+const CONFIRMED_CHECKLIST = { supervisor_email: true, btf_logo: true, school_logo: true, team_code: true, page_size: true }
 
 const emptyRecord = (): SubmissionRecord => ({
   project_title: '',
@@ -76,6 +77,7 @@ const emptyRecord = (): SubmissionRecord => ({
   is_locked: false,
   is_late: false,
   auto_submitted: false,
+  poster_checklist: {},
   updated_at: new Date().toISOString(),
 })
 
@@ -302,7 +304,7 @@ describe('submitting', () => {
     await flushPromises()
 
     expect(wrapper!.find('.submission-message').text()).toContain(
-      'A poster must be uploaded before the entry can be submitted.',
+      'Please upload your poster before submitting.',
     )
     expect(wrapper!.find('[aria-current="step"]').text()).toContain('Poster')
     expect(submitEntry).not.toHaveBeenCalled()
@@ -368,7 +370,9 @@ describe('submitting', () => {
   })
 
   it('calls the API when submit is pressed', async () => {
-    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } })
+    const detail = buildDetail({
+      submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist: CONFIRMED_CHECKLIST },
+    })
     await mountPage(detail)
     await goToLastStep()
     saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
@@ -673,7 +677,7 @@ describe('dropping a file onto a slot', () => {
     await flushPromises()
 
     expect(uploadSubmissionFile).not.toHaveBeenCalled()
-    expect(wrapper!.find('.submission-message').text()).toContain('The limit is')
+    expect(wrapper!.find('.submission-message').text()).toContain('over the')
   })
 
   it('ignores a drop once submissions are closed', async () => {
@@ -970,112 +974,85 @@ describe('the poster template link', () => {
   })
 })
 
-describe('what the format checks found about the poster', () => {
-  const warned = (warnings: { code: string; message: string }[]) =>
+describe('the poster checklist', () => {
+  const withPoster = (checklist: Record<string, boolean>, warnings: { code: string; message: string }[] = []) =>
     buildDetail({
       submission: {
+        project_title: TITLE,
         answers: ANSWERED,
         poster: POSTER,
-        poster_checks: {
-          has_text: true,
-          unreadable: false,
-          warnings: warnings.map((w) => ({ ...w, passed: false })),
-        },
+        poster_checklist: checklist,
+        poster_checks: { has_text: true, unreadable: false, warnings: warnings.map((w) => ({ ...w, passed: false })) },
       },
     })
-
   const goToPoster = async () => {
     await buttonNamed(/Poster/)!.trigger('click')
     await flushPromises()
   }
+  const box = (key: string) => wrapper!.find(`#checklist-${key}`).element as HTMLInputElement
 
-  it('points at the requirements rather than naming what it could not find', async () => {
-    await mountPage(
-      warned([{ code: 'team_code', message: 'We could not find your team code (BTF1).' }]),
-    )
+  it('arrives with detected items ticked once a poster is attached', async () => {
+    await mountPage(withPoster({ team_code: true, page_size: true }))
     await goToPoster()
 
-    const notice = wrapper!.find('.poster-notice').text()
-    expect(notice).toContain('submission requirements')
-    expect(notice).not.toContain('could not find')
+    expect(box('team_code').checked).toBe(true)
+    expect(box('btf_logo').checked).toBe(false)
+    expect(wrapper!.find('[data-testid="poster-checklist"]').text()).toContain('2 of 5 confirmed')
   })
 
-  it('leads with the upload having worked, so it does not read as a refusal', async () => {
-    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
+  it('is shown but cannot be ticked before a poster is attached', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
     await goToPoster()
 
-    expect(wrapper!.find('.poster-notice').text()).toMatch(/^Uploaded\./)
+    expect(wrapper!.findAll('[data-testid="poster-checklist"] input')).toHaveLength(5)
+    expect(box('btf_logo').disabled).toBe(true)
   })
 
-  it('keeps the notice to a single line', async () => {
-    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
-    await goToPoster()
-
-    expect(wrapper!.findAll('.poster-notice p')).toHaveLength(1)
-  })
-
-  it('clears the notice by itself after four seconds', async () => {
-    vi.useFakeTimers()
-    try {
-      await mountPage(warned([{ code: 'a_series_size', message: 'Not an A-series size.' }]))
-      await goToPoster()
-      expect(wrapper!.find('.poster-notice').exists()).toBe(true)
-
-      await vi.advanceTimersByTimeAsync(4000)
-
-      expect(wrapper!.find('.poster-notice').exists()).toBe(false)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('does not warn at all when the poster passed every check', async () => {
-    await mountPage(
-      buildDetail({
-        submission: {
-          answers: ANSWERED,
-          poster: POSTER,
-          poster_checks: { has_text: true, unreadable: false, warnings: [] },
-        },
-      }),
-    )
-    await goToPoster()
-
-    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
-  })
-
-  it('says nothing about a poster that carried no readable text', async () => {
-    await mountPage(
-      buildDetail({
-        submission: {
-          answers: ANSWERED,
-          poster: POSTER,
-          poster_checks: { has_text: false, unreadable: false, warnings: [] },
-        },
-      }),
-    )
-    await goToPoster()
-
-    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
-  })
-
-  it('reports on the submitted poster once the entry is locked', async () => {
-    // The draft and submitted findings disagree, so the wrong one would show a notice.
-    const detail = submittedDetail()
-    detail.submission!.poster_checks = {
-      has_text: true,
-      unreadable: false,
-      warnings: [{ code: 'team_code', message: 'Draft finding.', passed: false }],
-    }
-    detail.submission!.submitted_poster_checks = {
-      has_text: true,
-      unreadable: false,
-      warnings: [],
-    }
+  it('saves only the ticks that changed', async () => {
+    const detail = withPoster({ team_code: true })
     await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
     await goToPoster()
 
-    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+    await wrapper!.find('#checklist-btf_logo').setValue(true)
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft.mock.calls.at(-1)![1].poster_checklist).toEqual({ btf_logo: true })
+  })
+
+  it('takes the whole platform to the top when an upload is refused', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    uploadSubmissionFile.mockRejectedValue(new Error('Your poster must be in portrait orientation.'))
+    await goToPoster()
+    const scroller = wrapper!.element.parentElement!
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, value: 400 })
+    scroller.scrollTo = vi.fn()
+    const windowScroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'poster.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain('portrait orientation')
+    expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+    expect(windowScroll).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+    windowScroll.mockRestore()
+  })
+
+  it('holds Submit until every item is ticked', async () => {
+    await mountPage(withPoster({ ...CONFIRMED_CHECKLIST, btf_logo: false }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'Please tick every item in the poster checklist before submitting.'
+    )
+    expect(document.activeElement?.id).toBe('checklist-btf_logo')
+    expect(submitEntry).not.toHaveBeenCalled()
   })
 })
 
@@ -1742,6 +1719,24 @@ describe('changes made elsewhere', () => {
     await flushPromises()
     expect(wrapper!.text()).toContain('poster.pdf')
   })
+
+  it("takes a teammate's checklist ticks, keeping one ticked here and not yet saved", async () => {
+    const poster = (checklist: Record<string, boolean>) =>
+      buildDetail({ submission: { answers: ANSWERED, poster: POSTER, poster_checklist: checklist } })
+    await mountPage(poster({}))
+    openSocket()
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('#checklist-school_logo').setValue(true)
+    fetchSubmission.mockResolvedValue(poster({ btf_logo: true }))
+
+    changed('checklist')
+    await flushPromises()
+
+    const box = (key: string) => wrapper!.find(`#checklist-${key}`).element as HTMLInputElement
+    expect(box('btf_logo').checked).toBe(true)
+    expect(box('school_logo').checked).toBe(true)
+  })
 })
 
 describe('the prototype link', () => {
@@ -1753,7 +1748,9 @@ describe('the prototype link', () => {
   }
 
   const mountEditable = async () => {
-    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } })
+    const detail = buildDetail({
+      submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist: CONFIRMED_CHECKLIST },
+    })
     await mountPage(detail)
     saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
     await goToLastStep()

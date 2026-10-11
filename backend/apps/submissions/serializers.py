@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from .checklist import CHECKLIST_ITEMS
 from .models import Submission, SubmissionQuestion
 
 
@@ -44,6 +45,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "is_locked",
             "is_late",
             "auto_submitted",
+            "poster_checklist",
             "updated_at",
         ]
         read_only_fields = fields
@@ -57,7 +59,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
 
 
 class SubmissionDraftSerializer(serializers.Serializer):
-    """Title, answers and the prototype link; files have their own endpoint."""
+    """Title, answers, the prototype link and checklist ticks; files have their own endpoint."""
 
     project_title = serializers.CharField(max_length=150, required=False, allow_blank=True)
     answers = serializers.DictField(
@@ -73,6 +75,14 @@ class SubmissionDraftSerializer(serializers.Serializer):
             "invalid": "This doesn't look like a web link. Paste the full address, for example https://www.figma.com/…",
         },
     )
+
+    poster_checklist = serializers.DictField(child=serializers.BooleanField(), required=False)
+
+    def validate_poster_checklist(self, value):
+        unknown = sorted(set(value) - set(CHECKLIST_ITEMS))
+        if unknown:
+            raise serializers.ValidationError(f"Unknown checklist item: {', '.join(unknown)}.")
+        return value
 
     def validate_answers(self, value):
         questions = {q.key: q for q in SubmissionQuestion.active()}

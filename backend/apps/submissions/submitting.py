@@ -1,4 +1,5 @@
 """Completing an entry: shared by the Submit button and the automated submission."""
+from .checklist import is_confirmed
 from .models import Submission
 from .serializers import missing_required_answers
 from .services import active_deadline, current_cohort
@@ -6,15 +7,18 @@ from .storage import submission_file_service
 
 
 def is_complete(submission: Submission) -> bool:
-    """Everything Submit requires: a poster, a project title and every required answer."""
+    """Everything Submit requires of a team: poster, title, every required answer and the checklist."""
     return bool(
         submission.poster
         and submission.project_title.strip()
         and not missing_required_answers(submission)
+        and is_confirmed(submission.poster_checklist)
     )
 
 
-def complete_submission(submission: Submission, user, *, automated: bool = False) -> dict:
+def complete_submission(
+    submission: Submission, user, *, automated: bool = False, cohort: int | None = None
+) -> dict:
     """Freeze the entry as submitted; call inside the caller's transaction, holding the row.
 
     Returns the files the previous submission used, for ``delete_superseded`` once committed.
@@ -25,7 +29,7 @@ def complete_submission(submission: Submission, user, *, automated: bool = False
     }
     submission.snapshot(user)
     submission.auto_submitted = automated
-    submission.cohort = current_cohort()
+    submission.cohort = cohort or current_cohort()
     # Late = past the global announced deadline, even inside the grace window or an extension.
     baseline = active_deadline()
     submission.is_late = baseline is not None and submission.submitted_at > baseline.closes_at

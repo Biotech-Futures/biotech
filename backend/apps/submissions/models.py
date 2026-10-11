@@ -197,6 +197,8 @@ class Submission(models.Model):
 
     # What the format checks found at upload.
     poster_checks = models.JSONField(null=True, blank=True)
+    # The team's poster checklist, by item; reset whenever a new poster is uploaded.
+    poster_checklist = models.JSONField(default=dict, blank=True)
 
     # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
     submitted_project_title = models.CharField(max_length=150, blank=True)

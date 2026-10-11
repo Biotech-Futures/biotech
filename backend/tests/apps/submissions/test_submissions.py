@@ -19,7 +19,7 @@ from apps.submissions.models import (
 from apps.submissions.services import deadline_for_group
 from apps.users.models import User
 
-from .seed_data import install_instructions, install_question_set
+from .seed_data import CONFIRMED_CHECKLIST, install_instructions, install_question_set
 
 
 def _make_user(email, role_name, roles):
@@ -185,7 +185,8 @@ class SubmissionApiTests(TestCase):
             "mime": "application/pdf",
             "size": 1024,
         }
-        submission.save(update_fields=["poster"])
+        submission.poster_checklist = CONFIRMED_CHECKLIST
+        submission.save(update_fields=["poster", "poster_checklist"])
 
     def test_member_reads_empty_submission(self):
         response = self._client_for(self.student).get(self.detail_url)

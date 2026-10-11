@@ -57,6 +57,7 @@ export interface SubmissionRecord {
   is_locked: boolean
   is_late: boolean
   auto_submitted: boolean
+  poster_checklist: Record<string, boolean>
   updated_at: string
 }
 
@@ -89,6 +90,7 @@ export interface SaveDraftPayload {
   project_title?: string
   answers?: Record<string, string>
   prototype_url?: string
+  poster_checklist?: Record<string, boolean>
 }
 
 export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {

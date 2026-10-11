@@ -23,6 +23,7 @@ from .errors import (
     FileNotUploadedYet,
     NoFileUploaded,
     NotSubmittedYet,
+    PosterChecklistIncomplete,
     PosterFormatRejected,
     PosterRequired,
     ProjectTitleRequired,
@@ -42,6 +43,7 @@ from .serializers import (
     missing_required_answers,
 )
 from .services import deadline_for_group
+from .checklist import blank_checklist, detected_checklist, is_confirmed
 from .submitting import complete_submission, delete_superseded
 from .storage import submission_file_name, submission_file_service
 from .uploads import (
@@ -150,7 +152,15 @@ class GroupSubmissionView(APIView):
                 submission.answers = {**(submission.answers or {}), **data["answers"]}
             if "prototype_url" in data:
                 submission.prototype_url = data["prototype_url"]
+            if "poster_checklist" in data:
+                # The team's ticks always stand, whatever the checks detected.
+                submission.poster_checklist = {
+                    **blank_checklist(), **(submission.poster_checklist or {}), **data["poster_checklist"]
+                }
             submission.save()
+
+        if "poster_checklist" in data:
+            notify_changed("submission", group.id, "checklist", by=request.user)
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -181,6 +191,7 @@ class GroupSubmissionFileView(APIView):
         validate_submission_file(uploaded, slot)
 
         poster_flag = None
+        checks = None
         if slot == POSTER and settings.SUBMISSION_POSTER_CHECKS_ENABLED:
             checks = inspect_poster(uploaded, team_code=group.group_name)
             if checks.blocking:
@@ -190,7 +201,6 @@ class GroupSubmissionFileView(APIView):
 
         submission, _ = Submission.objects.get_or_create(group=group)
         _require_unlocked(submission)
-        previous = getattr(submission, slot) or {}
 
         # Removes the stored blob again if the save below raises.
         with submission_file_service(slot).stored_file(
@@ -199,12 +209,17 @@ class GroupSubmissionFileView(APIView):
             size_field="size",
             original_filename_field="name",
             storage_name=submission_file_name(submission, slot, uploaded.name),
-        ) as file_data:
+        ) as file_data, transaction.atomic():
+            # Read again under the lock, in case the entry was submitted while the file uploaded.
+            submission = Submission.objects.select_for_update().get(pk=submission.pk)
+            _require_unlocked(submission)
+            previous = getattr(submission, slot) or {}
             setattr(submission, slot, file_data)
             fields = [slot, "updated_at"]
             if slot == POSTER:
                 submission.poster_checks = poster_flag
-                fields.append("poster_checks")
+                submission.poster_checklist = detected_checklist(checks)
+                fields += ["poster_checks", "poster_checklist"]
             submission.save(update_fields=fields)
 
         # A file the submitted copy still points at is kept.
@@ -228,18 +243,20 @@ class GroupSubmissionFileView(APIView):
         _require_can_edit(request.user, group.id)
         _require_open(group.id)
 
-        submission = Submission.objects.filter(group=group).first()
-        _require_unlocked(submission)
-        existing = (getattr(submission, slot) or {}) if submission else {}
-        if not existing:
-            raise FileNotUploadedYet()
+        with transaction.atomic():
+            submission = Submission.objects.select_for_update().filter(group=group).first()
+            _require_unlocked(submission)
+            existing = (getattr(submission, slot) or {}) if submission else {}
+            if not existing:
+                raise FileNotUploadedYet()
 
-        setattr(submission, slot, None)
-        fields = [slot, "updated_at"]
-        if slot == POSTER:
-            submission.poster_checks = None
-            fields.append("poster_checks")
-        submission.save(update_fields=fields)
+            setattr(submission, slot, None)
+            fields = [slot, "updated_at"]
+            if slot == POSTER:
+                submission.poster_checks = None
+                submission.poster_checklist = blank_checklist()
+                fields += ["poster_checks", "poster_checklist"]
+            submission.save(update_fields=fields)
         key = existing.get("storage_key")
         if key and key not in submission.submitted_storage_keys():
             submission_file_service(slot).delete(key)
@@ -314,6 +331,9 @@ class GroupSubmissionSubmitView(APIView):
             missing = missing_required_answers(submission)
             if missing:
                 raise RequiredAnswersMissing(missing)
+
+            if not is_confirmed(submission.poster_checklist):
+                raise PosterChecklistIncomplete()
 
             superseded = complete_submission(submission, request.user)
 
