@@ -183,6 +183,20 @@ export interface ReleaseStatus {
   submissions_open?: boolean
 }
 
+// GET /api/v1/management/supervisor-pages/ — whether supervisors see Home,
+// Groups, Events, Announcements and Resources (off by default).
+export function fetchSupervisorPages(): Promise<{ shown: boolean }> {
+  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/')
+}
+
+// PUT /api/v1/management/supervisor-pages/ — admins turn it on or off.
+export function saveSupervisorPages(shown: boolean): Promise<{ shown: boolean }> {
+  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/', {
+    method: 'PUT',
+    body: JSON.stringify({ shown })
+  })
+}
+
 // GET /api/v1/management/certificates-release/ — the certificates gate, separate
 // from marks so certificates can go out on a different day.
 export function fetchCertificatesRelease(): Promise<ReleaseStatus> {

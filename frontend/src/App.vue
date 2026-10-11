@@ -266,6 +266,7 @@ import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
+import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
@@ -381,14 +382,27 @@ const toggleSidebarSection = (key: SidebarSectionKey) => {
 
 type SidebarLink = { label: string; to?: string; href?: string; active: boolean }
 
-// The top-level links every role sees.
-const mainNavLinks = computed(() => [
-  { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
-  { to: '/groups', label: 'Groups', icon: 'fa-users', active: route.path.startsWith('/groups') },
-  { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
-  { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
-  { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
-])
+const { shown: supervisorPagesShown } = useSupervisorPages()
+watch(
+  () => auth.isSupervisor,
+  (isSupervisor) => {
+    if (isSupervisor) void loadSupervisorPages()
+  },
+  { immediate: true },
+)
+
+// The top-level links every role sees; supervisors only once Management >
+// Supervisor Visibility shows them.
+const mainNavLinks = computed(() => {
+  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
+  return [
+    { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
+    { to: '/groups', label: 'Groups', icon: 'fa-users', active: route.path.startsWith('/groups') },
+    { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
+    { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
+    { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
+  ]
+})
 
 // The folding entries: a supervisor's own pages and the admin pages, drawn
 // by the same template. The roles never overlap, so a user gets one at most.

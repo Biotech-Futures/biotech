@@ -161,7 +161,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
       { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
-      { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') }
+      { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
+      { path: 'supervisor-visibility', name: 'management-supervisor-visibility', component: () => import('@/views/management/SupervisorPagesPage.vue') }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }
