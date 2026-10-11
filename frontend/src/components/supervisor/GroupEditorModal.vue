@@ -121,10 +121,18 @@
       <p v-if="capacityFlash.message.value" class="picker-flash" role="status">
         {{ capacityFlash.message.value }}
       </p>
-      <label v-for="option in pickerOptions" :key="option.id" class="picker-option">
+      <!-- Once the group would have 5, the rest can't be ticked. -->
+      <label
+        v-for="option in pickerOptions"
+        :key="option.id"
+        class="picker-option"
+        :class="{ 'is-disabled': cannotPick(option) }"
+        :title="cannotPick(option) ? `Groups can have at most ${DEFAULT_GROUP_MAX_SIZE} students.` : ''"
+      >
         <input
           type="checkbox"
           :checked="pickedIds.includes(option.id)"
+          :disabled="cannotPick(option)"
           @change="togglePicked(option, $event)"
         />
         <span>
@@ -259,10 +267,18 @@ const pickerOptions = computed(() =>
 // A student already in another group, waiting on the warning before ticking.
 const pendingAllocated = ref<AvailableMentor | null>(null)
 
+// The group's students and those ticked so far fill all 5 places.
+const pickerFull = computed(() => students.value.length + pickedIds.value.length >= DEFAULT_GROUP_MAX_SIZE)
+const cannotPick = (person: AvailableMentor) => pickerFull.value && !pickedIds.value.includes(person.id)
+
 const togglePicked = (person: AvailableMentor, event: Event) => {
   const box = event.target as HTMLInputElement
   if (!box.checked) {
     pickedIds.value = pickedIds.value.filter((id) => id !== person.id)
+    return
+  }
+  if (pickerFull.value) {
+    box.checked = false
     return
   }
   if (assignedGroupName(person)) {
@@ -744,6 +760,12 @@ const saveGroup = async () => {
   align-items: flex-start;
   gap: 0.65rem;
   margin-bottom: 0.75rem;
+}
+
+/* A student who can't be ticked because the group is full. */
+.picker-option.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .picker-option input[type="checkbox"] {
