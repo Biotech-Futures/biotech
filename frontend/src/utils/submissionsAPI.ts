@@ -77,6 +77,7 @@ export interface SubmissionDetail {
   instructions: Record<string, { heading: string; body: string }>
   /** Upload limit in bytes per slot. */
   max_file_sizes: Record<SubmissionSlot, number>
+  admin_access?: boolean
   /** Null until the team first saves something. */
   submission: SubmissionRecord | null
 }

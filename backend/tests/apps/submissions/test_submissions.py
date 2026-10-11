@@ -293,7 +293,7 @@ class SubmissionApiTests(TestCase):
         reopen_url = reverse("group-submission-reopen", kwargs={"group_id": self.group.id})
         self.assertEqual(client.post(reopen_url, {}, format="json").status_code, 200)
 
-    def test_an_admin_is_held_to_the_deadline_too(self):
+    def test_an_admin_can_still_edit_after_the_deadline(self):
         from apps.users.models import AdminScope
 
         admin = User.objects.create_user(email="admin@test.local", password="testUser@123")
@@ -302,7 +302,7 @@ class SubmissionApiTests(TestCase):
         response = self._client_for(admin).put(
             self.detail_url, {"answers": {self.first_key: "Late."}}, format="json"
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_non_member_may_not_write(self):
         response = self._client_for(self.outsider).put(

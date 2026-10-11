@@ -1,7 +1,28 @@
 from rest_framework import serializers
 
+from apps.common.rbac import is_admin
+
 from .checklist import CHECKLIST_ITEMS
 from .models import Submission, SubmissionQuestion
+
+STAFF_NAME = "BIOTech Futures"
+
+
+def submitted_by_label(submission) -> str:
+    """Who submitted an entry, as its emails show it; an automated submission is the programme's."""
+    if submission.auto_submitted:
+        return STAFF_NAME
+    return submitter_name(submission.submitted_by)
+
+
+def submitter_name(user) -> str:
+    """Who submitted, as the team sees it; staff acting for a team show as the programme."""
+    if user is None:
+        return ""
+    if is_admin(user) or user.is_staff or user.is_superuser:
+        return STAFF_NAME
+    full_name = f"{user.first_name} {user.last_name}".strip()
+    return full_name or user.email
 
 
 class SubmissionQuestionSerializer(serializers.ModelSerializer):
@@ -51,11 +72,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_submitted_by_name(self, obj) -> str:
-        user = obj.submitted_by
-        if user is None:
-            return ""
-        full_name = f"{user.first_name} {user.last_name}".strip()
-        return full_name or user.email
+        return submitter_name(obj.submitted_by)
 
 
 class SubmissionDraftSerializer(serializers.Serializer):

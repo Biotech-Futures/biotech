@@ -59,22 +59,21 @@ def _get_group(group_id: int) -> Groups:
     return get_object_or_404(Groups, id=group_id, deleted_at__isnull=True)
 
 
-def _require_can_view(user, group_id: int) -> None:
-    """Any member of the team can read it; so can admins.
+def _is_staff(user) -> bool:
+    """Admins, staff and superusers, matching ``common.rbac.IsStaffOrAdmin``."""
+    return is_admin(user) or user.is_staff or user.is_superuser
 
-    Staff and superusers pass alongside AdminScope admins so the definition
-    matches ``common.rbac.IsStaffOrAdmin``: anyone who can mark an entry can read the
-    files they are marking.
-    """
-    if is_admin(user) or user.is_staff or user.is_superuser:
+
+def _require_can_view(user, group_id: int) -> None:
+    """Any member of the team can read it; so can admins, so anyone who marks an entry can read it."""
+    if _is_staff(user):
         return
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
 
 
 def _require_can_edit(user, group_id: int) -> None:
-    """Members of the team can edit, submit and reopen; so can admins, for a
-    team that needs a hand. The deadline and lock still apply to both."""
+    """Members of the team can edit, submit and reopen; so can admins, for a team that needs a hand."""
     _require_can_view(user, group_id)
 
 
@@ -83,8 +82,11 @@ def _require_unlocked(submission) -> None:
         raise SubmissionLocked()
 
 
-def _require_open(group_id: int):
+def _require_open(group_id: int, user):
+    """The team's deadline, extensions included; admins act for a team at any time."""
     info = deadline_for_group(group_id)
+    if _is_staff(user):
+        return info
     if info.closes_at is None:
         raise SubmissionsNotConfigured()
     if not info.is_open:
@@ -123,6 +125,8 @@ class GroupSubmissionView(APIView):
                 for instruction in SubmissionInstruction.objects.all()
             },
             "max_file_sizes": max_sizes(),
+            # Admins act for a team at any time, without the template checks or checklist.
+            "admin_access": _is_staff(request.user),
             # None means the team has not started.
             "submission": (
                 SubmissionSerializer(submission).data if submission is not None else None
@@ -132,7 +136,7 @@ class GroupSubmissionView(APIView):
     def put(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         payload = SubmissionDraftSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -183,7 +187,7 @@ class GroupSubmissionFileView(APIView):
         slot = _valid_slot(slot)
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         uploaded = request.FILES.get("file")
         if uploaded is None:
@@ -194,7 +198,7 @@ class GroupSubmissionFileView(APIView):
         checks = None
         if slot == POSTER and settings.SUBMISSION_POSTER_CHECKS_ENABLED:
             checks = inspect_poster(uploaded, team_code=group.group_name)
-            if checks.blocking:
+            if checks.blocking and not _is_staff(request.user):
                 # One at a time, so several problems never read as one paragraph.
                 raise PosterFormatRejected(student_facing_problems(checks.blocking)[:1])
             poster_flag = checks.as_flag()
@@ -241,7 +245,7 @@ class GroupSubmissionFileView(APIView):
         slot = _valid_slot(slot)
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         with transaction.atomic():
             submission = Submission.objects.select_for_update().filter(group=group).first()
@@ -311,7 +315,7 @@ class GroupSubmissionSubmitView(APIView):
     def post(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         # Locked so a teammate's auto-save cannot land mid-submit and be lost.
         with transaction.atomic():
@@ -332,10 +336,13 @@ class GroupSubmissionSubmitView(APIView):
             if missing:
                 raise RequiredAnswersMissing(missing)
 
-            if not is_confirmed(submission.poster_checklist):
+            staff = _is_staff(request.user)
+            if not staff and not is_confirmed(submission.poster_checklist):
                 raise PosterChecklistIncomplete()
 
-            superseded = complete_submission(submission, request.user)
+            superseded = complete_submission(
+                submission, request.user, cohort=group.year if staff else None
+            )
 
         delete_superseded(submission, superseded)
 
@@ -355,7 +362,7 @@ class GroupSubmissionReopenView(APIView):
     def post(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         submission = Submission.objects.filter(group=group).first()
         if submission is None or not submission.is_submitted:

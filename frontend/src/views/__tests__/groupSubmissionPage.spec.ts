@@ -1054,6 +1054,22 @@ describe('the poster checklist', () => {
     expect(document.activeElement?.id).toBe('checklist-btf_logo')
     expect(submitEntry).not.toHaveBeenCalled()
   })
+
+  it('lets an admin act for the team after the deadline, without the checklist', async () => {
+    const detail = withPoster({})
+    detail.deadline.is_open = false
+    detail.admin_access = true
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+
+    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
+    await goToLastStep()
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(submitEntry).toHaveBeenCalled()
+  })
 })
 
 describe('moving between steps', () => {

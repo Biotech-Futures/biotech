@@ -26,7 +26,7 @@
         <span v-if="state.detail" class="status-line__detail">{{ state.detail }}</span>
 
         <button
-          v-if="isLocked && isOpen"
+          v-if="isLocked && canAct"
           ref="reopenTrigger"
           class="btn btn-outline btn-sm status-line__action"
           type="button"
@@ -721,13 +721,16 @@ function maxSizeLabel(slot: SubmissionSlot) {
 }
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isLocked = computed(() => Boolean(detail.value?.submission?.is_locked))
-const isEditable = computed(() => isOpen.value && !isLocked.value)
+// Admins act for a team at any time; the status line still shows the real deadline.
+const adminAccess = computed(() => Boolean(detail.value?.admin_access))
+const canAct = computed(() => isOpen.value || adminAccess.value)
+const isEditable = computed(() => canAct.value && !isLocked.value)
 
 // While the portal is on screen and the round is open, so changes made elsewhere arrive at once.
 const live = useLiveRoom(
   'submission',
   groupId,
-  computed(() => isOpen.value && route.name === 'group-submission')
+  computed(() => canAct.value && route.name === 'group-submission')
 )
 const TITLE_FIELD = 'project-title'
 /** Room for most of an answer before anyone needs to stretch the box. */
@@ -824,7 +827,7 @@ const isBusy = computed(
 const showsSubmittedCopy = computed(() => {
   const submission = detail.value?.submission
   if (!submission?.is_submitted) return false
-  return submission.is_locked || !isOpen.value
+  return submission.is_locked || !canAct.value
 })
 
 const CHECKLIST_KEYS = ['supervisor_email', 'btf_logo', 'school_logo', 'team_code', 'page_size']
@@ -1157,7 +1160,7 @@ function submissionBlockers(): { message: string; step: TabKey; focusKey?: strin
     }
   }
   const unticked = CHECKLIST_KEYS.find((key) => !posterChecklist[key])
-  if (unticked) {
+  if (unticked && !adminAccess.value) {
     return {
       message: 'Please tick every item in the poster checklist before submitting.',
       step: 'poster',
@@ -1300,7 +1303,7 @@ async function persistDraft() {
 }
 
 function scheduleAutosave() {
-  if (!isOpen.value || isSubmitting.value) return
+  if (!canAct.value || isSubmitting.value) return
   if (currentSnapshot() === savedSnapshot.value) return
 
   saveState.value = 'unsaved'
