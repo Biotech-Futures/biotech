@@ -45,6 +45,22 @@ def _result(outcome: str, msg: str, data=None) -> Dict[str, Any]:
     return {"status": outcome, "msg": msg, "data": data}
 
 
+def _guardian_or_problem(profile):
+    """The guardian whose consent is still needed, or why there's nobody to
+    ask: ``(guardian, None)`` or ``(None, result)``."""
+    guardian = consent.guardian_to_ask(profile)
+    if guardian is None:
+        return None, _result(INVALID, "Consent is already recorded for this student.")
+    if not guardian.email:
+        return None, _result(INVALID, "This student has no guardian email to send to.")
+    if guardian.email == (profile.user.email or "").strip().lower():
+        return None, _result(
+            INVALID,
+            "The guardian email is the student's own address. Update it to the guardian's before sending.",
+        )
+    return guardian, None
+
+
 def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_saved: bool = False) -> Dict[str, Any]:
     """Email the consent form to the guardian of student ``user_id``.
     ``details_saved`` when the student has just named them on their profile:
@@ -59,16 +75,9 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
         if profile is None:
             return _result(NOT_FOUND, "Student not found.")
 
-        guardian = consent.guardian_to_ask(profile)
-        if guardian is None:
-            return _result(INVALID, "Consent is already recorded for this student.")
-        if not guardian.email:
-            return _result(INVALID, "This student has no guardian email to send to.")
-        if guardian.email == (profile.user.email or "").strip().lower():
-            return _result(
-                INVALID,
-                "The guardian email is the student's own address. Update it to the guardian's before sending.",
-            )
+        guardian, problem = _guardian_or_problem(profile)
+        if problem:
+            return problem
 
         last_sent = (
             GuardianConsentRequest.objects.filter(student=profile)
@@ -141,6 +150,38 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
         )
 
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
+
+
+def guardian_consent_link(user_id: int, shared_by=None) -> Dict[str, Any]:
+    """The consent link for student ``user_id``'s guardian, to share by hand:
+    the one already out if it still works, so an emailed link keeps working,
+    else a new one, which replaces it."""
+    with transaction.atomic():
+        profile = (
+            StudentProfile.objects.select_for_update()
+            .select_related("user")
+            .filter(user_id=user_id)
+            .first()
+        )
+        if profile is None:
+            return _result(NOT_FOUND, "Student not found.")
+
+        guardian, problem = _guardian_or_problem(profile)
+        if problem:
+            return problem
+
+        token = consent.token_still_out(profile, guardian)
+        if token is None:
+            request, token = consent.issue_request(profile, guardian, sent_by=shared_by)
+            log_audit_event(
+                actor=shared_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_consent_link",
+                after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+            )
+
+    return _result(OK, "Consent link ready.", {"link": consent.consent_link(token)})
 
 
 def list_guardian_consents(user_id: int) -> Dict[str, Any]:

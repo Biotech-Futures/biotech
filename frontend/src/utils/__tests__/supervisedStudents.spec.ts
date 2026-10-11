@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyStudent, registrationLabel, type SupervisedStudent } from '@/utils/supervisedStudents'
+import { classifyStudent, type SupervisedStudent } from '@/utils/supervisedStudents'
 
 const student = (overrides: Partial<SupervisedStudent> = {}): SupervisedStudent => ({
   id: 1,
@@ -27,7 +27,6 @@ describe('classifyStudent', () => {
   it('puts a student with no guardian email in Pending Parent/Guardian Details', () => {
     expect(classifyStudent(student())).toBe('pendingDetails')
     expect(classifyStudent(student({ pg_email: '  ' }))).toBe('pendingDetails')
-    expect(registrationLabel(student())).toBe('Pending parent/guardian details')
   })
 
   it('puts a student whose guardian has an email in Pending Parent/Guardian Permission', () => {

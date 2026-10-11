@@ -605,11 +605,22 @@ class SupervisedStudentEmailSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=["guardian_details", "guardian_consent"])
 
 
+class SupervisedStudentIdsSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
 class SupervisedStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     email = serializers.EmailField()
+    country_name = serializers.CharField(allow_blank=True)
+    state_name = serializers.CharField(allow_blank=True)
+    account_status = serializers.CharField()
+    media_consent = serializers.BooleanField(allow_null=True)
     school_name = serializers.CharField(allow_blank=True)
     year_lvl = serializers.CharField(allow_blank=True)
     interests = serializers.ListField(child=serializers.CharField())

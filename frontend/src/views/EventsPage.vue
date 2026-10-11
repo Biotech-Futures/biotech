@@ -248,7 +248,7 @@
         <div class="event-content">
           <div class="event-card-topline">
             <span class="event-date">
-              {{ formatDate(ev.start_datetime, ev) }}
+              {{ formatDate(ev.start_datetime) }}
             </span>
 
             <div class="event-card-topline-right">
@@ -344,7 +344,7 @@
           <div class="event-meta">
             <div class="event-meta-item">
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(ev.start_datetime, ev.ends_datetime, ev) }}
+              {{ formatTime(ev.start_datetime, ev.ends_datetime) }}
             </div>
 
             <div v-if="eventHasPhysicalPlace(ev)" class="event-meta-item">
@@ -522,11 +522,11 @@
           <div class="detail-meta">
             <span>
               <i class="fas fa-calendar-day" aria-hidden="true"></i>
-              {{ formatDate(selected?.start_datetime, selected) }}
+              {{ formatDate(selected?.start_datetime) }}
             </span>
             <span>
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(selected?.start_datetime, selected?.ends_datetime, selected) }}
+              {{ formatTime(selected?.start_datetime, selected?.ends_datetime) }}
             </span>
             <span>
               <i class="fas fa-users" aria-hidden="true"></i>
@@ -764,7 +764,7 @@ import {
   resolveEventUrl,
   setEventRsvp
 } from '../utils/eventsAPI'
-import { formatEventDate, formatEventTimeRange } from '../utils/date'
+import { formatEventDay, formatEventTimeRange, getSetTimeZone } from '../utils/date'
 import { sanitizeRichText } from '../composables/useAnnouncements'
 
 type ViewMode = 'upcoming' | 'mine' | 'past'
@@ -1195,8 +1195,6 @@ const resetFilters = () => {
   }
 }
 
-const eventDisplayTimeZone = (ev?: BackendEvent | null) => ev?.event_timezone || auth.timeZone
-
 const eventFormat = (ev?: BackendEvent | null): EventFormat => {
   if (ev?.event_format === 'virtual' || ev?.event_format === 'hybrid') return ev.event_format
   return 'in_person'
@@ -1212,11 +1210,12 @@ const eventHasPhysicalPlace = (ev?: BackendEvent | null) => {
   return format !== 'virtual' && Boolean(ev?.location)
 }
 
-const formatDate = (dateStr?: string | null, ev?: BackendEvent | null) =>
-  formatEventDate(dateStr, eventDisplayTimeZone(ev))
+// "Friday, 9th October 2026" and "16:12 - 18:00 AEDT", in the set time
+// with that zone's label.
+const formatDate = (dateStr?: string | null) => formatEventDay(dateStr)
 
-const formatTime = (start?: string | null, end?: string | null, ev?: BackendEvent | null) =>
-  formatEventTimeRange(start, end, eventDisplayTimeZone(ev))
+const formatTime = (start?: string | null, end?: string | null) =>
+  formatEventTimeRange(start, end, getSetTimeZone())
 
 const prettyType = (type?: string | null) => {
   if (!type) return 'General'

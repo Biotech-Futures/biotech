@@ -101,6 +101,7 @@ const details = (over: Record<string, unknown> = {}) => ({
   today: '2026-09-27',
   dates_in_past: [] as string[],
   submissions_open: '',
+  switched_off: '',
   sending: false,
   queued: 0,
   ahead: [] as string[],
@@ -689,6 +690,13 @@ describe('the email details', () => {
       'Fill in and save every email detail above before sending.'
     )
     expect(buttonNamed(wrapper, /Email All/).attributes('disabled')).toBeDefined()
+  })
+
+  it('Send stays off, saying why, while the email is switched off on System Emails', async () => {
+    const reason = 'Finalist notification is switched off on System Emails.'
+    detailsMock.mockResolvedValue(details({ switched_off: reason }))
+    const wrapper = await mountPage()
+    expect(wrapper.find('.notify-finalists__blocked').text()).toBe(reason)
   })
 
   it('Send stays off, saying until when, while submissions are still open', async () => {

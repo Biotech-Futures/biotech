@@ -35,14 +35,20 @@ export interface TextChoice {
   value: string
 }
 
-/** The text colours the built-in templates use. */
+/** The text colours the built-in templates use, then the six BTF brand
+ *  colours, marked (BTF); the templates' dark green is the BTF one. */
 export const TEXT_COLOURS: readonly TextChoice[] = [
   { label: 'Dark', value: '#1a2e23' },
   { label: 'Body text', value: '#3d4b43' },
   { label: 'Grey', value: '#6d7a72' },
   { label: 'Green', value: '#307054' },
-  { label: 'Dark green', value: '#017151' },
-  { label: 'Red', value: '#b3261e' }
+  { label: 'Red', value: '#b3261e' },
+  { label: 'Dark green (BTF)', value: '#017151' },
+  { label: 'Light green (BTF)', value: '#c3ecca' },
+  { label: 'Teal (BTF)', value: '#174243' },
+  { label: 'Air Force blue (BTF)', value: '#26697d' },
+  { label: 'Mint green (BTF)', value: '#3ead9f' },
+  { label: 'Yellow (BTF)', value: '#f3e69d' }
 ]
 
 /** The text sizes the built-in templates use. */

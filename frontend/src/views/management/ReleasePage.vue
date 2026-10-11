@@ -81,6 +81,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { fetchRelease, toggleRelease, type ReleaseStatus } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatStatementTime } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 // Release Results rechecks whether the results emails may be sent.
@@ -99,9 +100,7 @@ const released = computed(() => status.value?.released_at != null)
 const submissionsOpen = computed(() => status.value?.submissions_open === true)
 
 const releasedAtLabel = computed(() =>
-  status.value?.released_at
-    ? `${new Date(status.value.released_at).toLocaleDateString('en-GB')} ${new Date(status.value.released_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    : ''
+  status.value?.released_at ? formatStatementTime(status.value.released_at) : ''
 )
 
 const load = async () => {

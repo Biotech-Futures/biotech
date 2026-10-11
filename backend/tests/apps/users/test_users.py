@@ -722,6 +722,10 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["joinperm_response_id"], "")
         self.assertIsNone(row["joinperm_granted_at"])
         self.assertIsNone(row["signature"])
+        self.assertEqual(row["country_name"], "")
+        self.assertEqual(row["state_name"], "")
+        self.assertEqual(row["account_status"], "Active")
+        self.assertIsNone(row["media_consent"])
 
     def test_roster_includes_drawn_consent_signature(self):
         import io
@@ -748,11 +752,90 @@ class SupervisedStudentsViewTests(TestCase):
         self.client.force_login(self.supervisor)
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
         self.assertTrue(row["signature"].startswith("data:image/png;base64,"))
+        self.assertTrue(row["media_consent"])
+
+    def test_roster_shows_withdrawn_media_consent_as_no(self):
+        from django.utils import timezone
+
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent, StudentProfile
+
+        GuardianConsent.objects.create(
+            student=StudentProfile.objects.get(user=self.student),
+            guardian_full_name="Pat Parent",
+            guardian_email="pat@example.com",
+            media_consent=True,
+            media_withdrawn_at=timezone.now(),
+            signature_png=b"",
+            consent_version=CURRENT_VERSION,
+        )
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertFalse(row["media_consent"])
+
+    def test_roster_includes_country_and_state(self):
+        from apps.groups.models import Countries, CountryStates
+
+        australia = Countries.objects.create(country_name="Australia")
+        self.student.country = australia
+        self.student.state = CountryStates.objects.create(country=australia, state_name="NSW")
+        self.student.save(update_fields=["country", "state"])
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertEqual((row["country_name"], row["state_name"]), ("Australia", "NSW"))
 
     def test_non_supervisor_is_forbidden(self):
         self.client.force_login(self.outsider)
         response = self.client.get("/api/v1/users/supervised-students/")
         self.assertEqual(response.status_code, 403)
+
+    def _admin_and_another_supervisors_student(self):
+        from apps.users.models import AdminScope, StudentProfile, SupervisorProfile
+
+        admin = User.objects.create_user(email="admin-guardians@test.com", password="Testpass123!", is_active=True)
+        AdminScope.objects.create(user=admin)
+        other_supervisor = User.objects.create_user(email="other-sup@test.com", password="Testpass123!")
+        other_profile = SupervisorProfile.objects.create(user=other_supervisor, school_name="Other High")
+        other_student = User.objects.create_user(
+            email="other-student@test.com", first_name="Olly", last_name="Other", password="Testpass123!",
+        )
+        StudentProfile.objects.create(
+            user=other_student, pg_first_name="Olly", pg_last_name="Other",
+            supervisor=other_profile, school_name="Other High", year_lvl="10",
+        )
+        return admin, other_student
+
+    def test_admin_lists_every_supervisors_students(self):
+        admin, other_student = self._admin_and_another_supervisors_student()
+        self.client.force_login(admin)
+        response = self.client.get("/api/v1/users/supervised-students/")
+        self.assertEqual(response.status_code, 200)
+        emails = sorted(row["email"] for row in response.json())
+        self.assertEqual(emails, ["other-student@test.com", "student@test.com"])
+
+    def test_admin_can_record_any_students_guardian(self):
+        from apps.users.models import StudentProfile
+
+        admin, other_student = self._admin_and_another_supervisors_student()
+        self.client.force_login(admin)
+        response = self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {
+                "student_ids": [other_student.id],
+                "pg_first_name": "Pat",
+                "pg_last_name": "Parent",
+                "pg_email": "pat.other@example.com",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(StudentProfile.objects.get(user=other_student).pg_email, "pat.other@example.com")
+
+    def test_supervisor_still_sees_only_their_own_students(self):
+        self._admin_and_another_supervisors_student()
+        self.client.force_login(self.supervisor)
+        emails = [row["email"] for row in self.client.get("/api/v1/users/supervised-students/").json()]
+        self.assertEqual(emails, ["student@test.com"])
 
     def test_supervisor_can_record_guardian_details(self):
         self.client.force_login(self.supervisor)
@@ -1044,6 +1127,198 @@ class SupervisedStudentEmailViewTests(TestCase):
     def test_cannot_email_unlinked_student(self):
         response = self._post([self.outsider.id], "guardian_details")
         self.assertEqual(response.status_code, 403)
+
+    def _links(self, student_ids, user=None):
+        self.client.force_login(user or self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/consent-links/",
+            {"student_ids": student_ids},
+            format="json",
+        )
+
+    def test_consent_link_opens_the_consent_form(self):
+        from apps.users import guardian_consent
+
+        response = self._links([self.pending_consent.id])
+        self.assertEqual(response.status_code, 200)
+        link = response.json()["links"][0]["link"]
+        self.assertTrue(link.startswith("https://connect.example.com/#/consent/"))
+        token = link.rsplit("/", 1)[1]
+        request = guardian_consent.open_request(token)
+        self.assertEqual(request.guardian_email, "pat@example.com")
+
+    def test_consent_link_is_given_again_while_it_works(self):
+        first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertEqual(first, second)
+
+    def test_consent_link_reuses_the_emailed_link(self):
+        from django.core import mail
+
+        self._post([self.pending_consent.id], "guardian_consent")
+        link = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertIn(link, mail.outbox[0].alternatives[0][0])
+
+    def test_consent_link_is_new_once_the_old_one_has_expired(self):
+        from django.utils import timezone
+
+        from apps.users.models import GuardianConsentRequest
+
+        first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        GuardianConsentRequest.objects.update(expires_at=timezone.now())
+        second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertNotEqual(first, second)
+
+    def test_no_consent_link_without_a_guardian_email(self):
+        response = self._links([self.pending_details.id])
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(response.json()["links"][0]["link"])
+        self.assertIn("no guardian email", response.json()["msg"])
+
+    def test_consent_links_only_for_own_students(self):
+        self.assertEqual(self._links([self.outsider.id]).status_code, 403)
+        self.assertEqual(self._links([self.pending_consent.id], user=self.outsider).status_code, 403)
+
+    def _details_link(self, student_id):
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            "/api/v1/users/supervised-students/details-links/",
+            {"student_ids": [student_id]},
+            format="json",
+        )
+        return response
+
+    def _details_token(self):
+        link = self._details_link(self.pending_details.id).json()["links"][0]["link"]
+        self.assertTrue(link.startswith("https://connect.example.com/#/guardian-details/"))
+        self.client.logout()
+        return link.rsplit("/", 1)[1]
+
+    def test_details_form_shows_the_student(self):
+        token = self._details_token()
+        response = self.client.get(f"/api/v1/guardian-details/{token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["studentName"], "Alex Student")
+
+    def test_details_form_saves_the_guardian_and_sends_the_consent_form(self):
+        from django.core import mail
+
+        from apps.users.models import StudentProfile
+
+        token = self._details_token()
+        response = self.client.post(
+            f"/api/v1/guardian-details/{token}/",
+            {"firstName": "Jamie", "lastName": "Parent", "email": "Jamie@Example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        profile = StudentProfile.objects.get(user=self.pending_details)
+        self.assertEqual(
+            (profile.pg_first_name, profile.pg_last_name, profile.pg_email),
+            ("Jamie", "Parent", "jamie@example.com"),
+        )
+        self.assertIn(["jamie@example.com"], [message.to for message in mail.outbox])
+        # Once given, the link has done its job.
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 410)
+
+    def test_details_form_names_the_wrong_field(self):
+        token = self._details_token()
+        url = f"/api/v1/guardian-details/{token}/"
+        bad_email = self.client.post(
+            url, {"firstName": "Jamie", "lastName": "Parent", "email": "jamie@example"}, format="json",
+        )
+        self.assertEqual(bad_email.status_code, 400)
+        self.assertEqual(bad_email.json()["badFields"], ["email"])
+        self.assertIn("full email address", bad_email.json()["error"])
+        no_last_name = self.client.post(
+            url, {"firstName": "Jamie", "lastName": "", "email": "jamie@example.com"}, format="json",
+        )
+        self.assertEqual(no_last_name.json()["error"], "Please enter the last name.")
+
+    def test_details_form_refuses_the_students_own_email(self):
+        token = self._details_token()
+        response = self.client.post(
+            f"/api/v1/guardian-details/{token}/",
+            {"firstName": "Alex", "lastName": "Student", "email": "needs-details@test.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_details_form_link_expires(self):
+        from datetime import timedelta
+        from unittest import mock
+
+        token = self._details_token()
+        with mock.patch("apps.users.guardian_details.FORM_LINK_LIFETIME", timedelta(seconds=-1)):
+            response = self.client.get(f"/api/v1/guardian-details/{token}/")
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["code"], "details_link_expired")
+
+    def test_details_form_rejects_a_made_up_link(self):
+        response = self.client.get("/api/v1/guardian-details/not-a-real-token/")
+        self.assertEqual(response.status_code, 404)
+
+    def _upload(self, text, dry_run=True, name="guardians.csv"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/guardian-upload/",
+            {"file": SimpleUploadedFile(name, text.encode()), "dry_run": "true" if dry_run else "false"},
+            format="multipart",
+        )
+
+    UPLOAD_HEADER = "student_email,guardian_first_name,guardian_last_name,guardian_email\n"
+
+    def test_guardian_upload_previews_then_saves(self):
+        from apps.users.models import StudentProfile
+
+        sheet = self.UPLOAD_HEADER + (
+            "needs-details@test.com,Jamie,Parent,jamie@example.com\n"
+            "needs-consent@test.com,Pat,Parent,pat.new@example.com\n"
+        )
+        preview = self._upload(sheet).json()
+        self.assertEqual(preview["summary"], {"creates": 1, "updates": 1, "unchanged": 0, "errors": 0})
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email or "", "")
+
+        applied = self._upload(sheet, dry_run=False)
+        self.assertEqual(applied.status_code, 200)
+        self.assertEqual(applied.json()["saved"], 2)
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email, "jamie@example.com")
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_consent).pg_email, "pat.new@example.com")
+
+    def test_guardian_upload_reports_each_problem_and_saves_nothing(self):
+        from apps.users.models import StudentProfile
+
+        sheet = self.UPLOAD_HEADER + (
+            "needs-details@test.com,Jamie,,jamie@example\n"
+            "outsider-mail@test.com,Out,Sider,out@example.com\n"
+        )
+        checks = self._upload(sheet).json()["checks"]
+        self.assertEqual(checks["bad_rows"], [{"row": 2, "reason": "guardian_last_name, guardian_email not an email"}])
+        self.assertEqual(checks["unknown_students"], [{"row": 3, "email": "outsider-mail@test.com"}])
+        self.assertEqual(self._upload(sheet, dry_run=False).status_code, 400)
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email or "", "")
+
+    def test_guardian_upload_checks_the_headers(self):
+        checks = self._upload("student_email,guardian_email\nx@test.com,y@test.com\n").json()["checks"]
+        self.assertEqual(checks["missing_headers"], ["guardian_first_name", "guardian_last_name"])
+
+    def test_guardian_upload_is_for_supervisors(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.outsider)
+        response = self.client.post(
+            "/api/v1/users/supervised-students/guardian-upload/",
+            {"file": SimpleUploadedFile("g.csv", self.UPLOAD_HEADER.encode())},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_no_details_link_once_a_guardian_email_is_on_file(self):
+        response = self._details_link(self.pending_consent.id)
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(response.json()["links"][0]["link"])
 
 
 class MeGuardianDetailsTests(TestCase):

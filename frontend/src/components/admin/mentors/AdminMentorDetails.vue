@@ -9,7 +9,7 @@
         <div><dt>Max Groups:</dt><dd>{{ mentor.maxGroupCount }}</dd></div>
         <div>
           <dt>Logged In:</dt>
-          <dd>{{ mentor.hasLoggedIn ? `Yes${mentor.lastLogin ? ` (${formatLogin(mentor.lastLogin)})` : ''}` : 'No (Never logged in)' }}</dd>
+          <dd>{{ mentor.hasLoggedIn ? `Yes${mentor.lastLogin ? ` (${formatExactTime(mentor.lastLogin)})` : ''}` : 'No (Never logged in)' }}</dd>
         </div>
       </dl>
     </section>
@@ -60,8 +60,8 @@
           <div class="admin-mentors__sub">
             <template v-if="cert.certificateNumber">No. {{ cert.certificateNumber }}</template>
             <template v-if="cert.issuedBy">Issued by: {{ cert.issuedBy }}</template>
-            <span>Issued: {{ cert.issuedAt }}</span>
-            <span v-if="cert.expiresAt">Expires: {{ cert.expiresAt }}</span>
+            <span>Issued: {{ formatCalendarDate(cert.issuedAt) }}</span>
+            <span v-if="cert.expiresAt">Expires: {{ formatCalendarDate(cert.expiresAt) }}</span>
           </div>
           <a
             v-if="cert.fileUrl"
@@ -81,7 +81,8 @@
 
 <script setup lang="ts">
 import type { AdminMentorDetail } from '@/utils/adminAPI'
-import { WEEKDAYS, formatLogin, sortedAvailability } from '@/utils/mentorFormat'
+import { formatExactTime } from '@/utils/date'
+import { WEEKDAYS, formatCalendarDate, sortedAvailability } from '@/utils/mentorFormat'
 
 // A mentor's account, interests, availability and certificates, shown under
 // their row on the Mentors tab.

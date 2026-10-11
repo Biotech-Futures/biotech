@@ -197,7 +197,7 @@
         <!-- Left column: Tasks -->
         <section class="pane pane--tasks card">
           <div class="card-header">
-            <h3 class="card-title">Tasks</h3>
+            <h3 class="card-title subheading">Tasks</h3>
             <div class="task-header-actions">
               <button
                 type="button"
@@ -482,7 +482,13 @@
                   >
                     <i class="fas fa-chevron-down" aria-hidden="true"></i>
                   </button>
-                  <span v-else class="task-collapse-spacer" aria-hidden="true"></span>
+                  <!-- Lines a row up with its neighbours' expand arrows; with no
+                       arrows in the list, the status sits right at the left. -->
+                  <span
+                    v-else-if="section.rows.some((sectionRow) => sectionRow.hasChildren)"
+                    class="task-collapse-spacer"
+                    aria-hidden="true"
+                  ></span>
 
                   <button
                     v-if="taskSelectionMode"
@@ -566,6 +572,23 @@
                         <i class="fas fa-trash" aria-hidden="true"></i>
                         Deleted
                       </span>
+                      <!-- In the title row, on the right, so the description and details
+                           below run the full width. -->
+                      <button
+                        v-if="row.task.taskType === 'individual' && getAssigneeDisplay(row.task)"
+                        type="button"
+                        class="task-assignee"
+                        :class="{
+                          'is-self': getAssigneeDisplay(row.task).isSelf,
+                          'is-active': String(taskFilters.assignedUser) === String(row.task.assignedUser),
+                        }"
+                        :title="`Filter tasks by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                        :aria-label="`Filter by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                        @click="toggleAssigneeQuickFilter(row.task.assignedUser)"
+                      >
+                        <i :class="getAssigneeDisplay(row.task).isSelf ? 'fas fa-circle-user' : 'fas fa-user'" aria-hidden="true"></i>
+                        <span>{{ getAssigneeDisplay(row.task).label }}</span>
+                      </button>
                     </div>
                     <div v-if="row.task.description" class="task-description">
                       {{ row.task.description }}
@@ -577,7 +600,9 @@
                         :class="{ 'is-overdue': isTaskOverdue(row.task) }"
                       >
                         <i class="fas fa-calendar" aria-hidden="true"></i>
-                        {{ formatDate(row.task.dueDate) }}
+                        <!-- A due date is a picked day, saved as that day's
+                             UTC midnight, so it shows as that day. -->
+                        {{ formatDayMonth(row.task.dueDate, 'UTC') }}
                       </span>
                       <span
                         v-if="row.task.createdBy && row.task.createdBy.name"
@@ -589,22 +614,6 @@
                       </span>
                     </div>
                   </div>
-
-                  <button
-                    v-if="row.task.taskType === 'individual' && getAssigneeDisplay(row.task)"
-                    type="button"
-                    class="task-assignee"
-                    :class="{
-                      'is-self': getAssigneeDisplay(row.task).isSelf,
-                      'is-active': String(taskFilters.assignedUser) === String(row.task.assignedUser),
-                    }"
-                    :title="`Filter tasks by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
-                    :aria-label="`Filter by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
-                    @click="toggleAssigneeQuickFilter(row.task.assignedUser)"
-                  >
-                    <i :class="getAssigneeDisplay(row.task).isSelf ? 'fas fa-circle-user' : 'fas fa-user'" aria-hidden="true"></i>
-                    <span>{{ getAssigneeDisplay(row.task).label }}</span>
-                  </button>
 
                   <div class="task-row-actions">
                     <button
@@ -888,7 +897,7 @@
           <div class="chat-container">
             <!-- Discussion header -->
             <div class="chat-header">
-              <h3 style="margin: 0">Discussion Board</h3>
+              <h3 class="subheading" style="margin: 0">Discussion Board</h3>
               <div class="chat-header-actions">
                 <button
                   type="button"
@@ -1005,7 +1014,16 @@
               </div>
               <div v-if="messageSearchError" class="chat-panel-status">{{ messageSearchError }}</div>
               <div v-if="isSearchingMessages" class="chat-panel-status">Searching messages...</div>
-              <div v-else class="message-search-list">
+              <!-- Only when it has something to show: empty, it would still take the
+                   panel's gap and leave extra space under the search box. -->
+              <div
+                v-else-if="
+                  messageSearchResults.length ||
+                  messageSearchNextBefore ||
+                  (messageSearchQuery && !messageSearchError && hasSearchedMessages)
+                "
+                class="message-search-list"
+              >
                 <button
                   v-for="result in messageSearchResults"
                   :key="`search-${result.id}`"
@@ -1015,7 +1033,7 @@
                 >
                   <span class="message-search-row-head">
                     <strong>{{ result.author }}</strong>
-                    <small>{{ formatDate(result.date) }} {{ result.time }}</small>
+                    <small>{{ formatDayMonthTime(result.date) }}</small>
                   </span>
                   <span class="message-search-text">
                     <template v-if="result.text">
@@ -1106,7 +1124,7 @@
                     </template>
                     <template v-if="!mention.message_text">Message was deleted.</template>
                   </strong>
-                  <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
+                  <small>{{ formatDayMonthTime(mention.sent_at) }}</small>
                 </button>
                 <div v-if="!mentionItems.length && !mentionInboxError" class="chat-panel-status">
                   No mentions yet.
@@ -1158,7 +1176,7 @@
                 Load older messages
               </button>
               <div
-                v-for="message in messages"
+                v-for="(message, index) in messages"
                 :key="message.id"
                 class="message-thread-item"
               >
@@ -1178,18 +1196,31 @@
                     {
                       own: message.isOwn,
                       pending: message.isLocalOnly,
+                      'message--same-sender': followsSameSender(index),
                       'search-hit': String(highlightedSearchMessageId) === String(message.id),
                     },
                   ]"
                 >
-                <div class="message-avatar">{{ getInitials(message.author) }}</div>
+                <!-- Your own messages show the same photo or initials as the top bar,
+                     not the "You" label's first letter. -->
+                <div
+                  class="message-avatar"
+                  :class="{ 'message-avatar--repeat': followsSameSender(index) }"
+                >
+                  <img
+                    v-if="message.isOwn && auth.user?.profile_image_url"
+                    class="message-avatar-image"
+                    :src="auth.user.profile_image_url"
+                    alt=""
+                  />
+                  <template v-else>{{ message.isOwn ? auth.initials : getInitials(message.author) }}</template>
+                </div>
                 <div class="message-content">
                   <div class="message-header">
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
-                      <span class="message-date">{{ formatDate(message.date) }}</span>
-                      <span class="message-time">{{ message.time }}</span>
+                      <span class="message-date">{{ formatDayMonthTime(message.date) }}</span>
                       <!-- Inline action cluster: always-visible reply + smile,
                            and a kebab menu (Edit/Delete) shown only while the
                            10-min self-action window is open or the caller is
@@ -1803,6 +1834,7 @@ import {
 } from '@/utils/receipts'
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
+import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -2125,27 +2157,6 @@ const getInitials = (name) =>
     .join('')
     .toUpperCase()
 
-// Module-level cache: Intl.DateTimeFormat is expensive to construct;
-// reuse per (locale, options) shape across renders.
-const _dateFmt = new Intl.DateTimeFormat('en-AU', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
-const _timeFmt = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
-
-const formatDate = (d) => {
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return d
-  return _dateFmt.format(date)
-}
-
-const formatTime = (value) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return _timeFmt.format(date)
-}
-
 const resolveMessageSentAt = (raw) => {
   const candidates = [
     raw?.sent_at,
@@ -2181,7 +2192,7 @@ const groupInitials = computed(() => {
 
 // The member count shows on the Members button beside it.
 const groupSubtitle = computed(() => {
-  const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
+  const createdLabel = group.value?.createdAt ? formatDayMonth(group.value.createdAt) : 'unknown date'
   return `Group since ${createdLabel}`
 })
 
@@ -3285,7 +3296,6 @@ const normalizeMessage = (item) => {
     senderId,
     author,
     text: messageText,
-    time: formatTime(sentAt),
     date: sentAt,
     isOwn: isOwnMessage,
     messageType,
@@ -4176,6 +4186,23 @@ const clearMissedMessageAnchor = () => {
   missedMessageAnchorId.value = null
   missedMessageCount.value = 0
   isMissedMessageJumpDismissed.value = false
+}
+
+// Who sent a message. The chat list doesn't carry the sender's id (senderId
+// is 0 then), so others are told apart by name.
+const senderKey = (message) => {
+  if (message.isOwn) return 'own'
+  return Number(message.senderId) > 0 ? `id:${message.senderId}` : `name:${message.author}`
+}
+
+// A message straight after another from the same person sits closer to it,
+// unless the new-messages divider comes between them.
+const followsSameSender = (index) => {
+  const previous = messages.value[index - 1]
+  const message = messages.value[index]
+  return Boolean(previous) &&
+    senderKey(previous) === senderKey(message) &&
+    !isMissedMessageAnchor(message.id)
 }
 
 const isMissedMessageAnchor = (messageId) =>
@@ -5503,7 +5530,6 @@ const sendMessage = async () => {
     id: pendingId,
     author: 'You',
     text,
-    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     date: now.toISOString(),
     isOwn: true,
     message_type: 'text',
@@ -5612,7 +5638,7 @@ const formatRelativeTime = (iso) => {
   if (hours < 24) return `${hours}h ago`
   const days = Math.round(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+  return formatDayMonth(iso)
 }
 
 const openMessageReceipts = async (messageId, event) => {
@@ -6742,15 +6768,51 @@ onBeforeUnmount(() => {
 }
 
 .task-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.7rem;
+  /* Top row: expand arrow, status, title, buttons. The description and details
+     run underneath from the left edge, under the arrow and status too. */
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: start;
   padding: 0.6rem 0.85rem 0.6rem calc(0.85rem + var(--task-depth, 0) * 1.1rem);
   border-bottom: 1px solid var(--task-depth-border, var(--border-light));
   background: var(--task-depth-bg, #fff);
   box-shadow: inset 3px 0 0 var(--task-depth-accent, transparent);
   transition: background-color 120ms ease, box-shadow 120ms ease;
   position: relative;
+}
+/* Where each part of a task sits in its grid. Spacing is margins rather than
+   column gaps, so a missing arrow leaves no gap before the status. */
+.task-collapse,
+.task-collapse-spacer {
+  grid-column: 1;
+  grid-row: 1;
+  margin-right: 0.7rem;
+}
+.task-select-box,
+.task-state-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  margin-right: 0.7rem;
+}
+.task-body {
+  display: contents;
+}
+.task-headline {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+}
+/* Under the status and title, lined up with the status pill's circle (its
+   border and left padding in), whether or not the row has an arrow. */
+.task-description,
+.task-meta {
+  grid-column: 2 / 4;
+  padding-left: calc(0.55rem + 1px);
+}
+.task-row-actions {
+  grid-column: 4;
+  grid-row: 1 / span 3;
+  margin-left: 0.7rem;
 }
 .task-item:first-child { border-top-left-radius: 11px; border-top-right-radius: 11px; }
 .task-item:last-child { border-bottom: 0; border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
@@ -6945,10 +7007,6 @@ onBeforeUnmount(() => {
 
 /* Body */
 
-.task-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .task-headline {
   display: flex;
   align-items: center;
@@ -7024,6 +7082,10 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
+/* At the right end of the title row; a long title wraps before it. */
+.task-headline .task-assignee {
+  margin-left: auto;
+}
 .task-assignee i { font-size: 0.72rem; flex-shrink: 0; }
 .task-assignee span {
   overflow: hidden;
@@ -7071,6 +7133,10 @@ onBeforeUnmount(() => {
 /* "Assigned by Name" -- subtle text inline with the date chip */
 .task-assigned-by {
   display: inline-flex;
+  /* In a narrow column the name drops under "Assigned by" whole, rather than
+     each squeezing beside the other and breaking word by word. */
+  flex-wrap: wrap;
+  white-space: nowrap;
   align-items: center;
   gap: 0.3rem;
   font-size: 0.74rem;
@@ -7080,20 +7146,25 @@ onBeforeUnmount(() => {
 .task-assigned-by strong {
   color: #50616c;
   font-weight: 700;
+  /* A name too long for even a line of its own still wraps. */
+  white-space: normal;
 }
 
 /* Row actions -- hidden until hover/focus */
 
 .task-row-actions {
   display: flex;
+  /* Stacked one above another, so they take one button's width beside the
+     task rather than three. */
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.25rem;
   flex-shrink: 0;
-  /* 3 icon buttons (30px) + 2 gaps (4px) -- reserved even when only the
+  /* One icon button (30px) wide -- reserved even when only the
      always-rendered + button is present, so the assignee column lines up
      across all rows regardless of edit/delete permission. */
-  min-width: 98px;
+  min-width: 30px;
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -8037,17 +8108,17 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-reply {
-  border-left-color: var(--white);
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  border-left-color: var(--dark-green);
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(1, 113, 81, 0.12);
 }
 
 .message.own .message-reply span {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
 }
 
 .message.own .message-reply strong {
-  color: var(--white);
+  color: var(--teal);
 }
 
 .message-edit-form {
@@ -8093,26 +8164,26 @@ onBeforeUnmount(() => {
 
 .message.own .message-edit-actions .message-edit-cancel {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.72);
-  color: var(--white);
+  border-color: var(--dark-green);
+  color: var(--dark-green);
 }
 
 .message.own .message-edit-actions .message-edit-cancel:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--white);
-  color: var(--white);
+  background: rgba(1, 113, 81, 0.08);
+  border-color: var(--dark-green);
+  color: var(--dark-green);
 }
 
 .message.own .message-edit-actions .message-edit-save {
-  background: var(--white);
-  border-color: var(--white);
-  color: var(--dark-green);
+  background: var(--dark-green);
+  border-color: var(--dark-green);
+  color: #fff;
 }
 
 .message.own .message-edit-actions .message-edit-save:hover {
-  background: #eef7f3;
-  border-color: #eef7f3;
-  color: var(--dark-green);
+  background: #015940;
+  border-color: #015940;
+  color: #fff;
 }
 
 .message-actions {
@@ -8506,11 +8577,6 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 
-.message.own .mention-token {
-  background: rgba(255, 255, 255, 0.22);
-  color: #cfe8ff;
-}
-
 .chat-panel-search-input {
   flex: 1;
   border: 1px solid var(--border-default);
@@ -8555,6 +8621,25 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border-light);
 }
 
+/* The Tasks and Discussion Board headers are the same height, 64px: the title
+   and buttons centred, 14px clear above and below the tallest of them. The
+   Tasks card's own top padding moves into its header so the two lines under
+   them sit level. */
+.pane--tasks.card {
+  padding-top: 0;
+}
+
+.pane--tasks .card-header,
+.pane--discussion .chat-header {
+  min-height: 4rem;
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+.pane--tasks .card-header .card-title {
+  margin: 0;
+}
+
 /* Fill available chat space */
 .pane--discussion .chat-container {
   display: flex;
@@ -8572,6 +8657,29 @@ onBeforeUnmount(() => {
   /* Never horizontally scroll. The hover toolbars / reactions that poke into
      the gutter are constrained via the message row below. */
   overflow-x: hidden;
+}
+
+/* 14px above the first message and between people's messages, 16px after
+   the last; 4px between one person's messages in a row. 20px at the sides. */
+.pane--discussion .chat-messages {
+  padding: 0 1.25rem 1rem;
+}
+
+.pane--discussion .chat-messages .message {
+  margin-top: 0.875rem;
+  margin-bottom: 0;
+  /* 6px between the picture and the card. */
+  gap: 0.375rem;
+}
+
+.pane--discussion .chat-messages .message.message--same-sender {
+  margin-top: 0.25rem;
+}
+
+/* With no padding at the top of the list, these keep the same 16px. */
+.pane--discussion .chat-messages > .load-older-messages,
+.pane--discussion .chat-messages > .load-older-status {
+  margin-top: 1rem;
 }
 
 /* Let the browser skip rendering work for messages outside the viewport.
@@ -8593,20 +8701,31 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
+/* The sender's name at 14px, with the date and time beside it at 12px. */
+.pane--discussion .message-author {
+  font-size: 0.875rem;
+}
+
+.pane--discussion .message-date {
+  font-size: 0.75rem;
+}
+
 /* Own-message date contrast */
 .pane--discussion .message.own .message-date {
-  color: #fff !important;
-  opacity: 0.95;
+  color: var(--teal) !important;
+  opacity: 0.85;
 }
 
 /* Message text color for own messages */
 .pane--discussion .message.own .message-text {
-  color: #fff !important;
+  color: var(--teal) !important;
 }
 
 /* Preserve typed line breaks (Shift+Enter) — HTML collapses them otherwise. */
 .message-text {
   white-space: pre-wrap;
+  font-weight: 400;
+  font-size: 0.875rem;
 }
 
 .message-link {
@@ -8625,7 +8744,7 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-text--deleted {
-  color: rgba(255, 255, 255, 0.82) !important;
+  color: var(--text-muted) !important;
 }
 
 .message-edited {
@@ -8805,16 +8924,6 @@ onBeforeUnmount(() => {
   background: rgba(38, 105, 125, 0.10);
 }
 
-.message.own .message-receipt {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.message.own .message-receipt:hover,
-.message.own .message-receipt.is-open {
-  color: var(--white);
-  background: rgba(255, 255, 255, 0.16);
-}
-
 /* Tick colours.
    - delivered:  single grey tick      (no reads yet)
    - partial:    double grey ticks     (some but not all members read)
@@ -8828,17 +8937,8 @@ onBeforeUnmount(() => {
   color: rgba(0, 0, 0, 0.42);
 }
 
-.message.own .message-receipt--delivered .tick-icon,
-.message.own .message-receipt--partial .tick-icon {
-  color: rgba(255, 255, 255, 0.7);
-}
-
 .message-receipt--read .tick-icon {
   color: #2196f3;
-}
-
-.message.own .message-receipt--read .tick-icon {
-  color: #6ad1ff;
 }
 
 .receipt-count {
@@ -9112,6 +9212,7 @@ onBeforeUnmount(() => {
 
 .pane--discussion .chat-header h3 {
   color: var(--text-primary);
+  font-size: 1.25rem;
 }
 
 .pane--discussion .chat-messages {
@@ -9420,7 +9521,6 @@ onBeforeUnmount(() => {
 
 .chat-status,
 .message-date,
-.message-time,
 .typing-indicator,
 .chat-panel-status {
   color: #6c757d !important;
@@ -9445,6 +9545,9 @@ onBeforeUnmount(() => {
 .pane--discussion .chat-input {
   background: var(--white);
   border-color: var(--border-light);
+  /* 8px above and below the message box. */
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
 .chat-input-field,
@@ -9538,6 +9641,19 @@ onBeforeUnmount(() => {
 
 .message-avatar {
   background: #8a949e;
+  overflow: hidden;
+}
+
+.message-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* One picture per run of a person's messages: the later ones keep its space,
+   so their cards still line up, but don't show it again. */
+.message-avatar--repeat {
+  visibility: hidden;
 }
 
 .message-content,
@@ -9588,16 +9704,17 @@ onBeforeUnmount(() => {
   border-bottom-left-radius: 6px;
 }
 
+/* Your own messages: Light Green with the page's dark text. */
 .message.own .message-content {
-  background: var(--dark-green);
-  color: var(--white);
-  border-color: var(--dark-green);
+  background: var(--light-green);
+  color: var(--teal);
+  border-color: var(--light-green);
   border-bottom-right-radius: 6px;
-  box-shadow: 0 2px 8px rgba(31, 122, 63, 0.18);
+  box-shadow: 0 2px 8px rgba(31, 122, 63, 0.1);
 }
 
 .message.own:hover .message-content {
-  box-shadow: 0 4px 14px rgba(31, 122, 63, 0.26);
+  box-shadow: 0 4px 14px rgba(31, 122, 63, 0.16);
 }
 
 /* Resource chip + open/download popover */
@@ -9698,10 +9815,6 @@ onBeforeUnmount(() => {
   background: rgba(38, 105, 125, 0.10);
 }
 
-.message.own .message-action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.18);
-}
-
 /* Inline action cluster inside the message header (sits after the time).
    Reply + Smile are always visible; the kebab (Edit/Delete dropdown) only
    shows up while ``canManageMessage`` is true. */
@@ -9733,16 +9846,6 @@ onBeforeUnmount(() => {
 .inline-action-btn.active {
   background: rgba(38, 105, 125, 0.10);
   color: var(--air-force-blue);
-}
-
-.message.own .inline-action-btn {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.message.own .inline-action-btn:hover:not(:disabled),
-.message.own .inline-action-btn.active {
-  background: rgba(255, 255, 255, 0.20);
-  color: var(--white);
 }
 
 .inline-kebab-wrap {
@@ -10023,11 +10126,10 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-author,
-.message.own .message-time,
 .message.own .message-date,
 .pane--discussion .message.own .message-text,
 .message.own .message-action-btn {
-  color: var(--white) !important;
+  color: var(--teal) !important;
 }
 
 .message-edited {
@@ -10112,18 +10214,6 @@ onBeforeUnmount(() => {
 .reaction-picker-toggle.active {
   border-color: var(--air-force-blue);
   background: #f1f5f7;
-}
-
-.message.own .reaction-picker-toggle {
-  border-color: rgba(255, 255, 255, 0.56);
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--white);
-}
-
-.message.own .reaction-picker-toggle:hover,
-.message.own .reaction-picker-toggle.active {
-  border-color: var(--white);
-  background: rgba(255, 255, 255, 0.24);
 }
 
 /* Click-only picker. Renders only when ``activeReactionPickerMessageId``
@@ -10474,6 +10564,19 @@ onBeforeUnmount(() => {
 :root[data-theme='dark'] .pane--discussion .chat-messages {
   background: var(--surface-elevated);
   color: var(--teal);
+}
+
+/* Other people's chat messages and the message box on black in the dark
+   theme; your own messages keep their green tint. */
+:root[data-theme='dark'] .message:not(.own) .message-content,
+:root[data-theme='dark'] .chat-input-field {
+  background: #000;
+}
+
+/* A reply quote inside another person's message takes the chat area's grey,
+   so it stands out from the black message. */
+:root[data-theme='dark'] .message:not(.own) .message-reply {
+  background: var(--surface-elevated);
 }
 
 :root[data-theme='dark'] .task-state-menu-item {

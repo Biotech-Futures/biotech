@@ -1,6 +1,6 @@
 <template>
   <label class="table-options">
-    Options
+    <span class="table-options__label">Options</span>
     <select class="table-options__select" :value="choice" @change="onOption">
       <option value="">Select</option>
       <optgroup label="Export">
@@ -114,19 +114,29 @@ const onOption = async (event: Event) => {
 </script>
 
 <style scoped>
+/* Laid out like the table's Search field beside it: a small capital label
+   over a box of the same height. */
 .table-options {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: #6c757d;
-  font-size: 0.9rem;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.table-options__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .table-options__select {
-  padding: 0.4rem 0.55rem;
+  padding: 0.45rem 0.55rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
   color: var(--teal);
-  background: var(--white);
+  background: var(--surface-elevated);
 }
 </style>

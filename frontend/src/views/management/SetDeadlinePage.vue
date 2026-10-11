@@ -49,7 +49,7 @@
           </p>
           <p class="deadline__row">
             Closes:
-            <strong>{{ `${new Date(deadline.closes_at).toLocaleDateString('en-GB')} ${new Date(deadline.closes_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</strong>
+            <strong>{{ formatStatementTime(deadline.closes_at) }}</strong>
             <span v-if="deadline.grace_hours" class="deadline__muted">
               (+ {{ deadline.grace_hours }}h quiet grace)
             </span>
@@ -57,7 +57,7 @@
           <p v-if="deadline.set_by" class="deadline__row deadline__muted">
             Set by {{ deadline.set_by }}
             <template v-if="deadline.created_at">
-              on {{ `${new Date(deadline.created_at).toLocaleDateString('en-GB')} ${new Date(deadline.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}
+              on {{ formatStatementTime(deadline.created_at) }}
             </template>
           </p>
         </template>
@@ -126,7 +126,7 @@ import {
   type SubmissionDeadline
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { describeBrowserTimeZone } from '@/utils/date'
+import { describeBrowserTimeZone, formatStatementTime, getBrowserTimeZone } from '@/utils/date'
 
 const localTimeZone = describeBrowserTimeZone()
 
@@ -148,9 +148,10 @@ const closesAtLocal = ref(defaultClosesAtLocal())
 const graceHours = ref(24)
 const confirmOpen = ref(false)
 
-// Human-readable version of the picked time, for the confirm dialog.
+// Human-readable version of the picked time, for the confirm dialog. It was
+// typed in the computer's time, so it reads back the same way.
 const pendingLabel = computed(() =>
-  closesAtLocal.value ? `${new Date(closesAtLocal.value).toLocaleDateString('en-GB')} ${new Date(closesAtLocal.value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` : ''
+  closesAtLocal.value ? formatStatementTime(new Date(closesAtLocal.value), getBrowserTimeZone()) : ''
 )
 
 // open: before the announced closing time; grace: past it but the server is

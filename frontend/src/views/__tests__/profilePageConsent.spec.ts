@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ProfilePage from '../ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
+import { formatDayMonthTime } from '@/utils/date'
 
 const baseUser = {
   id: 81,
@@ -80,8 +81,10 @@ describe('ProfilePage guardian consent', () => {
       join_perm_granted_at: '2026-09-14T03:00:00Z',
     })
 
-    // DD MMM YYYY HH:mm, in the student's timezone (UTC when none is set).
-    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Received 14 Sep 2026 03:00')
+    // "14 Sep, 1:00 pm", in the set time.
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe(
+      `Received ${formatDayMonthTime('2026-09-14T03:00:00Z')}`,
+    )
     expect(wrapper.find('[data-test="guardian-reminders"]').exists()).toBe(false)
   })
 

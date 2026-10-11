@@ -79,7 +79,7 @@ describe('RichEditor in email mode', () => {
     }
     // The finalist email's heading: dark green, 26px. The cursor starts in it.
     const heading = '<h1 style="color:#017151; font-size:26px">Congratulations</h1>'
-    expect(await menu(heading, 'text-colour')).toEqual({ now: null, active: ['Dark green'] })
+    expect(await menu(heading, 'text-colour')).toEqual({ now: null, active: ['Dark green (BTF)'] })
     expect(await menu(heading, 'text-size')).toEqual({ now: 'Now: 26px', active: [] })
     expect((await menu('<p>Plain</p>', 'text-colour')).now).toBe('Now: default')
   })
