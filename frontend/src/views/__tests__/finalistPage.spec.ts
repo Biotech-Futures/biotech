@@ -4,6 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import type { FinalistDetail, FinalistEntry } from '@/utils/finalistAPI'
 import { ApiError } from '@/utils/apiError'
+import { formatDayMonthTime } from '@/utils/date'
 
 const fetchFinalist = vi.fn()
 const submitAvailability = vi.fn()
@@ -150,8 +151,9 @@ describe('availability', () => {
   it('lists every time from the server', async () => {
     await mountPage(buildDetail(null))
 
-    expect(wrapper!.text()).toContain('10:00 – 11:00')
-    expect(wrapper!.text()).toContain('13:55 – 15:00')
+    // No Symposium day yet, so no Sydney clock name after the times.
+    expect(wrapper!.text()).toContain('10:00 - 11:00')
+    expect(wrapper!.text()).toContain('13:55 - 15:00')
     expect(wrapper!.find('.status-line').text()).toContain('Not Started')
   })
 
@@ -176,8 +178,8 @@ describe('availability', () => {
 
     expect(submitAvailability).toHaveBeenCalledWith('1', [1, 3])
     const line = wrapper!.find('[data-testid="availability-submitted"]').text()
-    // Day first, 24 hour, in the viewer's time.
-    expect(line).toMatch(/^Submitted by Amy Chen on 5\/10\/2026 \d{2}:30$/)
+    // "5 Oct, 2:30 pm", in the set time.
+    expect(line).toBe(`Submitted by Amy Chen on ${formatDayMonthTime('2026-10-05T03:30:00Z')}`)
     // Nothing new to send until a tick changes.
     expect(submitTimes().attributes('disabled')).toBeDefined()
   })
@@ -354,8 +356,8 @@ describe('times', () => {
     await mountPage(buildDetail(null, true, { symposium_date: '2026-10-23' }))
 
     const labels = wrapper!.findAll('.finalist-session').map((l) => l.text())
-    expect(labels).toEqual(['10:00 – 11:00', '11:40 – 12:30', '13:55 – 15:00'])
-    expect(wrapper!.text()).toContain('The sessions are on Friday 23 October 2026, in Sydney time (AEDT, UTC+11).')
+    expect(labels).toEqual(['10:00 - 11:00 AEDT', '11:40 - 12:30 AEDT', '13:55 - 15:00 AEDT'])
+    expect(wrapper!.text()).toContain('The sessions are on Friday, 23rd October 2026, in Sydney time (AEDT, UTC+11).')
   })
 
   it('says when no times have been set up yet', async () => {

@@ -116,6 +116,7 @@ import { BRAND_NAME } from '@/constants/brand'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { fetchConsentForm, signConsentForm } from '@/utils/consentAPI'
 import type { ConsentFormData, ConsentSigned } from '@/utils/consentAPI'
+import { formatDayMonthTime } from '@/utils/date'
 
 const DEFAULT_SUPPORT_EMAIL = 'support@biotechfutures.org'
 
@@ -146,11 +147,8 @@ const linkErrorTitle = computed(() =>
   linkErrorCode.value === 'used' ? 'Already signed' : "This link can't be used"
 )
 
-const expiresLabel = computed(() =>
-  data.value
-    ? new Date(data.value.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
-    : ''
-)
+// "22 Oct, 11:00 am", in the set time.
+const expiresLabel = computed(() => (data.value ? formatDayMonthTime(data.value.expiresAt) : ''))
 
 const missing = computed(() => {
   const items: string[] = []

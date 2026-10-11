@@ -600,7 +600,9 @@
                         :class="{ 'is-overdue': isTaskOverdue(row.task) }"
                       >
                         <i class="fas fa-calendar" aria-hidden="true"></i>
-                        {{ formatDate(row.task.dueDate) }}
+                        <!-- A due date is a picked day, saved as that day's
+                             UTC midnight, so it shows as that day. -->
+                        {{ formatDayMonth(row.task.dueDate, 'UTC') }}
                       </span>
                       <span
                         v-if="row.task.createdBy && row.task.createdBy.name"
@@ -1031,7 +1033,7 @@
                 >
                   <span class="message-search-row-head">
                     <strong>{{ result.author }}</strong>
-                    <small>{{ formatDate(result.date) }} {{ result.time }}</small>
+                    <small>{{ formatDayMonthTime(result.date) }}</small>
                   </span>
                   <span class="message-search-text">
                     <template v-if="result.text">
@@ -1122,7 +1124,7 @@
                     </template>
                     <template v-if="!mention.message_text">Message was deleted.</template>
                   </strong>
-                  <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
+                  <small>{{ formatDayMonthTime(mention.sent_at) }}</small>
                 </button>
                 <div v-if="!mentionItems.length && !mentionInboxError" class="chat-panel-status">
                   No mentions yet.
@@ -1218,8 +1220,7 @@
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
-                      <span class="message-date">{{ formatDate(message.date) }}</span>
-                      <span class="message-time">{{ message.time }}</span>
+                      <span class="message-date">{{ formatDayMonthTime(message.date) }}</span>
                       <!-- Inline action cluster: always-visible reply + smile,
                            and a kebab menu (Edit/Delete) shown only while the
                            10-min self-action window is open or the caller is
@@ -1833,6 +1834,7 @@ import {
 } from '@/utils/receipts'
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
+import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -2155,27 +2157,6 @@ const getInitials = (name) =>
     .join('')
     .toUpperCase()
 
-// Module-level cache: Intl.DateTimeFormat is expensive to construct;
-// reuse per (locale, options) shape across renders.
-const _dateFmt = new Intl.DateTimeFormat('en-AU', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
-const _timeFmt = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
-
-const formatDate = (d) => {
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return d
-  return _dateFmt.format(date)
-}
-
-const formatTime = (value) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return _timeFmt.format(date)
-}
-
 const resolveMessageSentAt = (raw) => {
   const candidates = [
     raw?.sent_at,
@@ -2211,7 +2192,7 @@ const groupInitials = computed(() => {
 
 // The member count shows on the Members button beside it.
 const groupSubtitle = computed(() => {
-  const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
+  const createdLabel = group.value?.createdAt ? formatDayMonth(group.value.createdAt) : 'unknown date'
   return `Group since ${createdLabel}`
 })
 
@@ -3315,7 +3296,6 @@ const normalizeMessage = (item) => {
     senderId,
     author,
     text: messageText,
-    time: formatTime(sentAt),
     date: sentAt,
     isOwn: isOwnMessage,
     messageType,
@@ -5550,7 +5530,6 @@ const sendMessage = async () => {
     id: pendingId,
     author: 'You',
     text,
-    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     date: now.toISOString(),
     isOwn: true,
     message_type: 'text',
@@ -5659,7 +5638,7 @@ const formatRelativeTime = (iso) => {
   if (hours < 24) return `${hours}h ago`
   const days = Math.round(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+  return formatDayMonth(iso)
 }
 
 const openMessageReceipts = async (messageId, event) => {
@@ -8727,8 +8706,7 @@ onBeforeUnmount(() => {
   font-size: 0.875rem;
 }
 
-.pane--discussion .message-date,
-.pane--discussion .message-time {
+.pane--discussion .message-date {
   font-size: 0.75rem;
 }
 
@@ -9543,7 +9521,6 @@ onBeforeUnmount(() => {
 
 .chat-status,
 .message-date,
-.message-time,
 .typing-indicator,
 .chat-panel-status {
   color: #6c757d !important;
@@ -10149,7 +10126,6 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-author,
-.message.own .message-time,
 .message.own .message-date,
 .pane--discussion .message.own .message-text,
 .message.own .message-action-btn {

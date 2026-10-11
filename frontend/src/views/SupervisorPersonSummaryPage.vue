@@ -131,7 +131,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { buildSessionHeaders } from '@/utils/csrf'
-import { formatDateTimeAU } from '@/utils/date'
+import { formatShortDateTime } from '@/utils/date'
 import {
   fetchSupervisedStudent,
   fullName,
@@ -166,7 +166,7 @@ const studentRoute = computed(() => ({ name: 'student-summary', params: { id: St
 const guardianRoute = computed(() => ({ name: 'guardian-summary', params: { id: String(studentId.value) } }))
 const permissionGiven = computed(() =>
   student.value?.has_join_permission
-    ? formatDateTimeAU(student.value.joinperm_granted_at) || 'Recorded'
+    ? formatShortDateTime(student.value.joinperm_granted_at) || 'Recorded'
     : '—',
 )
 const display = (value?: string | null) => {

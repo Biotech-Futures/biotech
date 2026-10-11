@@ -1,6 +1,6 @@
 import { apiErrorFromResponse } from './apiError'
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
-import { formatDateTimeAU } from './date'
+import { formatShortDateTime } from './date'
 
 export type SupervisedStudent = {
   id: number
@@ -69,7 +69,7 @@ export const toStudentRow = (student: SupervisedStudent) => ({
   yearLevel: student.year_lvl,
   interests: student.interests,
   permissionGiven: student.has_join_permission
-    ? formatDateTimeAU(student.joinperm_granted_at) || 'Recorded'
+    ? formatShortDateTime(student.joinperm_granted_at) || 'Recorded'
     : '—',
   permissionGivenAt: student.joinperm_granted_at,
   signature: student.signature || '',

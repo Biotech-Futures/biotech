@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import YearPage from '@/views/management/YearPage.vue'
+import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists } from '@/utils/gradingAPI'
 import {
   fetchCertificatesRelease,
@@ -84,9 +85,7 @@ describe('the year dashboard', () => {
 
   it('reports the furthest extension as the real end of the window', async () => {
     const wrapper = await mountPage()
-    expect(fact(wrapper, 'Last extension').text()).toContain(
-      `${new Date('2026-11-08T00:00:00Z').toLocaleDateString('en-GB')} ${new Date('2026-11-08T00:00:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    )
+    expect(fact(wrapper, 'Last extension').text()).toContain(formatStatementTime('2026-11-08T00:00:00Z'))
   })
 
   it('shows each release gate in its own state', async () => {

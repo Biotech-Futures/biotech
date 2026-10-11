@@ -79,7 +79,7 @@
       </div>
     </template>
     <template #cell-lastlogin="{ row }">
-      {{ formatLoginDate(toRow(row).lastLogin) || 'Never' }}
+      {{ formatShortDate(toRow(row).lastLogin) || 'Never' }}
     </template>
     <template #cell-yearlevel="{ row }">
       {{ toRow(row).yearLevel ?? '—' }}
@@ -115,8 +115,8 @@ import { computed } from 'vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import type { AdminColumn, SortState } from '@/components/admin/AdminDataTable.vue'
 import type { ViewResultRow } from '@/composables/admin/useAdminViewExecuted'
+import { formatShortDate } from '@/utils/date'
 import {
-  formatLoginDate,
   labelizeCountry,
   labelizeState,
   roleLabel,

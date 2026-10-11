@@ -114,7 +114,7 @@
               :data-testid="`session-${session.id}`"
               @change="toggleSession(session.id)"
             />
-            <span>{{ session.label }}</span>
+            <span>{{ sessionLabel(session.label) }}</span>
           </label>
         </fieldset>
 
@@ -249,7 +249,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { sydneyClockOn } from '@/utils/date'
+import { formatDayMonthTime, formatEventCalendarDay, formatSydneySlot, sydneyClockOn } from '@/utils/date'
 import {
   fetchFinalist,
   presentationDownloadUrl,
@@ -308,7 +308,6 @@ const isPdf = computed(() => (shownPresentation.value?.name ?? '').toLowerCase()
 const isPreviewShut = computed(() => !isEditable.value && !shownPresentation.value)
 const isPreviewFolded = computed(() => previewCollapsed.value || isPreviewShut.value)
 const maxSizeLabel = computed(() => formatFileSize(detail.value?.max_file_size ?? 25 * 1024 * 1024))
-// "Friday, 23 October 2026", as the finalist email words the Symposium day.
 // "AEDT, UTC+11" on the Symposium day: the sessions are Sydney time
 // wherever the team is.
 const sydneyClock = computed(() => {
@@ -318,17 +317,15 @@ const sydneyClock = computed(() => {
   return `${clock.name}, ${clock.offset}`
 })
 
-const symposiumDay = computed(() => {
-  const iso = detail.value?.symposium_date
-  if (!iso) return ''
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year!, month! - 1, day).toLocaleDateString('en-AU', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  })
-})
+// "Friday, 23rd October 2026".
+const symposiumDay = computed(() => formatEventCalendarDay(detail.value?.symposium_date))
+
+// "09:30 - 10:00 AEDT" from the session's "9:30 – 10:00": Sydney time on
+// the Symposium day.
+const sessionLabel = (label: string) => {
+  const [start, end] = label.split('–').map((part) => part.trim())
+  return start && end ? formatSydneySlot(start, end, detail.value?.symposium_date) : label
+}
 /** The ticks differ from the team's submitted times. */
 const availabilityChanged = computed(() => {
   const saved = entry.value?.available_session_ids ?? []
@@ -341,15 +338,8 @@ const availabilitySubmittedLine = computed(() => {
   const at = entry.value?.availability_submitted_at
   if (!at) return ''
   const by = entry.value?.availability_submitted_by_name
-  return `Submitted${by ? ` by ${by}` : ''} on ${formatDayTime(at)}`
+  return `Submitted${by ? ` by ${by}` : ''} on ${formatDayMonthTime(at)}`
 })
-
-// "1/10/2026 23:08": day first, 24 hour.
-function formatDayTime(iso: string) {
-  const at = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${at.getDate()}/${at.getMonth() + 1}/${at.getFullYear()} ${pad(at.getHours())}:${pad(at.getMinutes())}`
-}
 const downloadUrl = computed(() => presentationDownloadUrl(groupId.value))
 const previewUrl = computed(() => presentationPreviewUrl(groupId.value))
 
@@ -358,7 +348,7 @@ const state = computed(() => {
   const stage = entry.value?.stage ?? 'not_started'
   const by = entry.value?.submitted_by_name
   const submittedLine = entry.value?.submitted_at
-    ? `Submitted${by ? ` by ${by}` : ''} on ${new Date(entry.value.submitted_at).toLocaleString()}`
+    ? `Submitted${by ? ` by ${by}` : ''} on ${formatDayMonthTime(entry.value.submitted_at)}`
     : ''
   if (stage === 'submitted' || (stage === 'revising' && closed)) {
     return { tone: 'submitted', icon: 'fa-check', headline: 'Submitted', detail: submittedLine }
@@ -382,22 +372,14 @@ const state = computed(() => {
   }
 })
 
-const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const deadlineDate = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
-  if (!closesAt) return 'No deadline set'
-  const date = new Date(closesAt)
-  return date.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return closesAt ? formatDayMonthTime(closesAt) : 'No deadline set'
 })
+// Only explains a missing deadline: a set one shows in the set time.
 const deadlineDetail = computed(() =>
   detail.value?.deadline.closes_at
-    ? `Shown in your local time (${localZone}).`
+    ? undefined
     : 'An administrator needs to set a finalist deadline before entries can be saved.'
 )
 const timeRemaining = computed(() =>

@@ -21,16 +21,12 @@
       <ul class="year__facts">
         <li>
           <span class="year__fact-label">Submission deadline</span>
-          <span v-if="deadline">{{
-            `${new Date(deadline.closes_at).toLocaleDateString('en-GB')} ${new Date(deadline.closes_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-          }}</span>
+          <span v-if="deadline">{{ formatStatementTime(deadline.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
           <span class="year__fact-label">Last extension</span>
-          <span v-if="lastExtension">{{
-            `${new Date(lastExtension).toLocaleDateString('en-GB')} ${new Date(lastExtension).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-          }}</span>
+          <span v-if="lastExtension">{{ formatStatementTime(lastExtension) }}</span>
           <span v-else class="year__muted">none granted</span>
         </li>
         <li>
@@ -87,6 +83,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists, type FinalistRow } from '@/utils/gradingAPI'
 import {
   fetchCertificatesRelease,

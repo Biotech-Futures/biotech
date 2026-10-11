@@ -413,10 +413,11 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import {
-  formatDayMonthYear,
-  formatDayMonthYearTime,
+  formatDayMonth,
+  formatDayMonthTime,
   formatTimeZoneLabel,
   getBrowserTimeZone,
+  getSetTimeZone,
   getTimeZoneDateParts,
   isValidTimeZone,
 } from '@/utils/date'
@@ -820,9 +821,9 @@ const user = computed(() => {
       emailAddress: String(source?.pg_email || '').trim(),
       // null when there's no student profile behind the account; treat as not received.
       consentReceived,
-      // "14 Sep 2026 15:30", in the student's own timezone.
+      // "14 Sep, 3:30 pm", in the set time.
       consentReceivedAt: consentReceived && source?.join_perm_granted_at
-        ? formatDayMonthYearTime(source.join_perm_granted_at, auth.timeZone)
+        ? formatDayMonthTime(source.join_perm_granted_at)
         : '',
       pending: source?.pending_guardian
         ? {
@@ -890,11 +891,12 @@ const reminderLine = computed(() => {
   const guardian = user.value?.guardian
   if (guardian?.consentReceived && !guardian?.pending) return ''
   const last = reminder.last_sent_at
-    ? `Last emailed ${formatDayMonthYearTime(reminder.last_sent_at, auth.timeZone)}.`
+    ? `Last emailed ${formatDayMonthTime(reminder.last_sent_at)}.`
     : 'Not emailed yet.'
   if (!reminder.next_due_at) return last
-  const today = getTimeZoneDateParts(new Date(now.value), auth.timeZone)
-  const due = getTimeZoneDateParts(reminder.next_due_at, auth.timeZone)
+  const zone = getSetTimeZone()
+  const today = getTimeZoneDateParts(new Date(now.value), zone)
+  const due = getTimeZoneDateParts(reminder.next_due_at, zone)
   const days = today && due
     ? Math.round((Date.UTC(due.year, due.month - 1, due.day) - Date.UTC(today.year, today.month - 1, today.day)) / 86400000)
     : null
@@ -902,7 +904,7 @@ const reminderLine = computed(() => {
     ? 'today'
     : days === 1
       ? 'tomorrow'
-      : `on ${formatDayMonthYear(reminder.next_due_at, auth.timeZone)}`
+      : `on ${formatDayMonth(reminder.next_due_at)}`
   return `${last} They'll be emailed again ${when}.`
 })
 

@@ -138,6 +138,7 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
 import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
+import { formatShortDateTime } from '@/utils/date'
 import { roleLabel } from '@/utils/userFormat'
 import type { BackendEvent } from '@/utils/eventsAPI'
 
@@ -316,18 +317,6 @@ const userInitials = (target: AdminEventRsvpItem | number) => {
   return 'U'
 }
 
-const formatDate = (isoStr?: string | null) => {
-  if (!isoStr) return '—'
-  try {
-    return new Intl.DateTimeFormat('en-AU', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    }).format(new Date(isoStr))
-  } catch {
-    return isoStr
-  }
-}
-
 const filteredRsvps = computed(() => {
   let list = rsvps.value
 
@@ -375,7 +364,7 @@ const rsvpRows = computed(() =>
     role: roleLabel(userRole(rsvp)),
     status: rsvp.rsvpStatus,
     statusLabel: statusLabel(rsvp.rsvpStatus),
-    respondedAt: formatDate(rsvp.respondedAt),
+    respondedAt: rsvp.respondedAt ? formatShortDateTime(rsvp.respondedAt) : '—',
   }))
 )
 </script>

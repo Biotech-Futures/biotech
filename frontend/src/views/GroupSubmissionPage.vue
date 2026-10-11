@@ -542,6 +542,7 @@ import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
 import { RouterLink, useRoute } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatDayMonthTime } from '@/utils/date'
 import {
   countWords,
   describeQuestionStep,
@@ -829,7 +830,7 @@ const saveStateLabel = computed(() => {
   if (isSaving.value) return 'Saving…'
   if (saveState.value === 'error') return 'Could not save'
   if (saveState.value === 'unsaved') return 'Unsaved changes'
-  if (lastSavedAt.value) return `Saved ${formatTime(lastSavedAt.value)}`
+  if (lastSavedAt.value) return `Saved ${formatDayMonthTime(lastSavedAt.value)}`
   return ''
 })
 
@@ -898,7 +899,7 @@ const state = computed(() => {
 const submittedLine = computed(() => {
   const submission = detail.value?.submission
   if (!submission?.submitted_at) return ''
-  const when = formatDate(submission.submitted_at)
+  const when = formatDayMonthTime(submission.submitted_at)
   return submission.submitted_by_name
     ? `By ${submission.submitted_by_name} on ${when}`
     : `On ${when}`
@@ -906,7 +907,7 @@ const submittedLine = computed(() => {
 
 const deadlineDate = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
-  return closesAt ? formatDeadline(closesAt) : 'No deadline set'
+  return closesAt ? formatDayMonthTime(closesAt) : 'No deadline set'
 })
 
 const timeRemaining = computed(() =>
@@ -917,15 +918,12 @@ const isDeadlineNear = computed(
   () => isOpen.value && deadlineIsNear(detail.value?.deadline.closes_at, now.value)
 )
 
-const deadlineDetail = computed(() => {
-  if (!detail.value?.deadline.closes_at) {
-    return 'An administrator needs to set a deadline before entries can be saved.'
-  }
-  // Times are stored in UTC, so name the viewer's time zone.
-  return `Shown in your local time (${localZone}).`
-})
-
-const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+// Only explains a missing deadline: a set one shows in the set time.
+const deadlineDetail = computed(() =>
+  detail.value?.deadline.closes_at
+    ? undefined
+    : 'An administrator needs to set a deadline before entries can be saved.'
+)
 
 const TITLE_STEP_KEY = '__project_title'
 
@@ -938,25 +936,6 @@ function stepSummary(key: string): string {
   }
   if (key === 'poster') return 'Required'
   return 'Optional'
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
-
-function formatDeadline(value: string) {
-  const date = new Date(value)
-  const isThisYear = date.getFullYear() === new Date().getFullYear()
-  return date.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: isThisYear ? undefined : 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
 }
 
 const formatSize = formatFileSize
@@ -1144,10 +1123,6 @@ async function load() {
 
 function currentSnapshot() {
   return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value, projectTitle: projectTitle.value })
-}
-
-function formatTime(value: Date) {
-  return value.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
 async function persistDraft() {

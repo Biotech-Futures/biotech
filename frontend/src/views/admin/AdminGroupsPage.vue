@@ -147,7 +147,7 @@
         <span v-else class="admin-groups__unmatched">Unassigned</span>
       </template>
       <template #cell-createdAt="{ row }">
-        {{ formatDateAU(toGroup(row).createdAt) }}
+        {{ formatShortDate(toGroup(row).createdAt) }}
       </template>
       <!-- View | Open | Rename, each in its own column. -->
       <template #actions="{ row, column }">
@@ -284,7 +284,7 @@ import {
   type GroupListDetailParams
 } from '@/utils/adminAPI'
 import { fitPageSize, serverPageLimit } from '@/utils/dataTable'
-import { formatDateAU } from '@/utils/date'
+import { formatShortDate } from '@/utils/date'
 
 // "Groups" (the list built here), "Student Matching", "Mentor Matching" and
 // "Matched Groups" (confirmed mentor assignments, mentor replace/unassign) are

@@ -188,7 +188,7 @@
             >
               <option value="">Not allocated</option>
               <option v-for="slot in columns" :key="slot.id" :value="slot.id">
-                {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
+                {{ slotLabel(slot) }}
               </option>
             </select>
           </template>
@@ -298,7 +298,7 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
-import { sydneyClockOn } from '@/utils/date'
+import { formatEventCalendarDay, formatShortDateTime, formatSydneySlot, sydneyClockOn } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
@@ -450,19 +450,8 @@ onMounted(() => {
   void loadSlides()
 })
 
-// "Friday, 23 October 2026", as the finalist email words its dates.
-const longDate = (iso: string | null | undefined) => {
-  if (!iso) return ''
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year!, month! - 1, day).toLocaleDateString('en-AU', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  })
-}
-
-const symposiumDay = computed(() => longDate(data.value?.symposium_date))
+// "Friday, 23rd October 2026".
+const symposiumDay = computed(() => formatEventCalendarDay(data.value?.symposium_date))
 // "AEDT (daylight saving, UTC+11)" on the Symposium day, once it's set.
 const sydneyClock = computed(() => {
   const iso = data.value?.symposium_date
@@ -470,7 +459,7 @@ const sydneyClock = computed(() => {
   const clock = sydneyClockOn(iso)
   return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
 })
-const slidesDue = computed(() => longDate(slidesDueOn.value))
+const slidesDue = computed(() => formatEventCalendarDay(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number)
@@ -480,25 +469,15 @@ const minutesOf = (hhmm: string) => {
 const hhmmOf = (total: number) =>
   `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 
-// 24 hour, no am or pm: "9:30", "13:00".
-const clock = (hours: number, minutes: number) => `${hours}:${String(minutes).padStart(2, '0')}`
+// 24 hour, no am or pm: "09:30", "13:00".
+const formatTime = (hhmm: string) => hhmmOf(minutesOf(hhmm))
 
-const formatTime = (hhmm: string) => {
-  const total = minutesOf(hhmm)
-  return clock(Math.floor(total / 60), total % 60)
-}
-
-// "9:30 – 10:00".
+// "09:30 - 10:00 AEDT", in Sydney's clock on the Symposium day.
 const slotLabel = (slot: PresentationSlot | undefined) =>
-  slot ? `${formatTime(slot.starts_at)} – ${formatTime(slot.ends_at)}` : ''
+  slot ? formatSydneySlot(slot.starts_at, slot.ends_at, data.value?.symposium_date) : ''
 
 // "17/10/26 23:06", as the other management tables write it.
-const formatSubmitted = (iso: string | null) => {
-  if (!iso) return ''
-  const at = new Date(iso)
-  const date = at.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
-  return `${date} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-}
+const formatSubmitted = (iso: string | null) => (iso ? formatShortDateTime(iso) : '')
 
 // "PDF", "PPTX" or "PPT", from the file's name.
 const fileType = (name: string) => (name.includes('.') ? name.split('.').pop()!.toUpperCase() : '')

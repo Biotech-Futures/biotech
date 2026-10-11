@@ -42,10 +42,10 @@
               <time
                 class="detail__date"
                 :datetime="announcement.date || undefined"
-                :title="fullDate"
+                :title="postedAt"
               >
                 {{ relativeDate }}
-                <span v-if="fullDate" class="detail__date-full"> &middot; {{ fullDate }}</span>
+                <span v-if="postedAt" class="detail__date-full"> &middot; {{ postedAt }}</span>
               </time>
             </div>
           </div>
@@ -107,7 +107,7 @@ import AnnouncementLightbox from '@/components/announcements/AnnouncementLightbo
 import AnnouncementSkeleton from '@/components/announcements/AnnouncementSkeleton.vue'
 import {
   authorInitial,
-  formatFullDate,
+  formatPostedAt,
   formatRelativeDate,
   getAudienceClass,
   getAudienceLabel,
@@ -124,8 +124,8 @@ const shareLabel = ref('Copy link')
 const relativeDate = computed(() =>
   announcement.value ? formatRelativeDate(announcement.value.date) : ''
 )
-const fullDate = computed(() =>
-  announcement.value ? formatFullDate(announcement.value.date) : ''
+const postedAt = computed(() =>
+  announcement.value ? formatPostedAt(announcement.value.date) : ''
 )
 
 const errorTitle = computed(() => {

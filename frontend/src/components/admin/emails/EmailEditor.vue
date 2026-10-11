@@ -222,6 +222,7 @@ import {
   type SystemEmailTestRecipient
 } from '@/utils/systemEmail'
 import { useAuthStore } from '@/stores/auth'
+import { formatStatementTime } from '@/utils/date'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
 
@@ -275,17 +276,11 @@ const lockReason = () => {
   }
 }
 
+// "Last edited by Ada Admin · 05/10/2026 at 15:42".
 const lastEditedLabel = () => {
   const { updatedBy, updatedAt } = props.emailTemplate
   if (!updatedBy || !updatedAt) return ''
-  const when = new Date(updatedAt).toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-  return `Last edited by ${updatedBy} \u00b7 ${when}`
+  return `Last edited by ${updatedBy} \u00b7 ${formatStatementTime(updatedAt)}`
 }
 
 const emit = defineEmits<{

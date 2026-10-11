@@ -136,7 +136,7 @@
       <p v-if="details?.sent_from" class="notify-finalists__delivery-note">{{ deliveryNote(details.sent_from) }}</p>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
-        {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
+        {{ formatStatementTime(lastEmailed.notified_at) }}<template
           v-if="lastEmailed.notified_by"
         >
           by {{ lastEmailed.notified_by }}</template
@@ -246,6 +246,7 @@ import {
   type FinalistSendWhich
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatStatementTime } from '@/utils/date'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'

@@ -212,7 +212,7 @@ import {
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { DATA_TABLE_TWO_LINE_ROW_HEIGHT, fitPageSize, serverPageLimit } from '@/utils/dataTable'
-import { formatDateAU } from '@/utils/date'
+import { formatShortDate } from '@/utils/date'
 
 
 type TaskTypeFilter = 'all' | AdminTaskType
@@ -632,7 +632,9 @@ const targetLabel = (task: AdminTask) => {
   return task.assigned_user ? `User #${task.assigned_user}` : '-'
 }
 
-const formatDueDate = (value: string | null) => value ? formatDateAU(value) : '-'
+// A due date is a picked day, saved as that day's UTC midnight, so it shows
+// as that day wherever the admin is.
+const formatDueDate = (value: string | null) => value ? formatShortDate(value, 'UTC') : '-'
 
 onMounted(() => {
   void load()
