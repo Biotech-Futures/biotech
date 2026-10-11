@@ -464,11 +464,10 @@ class SupervisedStudentsView(APIView):
 
     @extend_schema(responses={200: SupervisedStudentSerializer(many=True)})
     def get(self, request):
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
 
         profiles = list(
-            StudentProfile.objects.filter(supervisor_id=request.user.id)
+            scope
             .select_related("user", "user__country", "user__state")
             .order_by("user__first_name", "user__last_name", "user_id")
         )
@@ -544,8 +543,7 @@ class SupervisedStudentsView(APIView):
     @transaction.atomic
     def patch(self, request):
         """Record parent/guardian details for one or more supervised students."""
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
 
         serializer = SupervisedStudentGuardianSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -554,16 +552,7 @@ class SupervisedStudentsView(APIView):
         pg_last_name = serializer.validated_data["pg_last_name"].strip()
         pg_email = (serializer.validated_data.get("pg_email") or "").strip().lower() or None
 
-        profiles = list(
-            StudentProfile.objects.select_related("user").filter(
-                supervisor_id=request.user.id,
-                user_id__in=student_ids,
-            )
-        )
-        found_ids = {profile.user_id for profile in profiles}
-        missing = [student_id for student_id in student_ids if student_id not in found_ids]
-        if missing:
-            raise PermissionDenied("One or more students are not on your roster.")
+        profiles = _supervised_profiles(scope, student_ids)
         if pg_email and any(
             pg_email == (profile.user.email or "").strip().lower() for profile in profiles
         ):
@@ -592,15 +581,20 @@ class SupervisedStudentsView(APIView):
         return self.get(request)
 
 
-def _supervised_profiles(supervisor, student_ids):
-    """The supervisor's own students among ``student_ids``. Refuses the lot if
-    any isn't on their roster."""
-    profiles = list(
-        StudentProfile.objects.select_related("user").filter(
-            supervisor_id=supervisor.id,
-            user_id__in=student_ids,
-        )
-    )
+def _student_scope(user):
+    """The students ``user`` may see and manage: every student for an admin
+    (Admin > Guardians), else a supervisor's own (My Students)."""
+    if is_admin(user):
+        return StudentProfile.objects.all()
+    if SupervisorProfile.objects.filter(user=user).exists():
+        return StudentProfile.objects.filter(supervisor_id=user.id)
+    raise PermissionDenied("Supervisor access is required.")
+
+
+def _supervised_profiles(scope, student_ids):
+    """The students in ``scope`` among ``student_ids``. Refuses the lot if any
+    isn't in it."""
+    profiles = list(scope.select_related("user").filter(user_id__in=student_ids))
     found_ids = {profile.user_id for profile in profiles}
     if any(student_id not in found_ids for student_id in student_ids):
         raise PermissionDenied("One or more students are not on your roster.")
@@ -615,14 +609,13 @@ class SupervisedStudentEmailView(APIView):
 
     @extend_schema(request=SupervisedStudentEmailSerializer)
     def post(self, request):
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
 
         serializer = SupervisedStudentEmailSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         student_ids = serializer.validated_data["student_ids"]
         kind = serializer.validated_data["kind"]
-        profiles = _supervised_profiles(request.user, student_ids)
+        profiles = _supervised_profiles(scope, student_ids)
 
         from apps.admin.services.guardian_consent import send_guardian_consent_request
         from . import guardian_details
@@ -682,8 +675,7 @@ class SupervisedGuardianUploadView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
         upload = request.FILES.get("file")
         if upload is None:
             return Response({"detail": "Choose a file to upload."}, status=status.HTTP_400_BAD_REQUEST)
@@ -691,7 +683,7 @@ class SupervisedGuardianUploadView(APIView):
         from . import guardian_upload
 
         try:
-            result = guardian_upload.parse_guardian_upload(upload, upload.name, request.user)
+            result = guardian_upload.parse_guardian_upload(upload, upload.name, scope)
         except Exception:  # noqa: BLE001 - an unreadable file, whatever the reason
             return Response(
                 {"detail": "That file couldn't be read. Upload a .csv or .xlsx."},
@@ -704,7 +696,9 @@ class SupervisedGuardianUploadView(APIView):
                 {"detail": "The sheet has problems; fix them before applying.", **result},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        saved = guardian_upload.commit_guardian_upload(result, supervisor=request.user, log_edit=_log_edit)
+        saved = guardian_upload.commit_guardian_upload(
+            result, students=scope, actor=request.user, log_edit=_log_edit,
+        )
         return Response({"applied": True, "saved": saved, **result})
 
 
@@ -717,12 +711,11 @@ class SupervisedStudentDetailsLinksView(APIView):
 
     @extend_schema(request=SupervisedStudentIdsSerializer)
     def post(self, request):
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
 
         serializer = SupervisedStudentIdsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        profiles = _supervised_profiles(request.user, serializer.validated_data["student_ids"])
+        profiles = _supervised_profiles(scope, serializer.validated_data["student_ids"])
 
         from . import guardian_details
 
@@ -758,12 +751,11 @@ class SupervisedStudentConsentLinksView(APIView):
 
     @extend_schema(request=SupervisedStudentIdsSerializer)
     def post(self, request):
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
 
         serializer = SupervisedStudentIdsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        profiles = _supervised_profiles(request.user, serializer.validated_data["student_ids"])
+        profiles = _supervised_profiles(scope, serializer.validated_data["student_ids"])
 
         from apps.admin.services.guardian_consent import guardian_consent_link
 
@@ -925,14 +917,9 @@ class SupervisedStudentDetailView(APIView):
     )
     @transaction.atomic
     def patch(self, request, pk):
-        if not SupervisorProfile.objects.filter(user=request.user).exists():
-            raise PermissionDenied("Supervisor access is required.")
+        scope = _student_scope(request.user)
 
-        profile = (
-            StudentProfile.objects.select_related("user")
-            .filter(supervisor_id=request.user.id, user_id=pk)
-            .first()
-        )
+        profile = scope.select_related("user").filter(user_id=pk).first()
         if profile is None:
             raise PermissionDenied("This student is not on your roster.")
 

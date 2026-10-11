@@ -426,6 +426,7 @@ const sidebarSections = computed(() => {
       active: isAdminLandingActive.value,
       links: [
         { label: 'Users', to: '/admin/users', active: path === '/admin/users' },
+        { label: 'Guardians', to: '/admin/guardians', active: path === '/admin/guardians' },
         { label: 'Views', to: '/admin/views', active: path.startsWith('/admin/views') },
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },

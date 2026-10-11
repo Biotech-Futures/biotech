@@ -16,8 +16,6 @@ from django.db import transaction
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from .models import StudentProfile
-
 HEADERS = ["student_email", "guardian_first_name", "guardian_last_name", "guardian_email"]
 
 
@@ -54,9 +52,10 @@ def _is_email(value: str) -> bool:
     return True
 
 
-def parse_guardian_upload(file, filename: str, supervisor) -> dict:
-    """What a sheet would change for ``supervisor``'s students, with every
-    problem found. Nothing is saved."""
+def parse_guardian_upload(file, filename: str, students) -> dict:
+    """What a sheet would change for the students in ``students`` (a
+    supervisor's own, or every one for an admin), with every problem found.
+    Nothing is saved."""
     result = {
         "checks": {
             "missing_headers": [],
@@ -81,7 +80,7 @@ def parse_guardian_upload(file, filename: str, supervisor) -> dict:
 
     profiles = {
         (profile.user.email or "").strip().lower(): profile
-        for profile in StudentProfile.objects.select_related("user").filter(supervisor_id=supervisor.id)
+        for profile in students.select_related("user")
     }
     seen = set()
     for number, values in rows:
@@ -151,15 +150,15 @@ def _summary(result: dict) -> dict:
     }
 
 
-def commit_guardian_upload(result: dict, *, supervisor, log_edit) -> int:
-    """Save a sheet with no problems; returns how many students changed.
-    ``log_edit`` records each change as the supervisor's edit."""
+def commit_guardian_upload(result: dict, *, students, actor, log_edit) -> int:
+    """Save a sheet with no problems for the students in ``students``;
+    returns how many changed. ``log_edit`` records each change as ``actor``'s."""
     entries = result["creates"] + result["updates"]
     with transaction.atomic():
         profiles = {
             profile.user_id: profile
-            for profile in StudentProfile.objects.select_for_update().filter(
-                supervisor_id=supervisor.id, user_id__in=[entry["student_id"] for entry in entries],
+            for profile in students.select_for_update().filter(
+                user_id__in=[entry["student_id"] for entry in entries],
             )
         }
         now = timezone.now()
@@ -169,10 +168,10 @@ def commit_guardian_upload(result: dict, *, supervisor, log_edit) -> int:
             profile.pg_last_name = entry["guardian_last_name"]
             profile.pg_email = entry["guardian_email"]
             profile.parent_guardian_flag = True
-            # A supervisor's edit makes the student's details theirs to change.
+            # A supervisor's or admin's edit makes the student's details theirs to change.
             profile.supervisor_edited_at = now
             profile.save(update_fields=[
                 "pg_first_name", "pg_last_name", "pg_email", "parent_guardian_flag", "supervisor_edited_at",
             ])
-            log_edit(supervisor, profile.user_id, "guardian_update", {"guardianEmail": entry["guardian_email"]})
+            log_edit(actor, profile.user_id, "guardian_update", {"guardianEmail": entry["guardian_email"]})
     return len(entries)

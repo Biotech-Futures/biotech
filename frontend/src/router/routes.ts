@@ -113,6 +113,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfilePage.vue') },
   { path: '/admin', name: 'admin', component: () => import('@/views/admin/AdminDashboardPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/users', name: 'admin-users', component: () => import('@/views/admin/AdminPeoplePage.vue'), meta: { requiresAdmin: true } },
+  // My Students, for every student.
+  { path: '/admin/guardians', name: 'admin-guardians', component: () => import('@/views/SupervisorStudentsPage.vue'), props: { admin: true }, meta: { requiresAdmin: true } },
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
   {

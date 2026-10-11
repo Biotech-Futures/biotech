@@ -2,7 +2,13 @@
   <div class="content-area supervisor-students-page">
     <header class="page-header">
       <h1 class="page-title">Registered Students</h1>
-      <p class="page-subtitle">This is a list of all students registered under your supervision.</p>
+      <p class="page-subtitle">
+        {{
+          admin
+            ? 'This is a list of all students registered.'
+            : 'This is a list of all students registered under your supervision.'
+        }}
+      </p>
     </header>
 
     <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
@@ -178,6 +184,9 @@ import {
   type SupervisedEmailKind,
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
+
+// Admin > Guardians shows this page for every student, not one supervisor's.
+defineProps<{ admin?: boolean }>()
 
 type SectionId = 'pendingDetails' | 'pendingPermission' | 'fullyRegistered'
 type StudentRow = ReturnType<typeof toStudentRow>

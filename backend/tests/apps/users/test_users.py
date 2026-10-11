@@ -789,6 +789,54 @@ class SupervisedStudentsViewTests(TestCase):
         response = self.client.get("/api/v1/users/supervised-students/")
         self.assertEqual(response.status_code, 403)
 
+    def _admin_and_another_supervisors_student(self):
+        from apps.users.models import AdminScope, StudentProfile, SupervisorProfile
+
+        admin = User.objects.create_user(email="admin-guardians@test.com", password="Testpass123!", is_active=True)
+        AdminScope.objects.create(user=admin)
+        other_supervisor = User.objects.create_user(email="other-sup@test.com", password="Testpass123!")
+        other_profile = SupervisorProfile.objects.create(user=other_supervisor, school_name="Other High")
+        other_student = User.objects.create_user(
+            email="other-student@test.com", first_name="Olly", last_name="Other", password="Testpass123!",
+        )
+        StudentProfile.objects.create(
+            user=other_student, pg_first_name="Olly", pg_last_name="Other",
+            supervisor=other_profile, school_name="Other High", year_lvl="10",
+        )
+        return admin, other_student
+
+    def test_admin_lists_every_supervisors_students(self):
+        admin, other_student = self._admin_and_another_supervisors_student()
+        self.client.force_login(admin)
+        response = self.client.get("/api/v1/users/supervised-students/")
+        self.assertEqual(response.status_code, 200)
+        emails = sorted(row["email"] for row in response.json())
+        self.assertEqual(emails, ["other-student@test.com", "student@test.com"])
+
+    def test_admin_can_record_any_students_guardian(self):
+        from apps.users.models import StudentProfile
+
+        admin, other_student = self._admin_and_another_supervisors_student()
+        self.client.force_login(admin)
+        response = self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {
+                "student_ids": [other_student.id],
+                "pg_first_name": "Pat",
+                "pg_last_name": "Parent",
+                "pg_email": "pat.other@example.com",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(StudentProfile.objects.get(user=other_student).pg_email, "pat.other@example.com")
+
+    def test_supervisor_still_sees_only_their_own_students(self):
+        self._admin_and_another_supervisors_student()
+        self.client.force_login(self.supervisor)
+        emails = [row["email"] for row in self.client.get("/api/v1/users/supervised-students/").json()]
+        self.assertEqual(emails, ["student@test.com"])
+
     def test_supervisor_can_record_guardian_details(self):
         self.client.force_login(self.supervisor)
         response = self.client.patch(
