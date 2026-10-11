@@ -903,11 +903,11 @@ const togglePageSelection = () => {
   color: var(--dark-green);
 }
 
-/* A row's details, across the whole table under it. */
+/* A row's details, across the whole table under it, on the table's white. */
 .data-table-detail-row td {
   padding: 1rem 1.25rem;
   white-space: normal;
-  background: var(--bg-light);
+  background: var(--surface-elevated);
 }
 
 table {
@@ -1008,9 +1008,16 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-/* Row buttons sit on the right, as Group Marks' Add and Open do. */
+/* Row buttons sit on the right, as Group Marks' Add and Open do, 8px apart
+   like a group of buttons; the last keeps the table's edge padding. */
 .data-table-actions-col {
   text-align: right;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+.data-table-actions-col:last-child {
+  padding-right: 0.75rem;
 }
 
 .data-table-empty {

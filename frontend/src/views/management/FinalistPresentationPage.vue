@@ -56,61 +56,61 @@
         </div>
         <p v-if="actionError" class="finalist-presentation__error" role="alert">{{ actionError }}</p>
 
-        <div class="finalist-presentation__scroll">
-          <table class="finalist-presentation__table">
-            <thead>
-              <tr>
-                <th>Start</th>
-                <th>End</th>
-                <th class="finalist-presentation__cell--right"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!data.slots.length">
-                <td colspan="3" class="finalist-presentation__empty">No times yet.</td>
-              </tr>
-              <tr v-for="slot in data.slots" :key="slot.id">
-                <template v-if="editingId === slot.id">
-                  <td>
-                    <input v-model="edit.starts_at" type="time" class="finalist-presentation__time" aria-label="Start" />
-                  </td>
-                  <td>
-                    <input v-model="edit.ends_at" type="time" class="finalist-presentation__time" aria-label="End" />
-                  </td>
-                  <td class="finalist-presentation__cell--right">
-                    <div class="finalist-presentation__row-actions">
-                      <button
-                        type="button"
-                        class="btn btn-primary btn-sm"
-                        :disabled="isSaving || !edit.starts_at || !edit.ends_at"
-                        @click="saveEdit(slot.id)"
-                      >
-                        Save
-                      </button>
-                      <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="cancelEdit">
-                        Cancel
-                      </button>
-                    </div>
-                  </td>
-                </template>
-                <template v-else>
-                  <td>{{ formatTime(slot.starts_at) }}</td>
-                  <td>{{ formatTime(slot.ends_at) }}</td>
-                  <td class="finalist-presentation__cell--right">
-                    <div class="finalist-presentation__row-actions">
-                      <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="startEdit(slot)">
-                        Edit
-                      </button>
-                      <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="remove(slot.id)">
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </template>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <AppSimpleTable
+          class="finalist-presentation__times"
+          :columns="timeColumns"
+          :rows="timeRows"
+          empty-message="No times yet."
+        >
+          <template #cell-starts_at="{ row }">
+            <input
+              v-if="editingId === row.id"
+              v-model="edit.starts_at"
+              type="time"
+              class="finalist-presentation__time"
+              aria-label="Start"
+            />
+            <template v-else>{{ formatTime(String(row.starts_at)) }}</template>
+          </template>
+          <template #cell-ends_at="{ row }">
+            <input
+              v-if="editingId === row.id"
+              v-model="edit.ends_at"
+              type="time"
+              class="finalist-presentation__time"
+              aria-label="End"
+            />
+            <template v-else>{{ formatTime(String(row.ends_at)) }}</template>
+          </template>
+          <template #actions="{ row }">
+            <template v-if="editingId === row.id">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="isSaving || !edit.starts_at || !edit.ends_at"
+                @click="saveEdit(Number(row.id))"
+              >
+                Save
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="cancelEdit">
+                Cancel
+              </button>
+            </template>
+            <template v-else>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isSaving"
+                @click="startEdit(row as unknown as PresentationSlot)"
+              >
+                Edit
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="remove(Number(row.id))">
+                Remove
+              </button>
+            </template>
+          </template>
+        </AppSimpleTable>
       </template>
     </section>
 
@@ -279,6 +279,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import {
   addPresentationSlot,
   allocatePresentationSlot,
@@ -308,6 +309,13 @@ const actionError = ref('')
 
 const draft = reactive({ starts_at: '', ends_at: '' })
 const editingId = ref<number | null>(null)
+
+// The times, as the simple table lists them.
+const timeColumns: SimpleTableColumn[] = [
+  { key: 'starts_at', label: 'Start' },
+  { key: 'ends_at', label: 'End' },
+]
+const timeRows = computed(() => (data.value?.slots ?? []).map((slot) => ({ ...slot })))
 const edit = reactive({ starts_at: '', ends_at: '' })
 
 const load = async () => {
@@ -604,53 +612,8 @@ const remove = async (id: number) => {
   margin: -0.25rem 0 1rem;
 }
 
-.finalist-presentation__scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--surface-elevated);
+.finalist-presentation__times {
   margin-bottom: 1rem;
-}
-
-.finalist-presentation__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.finalist-presentation__table th,
-.finalist-presentation__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.finalist-presentation__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.finalist-presentation__table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* Scoped under the table so it outweighs the text-align: left above. */
-.finalist-presentation__table .finalist-presentation__cell--right {
-  text-align: right;
-}
-
-.finalist-presentation__row-actions {
-  display: inline-flex;
-  gap: 0.5rem;
-}
-
-.finalist-presentation__empty {
-  color: var(--text-muted);
-  text-align: center;
 }
 
 .finalist-presentation__muted {

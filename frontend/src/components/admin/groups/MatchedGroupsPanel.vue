@@ -9,10 +9,6 @@
       <div class="matched-groups__header">
         <div class="matched-groups__title">
           <h2>Matched Groups</h2>
-          <span class="matched-groups__badge">{{ groups.length }}</span>
-          <span v-if="inactiveCount > 0" class="matched-groups__badge matched-groups__badge--danger">
-            <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} inactive
-          </span>
         </div>
       </div>
 
@@ -33,15 +29,24 @@
         empty-message="No confirmed mentor assignments yet."
         @update:sort="toggleSort($event.key as SortKey)"
       >
+        <!-- How many are matched, and how many of their mentors are inactive. -->
+        <template #stats>
+          Matched: {{ groups.length }}
+          <span v-if="inactiveCount > 0" class="matched-groups__inactive">
+            · <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} inactive
+          </span>
+        </template>
         <template #search-side>
           <label class="matched-groups__toggle">
             <input v-model="showFullMentors" type="checkbox" />
             <span>Show mentors at capacity</span>
           </label>
+          <!-- Always there; usable once a matched group's mentor is inactive. -->
           <button
-            v-if="inactiveCount > 0"
             type="button"
             class="btn btn-sm btn-outline"
+            :disabled="inactiveCount === 0"
+            :title="inactiveCount === 0 ? 'No matched mentors are inactive' : undefined"
             @click="bulkDialogOpen = true"
           >
             <i class="fas fa-rotate" aria-hidden="true"></i> Replace Inactive Mentors
@@ -391,20 +396,7 @@ const onBulkConfirmed = () => {
   color: var(--teal);
 }
 
-.matched-groups__badge {
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  background-color: var(--light-green);
-  color: var(--dark-green);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.matched-groups__badge--danger {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  background-color: rgba(220, 53, 69, 0.12);
+.matched-groups__inactive {
   color: var(--danger);
 }
 

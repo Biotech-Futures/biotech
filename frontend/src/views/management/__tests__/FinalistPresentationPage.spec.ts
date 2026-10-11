@@ -168,7 +168,7 @@ describe('Finalist Presentation', () => {
     fetchMock.mockResolvedValue(slots({ symposium_date: null, slots: [] }))
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain("They're for the Symposium day. Set its date on Notify Finalists.")
-    expect(wrapper.find('.finalist-presentation__empty').text()).toBe('No times yet.')
+    expect(wrapper.find('.simple-table-empty').text()).toBe('No times yet.')
   })
 
   it('adds a time, then offers the next one straight after it', async () => {
@@ -213,7 +213,7 @@ describe('Finalist Presentation', () => {
     await buttonNamed(wrapper, 'Remove').trigger('click')
     await flushPromises()
     expect(deleteMock).toHaveBeenCalledWith(1)
-    expect(wrapper.find('.finalist-presentation__empty').exists()).toBe(true)
+    expect(wrapper.find('.simple-table-empty').exists()).toBe(true)
   })
 
   it('says when there are no finalist teams yet', async () => {
