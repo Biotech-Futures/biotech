@@ -3,7 +3,7 @@
     <header class="page-header">
       <h1 class="page-title">Groups &amp; Matching</h1>
       <p class="page-subtitle">
-        Manage student groups, run matching, and review mentor assignments.
+        Manage student groups, run matching and review mentor assignments.
       </p>
     </header>
 
