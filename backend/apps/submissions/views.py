@@ -33,6 +33,7 @@ from .errors import (
 )
 from .models import Submission, SubmissionInstruction, SubmissionQuestion
 from .poster_checks import inspect_poster, student_facing_problems
+from .autosubmit import auto_submit_due
 from .reminders import send_due_reminders
 from .serializers import (
     SubmissionDraftSerializer,
@@ -40,7 +41,8 @@ from .serializers import (
     SubmissionSerializer,
     missing_required_answers,
 )
-from .services import active_deadline, current_cohort, deadline_for_group
+from .services import deadline_for_group
+from .submitting import complete_submission, delete_superseded
 from .storage import submission_file_name, submission_file_service
 from .uploads import (
     PDF_SLOTS,
@@ -313,30 +315,9 @@ class GroupSubmissionSubmitView(APIView):
             if missing:
                 raise RequiredAnswersMissing(missing)
 
-            # Files the previous submission relied on, taken before the
-            # snapshot overwrites them. Kept per slot: each slot stores into
-            # its own container, so a delete must know where the key lives.
-            superseded = {
-                slot: (getattr(submission, f"submitted_{slot}") or {}).get("storage_key")
-                for slot in Submission.FILE_SLOTS
-            }
+            superseded = complete_submission(submission, request.user)
 
-            submission.snapshot(request.user)
-            submission.cohort = current_cohort()
-            # Late = past the GLOBAL announced deadline, even inside the
-            # quiet grace window or a per-team extension — an extension only
-            # keeps the portal accepting, it does not make the entry on time.
-            baseline = active_deadline()
-            submission.is_late = (
-                baseline is not None and submission.submitted_at > baseline.closes_at
-            )
-            submission.save()
-
-        # Outside the transaction, since a blob delete cannot be rolled back.
-        still_referenced = submission.submitted_storage_keys()
-        for slot, key in superseded.items():
-            if key and key not in still_referenced:
-                submission_file_service(slot).delete(key)
+        delete_superseded(submission, superseded)
 
         # Never raises, so a failed email cannot fail the submission.
         send_submission_confirmation(submission)
@@ -379,3 +360,14 @@ class SendSubmissionRemindersView(APIView):
     @extend_schema(exclude=True)
     def post(self, request):
         return email_jobs.refused(request) or Response(send_due_reminders(), status=status.HTTP_200_OK)
+
+
+class AutoSubmitView(APIView):
+    """Hourly run submitting complete drafts past their cut-off, called by a scheduler with the jobs' token."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        return email_jobs.refused(request) or Response(auto_submit_due(), status=status.HTTP_200_OK)

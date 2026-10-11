@@ -219,6 +219,8 @@ class Submission(models.Model):
     reopened_at = models.DateTimeField(null=True, blank=True)
     # Recorded at submit, so a later deadline change cannot make an entry late.
     is_late = models.BooleanField(default=False)
+    # Submitted by the system after the team's cut-off, as their complete draft stood.
+    auto_submitted = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

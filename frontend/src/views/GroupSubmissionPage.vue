@@ -967,6 +967,7 @@ const submittedLine = computed(() => {
   const submission = detail.value?.submission
   if (!submission?.submitted_at) return ''
   const when = formatDate(submission.submitted_at)
+  if (submission.auto_submitted) return `Automated Submission on ${when}`
   return submission.submitted_by_name
     ? `By ${submission.submitted_by_name} on ${when}`
     : `On ${when}`

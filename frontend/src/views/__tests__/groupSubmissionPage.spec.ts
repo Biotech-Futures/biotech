@@ -75,6 +75,7 @@ const emptyRecord = (): SubmissionRecord => ({
   is_submitted: false,
   is_locked: false,
   is_late: false,
+  auto_submitted: false,
   updated_at: new Date().toISOString(),
 })
 
@@ -1843,5 +1844,28 @@ describe('stretching an answer box', () => {
 
     expect(wrapper!.findAll('[data-testid="stretch-handle"]')).toHaveLength(2)
     expect((field().querySelector('textarea') as HTMLTextAreaElement).style.height).toMatch(/px$/)
+  })
+})
+
+describe('automated submission', () => {
+  it('says the entry was submitted automatically, and when', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    detail.submission!.auto_submitted = true
+    detail.submission!.submitted_by_name = ''
+    await mountPage(detail)
+
+    const line = wrapper!.find('.status-line').text()
+    expect(line).toContain('Submitted')
+    expect(line).toMatch(/Automated Submission on \S/)
+    expect(line).not.toContain('By ')
+  })
+
+  it('names the person for an ordinary submission', async () => {
+    const detail = submittedDetail()
+    detail.submission!.submitted_by_name = 'Laura Bennett'
+    await mountPage(detail)
+
+    expect(wrapper!.find('.status-line').text()).toContain('By Laura Bennett on')
   })
 })

@@ -9,6 +9,7 @@ from .finalist_views import (
     FinalistSubmitView,
 )
 from .views import (
+    AutoSubmitView,
     GroupSubmissionFileDownloadView,
     GroupSubmissionFilePreviewView,
     GroupSubmissionFileView,
@@ -26,6 +27,7 @@ urlpatterns = [
         SendSubmissionRemindersView.as_view(),
         name="submission-send-reminders",
     ),
+    path("admin/auto-submit/", AutoSubmitView.as_view(), name="submission-auto-submit"),
     path(
         "groups/<int:group_id>/",
         GroupSubmissionView.as_view(),

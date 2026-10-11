@@ -56,6 +56,7 @@ export interface SubmissionRecord {
   is_submitted: boolean
   is_locked: boolean
   is_late: boolean
+  auto_submitted: boolean
   updated_at: string
 }
 

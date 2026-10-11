@@ -43,6 +43,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
             "is_submitted",
             "is_locked",
             "is_late",
+            "auto_submitted",
             "updated_at",
         ]
         read_only_fields = fields
