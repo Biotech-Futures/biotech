@@ -229,6 +229,12 @@
   font-weight: 600;
 }
 
+.submission-field-note {
+  font-size: 0.875rem;
+  color: var(--error);
+  margin: 0.3rem 0 0;
+}
+
 /* Step strip */
 
 
@@ -300,8 +306,17 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* Stretched from the bottom border instead (StretchHandle). */
 .submission-textarea {
-  resize: vertical;
+  resize: none;
+}
+
+.submission-stretch {
+  position: relative;
+}
+
+.submission-stretch > .submission-textarea {
+  display: block;
 }
 
 .content-area .form-control::placeholder,

@@ -189,7 +189,8 @@ def _serve_presentation(request, group_id: int, *, as_attachment: bool):
         open_file=_storage.open,
         storage_key=stored["storage_key"],
         filename=stored.get("name") or "presentation",
-        mime_type=stored.get("mime"),
+        # Inline is always a PDF, whatever type an older upload recorded.
+        mime_type=stored.get("mime") if as_attachment else "application/pdf",
         size=stored.get("size"),
         as_attachment=as_attachment,
     )

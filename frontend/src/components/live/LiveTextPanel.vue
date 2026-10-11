@@ -3,7 +3,7 @@
     ref="box"
     class="live-text"
     :class="{ 'live-text--single': rows === 1 }"
-    :style="{ height: `calc(${rows} * 1.55em + 1.4rem + 2px)` }"
+    :style="{ height: height ? `${height}px` : `calc(${rows} * 1.55em + 1.4rem + 2px)` }"
     role="textbox"
     aria-readonly="true"
     data-testid="live-text"
@@ -15,7 +15,10 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { SEND_TEXT_MS } from '@/composables/useLiveRoom'
 
-const props = withDefaults(defineProps<{ text: string; caret: number | null; rows?: number }>(), { rows: 5 })
+const props = withDefaults(
+  defineProps<{ text: string; caret: number | null; rows?: number; height?: number | null }>(),
+  { rows: 5, height: null }
+)
 
 const box = ref<HTMLElement | null>(null)
 const caretEl = ref<HTMLElement | null>(null)
