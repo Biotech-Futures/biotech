@@ -65,6 +65,20 @@
         <i class="fas fa-chevron-up" aria-hidden="true"></i>
       </button>
     </header>
+    <!-- A public page in the site (meta.siteHeader): the same top bar, with
+         just the logo, as its visitor isn't signed in. -->
+    <header v-else-if="isLoginPage && route.meta.siteHeader === true" class="header">
+      <div class="header-content">
+        <div class="logo-section">
+          <span class="logo">
+            <span class="logo-icon">
+              <img :src="logo" :alt="BRAND_NAME" />
+            </span>
+            <span class="logo-text">{{ BRAND_CONNECT }}</span>
+          </span>
+        </div>
+      </div>
+    </header>
     <button
       v-if="!isLoginPage && onMarkingPage && isHeaderHidden"
       type="button"

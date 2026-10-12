@@ -8699,6 +8699,7 @@ onBeforeUnmount(() => {
 .message-date {
   color: #6c757d;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 /* The sender's name at 14px, with the date and time beside it at 12px. */
@@ -9695,9 +9696,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.message-header {
-  padding-right: 2.2rem;
-}
+/* No room kept on the right: the floating toolbar it was for is gone, so the
+   reply, smile and menu buttons sit at the bubble's right edge. */
 
 /* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
 .message:not(.own) .message-content {

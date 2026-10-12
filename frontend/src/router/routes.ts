@@ -96,7 +96,7 @@ const routes: RouteRecordRaw[] = [
   // Guardians open this from the consent email; no account needed.
   { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true } },
   // Opened from a supervisor's Copy Details Link; no account needed.
-  { path: '/guardian-details/:token', name: 'guardian-details-form', component: () => import('@/views/GuardianDetailsPage.vue'), meta: { public: true } },
+  { path: '/guardian-details/:token', name: 'guardian-details-form', component: () => import('@/views/GuardianDetailsPage.vue'), meta: { public: true, siteHeader: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/my-students', name: 'my-students', component: () => import('@/views/SupervisorStudentsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/my-groups', name: 'my-groups', component: () => import('@/views/SupervisorGroupsPage.vue'), beforeEnter: requireSupervisor },
