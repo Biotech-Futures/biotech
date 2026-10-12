@@ -36,7 +36,6 @@
           <RichEditor
             :key="editorKey"
             v-model="body"
-            blocks
             compact
             placeholder="Write your announcement content…"
           />

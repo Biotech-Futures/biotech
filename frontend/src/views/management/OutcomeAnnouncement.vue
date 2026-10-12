@@ -103,7 +103,6 @@
             <RichEditor
               ref="bodyEditor"
               v-model="draft.body"
-              blocks
               compact
               :link-placeholders="linkPlaceholders"
               placeholder="Write the announcement…"

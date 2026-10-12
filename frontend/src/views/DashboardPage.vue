@@ -428,6 +428,7 @@ import {
   formatEventTimeRange,
   getSetTimeZone,
 } from '@/utils/date'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
@@ -910,9 +911,12 @@ function sanitizeDashboardAnnouncementRichText(value) {
       return
     }
 
+    // The editor's colours, sizes and gaps stay; any other attribute goes.
+    const style = cleanEmailStyle(element.getAttribute('style'))
     for (const attribute of Array.from(element.attributes)) {
       element.removeAttribute(attribute.name)
     }
+    if (style) element.setAttribute('style', style)
 
     Array.from(element.childNodes).forEach(cleanNode)
   }

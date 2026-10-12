@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, ApiError } from '@/utils/apiError'
 import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 import { useGroupsStore } from '@/stores/groups'
 
 export interface AnnouncementImage {
@@ -171,10 +172,13 @@ export const sanitizeRichText = (value?: string | null) => {
       el.replaceWith(...Array.from(el.childNodes))
       return
     }
+    // The editor's colours, sizes and gaps stay; any other style goes.
+    const style = cleanEmailStyle(el.getAttribute('style'))
     for (const attr of Array.from(el.attributes)) {
       const allowed = ALLOWED_ATTRS[el.tagName]?.has(attr.name.toLowerCase()) || false
       if (!allowed) el.removeAttribute(attr.name)
     }
+    if (style) el.setAttribute('style', style)
     if (el.tagName === 'A') {
       const href = normalizeRichTextUrl(el.getAttribute('href'))
       if (href) {
