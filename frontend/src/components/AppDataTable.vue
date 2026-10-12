@@ -61,7 +61,7 @@
                   @change="togglePageSelection"
                 />
               </th>
-              <th v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" scope="col">
+              <th v-if="hasDetail() && !allDetailsShown" class="data-table-expand-col" scope="col">
                 <span class="sr-only">Details</span>
               </th>
               <th
@@ -113,8 +113,9 @@
                 class="data-table-row"
                 :class="[
                   {
-                    'data-table-row--clickable': clickableRows || (hasDetail() && !showAllDetails),
+                    'data-table-row--clickable': clickableRows || (hasDetail() && !allDetailsShown),
                     'data-table-row--two-line': twoLineRows,
+                    'data-table-row--joined': joinedDetails && hasDetail() && rowHasDetail(row),
                   },
                   rowClass?.(row),
                 ]"
@@ -129,7 +130,7 @@
                     @change="toggleRow(row)"
                   />
                 </td>
-                <td v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" @click.stop>
+                <td v-if="hasDetail() && !allDetailsShown" class="data-table-expand-col" @click.stop>
                   <button
                     v-if="rowHasDetail(row)"
                     type="button"
@@ -182,8 +183,9 @@
                 </template>
               </tr>
               <tr
-                v-if="hasDetail() && rowHasDetail(row) && (showAllDetails || expandedIds.has(rowId(row)))"
+                v-if="hasDetail() && rowHasDetail(row) && (allDetailsShown || expandedIds.has(rowId(row)))"
                 class="data-table-detail-row"
+                :class="{ 'data-table-detail-row--joined': joinedDetails }"
               >
                 <td :colspan="emptyColspan()">
                   <slot name="row-detail" :row="row" />
@@ -305,6 +307,13 @@ const props = withDefaults(
     selectable?: boolean
     // On: every row's details shown under it at once, with no chevrons.
     showAllDetails?: boolean
+    // On: every row's details shown and drawn as part of the row, for details
+    // that are always there and can't be hidden (Extend Deadline's Current
+    // Extensions). No gap between the row and its details, no line between
+    // them, both light up together on hover, and they count as one when
+    // fitting rows to the screen. Details a page can show or hide (Group
+    // Marks' Show details) stay separate rows with showAllDetails.
+    joinedDetails?: boolean
     // Which rows have details; every row when not given.
     detailFor?: (row: Record<string, unknown>) => boolean
     // Rows that open something when clicked; emits row-click.
@@ -334,6 +343,7 @@ const props = withDefaults(
     loading: false,
     selectable: true,
     showAllDetails: false,
+    joinedDetails: false,
     detailFor: undefined,
     clickableRows: false,
     rowClass: undefined,
@@ -520,15 +530,18 @@ const toggleDetail = (row: Record<string, unknown>) => {
 
 const rowHasDetail = (row: Record<string, unknown>) => props.detailFor?.(row) ?? true
 
+// Details shown under every row, with no chevrons to open them.
+const allDetailsShown = computed(() => props.showAllDetails || props.joinedDetails)
+
 const onRowClick = (row: Record<string, unknown>) => {
-  if (hasDetail() && !props.showAllDetails && rowHasDetail(row)) toggleDetail(row)
+  if (hasDetail() && !allDetailsShown.value && rowHasDetail(row)) toggleDetail(row)
   else if (props.clickableRows) emit('row-click', row)
 }
 
 const emptyColspan = () =>
   props.columns.length +
   (props.selectable ? 1 : 0) +
-  (hasDetail() && !props.showAllDetails ? 1 : 0) +
+  (hasDetail() && !allDetailsShown.value ? 1 : 0) +
   (slots.actions ? props.actionColumns : 0)
 
 const {
@@ -613,6 +626,9 @@ const countRowsThatFit = () => {
   let fits = 0
   for (const row of rows) {
     used += row.offsetHeight
+    // Its details under it, shown, take room with it.
+    const next = row.nextElementSibling as HTMLElement | null
+    if (next?.classList.contains('data-table-detail-row')) used += next.offsetHeight
     if (used > room) break
     fits += 1
   }
@@ -953,6 +969,30 @@ const togglePageSelection = () => {
   padding: 1rem 1.25rem;
   white-space: normal;
   background: var(--surface-elevated);
+}
+
+/* Joined details (joinedDetails): the row and its details read as one row,
+   the values' top space above and the same below the details, with no gap
+   or line between them: 77px with a one-line reason, button or not. */
+/* Beats the 56px and 70px minimums further down. Tall enough for a small
+   button (about 30px) under the top space, so every joined row is the same
+   height whether its values have a button or only text. */
+tr.data-table-row.data-table-row--joined > td {
+  height: 2.375rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.data-table-detail-row--joined > td {
+  padding: 0.5rem 0.75rem 0.5rem;
+}
+
+tbody tr.data-table-row--joined:hover + .data-table-detail-row td,
+tbody tr.data-table-row--joined:has(+ .data-table-detail-row:hover) td,
+tbody tr.data-table-detail-row--joined:hover td {
+  background-color: var(--light-green);
+  box-shadow: 1px 0 0 var(--light-green);
 }
 
 table {

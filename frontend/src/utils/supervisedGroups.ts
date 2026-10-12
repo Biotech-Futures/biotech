@@ -18,6 +18,8 @@ export type SupervisedGroup = {
   interests: string[]
 }
 
+// The program's official areas of interest. Keep in step with the backend's
+// users/migrations/0023_load_areas_of_interest.py, which loads them.
 export const DEFAULT_GROUP_INTERESTS = [
   'Biomedical Innovations',
   'Environmental Sustainability & Climate Tech',
