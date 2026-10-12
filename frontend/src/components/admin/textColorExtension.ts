@@ -2,13 +2,14 @@ import { Mark, mergeAttributes } from '@tiptap/core'
 
 export const ALLOWED_COLOR_HEXES = [
   '#017151',
-  '#000000',
+  '#C3ECCA',
+  '#234142',
   '#174243',
+  '#000000',
   '#FFFFFF',
-  '#BAD7BB',
-  '#39687B',
-  '#5EA99E',
-  '#F1E5A6',
+  '#26697D',
+  '#3EAD9F',
+  '#F3E69D',
   '#FF5050'
 ] as const
 
@@ -29,23 +30,19 @@ export const COLOR_SECTIONS: ColorSection[] = [
     title: 'PRIMARY COLORS',
     colors: [
       { name: 'Dark Green', hex: '#017151' },
-      { name: 'Black', hex: '#000000' },
+      { name: 'Light Green', hex: '#C3ECCA' },
+      { name: 'Dark Cyan', hex: '#234142' },
       { name: 'Teal', hex: '#174243' },
+      { name: 'Black', hex: '#000000' },
       { name: 'White', hex: '#FFFFFF' }
     ]
   },
   {
     title: 'SECONDARY COLORS',
     colors: [
-      { name: 'Light Green', hex: '#BAD7BB' }
-    ]
-  },
-  {
-    title: 'TERTIARY COLORS',
-    colors: [
-      { name: 'Air Force Blue', hex: '#39687B' },
-      { name: 'Yellow', hex: '#F1E5A6' },
-      { name: 'Mint Green', hex: '#5EA99E' },
+      { name: 'Air Force Blue', hex: '#26697D' },
+      { name: 'Mint Green', hex: '#3EAD9F' },
+      { name: 'Yellow', hex: '#F3E69D' },
       { name: 'Red', hex: '#FF5050' }
     ]
   }
@@ -53,11 +50,21 @@ export const COLOR_SECTIONS: ColorSection[] = [
 
 const ALLOWED_SET = new Set<string>(ALLOWED_COLOR_HEXES)
 
+const LEGACY_COLOR_MAP: Record<string, AllowedColorHex> = {
+  '#BAD7BB': '#C3ECCA',
+  '#39687B': '#26697D',
+  '#5EA99E': '#3EAD9F',
+  '#F1E5A6': '#F3E69D'
+}
+
 export function normalizeAllowedColor(raw: string | null | undefined): AllowedColorHex | null {
   if (!raw || typeof raw !== 'string') return null
   const trimmed = raw.trim().toUpperCase()
   if (ALLOWED_SET.has(trimmed)) {
     return trimmed as AllowedColorHex
+  }
+  if (trimmed in LEGACY_COLOR_MAP) {
+    return LEGACY_COLOR_MAP[trimmed]
   }
   const rgbMatch = trimmed.match(/^RGB\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/)
   if (rgbMatch) {
@@ -67,6 +74,9 @@ export function normalizeAllowedColor(raw: string | null | undefined): AllowedCo
     const hex = `#${r}${g}${b}`
     if (ALLOWED_SET.has(hex)) {
       return hex as AllowedColorHex
+    }
+    if (hex in LEGACY_COLOR_MAP) {
+      return LEGACY_COLOR_MAP[hex]
     }
   }
   return null
