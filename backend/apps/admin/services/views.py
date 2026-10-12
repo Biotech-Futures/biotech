@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.conf import settings
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -39,20 +39,32 @@ from apps.users.models.admin_scope import AdminScope
 # ============================================================================
 COLUMN_HEADER_MAP: Dict[str, str] = {
     "name": "Full Name",
+    "full_name": "Full Name",
     "email": "Email",
     "role": "Role",
     "school": "School / Institution",
+    "institution": "School / Institution",
+    "school_name": "School / Institution",
     "matched_mentor": "Matched Mentor / Mentee",
+    "matched_partner": "Matched Mentor / Mentee",
     "status": "Status",
     "phone": "Phone",
     "state": "State",
     "country": "Country",
     "interests": "Interests",
+    "interest": "Interests",
     "lastLogin": "Last Login",
     "last_login": "Last Login",
+    "lastlogin": "Last Login",
     "yearLevel": "Year Level",
+    "year_level": "Year Level",
     "year_lvl": "Year Level",
+    "yearlevel": "Year Level",
     "group": "Group",
+    "group_count": "Number of Groups",
+    "groupCount": "Number of Groups",
+    "groupcount": "Number of Groups",
+    "number_of_groups": "Number of Groups",
 }
 
 
@@ -166,6 +178,8 @@ def build_view_queryset(
         "school": ["studentprofile__school_name", "first_name", "last_name", "id"],
         "yearLevel": ["studentprofile__year_lvl", "first_name", "last_name", "id"],
         "group": ["group_name_key", "first_name", "last_name", "id"],
+        "groupCount": ["active_group_count", "first_name", "last_name", "id"],
+        "group_count": ["active_group_count", "first_name", "last_name", "id"],
         "createdAt": ["date_joined", "id"],
         "lastLogin": ["last_login", "first_name", "last_name", "id"],
     }
@@ -177,6 +191,17 @@ def build_view_queryset(
     if sort_by == "group":
         qs = qs.annotate(
             group_name_key=group_name_sort_key("groupmembership__group__group_name")
+        )
+    elif sort_by in ("groupCount", "group_count"):
+        qs = qs.annotate(
+            active_group_count=Count(
+                "groupmembership__group",
+                filter=Q(
+                    groupmembership__left_at__isnull=True,
+                    groupmembership__group__deleted_at__isnull=True,
+                ),
+                distinct=True,
+            )
         )
 
     return qs, order_by
@@ -364,14 +389,17 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
 
     # Group memberships and matched mentor/mentee resolution
     group_map: Dict[int, Dict[str, Any]] = {}
+    user_groups_map: Dict[int, List[Dict[str, Any]]] = {}
     user_group_ids = set()
     for gm in GroupMembership.objects.filter(
         user_id__in=user_ids, left_at__isnull=True, group__deleted_at__isnull=True
     ).select_related("group"):
-        group_map[gm.user_id] = {
+        g_entry = {
             "id": gm.group.id,
             "name": gm.group.group_name,
         }
+        group_map[gm.user_id] = g_entry
+        user_groups_map.setdefault(gm.user_id, []).append(g_entry)
         user_group_ids.add(gm.group.id)
 
     # Resolve partners (mentors for students, mentees for mentors)
@@ -395,14 +423,21 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             elif role == "student":
                 group_students.setdefault(gid, []).append(name)
 
-        for uid, ginfo in group_map.items():
-            gid = ginfo["id"]
+        for uid, g_list in user_groups_map.items():
             urole = role_map.get(uid)
             if urole == "student":
-                mentors = group_mentors.get(gid, [])
+                mentors: List[str] = []
+                for ginfo in g_list:
+                    for m_name in group_mentors.get(ginfo["id"], []):
+                        if m_name not in mentors:
+                            mentors.append(m_name)
                 partner_map[uid] = f"Mentor: {', '.join(mentors)}" if mentors else "Mentor: Pending"
             elif urole == "mentor":
-                students = group_students.get(gid, [])
+                students: List[str] = []
+                for ginfo in g_list:
+                    for s_name in group_students.get(ginfo["id"], []):
+                        if s_name not in students:
+                            students.append(s_name)
                 partner_map[uid] = f"Mentee: {', '.join(students)}" if students else "No mentees"
 
     # User interests
@@ -429,6 +464,8 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             school_name = mp.institution
 
         group_info = group_map.get(uid)
+        user_groups = user_groups_map.get(uid, [])
+        distinct_group_ids = {g["id"] for g in user_groups}
         users_list.append({
             "id": user.id,
             "firstName": user.first_name,
@@ -440,8 +477,9 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             "state": _user_state_dict(user),
             "groupId": group_info["id"] if group_info else None,
             "groupName": group_info["name"] if group_info else None,
+            "groupCount": len(distinct_group_ids),
             "schoolName": school_name,
-            "matchedPartner": partner_map.get(uid, "—"),
+            "matchedPartner": partner_map.get(uid, "-"),
             "mentorBackground": mp.background if mp else None,
             "mentorInstitution": mp.institution if mp else None,
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
@@ -461,7 +499,12 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
 # CSV EXPORT
 # ============================================================================
 
-def export_view_csv(view: AdminView, search: Optional[str] = None) -> HttpResponse:
+def export_view_csv(
+    view: AdminView,
+    search: Optional[str] = None,
+    sort_by: str = "createdAt",
+    sort_order: str = "desc",
+) -> HttpResponse:
     """
     Streams an unpaginated CSV of matching users adhering strictly to visible_columns.
     """
@@ -472,7 +515,12 @@ def export_view_csv(view: AdminView, search: Optional[str] = None) -> HttpRespon
         "advanced_conditions": view.advanced_conditions,
     }
 
-    qs, order_by = build_view_queryset(criteria=criteria, search=search)
+    qs, order_by = build_view_queryset(
+        criteria=criteria,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     user_ids = list(qs.values_list("id", flat=True).distinct().order_by(*order_by))
 
     users_list = _hydrate_users_by_ids(user_ids)
@@ -493,46 +541,72 @@ def export_view_csv(view: AdminView, search: Optional[str] = None) -> HttpRespon
             row.append(val)
         writer.writerow(row)
 
-    safe_title = re.sub(r"[^a-zA-Z0-9_\-]+", "_", view.name.strip().lower())
-    response = HttpResponse(output.getvalue(), content_type="text/csv")
+    safe_title = re.sub(r"[^a-zA-Z0-9_\-]+", "_", view.name.strip().lower()).strip("_") or "view"
+    response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{safe_title}_export.csv"'
     return response
 
 
+def _sanitize_csv_text(val: Any) -> str:
+    """Normalizes non-ASCII punctuation (em/en-dash, smart quotes) for clean spreadsheet rendering."""
+    if val is None:
+        return ""
+    text = str(val)
+    return (
+        text.replace("\u2014", "-")  # em-dash —
+        .replace("\u2013", "-")      # en-dash –
+        .replace("\u2212", "-")      # minus sign −
+    )
+
+
 def _extract_column_value(user_dict: Dict[str, Any], column_key: str) -> str:
     """Formats cell value for CSV output based on column key."""
-    key = column_key.lower().replace(" ", "_")
+    key = column_key.lower().strip().replace(" ", "_")
     if key in ("name", "full_name"):
-        return user_dict.get("name", "")
+        return _sanitize_csv_text(user_dict.get("name", ""))
     elif key == "email":
-        return user_dict.get("email", "")
+        return _sanitize_csv_text(user_dict.get("email", ""))
     elif key == "role":
         return (user_dict.get("role") or "").capitalize()
     elif key in ("school", "institution", "school_name", "school_/_institution"):
-        return user_dict.get("schoolName") or user_dict.get("mentorInstitution") or ""
+        return _sanitize_csv_text(
+            user_dict.get("schoolName") or user_dict.get("mentorInstitution") or ""
+        )
     elif key in ("matched_mentor", "matched_partner", "matched_mentor/group", "matched_mentor/mentee"):
-        return user_dict.get("matchedPartner", "")
+        val = user_dict.get("matchedPartner") or ""
+        return _sanitize_csv_text(val) if val not in ("—", "-") else "-"
     elif key == "status":
         return "Active" if user_dict.get("isActive") else "Inactive"
     elif key == "state":
         st = user_dict.get("state")
-        return st.get("name") if isinstance(st, dict) else str(st or "")
+        if isinstance(st, dict):
+            return _sanitize_csv_text(st.get("stateName") or st.get("name") or "-")
+        return _sanitize_csv_text(st) if st else "-"
     elif key == "country":
         ct = user_dict.get("country")
-        return ct.get("name") if isinstance(ct, dict) else str(ct or "")
+        if isinstance(ct, dict):
+            return _sanitize_csv_text(ct.get("countryName") or ct.get("name") or "Unassigned")
+        return _sanitize_csv_text(ct) if ct else "Unassigned"
     elif key in ("interests", "interest"):
-        return ", ".join(user_dict.get("interests", []))
+        interests = user_dict.get("interests") or []
+        return _sanitize_csv_text(", ".join(interests)) if interests else ""
     elif key in ("last_login", "lastlogin"):
-        return user_dict.get("lastLogin") or "Never"
+        last_login = user_dict.get("lastLogin")
+        if not last_login:
+            return "Never"
+        return str(last_login).split("T")[0]
     elif key in ("year_level", "yearlevel", "year_lvl"):
         yl = user_dict.get("yearLevel")
         return str(yl) if yl is not None else ""
     elif key == "group":
-        return user_dict.get("groupName") or ""
+        return _sanitize_csv_text(user_dict.get("groupName") or "")
+    elif key in ("group_count", "groupcount", "number_of_groups"):
+        gc = user_dict.get("groupCount")
+        return str(gc if gc is not None else 0)
     elif key == "phone":
-        return user_dict.get("phone", "")
+        return _sanitize_csv_text(user_dict.get("phone", ""))
 
-    return str(user_dict.get(column_key, ""))
+    return _sanitize_csv_text(user_dict.get(column_key, ""))
 
 
 # ============================================================================

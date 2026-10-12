@@ -36,6 +36,16 @@ class AdminViewApiTests(TestCase):
                 'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
             },
             {
+                'name': 'All Students',
+                'description': 'Active students across all schools and cohorts',
+                'is_default': True,
+                'target_roles': ['student'],
+                'account_status': 'active',
+                'engagement_status': 'all',
+                'advanced_conditions': [],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+            },
+            {
                 'name': 'All Mentors',
                 'description': 'Active certified mentors across all domains',
                 'is_default': True,
@@ -43,7 +53,7 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'status'],
+                'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'group_count', 'status'],
             },
             {
                 'name': 'All Supervisors',
@@ -53,7 +63,7 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_count', 'status'],
             },
             {
                 'name': 'All Admins',
@@ -169,13 +179,13 @@ class AdminViewApiTests(TestCase):
     def test_default_views_exist_from_migration(self):
         defaults = AdminView.objects.filter(is_default=True)
         names = set(defaults.values_list("name", flat=True))
-        self.assertTrue({"All Users", "All Mentors", "All Supervisors", "All Admins"}.issubset(names))
+        self.assertTrue({"All Users", "All Students", "All Mentors", "All Supervisors", "All Admins"}.issubset(names))
 
     def test_list_views_endpoint(self):
         res = self.client.get("/api/v1/admin/view/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn("items", res.data["data"])
-        self.assertGreaterEqual(res.data["data"]["total"], 4)
+        self.assertGreaterEqual(res.data["data"]["total"], 5)
 
     def test_list_views_tab_filtering(self):
         # Create a custom view
@@ -355,19 +365,101 @@ class AdminViewApiTests(TestCase):
     # ========================================================================
 
     def test_export_view_csv(self):
+        # Create an international student with no state and no country/group
+        intl_student = User.objects.create_user(
+            email="intl_student@example.com",
+            first_name="Aria",
+            last_name="Suzuki",
+            password="password",
+        )
+        StudentProfile.objects.create(
+            user=intl_student,
+            school_name="Summit Academy",
+            year_lvl="12",
+            pg_first_name="Ken",
+            pg_last_name="Suzuki",
+        )
+        RoleAssignmentHistory.objects.create(
+            user=intl_student,
+            role=self.role_student,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
         view = AdminView.objects.create(
             name="Export Test View",
             target_roles=["student"],
-            visible_columns=["name", "email", "school", "status"],
+            visible_columns=["name", "email", "school", "state", "country", "matched_mentor", "status"],
             is_default=False,
         )
         res = self.client.get(f"/api/v1/admin/view/{view.id}/export-csv/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res["Content-Type"], "text/csv")
+        self.assertIn("text/csv", res["Content-Type"])
+        self.assertIn("charset=utf-8", res["Content-Type"])
         self.assertIn('attachment; filename="export_test_view_export.csv"', res["Content-Disposition"])
 
         content = res.content.decode("utf-8")
         lines = content.strip().split("\r\n")
         header = lines[0]
-        self.assertEqual(header, "Full Name,Email,School / Institution,Status")
-        self.assertTrue(any("student1@example.com" in line for line in lines[1:]))
+        self.assertEqual(
+            header,
+            "Full Name,Email,School / Institution,State,Country,Matched Mentor / Mentee,Status"
+        )
+        # Sofia Bianchi has state=NSW, country=Australia, in group with mentor Mary Somerville
+        sofia_line = next((line for line in lines[1:] if "student1@example.com" in line), None)
+        self.assertIsNotNone(sofia_line)
+        self.assertIn(",NSW,Australia,Mentor: Mary Somerville,Active", sofia_line)
+
+        # Aria Suzuki has state=None, country=None, unmatched -> '-', 'Unassigned', '-'
+        intl_line = next((line for line in lines[1:] if "intl_student@example.com" in line), None)
+        self.assertIsNotNone(intl_line)
+        self.assertIn(",-,Unassigned,-,", intl_line)
+        self.assertNotIn("—", content)
+
+    def test_group_count_column_and_sorting(self):
+        # Add mentor_user to a second group so they have 2 active groups
+        second_group = Groups.objects.create(group_name="BTF2")
+        GroupMembership.objects.create(
+            group=second_group,
+            user=self.mentor_user,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+
+        # Create a second mentor with 0 groups
+        unmatched_mentor = User.objects.create_user(
+            email="mentor2@example.com",
+            first_name="Alan",
+            last_name="Turing",
+            password="password",
+        )
+        MentorProfile.objects.create(user=unmatched_mentor, institution="Cambridge")
+        RoleAssignmentHistory.objects.create(
+            user=unmatched_mentor,
+            role=self.role_mentor,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
+        mentors_view = AdminView.objects.get(name="All Mentors")
+        self.assertIn("group_count", mentors_view.visible_columns)
+
+        # Run view sorted by groupCount desc
+        res = self.client.get(
+            f"/api/v1/admin/view/{mentors_view.id}/run/?sortBy=groupCount&sortOrder=desc"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = res.data["data"]["items"]
+        self.assertEqual(items[0]["email"], "mentor1@example.com")
+        self.assertEqual(items[0]["groupCount"], 2)
+        self.assertEqual(items[1]["email"], "mentor2@example.com")
+        self.assertEqual(items[1]["groupCount"], 0)
+
+        # Verify CSV export includes Number of Groups column and values
+        csv_res = self.client.get(f"/api/v1/admin/view/{mentors_view.id}/export-csv/")
+        csv_content = csv_res.content.decode("utf-8")
+        lines = csv_content.strip().split("\r\n")
+        self.assertIn("Number of Groups", lines[0])
+        mary_line = next((line for line in lines[1:] if "mentor1@example.com" in line), None)
+        self.assertIsNotNone(mary_line)
+        self.assertIn(",2,Active", mary_line)
+

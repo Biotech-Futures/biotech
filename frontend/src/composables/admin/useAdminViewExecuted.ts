@@ -27,6 +27,7 @@ export type GroupByOption = 'none' | 'role' | 'status'
 export type ViewResultRow = AdminUser & {
   matchedPartner?: string
   phone?: string
+  groupCount?: number
 }
 
 interface ColumnConfig {
@@ -45,7 +46,9 @@ const COLUMN_ALIASES: Record<string, string> = {
   matched_partner: 'matched_mentor',
   last_login: 'lastlogin',
   year_level: 'yearlevel',
-  year_lvl: 'yearlevel'
+  year_lvl: 'yearlevel',
+  groupcount: 'group_count',
+  number_of_groups: 'group_count'
 }
 
 const COLUMN_CONFIG: Record<string, ColumnConfig> = {
@@ -54,6 +57,7 @@ const COLUMN_CONFIG: Record<string, ColumnConfig> = {
   role: { label: 'Role', sortBy: 'role' },
   school: { label: 'School / Institution', sortBy: 'school' },
   matched_mentor: { label: 'Matched Mentor / Group' },
+  group_count: { label: 'Number of Groups', sortBy: 'groupCount' },
   status: { label: 'Status', sortBy: 'status' },
   phone: { label: 'Phone' },
   state: { label: 'State', sortBy: 'state' },
@@ -437,7 +441,11 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   const exporting = ref(false)
 
   const csvFilename = computed(() => {
-    const slug = (view.value?.name || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_')
+    const slug = (view.value?.name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
     return `${slug || 'view'}_export.csv`
   })
 
@@ -445,7 +453,11 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     if (!Number.isFinite(viewId.value) || viewId.value <= 0) return
     exporting.value = true
     try {
-      const url = getAdminViewExportUrl(viewId.value, appliedSearch.value || undefined)
+      const url = getAdminViewExportUrl(viewId.value, {
+        search: appliedSearch.value || undefined,
+        sortBy: COLUMN_CONFIG[sortState.value.key]?.sortBy,
+        sortOrder: sortState.value.direction
+      })
       const res = await fetch(url, { method: 'GET', credentials: 'include' })
       if (!res.ok) {
         throw new Error(`Failed to export CSV: ${res.statusText}`)
