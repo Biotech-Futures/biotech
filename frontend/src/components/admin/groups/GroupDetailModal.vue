@@ -93,7 +93,7 @@
                 </div>
                 <div class="group-detail__message-meta">
                   <span v-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
-                  <span class="group-detail__muted">{{ formatMessageTime(message.sent_at) }}</span>
+                  <span class="group-detail__muted">{{ formatShortDateTime(message.sent_at) }}</span>
                   <button
                     type="button"
                     class="group-detail__message-remove"
@@ -106,7 +106,7 @@
                 </div>
               </div>
               <p class="group-detail__message-text">{{ messageBody(message) }}</p>
-              <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatMessageTime(message.edited_at) }}</p>
+              <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatShortDateTime(message.edited_at) }}</p>
             </li>
           </ul>
 
@@ -179,6 +179,7 @@ import {
   type AdminGroupMessage,
   type AdminUser
 } from '@/utils/adminAPI'
+import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_MAX_SIZE } from '@/utils/groupCapacity'
 
 const props = defineProps<{
@@ -392,12 +393,6 @@ const confirmRemoveMessage = async () => {
   } finally {
     removingMessage.value = false
   }
-}
-
-const formatMessageTime = (value: string): string => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 </script>
 

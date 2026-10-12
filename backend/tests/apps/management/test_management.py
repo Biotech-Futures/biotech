@@ -218,6 +218,17 @@ class GroupExtensionViewTests(_GradingFixture):
         )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("later than the current deadline", r.json()["detail"])
+        # The deadline reads as the site writes it, in the admin's own
+        # timezone: UTC by default, Sydney (AEST that day) once chosen.
+        self.assertIn("(01/10/2026 at 13:00)", r.json()["detail"])
+        self.staff.timezone = "Australia/Sydney"
+        self.staff.save(update_fields=["timezone"])
+        r = self.client.post(
+            self.url,
+            {"group_id": self.group.id, "extended_until": "2026-09-15T13:00:00Z"},
+            format="json",
+        )
+        self.assertIn("(01/10/2026 at 23:00)", r.json()["detail"])
 
         # Later is fine.
         r = self.client.post(

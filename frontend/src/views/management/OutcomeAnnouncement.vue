@@ -23,7 +23,7 @@
       </button>
     </div>
     <p v-if="announcement.posted_at" class="outcome-announcement__posted" data-testid="announcement-posted">
-      Last {{ label }} Posted at {{ shortDateTime(announcement.posted_at) }}<template
+      Last {{ label }} Posted at {{ formatStatementTime(announcement.posted_at) }}<template
         v-if="announcement.posted_by"
       >
         by {{ announcement.posted_by }}</template
@@ -103,7 +103,6 @@
             <RichEditor
               ref="bodyEditor"
               v-model="draft.body"
-              blocks
               compact
               :link-placeholders="linkPlaceholders"
               placeholder="Write the announcement…"
@@ -176,6 +175,7 @@ import {
   type OutcomeAnnouncementKind
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatStatementTime } from '@/utils/date'
 import { plural } from '@/utils/string'
 import { mergeTagToken, type SystemEmailMergeTag } from '@/utils/systemEmail'
 
@@ -308,26 +308,13 @@ const post = async () => {
   }
 }
 
-// "Last edited by Ada Admin · 5 Oct 2026, 3:42 pm", as System Emails' editor
+// "Last edited by Ada Admin · 05/10/2026 at 15:42", as System Emails' editor
 // writes it; "" until someone saves their own wording.
 const lastEdited = computed(() => {
   const { edited_by: by, edited_at: at } = announcement.value ?? {}
   if (!by || !at) return ''
-  const when = new Date(at).toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-  return `Last edited by ${by} \u00b7 ${when}`
+  return `Last edited by ${by} \u00b7 ${formatStatementTime(at)}`
 })
-
-// "02/10/2026 18:36", as Last Emailed writes it.
-const shortDateTime = (iso: string) => {
-  const at = new Date(iso)
-  return `${at.toLocaleDateString('en-GB')} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-}
 
 onMounted(load)
 

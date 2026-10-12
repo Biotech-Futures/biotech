@@ -326,6 +326,7 @@ import {
   type ResourceType
 } from '../utils/resourcesAPI'
 import { ApiError } from '../utils/apiError'
+import { formatDayMonth } from '../utils/date'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -448,15 +449,8 @@ const openResourceDetail = (id: number): void => {
   router.push({ name: 'resource-detail', params: { id } })
 }
 
-const formatDate = (value: string): string => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Unknown'
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
+// "9 Oct", in the set time.
+const formatDate = (value: string): string => formatDayMonth(value) || 'Unknown'
 
 const formatTypeName = (value?: string | null): string => {
   if (!value) return 'Resource'

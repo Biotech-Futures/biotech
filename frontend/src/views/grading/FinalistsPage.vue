@@ -287,6 +287,7 @@ import {
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatShortDateTime } from '@/utils/date'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -425,13 +426,6 @@ const finalistColumns: DataTableColumn[] = [
   { key: 'marker', label: 'Marker', sortable: false }
 ]
 
-const flaggedAtText = (at: string) => {
-  const when = new Date(at)
-  const date = when.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
-  const time = when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-  return `${date} ${time}`
-}
-
 // Each finalist as a table row: plain text for search, and the finalist itself
 // for the cells drawn here.
 const finalistRows = computed(() =>
@@ -442,7 +436,7 @@ const finalistRows = computed(() =>
       finalist: f,
       order: finalistsInOrder.value.length - i,
       group: f.group_name,
-      flaggedAt: flaggedAtText(f.flagged_at),
+      flaggedAt: formatShortDateTime(f.flagged_at),
       flaggedBy: f.flagged_by ?? '—',
       late: candidate?.is_late ? candidate.late_by || 'Late' : '—',
       total: totalsByGroup.value.get(f.group_id) ?? '—',

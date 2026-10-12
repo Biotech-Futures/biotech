@@ -7,7 +7,6 @@
   --field-bg: var(--white);
   --field-border: var(--border-light);
   --field-disabled-bg: var(--bg-light);
-  --notice-bg: var(--bg-light);
   --muted: var(--text-muted);
   --body-text: var(--teal);
   --accent: var(--dark-green);
@@ -114,20 +113,6 @@
 .submission-remaining.is-near {
   background: var(--error-bg);
   color: var(--error);
-}
-
-.poster-notice {
-  margin-top: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-left: 4px solid var(--accent);
-  border-radius: 8px;
-  background: var(--notice-bg);
-  color: var(--body-text);
-  font-size: 0.875rem;
-}
-
-.poster-notice__body {
-  margin: 0;
 }
 
 .submission-message {
@@ -357,6 +342,11 @@
 .submission-slot--plain {
   border-bottom: none;
   padding-top: 0;
+}
+
+.submission-slot--divided {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--panel-border);
 }
 
 

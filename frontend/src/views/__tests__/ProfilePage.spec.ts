@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import ProfilePage from '@/views/ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
+import { formatDayMonthTime } from '@/utils/date'
 
 vi.mock('@/utils/csrf', () => ({
   buildSessionHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -154,7 +155,7 @@ describe('Student profile', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="guardian-reminders"]').text()).toBe(
-      "Last emailed 14 Sep 2026 03:00. They'll be emailed again tomorrow."
+      `Last emailed ${formatDayMonthTime('2026-09-14T03:00:00Z')}. They'll be emailed again tomorrow.`
     )
     expect(wrapper.text()).not.toContain('Last reminder email sent')
     wrapper.unmount()

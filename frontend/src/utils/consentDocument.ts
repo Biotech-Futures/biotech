@@ -1,6 +1,6 @@
 import { BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 import crestUrl from '@/assets/consent/btf-crest.jpeg'
-import { formatDateAU, formatDateTimeAU } from '@/utils/date'
+import { formatOrdinalDate } from '@/utils/date'
 
 export type ConsentStudent = {
   student: string
@@ -207,13 +207,14 @@ const field = (label: string, value: string): TextBlock[] => [
   { type: 'space', height: 10 },
 ]
 
+// "12th October 2026".
 const signedDate = (row: ConsentStudent) => {
   if (row.permissionGivenAt) {
-    const formatted = formatDateAU(row.permissionGivenAt)
+    const formatted = formatOrdinalDate(row.permissionGivenAt)
     if (formatted) return formatted
   }
   if (row.permissionGiven && row.permissionGiven !== '—') {
-    return formatDateTimeAU(row.permissionGiven) || row.permissionGiven
+    return formatOrdinalDate(row.permissionGiven) || row.permissionGiven
   }
   return 'Not recorded'
 }

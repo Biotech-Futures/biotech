@@ -3,7 +3,7 @@
     <div class="page-header">
       <h1 class="page-title">Views</h1>
       <p class="page-subtitle">
-        Create and manage saved user segments, cohorts, and mini-reports.
+        Create and manage saved user segments, cohorts and mini-reports.
       </p>
     </div>
 

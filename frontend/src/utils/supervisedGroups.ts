@@ -132,6 +132,17 @@ export async function removeSupervisedGroupMembers(
   return read(response)
 }
 
+/** Save the order the supervisor moved their groups into on My Groups. */
+export async function saveSupervisedGroupOrder(groupIds: number[]): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-groups/order/`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: await headers(true),
+    body: JSON.stringify({ group_ids: groupIds }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
+}
+
 export async function deleteSupervisedGroup(groupId: number): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-groups/${groupId}/`, {
     method: 'DELETE',

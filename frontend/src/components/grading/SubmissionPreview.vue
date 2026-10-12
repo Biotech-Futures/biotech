@@ -122,6 +122,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { formatExactTime } from '@/utils/date'
 import { resolveApiFileUrl, type Submission, type SubmissionComponent } from '@/utils/gradingAPI'
 import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '@/utils/storage'
 
@@ -260,8 +261,9 @@ const reset = () => {
 }
 defineExpose({ moved, reset })
 
+// The exact moment it came in: "09/10/26 16:12:01".
 const submittedLabel = computed(() =>
-  props.submission ? new Date(props.submission.submitted_at).toLocaleString() : ''
+  props.submission ? formatExactTime(props.submission.submitted_at) : ''
 )
 
 const markerTooltip = computed(() => {

@@ -341,6 +341,39 @@ describe('settling', () => {
     expect(settled).toHaveBeenCalledTimes(3)
   })
 
+  it('signals on coming back to a hidden tab, but not on first joining', async () => {
+    const settled = vi.fn()
+    mountRoom()
+    live.onSettled(settled)
+    latest().open()
+    expect(settled).not.toHaveBeenCalled()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await nextTick()
+    latest().open()
+
+    expect(settled).toHaveBeenCalledTimes(1)
+    expect(settled).toHaveBeenCalledWith('rejoined')
+  })
+
+  it('treats a new room as a first join', async () => {
+    const settled = vi.fn()
+    mountRoom()
+    live.onSettled(settled)
+    latest().open()
+
+    roomId.value = '2'
+    await nextTick()
+    latest().open()
+
+    expect(settled).not.toHaveBeenCalled()
+  })
+
   it('stays quiet when leaving on purpose', async () => {
     const settled = vi.fn()
     mountRoom()

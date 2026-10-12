@@ -81,6 +81,23 @@ def template_upload_to(instance, filename):
     return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
 
 
+class SupervisorPagesSetting(SingletonModel):
+    """Whether supervisors see Home, Groups, Events, Announcements and
+    Resources; off until an admin turns it on (Management > Supervisor Visibility)."""
+
+    shown = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "supervisor_pages_setting"
+
+    def __str__(self):
+        return "SupervisorPagesSetting"
+
+
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".

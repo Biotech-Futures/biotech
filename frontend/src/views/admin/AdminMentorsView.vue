@@ -106,9 +106,9 @@
           <span
             v-if="mentorOf(row).lastLogin"
             class="admin-mentors__sub"
-            :title="formatLogin(mentorOf(row).lastLogin!)"
+            :title="formatExactTime(mentorOf(row).lastLogin!)"
           >
-            {{ loginDate(mentorOf(row).lastLogin!) }}
+            {{ formatShortDate(mentorOf(row).lastLogin!) }}
           </span>
         </span>
         <span v-else class="admin-mentors__muted">No</span>
@@ -155,11 +155,10 @@ import AdminMentorDetails from '@/components/admin/mentors/AdminMentorDetails.vu
 import { useAdminMentorsView, type MentorSortKey } from '@/composables/admin/useAdminMentorsView'
 import type { AdminMentorDetail } from '@/utils/adminAPI'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatExactTime, formatShortDate } from '@/utils/date'
 import {
-  formatLogin,
   isEffectivelyInactive,
   lastMessageDays,
-  loginDate,
   relativeDays
 } from '@/utils/mentorFormat'
 

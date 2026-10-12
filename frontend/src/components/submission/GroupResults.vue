@@ -46,43 +46,33 @@
         <article v-for="component in markedComponents" :key="component.code" class="group-results__component">
           <h3 class="group-results__component-name">{{ component.name }}</h3>
           <p v-if="!component.submitted" class="group-results__muted">Not submitted.</p>
-          <div v-else class="group-results__scroll">
-            <table class="group-results__table">
-              <!-- The same columns in every part's table, so they line up. -->
-              <colgroup>
-                <col class="group-results__col-criterion" />
-                <col class="group-results__col-mark" />
-                <col />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Criterion</th>
-                  <th>Mark</th>
-                  <th>Comment</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="criterion in component.criteria" :key="criterion.name">
-                  <td>{{ criterion.name }}</td>
-                  <td class="group-results__mark">
-                    <span v-if="criterion.mark">{{ criterion.mark }}</span>
-                    <span v-else class="group-results__muted">—</span>
-                    <span class="group-results__muted"> / {{ criterion.max_mark }}</span>
-                  </td>
-                  <td class="group-results__comment">{{ criterion.comment }}</td>
-                </tr>
-              </tbody>
-              <tfoot v-if="component.subtotal">
-                <tr class="group-results__subtotal" data-testid="results-subtotal">
-                  <th scope="row">Subtotal</th>
-                  <td class="group-results__mark">
-                    {{ component.subtotal }}<span class="group-results__muted"> / {{ component.subtotal_max }}</span>
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <!-- The same columns in every part's table, so they line up. -->
+          <AppSimpleTable
+            v-else
+            :columns="markColumns"
+            :rows="criterionRows(component.criteria)"
+            row-key="name"
+          >
+            <template #cell-mark="{ row }">
+              <span class="group-results__mark">
+                <span v-if="row.mark">{{ row.mark }}</span>
+                <span v-else class="group-results__muted">—</span>
+                <span class="group-results__muted"> / {{ row.max_mark }}</span>
+              </span>
+            </template>
+            <template #cell-comment="{ value }">
+              <span class="group-results__comment">{{ value }}</span>
+            </template>
+            <template v-if="component.subtotal" #foot>
+              <tr class="group-results__subtotal" data-testid="results-subtotal">
+                <th scope="row">Subtotal</th>
+                <td class="group-results__mark">
+                  {{ component.subtotal }}<span class="group-results__muted"> / {{ component.subtotal_max }}</span>
+                </td>
+                <td></td>
+              </tr>
+            </template>
+          </AppSimpleTable>
           <!-- The marker's comment on the part as a whole. -->
           <p v-if="component.submitted" class="group-results__overall" data-testid="results-overall">
             <span class="group-results__label">Overall {{ partLabel(component.code) }} Comment:</span>
@@ -142,12 +132,23 @@ import {
   type GroupCertificate,
   type GroupResults
 } from '@/utils/managementAPI'
+import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import type { CriterionMark } from '@/utils/gradingAPI'
 
 const props = defineProps<{ groupId: string; results: GroupResults }>()
 
 // "Overall Poster Comment", "Overall SAQ Comment".
 const partLabel = (code: string) => (code === 'SAQ' ? 'SAQ' : code === 'POSTER' ? 'Poster' : code)
+
+// Criterion, mark and comment. The criterion's width is set on .group-results,
+// wider on wider screens, and is the same in every part's table.
+const markColumns: SimpleTableColumn[] = [
+  { key: 'name', label: 'Criterion', wrap: true, width: 'var(--results-criterion-width)' },
+  { key: 'mark', label: 'Mark', width: '9rem' },
+  { key: 'comment', label: 'Comment', wrap: true },
+]
+const criterionRows = (criteria: CriterionMark[]) => criteria.map((criterion) => ({ ...criterion }))
 
 // The parts that carry marks; one without criteria has nothing to show.
 const markedComponents = computed(() =>
@@ -181,6 +182,24 @@ const downloadCertificate = (certificate: GroupCertificate) =>
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+/* The Criterion column's width in every marks table. Criteria are sentences
+   and comments often short, so a wider screen gives the criteria more room. */
+.group-results {
+  --results-criterion-width: 34%;
+}
+
+@media (min-width: 1400px) {
+  .group-results {
+    --results-criterion-width: 42%;
+  }
+}
+
+@media (min-width: 1800px) {
+  .group-results {
+    --results-criterion-width: 48%;
+  }
 }
 
 .group-results__card {
@@ -260,63 +279,11 @@ const downloadCertificate = (certificate: GroupCertificate) =>
   margin: 0 0 0.5rem;
 }
 
-.group-results__scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-}
-
-.group-results__table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.group-results__col-criterion {
-  width: 34%;
-}
-
-/* Criteria are sentences and comments often short, so a wider screen gives
-   the criteria more of the room. */
-@media (min-width: 1400px) {
-  .group-results__col-criterion {
-    width: 42%;
-  }
-}
-
-@media (min-width: 1800px) {
-  .group-results__col-criterion {
-    width: 48%;
-  }
-}
-
-.group-results__col-mark {
-  width: 9rem;
-}
-
-.group-results__table th,
-.group-results__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  vertical-align: top;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.group-results__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.group-results__table tbody tr:last-child td {
-  border-bottom: none;
-}
-
+/* The subtotal row under a marks table, padded like its cells. */
 .group-results__subtotal th,
 .group-results__subtotal td {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
   border-top: 1px solid var(--border-light);
   border-bottom: none;
   font-weight: 400;

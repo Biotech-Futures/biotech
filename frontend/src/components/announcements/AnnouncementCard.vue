@@ -44,9 +44,8 @@
               <time
                 class="announcement__date"
                 :datetime="announcement.date || undefined"
-                :title="fullDate"
               >
-                {{ overviewDateTime }}
+                {{ postedAt }}
               </time>
             </div>
           </div>
@@ -190,8 +189,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
 import {
   authorInitial,
-  formatFullDate,
-  formatOverviewDateTime,
+  formatPostedAt,
   getAudienceClass,
   getAudienceLabel,
   type Announcement
@@ -255,8 +253,7 @@ function handleAction(action: 'view' | 'edit' | 'notify' | 'archive' | 'delete')
 }
 
 const hasImages = computed(() => props.announcement.images.length > 0)
-const overviewDateTime = computed(() => formatOverviewDateTime(props.announcement.date))
-const fullDate = computed(() => formatFullDate(props.announcement.date))
+const postedAt = computed(() => formatPostedAt(props.announcement.date) || 'Recently posted')
 
 const detailRoute = computed(() => ({
   name: 'announcement-detail',
