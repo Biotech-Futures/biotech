@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from django.conf import settings
-from django.db.models import Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -61,6 +61,10 @@ COLUMN_HEADER_MAP: Dict[str, str] = {
     "year_lvl": "Year Level",
     "yearlevel": "Year Level",
     "group": "Group",
+    "group_count": "Number of Groups",
+    "groupCount": "Number of Groups",
+    "groupcount": "Number of Groups",
+    "number_of_groups": "Number of Groups",
 }
 
 
@@ -174,6 +178,8 @@ def build_view_queryset(
         "school": ["studentprofile__school_name", "first_name", "last_name", "id"],
         "yearLevel": ["studentprofile__year_lvl", "first_name", "last_name", "id"],
         "group": ["group_name_key", "first_name", "last_name", "id"],
+        "groupCount": ["active_group_count", "first_name", "last_name", "id"],
+        "group_count": ["active_group_count", "first_name", "last_name", "id"],
         "createdAt": ["date_joined", "id"],
         "lastLogin": ["last_login", "first_name", "last_name", "id"],
     }
@@ -185,6 +191,17 @@ def build_view_queryset(
     if sort_by == "group":
         qs = qs.annotate(
             group_name_key=group_name_sort_key("groupmembership__group__group_name")
+        )
+    elif sort_by in ("groupCount", "group_count"):
+        qs = qs.annotate(
+            active_group_count=Count(
+                "groupmembership__group",
+                filter=Q(
+                    groupmembership__left_at__isnull=True,
+                    groupmembership__group__deleted_at__isnull=True,
+                ),
+                distinct=True,
+            )
         )
 
     return qs, order_by
@@ -372,14 +389,17 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
 
     # Group memberships and matched mentor/mentee resolution
     group_map: Dict[int, Dict[str, Any]] = {}
+    user_groups_map: Dict[int, List[Dict[str, Any]]] = {}
     user_group_ids = set()
     for gm in GroupMembership.objects.filter(
         user_id__in=user_ids, left_at__isnull=True, group__deleted_at__isnull=True
     ).select_related("group"):
-        group_map[gm.user_id] = {
+        g_entry = {
             "id": gm.group.id,
             "name": gm.group.group_name,
         }
+        group_map[gm.user_id] = g_entry
+        user_groups_map.setdefault(gm.user_id, []).append(g_entry)
         user_group_ids.add(gm.group.id)
 
     # Resolve partners (mentors for students, mentees for mentors)
@@ -403,14 +423,21 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             elif role == "student":
                 group_students.setdefault(gid, []).append(name)
 
-        for uid, ginfo in group_map.items():
-            gid = ginfo["id"]
+        for uid, g_list in user_groups_map.items():
             urole = role_map.get(uid)
             if urole == "student":
-                mentors = group_mentors.get(gid, [])
+                mentors: List[str] = []
+                for ginfo in g_list:
+                    for m_name in group_mentors.get(ginfo["id"], []):
+                        if m_name not in mentors:
+                            mentors.append(m_name)
                 partner_map[uid] = f"Mentor: {', '.join(mentors)}" if mentors else "Mentor: Pending"
             elif urole == "mentor":
-                students = group_students.get(gid, [])
+                students: List[str] = []
+                for ginfo in g_list:
+                    for s_name in group_students.get(ginfo["id"], []):
+                        if s_name not in students:
+                            students.append(s_name)
                 partner_map[uid] = f"Mentee: {', '.join(students)}" if students else "No mentees"
 
     # User interests
@@ -437,6 +464,8 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             school_name = mp.institution
 
         group_info = group_map.get(uid)
+        user_groups = user_groups_map.get(uid, [])
+        distinct_group_ids = {g["id"] for g in user_groups}
         users_list.append({
             "id": user.id,
             "firstName": user.first_name,
@@ -448,6 +477,7 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             "state": _user_state_dict(user),
             "groupId": group_info["id"] if group_info else None,
             "groupName": group_info["name"] if group_info else None,
+            "groupCount": len(distinct_group_ids),
             "schoolName": school_name,
             "matchedPartner": partner_map.get(uid, "-"),
             "mentorBackground": mp.background if mp else None,
@@ -570,6 +600,9 @@ def _extract_column_value(user_dict: Dict[str, Any], column_key: str) -> str:
         return str(yl) if yl is not None else ""
     elif key == "group":
         return _sanitize_csv_text(user_dict.get("groupName") or "")
+    elif key in ("group_count", "groupcount", "number_of_groups"):
+        gc = user_dict.get("groupCount")
+        return str(gc if gc is not None else 0)
     elif key == "phone":
         return _sanitize_csv_text(user_dict.get("phone", ""))
 

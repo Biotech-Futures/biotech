@@ -35,7 +35,7 @@ def seed_default_views(apps, schema_editor):
             'account_status': 'active',
             'engagement_status': 'all',
             'advanced_conditions': [],
-            'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'status'],
+            'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'group_count', 'status'],
         },
         {
             'name': 'All Supervisors',
@@ -45,7 +45,7 @@ def seed_default_views(apps, schema_editor):
             'account_status': 'active',
             'engagement_status': 'all',
             'advanced_conditions': [],
-            'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+            'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_count', 'status'],
         },
         {
             'name': 'All Admins',

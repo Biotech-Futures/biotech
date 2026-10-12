@@ -53,7 +53,7 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'status'],
+                'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'group_count', 'status'],
             },
             {
                 'name': 'All Supervisors',
@@ -63,7 +63,7 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_count', 'status'],
             },
             {
                 'name': 'All Admins',
@@ -415,3 +415,51 @@ class AdminViewApiTests(TestCase):
         self.assertIsNotNone(intl_line)
         self.assertIn(",-,Unassigned,-,", intl_line)
         self.assertNotIn("—", content)
+
+    def test_group_count_column_and_sorting(self):
+        # Add mentor_user to a second group so they have 2 active groups
+        second_group = Groups.objects.create(group_name="BTF2")
+        GroupMembership.objects.create(
+            group=second_group,
+            user=self.mentor_user,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+
+        # Create a second mentor with 0 groups
+        unmatched_mentor = User.objects.create_user(
+            email="mentor2@example.com",
+            first_name="Alan",
+            last_name="Turing",
+            password="password",
+        )
+        MentorProfile.objects.create(user=unmatched_mentor, institution="Cambridge")
+        RoleAssignmentHistory.objects.create(
+            user=unmatched_mentor,
+            role=self.role_mentor,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
+        mentors_view = AdminView.objects.get(name="All Mentors")
+        self.assertIn("group_count", mentors_view.visible_columns)
+
+        # Run view sorted by groupCount desc
+        res = self.client.get(
+            f"/api/v1/admin/view/{mentors_view.id}/run/?sortBy=groupCount&sortOrder=desc"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = res.data["data"]["items"]
+        self.assertEqual(items[0]["email"], "mentor1@example.com")
+        self.assertEqual(items[0]["groupCount"], 2)
+        self.assertEqual(items[1]["email"], "mentor2@example.com")
+        self.assertEqual(items[1]["groupCount"], 0)
+
+        # Verify CSV export includes Number of Groups column and values
+        csv_res = self.client.get(f"/api/v1/admin/view/{mentors_view.id}/export-csv/")
+        csv_content = csv_res.content.decode("utf-8")
+        lines = csv_content.strip().split("\r\n")
+        self.assertIn("Number of Groups", lines[0])
+        mary_line = next((line for line in lines[1:] if "mentor1@example.com" in line), None)
+        self.assertIsNotNone(mary_line)
+        self.assertIn(",2,Active", mary_line)
+

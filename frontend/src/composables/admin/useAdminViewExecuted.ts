@@ -27,6 +27,7 @@ export type GroupByOption = 'none' | 'role' | 'status'
 export type ViewResultRow = AdminUser & {
   matchedPartner?: string
   phone?: string
+  groupCount?: number
 }
 
 interface ColumnConfig {
@@ -45,7 +46,9 @@ const COLUMN_ALIASES: Record<string, string> = {
   matched_partner: 'matched_mentor',
   last_login: 'lastlogin',
   year_level: 'yearlevel',
-  year_lvl: 'yearlevel'
+  year_lvl: 'yearlevel',
+  groupcount: 'group_count',
+  number_of_groups: 'group_count'
 }
 
 const COLUMN_CONFIG: Record<string, ColumnConfig> = {
@@ -54,6 +57,7 @@ const COLUMN_CONFIG: Record<string, ColumnConfig> = {
   role: { label: 'Role', sortBy: 'role' },
   school: { label: 'School / Institution', sortBy: 'school' },
   matched_mentor: { label: 'Matched Mentor / Group' },
+  group_count: { label: 'Number of Groups', sortBy: 'groupCount' },
   status: { label: 'Status', sortBy: 'status' },
   phone: { label: 'Phone' },
   state: { label: 'State', sortBy: 'state' },
