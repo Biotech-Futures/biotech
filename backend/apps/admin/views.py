@@ -1545,7 +1545,9 @@ class AdminViewExportCsvView(APIView):
             )
 
         search = request.query_params.get("search")
-        return export_view_csv(view, search=search)
+        sort_by = request.query_params.get("sortBy", "createdAt")
+        sort_order = request.query_params.get("sortOrder", "desc")
+        return export_view_csv(view, search=search, sort_by=sort_by, sort_order=sort_order)
 
 
 # ============================================================================

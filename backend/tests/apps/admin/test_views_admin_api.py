@@ -365,19 +365,53 @@ class AdminViewApiTests(TestCase):
     # ========================================================================
 
     def test_export_view_csv(self):
+        # Create an international student with no state and no country/group
+        intl_student = User.objects.create_user(
+            email="intl_student@example.com",
+            first_name="Aria",
+            last_name="Suzuki",
+            password="password",
+        )
+        StudentProfile.objects.create(
+            user=intl_student,
+            school_name="Summit Academy",
+            year_lvl="12",
+            pg_first_name="Ken",
+            pg_last_name="Suzuki",
+        )
+        RoleAssignmentHistory.objects.create(
+            user=intl_student,
+            role=self.role_student,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
         view = AdminView.objects.create(
             name="Export Test View",
             target_roles=["student"],
-            visible_columns=["name", "email", "school", "status"],
+            visible_columns=["name", "email", "school", "state", "country", "matched_mentor", "status"],
             is_default=False,
         )
         res = self.client.get(f"/api/v1/admin/view/{view.id}/export-csv/")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertEqual(res["Content-Type"], "text/csv")
+        self.assertIn("text/csv", res["Content-Type"])
+        self.assertIn("charset=utf-8", res["Content-Type"])
         self.assertIn('attachment; filename="export_test_view_export.csv"', res["Content-Disposition"])
 
         content = res.content.decode("utf-8")
         lines = content.strip().split("\r\n")
         header = lines[0]
-        self.assertEqual(header, "Full Name,Email,School / Institution,Status")
-        self.assertTrue(any("student1@example.com" in line for line in lines[1:]))
+        self.assertEqual(
+            header,
+            "Full Name,Email,School / Institution,State,Country,Matched Mentor / Mentee,Status"
+        )
+        # Sofia Bianchi has state=NSW, country=Australia, in group with mentor Mary Somerville
+        sofia_line = next((line for line in lines[1:] if "student1@example.com" in line), None)
+        self.assertIsNotNone(sofia_line)
+        self.assertIn(",NSW,Australia,Mentor: Mary Somerville,Active", sofia_line)
+
+        # Aria Suzuki has state=None, country=None, unmatched -> '-', 'Unassigned', '-'
+        intl_line = next((line for line in lines[1:] if "intl_student@example.com" in line), None)
+        self.assertIsNotNone(intl_line)
+        self.assertIn(",-,Unassigned,-,", intl_line)
+        self.assertNotIn("—", content)

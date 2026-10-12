@@ -437,7 +437,11 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   const exporting = ref(false)
 
   const csvFilename = computed(() => {
-    const slug = (view.value?.name || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_')
+    const slug = (view.value?.name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
     return `${slug || 'view'}_export.csv`
   })
 
@@ -445,7 +449,11 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
     if (!Number.isFinite(viewId.value) || viewId.value <= 0) return
     exporting.value = true
     try {
-      const url = getAdminViewExportUrl(viewId.value, appliedSearch.value || undefined)
+      const url = getAdminViewExportUrl(viewId.value, {
+        search: appliedSearch.value || undefined,
+        sortBy: COLUMN_CONFIG[sortState.value.key]?.sortBy,
+        sortOrder: sortState.value.direction
+      })
       const res = await fetch(url, { method: 'GET', credentials: 'include' })
       if (!res.ok) {
         throw new Error(`Failed to export CSV: ${res.statusText}`)
