@@ -136,7 +136,12 @@
     </section>
 
     <!-- A student's details, opened by clicking their box, as on My Students. -->
-    <SupervisorStudentSheet :student="sheetStudent" @close="sheetStudentId = null" @saved="students = $event" />
+    <SupervisorStudentSheet
+      :student="sheetStudent"
+      @close="sheetStudentId = null"
+      @saved="students = $event"
+      @updated="students = students.map((student) => (student.id === $event.id ? $event : student))"
+    />
 
     <GroupEditorModal
       v-if="editorGroup"

@@ -7,7 +7,9 @@ export type SupervisedStudent = {
   first_name: string
   last_name: string
   email: string
+  country_id?: number | null
   country_name?: string
+  state_id?: number | null
   state_name?: string
   /** "Active", "Pending" and so on. */
   account_status?: string
@@ -101,7 +103,9 @@ export async function updateSupervisedStudentProfile(
     email: string
     school_name: string
     year_lvl: string
-    interests: string[]
+    interests?: string[]
+    country_id?: number | null
+    state_id?: number | null
   },
 ): Promise<SupervisedStudent> {
   await ensureCsrfCookie(API_BASE_URL)
@@ -240,6 +244,22 @@ export async function uploadGuardianDetails(file: File, dryRun: boolean): Promis
   if (!response.ok) {
     throw await apiErrorFromResponse(response)
   }
+  return response.json()
+}
+
+/** What the student panel's Edit offers: countries, regions and interests. */
+export type StudentEditOptions = {
+  countries: { id: number; country_name: string }[]
+  regions: { id: number; country_id: number; state_name: string }[]
+  interests: string[]
+}
+
+export async function fetchStudentEditOptions(): Promise<StudentEditOptions> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/options/`, {
+    credentials: 'include',
+    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
   return response.json()
 }
 

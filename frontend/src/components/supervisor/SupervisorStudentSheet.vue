@@ -10,20 +10,53 @@
   >
     <div v-if="student" class="student-sheet">
       <section class="student-sheet__section">
-        <h3>Personal information</h3>
+        <div class="student-sheet__heading">
+          <h3>Personal information</h3>
+          <button v-if="!personalEditing" type="button" class="btn btn-outline btn-sm" @click="startPersonalEdit">
+            Edit
+          </button>
+        </div>
+        <p v-if="personalSavedMessage" class="student-sheet__saved">{{ personalSavedMessage }}</p>
+        <!-- Email, country and region; role and account status stay as they are. -->
+        <form v-if="personalEditing" id="student-sheet-personal" @submit.prevent="savePersonal">
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">Email</span>
+            <input v-model="personalForm.email" class="student-sheet__input" type="email" required />
+          </label>
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">Country</span>
+            <select v-model="personalForm.countryId" class="student-sheet__input" @change="personalForm.stateId = null">
+              <option :value="null">Not set</option>
+              <option v-for="country in editOptions.countries" :key="country.id" :value="country.id">
+                {{ country.country_name }}
+              </option>
+            </select>
+          </label>
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">Region</span>
+            <select v-model="personalForm.stateId" class="student-sheet__input">
+              <option :value="null">Not set</option>
+              <option v-for="region in regionChoices" :key="region.id" :value="region.id">
+                {{ region.state_name }}
+              </option>
+            </select>
+          </label>
+        </form>
         <dl class="student-sheet__list">
-          <div class="student-sheet__item">
-            <dt>Email</dt>
-            <dd>{{ display(student.email) }}</dd>
-          </div>
-          <div class="student-sheet__item">
-            <dt>Country</dt>
-            <dd>{{ display(student.country_name) }}</dd>
-          </div>
-          <div class="student-sheet__item">
-            <dt>Region</dt>
-            <dd>{{ display(student.state_name) }}</dd>
-          </div>
+          <template v-if="!personalEditing">
+            <div class="student-sheet__item">
+              <dt>Email</dt>
+              <dd>{{ display(student.email) }}</dd>
+            </div>
+            <div class="student-sheet__item">
+              <dt>Country</dt>
+              <dd>{{ display(student.country_name) }}</dd>
+            </div>
+            <div class="student-sheet__item">
+              <dt>Region</dt>
+              <dd>{{ display(student.state_name) }}</dd>
+            </div>
+          </template>
           <div class="student-sheet__item">
             <dt>Role</dt>
             <dd>Student</dd>
@@ -33,11 +66,70 @@
             <dd>{{ display(student.account_status) }}</dd>
           </div>
         </dl>
+        <template v-if="personalEditing">
+          <p v-if="personalError" class="student-sheet__error">{{ personalError }}</p>
+          <div class="student-sheet__actions">
+            <button type="button" class="btn btn-outline btn-sm" :disabled="personalSaving" @click="personalEditing = false">
+              Cancel
+            </button>
+            <button type="submit" form="student-sheet-personal" class="btn btn-primary btn-sm" :disabled="personalSaving">
+              {{ personalSaving ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </template>
       </section>
 
       <section class="student-sheet__section">
-        <h3>Student Details</h3>
-        <dl class="student-sheet__list">
+        <div class="student-sheet__heading">
+          <h3>Student Details</h3>
+          <button
+            v-if="!detailsEditing"
+            type="button"
+            class="btn btn-outline btn-sm"
+            @click="startDetailsEdit"
+          >
+            Edit
+          </button>
+        </div>
+        <p v-if="detailsSavedMessage" class="student-sheet__saved">{{ detailsSavedMessage }}</p>
+        <!-- The supervisor edits the student's name, school, year and interests. -->
+        <form v-if="detailsEditing" @submit.prevent="saveDetails">
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">First name</span>
+            <input v-model="detailsForm.firstName" class="student-sheet__input" required maxlength="255" />
+          </label>
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">Last name</span>
+            <input v-model="detailsForm.lastName" class="student-sheet__input" required maxlength="255" />
+          </label>
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">School</span>
+            <input v-model="detailsForm.school" class="student-sheet__input" required maxlength="255" />
+          </label>
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">Year Level</span>
+            <select v-model="detailsForm.yearLevel" class="student-sheet__input" required>
+              <option v-for="year in YEAR_LEVELS" :key="year" :value="year">{{ year }}</option>
+            </select>
+          </label>
+          <fieldset class="student-sheet__item student-sheet__interest-options">
+            <legend class="student-sheet__label">Areas of Interests</legend>
+            <label v-for="interest in interestChoices" :key="interest">
+              <input v-model="detailsForm.interests" type="checkbox" :value="interest" />
+              {{ interest }}
+            </label>
+          </fieldset>
+          <p v-if="detailsError" class="student-sheet__error">{{ detailsError }}</p>
+          <div class="student-sheet__actions">
+            <button type="button" class="btn btn-outline btn-sm" :disabled="detailsSaving" @click="detailsEditing = false">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="detailsSaving">
+              {{ detailsSaving ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </form>
+        <dl v-else class="student-sheet__list">
           <div class="student-sheet__item">
             <dt>Name</dt>
             <dd>{{ studentName }}</dd>
@@ -143,7 +235,15 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
-import { fullName, saveGuardianDetails, type SupervisedStudent } from '@/utils/supervisedStudents'
+import { DEFAULT_GROUP_INTERESTS } from '@/utils/supervisedGroups'
+import {
+  fetchStudentEditOptions,
+  fullName,
+  saveGuardianDetails,
+  updateSupervisedStudentProfile,
+  type StudentEditOptions,
+  type SupervisedStudent,
+} from '@/utils/supervisedStudents'
 
 const props = defineProps<{
   /** The student to show; the panel is open while there is one. */
@@ -158,6 +258,8 @@ const emit = defineEmits<{
   (e: 'close'): void
   /** The roster after the guardian was saved. */
   (e: 'saved', students: SupervisedStudent[]): void
+  /** The student after their details were saved. */
+  (e: 'updated', student: SupervisedStudent): void
 }>()
 
 const display = (value?: string | null) => String(value ?? '').trim() || '—'
@@ -215,10 +317,125 @@ const startEditing = () => {
   editing.value = true
 }
 
+// Student Details' Edit: name, school, year and interests.
+const YEAR_LEVELS = ['9', '10', '11', '12']
+const detailsEditing = ref(false)
+const detailsSaving = ref(false)
+const detailsError = ref('')
+const detailsForm = ref({ firstName: '', lastName: '', school: '', yearLevel: '', interests: [] as string[] })
+const { message: detailsSavedMessage, show: flashDetailsSaved } = useFlashMessage()
+
+// The countries, regions and interests the Edit forms offer, read once.
+const editOptions = ref<StudentEditOptions>({ countries: [], regions: [], interests: [] })
+const loadEditOptions = async () => {
+  if (editOptions.value.countries.length || editOptions.value.interests.length) return
+  editOptions.value = await fetchStudentEditOptions().catch(() => ({
+    countries: [],
+    regions: [],
+    interests: [...DEFAULT_GROUP_INTERESTS],
+  }))
+}
+
+// Every area of interest on offer, with any the student already has.
+const interestChoices = computed(() => {
+  const all = [...editOptions.value.interests]
+  for (const interest of props.student?.interests ?? []) {
+    if (!all.some((item) => item.toLowerCase() === interest.toLowerCase())) all.push(interest)
+  }
+  return all
+})
+
+const startDetailsEdit = async () => {
+  if (!props.student) return
+  detailsForm.value = {
+    firstName: props.student.first_name,
+    lastName: props.student.last_name,
+    school: props.student.school_name,
+    yearLevel: props.student.year_lvl,
+    interests: [...props.student.interests],
+  }
+  detailsError.value = ''
+  detailsEditing.value = true
+  await loadEditOptions()
+}
+
+const saveDetails = async () => {
+  if (!props.student) return
+  detailsSaving.value = true
+  detailsError.value = ''
+  try {
+    const updated = await updateSupervisedStudentProfile(props.student.id, {
+      first_name: detailsForm.value.firstName.trim(),
+      last_name: detailsForm.value.lastName.trim(),
+      email: props.student.email,
+      school_name: detailsForm.value.school.trim(),
+      year_lvl: detailsForm.value.yearLevel,
+      interests: detailsForm.value.interests,
+    })
+    emit('updated', updated)
+    detailsEditing.value = false
+    flashDetailsSaved('Student details saved.')
+  } catch (error) {
+    detailsError.value = error instanceof Error ? error.message : 'Student details could not be saved.'
+  } finally {
+    detailsSaving.value = false
+  }
+}
+
+// Personal information's Edit: email, country and region.
+const personalEditing = ref(false)
+const personalSaving = ref(false)
+const personalError = ref('')
+const personalForm = ref({ email: '', countryId: null as number | null, stateId: null as number | null })
+const { message: personalSavedMessage, show: flashPersonalSaved } = useFlashMessage()
+
+const regionChoices = computed(() =>
+  editOptions.value.regions.filter((region) => region.country_id === personalForm.value.countryId),
+)
+
+const startPersonalEdit = async () => {
+  if (!props.student) return
+  personalForm.value = {
+    email: props.student.email,
+    countryId: props.student.country_id ?? null,
+    stateId: props.student.state_id ?? null,
+  }
+  personalError.value = ''
+  personalEditing.value = true
+  await loadEditOptions()
+}
+
+const savePersonal = async () => {
+  if (!props.student) return
+  personalSaving.value = true
+  personalError.value = ''
+  try {
+    // The endpoint also takes the name, school and year, which stay as they are.
+    const updated = await updateSupervisedStudentProfile(props.student.id, {
+      first_name: props.student.first_name,
+      last_name: props.student.last_name,
+      email: personalForm.value.email.trim(),
+      school_name: props.student.school_name,
+      year_lvl: props.student.year_lvl,
+      country_id: personalForm.value.countryId,
+      state_id: personalForm.value.stateId,
+    })
+    emit('updated', updated)
+    personalEditing.value = false
+    flashPersonalSaved('Personal information saved.')
+  } catch (error) {
+    personalError.value = error instanceof Error ? error.message : 'Personal information could not be saved.'
+  } finally {
+    personalSaving.value = false
+  }
+}
+
 // Another student's panel starts out showing, unless it was opened to edit.
 watch(
   () => [props.student?.id, props.editGuardian],
   () => {
+    personalEditing.value = false
+    detailsEditing.value = false
     editing.value = false
     if (props.editGuardian && props.student && !props.student.has_join_permission) startEditing()
   },
@@ -304,6 +521,28 @@ const saveGuardian = async () => {
 .student-sheet__saved {
   margin: 0 0 0.4rem;
   color: var(--dark-green);
+}
+
+/* Student Details' interests to tick, one per line. */
+.student-sheet__interest-options {
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-light);
+  padding: 0.6rem 0;
+}
+
+.student-sheet__interest-options legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+}
+
+.student-sheet__interest-options label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--teal);
 }
 
 .student-sheet__error {

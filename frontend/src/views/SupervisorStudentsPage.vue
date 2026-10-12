@@ -159,6 +159,7 @@
       :edit-guardian="route.query.show === 'edit-guardian'"
       @close="closeSheet"
       @saved="students = $event"
+      @updated="replaceStudent"
     />
   </div>
 </template>
@@ -222,6 +223,11 @@ const openSheet = (row: Record<string, unknown>, show?: 'guardian' | 'edit-guard
   else delete query.show
   void router.replace({ query })
 }
+// The student the panel just saved, in place in the list.
+const replaceStudent = (updated: SupervisedStudent) => {
+  students.value = students.value.map((student) => (student.id === updated.id ? updated : student))
+}
+
 const closeSheet = () => {
   const query = { ...route.query }
   delete query.student

@@ -42,6 +42,7 @@ from .serializers import (
     StudentGuardianUpdateSerializer,
     SupervisedStudentEmailSerializer,
     SupervisedStudentIdsSerializer,
+    SelfNameSerializer,
     SupervisedStudentGuardianSerializer,
     SupervisedStudentProfileUpdateSerializer,
     SupervisedStudentSerializer,
@@ -348,6 +349,22 @@ class MeRetrieveView(generics.RetrieveAPIView):
             raise serializers.ValidationError(
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
+
+        # A supervisor changes their own name on their profile, and nothing
+        # else of theirs; the rest of the student fields stay students' only.
+        if (
+            not StudentProfile.objects.filter(user=user).exists()
+            and SupervisorProfile.objects.filter(user=user).exists()
+        ):
+            name_data = {key: data[key] for key in ("first_name", "last_name") if key in data}
+            if name_data:
+                names = SelfNameSerializer(data=name_data)
+                names.is_valid(raise_exception=True)
+                for field, value in names.validated_data.items():
+                    setattr(user, field, value.strip())
+                user.save(update_fields=list(names.validated_data))
+                _log_edit(user, user.id, "profile_update", {"fields": sorted(names.validated_data)})
+            data = {key: value for key, value in data.items() if key not in ("first_name", "last_name")}
 
         student_update_data = {
             key: value for key, value in data.items() if key in STUDENT_SELF_PROFILE_FIELDS
@@ -780,7 +797,9 @@ def _account_fields(user, consent):
     """A roster row's account details and media consent. ``consent`` is the
     student's newest signed form still standing, or None."""
     return {
+        "country_id": user.country_id,
         "country_name": user.country.country_name if user.country else "",
+        "state_id": user.state_id,
         "state_name": user.state.state_name if user.state else "",
         "account_status": user.get_account_status_display(),
         # From the signed form: None when there's none on the platform.
@@ -905,6 +924,23 @@ class MeGuardianView(APIView):
         return self._response(request)
 
 
+class SupervisedStudentOptionsView(APIView):
+    """GET the countries, regions and areas of interest a supervisor or admin
+    can pick from when editing a student in the student panel."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(exclude=True)
+    def get(self, request):
+        _student_scope(request.user)  # supervisors and admins only
+        return Response({
+            "countries": list(Countries.objects.order_by("country_name").values("id", "country_name")),
+            "regions": list(CountryStates.objects.order_by("state_name").values("id", "country_id", "state_name")),
+            "interests": list(AreasOfInterest.objects.order_by("interest_desc").values_list("interest_desc", flat=True)),
+        })
+
+
 class SupervisedStudentDetailView(APIView):
     """Update a supervised student's name, email, and school details."""
 
@@ -945,6 +981,15 @@ class SupervisedStudentDetailView(APIView):
                 )
             user.email = new_email
             user_fields.append("email")
+        if "country_id" in data or "state_id" in data:
+            country = data.get("country_id", user.country)
+            state = data.get("state_id", user.state)
+            if "country_id" in data and "state_id" not in data and state and state.country_id != getattr(country, "pk", None):
+                state = None
+            if state and state.country_id != getattr(country, "pk", None):
+                raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+            user.country, user.state = country, state
+            user_fields.extend(["country", "state"])
         user.save(update_fields=user_fields)
 
         profile.school_name = data["school_name"].strip()

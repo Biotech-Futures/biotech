@@ -27,6 +27,7 @@ from .views import (
     SupervisedStudentDetailsLinksView,
     SupervisedStudentDetailView,
     SupervisedStudentEmailView,
+    SupervisedStudentOptionsView,
     SupervisedStudentsView,
 )
 
@@ -39,6 +40,7 @@ urlpatterns = [
     path("users/me/guardian/", MeGuardianView.as_view(), name="me-guardian"),
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/email/", SupervisedStudentEmailView.as_view(), name="supervised-students-email"),
+    path("users/supervised-students/options/", SupervisedStudentOptionsView.as_view(), name="supervised-students-options"),
     path(
         "users/supervised-students/consent-links/",
         SupervisedStudentConsentLinksView.as_view(),
