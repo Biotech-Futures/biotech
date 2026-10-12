@@ -14,7 +14,7 @@ from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.submissions.storage import submission_file_service
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import confirm_checklist, install_question_set
 
 
 def _pdf(name="poster.pdf", body=b"poster"):
@@ -64,6 +64,7 @@ class SubmissionLifecycleTests(TestCase):
             self.detail_url, {"project_title": "Our Project", "answers": self._answers(text)}, format="json"
         )
         self.client.post(self._file_url("poster"), {"file": _pdf(poster_name)}, format="multipart")
+        confirm_checklist(self.group)
         return self.client.post(self.submit_url, {}, format="json")
 
     def _submission(self):
@@ -162,6 +163,7 @@ class SubmissionLifecycleTests(TestCase):
         self.client.post(
             self._file_url("poster"), {"file": _pdf("revised.pdf")}, format="multipart"
         )
+        confirm_checklist(self.group)
         self.assertEqual(self.client.post(self.submit_url, {}, format="json").status_code, 200)
 
         submission = self._submission()

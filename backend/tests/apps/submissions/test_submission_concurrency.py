@@ -13,10 +13,12 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.submissions import views
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
+from apps.submissions.storage import submission_file_service
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import confirm_checklist, install_question_set
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
@@ -154,6 +156,7 @@ class ConcurrentSubmitTests(TestCase):
             self.detail_url, {"project_title": "Our Project", "answers": self._answers()}, format="json"
         )
         client.post(self.file_url, {"file": _pdf()}, format="multipart")
+        confirm_checklist(self.group)
         return client
 
     def test_submitting_claims_the_row_for_update_before_overwriting_it(self):
@@ -202,3 +205,20 @@ class ConcurrentSubmitTests(TestCase):
         self.assertEqual(second.status_code, 409)
         self.assertEqual(second.data["code"], "submission_locked")
         self.assertEqual(len(mail.outbox), after_first)
+
+    def test_a_poster_landing_after_a_teammate_submitted_is_refused_and_the_submitted_one_kept(self):
+        client = self._make_submittable(self.ada)
+        submitted_key = Submission.objects.get(group=self.group).poster["storage_key"]
+        original = views.submission_file_name
+
+        def submit_meanwhile(*args, **kwargs):
+            self._client_for(self.grace).post(self.submit_url, {}, format="json")
+            return original(*args, **kwargs)
+
+        with patch("apps.submissions.views.submission_file_name", side_effect=submit_meanwhile):
+            response = client.post(self.file_url, {"file": _pdf()}, format="multipart")
+
+        self.assertEqual(response.status_code, 409)
+        submission = Submission.objects.get(group=self.group)
+        self.assertEqual(submission.poster["storage_key"], submitted_key)
+        self.assertTrue(submission_file_service("poster").exists(submitted_key))

@@ -11,11 +11,12 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.emails import build_components, recipients_for
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import CONFIRMED_CHECKLIST, install_question_set
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False, AUTH_EMAIL_DISPATCH_SYNC=True)
@@ -70,8 +71,22 @@ class SubmissionEmailTests(TestCase):
             "storage_key": "x/poster.pdf", "name": "poster.pdf",
             "mime": "application/pdf", "size": 100,
         }
+        submission.poster_checklist = CONFIRMED_CHECKLIST
         submission.save()
         return self.client.post(self.submit_url, {}, format="json")
+
+    def test_an_automated_submission_sends_no_email(self):
+        submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
+        submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
+        submission.poster = {"storage_key": "x/poster.pdf", "name": "poster.pdf", "mime": "application/pdf", "size": 100}
+        submission.poster_checklist = CONFIRMED_CHECKLIST
+        submission.save()
+        Deadline.objects.update(closes_at=timezone.now() - timedelta(hours=1), grace_hours=0)
+
+        self.assertEqual(auto_submit_due()["submitted"], ["BTF-EMAIL"])
+
+        self.assertEqual(mail.outbox, [])
 
     def test_mentors_and_supervisors_are_emailed_like_students(self):
         self.assertEqual(
@@ -144,6 +159,7 @@ class SubmissionEmailTests(TestCase):
         submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {"storage_key": "x/p.pdf", "name": "p.pdf", "mime": "", "size": 1}
+        submission.poster_checklist = CONFIRMED_CHECKLIST
         submission.prototype_url = "https://example.com/demo"
         submission.save()
         self.client.post(self.submit_url, {}, format="json")

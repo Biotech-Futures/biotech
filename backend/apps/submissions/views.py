@@ -23,6 +23,7 @@ from .errors import (
     FileNotUploadedYet,
     NoFileUploaded,
     NotSubmittedYet,
+    PosterChecklistIncomplete,
     PosterFormatRejected,
     PosterRequired,
     ProjectTitleRequired,
@@ -33,6 +34,7 @@ from .errors import (
 )
 from .models import Submission, SubmissionInstruction, SubmissionQuestion
 from .poster_checks import inspect_poster, student_facing_problems
+from .autosubmit import auto_submit_due
 from .reminders import send_due_reminders
 from .serializers import (
     SubmissionDraftSerializer,
@@ -40,7 +42,9 @@ from .serializers import (
     SubmissionSerializer,
     missing_required_answers,
 )
-from .services import active_deadline, current_cohort, deadline_for_group
+from .services import deadline_for_group
+from .checklist import blank_checklist, detected_checklist, is_confirmed
+from .submitting import complete_submission, delete_superseded
 from .storage import submission_file_name, submission_file_service
 from .uploads import (
     PDF_SLOTS,
@@ -55,22 +59,21 @@ def _get_group(group_id: int) -> Groups:
     return get_object_or_404(Groups, id=group_id, deleted_at__isnull=True)
 
 
-def _require_can_view(user, group_id: int) -> None:
-    """Any member of the team can read it; so can admins.
+def _is_staff(user) -> bool:
+    """Admins, staff and superusers, matching ``common.rbac.IsStaffOrAdmin``."""
+    return is_admin(user) or user.is_staff or user.is_superuser
 
-    Staff and superusers pass alongside AdminScope admins so the definition
-    matches ``common.rbac.IsStaffOrAdmin``: anyone who can mark an entry can read the
-    files they are marking.
-    """
-    if is_admin(user) or user.is_staff or user.is_superuser:
+
+def _require_can_view(user, group_id: int) -> None:
+    """Any member of the team can read it; so can admins, so anyone who marks an entry can read it."""
+    if _is_staff(user):
         return
     if not group_participant_qs(user, group_id).exists():
         raise GroupAccessDenied()
 
 
 def _require_can_edit(user, group_id: int) -> None:
-    """Members of the team can edit, submit and reopen; so can admins, for a
-    team that needs a hand. The deadline and lock still apply to both."""
+    """Members of the team can edit, submit and reopen; so can admins, for a team that needs a hand."""
     _require_can_view(user, group_id)
 
 
@@ -79,8 +82,11 @@ def _require_unlocked(submission) -> None:
         raise SubmissionLocked()
 
 
-def _require_open(group_id: int):
+def _require_open(group_id: int, user):
+    """The team's deadline, extensions included; admins act for a team at any time."""
     info = deadline_for_group(group_id)
+    if _is_staff(user):
+        return info
     if info.closes_at is None:
         raise SubmissionsNotConfigured()
     if not info.is_open:
@@ -119,6 +125,8 @@ class GroupSubmissionView(APIView):
                 for instruction in SubmissionInstruction.objects.all()
             },
             "max_file_sizes": max_sizes(),
+            # Admins act for a team at any time, without the template checks or checklist.
+            "admin_access": _is_staff(request.user),
             # None means the team has not started.
             "submission": (
                 SubmissionSerializer(submission).data if submission is not None else None
@@ -128,7 +136,7 @@ class GroupSubmissionView(APIView):
     def put(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         payload = SubmissionDraftSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -148,7 +156,15 @@ class GroupSubmissionView(APIView):
                 submission.answers = {**(submission.answers or {}), **data["answers"]}
             if "prototype_url" in data:
                 submission.prototype_url = data["prototype_url"]
+            if "poster_checklist" in data:
+                # The team's ticks always stand, whatever the checks detected.
+                submission.poster_checklist = {
+                    **blank_checklist(), **(submission.poster_checklist or {}), **data["poster_checklist"]
+                }
             submission.save()
+
+        if "poster_checklist" in data:
+            notify_changed("submission", group.id, "checklist", by=request.user)
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -171,7 +187,7 @@ class GroupSubmissionFileView(APIView):
         slot = _valid_slot(slot)
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         uploaded = request.FILES.get("file")
         if uploaded is None:
@@ -179,16 +195,16 @@ class GroupSubmissionFileView(APIView):
         validate_submission_file(uploaded, slot)
 
         poster_flag = None
+        checks = None
         if slot == POSTER and settings.SUBMISSION_POSTER_CHECKS_ENABLED:
             checks = inspect_poster(uploaded, team_code=group.group_name)
-            if checks.blocking:
+            if checks.blocking and not _is_staff(request.user):
                 # One at a time, so several problems never read as one paragraph.
                 raise PosterFormatRejected(student_facing_problems(checks.blocking)[:1])
             poster_flag = checks.as_flag()
 
         submission, _ = Submission.objects.get_or_create(group=group)
         _require_unlocked(submission)
-        previous = getattr(submission, slot) or {}
 
         # Removes the stored blob again if the save below raises.
         with submission_file_service(slot).stored_file(
@@ -197,12 +213,17 @@ class GroupSubmissionFileView(APIView):
             size_field="size",
             original_filename_field="name",
             storage_name=submission_file_name(submission, slot, uploaded.name),
-        ) as file_data:
+        ) as file_data, transaction.atomic():
+            # Read again under the lock, in case the entry was submitted while the file uploaded.
+            submission = Submission.objects.select_for_update().get(pk=submission.pk)
+            _require_unlocked(submission)
+            previous = getattr(submission, slot) or {}
             setattr(submission, slot, file_data)
             fields = [slot, "updated_at"]
             if slot == POSTER:
                 submission.poster_checks = poster_flag
-                fields.append("poster_checks")
+                submission.poster_checklist = detected_checklist(checks)
+                fields += ["poster_checks", "poster_checklist"]
             submission.save(update_fields=fields)
 
         # A file the submitted copy still points at is kept.
@@ -224,20 +245,22 @@ class GroupSubmissionFileView(APIView):
         slot = _valid_slot(slot)
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
-        submission = Submission.objects.filter(group=group).first()
-        _require_unlocked(submission)
-        existing = (getattr(submission, slot) or {}) if submission else {}
-        if not existing:
-            raise FileNotUploadedYet()
+        with transaction.atomic():
+            submission = Submission.objects.select_for_update().filter(group=group).first()
+            _require_unlocked(submission)
+            existing = (getattr(submission, slot) or {}) if submission else {}
+            if not existing:
+                raise FileNotUploadedYet()
 
-        setattr(submission, slot, None)
-        fields = [slot, "updated_at"]
-        if slot == POSTER:
-            submission.poster_checks = None
-            fields.append("poster_checks")
-        submission.save(update_fields=fields)
+            setattr(submission, slot, None)
+            fields = [slot, "updated_at"]
+            if slot == POSTER:
+                submission.poster_checks = None
+                submission.poster_checklist = blank_checklist()
+                fields += ["poster_checks", "poster_checklist"]
+            submission.save(update_fields=fields)
         key = existing.get("storage_key")
         if key and key not in submission.submitted_storage_keys():
             submission_file_service(slot).delete(key)
@@ -292,7 +315,7 @@ class GroupSubmissionSubmitView(APIView):
     def post(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         # Locked so a teammate's auto-save cannot land mid-submit and be lost.
         with transaction.atomic():
@@ -313,30 +336,15 @@ class GroupSubmissionSubmitView(APIView):
             if missing:
                 raise RequiredAnswersMissing(missing)
 
-            # Files the previous submission relied on, taken before the
-            # snapshot overwrites them. Kept per slot: each slot stores into
-            # its own container, so a delete must know where the key lives.
-            superseded = {
-                slot: (getattr(submission, f"submitted_{slot}") or {}).get("storage_key")
-                for slot in Submission.FILE_SLOTS
-            }
+            staff = _is_staff(request.user)
+            if not staff and not is_confirmed(submission.poster_checklist):
+                raise PosterChecklistIncomplete()
 
-            submission.snapshot(request.user)
-            submission.cohort = current_cohort()
-            # Late = past the GLOBAL announced deadline, even inside the
-            # quiet grace window or a per-team extension — an extension only
-            # keeps the portal accepting, it does not make the entry on time.
-            baseline = active_deadline()
-            submission.is_late = (
-                baseline is not None and submission.submitted_at > baseline.closes_at
+            superseded = complete_submission(
+                submission, request.user, cohort=group.year if staff else None
             )
-            submission.save()
 
-        # Outside the transaction, since a blob delete cannot be rolled back.
-        still_referenced = submission.submitted_storage_keys()
-        for slot, key in superseded.items():
-            if key and key not in still_referenced:
-                submission_file_service(slot).delete(key)
+        delete_superseded(submission, superseded)
 
         # Never raises, so a failed email cannot fail the submission.
         send_submission_confirmation(submission)
@@ -354,7 +362,7 @@ class GroupSubmissionReopenView(APIView):
     def post(self, request, group_id: int):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
-        _require_open(group.id)
+        _require_open(group.id, request.user)
 
         submission = Submission.objects.filter(group=group).first()
         if submission is None or not submission.is_submitted:
@@ -379,3 +387,14 @@ class SendSubmissionRemindersView(APIView):
     @extend_schema(exclude=True)
     def post(self, request):
         return email_jobs.refused(request) or Response(send_due_reminders(), status=status.HTTP_200_OK)
+
+
+class AutoSubmitView(APIView):
+    """Hourly run submitting complete drafts past their cut-off, called by a scheduler with the jobs' token."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        return email_jobs.refused(request) or Response(auto_submit_due(), status=status.HTTP_200_OK)

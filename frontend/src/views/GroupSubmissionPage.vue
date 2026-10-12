@@ -26,7 +26,7 @@
         <span v-if="state.detail" class="status-line__detail">{{ state.detail }}</span>
 
         <button
-          v-if="isLocked && isOpen"
+          v-if="isLocked && canAct"
           ref="reopenTrigger"
           class="btn btn-outline btn-sm status-line__action"
           type="button"
@@ -88,7 +88,7 @@
         </section>
       </div>
 
-      <div v-if="message" class="submission-message" :class="{ 'submission-message--error': isError }">
+      <div v-if="message" ref="messageBanner" class="submission-message" :class="{ 'submission-message--error': isError }">
         <span>{{ message }}</span>
         <button type="button" class="submission-message__close" aria-label="Dismiss" @click="dismissMessage">
           &times;
@@ -152,7 +152,7 @@
               :id="question.key"
               v-model="answers[question.key]"
               class="form-control submission-textarea"
-              rows="5"
+              :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
               :style="boxHeights[question.key] ? { height: `${boxHeights[question.key]}px` } : undefined"
               :disabled="!isEditable || live.isLocked(question.key)"
@@ -163,6 +163,7 @@
               class="submission-textarea"
               :text="answers[question.key] ?? ''"
               :caret="live.caretIn(question.key)"
+              :rows="ANSWER_ROWS"
               :height="boxHeights[question.key] ?? null"
             />
             <StretchHandle
@@ -200,6 +201,13 @@
           </p>
         </header>
 
+        <PosterChecklist
+          :ticks="posterChecklist"
+          :ready="Boolean(storedFile('poster'))"
+          :disabled="!isEditable"
+          @toggle="tickChecklist"
+        />
+
         <!-- The slot and its preview form one drop zone. -->
         <div
           class="drop-zone"
@@ -209,7 +217,7 @@
           @dragleave="onDragLeave('poster', $event)"
           @drop.prevent="onDrop('poster', $event)"
         >
-        <div class="submission-slot submission-slot--plain">
+        <div class="submission-slot submission-slot--plain submission-slot--divided">
           <div class="submission-slot__info">
             <p class="submission-muted">
               PDF only · up to {{ maxSizeLabel('poster') }}<span v-if="isEditable"> · or drop it here</span>
@@ -222,13 +230,6 @@
               <span class="submission-muted"> ({{ formatSize(storedFile('poster')?.size) }})</span>
             </p>
             <p v-else class="submission-muted">Nothing attached yet.</p>
-
-            <div v-if="isPosterNoticeShown" class="poster-notice">
-              <p class="poster-notice__body">
-                Uploaded. Please re-check your poster against the submission
-                requirements before you submit.
-              </p>
-            </div>
           </div>
 
           <div v-if="isEditable" class="submission-slot__actions">
@@ -549,6 +550,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
 import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
+import PosterChecklist from '@/components/submission/PosterChecklist.vue'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
 import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
@@ -653,12 +655,15 @@ function draftFields(answers: Record<string, string>): {
   answers: Record<string, string>
   project_title?: string
   prototype_url?: string
+  poster_checklist?: Record<string, boolean>
 } {
   const link = linkProblem() ? savedLink : normalisedLink()
+  const ticks = checklistChanges()
   return {
     answers,
     ...titleIfChanged(),
-    ...(link === savedLink ? {} : { prototype_url: link })
+    ...(link === savedLink ? {} : { prototype_url: link }),
+    ...(Object.keys(ticks).length ? { poster_checklist: ticks } : {})
   }
 }
 
@@ -717,15 +722,20 @@ function maxSizeLabel(slot: SubmissionSlot) {
 }
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isLocked = computed(() => Boolean(detail.value?.submission?.is_locked))
-const isEditable = computed(() => isOpen.value && !isLocked.value)
+// Admins act for a team at any time; the status line still shows the real deadline.
+const adminAccess = computed(() => Boolean(detail.value?.admin_access))
+const canAct = computed(() => isOpen.value || adminAccess.value)
+const isEditable = computed(() => canAct.value && !isLocked.value)
 
 // While the portal is on screen and the round is open, so changes made elsewhere arrive at once.
 const live = useLiveRoom(
   'submission',
   groupId,
-  computed(() => isOpen.value && route.name === 'group-submission')
+  computed(() => canAct.value && route.name === 'group-submission')
 )
 const TITLE_FIELD = 'project-title'
+/** Room for most of an answer before anyone needs to stretch the box. */
+const ANSWER_ROWS = 7
 /** Heights people have stretched answer boxes to, by question. */
 const boxHeights = reactive<Record<string, number>>({})
 
@@ -759,15 +769,23 @@ live.onChanged(() => void refreshFromElsewhere())
 async function refreshFromElsewhere() {
   if (!detail.value || isSubmitting.value || isReopening.value) return
   try {
+    const before = resultsApplied
     const latest = await fetchSubmission(groupId.value)
     if (!detail.value) return
+    // A save or submit answered meanwhile, so this copy is older than the page: fetch again.
+    if (resultsApplied !== before) return void refreshFromElsewhere()
     const files = (entry: typeof latest) =>
       FILE_SLOTS.map((slot) => entry.submission?.[slot]?.storage_key ?? '').join('|')
     const wasLocked = isLocked.value
     const filesBefore = files(detail.value)
     detail.value = latest
     if (wasLocked !== isLocked.value) syncFromDetail()
-    if (filesBefore !== files(latest)) await syncPreviewForTab()
+    if (filesBefore !== files(latest)) {
+      syncChecklist()
+      await syncPreviewForTab()
+    } else {
+      mergeChecklist()
+    }
   } catch {
     // Best effort: the next focus or action brings the page up to date.
   }
@@ -776,8 +794,10 @@ async function refreshFromElsewhere() {
 // Allows for the typist's own autosave, which follows their last keystroke by AUTOSAVE_DELAY_MS.
 const RESYNC_DELAY_MS = 2500
 let resyncTimer: ReturnType<typeof setTimeout> | null = null
-live.onSettled(() => {
+live.onSettled((reason) => {
   if (resyncTimer) clearTimeout(resyncTimer)
+  // Back after time away: catch up at once, then again once any last autosave has landed.
+  if (reason === 'rejoined') void resyncUntouchedFields()
   resyncTimer = setTimeout(() => void resyncUntouchedFields(), RESYNC_DELAY_MS)
 })
 
@@ -787,7 +807,10 @@ async function resyncUntouchedFields() {
   // A save in flight is safe: its field still differs from the saved copy, so it is skipped.
   if (!detail.value || !isEditable.value || isSubmitting.value || isReopening.value) return
   try {
+    const before = resultsApplied
     const latest = await fetchSubmission(groupId.value)
+    // A save answered meanwhile, so this copy may predate it: fetch again.
+    if (resultsApplied !== before) return void resyncUntouchedFields()
     const saved = latest.submission
     if (!saved || !isEditable.value) return
     const wasSaved = currentSnapshot() === savedSnapshot.value
@@ -813,34 +836,48 @@ const isBusy = computed(
 const showsSubmittedCopy = computed(() => {
   const submission = detail.value?.submission
   if (!submission?.is_submitted) return false
-  return submission.is_locked || !isOpen.value
+  return submission.is_locked || !canAct.value
 })
 
-const posterWarnings = computed(() => {
-  const submission = detail.value?.submission
-  if (!submission) return []
-  const checks = showsSubmittedCopy.value
-    ? submission.submitted_poster_checks
-    : submission.poster_checks
-  return checks?.warnings ?? []
-})
+const CHECKLIST_KEYS = ['supervisor_email', 'btf_logo', 'school_logo', 'team_code', 'page_size']
+const posterChecklist = reactive<Record<string, boolean>>({})
+/** The ticks the server holds; only changed ticks are sent, so a teammate's ticks are kept. */
+let savedChecklist: Record<string, boolean> = {}
 
-const isPosterNoticeShown = ref(false)
-let posterNoticeTimer: ReturnType<typeof setTimeout> | null = null
-// Keyed on the file and its findings, so an auto-save does not bring the notice back.
-watch(
-  () => `${shownFile('poster')?.storage_key ?? ''}|${posterWarnings.value.map((w) => w.code).join(',')}`,
-  () => {
-    if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
-    isPosterNoticeShown.value = posterWarnings.value.length > 0
-    if (isPosterNoticeShown.value) {
-      posterNoticeTimer = setTimeout(() => {
-        isPosterNoticeShown.value = false
-      }, MESSAGE_TIMEOUT_MS)
-    }
-  },
-  { immediate: true }
-)
+/** Takes the checklist from the entry, e.g. after a new poster resets it. */
+function syncChecklist() {
+  const wasSaved = currentSnapshot() === savedSnapshot.value
+  const held = detail.value?.submission?.poster_checklist ?? {}
+  CHECKLIST_KEYS.forEach((key) => {
+    posterChecklist[key] = Boolean(held[key])
+  })
+  savedChecklist = { ...posterChecklist }
+  if (wasSaved) savedSnapshot.value = currentSnapshot()
+}
+
+/** Takes a teammate's ticks, keeping any changed here and not yet saved. */
+function mergeChecklist() {
+  const wasSaved = currentSnapshot() === savedSnapshot.value
+  const held = detail.value?.submission?.poster_checklist ?? {}
+  CHECKLIST_KEYS.forEach((key) => {
+    if (posterChecklist[key] !== savedChecklist[key]) return
+    posterChecklist[key] = Boolean(held[key])
+    savedChecklist[key] = posterChecklist[key]
+  })
+  if (wasSaved) savedSnapshot.value = currentSnapshot()
+}
+
+function tickChecklist(item: string, ticked: boolean) {
+  posterChecklist[item] = ticked
+}
+
+function checklistChanges(): Record<string, boolean> {
+  const changed: Record<string, boolean> = {}
+  CHECKLIST_KEYS.forEach((key) => {
+    if (posterChecklist[key] !== savedChecklist[key]) changed[key] = Boolean(posterChecklist[key])
+  })
+  return changed
+}
 
 function shownFile(slot: SubmissionSlot): StoredFile | null {
   const submission = detail.value?.submission
@@ -968,6 +1005,7 @@ const submittedLine = computed(() => {
   const submission = detail.value?.submission
   if (!submission?.submitted_at) return ''
   const when = formatDayMonthTime(submission.submitted_at)
+  if (submission.auto_submitted) return `Automated Submission on ${when}`
   return submission.submitted_by_name
     ? `By ${submission.submitted_by_name} on ${when}`
     : `On ${when}`
@@ -1048,6 +1086,18 @@ function setMessage(text: string, error = false) {
   }
 }
 
+const messageBanner = ref<HTMLElement | null>(null)
+
+/** Shows an upload problem and scrolls the whole platform to the top, where the message sits. */
+async function showUploadMessage(text: string) {
+  setMessage(text, true)
+  await nextTick()
+  for (let el = messageBanner.value?.parentElement; el; el = el.parentElement) {
+    if (el.scrollTop > 0) el.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 function dismissMessage() {
   if (messageTimer) clearTimeout(messageTimer)
   messageTimer = null
@@ -1092,8 +1142,16 @@ function submissionBlockers(): { message: string; step: TabKey; focusKey?: strin
   }
   if (posterMissing) {
     return {
-      message: 'A poster must be uploaded before the entry can be submitted.',
+      message: 'Please upload your poster before submitting.',
       step: 'poster'
+    }
+  }
+  const unticked = CHECKLIST_KEYS.find((key) => !posterChecklist[key])
+  if (unticked && !adminAccess.value) {
+    return {
+      message: 'Please tick every item in the poster checklist before submitting.',
+      step: 'poster',
+      focusKey: `checklist-${unticked}`
     }
   }
   return null
@@ -1112,9 +1170,13 @@ async function goToBlocker(blocker: { step: TabKey; focusKey?: string }) {
   }
 }
 
+/** Server replies applied here; a background fetch overtaken by one holds an older copy. */
+let resultsApplied = 0
+
 function applyResult(result: SubmissionWriteResult) {
   if (!detail.value) return
   detail.value = { ...detail.value, deadline: result.deadline, submission: result.submission }
+  resultsApplied += 1
 }
 
 function handleWriteError(error: unknown): string {
@@ -1171,6 +1233,7 @@ function syncFromDetail() {
   projectTitle.value = recordedProjectTitle.value
   savedTitle = projectTitle.value
   savedLink = prototypeUrl.value
+  syncChecklist()
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
@@ -1191,7 +1254,12 @@ async function load() {
 }
 
 function currentSnapshot() {
-  return JSON.stringify({ answers, prototypeUrl: prototypeUrl.value, projectTitle: projectTitle.value })
+  return JSON.stringify({
+    answers,
+    prototypeUrl: prototypeUrl.value,
+    projectTitle: projectTitle.value,
+    posterChecklist
+  })
 }
 
 async function persistDraft() {
@@ -1209,6 +1277,7 @@ async function persistDraft() {
     Object.assign(savedAnswers, sent)
     if (fields.project_title !== undefined) savedTitle = fields.project_title
     if (fields.prototype_url !== undefined) savedLink = fields.prototype_url
+    if (fields.poster_checklist) Object.assign(savedChecklist, fields.poster_checklist)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
     saveState.value = overLimit.length || linkProblem() ? 'unsaved' : 'idle'
@@ -1221,7 +1290,7 @@ async function persistDraft() {
 }
 
 function scheduleAutosave() {
-  if (!isOpen.value || isSubmitting.value) return
+  if (!canAct.value || isSubmitting.value) return
   if (currentSnapshot() === savedSnapshot.value) return
 
   saveState.value = 'unsaved'
@@ -1345,7 +1414,9 @@ function onDrop(slot: SubmissionSlot, event: DragEvent) {
 async function uploadFile(slot: SubmissionSlot, file: File) {
   // Checked before uploading; the server enforces it too.
   if (file.size > maxSizeFor(slot)) {
-    setMessage(`That file is ${formatSize(file.size)}. The limit is ${maxSizeLabel(slot)}.`, true)
+    await showUploadMessage(
+      `This file is ${formatSize(file.size)}, over the ${maxSizeLabel(slot)} limit. Please reduce its size and try again.`
+    )
     return
   }
 
@@ -1358,15 +1429,12 @@ async function uploadFile(slot: SubmissionSlot, file: File) {
         uploadPercent.value = percent
       })
     )
+    if (slot === 'poster') syncChecklist()
     // Refresh a showing preview so it never displays the replaced file.
     if (slot === 'poster' || slot === 'report') await loadPreview(slot)
   } catch (error) {
     const problems = apiErrorFromUnknown(error).body?.problems
-    if (Array.isArray(problems) && problems.length) {
-      setMessage(problems.join(' '), true)
-    } else {
-      setMessage(handleWriteError(error), true)
-    }
+    await showUploadMessage(Array.isArray(problems) && problems.length ? problems.join(' ') : handleWriteError(error))
   } finally {
     busySlot.value = ''
     uploadPercent.value = 0
@@ -1378,6 +1446,7 @@ async function removeFile(slot: SubmissionSlot) {
   setMessage('')
   try {
     applyResult(await removeSubmissionFile(groupId.value, slot))
+    if (slot === 'poster') syncChecklist()
     if (slot === previewSlot.value) clearPreview()
   } catch (error) {
     setMessage(handleWriteError(error), true)
@@ -1411,7 +1480,7 @@ watch(now, async () => {
   }
 })
 
-watch([answers, prototypeUrl, projectTitle], scheduleAutosave, { deep: true })
+watch([answers, prototypeUrl, projectTitle, posterChecklist], scheduleAutosave, { deep: true })
 
 watch(activeTab, () => {
   // Save on leaving a step rather than waiting for the timer.
@@ -1477,7 +1546,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onPageVisible)
   if (autosaveTimer) clearTimeout(autosaveTimer)
   if (resyncTimer) clearTimeout(resyncTimer)
-  if (posterNoticeTimer) clearTimeout(posterNoticeTimer)
   clearInterval(clockTimer)
   clearPreview()
 })

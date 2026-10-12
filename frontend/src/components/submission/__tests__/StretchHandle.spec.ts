@@ -3,7 +3,10 @@ import { defineComponent, h, ref } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
 
-const NATURAL = 150
+// A seven-line box; one line is 24.8px, and padding and border add 24.4px.
+const NATURAL = 198
+const FIVE_LINES = 148
+const TWENTY_LINES = 520
 let wrapper: VueWrapper | null = null
 const height = ref<number | null>(null)
 
@@ -14,6 +17,8 @@ function mountHandle() {
     defineComponent({
       setup: () => () =>
         h('div', { class: 'box' }, [
+          // The portal's line height, padding and border, which the handle measures.
+          h('textarea', { style: 'line-height: 24.8px; padding: 11.2px 0; border: 1px solid' }),
           h(StretchHandle, { height: height.value, 'onUpdate:height': (v: number) => (height.value = v) }),
         ]),
     }),
@@ -51,27 +56,29 @@ describe('StretchHandle', () => {
     expect(height.value).toBe(NATURAL + 120)
   })
 
-  it('never shrinks the box below its normal size', () => {
+  it('contracts to five lines and no further', () => {
     const handle = mountHandle()
 
-    drag(handle, -80)
+    drag(handle, -30)
+    expect(height.value).toBe(NATURAL - 30)
 
-    expect(height.value).toBe(NATURAL)
+    drag(handle, -500)
+    expect(height.value).toBe(FIVE_LINES)
   })
 
-  it('stops at the limit', () => {
+  it('stops at twenty lines', () => {
     const handle = mountHandle()
 
     drag(handle, 2000)
 
-    expect(height.value).toBe(520)
+    expect(height.value).toBe(TWENTY_LINES)
   })
 
-  it('can be resized from the keyboard', async () => {
+  it('can be resized a line at a time from the keyboard', async () => {
     const handle = mountHandle()
 
     await handle.trigger('keydown', { key: 'ArrowDown' })
-    expect(height.value).toBe(NATURAL + 24)
+    expect(height.value).toBe(Math.round(NATURAL + 24.8))
 
     await handle.trigger('keydown', { key: 'ArrowUp' })
     expect(height.value).toBe(NATURAL)

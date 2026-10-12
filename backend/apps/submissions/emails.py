@@ -21,6 +21,7 @@ from apps.services.system_email import (
 )
 
 from .models import Submission, SubmissionQuestion
+from .serializers import submitted_by_label
 from .services import current_cohort, deadline_for_group
 
 
@@ -227,7 +228,7 @@ def send_submission_confirmation(submission: Submission) -> int:
             "OPTIONAL_COMPONENTS_LIST": components_list_html(optional),
             "INCOMPLETE": any(not item["submitted"] for item in required),
             "DEADLINE": _format_deadline(deadline.closes_at),
-            "SUBMITTED_BY": submission.submitted_by,
+            "SUBMITTED_BY": submitted_by_label(submission),
             # Blank when no frontend URL is configured; the template then omits the button.
             "SUBMISSION_URL": (
                 f"{settings.FRONTEND_BASE_URL}/#/submission/{group.id}"

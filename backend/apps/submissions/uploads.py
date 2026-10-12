@@ -5,6 +5,7 @@ from django.conf import settings
 from rest_framework import serializers
 
 from apps.common.upload_validation import (
+    _format_bytes,
     validate_unrestricted_upload,
     validate_uploaded_file,
 )
@@ -124,6 +125,26 @@ def max_sizes() -> dict:
     return {slot: max_size_for(slot) for slot in SLOTS}
 
 
+def _require_pdf(uploaded_file, noun: str, max_size: int) -> None:
+    """The checks a student can fix, worded for them; the shared validator still runs after."""
+    size = getattr(uploaded_file, "size", None) or 0
+    if size > max_size:
+        raise serializers.ValidationError(
+            f"This file is {_format_bytes(size)}, over the {_format_bytes(max_size)} limit. "
+            "Please reduce its size and try again."
+        )
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    content_type = (getattr(uploaded_file, "content_type", "") or "").strip().lower()
+    if not name.endswith(".pdf") or content_type not in _PDF_MIME_TYPES:
+        raise serializers.ValidationError(
+            f"Your {noun} must be a PDF. Please export it as a PDF and try again."
+        )
+    if not _looks_like_pdf(uploaded_file):
+        raise serializers.ValidationError(
+            f"This file is named as a PDF but isn't one. Please export your {noun} as a PDF and try again."
+        )
+
+
 def validate_submission_file(uploaded_file, slot: str):
     """Raise a student-facing ValidationError if the upload breaks its slot's rules."""
     if slot not in SLOTS:
@@ -133,18 +154,20 @@ def validate_submission_file(uploaded_file, slot: str):
     max_size = max_size_for(slot)
 
     if slot in PDF_SLOTS:
-        validate_uploaded_file(
-            uploaded_file,
-            max_size=max_size,
-            allowed_extensions=_PDF_EXTENSIONS,
-            allowed_mime_types=_PDF_MIME_TYPES,
-            field_label=label,
-        )
-        if not _looks_like_pdf(uploaded_file):
-            raise serializers.ValidationError(
-                f"{label} must be a PDF. The file was named like one but its "
-                "contents are not a PDF."
+        _require_pdf(uploaded_file, label.lower(), max_size)
+        try:
+            validate_uploaded_file(
+                uploaded_file,
+                max_size=max_size,
+                allowed_extensions=_PDF_EXTENSIONS,
+                allowed_mime_types=_PDF_MIME_TYPES,
+                field_label=label,
             )
+        except serializers.ValidationError:
+            # Size, name and type pass above, so only the security checks are left.
+            raise serializers.ValidationError(
+                f"This file can't be accepted. Please upload your {label.lower()} as a PDF."
+            ) from None
         return uploaded_file
 
     # The prototype accepts any type except executables.
