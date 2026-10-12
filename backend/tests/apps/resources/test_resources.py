@@ -11,7 +11,7 @@ from rest_framework import status
 from django.apps import apps as dj_apps
 
 from apps.resources.models import Roles, RoleAssignmentHistory, Resources, ResourceRoles, ResourceType
-from apps.resources.services.roles import grant_role, revoke_role, ensure_user_has_role, create_role
+from apps.resources.services.roles import grant_role, revoke_role, create_role
 from apps.users.models import AdminScope
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
@@ -308,7 +308,6 @@ class TestRevokeUserRole(TestCase):
         # Create test roles
         self.student = Roles.objects.create(role_name="student")
         self.mentor = Roles.objects.create(role_name="mentor")
-        self.basic = Roles.objects.create(role_name="basic_user")
 
     def test_revoke_closes_history_and_removes_group(self):
         grant_role(self.user, self.student)
@@ -321,26 +320,16 @@ class TestRevokeUserRole(TestCase):
         assert hist.valid_to is not None
         assert not self.user.groups.filter(name="student").exists()
 
-    def test_revoke_assigns_default_if_no_other_roles(self):
-        grant_role(self.user, self.student)
-        revoke_role(self.user, self.student)
-
-        # student role closed
-        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
-        # default role active
-        assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
-        assert self.user.groups.filter(name="basic_user").exists()
-
-    def test_revoke_does_not_assign_default_if_other_active_roles(self):
+    def test_revoke_does_not_affect_other_active_roles(self):
         grant_role(self.user, self.student)
         grant_role(self.user, self.mentor)
 
         revoke_role(self.user, self.student)
 
+        # student role closed
+        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.student, valid_to__isnull=True).exists()
         # mentor role still active
         assert RoleAssignmentHistory.objects.filter(user=self.user, role=self.mentor, valid_to__isnull=True).exists()
-        # no basic_user assigned
-        assert not RoleAssignmentHistory.objects.filter(user=self.user, role=self.basic, valid_to__isnull=True).exists()
 
     def test_revoke_is_idempotent(self):
         grant_role(self.user, self.student)
@@ -408,10 +397,7 @@ class GrantRoleComprehensiveTests(TestCase):
         self.teacher_role = Roles.objects.create(
             role_name='Teacher',
         )
-        self.basic_user_role = Roles.objects.create(
-            role_name='basic_user',
-        )
-        
+
         # Authenticate as admin
         self.client.force_authenticate(user=self.admin_user)
     
