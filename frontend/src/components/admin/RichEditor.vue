@@ -6,12 +6,11 @@ import Image from '@tiptap/extension-image'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
-import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, colourKey, lookOf, swatchOf } from './emailBlocks'
+import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
 import { EmailTable, EmailTableCell, EmailTableHeader } from './emailTables'
 import {
   EmailTextStyle,
   EmailTextStyles,
-  TEXT_COLOURS,
   TEXT_GAPS,
   TEXT_SIZES,
   gapBelowSelection,
@@ -338,7 +337,7 @@ function removeLink() {
 
 // -- Email boxes and buttons (email mode) ------------------------------------
 
-const emailMenu = ref<'box' | 'button' | 'colour' | 'size' | 'gap' | null>(null)
+const emailMenu = ref<'box' | 'button' | 'size' | 'gap' | null>(null)
 const emailMenuOnRight = ref(false)
 
 /** The look of the box or button the cursor is in, if it's one of the offered looks. */
@@ -365,29 +364,16 @@ const sizeAt = computed(() => {
   return editor.value ? textStyleAt(editor.value.state, 'font-size') : { own: null, shown: null }
 })
 
-// The colour or size set on the text itself (the tool can take it off), and
-// the one the text shows, which may come from its paragraph or heading.
-const textColour = computed(() => colourAt.value.own)
+// The size set on the text itself (the tool can take it off), and the one the
+// text shows, which may come from its paragraph or heading. The shown colour
+// is used by the color picker below.
 const shownColour = computed(() => colourAt.value.shown)
 const textSize = computed(() => sizeAt.value.own)
 const shownSize = computed(() => sizeAt.value.shown)
 
-const isShownColour = (colour: string) => !!shownColour.value && colourKey(colour) === colourKey(shownColour.value)
-
-/** The colour or size now, when it isn't one on offer: "Now: 26px", or
- *  "Now: default" when nothing sets one (the email's own). */
-const colourNote = computed(() =>
-  TEXT_COLOURS.some((colour) => isShownColour(colour.value)) ? null : shownColour.value ? `Now: ${shownColour.value}` : 'Now: default'
-)
 const sizeNote = computed(() =>
   TEXT_SIZES.some((size) => size.value === shownSize.value) ? null : shownSize.value ? `Now: ${shownSize.value}` : 'Now: default'
 )
-
-/** Colour the selected text, or (null) take its colour off. */
-function chooseTextColour(colour: string | null) {
-  emailMenu.value = null
-  editor.value?.chain().focus().setTextColour(colour).run()
-}
 
 /** Resize the selected text, or (null) take its size off. */
 function chooseTextSize(size: string | null) {
@@ -421,7 +407,7 @@ function chooseGap(gap: string) {
   editor.value?.chain().focus().setGapBelow(gap).run()
 }
 
-function toggleEmailMenu(menu: 'box' | 'button' | 'colour' | 'size' | 'gap', event: MouseEvent) {
+function toggleEmailMenu(menu: 'box' | 'button' | 'size' | 'gap', event: MouseEvent) {
   if (emailMenu.value === menu) {
     emailMenu.value = null
     return
@@ -758,52 +744,9 @@ defineExpose({ insertText })
             </div>
           </div>
 
-          <!-- Text colour and size, kept on save (email mode) -->
+          <!-- Text size and gap, kept on save (email mode) -->
           <template v-if="emailMode">
             <div class="toolbar-sep"></div>
-            <div class="heading-dropdown-container">
-              <button
-                type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: !!textColour }"
-                title="Colour the selected text"
-                data-test="text-colour"
-                @mousedown.prevent="toggleEmailMenu('colour', $event)"
-              >
-                <i class="fas fa-palette"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
-              </button>
-              <div
-                v-if="emailMenu === 'colour'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <template v-if="colourNote">
-                  <div class="dropdown-item email-look-item text-now active" data-test="colour-now">
-                    <span v-if="shownColour" class="email-look-swatch" :style="{ backgroundColor: shownColour }"></span>
-                    {{ colourNote }}
-                  </div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="colour in TEXT_COLOURS"
-                  :key="colour.value"
-                  type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: isShownColour(colour.value) }"
-                  @mousedown.prevent="chooseTextColour(colour.value)"
-                >
-                  <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
-                  {{ colour.label }}
-                </button>
-                <template v-if="textColour">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextColour(null)">
-                    No colour
-                  </button>
-                </template>
-              </div>
-            </div>
             <div class="heading-dropdown-container">
               <button
                 type="button"
@@ -931,7 +874,7 @@ defineExpose({ insertText })
             <button
               type="button"
               class="toolbar-btn icon-btn color-picker-btn"
-              :class="{ 'color-picker-btn--open': showColorDropdown || isActive('textColor') }"
+              :class="{ 'color-picker-btn--open': showColorDropdown || (emailMode ? !!colourAt.own : isActive('textColor')) }"
               :title="`Text color (${currentTextColor})`"
               @click="toggleColorDropdown($event)"
             >
