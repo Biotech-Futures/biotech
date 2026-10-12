@@ -612,18 +612,33 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
         self.assertIn("<html", html_body)
         self.assertIn("</html>", html_body)
 
-    def test_html_body_contains_title_and_excerpt(self):
+    def test_html_body_contains_full_announcement_text(self):
+        # The whole announcement is in the email, not a truncated preview, so
+        # recipients never have to open the platform to read it.
+        long_tail = "The practical runs until 4pm in Lab 3, bring closed shoes."
         outbox, _ = self._send(
             title="Mid-term update",
-            body="<p>Lab tour moved to <strong>Friday</strong>.</p>",
+            body=f"<p>Lab tour moved to <strong>Friday</strong>.</p><p>{long_tail}</p>",
         )
         html_body, _ = outbox[0].alternatives[0]
         # Title is rendered into the dark header band.
         self.assertIn("Mid-term update", html_body)
-        # Excerpt is HTML-stripped and re-escaped, so the <strong> tag from
-        # the source body must not survive into the email markup.
-        self.assertNotIn("<strong>Friday</strong>", html_body)
-        self.assertIn("Friday", html_body)
+        # The body is kept as written, formatting included.
+        self.assertIn("<strong>Friday</strong>", html_body)
+        self.assertIn(long_tail, html_body)
+        # And the removed call-to-action must not creep back in.
+        self.assertNotIn("Read full announcement", html_body)
+
+    def test_html_body_strips_scripts_from_announcement(self):
+        outbox, _ = self._send(
+            body='<p>Safe</p><script>alert("xss")</script>'
+            '<p onclick="steal()">Click</p>',
+        )
+        html_body, _ = outbox[0].alternatives[0]
+        self.assertIn("Safe", html_body)
+        self.assertNotIn("<script", html_body)
+        self.assertNotIn('alert("xss")', html_body)
+        self.assertNotIn("onclick", html_body)
 
     def test_html_body_escapes_xss_in_title(self):
         outbox, _ = self._send(title='<script>alert("xss")</script>Notice')
@@ -636,12 +651,26 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
     def test_html_body_links_to_announcement_detail(self):
         outbox, announcement = self._send()
         html_body, _ = outbox[0].alternatives[0]
-        # The CTA links to the announcement detail page. We don't pin the
-        # exact host (settings-driven) — just assert the announcement id is
-        # in the URL and that the link is wrapped in an anchor.
+        # We don't pin the exact host (settings-driven) — just assert
+        # the id is in the URL and that the link is wrapped in an anchor.
         self.assertIn(f"/{announcement.id}", html_body)
         self.assertIn("<a href=", html_body)
-        self.assertIn("Read full announcement", html_body)
+        self.assertIn("View this announcement on the platform", html_body)
+        self.assertNotIn("Read full announcement", html_body)
+
+    def test_plain_text_body_carries_the_full_announcement(self):
+        long_tail = "The practical runs until 4pm in Lab 3."
+        outbox, _ = self._send(
+            title="Mid-term update",
+            body=f"<p>Lab tour moved to <strong>Friday</strong>.</p><p>{long_tail}</p>",
+        )
+        message = outbox[0]
+        self.assertIn("Mid-term update", message.body)
+        self.assertIn("Friday", message.body)
+        self.assertIn(long_tail, message.body)
+        # Plain text carries no HTML markup.
+        self.assertNotIn("<p>", message.body)
+        self.assertNotIn("<strong>", message.body)
 
     def test_html_and_plain_text_share_subject(self):
         outbox, _ = self._send(title="Subject sanity")
@@ -700,6 +729,26 @@ class AnnouncementSystemEmailTests(TestCase):
         html_body, _ = message.alternatives[0]
         self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
         self.assertIn(f"/#/announcements/{self.announcement.id}", html_body)
+
+    def test_edited_email_can_embed_the_full_body(self):
+        # An admin who edits the wording opts into the whole announcement with
+        # the {{ body }} tag; it is inserted as HTML, not escaped.
+        from django.core import mail
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(
+            key="announcement",
+            subject="New: {{ title }}",
+            body_html="<p>Heads up:</p>{{ body }}",
+        )
+        send_announcement_email(self.announcement.id)
+
+        message = mail.outbox[0]
+        html_body, _ = message.alternatives[0]
+        self.assertIn("Heads up:", html_body)
+        self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
+        # The tag itself must have been filled, not left literal.
+        self.assertNotIn("{{ body }}", html_body)
 
     def test_switched_off_skips_without_delivery_row(self):
         from django.core import mail
