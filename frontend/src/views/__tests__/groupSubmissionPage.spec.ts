@@ -1642,6 +1642,56 @@ describe('bringing boxes back in line after live text', () => {
     expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('My unsaved change')
     expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s draft, finished')
   })
+
+  it('catches up on coming back to the tab, so an old answer is never edited over', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    fetchSubmission.mockResolvedValue(savedByBen('Ben wrote this while you were away'))
+
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    await flushPromises()
+    visibility.mockRestore()
+
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe(
+      'Ben wrote this while you were away'
+    )
+  })
+
+  it('fetches again when your own save lands while a refresh is loading', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    let finishSave: (value: unknown) => void = () => undefined
+    saveDraft.mockReturnValueOnce(new Promise((resolve) => (finishSave = resolve)))
+    let finishRefresh: (value: unknown) => void = () => undefined
+    fetchSubmission.mockReturnValueOnce(new Promise((resolve) => (finishRefresh = resolve)))
+
+    await wrapper!.find('#solution_purpose').setValue('My latest answer')
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    // The autosave goes out at 2 s and the refresh at 2.5 s; both are still loading.
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    const mine = { ...ANSWERED, solution_purpose: 'My latest answer', inspiration: 'Ben’s answer' }
+    fetchSubmission.mockResolvedValue(buildDetail({ submission: { answers: mine } }))
+    finishSave({ deadline: detail.deadline, submission: buildDetail({ submission: { answers: mine } }).submission })
+    await flushPromises()
+    // The refresh began before the save landed, so it holds the old answer.
+    finishRefresh(savedByBen('Ben’s answer'))
+    await flushPromises()
+
+    expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('My latest answer')
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s answer')
+  })
 })
 
 describe('live panel and title', () => {

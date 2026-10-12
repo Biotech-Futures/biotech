@@ -17,7 +17,8 @@ const RETRY_MAX_MS = 30000
 const NO_ACCESS = 4403
 
 type RemoteText = (field: string, text: string) => void
-type Settled = () => void
+/** 'released': a teammate let a field go or the connection dropped; 'rejoined': back after time away. */
+type Settled = (reason: 'released' | 'rejoined') => void
 /** Something about the item changed elsewhere, e.g. it was submitted; `by` is who did it. */
 type Changed = (item: string, by: string | null) => void
 type Timer = ReturnType<typeof setTimeout>
@@ -63,6 +64,8 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
   let retryTimer: Timer | null = null
   let retries = 0
   let dropped = false
+  /** The room last joined, so coming back to it is told apart from the first join. */
+  let joinedRoom = ''
 
   const shouldConnect = () => active.value && isVisible.value && Boolean(roomId.value)
   const isTypingHere = (field: string) => stopTimers.has(field)
@@ -78,13 +81,13 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
     } else if (typers[field]) {
       delete typers[field]
       delete carets[field]
-      notifySettled()
+      notifySettled('released')
     }
   }
 
-  /** A field was released or the connection came back, so live text may have been missed. */
-  function notifySettled() {
-    settledHandlers.forEach((handler) => handler())
+  /** A field was released or the room was rejoined, so live text may have been missed. */
+  function notifySettled(reason: 'released' | 'rejoined') {
+    settledHandlers.forEach((handler) => handler(reason))
   }
 
   function remember(field: string, userId: number, name: string) {
@@ -162,12 +165,15 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
 
   function connect() {
     if (socket || retryTimer || !shouldConnect() || typeof WebSocket === 'undefined') return
-    const ws = new WebSocket(liveRoomUrl(kind, roomId.value))
+    const room = roomId.value
+    const ws = new WebSocket(liveRoomUrl(kind, room))
     socket = ws
-    socketRoom = roomId.value
+    socketRoom = room
     ws.onopen = () => {
       retries = 0
-      if (dropped) notifySettled()
+      // Text typed while away was missed, whether the connection dropped or the tab was hidden.
+      if (dropped || joinedRoom === room) notifySettled('rejoined')
+      joinedRoom = room
       dropped = false
     }
     ws.onmessage = (event) => onMessage(event.data)
@@ -178,7 +184,7 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
       clearTypers()
       if (event.code === NO_ACCESS || !shouldConnect()) return
       dropped = true
-      notifySettled()
+      notifySettled('released')
       // Spread out, so a whole cohort dropped by a restart does not reconnect at once.
       const delay = Math.min(RETRY_MAX_MS, RETRY_FIRST_MS * 2 ** retries) * (0.5 + Math.random() / 2)
       retries += 1

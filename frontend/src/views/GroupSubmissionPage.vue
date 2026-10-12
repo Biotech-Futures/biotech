@@ -769,8 +769,11 @@ live.onChanged(() => void refreshFromElsewhere())
 async function refreshFromElsewhere() {
   if (!detail.value || isSubmitting.value || isReopening.value) return
   try {
+    const before = resultsApplied
     const latest = await fetchSubmission(groupId.value)
     if (!detail.value) return
+    // A save or submit answered meanwhile, so this copy is older than the page: fetch again.
+    if (resultsApplied !== before) return void refreshFromElsewhere()
     const files = (entry: typeof latest) =>
       FILE_SLOTS.map((slot) => entry.submission?.[slot]?.storage_key ?? '').join('|')
     const wasLocked = isLocked.value
@@ -791,8 +794,10 @@ async function refreshFromElsewhere() {
 // Allows for the typist's own autosave, which follows their last keystroke by AUTOSAVE_DELAY_MS.
 const RESYNC_DELAY_MS = 2500
 let resyncTimer: ReturnType<typeof setTimeout> | null = null
-live.onSettled(() => {
+live.onSettled((reason) => {
   if (resyncTimer) clearTimeout(resyncTimer)
+  // Back after time away: catch up at once, then again once any last autosave has landed.
+  if (reason === 'rejoined') void resyncUntouchedFields()
   resyncTimer = setTimeout(() => void resyncUntouchedFields(), RESYNC_DELAY_MS)
 })
 
@@ -802,7 +807,10 @@ async function resyncUntouchedFields() {
   // A save in flight is safe: its field still differs from the saved copy, so it is skipped.
   if (!detail.value || !isEditable.value || isSubmitting.value || isReopening.value) return
   try {
+    const before = resultsApplied
     const latest = await fetchSubmission(groupId.value)
+    // A save answered meanwhile, so this copy may predate it: fetch again.
+    if (resultsApplied !== before) return void resyncUntouchedFields()
     const saved = latest.submission
     if (!saved || !isEditable.value) return
     const wasSaved = currentSnapshot() === savedSnapshot.value
@@ -1162,9 +1170,13 @@ async function goToBlocker(blocker: { step: TabKey; focusKey?: string }) {
   }
 }
 
+/** Server replies applied here; a background fetch overtaken by one holds an older copy. */
+let resultsApplied = 0
+
 function applyResult(result: SubmissionWriteResult) {
   if (!detail.value) return
   detail.value = { ...detail.value, deadline: result.deadline, submission: result.submission }
+  resultsApplied += 1
 }
 
 function handleWriteError(error: unknown): string {
