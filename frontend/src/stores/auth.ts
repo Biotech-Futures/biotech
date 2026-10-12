@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
 import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
-import { normalizeTimeZone } from '@/utils/date'
+import { normalizeTimeZone, registerProfileTimeZone } from '@/utils/date'
 import { BRAND_NAME } from '@/constants/brand'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -425,3 +425,6 @@ export const useAuthStore = defineStore('auth', {
     },
   },
 })
+
+// Dates across the site show in the signed-in user's Profile timezone.
+registerProfileTimeZone(() => useAuthStore().user?.timezone)

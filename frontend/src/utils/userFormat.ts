@@ -1,4 +1,5 @@
 import type { AdminUser, AdminUserCountry, AdminUserState } from '@/utils/adminAPI'
+import { formatExactTime } from '@/utils/date'
 
 /** Capitalized role name (e.g. 'student' -> 'Student'); '—' for nothing. */
 export const roleLabel = (role: string | null | undefined) =>
@@ -33,15 +34,5 @@ export const supervisorLabel = (user: AdminUser) => {
 export const superviseesLabel = (user: AdminUser) =>
   (user.supervisees || []).map((s) => `${s.name} (${s.email})`).join(', ')
 
-export const formatLoginDate = (value: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString()
-}
-
-export const formatFullDate = (value: string | null | undefined) => {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString()
-}
+/** An exact moment, "09/10/26 16:12:01", or '—' for nothing. */
+export const formatFullDate = (value: string | null | undefined) => formatExactTime(value) || '—'

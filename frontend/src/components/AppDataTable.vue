@@ -33,7 +33,7 @@
         </span>
       </label>
       <div v-if="$slots.filters" class="data-table-filters">
-        <slot name="filters" />
+        <slot name="filters" :rows="filteredRows" :page-rows="pagedRows" :selected-rows="selectedRows" />
       </div>
       <p v-if="$slots.stats" class="data-table-stats"><slot name="stats" /></p>
       <div v-if="$slots['search-side']" class="data-table-search-side">
@@ -157,16 +157,18 @@
                   ]"
                 >
                   <!-- A page can draw a cell itself with a cell-<key> slot. -->
-                  <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
-                    <RouterLink
-                      v-if="columnLink(row, column)"
-                      :to="columnLink(row, column)!"
-                      class="data-table-link"
-                    >
-                      {{ displayCell(row, column) }}
-                    </RouterLink>
-                    <template v-else>{{ displayCell(row, column) }}</template>
-                  </slot>
+                  <div class="data-table-cell">
+                    <slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">
+                      <RouterLink
+                        v-if="columnLink(row, column)"
+                        :to="columnLink(row, column)!"
+                        class="data-table-link"
+                      >
+                        {{ displayCell(row, column) }}
+                      </RouterLink>
+                      <template v-else>{{ displayCell(row, column) }}</template>
+                    </slot>
+                  </div>
                 </td>
                 <template v-if="$slots.actions">
                   <td
@@ -266,6 +268,8 @@ export type DataTableColumn = {
   key: string
   label: string
   type?: 'string' | 'number'
+  // What the column sorts by, when not its shown text, like a date's time.
+  sortValue?: (row: Record<string, unknown>) => string | number
   // Long text that may wrap; every other cell stays on one line.
   wrap?: boolean
   // Off by default when the server sorts; on by default otherwise.
@@ -315,6 +319,8 @@ const props = withDefaults(
     search?: string
     // Given, the page sorts the rows itself, in either mode.
     sort?: DataTableSort
+    // The sort the table starts with when it sorts the rows itself.
+    defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
   }>(),
@@ -335,6 +341,7 @@ const props = withDefaults(
     pageSize: undefined,
     search: undefined,
     sort: undefined,
+    defaultSort: undefined,
     selected: undefined,
   },
 )
@@ -360,12 +367,14 @@ const search = ref(props.search ?? '')
 const page = ref(props.page ?? 1)
 const rowHeight = props.twoLineRows ? DATA_TABLE_TWO_LINE_ROW_HEIGHT : DATA_TABLE_ROW_HEIGHT
 const pageSize = ref(props.pageSize ?? fitPageSize(rowHeight))
-// With no sort given, the first column that sorts; a server sorts itself.
+// With no sort given, the default sort or else the first column that sorts;
+// a server sorts itself.
 const sortKey = ref(
   props.sort?.key ??
+    props.defaultSort?.key ??
     (isServer.value ? '' : props.columns.find((column) => column.sortable ?? true)?.key ?? ''),
 )
-const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? 'asc')
+const sortDir = ref<'asc' | 'desc'>(props.sort?.direction ?? props.defaultSort?.direction ?? 'asc')
 const pageDraft = ref(String(page.value))
 const ownSelection = ref<Set<RowKey>>(new Set())
 
@@ -400,6 +409,11 @@ const compare = (
   column?: DataTableColumn,
 ) => {
   if (!column) return 0
+  if (column.sortValue) {
+    const [a, b] = [column.sortValue(left), column.sortValue(right)]
+    if (typeof a === 'number' && typeof b === 'number') return a - b
+    return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' })
+  }
   if (column.type === 'number') {
     return (Number(left[column.key]) || 0) - (Number(right[column.key]) || 0)
   }
@@ -451,8 +465,12 @@ const slots = defineSlots<{
     pageRows: Record<string, unknown>[]
     selectedRows: Record<string, unknown>[]
   }) => unknown
-  // Fields beside Search, such as filters.
-  filters?: () => unknown
+  // Fields beside Search, such as filters, given the same rows as toolbar.
+  filters?: (props: {
+    rows: Record<string, unknown>[]
+    pageRows: Record<string, unknown>[]
+    selectedRows: Record<string, unknown>[]
+  }) => unknown
   // A line of counts in the middle of the search card.
   stats?: () => unknown
   // Buttons on the right of the search card.
@@ -855,6 +873,21 @@ const togglePageSelection = () => {
   /* Joins the search card above it and the rows per page below it. */
   border-radius: 0;
   background: var(--surface-elevated);
+  /* Lets a cell measure itself against the table's visible width (cqw). */
+  container-type: inline-size;
+}
+
+/* A cell stays on one line until it would be wider than the table's visible
+   width, then wraps, so no cell is wider than the page shows. */
+.data-table-cell {
+  width: max-content;
+  max-width: 100cqw;
+  white-space: normal;
+}
+
+/* A column of long text wraps at its own width, as before. */
+.data-table-cell--wrap > .data-table-cell {
+  width: auto;
 }
 
 .data-table-wrap--loading {
@@ -886,11 +919,11 @@ const togglePageSelection = () => {
   color: var(--dark-green);
 }
 
-/* A row's details, across the whole table under it. */
+/* A row's details, across the whole table under it, on the table's white. */
 .data-table-detail-row td {
   padding: 1rem 1.25rem;
   white-space: normal;
-  background: var(--bg-light);
+  background: var(--surface-elevated);
 }
 
 table {
@@ -925,10 +958,11 @@ tbody tr:not(.data-table-detail-row):hover td {
   box-shadow: 1px 0 0 var(--light-green);
 }
 
-/* A Dark Green heading row, 50px tall, with white text. */
+/* A Dark Green heading row, 50px tall, with white text, or the dark theme's
+   dark text. */
 thead th {
   height: 3.125rem;
-  color: #fff;
+  color: var(--white);
   font-weight: 600;
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -991,9 +1025,16 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-/* Row buttons sit on the right, as Group Marks' Add and Open do. */
+/* Row buttons sit on the right, as Group Marks' Add and Open do, 8px apart
+   like a group of buttons; the last keeps the table's edge padding. */
 .data-table-actions-col {
   text-align: right;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+.data-table-actions-col:last-child {
+  padding-right: 0.75rem;
 }
 
 .data-table-empty {

@@ -1,12 +1,18 @@
 import { apiErrorFromResponse } from './apiError'
 import { buildSessionHeaders, ensureCsrfCookie } from './csrf'
-import { formatDateTimeAU } from './date'
+import { formatShortDateTime } from './date'
 
 export type SupervisedStudent = {
   id: number
   first_name: string
   last_name: string
   email: string
+  country_name?: string
+  state_name?: string
+  /** "Active", "Pending" and so on. */
+  account_status?: string
+  /** From the signed form: null when there's none on the platform. */
+  media_consent?: boolean | null
   school_name: string
   year_lvl: string
   interests: string[]
@@ -47,18 +53,6 @@ export const classifyStudent = (student: SupervisedStudent): StudentRegistration
   return 'pendingDetails'
 }
 
-export const registrationLabel = (student: SupervisedStudent) => {
-  const bucket = classifyStudent(student)
-  if (bucket === 'fullyRegistered') return 'Fully registered with parent/guardian permission'
-  if (bucket === 'pendingPermission') return 'Pending parent/guardian permission'
-  return 'Pending parent/guardian details'
-}
-
-export const initials = (first?: string | null, last?: string | null, fallback = '—') => {
-  const letters = `${(first || '').trim().charAt(0)}${(last || '').trim().charAt(0)}`.toUpperCase()
-  return letters || fallback.charAt(0).toUpperCase() || '?'
-}
-
 export const toStudentRow = (student: SupervisedStudent) => ({
   id: student.id,
   student: fullName(student.first_name, student.last_name, student.email),
@@ -69,7 +63,7 @@ export const toStudentRow = (student: SupervisedStudent) => ({
   yearLevel: student.year_lvl,
   interests: student.interests,
   permissionGiven: student.has_join_permission
-    ? formatDateTimeAU(student.joinperm_granted_at) || 'Recorded'
+    ? formatShortDateTime(student.joinperm_granted_at) || 'Recorded'
     : '—',
   permissionGivenAt: student.joinperm_granted_at,
   signature: student.signature || '',
@@ -126,14 +120,6 @@ export async function updateSupervisedStudentProfile(
   return response.json()
 }
 
-export async function fetchSupervisedStudent(
-  id: number,
-  headers: HeadersInit,
-): Promise<SupervisedStudent | null> {
-  const students = await fetchSupervisedStudents(headers)
-  return students.find((student) => student.id === id) ?? null
-}
-
 export type SupervisedEmailKind = 'guardian_details' | 'guardian_consent'
 
 export type SupervisedEmailResult = {
@@ -172,6 +158,89 @@ export async function sendSupervisedEmails(
     msg: payload.msg || 'Emails sent.',
     messages: payload.messages || [],
   }
+}
+
+export type SupervisedStudentLink = {
+  studentId: number
+  /** The link, or null when one couldn't be made (see msg). */
+  link: string | null
+  msg: string
+}
+
+/** Consent links for the students' guardians, to share by hand. A link
+ *  already out is given again, so an emailed one keeps working. */
+export const fetchConsentLinks = (studentIds: number[]) => fetchStudentLinks('consent-links', studentIds)
+
+/** Links to a public form for each student's guardian name and email. */
+export const fetchDetailsLinks = (studentIds: number[]) => fetchStudentLinks('details-links', studentIds)
+
+async function fetchStudentLinks(
+  kind: 'consent-links' | 'details-links',
+  studentIds: number[],
+): Promise<SupervisedStudentLink[]> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/${kind}/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildSessionHeaders({
+      includeCSRF: true,
+      headers: { Accept: 'application/json' },
+    }),
+    body: JSON.stringify({ student_ids: studentIds }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as {
+    links?: SupervisedStudentLink[]
+    msg?: string
+    error?: string
+  }
+  if (!response.ok) {
+    throw new Error(payload.msg || payload.error || 'Links could not be made.')
+  }
+  return payload.links || []
+}
+
+/** A sheet row that would set a student's guardian. */
+export type GuardianUploadEntry = {
+  row: number
+  student_id: number
+  student_name: string
+  guardian_first_name: string
+  guardian_last_name: string
+  guardian_email: string
+}
+
+/** What Upload Guardian Details found in a sheet, as Upload marks reports. */
+export type GuardianUploadResult = {
+  checks: {
+    missing_headers: string[]
+    header_order: string
+    unknown_students: { row: number; email: string }[]
+    bad_rows: { row: number; reason: string }[]
+    consented: { row: number; email: string }[]
+  }
+  creates: GuardianUploadEntry[]
+  updates: GuardianUploadEntry[]
+  unchanged: GuardianUploadEntry[]
+  summary: { creates: number; updates: number; unchanged: number; errors: number }
+  saved?: number
+}
+
+/** Preview (``dryRun``) or save a sheet of guardian details. */
+export async function uploadGuardianDetails(file: File, dryRun: boolean): Promise<GuardianUploadResult> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const form = new FormData()
+  form.append('file', file)
+  form.append('dry_run', dryRun ? 'true' : 'false')
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/guardian-upload/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildSessionHeaders({ includeCSRF: true, isFormData: true, headers: { Accept: 'application/json' } }),
+    body: form,
+  })
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response)
+  }
+  return response.json()
 }
 
 export async function fetchSupervisedStudents(headers: HeadersInit): Promise<SupervisedStudent[]> {

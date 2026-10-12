@@ -80,14 +80,7 @@
         </template>
         <template #cell-time="{ row }">
           <template v-if="rowOf(row).submission_id != null && rowOf(row).submitted_at">
-            {{ new Date(rowOf(row).submitted_at!).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
-            {{
-              new Date(rowOf(row).submitted_at!).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-                hourCycle: 'h23'
-              })
-            }}
+            {{ formatShortDateTime(rowOf(row).submitted_at) }}
           </template>
           <span v-else class="component-table__muted">—</span>
         </template>
@@ -183,6 +176,7 @@ import {
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatShortDateTime } from '@/utils/date'
 
 const route = useRoute()
 const router = useRouter()

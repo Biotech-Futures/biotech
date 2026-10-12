@@ -37,7 +37,7 @@ from django.utils import timezone
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_registry import get_email_type
-from apps.services.system_email import sender_connection, sender_for
+from apps.services.system_email import is_email_enabled, sender_connection, sender_for
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
@@ -62,6 +62,25 @@ NO_SERVER = "couldn't reach the mail server"
 # Why someone was missed, when the whole team's email failed before sending.
 NOT_SENT = "couldn't be sent"
 NOT_READY = "Couldn't get this send ready. Press it again."
+
+
+def _switched_off(key: str) -> str:
+    """Why a run stops because its email was switched off on System Emails
+    after Send was pressed, or "" while it's on. Read after "Emailed 3 people."
+    on the page; nobody it skipped counts as missed, so Send emails them later."""
+    try:
+        if is_email_enabled(key):
+            return ""
+    except KeyError:
+        return ""  # not a System Email of its own, so there's no switch
+    return (
+        f"{_email_name(key)} was switched off on System Emails, so the rest weren't sent. "
+        "Switch it back on and press Send to email them."
+    )
+
+
+def _stop(key: str, reason: str) -> None:
+    EmailSendRun.objects.filter(key=key).update(error=reason)
 
 
 def _long_time(moment: datetime) -> str:
@@ -219,6 +238,15 @@ def _next() -> tuple[str, list[Work]] | None:
         item = QueuedEmailSend.objects.select_related("queued_by").order_by("id").first()
         if item is None:
             return None
+        # Switched off while it waited: started and stopped at once, emailing nobody.
+        off = _switched_off(item.key)
+        if off:
+            _begin(item.key, item.queued_by, [])
+            EmailSendRun.objects.filter(key=item.key).update(
+                held_until=None, finished_at=timezone.now(), error=off,
+            )
+            item.delete()
+            continue
         try:
             work = BUILDERS[item.key](item.queued_by, item.options)
         except Exception:  # noqa: BLE001
@@ -331,6 +359,11 @@ def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
             return
         cache: dict = {}
         for item in items:
+            # Switched off part way: the rest of this share isn't sent.
+            off = _switched_off(key)
+            if off:
+                _stop(key, off)
+                return
             missed = _send(key, item, connection, cache)
             _note(key, emailed=len(item.people) - len(missed))
             if missed:
@@ -347,6 +380,12 @@ def _retry(key: str, failures: list[tuple[Work, list[dict]]]) -> None:
     are emailed again (see ``delivery``); whoever it still misses is the
     run's missed list."""
     time.sleep(settings.BULK_EMAIL_RETRY_SECONDS)
+    # Switched off since: not tried again, and those missed stay missed.
+    off = _switched_off(key)
+    if off:
+        for _, missed in failures:
+            _note(key, failed=1, missed=missed, error=off)
+        return
     logger.warning("email run %s: trying %s emails once more", key, len(failures))
     connection = sender_connection(sender_for(key), fail_silently=False)
     try:

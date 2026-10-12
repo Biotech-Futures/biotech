@@ -46,6 +46,41 @@ class SendRunTests(TestCase):
             return [{"who": who, "reason": "address refused"} for who in missed]
         return Work(labels, send)
 
+    def test_a_send_switched_off_while_queued_emails_nobody(self):
+        from apps.services.models import SystemEmailTemplate
+
+        work = [self._item("BTF1", 2)]
+        self.works["results_team"] = [work]
+        send_guard.BUILDERS["results_team"] = lambda actor, opts: self.works["results_team"].pop(0)
+        QueuedEmailSend.objects.create(key="results_team", options={}, queued_by=self.actor)
+        SystemEmailTemplate.objects.create(key="results_team", is_enabled=False)
+        send_guard._kick()
+
+        self.assertEqual(self.sent, [])
+        run = run_state("results_team")["run"]
+        self.assertEqual((run["due"], run["emailed"], run["failed"], run["missed"]), (0, 0, 0, []))
+        self.assertIn("was switched off on System Emails", run["error"])
+        self.assertFalse(QueuedEmailSend.objects.exists())
+
+    def test_a_send_switched_off_part_way_stops_without_missing_anyone(self):
+        from apps.services.models import SystemEmailTemplate
+
+        first = self._item("BTF1", 2)
+
+        def send_then_switch_off(connection, cache):
+            # The email is switched off once the first team has it.
+            SystemEmailTemplate.objects.create(key="results_team", is_enabled=False)
+            return first.send(connection, cache)
+
+        work = [Work(first.people, send_then_switch_off), self._item("BTF2", 3)]
+        self._press("results_team", work)
+
+        self.assertEqual([team for team, _ in self.sent], ["BTF1"])
+        run = run_state("results_team")["run"]
+        # The second team isn't emailed or counted as missed, so Send emails it later.
+        self.assertEqual((run["due"], run["emailed"], run["failed"], run["missed"]), (5, 2, 0, []))
+        self.assertIn("was switched off on System Emails", run["error"])
+
     def test_every_item_is_sent_and_the_progress_kept(self):
         work = [self._item(f"BTF{n}", 3) for n in range(5)] + [self._item("BTF9", 2, reached=1)]
         self._press("test_email", work)

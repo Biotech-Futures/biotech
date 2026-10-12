@@ -1,10 +1,11 @@
 from django.urls import path
 from .profile_options import StudentProfileOptionsView, GuardianInvitationView
-from .consent_views import GuardianConsentView
+from .consent_views import GuardianConsentView, GuardianDetailsFormView
 from .guardian_details_views import SendGuardianConsentRemindersView, SendGuardianDetailsRemindersView
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
+    SupervisedGroupOrderView,
     SupervisedGroupsView,
     SupervisedInterestCatalogView,
     SupervisedMentorsView,
@@ -21,6 +22,9 @@ from .views import (
     PasswordLoginView,
     SetPasswordView,
     ProfileImageUploadView,
+    SupervisedStudentConsentLinksView,
+    SupervisedGuardianUploadView,
+    SupervisedStudentDetailsLinksView,
     SupervisedStudentDetailView,
     SupervisedStudentEmailView,
     SupervisedStudentsView,
@@ -35,10 +39,26 @@ urlpatterns = [
     path("users/me/guardian/", MeGuardianView.as_view(), name="me-guardian"),
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/email/", SupervisedStudentEmailView.as_view(), name="supervised-students-email"),
+    path(
+        "users/supervised-students/consent-links/",
+        SupervisedStudentConsentLinksView.as_view(),
+        name="supervised-students-consent-links",
+    ),
+    path(
+        "users/supervised-students/details-links/",
+        SupervisedStudentDetailsLinksView.as_view(),
+        name="supervised-students-details-links",
+    ),
+    path(
+        "users/supervised-students/guardian-upload/",
+        SupervisedGuardianUploadView.as_view(),
+        name="supervised-students-guardian-upload",
+    ),
     path("users/supervised-students/<int:pk>/", SupervisedStudentDetailView.as_view(), name="supervised-student-detail"),
     path("users/supervised-groups/mentors/", SupervisedMentorsView.as_view(), name="supervised-mentors"),
     path("users/supervised-groups/interests/", SupervisedInterestCatalogView.as_view(), name="supervised-group-interests"),
     path("users/supervised-groups/", SupervisedGroupsView.as_view(), name="supervised-groups"),
+    path("users/supervised-groups/order/", SupervisedGroupOrderView.as_view(), name="supervised-group-order"),
     path("users/supervised-groups/<int:pk>/members/", SupervisedGroupMembersView.as_view(), name="supervised-group-members"),
     path("users/supervised-groups/<int:pk>/", SupervisedGroupDetailView.as_view(), name="supervised-group-detail"),
     path("users/<int:pk>/", UsersRetrieveUpdateView.as_view(), name="user-detail"),
@@ -47,6 +67,7 @@ urlpatterns = [
     path('registration', UserRegisterView.as_view(), name = "registration"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
     path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),
+    path("guardian-details/<str:token>/", GuardianDetailsFormView.as_view(), name="guardian-details-form"),
     path("admin/summary/", AdminOperationalSummaryView.as_view(), name="admin-summary"),
     path("admin/users/bulk-status/", BulkUserStatusView.as_view(), name="admin-bulk-user-status"),
     path(

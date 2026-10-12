@@ -97,7 +97,7 @@
         </span>
         <span v-else class="admin-users__logged-in-badge">No</span>
         <span v-if="toAdminUser(row).hasLoggedIn && toAdminUser(row).lastLogin" class="admin-users__logged-in-date">
-          {{ formatLoginDate(toAdminUser(row).lastLogin) }}
+          {{ formatShortDate(toAdminUser(row).lastLogin) }}
         </span>
       </div>
     </template>
@@ -139,9 +139,9 @@ import { computed } from 'vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import type { AdminColumn, SortState } from '@/components/admin/AdminDataTable.vue'
 import type { AdminUser } from '@/utils/adminAPI'
+import { formatShortDate } from '@/utils/date'
 import {
   formatFullDate,
-  formatLoginDate,
   labelizeCountry,
   labelizeState,
   roleLabel,
