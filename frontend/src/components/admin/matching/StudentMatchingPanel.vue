@@ -362,7 +362,7 @@ const onConfirm = () => {
 }
 
 .student-matching__mode--active {
-  background-color: var(--teal);
+  background-color: var(--charcoal);
   color: var(--white);
 }
 
@@ -389,7 +389,7 @@ const onConfirm = () => {
   border-radius: 8px;
   background-color: var(--surface-elevated);
   box-shadow: 0 8px 24px var(--shadow);
-  color: var(--teal);
+  color: var(--charcoal);
   font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.4;
