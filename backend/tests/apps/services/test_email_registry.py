@@ -97,6 +97,16 @@ class MergeTagTests(SimpleTestCase):
         self.assertEqual(login.tag("otp_code").context_key, "OTP_CODE")
         self.assertIsNone(login.tag("group_name"))
 
+    def test_announcement_offers_the_full_body_as_trusted_html(self):
+        # The announcement email carries the whole announcement, so the tag
+        # that embeds it must be inserted as HTML (not escaped) and read from
+        # the ``body`` context key the send path builds.
+        announcement = get_email_type("announcement")
+        body_tag = announcement.tag("body")
+        self.assertIsNotNone(body_tag)
+        self.assertEqual(body_tag.context_key, "body")
+        self.assertTrue(body_tag.html)
+
 
 class HelperTests(SimpleTestCase):
     def test_extract_accepts_optional_spaces(self):
