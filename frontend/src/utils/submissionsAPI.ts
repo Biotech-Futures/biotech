@@ -56,6 +56,8 @@ export interface SubmissionRecord {
   is_submitted: boolean
   is_locked: boolean
   is_late: boolean
+  auto_submitted: boolean
+  poster_checklist: Record<string, boolean>
   updated_at: string
 }
 
@@ -75,6 +77,7 @@ export interface SubmissionDetail {
   instructions: Record<string, { heading: string; body: string }>
   /** Upload limit in bytes per slot. */
   max_file_sizes: Record<SubmissionSlot, number>
+  admin_access?: boolean
   /** Null until the team first saves something. */
   submission: SubmissionRecord | null
 }
@@ -88,6 +91,7 @@ export interface SaveDraftPayload {
   project_title?: string
   answers?: Record<string, string>
   prototype_url?: string
+  poster_checklist?: Record<string, boolean>
 }
 
 export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {

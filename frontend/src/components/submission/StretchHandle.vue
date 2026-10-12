@@ -5,45 +5,69 @@
     role="separator"
     aria-orientation="horizontal"
     aria-label="Drag to resize the answer box"
-    :aria-valuemin="minHeight"
-    :aria-valuemax="MAX_STRETCH_PX"
-    :aria-valuenow="height ?? minHeight"
+    :aria-valuemin="minHeight || undefined"
+    :aria-valuemax="maxHeight || undefined"
+    :aria-valuenow="height ?? undefined"
     tabindex="0"
     data-testid="stretch-handle"
     @pointerdown="start"
-    @keydown.up.prevent="nudge(-KEY_STEP_PX)"
-    @keydown.down.prevent="nudge(KEY_STEP_PX)"
+    @keydown.up.prevent="nudge(-1)"
+    @keydown.down.prevent="nudge(1)"
   ></div>
 </template>
 
 <script setup lang="ts">
 /** A grip along the bottom border of the box above it: drag it, or use the arrow keys, to resize the box. */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 
-/** About 20 lines: room to see a whole answer, without the box running down the page. */
-const MAX_STRETCH_PX = 520
-const KEY_STEP_PX = 24
-
-const props = defineProps<{ height: number | null }>()
+const props = withDefaults(defineProps<{ height: number | null; minLines?: number; maxLines?: number }>(), {
+  minLines: 5,
+  maxLines: 20
+})
 const emit = defineEmits<{ 'update:height': [height: number] }>()
 
+// Used when the box cannot be measured; the portal's 1.55 line height at 16px, plus padding and border.
+const FALLBACK_LINE_PX = 24.8
+const FALLBACK_CHROME_PX = 24.4
+
 const handle = ref<HTMLElement | null>(null)
-// The box's own size before any stretching, so it never shrinks below it.
-const minHeight = ref(0)
 let startY = 0
 let startHeight = 0
 
-const boxHeight = () => handle.value?.parentElement?.offsetHeight ?? 0
-const clamp = (value: number) => Math.round(Math.min(MAX_STRETCH_PX, Math.max(minHeight.value, value)))
+const box = () => handle.value?.parentElement?.firstElementChild as HTMLElement | null | undefined
+const currentHeight = () => props.height ?? handle.value?.parentElement?.offsetHeight ?? 0
 
-// Measured at the first touch, as the box may be hidden when the page loads.
-function measureMin() {
-  if (!minHeight.value) minHeight.value = boxHeight()
+/** Pixel size of one line, and of the padding and border around the text. */
+function metrics() {
+  const element = box()
+  const style = element ? getComputedStyle(element) : null
+  const line = parseFloat(style?.lineHeight ?? '') || FALLBACK_LINE_PX
+  const chrome = style
+    ? ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+        .map((key) => parseFloat(style[key as keyof CSSStyleDeclaration] as string) || 0)
+        .reduce((sum, value) => sum + value, 0)
+    : 0
+  return { line, chrome: chrome || FALLBACK_CHROME_PX }
 }
 
-function nudge(by: number) {
-  measureMin()
-  emit('update:height', clamp((props.height ?? boxHeight()) + by))
+function clamp(value: number) {
+  const { line, chrome } = metrics()
+  const min = props.minLines * line + chrome
+  const max = props.maxLines * line + chrome
+  return Math.round(Math.min(max, Math.max(min, value)))
+}
+
+const minHeight = ref(0)
+const maxHeight = ref(0)
+function refreshBounds() {
+  const { line, chrome } = metrics()
+  minHeight.value = Math.round(props.minLines * line + chrome)
+  maxHeight.value = Math.round(props.maxLines * line + chrome)
+}
+
+function nudge(lines: number) {
+  refreshBounds()
+  emit('update:height', clamp(currentHeight() + lines * metrics().line))
 }
 
 function move(event: PointerEvent) {
@@ -57,14 +81,13 @@ function stop() {
 
 function start(event: PointerEvent) {
   event.preventDefault()
-  measureMin()
+  refreshBounds()
   startY = event.clientY
-  startHeight = props.height ?? boxHeight()
+  startHeight = currentHeight()
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop)
 }
 
-onMounted(measureMin)
 onBeforeUnmount(stop)
 </script>
 
