@@ -345,6 +345,14 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if label_id is not None:
             queryset = queryset.filter(labels__id=label_id)
 
+        kind = params.get('kind')
+        if kind:
+            if kind not in Resources.ResourceKind.values:
+                raise DRFValidationError(
+                    {"kind": f"kind must be one of: {', '.join(Resources.ResourceKind.values)}."}
+                )
+            queryset = queryset.filter(kind=kind)
+
         search = params.get('search')
         if search:
             queryset = queryset.filter(
