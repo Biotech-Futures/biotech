@@ -1,9 +1,14 @@
 <template>
-  <div class="app-container">
-    <header class="header" v-if="!isLoginPage">
+  <div
+    class="app-container"
+    :class="{ 'student-dashboard-colours': auth.isStudent && ['/dashboard', '/profile'].includes(route.path) }"
+  >
+    <!-- Hidden on the marking pages, so the preview and rubric get the
+         height; the arrow below brings it back. -->
+    <header class="header" v-if="!isLoginPage && !(onMarkingPage && isHeaderHidden)">
       <div class="header-content">
         <div class="logo-section">
-          <RouterLink to="/dashboard" class="logo">
+          <RouterLink :to="auth.isSupervisor ? '/profile' : '/dashboard'" class="logo">
             <div class="logo-icon">
               <img :src="logo" :alt="BRAND_NAME" />
             </div>
@@ -41,82 +46,103 @@
               type="button"
               aria-label="Open account menu"
             >
-              <span class="user-avatar-text">{{ auth.initials }}</span>
+              <img v-if="profileAvatarUrl" class="user-avatar-image" :src="profileAvatarUrl" alt="" />
+              <span v-else class="user-avatar-text">{{ auth.initials }}</span>
 <!--              <span v-if="hasUserMenuBadge" class="notification-badge"></span>-->
             </button>
           </div>
         </div>
       </div>
+      <button
+        v-if="onMarkingPage"
+        type="button"
+        class="header-collapse-toggle"
+        aria-label="Hide top bar"
+        title="Hide top bar"
+        :aria-expanded="true"
+        @click="isHeaderHidden = true"
+      >
+        <i class="fas fa-chevron-up" aria-hidden="true"></i>
+      </button>
     </header>
+    <button
+      v-if="!isLoginPage && onMarkingPage && isHeaderHidden"
+      type="button"
+      class="header-collapse-toggle header-collapse-toggle--pinned"
+      aria-label="Show top bar"
+      title="Show top bar"
+      :aria-expanded="false"
+      @click="isHeaderHidden = false"
+    >
+      <i class="fas fa-chevron-down" aria-hidden="true"></i>
+    </button>
 
-    <div class="main-layout" v-if="!isLoginPage">
-      <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
+    <div
+      class="main-layout"
+      v-if="!isLoginPage"
+      :class="{ 'main-layout--full': markingFullWidth }"
+    >
+      <aside
+        class="sidebar"
+        :class="{ 'is-collapsed': isSidebarCollapsed, 'is-marking': onMarkingPage }"
+      >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
-            <li class="sidebar-item">
-              <RouterLink
-                to="/dashboard"
-                class="sidebar-link"
-                :class="{ active: route.path === '/dashboard' }"
-              >
-                <i class="fas fa-home sidebar-icon"></i>
-                <span>Home</span>
+            <li v-for="link in mainNavLinks" :key="link.to" class="sidebar-item">
+              <RouterLink :to="link.to" class="sidebar-link" :class="{ active: link.active }">
+                <i :class="['fas', link.icon, 'sidebar-icon']"></i>
+                <span>{{ link.label }}</span>
               </RouterLink>
             </li>
 
-            <li class="sidebar-item">
-              <RouterLink
-                to="/groups"
-                class="sidebar-link"
-                :class="{ active: route.path.includes('/groups') }"
-              >
-                <i class="fas fa-users sidebar-icon"></i>
-                <span>Groups</span>
-              </RouterLink>
+            <li class="sidebar-item" v-if="auth.isStudent">
+              <a href="mailto:support@biotechfutures.org" class="sidebar-link">
+                <i class="fas fa-envelope sidebar-icon" aria-hidden="true"></i>
+                <span>Contact Support</span>
+              </a>
             </li>
 
-            <li class="sidebar-item">
-              <RouterLink
-                to="/events"
-                class="sidebar-link"
-                :class="{ active: route.path.startsWith('/events') }"
+            <!-- Admin's and a supervisor's own pages: one entry each that folds open. -->
+            <li v-for="section in sidebarSections" :key="section.key" class="sidebar-item">
+              <div class="sidebar-link sidebar-link--admin" :class="{ active: section.active }">
+                <RouterLink :to="section.to" class="sidebar-link__main">
+                  <i :class="['fas', section.icon, 'sidebar-icon']"></i>
+                  <span>{{ section.label }}</span>
+                </RouterLink>
+                <button
+                  type="button"
+                  class="sidebar-subnav-toggle"
+                  :class="{ 'is-open': !section.collapsed }"
+                  :aria-expanded="!section.collapsed"
+                  :aria-controls="section.id"
+                  :aria-label="`${section.collapsed ? 'Expand' : 'Collapse'} ${section.label.toLowerCase()} submenu`"
+                  @click="toggleSidebarSection(section.key)"
+                >
+                  <i
+                    :class="section.collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+              </div>
+              <ul
+                :id="section.id"
+                class="sidebar-subnav"
+                v-if="!isSidebarCollapsed && !section.collapsed"
               >
-                <i class="fas fa-calendar sidebar-icon"></i>
-                <span>Events</span>
-              </RouterLink>
-            </li>
-
-            <li class="sidebar-item">
-              <RouterLink
-                to="/announcements"
-                class="sidebar-link"
-                :class="{ active: route.path === '/announcements' }"
-              >
-                <i class="fas fa-bullhorn sidebar-icon"></i>
-                <span>Announcements</span>
-              </RouterLink>
-            </li>
-
-            <li class="sidebar-item">
-              <RouterLink
-                to="/resources"
-                class="sidebar-link"
-                :class="{ active: route.path === '/resources' }"
-              >
-                <i class="fas fa-book sidebar-icon"></i>
-                <span>Resources</span>
-              </RouterLink>
-            </li>
-
-            <li class="sidebar-item" v-if="auth.isAdmin">
-              <RouterLink
-                to="/admin"
-                class="sidebar-link"
-                :class="{ active: route.path === '/admin' }"
-              >
-                <i class="fas fa-cog sidebar-icon"></i>
-                <span>Admin Panel</span>
-              </RouterLink>
+                <li v-for="link in section.links" :key="link.label" class="sidebar-subitem">
+                  <RouterLink
+                    v-if="link.to"
+                    :to="link.to"
+                    class="sidebar-sublink"
+                    :class="{ active: link.active }"
+                  >
+                    <span>{{ link.label }}</span>
+                  </RouterLink>
+                  <a v-else :href="link.href" class="sidebar-sublink">
+                    <span>{{ link.label }}</span>
+                  </a>
+                </li>
+              </ul>
             </li>
           </ul>
         </nav>
@@ -141,7 +167,9 @@
           aria-label="Group switcher"
         >
           <div class="sidebar-group-switcher-header">
-            <span>Groups</span>
+            <label for="sidebar-group-select">Groups</label>
+            <!-- Another group has messages this user hasn't read. -->
+            <span v-if="hasOtherGroupUnread" class="sidebar-group-badge">New</span>
             <i v-if="isLoadingSidebarGroups" class="fas fa-circle-notch fa-spin"></i>
           </div>
 
@@ -155,29 +183,21 @@
             No groups available
           </p>
 
-          <div v-else class="sidebar-group-list">
-            <RouterLink
-              v-for="groupOption in sidebarGroups"
-              :key="groupOption.id"
-              :to="{ name: 'group-detail', params: { id: groupOption.id } }"
-              class="sidebar-group-link"
-              :class="{
-                active: isSidebarGroupActive(groupOption.id),
-                unread: groupOption.hasUnread && !isSidebarGroupActive(groupOption.id),
-              }"
-            >
-              <span class="sidebar-group-copy">
-                <span class="sidebar-group-name">{{ groupOption.name }}</span>
-                <small>{{ formatSidebarGroupMeta(groupOption) }}</small>
-              </span>
-              <span
-                v-if="groupOption.hasUnread && !isSidebarGroupActive(groupOption.id)"
-                class="sidebar-group-badge"
-              >
-                New
-              </span>
-            </RouterLink>
-          </div>
+          <!-- One dropdown however many groups there are: an admin's is every
+               group. Picking one opens it. -->
+          <select
+            v-else
+            id="sidebar-group-select"
+            class="sidebar-group-select"
+            :value="activeSidebarGroupId"
+            @change="openSidebarGroup"
+          >
+            <option v-if="!activeSidebarGroupId" value="" disabled>Choose a group</option>
+            <option v-for="groupOption in sidebarGroups" :key="groupOption.id" :value="groupOption.id">
+              {{ groupOption.name
+              }}{{ groupOption.hasUnread && !isSidebarGroupActive(groupOption.id) ? ' • New' : '' }}
+            </option>
+          </select>
         </section>
       </aside>
 
@@ -199,7 +219,7 @@
       >
         <div class="notification-header">
           <div class="account-summary">
-            <div class="account-avatar">{{ auth.initials }}</div>
+            <div class="account-avatar"><img v-if="profileAvatarUrl" class="account-avatar-image" :src="profileAvatarUrl" alt="" /><span v-else>{{ auth.initials }}</span></div>
 
             <div class="account-copy">
               <h4 class="notification-title">My account</h4>
@@ -245,9 +265,11 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
+import { markingFullWidth } from '@/composables/markingLayout'
+import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
+import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
 const route = useRoute()
 const router = useRouter()
@@ -294,11 +316,14 @@ const toggleTheme = () => {
 }
 
 const isLoginPage = computed(() =>
-  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path),
+  ['/login', '/auth/callback', '/auth/reset-password', '/auth/set-password'].includes(route.path) ||
+  route.meta.public === true,
 )
+const isAdminLandingActive = computed(() => route.path === '/admin')
 const showSidebarGroupSwitcher = computed(
   () => !isLoginPage.value && route.path.startsWith('/groups'),
 )
+
 const sidebarGroups = ref<SidebarGroupOption[]>([])
 const isLoadingSidebarGroups = ref(false)
 const sidebarGroupError = ref('')
@@ -308,8 +333,129 @@ const showUserMenu = ref(false)
 const hasUserMenuBadge = ref(true)
 const userMenuPanelRef = ref<HTMLElement | null>(null)
 const avatarRef = ref<HTMLElement | null>(null)
+const profileAvatarUrl = computed(() => auth.user?.profile_image_url || '')
 const isSidebarCollapsed = ref(false)
+
+// Marking pages start with the sidebar collapsed (meta.hideSidebar on the
+// route) so the preview/rubric split gets the width — the toggle stays, so
+// it can still be opened. Leaving restores how the user had it.
+const onMarkingPage = computed(() => route.meta.hideSidebar === true)
+// They hide the top bar too, until its arrow brings it back.
+const isHeaderHidden = ref(true)
+let sidebarStateBeforeMarking = false
+watch(
+  onMarkingPage,
+  (entering, was) => {
+    if (entering) {
+      isHeaderHidden.value = true
+      sidebarStateBeforeMarking = isSidebarCollapsed.value
+      isSidebarCollapsed.value = true
+    } else if (was) {
+      isSidebarCollapsed.value = sidebarStateBeforeMarking
+    }
+  },
+  { immediate: true }
+)
 const programSearchQuery = ref('')
+
+// Tracks whether the collapsible Admin submenu is hidden, so the stacked
+// (mobile) sidebar stays compact. Defaults to collapsed on small screens and
+// expanded on large ones, matching the layout the user sees. Keeps in sync
+// with viewport changes (e.g. loading at desktop width then resizing down).
+// The supervisor's own pages fold the same way.
+type SidebarSectionKey = 'supervisor' | 'admin'
+const collapsedSidebarSections = ref<Record<SidebarSectionKey, boolean>>({
+  supervisor: false,
+  admin: false,
+})
+let adminSubnavMediaQuery: MediaQueryList | null = null
+
+const syncAdminSubnavViewport = (event: MediaQueryList | MediaQueryListEvent) => {
+  if (event.matches) {
+    collapsedSidebarSections.value = { supervisor: true, admin: true }
+  }
+}
+
+const toggleSidebarSection = (key: SidebarSectionKey) => {
+  collapsedSidebarSections.value[key] = !collapsedSidebarSections.value[key]
+}
+
+type SidebarLink = { label: string; to?: string; href?: string; active: boolean }
+
+const { shown: supervisorPagesShown } = useSupervisorPages()
+watch(
+  () => auth.isSupervisor,
+  (isSupervisor) => {
+    if (isSupervisor) void loadSupervisorPages()
+  },
+  { immediate: true },
+)
+
+// The top-level links every role sees; supervisors only once Management >
+// Supervisor Visibility shows them.
+const mainNavLinks = computed(() => {
+  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
+  return [
+    { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
+    { to: '/groups', label: 'Groups', icon: 'fa-users', active: route.path.startsWith('/groups') },
+    { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
+    { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
+    { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
+  ]
+})
+
+// The folding entries: a supervisor's own pages and the admin pages, drawn
+// by the same template. The roles never overlap, so a user gets one at most.
+const sidebarSections = computed(() => {
+  const path = route.path
+  const sections: Array<{
+    key: SidebarSectionKey
+    label: string
+    icon: string
+    to: string
+    active: boolean
+    links: SidebarLink[]
+  }> = []
+  if (auth.isSupervisor) {
+    sections.push({
+      key: 'supervisor',
+      label: 'Supervisor',
+      icon: 'fa-chalkboard-user',
+      to: '/my-students',
+      active: false,
+      links: [
+        { label: 'My Profile', to: '/profile', active: path === '/profile' },
+        { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
+        { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
+        { label: 'Contact Support', href: `mailto:${SUPPORT_EMAIL}`, active: false },
+      ],
+    })
+  }
+  if (auth.isAdmin) {
+    sections.push({
+      key: 'admin',
+      label: 'Admin',
+      icon: 'fa-cog',
+      to: '/admin',
+      active: isAdminLandingActive.value,
+      links: [
+        { label: 'Users', to: '/admin/users', active: path === '/admin/users' },
+        { label: 'Guardians', to: '/admin/guardians', active: path === '/admin/guardians' },
+        { label: 'Views', to: '/admin/views', active: path.startsWith('/admin/views') },
+        { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
+        { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
+        { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
+        { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
+        { label: 'Management', to: '/management', active: path.startsWith('/management') },
+      ],
+    })
+  }
+  return sections.map((section) => ({
+    ...section,
+    id: `${section.key}-subnav`,
+    collapsed: collapsedSidebarSections.value[section.key],
+  }))
+})
 
 const programSearchTargets = [
   { path: '/dashboard', terms: ['home', 'dashboard', 'overview', 'program'] },
@@ -318,6 +464,8 @@ const programSearchTargets = [
   { path: '/announcements', terms: ['announcement', 'announcements', 'news', 'updates', 'notice'] },
   { path: '/resources', terms: ['resource', 'resources', 'library', 'guide', 'material'] },
   { path: '/profile', terms: ['profile', 'account', 'me', 'settings'] },
+  { path: '/my-students', terms: ['student', 'students', 'registered'] },
+  { path: '/my-groups', terms: ['my groups', 'waiting area'] },
 ]
 
 const toggleSidebarCollapsed = () => {
@@ -460,6 +608,9 @@ const loadSidebarGroups = async () => {
   }))
   sidebarGroups.value = groups
   isLoadingSidebarGroups.value = false
+  // An admin's list is every group, and they're in none of them: no unread
+  // dots, and no request per group to work them out.
+  if (auth.isAdmin) return
 
   // N requests (one per group) — defer behind idle so the page is
   // interactive before unread/latest-at indicators light up.
@@ -488,10 +639,21 @@ const handleSidebarGroupRead = (event: Event) => {
   clearSidebarGroupUnread(detail?.groupId)
 }
 
-const formatSidebarGroupMeta = (groupOption: SidebarGroupOption) => {
-  const count = groupOption.memberCount
-  if (count > 0) return `${count} ${count === 1 ? 'member' : 'members'}`
-  return 'Group workspace'
+// The group open now, when it's one of the listed ones.
+const activeSidebarGroupId = computed(() => {
+  const id = String(route.params.id || '')
+  return sidebarGroups.value.some((groupOption) => groupOption.id === id) ? id : ''
+})
+
+const hasOtherGroupUnread = computed(() =>
+  sidebarGroups.value.some(
+    (groupOption) => groupOption.hasUnread && !isSidebarGroupActive(groupOption.id),
+  ),
+)
+
+const openSidebarGroup = (event: Event) => {
+  const id = (event.target as HTMLSelectElement).value
+  if (id) void router.push({ name: 'group-detail', params: { id } })
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -570,6 +732,12 @@ onMounted(() => {
   }
   applyTheme(isDark.value)
 
+  if (typeof window.matchMedia === 'function') {
+    adminSubnavMediaQuery = window.matchMedia('(max-width: 768px)')
+    syncAdminSubnavViewport(adminSubnavMediaQuery)
+    adminSubnavMediaQuery.addEventListener('change', syncAdminSubnavViewport)
+  }
+
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)
   window.addEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
@@ -580,10 +748,23 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
   document.removeEventListener('keydown', handleKeydown)
   window.removeEventListener(SIDEBAR_GROUP_READ_EVENT, handleSidebarGroupRead)
+  adminSubnavMediaQuery?.removeEventListener('change', syncAdminSubnavViewport)
 })
 </script>
 
 <style scoped>
+/* BTF light green, matching the brand email buttons. Keep the change within
+   student dashboard/profile pages, including their navigation and account panel. */
+.student-dashboard-colours {
+  --light-green: #c3ecca;
+  --accent-green-soft: #c3ecca;
+}
+
+:global(html[data-theme="dark"] .student-dashboard-colours) {
+  --light-green: rgba(1, 113, 81, 0.18);
+  --accent-green-soft: rgba(1, 113, 81, 0.18);
+}
+
 :global(html),
 :global(body),
 :global(#app) {
@@ -650,6 +831,55 @@ select {
   background-color: var(--dark-green);
   color: var(--white);
   box-shadow: 0 2px 4px var(--shadow);
+}
+
+/* The marking pages' arrow for the top bar, shaped as the sidebar's and in
+   the bar's green: it hangs below the bar's middle, or sits at the top while
+   the bar is hidden. */
+.header-collapse-toggle {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  z-index: 900;
+  width: 32px;
+  height: 18px;
+  border: 1px solid var(--dark-green);
+  border-radius: 6px;
+  font-size: 0.7rem;
+  background: var(--dark-green);
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(17, 30, 25, 0.08);
+  transform: translateX(-50%);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Hangs from the top edge, as a tab. */
+.header-collapse-toggle--pinned {
+  position: fixed;
+  top: 0;
+  bottom: auto;
+  z-index: 1000;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+}
+
+.header-collapse-toggle:hover {
+  border-color: #015c42;
+  background: #015c42;
+  box-shadow: 0 10px 22px rgba(17, 30, 25, 0.18);
+}
+
+.header-collapse-toggle:focus-visible {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 2px;
 }
 
 .header-content {
@@ -728,7 +958,7 @@ select {
   border-radius: 8px;
   padding: 0.58rem 0.9rem 0.58rem 2.35rem;
   background: rgba(255, 255, 255, 0.96);
-  color: var(--charcoal);
+  color: var(--teal);
   outline: none;
   box-shadow: 0 1px 2px rgba(7, 17, 15, 0.08);
   transition:
@@ -745,6 +975,62 @@ select {
   border-color: var(--white);
   background: var(--white);
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.24);
+}
+
+/* Dark theme: grey like other pages' inputs, rather than white. */
+:root[data-theme='dark'] .search-bar {
+  border-color: var(--border-light);
+  background: var(--surface-elevated);
+}
+
+:root[data-theme='dark'] .search-bar:focus {
+  border-color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .search-bar::placeholder,
+:root[data-theme='dark'] .program-search i {
+  color: var(--teal);
+}
+
+/* Dark theme: the account menu on the dark grey cards, with light text,
+   rather than staying white. */
+:root[data-theme='dark'] .notification-panel {
+  background: var(--surface-elevated);
+  border-color: var(--border-light);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme='dark'] .notification-header {
+  border-bottom-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .notification-title,
+:root[data-theme='dark'] .panel-quick-copy strong {
+  color: var(--teal);
+}
+
+:root[data-theme='dark'] .account-subtitle,
+:root[data-theme='dark'] .panel-quick-copy small {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .panel-quick-link {
+  background: var(--white);
+  border-color: var(--border-light);
+}
+
+:root[data-theme='dark'] .panel-quick-icon,
+:root[data-theme='dark'] .account-close-button {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--teal);
+}
+
+:root[data-theme='dark'] .account-close-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme='dark'] .logout-button {
+  background: var(--dark-green);
 }
 
 .theme-toggle {
@@ -805,6 +1091,8 @@ select {
   font-size: 0.95rem;
 }
 
+.user-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
+
 .notification-badge {
   position: absolute;
   top: -2px;
@@ -823,6 +1111,12 @@ select {
   margin: 0 auto;
   width: 100%;
   background-color: var(--white);
+}
+
+/* Marking pages spread edge to edge — the preview/rubric splits want every
+   pixel a wide monitor offers. */
+.main-layout.main-layout--full {
+  max-width: none;
 }
 
 .sidebar {
@@ -850,6 +1144,36 @@ select {
   min-width: 72px;
 }
 
+/* Marking pages: collapsed, the sidebar gives up its strip of icons too,
+   leaving only its arrow at the page's edge. Not on phones, where it stacks
+   above the page without an arrow. */
+@media (min-width: 769px) {
+  .sidebar.is-collapsed.is-marking {
+    --sidebar-toggle-offset: 20px;
+
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    border-right: none;
+  }
+
+  .sidebar.is-collapsed.is-marking > :not(.sidebar-collapse-toggle) {
+    display: none;
+  }
+
+  /* Its arrow becomes a tab against the page's left edge, as the top bar's
+     is against the top. */
+  .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle,
+  .main-layout--full .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle {
+    left: 0;
+    width: 18px;
+    height: 32px;
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.7rem;
+  }
+}
+
 .sidebar-collapse-toggle {
   position: fixed;
   top: 50vh;
@@ -861,7 +1185,7 @@ select {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -892,6 +1216,18 @@ select {
   .sidebar-collapse-toggle {
     left: calc(50vw - 840px + var(--sidebar-toggle-offset) - 14px);
   }
+
+  /* Full-width marking pages pin the sidebar to the viewport edge, so the
+     centred-layout shift above would float the toggle over the content. */
+  .main-layout--full .sidebar-collapse-toggle {
+    left: calc(var(--sidebar-toggle-offset) - 14px);
+  }
+
+  /* A marking tab that keeps the centred layout (Prototype): the edge tab
+     sits at the layout's edge, not the screen's. */
+  .main-layout:not(.main-layout--full) .sidebar.is-collapsed.is-marking .sidebar-collapse-toggle {
+    left: calc(50vw - 840px);
+  }
 }
 
 .sidebar-nav {
@@ -914,7 +1250,7 @@ select {
   gap: 0.75rem;
   padding: 0.75rem 1.5rem;
   text-decoration: none;
-  color: var(--charcoal);
+  color: var(--teal);
   border-left: 3px solid transparent;
   transition:
     background-color 0.2s ease,
@@ -950,6 +1286,120 @@ select {
   font-weight: 500;
 }
 
+.sidebar-link--admin {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  border-left: 3px solid transparent;
+}
+
+.sidebar-link--admin .sidebar-link__main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  padding: 0.75rem 1.5rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-link--admin:hover,
+.sidebar-link--admin.active {
+  background-color: var(--light-green);
+  border-left-color: var(--dark-green);
+}
+
+.sidebar-link--admin.active .sidebar-link__main span {
+  font-weight: 500;
+  color: var(--dark-green);
+}
+
+.sidebar-subnav-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  border-left: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--teal);
+  opacity: 0.7;
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease,
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.sidebar-subnav-toggle:hover,
+.sidebar-subnav-toggle:focus-visible {
+  opacity: 1;
+  color: var(--dark-green);
+  outline: 2px solid var(--dark-green);
+  outline-offset: -2px;
+}
+
+.sidebar.is-collapsed .sidebar-subnav-toggle {
+  display: none;
+}
+
+.sidebar.is-collapsed .sidebar-link--admin {
+  justify-content: center;
+  border-left-color: transparent;
+}
+
+.sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main {
+  justify-content: center;
+  gap: 0;
+  padding: 0.78rem 0;
+}
+
+.sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main span {
+  display: none;
+}
+
+.sidebar-subnav {
+  list-style: none;
+  margin: 0;
+  /* No left inset: a sub-link's bar runs to the sidebar's edge, as the
+     Admin and Supervisor rows' do. The sub-link pads its own text instead. */
+  padding: 0.15rem 0 0.4rem;
+}
+
+.sidebar-subitem {
+  margin: 0;
+}
+
+.sidebar-sublink {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.5rem 0.5rem 2.8rem;
+  border-left: 3px solid transparent;
+  color: var(--teal);
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.sidebar-sublink:hover {
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  border-left-color: var(--dark-green);
+}
+
+.sidebar-sublink.active {
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  border-left-color: var(--dark-green);
+  font-weight: 500;
+}
+
 .sidebar-group-switcher {
   margin-top: auto;
   padding: 1rem 0.85rem 0;
@@ -964,82 +1414,43 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0 0.65rem 0.5rem;
+  /* No left padding, so the label lines up with the dropdown's edge. */
+  padding: 0 0.65rem 0.5rem 0;
   color: var(--text-soft);
   font-size: 0.72rem;
-  font-weight: 800;
+  /* 700, as Windows shows heavier Arial as Arial Black. */
+  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.sidebar-group-list {
-  display: grid;
-  gap: 0.25rem;
-  max-height: min(360px, 42vh);
-  overflow-y: auto;
+/* The header's own weight and case, whatever a label would bring. */
+.sidebar-group-switcher-header label {
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
-.sidebar-group-link {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.55rem;
-  min-height: 52px;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid transparent;
+.sidebar-group-switcher-header .sidebar-group-badge {
+  margin-right: auto;
+}
+
+.sidebar-group-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: var(--charcoal);
-  text-decoration: none;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.sidebar-group-link:hover {
-  border-color: var(--line-mid);
-  background: #f4f8f6;
-  color: var(--dark-green);
-}
-
-.sidebar-group-link.active {
-  border-color: rgba(35, 70, 59, 0.2);
-  background: var(--light-green);
-  color: var(--dark-green);
-}
-
-.sidebar-group-link.unread {
-  border-color: rgba(61, 106, 91, 0.24);
-  background: #eef7f2;
-}
-
-.sidebar-group-copy {
-  min-width: 0;
-  display: grid;
-  gap: 0.12rem;
-}
-
-.sidebar-group-name {
-  overflow: hidden;
-  color: inherit;
+  background: var(--surface-elevated);
+  color: var(--teal);
+  font-family: inherit;
   font-size: 0.88rem;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-group-link.unread .sidebar-group-name {
-  font-weight: 800;
-}
-
-.sidebar-group-copy small {
-  overflow: hidden;
-  color: #6c757d;
-  font-size: 0.72rem;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sidebar-group-select:focus {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 1px;
 }
 
 .sidebar-group-badge {
@@ -1133,6 +1544,8 @@ select {
   font-weight: 800;
   box-shadow: 0 10px 24px rgba(8, 14, 13, 0.16);
 }
+
+.account-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
 
 .account-copy {
   min-width: 0;
@@ -1285,12 +1698,12 @@ select {
     top: auto;
     left: auto;
     height: auto;
+    min-height: auto;
     width: 100%;
     min-width: 100%;
     overflow-y: visible;
     padding: 0.75rem;
     z-index: auto;
-    margin-bottom: -300px;
   }
 
   .sidebar.is-collapsed {
@@ -1312,6 +1725,25 @@ select {
     display: inline;
   }
 
+  .sidebar.is-collapsed .sidebar-link--admin {
+    justify-content: flex-start;
+  }
+
+  .sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main {
+    justify-content: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+  }
+
+  .sidebar.is-collapsed .sidebar-link--admin .sidebar-link__main span {
+    display: inline;
+  }
+
+  .sidebar.is-collapsed .sidebar-subnav-toggle,
+  .sidebar-subnav-toggle {
+    display: flex;
+  }
+
   .sidebar.is-collapsed .sidebar-group-switcher {
     display: block;
   }
@@ -1320,19 +1752,6 @@ select {
     margin-top: 0.75rem;
     padding: 0.75rem 0 0;
     border-top: 1px solid var(--border-light);
-  }
-
-  .sidebar-group-list {
-    display: flex;
-    gap: 0.5rem;
-    max-height: none;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-bottom: 0.15rem;
-  }
-
-  .sidebar-group-link {
-    flex: 0 0 min(220px, 78vw);
   }
 
   .main-content {

@@ -1,5 +1,7 @@
 import uuid
 
+from PIL import Image, UnidentifiedImageError
+
 from apps.events.image_storage import get_event_image_storage
 
 _ALLOWED_CONTENT_TYPES = {
@@ -18,6 +20,27 @@ def upload_event_image(file) -> dict:
 
     if file.size > _MAX_SIZE_BYTES:
         return {"msg": "File too large. Maximum size is 5 MB.", "data": None}
+
+    try:
+        image = Image.open(file)
+        width, height = image.size
+        image.verify()
+    except (UnidentifiedImageError, OSError):
+        return {
+            "msg": "The uploaded file is not a valid image.",
+            "data": None,
+        }
+    finally:
+        file.seek(0)
+
+    if width != 1280 or height != 320:
+        return {
+            "msg": (
+                "Event banner must be exactly "
+                "1280 × 320 pixels with a 4:1 ratio."
+            ),
+            "data": None,
+        }
 
     ext = {"image/jpeg": ".jpg", "image/png": ".png",
            "image/gif": ".gif", "image/webp": ".webp"}.get(content_type, ".jpg")

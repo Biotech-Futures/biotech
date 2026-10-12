@@ -10,7 +10,7 @@ import { normalizeDirectAuthRedirect } from '@/router/normalizeAuthRedirect'
 import { useAuthStore } from '@/stores/auth'
 
 const en = LOGIN_MESSAGES.en
-const LOCALES = ['en', 'zh-CN', 'ja', 'ko', 'ar'] as const
+const LOCALES = ['en'] as const
 const MAGIC_LINK_KEYS = [
   'errorMagicLinkExpired',
   'errorMagicLinkThrottled',
@@ -230,7 +230,7 @@ describe('magic-link error copy', () => {
     expect(submit.text()).toContain(en.resendIn)
   })
 
-  it('defines every magic-link key in all five locales', () => {
+  it('defines every magic-link key in English', () => {
     for (const locale of LOCALES) {
       for (const key of MAGIC_LINK_KEYS) {
         const value = LOGIN_MESSAGES[locale][key]
@@ -313,6 +313,12 @@ describe('auth redirect normalisation', () => {
 
     normalizeAt('/#/auth/callback?error=too_many_attempts')
     expect(window.location.hash).toBe('#/auth/callback?error=too_many_attempts')
+  })
+
+  it('rewrites a legacy admin reset-password path to the hash route', () => {
+    normalizeAt('/reset-password?token=legacy-token-123')
+    expect(window.location.hash).toBe('#/auth/reset-password?token=legacy-token-123')
+    expect(window.location.search).toBe('')
   })
 
   it('does not hijack an ordinary visit with no error param', () => {

@@ -11,6 +11,10 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   ShieldCheckIcon,
+  ClipboardListIcon,
+  SettingsIcon,
+  UnlockIcon,
+  StarIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthContext } from "@/provider/AuthProvider";
@@ -43,6 +47,16 @@ const NAV_SECTIONS = [
       { title: "Resources", url: "/resource", icon: FileTextIcon, desc: "Upload and manage resources" },
       { title: "Announcements", url: "/announcement", icon: MegaphoneIcon, desc: "Publish announcements" },
       { title: "Tasks", url: "/task", icon: CheckSquareIcon, desc: "Assign and track tasks" },
+    ],
+  },
+  {
+    label: "Grading",
+    cards: [
+      { title: "Mark by Component", url: "/grading/by-component", icon: ClipboardListIcon, desc: "One component at a time, across every group" },
+      { title: "Mark by Group", url: "/grading/by-group", icon: UsersIcon, desc: "Every component for a single group" },
+      { title: "Certificate Setup", url: "/grading/settings", icon: SettingsIcon, desc: "Director names, signatures, and docx templates" },
+      { title: "Release Marks", url: "/grading/release", icon: UnlockIcon, desc: "Let students and supervisors see their marks" },
+      { title: "Finalists", url: "/grading/finalists", icon: StarIcon, desc: "Flag groups that advance to the symposium" },
     ],
   },
 ];

@@ -56,6 +56,7 @@ from django.contrib.auth import get_user_model
 from apps.audit.services import log_audit_event
 from azure_blob_utils import download_file_text as download_legacy_blob_text
 from django.http import HttpResponseRedirect, StreamingHttpResponse
+from django.views.decorators.clickjacking import xframe_options_exempt
 import requests
 from apps.common.storage import serve_managed_file
 from .rbac import (
@@ -569,6 +570,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         return Response(ResourceAccessSerializer(payload).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
+    @xframe_options_exempt
     def download(self, request, pk=None):
         resource = self.get_object()
         if not can_access_resource_file(request.user, resource):

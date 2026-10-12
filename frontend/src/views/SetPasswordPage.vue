@@ -86,6 +86,7 @@ import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromUnknown, logApiError } from '@/utils/apiError'
+import { takeReturnTo } from '@/utils/postLoginRedirect'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -146,7 +147,8 @@ async function submitPassword() {
       return
     }
 
-    await router.replace('/dashboard')
+    // The page they asked for before signing in, if any.
+    await router.replace(takeReturnTo(router) || '/dashboard')
   } catch (error) {
     const apiError = apiErrorFromUnknown(error, 'Could not set your password. Please try again.')
     logApiError('set-initial-password', apiError)
@@ -226,7 +228,7 @@ onMounted(async () => {
 
 h1 {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.8rem;
   line-height: 1.2;
 }
@@ -248,7 +250,7 @@ h1 {
 }
 
 label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
   font-weight: 700;
 }
@@ -267,7 +269,7 @@ label {
 
 .field-input {
   padding: 0 15px;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 
@@ -283,7 +285,7 @@ label {
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 

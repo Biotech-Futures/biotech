@@ -1,27 +1,38 @@
-﻿<template>
+<template>
   <div class="content-area events-page">
-    <div class="page-head">
-      <div>
-        <h1>Events &amp; Workshops</h1>
-        <p class="page-subtitle">
-          {{ auth.roleLabel }} events available to your program access.
-        </p>
-      </div>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">Events &amp; Workshops</h1>
+      <p class="page-subtitle">
+        {{ auth.roleLabel }} events available to your program access.
+      </p>
+    </header>
 
-    <div class="event-tabs" role="tablist" aria-label="Event view">
-      <button
-        v-for="tab in viewTabs"
-        :key="tab.value"
-        type="button"
-        role="tab"
-        :aria-selected="viewMode === tab.value"
-        class="event-tab"
-        :class="{ active: viewMode === tab.value }"
-        @click="setViewMode(tab.value)"
-      >
-        {{ tab.label }}
-      </button>
+    <div class="event-tabs-bar">
+      <div class="tab-bar" role="tablist" aria-label="Event view">
+        <button
+          v-for="tab in viewTabs"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          :aria-selected="viewMode === tab.value"
+          class="tab-pill"
+          :class="{ active: viewMode === tab.value }"
+          @click="setViewMode(tab.value)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="isAdmin" class="event-tabs-bar__actions">
+        <button
+          type="button"
+          class="btn btn-primary"
+          @click="openCreateEvent"
+        >
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          <span>New Event</span>
+        </button>
+      </div>
     </div>
 
     <section class="event-filterbar" aria-label="Event filters">
@@ -101,6 +112,25 @@
       </form>
     </section>
 
+    <!-- Bulk actions bar for admins -->
+    <BulkActionsBar
+      v-if="isAdmin && selectedEventIds.length && !loading"
+      :count="selectedEventIds.length"
+      noun="event"
+      :disabled="busy"
+      @clear="clearSelection"
+    >
+      <button
+        type="button"
+        class="btn btn-danger btn-sm"
+        :disabled="busy"
+        @click="confirmBulkDelete"
+      >
+        <i class="fas fa-trash-can" aria-hidden="true"></i>
+        <span>Delete</span>
+      </button>
+    </BulkActionsBar>
+
     <Transition name="event-status-fade">
       <p
         v-if="statusVisible && statusMessage"
@@ -170,6 +200,10 @@
         v-for="(ev, idx) in events"
         :key="ev.id"
         class="event-card"
+        :class="{
+          'event-card--selected': isAdmin && selectedEventIds.includes(ev.id),
+          'event-card--menu-open': activeMenuEventId === ev.id
+        }"
         :style="{ '--enter-delay': `${Math.min(idx, 8) * 50}ms` }"
         role="button"
         tabindex="0"
@@ -177,16 +211,32 @@
         @keydown.enter="openDetailsFromCard(ev, $event)"
         @keydown.space="openDetailsFromCard(ev, $event)"
       >
+        <!-- Selection checkbox for bulk operations -->
+        <div
+          v-if="isAdmin"
+          class="event-card-select"
+          @click.stop
+        >
+          <input
+            type="checkbox"
+            class="event-card-checkbox"
+            :checked="selectedEventIds.includes(ev.id)"
+            :aria-label="`Select ${ev.event_name}`"
+            @change="toggleSelectEvent(ev.id)"
+          />
+        </div>
+
         <div class="event-banner">
           <img
             v-if="eventCover(ev)"
             :src="eventCover(ev)"
             :alt="`${ev.event_name} banner`"
             class="event-banner-img"
-            width="640"
-            height="220"
+            width="1280" 
+            height="320"
             loading="lazy"
             decoding="async"
+            @error="markEventImageFailed(ev)"
           />
           <i
             v-else
@@ -198,16 +248,77 @@
         <div class="event-content">
           <div class="event-card-topline">
             <span class="event-date">
-              {{ formatDate(ev.start_datetime, ev) }}
+              {{ formatDate(ev.start_datetime) }}
             </span>
 
-            <span
-              v-if="eventStatus(ev)"
-              class="rsvp-badge"
-              :class="`rsvp-badge-${eventStatus(ev)}`"
-            >
-              {{ rsvpLabel(eventStatus(ev)) }}
-            </span>
+            <div class="event-card-topline-right">
+              <span
+                v-if="eventStatus(ev)"
+                class="rsvp-badge"
+                :class="`rsvp-badge-${eventStatus(ev)}`"
+              >
+                {{ rsvpLabel(eventStatus(ev)) }}
+              </span>
+
+              <!-- Admin More Menu Dropdown -->
+              <div v-if="isAdmin" class="event-card-menu" @click.stop>
+                <button
+                  type="button"
+                  class="event-card-more-btn"
+                  :class="{ active: activeMenuEventId === ev.id }"
+                  aria-label="More event actions"
+                  aria-haspopup="true"
+                  :aria-expanded="activeMenuEventId === ev.id"
+                  @click="toggleCardMenu(ev.id, $event)"
+                >
+                  <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
+                </button>
+
+                <div
+                  v-if="activeMenuEventId === ev.id"
+                  class="event-card-dropdown"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'view')"
+                  >
+                    <i class="fas fa-eye" aria-hidden="true"></i>
+                    <span>View Details</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'rsvps')"
+                  >
+                    <i class="fas fa-users" aria-hidden="true"></i>
+                    <span>See RSVPs</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'edit')"
+                  >
+                    <i class="fas fa-pen" aria-hidden="true"></i>
+                    <span>Edit</span>
+                  </button>
+                  <div class="event-card-dropdown-divider"></div>
+                  <button
+                    type="button"
+                    class="event-card-dropdown-item event-card-dropdown-item--danger"
+                    role="menuitem"
+                    @click="onMenuAction(ev, 'delete')"
+                  >
+                    <i class="fas fa-trash-can" aria-hidden="true"></i>
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <h3 class="event-title">
@@ -225,14 +336,15 @@
             </span>
           </div>
 
-          <p class="event-description">
-            {{ ev.description || defaultShort }}
-          </p>
+          <div
+            class="event-description event-description-rich event-description-preview"
+            v-html="eventDescriptionPreviewHtml(ev.description)"
+          ></div>
 
           <div class="event-meta">
             <div class="event-meta-item">
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(ev.start_datetime, ev.ends_datetime, ev) }}
+              {{ formatTime(ev.start_datetime, ev.ends_datetime) }}
             </div>
 
             <div v-if="eventHasPhysicalPlace(ev)" class="event-meta-item">
@@ -398,6 +510,7 @@
               width="1280"
               height="320"
               decoding="async"
+              @error="markEventImageFailed(selected)"
             />
             <i
               v-else-if="selected"
@@ -409,11 +522,11 @@
           <div class="detail-meta">
             <span>
               <i class="fas fa-calendar-day" aria-hidden="true"></i>
-              {{ formatDate(selected?.start_datetime, selected) }}
+              {{ formatDate(selected?.start_datetime) }}
             </span>
             <span>
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(selected?.start_datetime, selected?.ends_datetime, selected) }}
+              {{ formatTime(selected?.start_datetime, selected?.ends_datetime) }}
             </span>
             <span>
               <i class="fas fa-users" aria-hidden="true"></i>
@@ -499,9 +612,10 @@
             </span>
           </div>
 
-          <p class="detail-description">
-            {{ selected?.description || defaultLong }}
-          </p>
+          <div
+            class="detail-description detail-description-rich"
+            v-html="eventDescriptionHtml(selected?.description)"
+          ></div>
 
           <div v-if="selected" class="detail-rsvp-panel">
             <div>
@@ -585,6 +699,45 @@
         </div>
       </div>
     </div>
+
+    <!-- Admin Side Panels & Confirm Dialogs -->
+    <AdminEventFormSheet
+      v-if="isAdmin"
+      v-model="formSheetOpen"
+      :event="formEditEvent"
+      :busy="busy"
+      @saved="onEventSaved"
+      @delete="onFormEditorDelete"
+    />
+
+    <AdminEventRsvpsSheet
+      v-if="isAdmin"
+      :open="rsvpsSheetOpen"
+      :event="rsvpsSheetEvent"
+      @close="rsvpsSheetOpen = false"
+    />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="singleDeleteConfirm.open"
+      title="Delete Event"
+      :message="singleDeleteConfirm.message"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="busy"
+      @confirm="runSingleDelete"
+    />
+
+    <ConfirmDialog
+      v-if="isAdmin"
+      v-model="bulkDeleteConfirm.open"
+      title="Delete Events"
+      :message="`Delete ${selectedEventIds.length} event${selectedEventIds.length === 1 ? '' : 's'}? All associated RSVPs will also be deleted. This cannot be undone.`"
+      confirm-label="Delete"
+      variant="danger"
+      :busy="busy"
+      @confirm="runBulkDelete"
+    />
   </div>
 </template>
 
@@ -593,6 +746,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { BRAND_NAME } from '@/constants/brand'
+import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import AdminEventFormSheet from '@/components/admin/events/AdminEventFormSheet.vue'
+import AdminEventRsvpsSheet from '@/components/admin/events/AdminEventRsvpsSheet.vue'
+import { deleteAdminEvent } from '@/utils/adminAPI'
 import {
   type BackendEvent,
   type EventFormat,
@@ -606,7 +764,8 @@ import {
   resolveEventUrl,
   setEventRsvp
 } from '../utils/eventsAPI'
-import { formatEventDate, formatEventTimeRange } from '../utils/date'
+import { formatEventDay, formatEventTimeRange, getSetTimeZone } from '../utils/date'
+import { sanitizeRichText } from '../composables/useAnnouncements'
 
 type ViewMode = 'upcoming' | 'mine' | 'past'
 type UserRsvpStatus = 'accepted' | 'tentative' | 'declined'
@@ -615,14 +774,41 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 
+const isAdmin = computed(() => auth.isAdmin)
+const busy = ref(false)
+
+// Admin Form Sheet (Create / Edit)
+const formSheetOpen = ref(false)
+const formEditEvent = ref<BackendEvent | null>(null)
+
+// Admin RSVPs Sheet
+const rsvpsSheetOpen = ref(false)
+const rsvpsSheetEvent = ref<BackendEvent | null>(null)
+
+// Card More Dropdown & Bulk Selection
+const activeMenuEventId = ref<number | null>(null)
+const selectedEventIds = ref<number[]>([])
+
+// Confirm Dialogs
+const singleDeleteConfirm = ref<{
+  open: boolean
+  event: BackendEvent | null
+  message: string
+}>({
+  open: false,
+  event: null,
+  message: ''
+})
+const bulkDeleteConfirm = ref({ open: false })
+
 const loading = ref(true)
 const refreshing = ref(false)
 const error = ref('')
 const statusMessage = ref('')
 const statusVisible = ref(false)
 const settingRsvpFor = ref<number | null>(null)
-let statusTimer: ReturnType<typeof window.setTimeout> | null = null
-let searchTimer: ReturnType<typeof window.setTimeout> | null = null
+let statusTimer: any = null
+let searchTimer: any = null
 let lastSearchTerm = ''
 
 const events = ref<BackendEvent[]>([])
@@ -650,6 +836,12 @@ const filters = ref({
 const defaultShort = `Join us for this ${BRAND_NAME} session.`
 const defaultLong =
   `This session is part of the ${BRAND_NAME} program. Learn, collaborate, and build your project with mentors and peers.`
+
+const eventDescriptionHtml = (value?: string | null) =>
+  sanitizeRichText(String(value || '').trim() || defaultLong)
+
+const eventDescriptionPreviewHtml = (value?: string | null) =>
+  sanitizeRichText(String(value || '').trim() || defaultShort)
 const EVENT_FORMAT_LABELS: Record<EventFormat, string> = {
   in_person: 'In-person',
   virtual: 'Virtual',
@@ -824,11 +1016,17 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 const onKeyDown = (e: KeyboardEvent) => {
-  if (!showModal.value) return
   if (e.key === 'Escape') {
-    closeDetails()
-    return
+    if (activeMenuEventId.value !== null) {
+      activeMenuEventId.value = null
+      return
+    }
+    if (showModal.value) {
+      closeDetails()
+      return
+    }
   }
+  if (!showModal.value) return
   if (e.key !== 'Tab' || !modalContentRef.value) return
   const focusables = Array.from(
     modalContentRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
@@ -843,6 +1041,15 @@ const onKeyDown = (e: KeyboardEvent) => {
   } else if (!e.shiftKey && (active === last || !modalContentRef.value.contains(active))) {
     e.preventDefault()
     first.focus()
+  }
+}
+
+const onDocumentClick = (e: MouseEvent) => {
+  if (activeMenuEventId.value !== null) {
+    const target = e.target as HTMLElement | null
+    if (!target?.closest('.event-card-menu')) {
+      activeMenuEventId.value = null
+    }
   }
 }
 
@@ -862,6 +1069,7 @@ onMounted(async () => {
     await openDetailsById(route.params.id)
   }
   window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('click', onDocumentClick)
 
   // Auto-load the next page when the sentinel scrolls into view.
   // rootMargin pre-fetches a bit before the user actually hits the bottom.
@@ -908,6 +1116,7 @@ onBeforeUnmount(() => {
   loadMoreObserver?.disconnect()
   loadMoreObserver = null
   window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('click', onDocumentClick)
 })
 
 const showStatusMessage = (message: string) => {
@@ -986,8 +1195,6 @@ const resetFilters = () => {
   }
 }
 
-const eventDisplayTimeZone = (ev?: BackendEvent | null) => ev?.event_timezone || auth.timeZone
-
 const eventFormat = (ev?: BackendEvent | null): EventFormat => {
   if (ev?.event_format === 'virtual' || ev?.event_format === 'hybrid') return ev.event_format
   return 'in_person'
@@ -1003,18 +1210,30 @@ const eventHasPhysicalPlace = (ev?: BackendEvent | null) => {
   return format !== 'virtual' && Boolean(ev?.location)
 }
 
-const formatDate = (dateStr?: string | null, ev?: BackendEvent | null) =>
-  formatEventDate(dateStr, eventDisplayTimeZone(ev))
+// "Friday, 9th October 2026" and "16:12 - 18:00 AEDT", in the set time
+// with that zone's label.
+const formatDate = (dateStr?: string | null) => formatEventDay(dateStr)
 
-const formatTime = (start?: string | null, end?: string | null, ev?: BackendEvent | null) =>
-  formatEventTimeRange(start, end, eventDisplayTimeZone(ev))
+const formatTime = (start?: string | null, end?: string | null) =>
+  formatEventTimeRange(start, end, getSetTimeZone())
 
 const prettyType = (type?: string | null) => {
   if (!type) return 'General'
   return type.charAt(0).toUpperCase() + type.slice(1)
 }
 
-const eventCover = (ev?: BackendEvent | null) => resolveEventUrl(ev?.event_image)
+const failedEventImages = ref<Set<string>>(new Set())
+
+const eventCover = (ev?: BackendEvent | null) => {
+  const url = resolveEventUrl(ev?.event_image)
+  return url && !failedEventImages.value.has(url) ? url : ''
+}
+
+const markEventImageFailed = (ev?: BackendEvent | null) => {
+  const url = resolveEventUrl(ev?.event_image)
+  if (!url) return
+  failedEventImages.value = new Set([...failedEventImages.value, url])
+}
 
 const eventModeLabel = (ev?: BackendEvent | null) => EVENT_FORMAT_LABELS[eventFormat(ev)]
 
@@ -1190,7 +1409,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 
     ev.accepted = response.rsvp_status === 'accepted'
     if (status === 'accepted' && response.rsvp_status === 'waitlisted') {
-      showStatusMessage("Event full — you're on the waitlist.")
+      showStatusMessage("Event full - you're on the waitlist.")
     } else if (previousStatus === 'waitlisted' && status === 'declined') {
       showStatusMessage('RSVP updated: Removed from waitlist')
     } else {
@@ -1204,79 +1423,183 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
     settingRsvpFor.value = null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Admin Event Actions & Handlers
+// ---------------------------------------------------------------------------
+
+const openCreateEvent = () => {
+  formEditEvent.value = null
+  formSheetOpen.value = true
+}
+
+const openEditEvent = (ev: BackendEvent) => {
+  formEditEvent.value = ev
+  formSheetOpen.value = true
+}
+
+const openRsvpsSheet = (ev: BackendEvent) => {
+  rsvpsSheetEvent.value = ev
+  rsvpsSheetOpen.value = true
+}
+
+const toggleCardMenu = (eventId: number, event?: Event) => {
+  event?.stopPropagation()
+  activeMenuEventId.value = activeMenuEventId.value === eventId ? null : eventId
+}
+
+const closeCardMenu = () => {
+  activeMenuEventId.value = null
+}
+
+const onMenuAction = (ev: BackendEvent, action: 'view' | 'rsvps' | 'edit' | 'delete') => {
+  closeCardMenu()
+  if (action === 'view') {
+    openDetails(ev)
+  } else if (action === 'rsvps') {
+    openRsvpsSheet(ev)
+  } else if (action === 'edit') {
+    openEditEvent(ev)
+  } else if (action === 'delete') {
+    confirmSingleDelete(ev)
+  }
+}
+
+const toggleSelectEvent = (id: number) => {
+  const idx = selectedEventIds.value.indexOf(id)
+  if (idx > -1) {
+    selectedEventIds.value.splice(idx, 1)
+  } else {
+    selectedEventIds.value.push(id)
+  }
+}
+
+const clearSelection = () => {
+  selectedEventIds.value = []
+}
+
+const confirmSingleDelete = (ev: BackendEvent) => {
+  singleDeleteConfirm.value = {
+    open: true,
+    event: ev,
+    message: `Are you sure you want to delete "${ev.event_name}"? All associated RSVPs will also be deleted. This cannot be undone.`
+  }
+}
+
+const runSingleDelete = async () => {
+  const ev = singleDeleteConfirm.value.event
+  if (!ev?.id) return
+
+  busy.value = true
+  try {
+    await deleteAdminEvent(ev.id)
+    singleDeleteConfirm.value.open = false
+    singleDeleteConfirm.value.event = null
+    selectedEventIds.value = selectedEventIds.value.filter((id) => id !== ev.id)
+    showStatusMessage(`Event "${ev.event_name}" deleted successfully.`)
+    await loadEvents(true)
+  } catch (err: any) {
+    console.error('Failed to delete event:', err)
+    error.value = err?.message || 'Failed to delete event.'
+  } finally {
+    busy.value = false
+  }
+}
+
+const confirmBulkDelete = () => {
+  if (!selectedEventIds.value.length) return
+  bulkDeleteConfirm.value.open = true
+}
+
+const runBulkDelete = async () => {
+  if (!selectedEventIds.value.length) return
+
+  busy.value = true
+  const idsToDelete = [...selectedEventIds.value]
+  let deletedCount = 0
+
+  try {
+    const outcomes = await Promise.allSettled(
+      idsToDelete.map((id) => deleteAdminEvent(id))
+    )
+
+    outcomes.forEach((outcome, idx) => {
+      if (outcome.status === 'fulfilled') {
+        deletedCount++
+        const id = idsToDelete[idx]
+        selectedEventIds.value = selectedEventIds.value.filter((x) => x !== id)
+      }
+    })
+
+    bulkDeleteConfirm.value.open = false
+
+    if (deletedCount > 0) {
+      showStatusMessage(`Deleted ${deletedCount} event${deletedCount === 1 ? '' : 's'}.`)
+      await loadEvents(true)
+    }
+  } catch (err: any) {
+    console.error('Failed to bulk delete events:', err)
+    error.value = err?.message || 'Failed to delete some events.'
+  } finally {
+    busy.value = false
+  }
+}
+
+const onEventSaved = async () => {
+  showStatusMessage('Event saved successfully.')
+  await loadEvents(true)
+}
+
+const onFormEditorDelete = () => {
+  const ev = formEditEvent.value
+  formSheetOpen.value = false
+  if (ev) {
+    confirmSingleDelete(ev)
+  }
+}
 </script>
 
 <style scoped>
 .events-page {
   --event-dark-green: #017151;
   --event-light-green: #bad7bb;
-  --event-air-force-blue: #39687b;
-  --event-mint-green: #5ea99e;
-  --event-yellow: #f1e5a6;
+  --event-air-force-blue: #26697d;
+  --event-mint-green: #3ead9f;
+  --event-yellow: #f3e69d;
   --event-charcoal: #174243;
   --event-soft-green: rgba(186, 215, 187, 0.44);
-  --event-soft-mint: rgba(94, 169, 158, 0.18);
-  --event-soft-blue: rgba(57, 104, 123, 0.12);
-  --event-soft-yellow: rgba(241, 229, 166, 0.78);
+  --event-soft-mint: rgba(62, 173, 159, 0.18);
+  --event-soft-blue: rgba(38, 105, 125, 0.12);
+  --event-soft-yellow: rgba(243, 230, 157, 0.78);
 
   width: 100%;
   min-height: calc(100vh - 64px);
   padding: clamp(1rem, 2vw, 1.5rem);
+  /* 48px above the heading, as on the other pages. */
+  padding-top: 3rem;
   background-color: var(--bg-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
-.page-head {
+/* Event tabs bar (selector + actions in-line) */
+.event-tabs-bar {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   margin-bottom: 1.25rem;
 }
 
-.page-head h1 {
-  margin: 0;
-  font-size: clamp(1.5rem, 2.2vw, 2rem);
+.event-tabs-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.page-subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--text-muted);
-}
-
-/* Segmented pill tabs */
-.event-tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.event-tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.event-tab:hover:not(.active) {
-  color: var(--event-charcoal);
-  background: var(--event-soft-green);
-}
-
-.event-tab.active {
-  background: var(--event-dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
+/* The bar above leaves the 20px below the tabs, beside the New Event button. */
+.event-tabs-bar .tab-bar {
+  margin-bottom: 0;
 }
 
 /* Sticky filter bar */
@@ -1335,7 +1658,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
@@ -1501,16 +1824,165 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   border-color: var(--event-light-green);
 }
 
-.event-banner {
+.event-card--selected {
+  border-color: var(--event-dark-green) !important;
+  box-shadow: 0 0 0 2px var(--event-dark-green) !important;
+}
+
+.event-card--menu-open {
+  overflow: visible !important;
+  z-index: 15;
+}
+
+/* Card select checkbox */
+.event-card-select {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.65rem;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 0.25rem;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.event-card-checkbox {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--event-dark-green);
+  cursor: pointer;
+  margin: 0;
+}
+
+/* Card Topline Right */
+.event-card-topline-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   position: relative;
-  height: 110px;
+}
+
+/* Admin Card More Dropdown */
+.event-card-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.event-card-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border-light);
+  background: var(--white);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.8rem;
+  transition: all 0.15s ease;
+}
+
+.event-card-more-btn:hover,
+.event-card-more-btn.active {
+  background: var(--event-soft-green);
+  color: var(--event-dark-green);
+  border-color: var(--event-dark-green);
+}
+
+.event-card-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 155px;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 0.35rem 0;
+  z-index: 30;
+  animation: dropdown-fade 0.15s ease-out;
+}
+
+@keyframes dropdown-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.event-card-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  border: none;
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--teal);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.event-card-dropdown-item i {
+  width: 14px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.event-card-dropdown-item:hover {
+  background-color: var(--bg-light);
+  color: var(--event-dark-green);
+}
+
+.event-card-dropdown-item:hover i {
+  color: var(--event-dark-green);
+}
+
+.event-card-dropdown-item--danger {
+  color: var(--danger);
+}
+
+.event-card-dropdown-item--danger i {
+  color: var(--danger);
+}
+
+.event-card-dropdown-item--danger:hover {
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+}
+
+.event-card-dropdown-item--danger:hover i {
+  color: var(--danger);
+}
+
+.event-card-dropdown-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.3rem 0;
+}
+
+.event-banner {
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--white);
   background: linear-gradient(135deg, var(--event-dark-green), var(--event-mint-green));
-  overflow: hidden;
 }
+
 
 .event-banner-img {
   position: absolute;
@@ -1632,19 +2104,19 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 .event-capacity-pill--low {
   background: var(--event-soft-yellow);
   color: var(--event-air-force-blue);
-  border-color: rgba(57, 104, 123, 0.28);
+  border-color: rgba(38, 105, 125, 0.28);
 }
 
 .event-capacity-pill--full {
   background: var(--event-soft-blue);
   color: var(--event-air-force-blue);
-  border-color: rgba(57, 104, 123, 0.28);
+  border-color: rgba(38, 105, 125, 0.28);
 }
 
 .event-title {
   font-size: 1.05rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin: 0;
   line-height: 1.35;
   display: -webkit-box;
@@ -1683,11 +2155,143 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
+  max-height: 8rem;
   overflow: hidden;
+}
+
+.event-description-preview :deep(*) {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.event-description-preview :deep(p),
+.event-description-preview :deep(h1),
+.event-description-preview :deep(h2),
+.event-description-preview :deep(h3),
+.event-description-preview :deep(h4),
+.event-description-preview :deep(h5),
+.event-description-preview :deep(h6),
+.event-description-preview :deep(blockquote),
+.event-description-preview :deep(pre),
+.event-description-preview :deep(ul),
+.event-description-preview :deep(ol) {
+  margin: 0;
+}
+
+.event-description-preview :deep(h1),
+.event-description-preview :deep(h2),
+.event-description-preview :deep(h3),
+.event-description-preview :deep(h4),
+.event-description-preview :deep(h5),
+.event-description-preview :deep(h6) {
+  color: var(--teal);
+  font-weight: 700;
+}
+
+.event-description-preview :deep(h1) { font-size: 1.3rem; }
+.event-description-preview :deep(h2) { font-size: 1.2rem; }
+.event-description-preview :deep(h3) { font-size: 1.1rem; }
+.event-description-preview :deep(h4),
+.event-description-preview :deep(h5),
+.event-description-preview :deep(h6) { font-size: 1rem; }
+
+.event-description-preview :deep(strong),
+.event-description-preview :deep(b) {
+  font-weight: 700;
+}
+
+.event-description-preview :deep(em),
+.event-description-preview :deep(i) {
+  font-style: italic;
+}
+
+.event-description-preview :deep(u) {
+  text-decoration: underline;
+}
+
+.event-description-preview :deep(s) {
+  text-decoration: line-through;
+}
+
+.event-description-preview :deep(code) {
+  padding: 0.05rem 0.2rem;
+  border-radius: 3px;
+  background: var(--bg-light);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.event-description-preview :deep(pre) {
+  overflow: hidden;
+  padding: 0.4rem;
+  border-radius: 5px;
+  background: var(--teal);
+  color: var(--white);
+  white-space: pre-wrap;
+}
+
+.event-description-preview :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.event-description-preview :deep(ul),
+.event-description-preview :deep(ol) {
+  padding-left: 1.2rem;
+}
+
+.event-description-preview :deep(ul) {
+  list-style: disc;
+}
+
+.event-description-preview :deep(ol) {
+  list-style: decimal;
+}
+
+.event-description-preview :deep(a) {
+  color: var(--event-dark-green);
+  text-decoration: underline;
+}
+
+.event-description-preview :deep(blockquote) {
+  padding-left: 0.65rem;
+  border-left: 3px solid var(--event-mint-green);
+}
+
+.event-description-preview :deep(img),
+.event-description-preview :deep(figure img) {
+  display: block;
+  max-width: 100%;
+  max-height: 5rem;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.event-description-preview :deep(figure) {
+  margin: 0;
+}
+
+.event-description-preview :deep(figcaption) {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.event-description-preview :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.event-description-preview :deep(th),
+.event-description-preview :deep(td) {
+  border: 1px solid var(--border-light);
+  padding: 0.15rem 0.25rem;
+  text-align: left;
+}
+
+.event-description-preview :deep(hr) {
+  margin: 0.35rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-light);
 }
 
 .event-meta {
@@ -1751,7 +2355,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   font-size: 0.8rem;
   cursor: pointer;
@@ -1786,7 +2390,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .rsvp-choice-waitlist:hover:not(:disabled):not(.active) {
-  background: rgba(94, 169, 158, 0.26);
+  background: rgba(62, 173, 159, 0.26);
   border-color: var(--event-mint-green);
   color: var(--event-air-force-blue);
 }
@@ -1808,7 +2412,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  border: 1px solid rgba(94, 169, 158, 0.34);
+  border: 1px solid rgba(62, 173, 159, 0.34);
 }
 
 .event-waitlist-chip i {
@@ -1827,8 +2431,8 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .event-skeleton-banner {
-  height: 110px;
-  border-radius: 0;
+  aspect-ratio: 4 / 1;
+  height: auto;
 }
 
 .event-skeleton-card--featured .event-skeleton-banner {
@@ -1994,7 +2598,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 .empty-title {
   margin: 0 0 0.4rem;
   font-size: 1.1rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .empty-message {
@@ -2012,7 +2616,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 .event-modal-content {
   max-width: 720px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border: 1px solid var(--border-light);
   /* Replace the global slideIn keyframe for this modal only. */
   animation: events-modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2035,9 +2639,15 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   }
 }
 
+.event-banner,
 .detail-banner {
   position: relative;
-  height: 180px;
+  aspect-ratio: 4 / 1;
+  height: auto;
+  overflow: hidden;
+}
+
+.detail-banner {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2045,7 +2655,6 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
   background: linear-gradient(135deg, var(--event-dark-green), var(--event-mint-green));
   border-radius: 8px;
   margin-bottom: 1rem;
-  overflow: hidden;
 }
 
 .detail-banner .event-banner-img {
@@ -2079,9 +2688,145 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .detail-description {
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.6;
   margin: 1rem 0;
+}
+
+.detail-description-rich :deep(p) {
+  margin: 0.65rem 0;
+}
+
+.detail-description-rich :deep(h1),
+.detail-description-rich :deep(h2),
+.detail-description-rich :deep(h3),
+.detail-description-rich :deep(h4),
+.detail-description-rich :deep(h5),
+.detail-description-rich :deep(h6) {
+  margin: 0.9rem 0 0.45rem;
+  color: var(--teal);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.detail-description-rich :deep(h1) { font-size: 2rem; }
+.detail-description-rich :deep(h2) { font-size: 1.65rem; }
+.detail-description-rich :deep(h3) { font-size: 1.4rem; }
+.detail-description-rich :deep(h4) { font-size: 1.2rem; }
+.detail-description-rich :deep(h5) { font-size: 1.05rem; }
+.detail-description-rich :deep(h6) { font-size: 1rem; }
+
+.detail-description-rich :deep(strong),
+.detail-description-rich :deep(b) {
+  font-weight: 700;
+}
+
+.detail-description-rich :deep(em),
+.detail-description-rich :deep(i) {
+  font-style: italic;
+}
+
+.detail-description-rich :deep(u) {
+  text-decoration: underline;
+}
+
+.detail-description-rich :deep(s) {
+  text-decoration: line-through;
+}
+
+.detail-description-rich :deep(blockquote) {
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.9rem;
+  border-left: 4px solid var(--event-dark-green);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-light);
+  color: var(--text-muted);
+}
+
+.detail-description-rich :deep(blockquote p) {
+  margin: 0;
+}
+
+.detail-description-rich :deep(pre) {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: var(--teal);
+  color: var(--white);
+  white-space: pre-wrap;
+}
+
+.detail-description-rich :deep(code) {
+  padding: 0.08rem 0.25rem;
+  border-radius: 4px;
+  background: var(--bg-light);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.detail-description-rich :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.detail-description-rich :deep(hr) {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-light);
+}
+
+.detail-description-rich :deep(ul),
+.detail-description-rich :deep(ol) {
+  margin: 0.65rem 0;
+  padding-left: 1.5rem;
+}
+
+.detail-description-rich :deep(ul) {
+  list-style: disc;
+}
+
+.detail-description-rich :deep(ol) {
+  list-style: decimal;
+}
+
+.detail-description-rich :deep(a) {
+  color: var(--event-dark-green);
+  text-decoration: underline;
+}
+
+.detail-description-rich :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.75rem 0;
+  border-radius: 8px;
+}
+
+.detail-description-rich :deep(figure) {
+  margin: 0.75rem 0;
+}
+
+.detail-description-rich :deep(figcaption) {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.detail-description-rich :deep(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+}
+
+.detail-description-rich :deep(th),
+.detail-description-rich :deep(td) {
+  border: 1px solid var(--border-light);
+  padding: 0.45rem 0.6rem;
+  text-align: left;
 }
 
 .detail-pending-callout,
@@ -2097,13 +2842,13 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .detail-pending-callout {
-  border: 1px solid rgba(57, 104, 123, 0.28);
+  border: 1px solid rgba(38, 105, 125, 0.28);
   background: var(--event-soft-blue);
   color: var(--event-air-force-blue);
 }
 
 .detail-waitlist-callout {
-  border: 1px solid rgba(94, 169, 158, 0.34);
+  border: 1px solid rgba(62, 173, 159, 0.34);
   background: var(--event-soft-mint);
   color: var(--event-air-force-blue);
 }
@@ -2135,7 +2880,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 .detail-capacity-value {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -2196,7 +2941,7 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 
 /* Reduced-motion: strip non-essential transitions */
 @media (prefers-reduced-motion: reduce) {
-  .event-tab,
+  .tab-pill,
   .filter-input,
   .event-card,
   .rsvp-choice,
@@ -2224,7 +2969,6 @@ const updateRsvp = async (ev: BackendEvent, status: UserRsvpStatus) => {
 }
 
 /* Focus visibility */
-.event-tab:focus-visible,
 .filter-chip:focus-visible,
 .filter-search-clear:focus-visible,
 .rsvp-choice:focus-visible,

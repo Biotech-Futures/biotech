@@ -20,6 +20,10 @@ import {
   MegaphoneIcon,
   CheckSquareIcon,
   LayoutDashboardIcon,
+  ClipboardListIcon,
+  UnlockIcon,
+  StarIcon,
+  SettingsIcon,
 } from "lucide-react";
 
 type NavItem = {
@@ -73,6 +77,16 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Resources", url: "/resource", icon: <FileTextIcon /> },
       { title: "Announcements", url: "/announcement", icon: <MegaphoneIcon /> },
       { title: "Tasks", url: "/task", icon: <CheckSquareIcon /> },
+    ],
+  },
+  {
+    label: "Grading",
+    items: [
+      { title: "Mark by Component", url: "/grading/by-component", icon: <ClipboardListIcon /> },
+      { title: "Mark by Group", url: "/grading/by-group", icon: <UsersIcon /> },
+      { title: "Certificate Setup", url: "/grading/settings", icon: <SettingsIcon /> },
+      { title: "Release Marks", url: "/grading/release", icon: <UnlockIcon /> },
+      { title: "Finalists", url: "/grading/finalists", icon: <StarIcon /> },
     ],
   },
 ];

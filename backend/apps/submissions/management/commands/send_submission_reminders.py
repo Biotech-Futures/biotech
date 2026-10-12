@@ -1,0 +1,43 @@
+"""Send today's submission reminders; safe to re-run, as teams already reminded today are skipped.
+
+    python manage.py send_submission_reminders [--dry-run]
+"""
+from django.core.management.base import BaseCommand
+
+from apps.submissions.reminders import send_due_reminders, teams_due
+
+
+class Command(BaseCommand):
+    help = "Email teams whose submission is incomplete in the final week."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="List who would be reminded without sending or recording anything.",
+        )
+
+    def handle(self, *args, **options):
+        dry_run = options["dry_run"]
+
+        if dry_run:
+            due = teams_due()
+            for group, submission, closes_at in due:
+                state = "no entry started" if submission is None else "entry incomplete"
+                self.stdout.write(
+                    f"  {group.group_name}: {state}, closes {closes_at:%Y-%m-%d %H:%M} UTC"
+                )
+            self.stdout.write(self.style.WARNING(f"{len(due)} team(s) would be reminded."))
+            return
+
+        result = send_due_reminders()
+        if result.get("disabled"):
+            self.stdout.write(self.style.WARNING("Submission reminders are turned off."))
+            return
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Reminders sent: {result['sent']}. "
+                f"Skipped (no students): {result['skipped']}. "
+                f"Failed: {result['failed']}."
+            )
+        )

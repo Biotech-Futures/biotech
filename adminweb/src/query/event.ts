@@ -125,18 +125,6 @@ export function useQueryEventRsvps(eventId: number | null) {
 
 // ── Reference data ────────────────────────────────────────────────────────────
 
-export function useQueryGroups() {
-  return useQuery({
-    queryKey: ["event-meta-groups"],
-    queryFn: async (): Promise<ApiResponse<{ id: number; groupName: string }[]>> => {
-      const res = await myFetch.get<ApiResponse<{ id: number; groupName: string }[]>>(
-        "/event/meta/groups",
-      );
-      return res.data;
-    },
-  });
-}
-
 export function useQueryRoles() {
   return useQuery({
     queryKey: ["event-meta-roles"],
@@ -166,15 +154,20 @@ export function useQueryEventTargets(eventId: number | null) {
 
 function toApiEventPayload(data: CreateEvent | UpdateEvent) {
   const tz = data.eventTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return {
+  const payload: Record<string, unknown> = {
     ...data,
     hostUserId: data.hostUserId ?? null,
     startAt: localInTzToUtcIso(data.startAt, tz),
     endsAt: localInTzToUtcIso(data.endsAt, tz),
     location_link: data.locationLink ?? null,
     locationLink: undefined,
-    eventImage: data.eventImage ?? null,
   };
+  // Updates intentionally omit eventImage when the Image URL field was not
+  // touched, allowing the backend to preserve an existing uploaded banner.
+  if (Object.prototype.hasOwnProperty.call(data, "eventImage")) {
+    payload.eventImage = data.eventImage ?? null;
+  }
+  return payload;
 }
 
 /**

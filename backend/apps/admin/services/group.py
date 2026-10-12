@@ -5,18 +5,22 @@ from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanFi
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction, IntegrityError
+from django.db import transaction
 
 from apps.groups.models import (
     GroupAutoNameUnavailable,
+    GroupNameTaken,
     Groups,
     GroupMembership,
+    duplicate_group_name_error,
     generate_group_name,
     group_name_sort_key,
     next_group_number,
+    saving_group_name,
 )
+from apps.groups.models.groups import default_group_year
 from apps.chat.models import Messages
-from apps.users.models import User, MentorProfile, StudentProfile
+from apps.users.models import User, StudentProfile
 from apps.audit.services import log_audit_event
 
 
@@ -68,11 +72,17 @@ class PaginatedResponse(TypedDict):
     has_more: bool
 
 
-def _get_member_role(user_id: int) -> Optional[str]:
-    """Determine if a user is a mentor or student."""
-    if MentorProfile.objects.filter(user_id=user_id).exists():
+def _get_member_role(user) -> Optional[str]:
+    """Determine if a user is a mentor or student.
+
+    Reads the reverse one-to-one profiles off the user object — callers must
+    select_related("user__mentorprofile", "user__studentprofile") so this
+    stays query-free (a missing profile surfaces as an AttributeError, which
+    getattr absorbs without hitting the database).
+    """
+    if getattr(user, "mentorprofile", None) is not None:
         return "mentor"
-    if StudentProfile.objects.filter(user_id=user_id).exists():
+    if getattr(user, "studentprofile", None) is not None:
         return "student"
     return None
 
@@ -109,7 +119,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     
     for membership in members_qs:
         user = membership.user
-        role = _get_member_role(user.id)
+        role = _get_member_role(user)
         
         if not role:
             continue
@@ -394,7 +404,7 @@ def query_group_messages(
     items = []
     for msg in message_records:
         sender_user = msg.sender_user
-        role = _get_member_role(sender_user.id)
+        role = _get_member_role(sender_user)
 
         attachments = []
         for att in msg.attachments.all():
@@ -468,19 +478,11 @@ def _clean_group_name(name) -> str:
         raise ValueError("Group name is required")
 
     # save() skips field validators, so an over-length name would otherwise reach
-    # Postgres as a DataError -- which `except IntegrityError` cannot catch.
+    # Postgres as a DataError.
     if len(cleaned) > GROUP_NAME_MAX_LENGTH:
         raise ValueError(f"Group name must be {GROUP_NAME_MAX_LENGTH} characters or fewer")
 
     return cleaned
-
-
-def _active_name_taken(name: str, exclude_pk: Optional[int] = None) -> bool:
-    """Whether another active group already holds this name."""
-    qs = Groups.objects.filter(group_name=name, deleted_at__isnull=True)
-    if exclude_pk is not None:
-        qs = qs.exclude(pk=exclude_pk)
-    return qs.exists()
 
 
 def _is_blank_name(name) -> bool:
@@ -510,7 +512,8 @@ def create_group(name: Optional[str] = None) -> dict:
 
     Args:
         name: The group name. Optional — when blank, the next sequential
-            ``BTF<n>`` name is used. Must be unique among active groups.
+            ``BTF<n>`` name is used. Refused if another active group in this
+            year already has it (ignoring case and extra spaces).
 
     Returns:
         Dictionary with the created group data or an error message
@@ -526,16 +529,15 @@ def create_group(name: Optional[str] = None) -> dict:
         except ValueError as exc:
             return {"msg": str(exc), "data": None}
 
-        if _active_name_taken(cleaned):
-            return {"msg": "A group with this name already exists", "data": None}
-
+        year = default_group_year()
+        taken = duplicate_group_name_error(cleaned, year)
+        if taken:
+            return {"msg": taken, "data": None}
         try:
-            # Inner atomic so a name that raced past the check above only rolls back
-            # to a savepoint, rather than poisoning the transaction we were called in.
-            with transaction.atomic():
+            with saving_group_name(cleaned, year):
                 group = Groups.objects.create(group_name=cleaned)
-        except IntegrityError:
-            return {"msg": "A group with this name already exists", "data": None}
+        except GroupNameTaken as exc:
+            return {"msg": str(exc), "data": None}
 
     base_row = _fetch_group_base_by_id(group.id)
     groups = _build_groups([base_row]) if base_row else []
@@ -552,7 +554,8 @@ def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -
 
     Args:
         group_id: The group ID as string
-        name: New group name (must be unique among active groups)
+        name: New group name; refused if another active group in the same year
+            already has it (ignoring case and extra spaces)
         initiated_by: Admin performing the update, recorded on the audit event
 
     Returns:
@@ -577,18 +580,16 @@ def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -
             return {"msg": str(exc), "data": None}
 
         if cleaned != group.group_name:
-            if _active_name_taken(cleaned, exclude_pk=gid):
-                return {"msg": "A group with this name already exists", "data": None}
-
+            taken = duplicate_group_name_error(cleaned, group.year, exclude_id=gid)
+            if taken:
+                return {"msg": taken, "data": None}
             before_state = {"name": group.group_name}
             group.group_name = cleaned
             try:
-                # Inner atomic so a name that raced past the check above only rolls back
-                # to a savepoint, rather than poisoning the transaction we were called in.
-                with transaction.atomic():
+                with saving_group_name(cleaned, group.year):
                     group.save(update_fields=["group_name"])
-            except IntegrityError:
-                return {"msg": "A group with this name already exists", "data": None}
+            except GroupNameTaken as exc:
+                return {"msg": str(exc), "data": None}
 
             log_audit_event(
                 actor=initiated_by,
