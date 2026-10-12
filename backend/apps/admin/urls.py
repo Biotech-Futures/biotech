@@ -77,6 +77,7 @@ urlpatterns = [
     path('announcement/<int:announcement_id>/notify/', views.AnnouncementNotifyView.as_view(), name='announcement-notify'),
     path('announcement/groups/', views.AnnouncementGroupsListView.as_view(), name='announcement-groups-list'),
     path('announcement/roles/', views.AnnouncementRolesListView.as_view(), name='announcement-roles-list'),
+    path('announcement/merge-tags/', views.AnnouncementMergeTagsView.as_view(), name='announcement-merge-tags'),
     
     # ========================================================================
     # MENTOR ROUTES

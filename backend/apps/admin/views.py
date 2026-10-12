@@ -56,7 +56,7 @@ from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, delete_announcement, send_announcement_email,
-    list_announcement_groups, list_announcement_roles,
+    list_announcement_groups, list_announcement_roles, list_announcement_merge_tags,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
@@ -1079,6 +1079,15 @@ class AnnouncementRolesListView(APIView):
 
     def get(self, request):
         result = list_announcement_roles()
+        return Response(result)
+
+
+class AnnouncementMergeTagsView(APIView):
+    """GET /api/v1/announcement/merge-tags - The merge tags a composer offers"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = list_announcement_merge_tags()
         return Response(result)
 
 
