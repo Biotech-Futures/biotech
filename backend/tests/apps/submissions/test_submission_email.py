@@ -76,13 +76,14 @@ class SubmissionEmailTests(TestCase):
         return self.client.post(self.submit_url, {}, format="json")
 
     def test_an_automated_submission_sends_no_email(self):
+        # Closed before the draft exists, so both sit in the same year even just after New Year.
+        Deadline.objects.update(closes_at=timezone.now() - timedelta(hours=1), grace_hours=0)
         submission, _ = Submission.objects.get_or_create(group=self.group)
         submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {"storage_key": "x/poster.pdf", "name": "poster.pdf", "mime": "application/pdf", "size": 100}
         submission.poster_checklist = CONFIRMED_CHECKLIST
         submission.save()
-        Deadline.objects.update(closes_at=timezone.now() - timedelta(hours=1), grace_hours=0)
 
         self.assertEqual(auto_submit_due()["submitted"], ["BTF-EMAIL"])
 
