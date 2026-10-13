@@ -18,15 +18,17 @@
       </div>
 
       <div class="page-actions">
-
-        <button type="button" class="export-button" :disabled="loading || !!loadError || !availableYears.length || userGroupCountsUnavailable || userRecentGroupCountsUnavailable || exporting" @click="exportCsv">
-          <i class="fas fa-download" aria-hidden="true"></i>
-          Export CSV
-        </button>
+        <div class="analytics-export-stack">
+          <button type="button" class="export-button" :disabled="loading || !!loadError || !availableYears.length || userGroupCountsUnavailable || userRecentGroupCountsUnavailable || exporting" @click="exportCsv">
+            <i class="fas fa-download" aria-hidden="true"></i>
+            Export CSV
+          </button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </div>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
 

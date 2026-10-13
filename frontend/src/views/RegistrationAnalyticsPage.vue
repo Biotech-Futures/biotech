@@ -17,23 +17,17 @@
       </div>
 
       <div class="page-actions">
-        <button
-          class="analytics-refresh-button"
-          type="button"
-          :disabled="isLoading"
-          @click="refreshAnalytics"
-        >
-          <i class="fas fa-rotate-right" aria-hidden="true"></i>
-          Refresh
-        </button>
-        <button class="export-button" type="button" :disabled="exportDisabled" @click="downloadVisibleRows">
-          <i class="fas fa-download" aria-hidden="true"></i>
-          Export CSV
-        </button>
+        <div class="analytics-export-stack">
+          <button class="export-button" type="button" :disabled="exportDisabled" @click="downloadVisibleRows">
+            <i class="fas fa-download" aria-hidden="true"></i>
+            Export CSV
+          </button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </header>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -42,7 +36,6 @@
       empty-message="No student or mentor registration records are available in the current database. Generate or load a dataset, then refresh this page."
       @retry="refreshAnalytics"
     >
-    <p class="card-subtitle">Dates show account creation for accounts currently on the platform. Removed accounts are excluded; older records may use invitation dates. Guardian completion is tracked separately.</p>
     <section class="filter-card sticky-filter-card" aria-label="Registration filters">
       <label>
         <span>Trend start date</span>

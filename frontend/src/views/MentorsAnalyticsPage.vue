@@ -15,17 +15,19 @@
       </div>
       <div class="page-actions">
         <label class="range-control"
-          ><i class="fas fa-calendar" aria-hidden="true"></i><span class="sr-only">Activity date range</span
-          ><select v-model="preset" aria-label="Activity date range">
-            <option value="year">{{ snapshotYear }} · year to snapshot</option>
-            <option value="90">Last 90 days</option>
-            <option value="30">Last 30 days</option>
-            <option value="custom">Custom dates</option>
+          ><i class="fas fa-calendar" aria-hidden="true"></i><span class="sr-only">Select analytics year</span
+          ><select v-model.number="selectedYear" aria-label="Select analytics year">
+            <option v-for="year in availableYears" :key="year" :value="year">{{ year }}</option>
           </select></label
         >
-        <button type="button" class="export-button" :disabled="loading || !!loadError || !!rangeError" @click="exportCsv">
-          <i class="fas fa-download" aria-hidden="true"></i>Export CSV
-        </button>
+        <div class="analytics-export-stack">
+          <button type="button" class="export-button" :disabled="loading || !!loadError || !!rangeError" @click="exportCsv">
+            <i class="fas fa-download" aria-hidden="true"></i>Export CSV
+          </button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </header>
     <div v-if="loadError" class="range-error" role="alert">
@@ -34,22 +36,8 @@
     </div>
     <p v-else-if="loading" role="status">Loading mentor analytics…</p>
     <template v-else>
-    <div v-if="preset === 'custom'" class="custom-range">
-      <label
-        >Activity start<input v-model="customStart" type="date" aria-label="Activity start"
-      /></label>
-      <label>Activity end<input v-model="customEnd" type="date" aria-label="Activity end" /></label>
-    </div>
     <p v-if="rangeError" class="range-error" role="alert">{{ rangeError }}</p>
-    <p class="scope-note">
-      <BtfIcon name="info" :size="16" /><span
-        >Allocation, capacity and last login: snapshot at <strong>{{ snapshotDateDisplay }} (UTC)</strong>. Date
-        filters apply only to activity and rankings.</span
-      >
-    </p>
     <p v-if="exportStatus" class="export-status" role="status">{{ exportStatus }}</p>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <section class="kpi-grid" aria-label="Mentor snapshot summary">
       <article v-for="item in kpis" :key="item.label" class="kpi-card">
@@ -424,14 +412,12 @@ const loadError = ref('')
 const loading = ref(true)
 const mentorsSnapshotDate = ref(new Date().toISOString().slice(0, 10))
 const snapshotYear = computed(() => Number(mentorsSnapshotDate.value.slice(0, 4)))
-const snapshotDateDisplay = computed(() =>
-  new Date(`${mentorsSnapshotDate.value}T00:00:00Z`).toLocaleDateString('en-AU', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }),
-)
+const selectedYear = ref(snapshotYear.value)
+const availableYears = computed(() => {
+  const years = new Set<number>([snapshotYear.value])
+  liveEvents.value.forEach((event) => years.add(Number(event.date.slice(0, 4))))
+  return [...years].filter(Number.isFinite).sort((a, b) => b - a)
+})
 const snapshot = computed(() =>
   mentorSnapshot(liveMentors.value, liveEvents.value, mentorsSnapshotDate.value),
 )
@@ -443,17 +429,12 @@ const mentorInsightItems = computed(() =>
     detail: item.detail,
   })),
 )
-const preset = ref('year')
-const customStart = ref(`${snapshotYear.value}-01-01`)
-const customEnd = ref(mentorsSnapshotDate.value)
 const range = computed(() => {
-  if (preset.value === 'custom') return { start: customStart.value, end: customEnd.value }
-  const start = new Date(`${mentorsSnapshotDate.value}T00:00:00Z`)
-  if (preset.value === 'year') {
-    return { start: `${snapshotYear.value}-01-01`, end: mentorsSnapshotDate.value }
+  const year = selectedYear.value
+  return {
+    start: `${year}-01-01`,
+    end: year === snapshotYear.value ? mentorsSnapshotDate.value : `${year}-12-31`,
   }
-  start.setUTCDate(start.getUTCDate() - Number(preset.value) + 1)
-  return { start: start.toISOString().slice(0, 10), end: mentorsSnapshotDate.value }
 })
 const rangeError = computed(() => {
   if (!validRange(range.value))
@@ -685,8 +666,7 @@ async function initializeMentors(force = false, preserveFilters = false) {
     liveMentors.value = live.mentors
     liveEvents.value = live.events
     mentorsSnapshotDate.value = live.snapshotDate
-    if (!preserveFilters) customStart.value = `${live.snapshotDate.slice(0, 4)}-01-01`
-    if (!preserveFilters) customEnd.value = live.snapshotDate
+    if (!preserveFilters) selectedYear.value = Number(live.snapshotDate.slice(0, 4))
     markUpdated()
   } catch (error) {
     if (preserveFilters && lastUpdated.value) { markRefreshFailed(); return }
@@ -1281,8 +1261,7 @@ h2 {
 }
 
 
-/* Mentors keeps its existing date-range choices, but sizes the control
-   to the same action-bar height as Groups Analytics. */
+/* Match the year selector used by the other analytics pages. */
 .range-control {
   display: inline-flex !important;
   align-items: center !important;
@@ -1341,7 +1320,7 @@ h2 {
 }
 
 .mentors-analytics-page .range-control {
-  width: 210px !important;
+  width: 120px !important;
   padding: 0 13px !important;
   border: 1px solid #9fd8c7 !important;
   color: #017151 !important;

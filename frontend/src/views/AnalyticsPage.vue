@@ -25,25 +25,19 @@
             </option>
           </select>
         </label>
-        <button
-          class="analytics-refresh-button"
-          type="button"
-          :disabled="isLoading"
-          @click="refreshAnalytics"
-        >
-          <i class="fas fa-rotate-right" aria-hidden="true"></i>
-          Refresh
-        </button>
-        <button class="export-button" type="button" :disabled="exportDisabled || exporting" @click="exportCsv">
-          <i class="fas fa-download"></i>
-          Export CSV
-        </button>
+        <div class="analytics-export-stack">
+          <button class="export-button" type="button" :disabled="exportDisabled || exporting" @click="exportCsv">
+            <i class="fas fa-download"></i>
+            Export CSV
+          </button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </header>
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <p v-if="unavailableSources.length" class="partial-data-notice" role="status">
       Some analytics modules are unavailable. Available statistics are shown below;

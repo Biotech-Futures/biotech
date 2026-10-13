@@ -18,7 +18,7 @@
       </div>
 
       <div class="page-actions">
-        <label v-if="availableYears.length > 1" class="year-control">
+        <label class="year-control">
           <i class="fas fa-calendar" aria-hidden="true"></i>
           <select v-model.number="selectedYear" aria-label="Select analytics year">
             <option v-for="year in availableYears" :key="year" :value="year">
@@ -27,26 +27,19 @@
           </select>
         </label>
 
-        <button
-          type="button"
-          class="analytics-refresh-button"
-          :disabled="isLoading"
-          @click="refreshAnalytics"
-        >
-          <i class="fas fa-rotate-right" aria-hidden="true"></i>
-          Refresh
-        </button>
-
-        <button type="button" class="export-button" :disabled="exportDisabled || exporting" @click="exportCsv">
-          <i class="fas fa-download" aria-hidden="true"></i>
-          Export CSV
-        </button>
+        <div class="analytics-export-stack">
+          <button type="button" class="export-button" :disabled="exportDisabled || exporting" @click="exportCsv">
+            <i class="fas fa-download" aria-hidden="true"></i>
+            Export CSV
+          </button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </div>
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <AnalyticsDataState
       :loading="isLoading"

@@ -14,20 +14,14 @@
         <p>Monitor resource access and engagement across the program.</p>
       </div>
       <div class="page-actions">
-        <button
-          type="button"
-          class="analytics-refresh-button"
-          :disabled="isLoading"
-          @click="refreshAnalytics"
-        >
-          <i class="fas fa-rotate-right"></i>
-          Refresh
-        </button>
-        <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv"><i class="fas fa-download"></i> Export CSV</button>
+        <div class="analytics-export-stack">
+          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv"><i class="fas fa-download"></i> Export CSV</button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </div>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <AnalyticsDataState
       :loading="isLoading"

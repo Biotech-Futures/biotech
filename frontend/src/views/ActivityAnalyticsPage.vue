@@ -27,24 +27,17 @@
           </select>
         </label>
 
-        <button
-          type="button"
-          class="analytics-refresh-button"
-          :disabled="isLoading"
-          @click="refreshAnalytics"
-        >
-          <i class="fas fa-rotate-right" aria-hidden="true"></i>
-          Refresh
-        </button>
-
-        <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
-          <i class="fas fa-download" aria-hidden="true"></i>
-          Export CSV
-        </button>
+        <div class="analytics-export-stack">
+          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
+            <i class="fas fa-download" aria-hidden="true"></i>
+            Export CSV
+          </button>
+          <div class="analytics-update-status">
+            <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
+          </div>
+        </div>
       </div>
     </div>
-
-    <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -1146,6 +1139,7 @@ const groupRows = computed<GroupActivityDetailRow[]>(() => {
 })
 
 function matchesGroupPeriod(group: GroupActivityDetailRow) {
+  if (selectedStatus.value === 'all') return true
   if (selectedStatus.value === 'Not started') return group.lastActiveDate === null
   if (selectedStatus.value === 'Inactive') return true
   if (!group.lastActiveDate) return false

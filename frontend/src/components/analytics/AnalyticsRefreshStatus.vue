@@ -1,7 +1,6 @@
 <template>
-  <p class="analytics-refresh-status" role="status" aria-live="polite">
+  <p v-if="updatedAt || refreshFailed" class="analytics-refresh-status" role="status" aria-live="polite">
     <span v-if="updatedAt">Last updated: {{ formattedTime }}.</span>
-    Automatically refreshes every 5 minutes. Reloading this page fetches fresh data.
     <span v-if="refreshFailed">Latest refresh failed; showing the last successfully loaded data.</span>
   </p>
 </template>
@@ -15,5 +14,18 @@ const formattedTime = computed(() => props.updatedAt
 </script>
 
 <style scoped>
-.analytics-refresh-status { margin: 12px 0; color: #536763; font-size: 13px; }
+.analytics-refresh-status {
+  margin: 8px 0 0;
+  color: #536763;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .analytics-refresh-status {
+    white-space: normal;
+  }
+}
 </style>

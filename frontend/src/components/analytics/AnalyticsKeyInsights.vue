@@ -42,6 +42,11 @@ withDefaults(defineProps<{
 </script>
 
 <style scoped>
+.key-insights-content {
+  container-type: inline-size;
+  min-width: 0;
+}
+
 .key-insights-heading {
   display: flex;
   align-items: center;
@@ -50,6 +55,7 @@ withDefaults(defineProps<{
 
 :global(.analytics-card:has(.key-insights-content)) {
   overflow: visible !important;
+  height: auto !important;
 }
 
 .key-insights-heading h2 {
@@ -112,22 +118,25 @@ withDefaults(defineProps<{
 }
 
 .key-insights-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-width: 0;
   margin-top: 10px;
 }
 
 .key-insights-row {
   display: grid;
-  grid-template-columns: fit-content(42%) minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
+  grid-template-columns: minmax(64px, 38%) minmax(0, 1fr);
+  column-gap: clamp(12px, 3cqi, 28px);
+  align-items: start;
+  min-width: 0;
   padding: 9px 0;
   border-top: 1px solid #e7eeeb;
 }
 
 .key-insights-content--two-columns .key-insights-list {
-  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 24px;
+  column-gap: clamp(24px, 5cqi, 56px);
 }
 
 .key-insights-row strong {
@@ -148,6 +157,7 @@ withDefaults(defineProps<{
   color: #536762;
   font-size: 12px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .key-insights-copy small {

@@ -68,6 +68,42 @@
   cursor: pointer;
 }
 
+.analytics-export-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: 0 0 auto;
+  padding-bottom: 29px;
+}
+
+.page-actions.page-actions .analytics-export-stack > .export-button {
+  align-self: flex-end;
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.analytics-update-status {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  width: max-content;
+  max-width: calc(100vw - 40px);
+}
+
+.page-actions.page-actions:has(> .analytics-export-stack) {
+  align-items: flex-start !important;
+  width: max-content !important;
+  max-width: 100%;
+}
+
+.page-actions:has(> .analytics-export-stack) > :not(.analytics-export-stack) {
+  align-self: flex-start !important;
+  flex: 0 0 auto !important;
+}
+
 .analytics-refresh-button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--btf-light-green) 45%, white);
 }
@@ -349,7 +385,7 @@
 
 /* Insights / attention */
 .analytics-page .attention-panel,
-.messages-analytics-page [class*="-insight"],
+.messages-analytics-page .insights-card,
 .activity-analytics-page .insights-card,
 .groups-analytics-page [class*="insight-"] {
   border-color: var(--btf-border) !important;
