@@ -211,7 +211,7 @@
           </div>
           <div class="admin-users-detail__item">
             <dt>Background</dt>
-            <dd>{{ user.mentorBackground || '—' }}</dd>
+            <dd>{{ mentorBackgroundLabel(user.mentorBackground) }}</dd>
           </div>
           <div class="admin-users-detail__item">
             <dt>Mentor reason</dt>
@@ -283,6 +283,7 @@ import {
   joinInterests,
   labelizeCountry,
   labelizeState,
+  mentorBackgroundLabel,
   roleLabel,
   superviseesLabel,
   supervisorLabel,

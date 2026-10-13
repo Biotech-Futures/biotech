@@ -1,4 +1,5 @@
 import { parseInterestList, type CsvTemplate, type ImportRowError } from './adminStudentCsv'
+import { isMentorBackground, type MentorBackground } from './userOptions'
 
 export interface MentorImportRow {
   firstName: string
@@ -10,7 +11,7 @@ export interface MentorImportRow {
   interests: string[]
   mentorReason: string
   mentorInstitution: string
-  mentorBackground: string | null
+  mentorBackground: MentorBackground | null
   mentorMaxGroupCount: number
   /** Set when the raw Background value could not be mapped to the backend enum. */
   backgroundNote?: string
@@ -88,10 +89,12 @@ function parseCsvRows(text: string): string[][] {
   return rows
 }
 
-function mapMentorBackground(raw: string): string | null {
+function mapMentorBackground(raw: string): MentorBackground | null {
   const value = raw.trim().toLowerCase()
   if (!value) return null
-  if (value === 'industry') return 'industry'
+  // Any of the five categories, by key or label (each label lowercases to its key).
+  if (isMentorBackground(value)) return value
+  // Registration exports describe students more loosely ("HDR candidate").
   if (value.includes('undergraduate')) return 'undergraduate'
   if (value.includes('postgraduate')) return 'postgraduate'
   if (value.includes('hdr')) return 'hdr'

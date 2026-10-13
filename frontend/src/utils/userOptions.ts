@@ -3,6 +3,22 @@
 export const USER_ROLES = ['student', 'mentor', 'supervisor', 'admin'] as const
 export type UserRole = (typeof USER_ROLES)[number]
 
+/**
+ * Mentor background categories, in display order. `value` is the key the
+ * backend stores (MentorProfile.BackgroundChoices); each label lowercases to it.
+ */
+export const MENTOR_BACKGROUND_OPTIONS = [
+  { value: 'academic', label: 'Academic' },
+  { value: 'industry', label: 'Industry' },
+  { value: 'undergraduate', label: 'Undergraduate' },
+  { value: 'postgraduate', label: 'Postgraduate' },
+  { value: 'hdr', label: 'HDR' }
+] as const
+export type MentorBackground = (typeof MENTOR_BACKGROUND_OPTIONS)[number]['value']
+
+export const isMentorBackground = (value: unknown): value is MentorBackground =>
+  MENTOR_BACKGROUND_OPTIONS.some((option) => option.value === value)
+
 export const INTEREST_OPTIONS = [
   'Biomedical Innovations',
   'Environmental Sustainability & Climate Tech',
