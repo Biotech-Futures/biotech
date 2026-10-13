@@ -136,6 +136,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onMounted, reactive, ref } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
@@ -201,6 +202,13 @@ const selectedAudienceRole = ref<'all' | 'Student' | 'Mentor' | 'Supervisor'>('a
 type ResourceSortKey = 'clicks' | 'uniqueUsers'
 const resourceSortKey = ref<ResourceSortKey | null>(null)
 const resourceSortDirection = ref<'asc' | 'desc'>('desc')
+
+useAnalyticsRefreshState('resources', {
+  search,
+  selectedAudienceRole,
+  resourceSortKey,
+  resourceSortDirection,
+}, () => !isLoading.value && hasLoaded.value)
 const tooltip = ref({ visible:false,x:0,y:0,title:'',value:'',detail:'' })
 const maxDailyClicks = computed(() => Math.max(...data.dailyClicks.map(p => p.clicks),1))
 const dailyAxisMax = computed(() => Math.max(4, Math.ceil(maxDailyClicks.value / 4) * 4))

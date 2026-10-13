@@ -825,6 +825,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onMounted, ref } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
@@ -1282,6 +1283,12 @@ const registrationAxisMax = computed(() => axisTicks(maxRegistration.value)[0] ?
 
 const maxRegion = computed(() => Math.max(...data.value.regions.map((item) => item.value), 1))
 const hiddenRegistrationRoles = ref<string[]>([])
+
+useAnalyticsRefreshState('users', {
+  selectedYear,
+  hiddenRegistrationRoles,
+  regionExpanded,
+}, () => !isLoading.value && hasLoaded.value)
 
 const interestSortDirection = ref<'asc' | 'desc'>('desc')
 

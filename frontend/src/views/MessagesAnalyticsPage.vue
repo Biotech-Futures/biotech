@@ -553,6 +553,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onMounted, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
@@ -723,6 +724,21 @@ const showAllMessageDetails = ref(false)
 type DetailsSortKey = 'value' | 'avgPerDay' | 'last7Days' | 'share'
 const detailsSortKey = ref<DetailsSortKey>('value')
 const detailsSortDirection = ref<'asc' | 'desc'>('desc')
+
+useAnalyticsRefreshState('messages', {
+  selectedYear,
+  startDate,
+  endDate,
+  interval,
+  selectedGroupId,
+  contentMode,
+  selectedUserRole,
+  breakdownSortDirection,
+  detailsSearch,
+  showAllMessageDetails,
+  detailsSortKey,
+  detailsSortDirection,
+}, () => !loading.value && !!baseBundle.value)
 const effectiveDetailsSortKey = computed<DetailsSortKey>(() =>
   contentMode.value === 'users' && !['value', 'last7Days'].includes(detailsSortKey.value)
     ? 'value'

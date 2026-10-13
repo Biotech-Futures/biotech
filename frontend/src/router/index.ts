@@ -55,7 +55,14 @@ normalizeDirectAuthRedirect()
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: routes
+  routes: routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (to.path.startsWith('/analytics') && to.path !== from.path && !to.hash) {
+      return { left: 0, top: 0 }
+    }
+
+    return savedPosition ?? undefined
+  },
 })
 
 import { useAuthStore } from '../stores/auth'

@@ -2,27 +2,63 @@
   <Transition name="chart-tooltip-fade">
     <div
       v-if="visible"
+      ref="tooltipElement"
       class="chart-tooltip"
-      :style="{ left: `${x}px`, top: `${y}px` }"
+      :style="tooltipStyle"
       role="status"
       aria-live="polite"
     >
-      <strong>{{ title }}</strong>
-      <span>{{ value }}</span>
+      <strong v-if="title">{{ title }}</strong>
+      <span v-if="value">{{ value }}</span>
       <small v-if="detail">{{ detail }}</small>
     </div>
   </Transition>
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { computed, onUpdated, reactive, ref } from 'vue'
+
+const props = defineProps<{
   visible: boolean
   x: number
   y: number
-  title: string
-  value: string
+  title?: string
+  value?: string
   detail?: string
 }>()
+
+const tooltipElement = ref<HTMLElement | null>(null)
+const tooltipSize = reactive({ width: 180, height: 68 })
+const cursorGap = -20
+const viewportPadding = 8
+
+onUpdated(() => {
+  const rect = tooltipElement.value?.getBoundingClientRect()
+  if (!rect) return
+  if (Math.abs(tooltipSize.width - rect.width) > 0.5) tooltipSize.width = rect.width
+  if (Math.abs(tooltipSize.height - rect.height) > 0.5) tooltipSize.height = rect.height
+})
+
+const tooltipStyle = computed(() => {
+  const viewportWidth = typeof window === 'undefined' ? 1920 : window.innerWidth
+  const viewportHeight = typeof window === 'undefined' ? 1080 : window.innerHeight
+  const maximumLeft = Math.max(viewportPadding, viewportWidth - tooltipSize.width - viewportPadding)
+  const preferredTop = props.y - cursorGap - tooltipSize.height
+
+  const leftAbove = props.x - cursorGap - tooltipSize.width
+  const centreAbove = props.x - tooltipSize.width / 2
+  const rightAbove = props.x + cursorGap
+  const left = leftAbove >= viewportPadding
+    ? leftAbove
+    : centreAbove >= viewportPadding && centreAbove <= maximumLeft
+      ? centreAbove
+      : Math.min(Math.max(rightAbove, viewportPadding), maximumLeft)
+
+  return {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(Math.min(Math.max(preferredTop, viewportPadding), viewportHeight - tooltipSize.height - viewportPadding))}px`,
+  }
+})
 </script>
 
 <style scoped>
@@ -36,7 +72,6 @@ defineProps<{
   flex-direction: column;
   gap: 3px;
   padding: 9px 11px;
-  transform: translate(10px, 10px);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 9px;
   background: var(--btf-teal);

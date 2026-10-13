@@ -564,6 +564,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
@@ -615,6 +616,11 @@ const exportDisabled = computed(() => isLoading.value || !!loadError.value || is
 const analyticsSnapshotAt = ref<string | null>(null)
 const logSearch = ref('')
 const logStatus = ref('all')
+
+useAnalyticsRefreshState('email', {
+  logSearch,
+  logStatus,
+}, () => !isLoading.value && hasLoaded.value)
 
 const filteredLogs = computed(() => {
   const query = logSearch.value.toLowerCase()

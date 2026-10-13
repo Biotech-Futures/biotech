@@ -342,6 +342,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
@@ -639,6 +640,12 @@ const displayedAttentionItems = computed(() =>
 )
 
 const showAllIssues = ref(false)
+
+useAnalyticsRefreshState('overview', {
+  selectedYear,
+  registrationPeriod,
+  showAllIssues,
+}, () => !isLoading.value && hasLoaded.value)
 
 const attentionIssueMeta: Record<
   string,

@@ -387,6 +387,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 
@@ -462,6 +463,19 @@ const visibleSeries = ref<TrendSeries[]>(['students', 'mentors'])
 const page = ref(1)
 const pageSize = 7
 const route = useRoute()
+
+useAnalyticsRefreshState('registration', {
+  startDate,
+  endDate,
+  interval,
+  statusFilter,
+  activeIssue,
+  activeAgeBucket,
+  searchQuery,
+  sortDirection,
+  visibleSeries,
+  page,
+}, () => !isLoading.value && hasLoaded.value)
 
 const tooltip = ref({ visible: false, x: 0, y: 0, title: '', value: '', detail: '' })
 

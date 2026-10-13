@@ -271,28 +271,6 @@
             </div>
           </div>
         </article>
-
-        <article class="analytics-card activity-compare-card compact-compare-card side-compare-card">
-          <h2>Activity Comparison</h2>
-          <p v-if="previousYear">{{ selectedYear }} vs {{ previousYear }} · same 7-day period</p>
-          <p v-else>No earlier year is available for comparison.</p>
-          <div v-if="previousYear" class="compact-comparison-values">
-            <div>
-              <span>{{ selectedYear }}</span>
-              <strong>{{ currentActivityTotal.toLocaleString() }}</strong>
-            </div>
-            <span class="comparison-arrow" aria-hidden="true">↔</span>
-            <div>
-              <span>{{ previousYear }}</span>
-              <div class="comparison-number-row">
-                <strong>{{ comparisonActivityTotal.toLocaleString() }}</strong>
-                <b class="comparison-change" :class="comparisonChange >= 0 ? 'positive' : 'negative'">
-                  {{ comparisonChange >= 0 ? '↑' : '↓' }} {{ Math.abs(comparisonChange) }}%
-                </b>
-              </div>
-            </div>
-          </div>
-        </article>
       </div>
     </div>
 
@@ -378,15 +356,19 @@
         </article>
 
         <article class="analytics-card group-status-summary-card">
-          <h2>Provisional Group Activity Status</h2>
-          <p class="card-subtitle">
-            Temporary demo heuristic based on the latest observed 7-day message window; the final
-            product definition is still awaiting confirmation.
-          </p>
+          <h2>Group Activity Status</h2>
 
           <div class="group-status-summary-list">
-            <div
-              class="group-status-summary-row interactive-chart-row"
+            <button
+              type="button"
+              :class="[
+                'group-status-summary-row',
+                'interactive-chart-row',
+                { 'is-selected': highlightedGroupStatus === 'Active' },
+              ]"
+              :aria-pressed="highlightedGroupStatus === 'Active'"
+              aria-label="Filter groups by Active status"
+              @click="applyGroupStatusFilter('Active')"
               @mouseenter="showTooltip($event, 'Active Groups', `${groupActiveCount}`, `${groupActivePercent}% of current groups`)"
               @mousemove="moveTooltip"
               @mouseleave="hideTooltip"
@@ -394,13 +376,24 @@
               <span class="group-summary-icon active"><i class="fas fa-users"></i></span>
               <div>
                 <strong>Active</strong>
-                <small>Message recorded in the latest observed 7-day window</small>
+                <small>
+                  Last message within {{ groupActivityThreshold }}
+                  day{{ groupActivityThreshold === 1 ? '' : 's' }}
+                </small>
               </div>
               <b>{{ groupActiveCount }}</b>
-            </div>
+            </button>
 
-            <div
-              class="group-status-summary-row interactive-chart-row"
+            <button
+              type="button"
+              :class="[
+                'group-status-summary-row',
+                'interactive-chart-row',
+                { 'is-selected': highlightedGroupStatus === 'Inactive' },
+              ]"
+              :aria-pressed="highlightedGroupStatus === 'Inactive'"
+              aria-label="Filter groups by Inactive status"
+              @click="applyGroupStatusFilter('Inactive')"
               @mouseenter="showTooltip($event, 'Inactive Groups', `${groupInactiveCount}`, `${groupInactivePercent}% of current groups`)"
               @mousemove="moveTooltip"
               @mouseleave="hideTooltip"
@@ -408,13 +401,24 @@
               <span class="group-summary-icon inactive"><i class="fas fa-user-clock"></i></span>
               <div>
                 <strong>Inactive</strong>
-                <small>Current group outside the latest observed 7-day message window</small>
+                <small>
+                  Last message more than {{ groupActivityThreshold }}
+                  day{{ groupActivityThreshold === 1 ? '' : 's' }} ago
+                </small>
               </div>
               <b>{{ groupInactiveCount }}</b>
-            </div>
+            </button>
 
-            <div
-              class="group-status-summary-row interactive-chart-row"
+            <button
+              type="button"
+              :class="[
+                'group-status-summary-row',
+                'interactive-chart-row',
+                { 'is-selected': highlightedGroupStatus === 'Not started' },
+              ]"
+              :aria-pressed="highlightedGroupStatus === 'Not started'"
+              aria-label="Filter groups by Not Started status"
+              @click="applyGroupStatusFilter('Not started')"
               @mouseenter="showTooltip($event, 'Not Started Groups', `${groupNotStartedCount}`, `${groupNotStartedPercent}% of current groups`)"
               @mousemove="moveTooltip"
               @mouseleave="hideTooltip"
@@ -422,10 +426,10 @@
               <span class="group-summary-icon not-started"><i class="fas fa-hourglass-start"></i></span>
               <div>
                 <strong>Not Started</strong>
-                <small>No current members and no recorded messages</small>
+                <small>No recorded messages</small>
               </div>
               <b>{{ groupNotStartedCount }}</b>
-            </div>
+            </button>
           </div>
         </article>
       </div>
@@ -434,7 +438,10 @@
         <div class="table-heading group-table-heading">
           <div>
             <h2>Group Activity Details</h2>
-            <p>Current groups and their latest recorded message day; status uses the saved activity threshold.</p>
+            <p>
+              Current groups and their latest recorded message day; status uses the saved
+              {{ groupActivityThreshold }}-day threshold.
+            </p>
           </div>
           <div class="table-heading-controls">
             <label class="show-all-control">
@@ -480,7 +487,7 @@
               <tr>
                 <th class="sortable" @click="toggleGroupSort('name')">Group <i :class="groupSortIcon('name')"></i></th>
                 <th>Mentors</th>
-                <th class="sortable" @click="toggleGroupSort('status')">Provisional Status <i :class="groupSortIcon('status')"></i></th>
+                <th class="sortable" @click="toggleGroupSort('status')">Activity Status <i :class="groupSortIcon('status')"></i></th>
                 <th class="sortable" @click="toggleGroupSort('lastActiveDate')">Last Message Date <i :class="groupSortIcon('lastActiveDate')"></i></th>
                 <th class="sortable" @click="toggleGroupSort('daysSinceActive')">
                   Days Since Last Message <i :class="groupSortIcon('daysSinceActive')"></i>
@@ -633,6 +640,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
@@ -698,7 +706,6 @@ const route = useRoute()
 const issueContext = ref<'inactive-mentors' | 'deactivated' | ''>('')
 
 const viewMode = ref<'users' | 'groups'>('users')
-const groupsData = computed(() => liveGroupData.value)
 const liveCoreBundle = ref<CoreAnalyticsBundle | null>(null)
 
 const tooltip = ref({
@@ -735,8 +742,6 @@ const currentYear = computed(() => liveYear.value)
 const availableYears = computed(() => [liveYear.value])
 const selectedYear = ref(liveYear.value)
 const selectedUserYearData = computed(() => liveUserData.value)
-const previousYear = computed<number | null>(() => null)
-const previousUserYearData = computed<UserAnalyticsYear | null>(() => null)
 
 type TrendInterval = 'day' | 'week' | 'month'
 const trendInterval = ref<TrendInterval>('day')
@@ -745,8 +750,15 @@ const selectedStatus = ref<'all' | ActivityStatus | GroupActivityDetailStatus>('
 const hiddenRoles = ref<string[]>([])
 const searchQuery = ref('')
 const showAllActivityDetails = ref(false)
+const highlightedGroupStatus = ref<GroupActivityDetailStatus | null>(null)
 const sortKey = ref<'login' | 'days'>('days')
 const sortDirection = ref<'asc' | 'desc'>('asc')
+
+function applyGroupStatusFilter(status: GroupActivityDetailStatus) {
+  showAllActivityDetails.value = false
+  selectedStatus.value = status
+  highlightedGroupStatus.value = status
+}
 
 const USER_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.userThresholdDays'
 const GROUP_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.groupThresholdDays'
@@ -854,6 +866,7 @@ watch(selectedYear, () => {
 })
 
 watch(viewMode, (mode) => {
+  highlightedGroupStatus.value = null
   if (!availableYears.value.includes(selectedYear.value)) {
     selectedYear.value = availableYears.value[0]
   }
@@ -864,6 +877,16 @@ watch(viewMode, (mode) => {
     if (selectedStatus.value === 'Not started') selectedStatus.value = 'all'
   }
   if (liveCoreBundle.value) applyObservedTrendRange()
+})
+
+watch(selectedStatus, (status) => {
+  if (highlightedGroupStatus.value !== status) {
+    highlightedGroupStatus.value = null
+  }
+})
+
+watch(showAllActivityDetails, (showAll) => {
+  if (showAll) highlightedGroupStatus.value = null
 })
 
 const selectedLoggedInRate = computed(() => {
@@ -1015,24 +1038,6 @@ const visibleChartSeries = computed(() =>
   }),
 )
 
-const currentActivityTotal = computed(() =>
-  selectedUserYearData.value.dailyActivity.total.slice(-7).reduce((sum, value) => sum + value, 0),
-)
-
-const comparisonActivityTotal = computed(() =>
-  previousUserYearData.value
-    ? previousUserYearData.value.dailyActivity.total.slice(-7).reduce((sum, value) => sum + value, 0)
-    : 0,
-)
-
-const comparisonChange = computed(() => {
-  if (!comparisonActivityTotal.value) return 0
-  return Math.round(
-    ((currentActivityTotal.value - comparisonActivityTotal.value) / comparisonActivityTotal.value) * 100,
-  )
-})
-
-
 const activityMax = computed(() =>
   Math.max(
     ...visibleChartSeries.value.flatMap((series) => series.values),
@@ -1102,13 +1107,13 @@ function groupSeriesPoints(values: number[]) {
 }
 
 const groupActiveCount = computed(
-  () => groupsData.value.groupStatus.find((item) => item.label === 'Active')?.value ?? 0,
+  () => groupRows.value.filter((group) => group.status === 'Active').length,
 )
 const groupInactiveCount = computed(
-  () => groupsData.value.groupStatus.find((item) => item.label === 'Inactive')?.value ?? 0,
+  () => groupRows.value.filter((group) => group.status === 'Inactive').length,
 )
 const groupNotStartedCount = computed(
-  () => groupsData.value.groupStatus.find((item) => item.label === 'Not started')?.value ?? 0,
+  () => groupRows.value.filter((group) => group.status === 'Not started').length,
 )
 const groupActivityTotal = computed(() => Math.max(
   groupActiveCount.value + groupInactiveCount.value + groupNotStartedCount.value,
@@ -1123,6 +1128,27 @@ type GroupSortKey = 'name' | 'status' | 'lastActiveDate' | 'daysSinceActive'
 const groupSearch = ref('')
 const groupSortKey = ref<GroupSortKey>('daysSinceActive')
 const groupSortDirection = ref<'asc' | 'desc'>('asc')
+
+useAnalyticsRefreshState('activity', {
+  selectedYear,
+  viewMode,
+  selectedStartDate,
+  selectedEndDate,
+  trendInterval,
+  selectedRole,
+  selectedStatus,
+  hiddenRoles,
+  searchQuery,
+  groupSearch,
+  showAllActivityDetails,
+  highlightedGroupStatus,
+  userActivityThreshold,
+  groupActivityThreshold,
+  sortKey,
+  sortDirection,
+  groupSortKey,
+  groupSortDirection,
+}, () => !isLoading.value && hasLoaded.value)
 
 const groupRows = computed<GroupActivityDetailRow[]>(() => {
   const rows = liveCoreBundle.value ? buildGroupActivityDetailRows(liveCoreBundle.value) : []
@@ -1282,6 +1308,7 @@ function activityMetricValue(user: (typeof yearUsers.value)[number]) {
 
 
 function matchesSelectedPeriod(user: (typeof yearUsers.value)[number]) {
+  if (selectedStatus.value === 'all') return true
   if (selectedStatus.value === 'Never') return user.lastLogin === null
   if (selectedStatus.value === 'Inactive') return true
   if (!user.lastLogin) return false
@@ -1546,7 +1573,7 @@ onMounted(async () => {
 function exportCsv() {
   const rows = viewMode.value === 'groups'
     ? [
-        ['Group ID', 'Group', 'Mentors', 'Provisional Status (7-day message rule)', 'Last Message Date (UTC)', 'Days Since Last Message'],
+        ['Group ID', 'Group', 'Mentors', 'Activity Status', 'Last Message Date (UTC)', 'Days Since Last Message'],
         ...filteredGroupRows.value.map((group) => [
           group.id,
           group.name,
@@ -2834,21 +2861,47 @@ tbody tr:hover td {
 
 .activity-analytics-page .group-status-summary-list {
   display: grid;
-  gap: 14px;
-  margin-top: 24px;
+  flex: 1;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.activity-analytics-page .group-status-summary-card {
+  display: flex;
+  flex-direction: column;
 }
 
 .activity-analytics-page .group-status-summary-row {
   display: grid;
+  width: 100%;
   grid-template-columns: 44px minmax(0, 1fr) 54px;
   gap: 12px;
   align-items: center;
-  padding: 14px 0;
-  border-top: 1px solid #e6eeeb;
+  padding: 12px;
+  border: 1px solid #dfe9e5;
+  border-radius: 12px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
-.activity-analytics-page .group-status-summary-row:first-child {
-  border-top: 0;
+.activity-analytics-page .group-status-summary-row:hover {
+  border-color: #9ccbbb;
+  background: #f5faf7;
+}
+
+.activity-analytics-page .group-status-summary-row.is-selected {
+  border-color: #017151;
+  background: #e8f5ee;
+  box-shadow: 0 0 0 1px #017151;
+}
+
+.activity-analytics-page .group-status-summary-row:focus-visible {
+  outline: 3px solid rgb(1 113 81 / 22%);
+  outline-offset: 2px;
 }
 
 .activity-analytics-page .group-status-summary-row b {
@@ -3046,7 +3099,7 @@ tbody tr:hover td {
 }
 
 
-/* Activity Comparison now fills the spare space below Logged In by Role. */
+/* Logged In by Role fills the complete side column beside the activity chart. */
 .activity-analytics-page .kpi-comparison-row {
   display: block !important;
   margin-bottom: 0 !important;
@@ -3058,31 +3111,25 @@ tbody tr:hover td {
 
 .activity-analytics-page .activity-side-stack {
   display: grid !important;
-  grid-template-rows: auto auto;
-  gap: 14px;
-  align-content: start;
-  align-self: start;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  align-content: stretch;
+  align-self: stretch;
 }
 
 .activity-analytics-page .activity-side-stack .login-role-card {
-  height: auto !important;
+  display: flex;
+  flex-direction: column;
+  height: 100% !important;
 }
 
-.activity-analytics-page .side-compare-card {
-  min-height: 0 !important;
-  padding: 14px 16px !important;
-}
-
-.activity-analytics-page .side-compare-card h2 {
-  font-size: 16px !important;
-}
-
-.activity-analytics-page .side-compare-card > p {
-  margin-bottom: 8px !important;
-}
-
-.activity-analytics-page .side-compare-card .compact-comparison-values strong {
-  font-size: 18px !important;
+.activity-analytics-page .login-role-card .role-rate-list {
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  margin-top: 12px;
 }
 
 

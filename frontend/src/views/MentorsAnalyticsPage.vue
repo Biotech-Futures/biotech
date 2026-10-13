@@ -389,6 +389,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
@@ -413,6 +414,10 @@ const loading = ref(true)
 const mentorsSnapshotDate = ref(new Date().toISOString().slice(0, 10))
 const snapshotYear = computed(() => Number(mentorsSnapshotDate.value.slice(0, 4)))
 const selectedYear = ref(snapshotYear.value)
+
+useAnalyticsRefreshState('mentors', {
+  selectedYear,
+}, () => !loading.value && !loadError.value)
 const availableYears = computed(() => {
   const years = new Set<number>([snapshotYear.value])
   liveEvents.value.forEach((event) => years.add(Number(event.date.slice(0, 4))))

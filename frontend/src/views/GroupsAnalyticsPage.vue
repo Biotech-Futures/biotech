@@ -404,6 +404,7 @@
 <script setup lang="ts">
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
+import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
@@ -444,6 +445,10 @@ const loading = ref(true)
 const exporting = ref(false)
 const exportError = ref('')
 const groupBundle = ref<CoreAnalyticsBundle | null>(null)
+
+useAnalyticsRefreshState('groups', {
+  selectedYear,
+}, () => !loading.value && !loadError.value)
 
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await initializeGroups(true, true) })

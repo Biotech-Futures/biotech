@@ -1,9 +1,17 @@
 <template>
   <div class="key-insights-content" :class="{ 'key-insights-content--two-columns': columns === 2 }">
     <div class="key-insights-heading">
-      <button type="button" class="key-insights-info" aria-label="About these key insights">
+      <button
+        type="button"
+        class="key-insights-info"
+        aria-label="About these key insights"
+        @mouseenter="showInfoTooltip"
+        @mousemove="moveInfoTooltip"
+        @mouseleave="hideInfoTooltip"
+        @focus="showFocusedInfoTooltip"
+        @blur="hideInfoTooltip"
+      >
         <BtfIcon name="info" :size="18" />
-        <span class="key-insights-tooltip" role="tooltip">{{ description }}</span>
       </button>
       <h2>{{ title }}</h2>
     </div>
@@ -17,11 +25,20 @@
         </div>
       </div>
     </div>
+
+    <ChartTooltip
+      :visible="infoTooltip.visible"
+      :x="infoTooltip.x"
+      :y="infoTooltip.y"
+      :detail="description"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import BtfIcon from '@/components/BtfIcon.vue'
+import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
+import { ref } from 'vue'
 
 interface AnalyticsInsightItem {
   key?: string | number
@@ -39,11 +56,39 @@ withDefaults(defineProps<{
   title: 'Key Insights',
   columns: 1,
 })
+
+const infoTooltip = ref({ visible: false, x: 0, y: 0 })
+
+function showInfoTooltip(event: MouseEvent) {
+  infoTooltip.value = { visible: true, x: event.clientX, y: event.clientY }
+}
+
+function moveInfoTooltip(event: MouseEvent) {
+  infoTooltip.value.x = event.clientX
+  infoTooltip.value.y = event.clientY
+}
+
+function showFocusedInfoTooltip(event: FocusEvent) {
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  infoTooltip.value = {
+    visible: true,
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  }
+}
+
+function hideInfoTooltip() {
+  infoTooltip.value.visible = false
+}
 </script>
 
 <style scoped>
 .key-insights-content {
   container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
 }
 
@@ -55,7 +100,6 @@ withDefaults(defineProps<{
 
 :global(.analytics-card:has(.key-insights-content)) {
   overflow: visible !important;
-  height: auto !important;
 }
 
 .key-insights-heading h2 {
@@ -82,44 +126,12 @@ withDefaults(defineProps<{
   box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.18);
 }
 
-.key-insights-tooltip {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 9px);
-  left: 0;
-  width: 220px !important;
-  max-width: min(220px, calc(100vw - 40px)) !important;
-  min-width: 0 !important;
-  height: auto !important;
-  min-height: 0 !important;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: 7px;
-  border: 0 !important;
-  background: #173f3c !important;
-  color: #fff !important;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.4;
-  text-align: left;
-  white-space: normal !important;
-  overflow-wrap: break-word;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-3px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
-  box-shadow: 0 6px 18px rgba(16, 32, 27, 0.18);
-}
-
-.key-insights-info:hover .key-insights-tooltip,
-.key-insights-info:focus .key-insights-tooltip {
-  opacity: 1;
-  transform: translateY(0);
-}
-
 .key-insights-list {
   display: grid;
   grid-template-columns: 1fr;
+  align-content: space-between;
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   margin-top: 10px;
 }
@@ -130,7 +142,7 @@ withDefaults(defineProps<{
   column-gap: clamp(12px, 3cqi, 28px);
   align-items: start;
   min-width: 0;
-  padding: 9px 0;
+  padding: 4px 0;
   border-top: 1px solid #e7eeeb;
 }
 
@@ -141,6 +153,7 @@ withDefaults(defineProps<{
 
 .key-insights-row strong {
   min-width: 44px;
+  padding-left: 8px;
   color: #017151;
   font-size: 18px;
   line-height: 1.2;
