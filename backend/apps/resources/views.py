@@ -27,7 +27,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
 from urllib.parse import urlparse
-from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience, ResourceLabel
+from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience, ResourceLabel, ResourceAccessEvent
 from .serializers import (
     RoleSerializer,
     RoleAssignmentHistorySerializer,
@@ -566,6 +566,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
         if not can_access_resource_file(request.user, resource):
             return Response({"detail": "You do not have access to this resource."}, status=status.HTTP_403_FORBIDDEN)
 
+        ResourceAccessEvent.objects.create(resource=resource, user=request.user)
         payload = self._build_access_payload(resource)
         return Response(ResourceAccessSerializer(payload).data, status=status.HTTP_200_OK)
 
