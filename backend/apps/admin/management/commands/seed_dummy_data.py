@@ -264,7 +264,7 @@ class Command(BaseCommand):
                 sync_user_interests(user.id, interests)
             elif role == "mentor":
                 upsert_mentor_profile(
-                    user.id, background="Seed mentor background.",
+                    user.id, background=random.choice(MentorProfile.BackgroundChoices.values),
                     institution=random.choice(INSTITUTIONS),
                     mentor_reason="Keen to support young researchers.",
                     max_group_count=random.randint(2, 4),
