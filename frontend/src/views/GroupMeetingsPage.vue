@@ -278,7 +278,9 @@ const newTitle = ref('')
 const newDescription = ref('')
 const newStart = ref('')
 const newDuration = ref('')
-const newTimezone = ref('Australia/Sydney')
+const newTimezone = ref(
+  Intl.DateTimeFormat().resolvedOptions().timeZone
+)
 const newJoinLink = ref('')
 
 const formErrors = ref({

@@ -236,6 +236,18 @@ export const useAuthStore = defineStore('auth', {
         throw new Error('Login succeeded, but the current user profile could not be loaded.')
       }
 
+      // Automatically sync the account timezone with the user's device.
+      try {
+        const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+        if (deviceTimeZone && deviceTimeZone !== this.timeZone) {
+          await this.updateTimeZone(deviceTimeZone)
+        }
+      } catch (error) {
+        // A timezone update failure should not prevent login.
+        console.warn('Could not automatically update timezone:', error)
+      }
+
       this.initialized = true
       return user
     },
