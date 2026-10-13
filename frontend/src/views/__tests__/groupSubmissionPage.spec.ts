@@ -1054,21 +1054,156 @@ describe('the poster checklist', () => {
     expect(document.activeElement?.id).toBe('checklist-btf_logo')
     expect(submitEntry).not.toHaveBeenCalled()
   })
+})
 
-  it('lets an admin act for the team after the deadline, without the checklist', async () => {
-    const detail = withPoster({})
-    detail.deadline.is_open = false
-    detail.admin_access = true
-    await mountPage(detail)
-    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
-    submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+describe('the admin view', () => {
+  const asAdmin = (detail: SubmissionDetail): SubmissionDetail => ({ ...detail, admin_access: true })
+  const draft = (isOpen = false) =>
+    asAdmin(buildDetail({ isOpen, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, stage: 'in_progress' } }))
+  const submitted = (isOpen = false) => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = isOpen
+    detail.submission!.project_title = TITLE
+    detail.submission!.submitted_project_title = TITLE
+    return asAdmin(detail)
+  }
+  const click = async (testId: string) => {
+    await wrapper!.find(`[data-testid="${testId}"]`).trigger('click')
+    await flushPromises()
+  }
+  const box = () => wrapper!.find('#inspiration')
+  const result = (detail: SubmissionDetail) => ({ deadline: detail.deadline, submission: detail.submission! })
 
-    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
-    await goToLastStep()
-    await buttonNamed(/^Submit$/)!.trigger('click')
+  it('opens read-only in every state, with its own bar instead of the team status', async () => {
+    await mountPage(draft(true))
+
+    expect(box().attributes('disabled')).toBeDefined()
+    const bar = wrapper!.find('[data-testid="admin-bar"]').text()
+    expect(bar).toContain('BTF1')
+    expect(bar).toContain('Draft, not submitted')
+    expect(bar).toContain('Can edit until')
+    expect(wrapper!.find('.status-line').exists()).toBe(false)
+    expect(buttonNamed(/^Submit$/)).toBeUndefined()
+  })
+
+  it('edits without saving anything until Save', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+
+    await box().setValue('Fixed by the programme.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
     await flushPromises()
 
+    expect(saveDraft).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Unsaved changes')
+  })
+
+  it("saves to the team's draft on Save, then goes back to read-only", async () => {
+    const detail = draft()
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-save')
+
+    expect(saveDraft.mock.calls.at(-1)![1].answers).toEqual({ inspiration: 'Fixed by the programme.' })
+    expect(wrapper!.find('.submission-message').text()).toContain("Saved to BTF1's draft.")
+    expect(box().attributes('disabled')).toBeDefined()
+  })
+
+  it('asks before reopening a submitted entry while the round is open', async () => {
+    const detail = submitted(true)
+    await mountPage(detail)
+    reopenEntry.mockResolvedValue(result(reopenedDetail()))
+    saveDraft.mockResolvedValue(result(reopenedDetail()))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-save')
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Reopen for the team?')
+    await click('admin-dialog-confirm')
+
+    expect(reopenEntry).toHaveBeenCalled()
+    expect(saveDraft).toHaveBeenCalled()
+  })
+
+  it('submits a submitted entry for the team after the deadline without reopening it', async () => {
+    const detail = submitted()
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    submitEntry.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-submit')
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('This becomes their latest submission')
+    await click('admin-dialog-confirm')
+
     expect(submitEntry).toHaveBeenCalled()
+    expect(reopenEntry).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('Submitted for BTF1.')
+  })
+
+  it('holds an uploaded file until Save', async () => {
+    const detail = draft()
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue(result(detail))
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+    expect(wrapper!.text()).toContain('not saved yet')
+
+    await click('admin-save')
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', expect.any(File), expect.any(Function))
+  })
+
+  it('discards changes after asking', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Not wanted.')
+
+    await click('admin-discard')
+    await click('admin-dialog-confirm')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe(ANSWERED.inspiration)
+    expect(box().attributes('disabled')).toBeDefined()
+  })
+
+  it('warns before overwriting an answer the team changed meanwhile', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ submission: { project_title: TITLE, answers: { ...ANSWERED, inspiration: 'The team’s edit' }, poster: POSTER } }))
+    )
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('admin-dialog-cancel')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('asks before leaving for another team with unsaved changes', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Unsaved.')
+    const confirm = vi.fn().mockReturnValue(false)
+    vi.stubGlobal('confirm', confirm)
+
+    await wrapper!.vm.$router.push('/groups/2/submission')
+
+    expect(confirm).toHaveBeenCalled()
+    expect(wrapper!.vm.$route.params.id).toBe('1')
   })
 })
 
