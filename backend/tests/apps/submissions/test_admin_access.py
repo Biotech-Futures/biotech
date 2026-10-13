@@ -1,4 +1,4 @@
-"""Tests for admins acting on a team's behalf: any time, without the template checks or checklist."""
+"""Tests for admins acting on a team's behalf: any time, without the template checks, but with the checklist."""
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -18,6 +18,9 @@ class AdminAccessTests(ChecklistTestCase):
         self.admin = User.objects.create_user(email="admin@test.local", password="x", first_name="Ada")
         AdminScope.objects.create(user=self.admin)
 
+    def _tick(self, user):
+        self._client(user).put(self._url("group-submission"), {"poster_checklist": CONFIRMED_CHECKLIST}, format="json")
+
     def _close(self):
         self.deadline.closes_at = timezone.now() - timedelta(days=1)
         self.deadline.save()
@@ -29,6 +32,7 @@ class AdminAccessTests(ChecklistTestCase):
         self.assertEqual(self._upload(self.student, _poster()).status_code, 403)
         self.assertEqual(self._upload(self.admin, _poster()).status_code, 200)
         self._fill(self.admin)
+        self._tick(self.admin)
         response = admin.post(self._url("group-submission-submit"), {}, format="json")
 
         self.assertEqual(response.status_code, 200)
@@ -37,14 +41,18 @@ class AdminAccessTests(ChecklistTestCase):
         self.assertTrue(entry.is_late)
         self.assertEqual(response.data["submission"]["submitted_by_name"], "BIOTech Futures")
 
-    def test_an_admin_skips_the_template_checks_and_checklist(self):
+    def test_an_admin_skips_the_template_checks_but_confirms_the_checklist(self):
         response = self._upload(self.admin, _poster(*US_LETTER, text="nothing"))
         self._fill(self.admin)
+        admin = self._client(self.admin)
 
-        submitted = self._client(self.admin).post(self._url("group-submission-submit"), {}, format="json")
+        unticked = admin.post(self._url("group-submission-submit"), {}, format="json")
+        self._tick(self.admin)
+        ticked = admin.post(self._url("group-submission-submit"), {}, format="json")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(submitted.status_code, 200)
+        self.assertEqual(unticked.data["code"], "poster_checklist_incomplete")
+        self.assertEqual(ticked.status_code, 200)
 
     def test_an_admin_still_cannot_submit_an_incomplete_entry(self):
         self._upload(self.admin, _poster())
@@ -56,6 +64,7 @@ class AdminAccessTests(ChecklistTestCase):
     def test_an_admin_submission_belongs_to_the_groups_own_year(self):
         self._upload(self.admin, _poster())
         self._fill(self.admin)
+        self._tick(self.admin)
 
         self._client(self.admin).post(self._url("group-submission-submit"), {}, format="json")
 
@@ -64,6 +73,7 @@ class AdminAccessTests(ChecklistTestCase):
     def test_an_admin_can_reopen_after_the_deadline(self):
         self._upload(self.admin, _poster())
         self._fill(self.admin)
+        self._tick(self.admin)
         admin = self._client(self.admin)
         admin.post(self._url("group-submission-submit"), {}, format="json")
         self._close()
@@ -114,6 +124,7 @@ class AdminAccessTests(ChecklistTestCase):
         entry.refresh_from_db()
         self.assertEqual(entry.submitted_poster["storage_key"], old_key)
         self.assertTrue(submission_file_service("poster").exists(old_key))
+        self._tick(self.admin)
 
         response = self._client(self.admin).post(self._url("group-submission-submit"), {}, format="json")
 

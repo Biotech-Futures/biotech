@@ -126,7 +126,7 @@ class GroupSubmissionView(APIView):
                 for instruction in SubmissionInstruction.objects.all()
             },
             "max_file_sizes": max_sizes(),
-            # Admins act for a team at any time, without the template checks or checklist.
+            # Admins act for a team at any time, without the template checks.
             "admin_access": _is_staff(request.user),
             # None means the team has not started.
             "submission": (
@@ -343,7 +343,8 @@ class GroupSubmissionSubmitView(APIView):
             if missing:
                 raise RequiredAnswersMissing(missing)
 
-            if not staff and not is_confirmed(submission.poster_checklist):
+            # Admins skip the template checks at upload, but confirm the checklist like a team.
+            if not is_confirmed(submission.poster_checklist):
                 raise PosterChecklistIncomplete()
 
             superseded = complete_submission(

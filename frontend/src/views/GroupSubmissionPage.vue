@@ -922,6 +922,12 @@ function mergeChecklist() {
   if (wasSaved) savedSnapshot.value = currentSnapshot()
 }
 
+function clearTicks() {
+  CHECKLIST_KEYS.forEach((key) => {
+    posterChecklist[key] = false
+  })
+}
+
 function tickChecklist(item: string, ticked: boolean) {
   posterChecklist[item] = ticked
 }
@@ -1234,7 +1240,7 @@ function submissionBlockers(): { message: string; step: TabKey; focusKey?: strin
     }
   }
   const unticked = CHECKLIST_KEYS.find((key) => !posterChecklist[key])
-  if (unticked && !adminAccess.value) {
+  if (unticked) {
     return {
       message: 'Please tick every item in the poster checklist before submitting.',
       step: 'poster',
@@ -1511,6 +1517,8 @@ async function uploadFile(slot: SubmissionSlot, file: File) {
   if (adminAccess.value) {
     forgetPendingUrl(slot)
     pendingFiles[slot] = file
+    // A new poster is confirmed afresh, as the team's would be.
+    if (slot === 'poster') clearTicks()
     if (slot === 'poster' || slot === 'report') await loadPreview(slot)
     return
   }
@@ -1542,6 +1550,7 @@ async function removeFile(slot: SubmissionSlot) {
     // A held file the team never had is simply dropped; a saved one is marked for removal.
     if (shownFile(slot)) pendingFiles[slot] = null
     else delete pendingFiles[slot]
+    if (slot === 'poster') clearTicks()
     if (slot === previewSlot.value) clearPreview()
     return
   }
@@ -1746,7 +1755,8 @@ function conflictsWith(latest: SubmissionDetail['submission']): number {
   const fileClashes = FILE_SLOTS.filter(
     (slot) => slot in pendingFiles && (latest?.[slot]?.storage_key ?? '') !== (filesAtEditStart[slot] ?? '')
   ).length
-  const tickClashes = Object.keys(checklistChanges()).filter(
+  // A replaced poster's ticks are all the admin's own, so only the file itself can clash.
+  const tickClashes = 'poster' in pendingFiles ? 0 : Object.keys(checklistChanges()).filter(
     (key) => Boolean(latest?.poster_checklist?.[key]) !== Boolean(savedChecklist[key])
   ).length
   return answerClashes + fileClashes + tickClashes + (titleClash ? 1 : 0) + (linkClash ? 1 : 0)
@@ -1774,6 +1784,8 @@ async function readyToWrite(): Promise<boolean> {
 
 /** Uploads held files, then saves the changed fields, to the team's working copy. */
 async function publishAdminChanges() {
+  // The server starts a new poster's checklist afresh, so every tick goes with it.
+  const posterChanged = 'poster' in pendingFiles
   for (const slot of FILE_SLOTS) {
     if (!(slot in pendingFiles)) continue
     const file = pendingFiles[slot]
@@ -1790,7 +1802,9 @@ async function publishAdminChanges() {
     delete pendingFiles[slot]
   }
   busySlot.value = ''
-  applyResult(await saveDraft(groupId.value, draftFields(changedAnswers())))
+  const fields = draftFields(changedAnswers())
+  if (posterChanged) fields.poster_checklist = { ...posterChecklist }
+  applyResult(await saveDraft(groupId.value, fields))
 }
 
 async function showAdminError(error: unknown) {

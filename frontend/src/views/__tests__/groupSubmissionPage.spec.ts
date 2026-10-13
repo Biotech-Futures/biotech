@@ -1058,13 +1058,16 @@ describe('the poster checklist', () => {
 
 describe('the admin view', () => {
   const asAdmin = (detail: SubmissionDetail): SubmissionDetail => ({ ...detail, admin_access: true })
-  const draft = (isOpen = false) =>
-    asAdmin(buildDetail({ isOpen, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, stage: 'in_progress' } }))
+  const draft = (isOpen = false, poster_checklist: Record<string, boolean> = CONFIRMED_CHECKLIST) =>
+    asAdmin(
+      buildDetail({ isOpen, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist, stage: 'in_progress' } })
+    )
   const submitted = (isOpen = false) => {
     const detail = submittedDetail()
     detail.deadline.is_open = isOpen
     detail.submission!.project_title = TITLE
     detail.submission!.submitted_project_title = TITLE
+    detail.submission!.poster_checklist = CONFIRMED_CHECKLIST
     return asAdmin(detail)
   }
   const click = async (testId: string) => {
@@ -1143,6 +1146,39 @@ describe('the admin view', () => {
     expect(submitEntry).toHaveBeenCalled()
     expect(reopenEntry).not.toHaveBeenCalled()
     expect(wrapper!.find('.submission-message').text()).toContain('Submitted for BTF1.')
+  })
+
+  it('needs every checklist item ticked to submit, without the template checks', async () => {
+    await mountPage(draft(false, { ...CONFIRMED_CHECKLIST, btf_logo: false }))
+    await click('admin-edit')
+
+    await click('admin-submit')
+
+    expect(wrapper!.find('.submission-message').text()).toContain('Please tick every item in the poster checklist')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('starts the checklist afresh for a new poster, and sends every tick with it', async () => {
+    const detail = draft()
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue(result(detail))
+    saveDraft.mockResolvedValue(result(detail))
+    submitEntry.mockResolvedValue(result(submitted()))
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect((wrapper!.find('#checklist-team_code').element as HTMLInputElement).checked).toBe(false)
+
+    for (const key of Object.keys(CONFIRMED_CHECKLIST)) await wrapper!.find(`#checklist-${key}`).setValue(true)
+    await click('admin-submit')
+    await click('admin-dialog-confirm')
+
+    expect(saveDraft.mock.calls.at(-1)![1].poster_checklist).toEqual(CONFIRMED_CHECKLIST)
+    expect(submitEntry).toHaveBeenCalled()
   })
 
   it('holds an uploaded file until Save', async () => {
