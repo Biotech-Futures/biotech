@@ -1037,6 +1037,13 @@ export interface AdminAnnouncementRoleOption {
   name: string
 }
 
+export interface AdminAnnouncementMergeTag {
+  name: string
+  description: string
+  sample: string
+  html: boolean
+}
+
 export interface AdminAnnouncementNotifyResult {
   msg: string
   deliveryId?: number
@@ -1089,6 +1096,11 @@ export const fetchAnnouncementGroups = () =>
 
 export const fetchAnnouncementRoles = () =>
   adminGet<AdminEnvelope<AdminAnnouncementRoleOption[]>>('/announcement/roles/').then(
+    (env) => env.data || []
+  )
+
+export const fetchAnnouncementMergeTags = () =>
+  adminGet<AdminEnvelope<AdminAnnouncementMergeTag[]>>('/announcement/merge-tags/').then(
     (env) => env.data || []
   )
 
