@@ -6153,7 +6153,6 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.9rem;
-  margin-left: 1rem;
 }
 .gd-title {
   margin: 0;
