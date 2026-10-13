@@ -33,6 +33,9 @@ from .models import (
 )
 from .og_extractor import extract_urls
 from .serializers import (
+    ADMIN_IDENTITY_KEY,
+    ADMINISTRATOR_SENDER_NAME,
+    MASK_ADMIN_SENDER,
     MentionSerializer,
     MessageAttachmentUploadSerializer,
     MessagePublicSerializer,
@@ -66,6 +69,8 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
     key consistently.
     """
     channel_layer = get_channel_layer()
+    message_payload = dict(message_payload)
+    identity = message_payload.pop(ADMIN_IDENTITY_KEY, None)
     envelope = {
         "type": "chat.message",
         "payload": {
@@ -76,6 +81,9 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
             "message": message_payload,
         },
     }
+    if identity:
+        # Never reaches a client as-is: GroupChatConsumer strips it.
+        envelope["payload"][ADMIN_IDENTITY_KEY] = identity
 
     def _send():
         async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
@@ -183,9 +191,31 @@ def _broadcast_mention(user_id: int, payload: dict) -> None:
     transaction.on_commit(_send)
 
 
+def _admin_identity(message) -> dict:
+    """The real sender fields a non-admin broadcast hides, keyed by where
+    they go in the payload; empty when nothing was hidden. Consumers reveal
+    them to admins and drop them for everyone else."""
+    identity = {}
+    if message.sent_as_admin:
+        identity["message"] = {
+            "sender_user": message.sender_user_id,
+            "sender_name": message.sender_user.get_full_name(),
+        }
+    parent = message.reply_to
+    if parent is not None and parent.sent_as_admin:
+        identity["reply_to"] = {
+            "user_id": parent.sender_user_id,
+            "user_name": parent.sender_user.get_full_name() or parent.sender_user.get_username() or "",
+        }
+    return identity
+
+
 def serialize_message_for_broadcast(message, context=None):
-    data = MessageSerializer(message, context=context or {}).data
-    public = MessagePublicSerializer(message, context=context or {}).data
+    # One payload reaches every member, so it is built as a non-admin sees it.
+    # Admins get the real sender back from ADMIN_IDENTITY_KEY in the consumer.
+    context = {**(context or {}), MASK_ADMIN_SENDER: True}
+    data = MessageSerializer(message, context=context).data
+    public = MessagePublicSerializer(message, context=context).data
     if public.get("is_deleted"):
         data["message_text"] = public.get("message_text", "")
         data["deleted_by"] = public.get("deleted_by")
@@ -193,6 +223,9 @@ def serialize_message_for_broadcast(message, context=None):
         data["deleted_by_is_admin"] = public.get("deleted_by_is_admin", False)
     data["attachments"] = public.get("attachments", [])
     data["preview"] = public.get("preview")
+    identity = _admin_identity(message)
+    if identity:
+        data[ADMIN_IDENTITY_KEY] = identity
     return data
 
 
@@ -272,6 +305,16 @@ def apply_mentions(message) -> list[int]:
         "sender_user_id": message.sender_user_id,
         "preview": (message.message_text or "")[:140],
     }
+    if message.sent_as_admin:
+        # Same rule as message payloads: hidden unless the recipient is an
+        # admin, which GroupChatConsumer decides per connection.
+        payload.update(sender_user_id=None, sender_name=ADMINISTRATOR_SENDER_NAME)
+        payload[ADMIN_IDENTITY_KEY] = {
+            "payload": {
+                "sender_user_id": message.sender_user_id,
+                "sender_name": message.sender_user.get_full_name(),
+            }
+        }
     for uid in to_create:
         _broadcast_mention(uid, payload)
     return sorted(to_create)
@@ -1129,7 +1172,7 @@ class MentionViewSet(viewsets.GenericViewSet):
             .filter(mentioned_user=request.user, read_at__isnull=True)
             .count()
         )
-        data = MentionSerializer(items, many=True).data
+        data = MentionSerializer(items, many=True, context=self.get_serializer_context()).data
         next_before = items[-1].id if len(items) == limit else None
         return Response(
             {"items": data, "next_before": next_before, "unread_count": unread_count},
@@ -1147,7 +1190,10 @@ class MentionViewSet(viewsets.GenericViewSet):
         if mention.read_at is None:
             mention.read_at = timezone.now()
             mention.save(update_fields=["read_at"])
-        return Response(MentionSerializer(mention).data, status=status.HTTP_200_OK)
+        return Response(
+            MentionSerializer(mention, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
 
     # POST /chat/mentions/mark-all-read/
     @action(detail=False, methods=["post"], url_path="mark-all-read")

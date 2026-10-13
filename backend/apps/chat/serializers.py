@@ -27,6 +27,43 @@ def is_admin_actor(user) -> bool:
     return bool(user is not None and is_admin(user))
 
 
+#: Who a message sent through the admin interface appears to come from, for
+#: anyone who isn't an admin.
+ADMINISTRATOR_SENDER_NAME = "Administrator"
+
+#: Context flag: serialize as a non-admin would see it, whoever is asking.
+#: Used for WebSocket broadcasts, which reach every member of the group.
+MASK_ADMIN_SENDER = "mask_admin_sender"
+
+#: Server-internal key on a channel-layer payload holding the real sender that
+#: a masked broadcast hid. GroupChatConsumer always removes it before sending.
+ADMIN_IDENTITY_KEY = "_admin_identity"
+
+
+def can_see_admin_sender(context) -> bool:
+    """Whether this serializer's viewer may see who sent an admin message.
+
+    Fails closed: with no request, or under ``MASK_ADMIN_SENDER``, the answer
+    is no. The admin check runs once per context, not once per message.
+    """
+    if not context or context.get(MASK_ADMIN_SENDER):
+        return False
+    if "_can_see_admin_sender" not in context:
+        request = context.get("request")
+        context["_can_see_admin_sender"] = is_admin_actor(getattr(request, "user", None))
+    return context["_can_see_admin_sender"]
+
+
+def mask_admin_sender(data, message, context, *, id_field, name_field):
+    """Replace the sender of an admin-sent ``message`` in ``data``, in place."""
+    if getattr(message, "sent_as_admin", False) and not can_see_admin_sender(context):
+        if id_field in data:
+            data[id_field] = None
+        if name_field in data:
+            data[name_field] = ADMINISTRATOR_SENDER_NAME
+    return data
+
+
 def _group_members_blocked_from_resource(group_id, resource) -> bool:
     """True if *any* active member of ``group_id`` cannot access ``resource``.
 
@@ -268,6 +305,13 @@ class ReplyToSerializer(serializers.ModelSerializer):
     def get_deleted(self, obj):
         return obj.deleted_at is not None
 
+    def to_representation(self, instance):
+        # A quote of an admin-sent message must not name the admin either.
+        return mask_admin_sender(
+            super().to_representation(instance), instance, self.context,
+            id_field="user_id", name_field="user_name",
+        )
+
 
 class ReplyToIdField(serializers.PrimaryKeyRelatedField):
     """Write-side companion to :class:`ReplyToSerializer`.
@@ -310,6 +354,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    # Read-only: only the admin interface's send path sets it, server side.
+    sent_as_admin = serializers.BooleanField(read_only=True)
     deleted_by_name = serializers.SerializerMethodField()
     deleted_by_is_admin = serializers.SerializerMethodField()
     is_deleted = serializers.BooleanField(read_only=True)
@@ -343,6 +389,7 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "group",
             "sender_user",
             "sender_name",
+            "sent_as_admin",
             "message_text",
             "message_type",
             "sent_at",
@@ -366,9 +413,15 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "reply_to_id",
         ]
         read_only_fields = [
-            "id", "group", "sender_user", "deleted_by", "deleted_by_name", "deleted_by_is_admin",
-            "sent_at", "edited_at", "deleted_at",
+            "id", "group", "sender_user", "sent_as_admin", "deleted_by", "deleted_by_name",
+            "deleted_by_is_admin", "sent_at", "edited_at", "deleted_at",
         ]
+
+    def to_representation(self, instance):
+        return mask_admin_sender(
+            super().to_representation(instance), instance, self.context,
+            id_field="sender_user", name_field="sender_name",
+        )
 
     def get_deleted_by_name(self, obj):
         user = getattr(obj, "deleted_by", None)
@@ -415,6 +468,7 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
     sender_name = serializers.CharField(
         source="sender_user.get_full_name", read_only=True
     )
+    sent_as_admin = serializers.BooleanField(read_only=True)
     message_text = serializers.SerializerMethodField()
     deleted_by = serializers.IntegerField(source="deleted_by_id", read_only=True)
     deleted_by_name = serializers.SerializerMethodField()
@@ -448,6 +502,7 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         fields = [
             "id",
             "sender_name",
+            "sent_as_admin",
             "message_text",
             "message_type",
             "sent_at",
@@ -471,6 +526,12 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
             "preview",
         ]
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        return mask_admin_sender(
+            super().to_representation(instance), instance, self.context,
+            id_field="sender_user", name_field="sender_name",
+        )
 
     def get_reactions(self, obj):
         if obj.deleted_at is not None:
@@ -594,6 +655,12 @@ class MentionSerializer(serializers.ModelSerializer):
             "read_at",
         ]
         read_only_fields = fields
+
+    def to_representation(self, instance):
+        return mask_admin_sender(
+            super().to_representation(instance), instance.message, self.context,
+            id_field="sender_user_id", name_field="sender_name",
+        )
 
     def get_message_text(self, obj):
         # Soft-deleted parent messages mustn't leak their text through
