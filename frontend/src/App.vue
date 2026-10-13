@@ -268,6 +268,7 @@ import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
@@ -295,6 +296,7 @@ const handleLogout = async () => {
   await auth.logout()
   // Drop the previous user's group cache so the next session re-fetches.
   groupsStore.reset()
+  clearLiveAnalyticsCache()
   go('/login')
 }
 
@@ -445,6 +447,7 @@ const sidebarSections = computed(() => {
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
+        { label: 'Analytics', to: '/analytics', active: path.startsWith('/analytics') },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
       ],
@@ -459,6 +462,7 @@ const sidebarSections = computed(() => {
 
 const programSearchTargets = [
   { path: '/dashboard', terms: ['home', 'dashboard', 'overview', 'program'] },
+  { path: '/analytics', terms: ['analytics', 'report', 'reports', 'statistics', 'metrics'] },
   { path: '/groups', terms: ['group', 'groups', 'team', 'teams', 'mentor', 'mentoring'] },
   { path: '/events', terms: ['event', 'events', 'calendar', 'session', 'sessions', 'workshop'] },
   { path: '/announcements', terms: ['announcement', 'announcements', 'news', 'updates', 'notice'] },
@@ -716,6 +720,7 @@ watch(
     // changes (login, account switch) drop it so the next load fetches fresh.
     if (oldUserId !== undefined && oldUserId !== newUserId) {
       groupsStore.reset()
+      clearLiveAnalyticsCache()
     }
     // Skip the no-op transition where the switcher stays hidden — avoids
     // refetching while the user is bouncing between non-/groups routes.
