@@ -935,7 +935,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
         ?? Math.max(email.totals.failed - trackedRoleFailed, 0),
     },
     categories: [
-      { label: 'Announcements', value: email.totals.attempted, color: BTF_COLORS.darkGreen },
+      { label: 'All tracked email', value: email.totals.attempted, color: BTF_COLORS.darkGreen },
     ],
     alerts: mailboxRows
       .filter((mailbox) => mailbox.totals.attempted >= mailbox.quota_limit * 0.8)
@@ -950,8 +950,8 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
       delivered: email.totals.delivered,
       sent: email.totals.attempted,
       failed: email.totals.failed,
-      // The current announcement-delivery schema records attempts, successes
-      // and failures only. Engagement/provider metrics must remain unavailable
+      // The current delivery schema records attempts, successes and failures
+      // only. Engagement/provider metrics must remain unavailable
       // until an authorised event source is connected.
       clicked: null,
       opened: null,

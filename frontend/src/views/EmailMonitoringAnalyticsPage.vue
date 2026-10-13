@@ -36,7 +36,7 @@
       :loading="isLoading"
       :error="loadError"
       :empty="isEmpty"
-      empty-message="No announcement delivery records or tracked mailboxes are available in the current database. Generate or load a dataset, then refresh this page."
+      empty-message="No tracked email delivery records are available in the current database. Send an email or load a dataset, then refresh this page."
       @retry="refreshAnalytics"
     >
     <section class="kpi-grid">

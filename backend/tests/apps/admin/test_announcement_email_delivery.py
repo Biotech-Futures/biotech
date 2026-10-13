@@ -35,6 +35,7 @@ from apps.announcements.models import (
     AnnouncementAudience,
     AnnouncementDelivery,
 )
+from apps.services.models import EmailDeliveryMetric
 from apps.users.models import User
 from apps.users.models.admin_scope import AdminScope
 
@@ -93,6 +94,10 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
         self.assertEqual(delivery.failed_recipients, [])
         self.assertEqual(delivery.error_summary, "")
         self.assertIsNotNone(delivery.completed_at)
+        metric = EmailDeliveryMetric.objects.get(email_type="announcement")
+        self.assertEqual(metric.source_mailbox, "info@biotechfutures.org")
+        self.assertEqual(metric.attempted_count, result["attempted"])
+        self.assertEqual(metric.delivered_count, result["succeeded"])
 
     # ------------------------------------------------------------------
     # All-fail path: mail backend rejects every recipient.

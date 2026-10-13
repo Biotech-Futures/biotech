@@ -15,6 +15,7 @@ from apps.audit.models import AuditLog
 from apps.chat.models import Messages
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
+from apps.services.models import EmailDeliveryMetric
 from apps.users.models import User
 
 
@@ -494,7 +495,7 @@ def get_email_delivery_analytics() -> dict:
 
     snapshot_at = timezone.now()
 
-    if not AnnouncementDelivery.objects.exists():
+    if not EmailDeliveryMetric.objects.exists():
         empty_mailboxes = [
             {
                 "email": primary_mailbox,
@@ -535,15 +536,19 @@ def get_email_delivery_analytics() -> dict:
         }
 
     window_start = snapshot_at - timedelta(hours=24)
-    window = AnnouncementDelivery.objects.filter(
+    metric_window = EmailDeliveryMetric.objects.filter(
+        started_at__gt=window_start,
+        started_at__lte=snapshot_at,
+    )
+    announcement_window = AnnouncementDelivery.objects.filter(
         started_at__gt=window_start,
         started_at__lte=snapshot_at,
     )
 
-    totals = window.aggregate(
-        attempted=Coalesce(Sum("recipient_count"), Value(0)),
-        delivered=Coalesce(Sum("success_count"), Value(0)),
-        failed=Coalesce(Sum("failure_count"), Value(0)),
+    totals = metric_window.aggregate(
+        attempted=Coalesce(Sum("attempted_count"), Value(0)),
+        delivered=Coalesce(Sum("delivered_count"), Value(0)),
+        failed=Coalesce(Sum("failed_count"), Value(0)),
         delivery_runs=Count("id"),
     )
 
@@ -555,12 +560,12 @@ def get_email_delivery_analytics() -> dict:
             "failed": row["failed"],
         }
         for row in (
-            window.annotate(hour=TruncHour("started_at"))
+            metric_window.annotate(hour=TruncHour("started_at"))
             .values("hour")
             .annotate(
-                attempted=Coalesce(Sum("recipient_count"), Value(0)),
-                delivered=Coalesce(Sum("success_count"), Value(0)),
-                failed=Coalesce(Sum("failure_count"), Value(0)),
+                attempted=Coalesce(Sum("attempted_count"), Value(0)),
+                delivered=Coalesce(Sum("delivered_count"), Value(0)),
+                failed=Coalesce(Sum("failed_count"), Value(0)),
             )
             .order_by("hour")
         )
@@ -575,16 +580,16 @@ def get_email_delivery_analytics() -> dict:
             "failed": row["failed"],
         }
         for row in (
-            AnnouncementDelivery.objects.filter(
+            EmailDeliveryMetric.objects.filter(
                 started_at__gte=daily_start,
                 started_at__lte=snapshot_at,
             )
             .annotate(date=TruncDate("started_at"))
             .values("date")
             .annotate(
-                attempted=Coalesce(Sum("recipient_count"), Value(0)),
-                delivered=Coalesce(Sum("success_count"), Value(0)),
-                failed=Coalesce(Sum("failure_count"), Value(0)),
+                attempted=Coalesce(Sum("attempted_count"), Value(0)),
+                delivered=Coalesce(Sum("delivered_count"), Value(0)),
+                failed=Coalesce(Sum("failed_count"), Value(0)),
             )
             .order_by("date")
         )
@@ -598,7 +603,7 @@ def get_email_delivery_analytics() -> dict:
     # explicitly unattributed instead of being guessed.
     audience_rows_by_announcement: dict[int, list[dict]] = {}
     for row in AnnouncementAudience.objects.filter(
-        announcement_id__in=window.values("announcement_id")
+        announcement_id__in=announcement_window.values("announcement_id")
     ).values("announcement_id", "role_id", "role__role_name", "group_id"):
         audience_rows_by_announcement.setdefault(row["announcement_id"], []).append(
             row
@@ -622,7 +627,7 @@ def get_email_delivery_analytics() -> dict:
     tracked_failed = 0
     unattributed_failed = 0
 
-    for delivery in window.values(
+    for delivery in announcement_window.values(
         "announcement_id",
         "announcement__visibility_scope",
         "recipient_count",
@@ -710,25 +715,13 @@ def get_email_delivery_analytics() -> dict:
         )
     ]
 
-    has_source_mailbox = any(
-        field.name == "source_mailbox"
-        for field in AnnouncementDelivery._meta.get_fields()
-    )
     mailboxes = []
     for mailbox in (primary_mailbox, secondary_mailbox):
-        if has_source_mailbox:
-            mailbox_window = window.filter(source_mailbox__iexact=mailbox)
-        elif mailbox == primary_mailbox:
-            # Older customer schemas predate mailbox attribution. Preserve the
-            # real aggregate under the configured primary sender instead of
-            # requiring a customer-model migration for analytics.
-            mailbox_window = window
-        else:
-            mailbox_window = window.none()
+        mailbox_window = metric_window.filter(source_mailbox__iexact=mailbox)
         mailbox_totals = mailbox_window.aggregate(
-            attempted=Coalesce(Sum("recipient_count"), Value(0)),
-            delivered=Coalesce(Sum("success_count"), Value(0)),
-            failed=Coalesce(Sum("failure_count"), Value(0)),
+            attempted=Coalesce(Sum("attempted_count"), Value(0)),
+            delivered=Coalesce(Sum("delivered_count"), Value(0)),
+            failed=Coalesce(Sum("failed_count"), Value(0)),
             delivery_runs=Count("id"),
         )
         mailbox_hourly = [
@@ -742,23 +735,18 @@ def get_email_delivery_analytics() -> dict:
                 mailbox_window.annotate(hour=TruncHour("started_at"))
                 .values("hour")
                 .annotate(
-                    attempted=Coalesce(Sum("recipient_count"), Value(0)),
-                    delivered=Coalesce(Sum("success_count"), Value(0)),
-                    failed=Coalesce(Sum("failure_count"), Value(0)),
+                    attempted=Coalesce(Sum("attempted_count"), Value(0)),
+                    delivered=Coalesce(Sum("delivered_count"), Value(0)),
+                    failed=Coalesce(Sum("failed_count"), Value(0)),
                 )
                 .order_by("hour")
             )
         ]
-        mailbox_daily_source = AnnouncementDelivery.objects.filter(
+        mailbox_daily_source = EmailDeliveryMetric.objects.filter(
+            source_mailbox__iexact=mailbox,
             started_at__gte=daily_start,
             started_at__lte=snapshot_at,
         )
-        if has_source_mailbox:
-            mailbox_daily_source = mailbox_daily_source.filter(
-                source_mailbox__iexact=mailbox
-            )
-        elif mailbox != primary_mailbox:
-            mailbox_daily_source = mailbox_daily_source.none()
         mailbox_daily = [
             {
                 "date": row["date"].isoformat(),
@@ -771,9 +759,9 @@ def get_email_delivery_analytics() -> dict:
                 .annotate(date=TruncDate("started_at"))
                 .values("date")
                 .annotate(
-                    attempted=Coalesce(Sum("recipient_count"), Value(0)),
-                    delivered=Coalesce(Sum("success_count"), Value(0)),
-                    failed=Coalesce(Sum("failure_count"), Value(0)),
+                    attempted=Coalesce(Sum("attempted_count"), Value(0)),
+                    delivered=Coalesce(Sum("delivered_count"), Value(0)),
+                    failed=Coalesce(Sum("failed_count"), Value(0)),
                 )
                 .order_by("date")
             )

@@ -155,13 +155,23 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
         return 0, 0
 
     sent = failed = 0
+    delivered_recipients = 0
+    failed_recipients = 0
     missed = {}
     connection = sender_connection(sender)
     try:
         connection.open()
     except Exception:
         logger.error("submission_email.connection_failed kind=%s", kind)
-        note_send(kind, missed={address: UNREACHABLE for message in messages for address in message.recipients()})
+        recipients = [address for message in messages for address in message.recipients()]
+        note_send(
+            kind,
+            missed={address: UNREACHABLE for address in recipients},
+            attempted=len(recipients),
+            delivered=0,
+            failed=len(recipients),
+            source_mailbox=sender.address,
+        )
         return 0, len(messages)
 
     try:
@@ -171,6 +181,7 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
                 message.send()
             except Exception as exc:
                 failed += 1
+                failed_recipients += len(message.recipients())
                 missed.update(dict.fromkeys(message.recipients(), reason_for(exc)))
                 # Not logger.exception, which would log the recipient address.
                 logger.error(
@@ -179,12 +190,20 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
                 )
             else:
                 sent += 1
+                delivered_recipients += len(message.recipients())
     finally:
         try:
             connection.close()
         except Exception:
             pass
-    note_send(kind, missed=missed)
+    note_send(
+        kind,
+        missed=missed,
+        attempted=delivered_recipients + failed_recipients,
+        delivered=delivered_recipients,
+        failed=failed_recipients,
+        source_mailbox=sender.address,
+    )
     return sent, failed
 
 

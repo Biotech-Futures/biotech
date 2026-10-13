@@ -16,6 +16,7 @@ from typing import Callable
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.groups import Groups
+from apps.services.email_metrics import record_email_delivery
 from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
 from ..models import FinalistEmailSettings, ResultsEmailSettings
@@ -184,4 +185,21 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     message = build_message(
         rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
     )
-    message.send(fail_silently=False)
+    try:
+        message.send(fail_silently=False)
+    except Exception:
+        record_email_delivery(
+            f"test_{test.email}",
+            source_mailbox=sender.address,
+            attempted=1,
+            delivered=0,
+            failed=1,
+        )
+        raise
+    record_email_delivery(
+        f"test_{test.email}",
+        source_mailbox=sender.address,
+        attempted=1,
+        delivered=1,
+        failed=0,
+    )

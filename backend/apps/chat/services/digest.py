@@ -314,7 +314,14 @@ def send_unread_message_digests(*, dry_run=False):
         connection.open()
     except Exception:
         logger.exception("unread_digest.connection_failed")
-        note_send("unread_messages", missed={candidate["email"]: UNREACHABLE for candidate, _ in pending})
+        note_send(
+            "unread_messages",
+            missed={candidate["email"]: UNREACHABLE for candidate, _ in pending},
+            attempted=considered,
+            delivered=0,
+            failed=considered,
+            source_mailbox=sender_for("unread_messages").address,
+        )
         return considered, 0, len(pending)
 
     sent = 0
@@ -353,7 +360,14 @@ def send_unread_message_digests(*, dry_run=False):
             logger.exception("unread_digest.connection_close_failed")
 
     if sent or missed:
-        note_send("unread_messages", missed=missed)
+        note_send(
+            "unread_messages",
+            missed=missed,
+            attempted=sent + failed,
+            delivered=sent,
+            failed=failed,
+            source_mailbox=sender.address,
+        )
     return considered, sent, failed
 
 

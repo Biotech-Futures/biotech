@@ -481,9 +481,26 @@ def send_system_email(
     except Exception as exc:
         # Not logger.exception: SMTP errors carry recipient addresses in their args.
         logger.error("system_email.send_failed key=%s error=%s", key, type(exc).__name__)
-        note_send(key, missed=dict.fromkeys(message.recipients(), reason_for(exc)), by=sent_by)
+        recipient_count = len(message.recipients())
+        note_send(
+            key,
+            missed=dict.fromkeys(message.recipients(), reason_for(exc)),
+            by=sent_by,
+            attempted=recipient_count,
+            delivered=0,
+            failed=recipient_count,
+            source_mailbox=message.from_email,
+        )
         return FAILED
-    note_send(key, by=sent_by)
+    recipient_count = len(message.recipients())
+    note_send(
+        key,
+        by=sent_by,
+        attempted=recipient_count,
+        delivered=recipient_count,
+        failed=0,
+        source_mailbox=message.from_email,
+    )
     return SENT
 
 
@@ -499,6 +516,23 @@ class _NotedSend:
         try:
             self.message.send(fail_silently=False)
         except Exception as exc:
-            note_send(self.key, missed=dict.fromkeys(self.message.recipients(), reason_for(exc)), by=self.sent_by)
+            recipient_count = len(self.message.recipients())
+            note_send(
+                self.key,
+                missed=dict.fromkeys(self.message.recipients(), reason_for(exc)),
+                by=self.sent_by,
+                attempted=recipient_count,
+                delivered=0,
+                failed=recipient_count,
+                source_mailbox=self.message.from_email,
+            )
             raise
-        note_send(self.key, by=self.sent_by)
+        recipient_count = len(self.message.recipients())
+        note_send(
+            self.key,
+            by=self.sent_by,
+            attempted=recipient_count,
+            delivered=recipient_count,
+            failed=0,
+            source_mailbox=self.message.from_email,
+        )

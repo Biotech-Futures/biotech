@@ -18,6 +18,7 @@ from apps.announcements.models import (
 )
 from apps.groups.models import Groups
 from apps.resources.models import Roles
+from apps.services.models import EmailDeliveryMetric
 from apps.users.models import AdminScope
 
 
@@ -112,11 +113,21 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
             "success_count": delivered,
             "failure_count": failed,
         }
-        if source_mailbox is not None:
-            values["source_mailbox"] = source_mailbox
-        return AnnouncementDelivery.objects.create(
+        delivery = AnnouncementDelivery.objects.create(
             **values,
         )
+        EmailDeliveryMetric.objects.create(
+            email_type="announcement",
+            source_mailbox=source_mailbox or self.primary_mailbox,
+            attempted_count=recipients,
+            delivered_count=delivered,
+            failed_count=failed,
+            status=delivery_status,
+            initiated_by=initiated_by,
+            started_at=started_at,
+            completed_at=started_at + timedelta(minutes=1),
+        )
+        return delivery
 
     def targeted_announcement(self, title, *audiences):
         announcement = Announcement.objects.create(
@@ -243,11 +254,6 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
         )
 
     def test_mailboxes_use_their_own_persisted_delivery_counts(self):
-        if not any(
-            field.name == "source_mailbox"
-            for field in AnnouncementDelivery._meta.get_fields()
-        ):
-            self.skipTest("customer schema does not persist source mailbox attribution")
         latest = datetime(2026, 9, 15, 12, tzinfo=datetime_timezone.utc)
         inside_window = latest - timedelta(hours=24) + timedelta(seconds=1)
         exact_excluded_boundary = latest - timedelta(hours=24)
