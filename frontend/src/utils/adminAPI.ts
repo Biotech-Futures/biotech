@@ -680,6 +680,76 @@ export interface AdminGroupMessagesData {
   has_more: boolean
 }
 
+/**
+ * Resolve a chat attachment to a short-lived signed URL.
+ *
+ * `download_url` on an admin message points at the chat app's download
+ * endpoint, which needs an Authorization header - so it cannot be used as an
+ * `<img src>` directly. `mode=url` asks that endpoint for a pre-signed URL the
+ * browser can load on its own, and `inline=1` makes it render rather than
+ * download. Admins are authorised there by `can_access_chat_group`, which
+ * grants access without group membership.
+ */
+export const resolveChatAttachmentUrl = async (
+  downloadUrl: string,
+  { inline = true }: { inline?: boolean } = {}
+): Promise<{ url: string; filename: string; mimeType: string | null }> => {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const separator = downloadUrl.includes('?') ? '&' : '?'
+  const headers = buildSessionHeaders({ headers: { Accept: 'application/json' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(
+    `${base}${downloadUrl}${separator}mode=url${inline ? '&inline=1' : ''}`,
+    { credentials: 'include', headers }
+  )
+  if (!res.ok) throw new Error('The attachment could not be opened.')
+
+  const data = await res.json()
+  if (!data?.download_url) throw new Error('The attachment could not be opened.')
+  // Azure hands back an absolute signed URL; local development serves files
+  // from disk and returns a path like "/media/chat/...", which would otherwise
+  // resolve against the frontend's own origin and 404.
+  const url: string = /^https?:\/\//i.test(data.download_url)
+    ? data.download_url
+    : `${base}${data.download_url}`
+  return { url, filename: data.filename, mimeType: data.mime_type ?? null }
+}
+
+/**
+ * Fetch a chat attachment's bytes with admin credentials.
+ *
+ * The signed URL is fine for an `<img src>` or a new tab, but an `<a download>`
+ * pointing at another origin has its filename hint ignored - the browser just
+ * navigates to the file. Pulling the bytes here and handing the anchor a blob
+ * URL keeps the save behaviour and the filename.
+ */
+export const downloadChatAttachment = async (
+  downloadUrl: string,
+  filename: string
+): Promise<void> => {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const headers = buildSessionHeaders({ headers: {} })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  // No query string: the endpoint streams with Content-Disposition: attachment
+  // unless ``inline=1`` asks otherwise.
+  const res = await fetch(`${base}${downloadUrl}`, { credentials: 'include', headers })
+  if (!res.ok) throw new Error('The attachment could not be downloaded.')
+
+  const objectUrl = URL.createObjectURL(await res.blob())
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename || 'attachment'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Revoked on the next tick so the click has already been handled.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+}
+
 export const fetchGroupMessages = (
   groupId: string | number,
   params: { page?: number; limit?: number } = {}

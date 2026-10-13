@@ -105,7 +105,82 @@
                   </button>
                 </div>
               </div>
-              <p class="group-detail__message-text">{{ messageBody(message) }}</p>
+              <p v-if="messageBody(message)" class="group-detail__message-text">{{ messageBody(message) }}</p>
+
+              <!-- Images render inline so a moderator can see what was posted;
+                   anything else stays a named chip. Both open the same
+                   view / download / close popup. -->
+              <div v-if="message.attachments?.length" class="group-detail__attachments">
+                <div
+                  v-for="attachment in message.attachments"
+                  :key="attachment.id"
+                  class="group-detail__attachment"
+                >
+                  <button
+                    v-if="isImage(attachment) && imageUrls[attachment.id]"
+                    type="button"
+                    class="group-detail__thumb-btn"
+                    :title="attachment.filename"
+                    @click="toggleAttachment(message.id, attachment)"
+                  >
+                    <img
+                      :src="imageUrls[attachment.id]"
+                      :alt="attachment.filename"
+                      class="group-detail__thumb"
+                    />
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    class="group-detail__attachment-chip"
+                    :title="attachment.filename"
+                    @click="toggleAttachment(message.id, attachment)"
+                  >
+                    <i
+                      :class="isImage(attachment) ? 'fas fa-image' : 'fas fa-paperclip'"
+                      aria-hidden="true"
+                    ></i>
+                    {{ attachment.filename }}
+                  </button>
+
+                  <div
+                    v-if="openAttachmentKey === attachmentKey(message.id, attachment)"
+                    class="group-detail__attachment-menu"
+                  >
+                    <p class="group-detail__attachment-name">{{ attachment.filename }}</p>
+                    <p v-if="attachmentError" class="group-detail__attachment-error">
+                      {{ attachmentError }}
+                    </p>
+                    <div class="group-detail__attachment-actions">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline"
+                        :disabled="attachmentBusy"
+                        @click="attachmentAction(attachment, 'view')"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline"
+                        :disabled="attachmentBusy"
+                        @click="attachmentAction(attachment, 'download')"
+                      >
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline"
+                        :disabled="attachmentBusy"
+                        @click="closeAttachment"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatShortDateTime(message.edited_at) }}</p>
             </li>
           </ul>
@@ -174,9 +249,12 @@ import {
   fetchGroupMessages,
   removeGroupMember,
   removeGroupMessage,
+  downloadChatAttachment,
+  resolveChatAttachmentUrl,
   type AdminGroupDetail,
   type AdminGroupMember,
   type AdminGroupMessage,
+  type AdminGroupMessageAttachment,
   type AdminUser
 } from '@/utils/adminAPI'
 import { formatShortDateTime } from '@/utils/date'
@@ -350,10 +428,85 @@ watch(
 
 const messageBody = (message: AdminGroupMessage): string => {
   if (message.message_type === 'gif') return '[GIF]'
-  if (message.message_type === 'attachment' && message.attachments.length) {
-    return `[attachment: ${message.attachments.map((a) => a.filename).join(', ')}]${message.text ? ` ${message.text}` : ''}`
-  }
+  // Attachments used to be flattened into "[attachment: name]" here. They are
+  // rendered below the text instead, so moderation can see what was actually
+  // posted rather than a filename.
   return message.text
+}
+
+// --- Attachments ---------------------------------------------------------
+
+const isImage = (attachment: AdminGroupMessageAttachment): boolean =>
+  (attachment.mime_type || '').toLowerCase().startsWith('image/')
+
+/** Signed URLs, keyed by attachment id. Resolved lazily: a group's history can
+ *  hold far more images than are on screen, and each URL is short-lived. */
+const imageUrls = ref<Record<number, string>>({})
+const imageFailed = ref<Record<number, true>>({})
+
+const loadImage = async (attachment: AdminGroupMessageAttachment) => {
+  if (imageUrls.value[attachment.id] || imageFailed.value[attachment.id]) return
+  try {
+    const resolved = await resolveChatAttachmentUrl(attachment.download_url)
+    imageUrls.value = { ...imageUrls.value, [attachment.id]: resolved.url }
+  } catch {
+    imageFailed.value = { ...imageFailed.value, [attachment.id]: true }
+  }
+}
+
+watch(
+  messages,
+  (list) => {
+    for (const message of list) {
+      for (const attachment of message.attachments ?? []) {
+        if (isImage(attachment)) void loadImage(attachment)
+      }
+    }
+  },
+  { deep: false }
+)
+
+// Which attachment's action popup is open, as `${messageId}:${attachmentId}`.
+const openAttachmentKey = ref<string | null>(null)
+const attachmentBusy = ref(false)
+const attachmentError = ref('')
+
+const attachmentKey = (messageId: string, attachment: AdminGroupMessageAttachment) =>
+  `${messageId}:${attachment.id}`
+
+const toggleAttachment = (messageId: string, attachment: AdminGroupMessageAttachment) => {
+  const key = attachmentKey(messageId, attachment)
+  attachmentError.value = ''
+  openAttachmentKey.value = openAttachmentKey.value === key ? null : key
+}
+
+const closeAttachment = () => {
+  openAttachmentKey.value = null
+  attachmentError.value = ''
+  attachmentBusy.value = false
+}
+
+/** View opens the file inline in a new tab; download saves it. Both go through
+ *  a freshly signed URL rather than the cached one, which may have expired. */
+const attachmentAction = async (
+  attachment: AdminGroupMessageAttachment,
+  mode: 'view' | 'download'
+) => {
+  attachmentBusy.value = true
+  attachmentError.value = ''
+  try {
+    if (mode === 'view') {
+      const resolved = await resolveChatAttachmentUrl(attachment.download_url)
+      window.open(resolved.url, '_blank', 'noopener,noreferrer')
+    } else {
+      await downloadChatAttachment(attachment.download_url, attachment.filename)
+    }
+    closeAttachment()
+  } catch (error) {
+    attachmentError.value =
+      error instanceof Error ? error.message : 'The attachment could not be opened.'
+    attachmentBusy.value = false
+  }
 }
 
 const messageToRemove = ref<AdminGroupMessage | null>(null)
@@ -566,5 +719,83 @@ const confirmRemoveMessage = async () => {
 
 .group-detail__back:hover {
   text-decoration: underline;
+}
+
+.group-detail__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.group-detail__attachment {
+  position: relative;
+}
+
+.group-detail__thumb-btn {
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.group-detail__thumb {
+  display: block;
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+}
+
+.group-detail__attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 16rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background-color: var(--bg-light);
+  color: var(--charcoal);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-detail__attachment-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 20;
+  min-width: 15rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--surface-elevated);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.group-detail__attachment-name {
+  margin: 0 0 0.45rem;
+  color: var(--charcoal);
+  font-size: 0.8rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.group-detail__attachment-error {
+  margin: 0 0 0.45rem;
+  color: var(--danger, #b3261e);
+  font-size: 0.75rem;
+}
+
+.group-detail__attachment-actions {
+  display: flex;
+  gap: 0.35rem;
 }
 </style>

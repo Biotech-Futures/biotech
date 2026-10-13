@@ -38,6 +38,46 @@ const gifMessage = {
   edited_at: null
 }
 
+const imageMessage = {
+  id: 'm3',
+  group_id: '1',
+  sender: { id: '11', name: 'Grace Hopper', email: 'grace@example.com', role: 'student' },
+  message_type: 'attachment',
+  text: 'our poster draft',
+  attachments: [
+    {
+      id: 77,
+      filename: 'poster.png',
+      mime_type: 'image/png',
+      size: 2048,
+      download_url: '/api/v1/chat/groups/1/messages/m3/attachments/77/download'
+    }
+  ],
+  gif: null,
+  sent_at: '2026-01-07T00:00:00Z',
+  edited_at: null
+}
+
+const fileMessage = {
+  id: 'm4',
+  group_id: '1',
+  sender: { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student' },
+  message_type: 'attachment',
+  text: '',
+  attachments: [
+    {
+      id: 78,
+      filename: 'report.pdf',
+      mime_type: 'application/pdf',
+      size: 4096,
+      download_url: '/api/v1/chat/groups/1/messages/m4/attachments/78/download'
+    }
+  ],
+  gif: null,
+  sent_at: '2026-01-08T00:00:00Z',
+  edited_at: null
+}
+
 const ungroupedStudent = (id: number, firstName: string, lastName: string) => ({
   id,
   firstName,
@@ -84,6 +124,21 @@ const fetchMockFor = (opts: {
       if (id) deletedMessageIds.add(id)
       return Promise.resolve(
         new Response(JSON.stringify({ msg: 'Message removed successfully', data: null }), { status: 200 })
+      )
+    }
+    // ``mode=url`` asks the chat app for a short-lived signed URL the browser
+    // can load without an Authorization header - see resolveChatAttachmentUrl.
+    if (method === 'GET' && u.includes('/attachments/') && u.includes('mode=url')) {
+      const id = u.match(/\/attachments\/(\d+)\//)?.[1]
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            download_url: `https://files.example.com/signed/${id}`,
+            filename: id === '77' ? 'poster.png' : 'report.pdf',
+            mime_type: id === '77' ? 'image/png' : 'application/pdf'
+          }),
+          { status: 200 }
+        )
       )
     }
     if (method === 'GET' && u.includes('/messages/')) {
@@ -193,6 +248,57 @@ describe('GroupDetailModal', () => {
     await flushPromises()
     expect(dialog()!.textContent).toContain('Marie Curie')
     expect(dialog()!.textContent).not.toContain('Hey team, how is everyone?')
+  })
+
+  it('renders an image attachment inline so it can be moderated', async () => {
+    const fetchMock = fetchMockFor({ page1: [imageMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+    await flushPromises()
+
+    const img = dialog()!.querySelector('img.group-detail__thumb') as HTMLImageElement | null
+    expect(img).not.toBeNull()
+    expect(img!.getAttribute('src')).toBe('https://files.example.com/signed/77')
+    expect(img!.getAttribute('alt')).toBe('poster.png')
+    // The message's own text still shows; the filename is no longer inlined
+    // into it as "[attachment: ...]".
+    expect(dialog()!.textContent).toContain('our poster draft')
+    expect(dialog()!.textContent).not.toContain('[attachment:')
+  })
+
+  it('offers view, download and close when an image is clicked', async () => {
+    const fetchMock = fetchMockFor({ page1: [imageMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+    await flushPromises()
+
+    expect(dialog()!.querySelector('.group-detail__attachment-menu')).toBeNull()
+
+    const thumb = dialog()!.querySelector('.group-detail__thumb-btn') as HTMLButtonElement
+    thumb.click()
+    await flushPromises()
+
+    const menu = dialog()!.querySelector('.group-detail__attachment-menu')
+    expect(menu).not.toBeNull()
+    const labels = Array.from(menu!.querySelectorAll('button')).map((b) => b.textContent!.trim())
+    expect(labels).toEqual(['View', 'Download', 'Close'])
+
+    const closeButton = menu!.querySelectorAll('button')[2] as HTMLButtonElement
+    closeButton.click()
+    await flushPromises()
+    expect(dialog()!.querySelector('.group-detail__attachment-menu')).toBeNull()
+  })
+
+  it('shows a non-image attachment as a named chip rather than an image', async () => {
+    const fetchMock = fetchMockFor({ page1: [fileMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+    await flushPromises()
+
+    expect(dialog()!.querySelector('img.group-detail__thumb')).toBeNull()
+    const chip = dialog()!.querySelector('.group-detail__attachment-chip')
+    expect(chip).not.toBeNull()
+    expect(chip!.textContent).toContain('report.pdf')
   })
 
   it('does not fetch messages until the Messages view is opened', async () => {

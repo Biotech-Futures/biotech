@@ -413,9 +413,12 @@ def query_group_messages(
                 "filename": att.attachment_filename,
                 "mime_type": att.attachment_mime_type,
                 "size": att.attachment_size,
+                # Trailing slash matters: without it Django's APPEND_SLASH
+                # answers 301, and a browser will not follow a redirect on a
+                # cross-origin request that carried an Authorization header.
                 "download_url": (
                     f"/api/v1/chat/groups/{gid}/messages/{msg.id}"
-                    f"/attachments/{att.id}/download"
+                    f"/attachments/{att.id}/download/"
                 ),
             })
 

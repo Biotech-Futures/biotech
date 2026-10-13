@@ -48,7 +48,6 @@ from apps.common.rbac import is_admin
 
 # Handoff URLs are followed within a second of being minted, so they don't need
 # the hour-long default that cached image URLs rely on.
-ATTACHMENT_URL_EXPIRY_SECONDS = 120
 
 
 def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
@@ -1041,12 +1040,14 @@ class MessageViewSet(viewsets.ModelViewSet):
         # signed URL already carries Content-Disposition, so a plain navigation
         # downloads with the right filename and Azure serves the bytes.
         if (request.query_params.get("mode") or "").lower() == "url":
+            # The signed URL's lifetime comes from the storage backend's own
+            # SAS settings; ``resolve_url`` takes no expiry argument. Passing
+            # one raised TypeError, so this branch 500'd for every caller.
             download_url = CHAT_FILE_SERVICE.resolve_url(
                 attachment.storage_key,
                 filename=attachment.attachment_filename,
                 content_type=attachment.attachment_mime_type,
                 as_attachment=not inline,
-                expire=ATTACHMENT_URL_EXPIRY_SECONDS,
             )
             if not download_url:
                 return Response(
