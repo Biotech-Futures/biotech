@@ -681,3 +681,205 @@ describe('GroupDetailModal', () => {
     expect(dialog()!.textContent).toContain('[GIF]')
   })
 })
+
+describe('GroupDetailModal message composer', () => {
+  const adminSent = (id: string, text: string) => ({
+    id,
+    group_id: '1',
+    sender: { id: '99', name: 'Ada Quietly', email: 'ada.admin@example.com', role: 'admin' },
+    sent_as_admin: true,
+    message_type: 'text',
+    text,
+    attachments: [],
+    gif: null,
+    sent_at: '2026-01-09T00:00:00Z',
+    edited_at: null
+  })
+
+  /**
+   * One history list, served oldest-first in pages of 50 like the backend.
+   * A send appends to it, so the re-fetch after a send sees the new message.
+   * `sendError` fails every send with a 400; `holdSends` keeps them pending
+   * until `release()` is called.
+   */
+  const composerFetch = (opts: { history?: unknown[]; sendError?: string; holdSends?: boolean } = {}) => {
+    const history = [...(opts.history ?? [])] as { id: string }[]
+    const pending: (() => void)[] = []
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const method = (init?.method || 'GET').toUpperCase()
+      const u = String(url)
+      const json = (body: unknown, status = 200) =>
+        Promise.resolve(new Response(JSON.stringify(body), { status }))
+
+      if (u.includes('/services/csrf/')) return json({ csrfToken: 'csrf-test' })
+      if (method === 'POST' && u.includes('/group/1/messages/')) {
+        if (opts.sendError) return json({ msg: opts.sendError, data: null }, 400)
+        const { text } = JSON.parse(String(init?.body ?? '{}'))
+        const created = adminSent(`sent-${history.length + 1}`, text)
+        const respond = () => {
+          history.push(created)
+          return new Response(JSON.stringify({ msg: 'Message sent', data: created }), { status: 201 })
+        }
+        if (opts.holdSends) return new Promise<Response>((resolve) => pending.push(() => resolve(respond())))
+        return Promise.resolve(respond())
+      }
+      if (method === 'GET' && u.includes('/messages/')) {
+        const page = Number(new URL(u, 'http://x').searchParams.get('page') || 1)
+        const items = history.slice((page - 1) * 50, page * 50)
+        return json({
+          msg: 'ok',
+          data: { items, total: history.length, page, limit: 50, has_more: page * 50 < history.length }
+        })
+      }
+      return json({})
+    })
+    return { fetchMock, release: () => pending.splice(0).forEach((resolve) => resolve()) }
+  }
+
+  const textarea = () => dialog()!.querySelector('#group-detail-compose') as HTMLTextAreaElement
+  const sendButton = () =>
+    Array.from(dialog()!.querySelectorAll('button')).find((b) =>
+      ['Send', 'Sending...'].includes(b.textContent?.trim() ?? '')
+    ) as HTMLButtonElement
+  const type = async (value: string) => {
+    textarea().value = value
+    textarea().dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+  }
+  const submit = async () => {
+    textarea().form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+  }
+  const posts = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === 'POST')
+  const gets = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(
+      ([u, i]) => String(u).includes('/messages/') && ((i as RequestInit | undefined)?.method ?? 'GET') === 'GET'
+    )
+
+  it('is offered in the Messages view and needs non-blank text', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage] })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    expect(dialog()!.textContent).toContain('Send a message as Administrator')
+    expect(dialog()!.textContent).toContain('Group members see this from "Administrator"')
+    expect(sendButton().disabled).toBe(true)
+
+    await type('   \n  ')
+    expect(sendButton().disabled).toBe(true)
+    await submit()
+    expect(posts(fetchMock)).toHaveLength(0)
+
+    await type('Hello team')
+    expect(sendButton().disabled).toBe(false)
+  })
+
+  it('sends the text, clears it, confirms, and shows the message in the refreshed history', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage] })
+    await mountModal(fetchMock)
+    await openMessages()
+    const getsBefore = gets(fetchMock).length
+
+    await type('Reminder: posters are due Friday.')
+    await submit()
+
+    const [[url, init]] = posts(fetchMock)
+    expect(String(url)).toMatch(/\/group\/1\/messages\/$/)
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ text: 'Reminder: posters are due Friday.' })
+
+    expect(textarea().value).toBe('')
+    expect(dialog()!.querySelector('[role="status"]')!.textContent).toContain('Message sent.')
+    expect(gets(fetchMock).length).toBe(getsBefore + 1)
+    expect(dialog()!.textContent).toContain('Messages (2)')
+    expect(dialog()!.textContent).toContain('Reminder: posters are due Friday.')
+  })
+
+  it('identifies admin-sent messages while keeping the real admin', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage, adminSent('a1', 'From the team')] })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    const [member, admin] = Array.from(dialog()!.querySelectorAll('.group-detail__message'))
+    expect(admin.textContent).toContain('Sent as Administrator')
+    expect(admin.textContent).toContain('Ada Quietly')
+    expect(admin.textContent).toContain('ada.admin@example.com')
+    expect(admin.querySelector('.group-detail__role-badge--admin')).toBeTruthy()
+    // Member messages keep their own role badge.
+    expect(member.textContent).not.toContain('Sent as Administrator')
+    expect(member.querySelector('.group-detail__role-badge')!.textContent!.trim()).toBe('student')
+  })
+
+  it('prevents a second send while one is in flight', async () => {
+    const { fetchMock, release } = composerFetch({ history: [textMessage], holdSends: true })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    await type('Only once')
+    await submit()
+    expect(sendButton().textContent).toContain('Sending...')
+    expect(sendButton().disabled).toBe(true)
+    expect(textarea().disabled).toBe(true)
+
+    await submit()
+    sendButton().dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+    expect(posts(fetchMock)).toHaveLength(1)
+
+    release()
+    await flushPromises()
+    expect(sendButton().textContent).toContain('Send')
+    expect(textarea().disabled).toBe(false)
+    expect(textarea().value).toBe('')
+  })
+
+  it('keeps the text and shows the error when sending fails', async () => {
+    const alertSpy = vi.fn()
+    vi.stubGlobal('alert', alertSpy)
+    const { fetchMock } = composerFetch({ history: [textMessage], sendError: 'Group not found' })
+    await mountModal(fetchMock)
+    await openMessages()
+    const getsBefore = gets(fetchMock).length
+
+    await type('Will this arrive?')
+    await submit()
+
+    expect(dialog()!.querySelector('.group-detail__composer [role="alert"]')!.textContent).toContain('Group not found')
+    expect(textarea().value).toBe('Will this arrive?')
+    expect(sendButton().disabled).toBe(false)
+    expect(dialog()!.querySelector('[role="status"]')).toBeNull()
+    expect(gets(fetchMock).length).toBe(getsBefore)
+    expect(alertSpy).not.toHaveBeenCalled()
+  })
+
+  it('jumps to the last page so a new message on a full page is shown', async () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => ({ ...textMessage, id: `h${i}`, text: `old ${i}` }))
+    const { fetchMock } = composerFetch({ history: fifty })
+    await mountModal(fetchMock)
+    await openMessages()
+    expect(dialog()!.textContent).not.toContain('Page 1 of')
+
+    await type('The fifty-first')
+    await submit()
+
+    const last = gets(fetchMock).at(-1)!
+    expect(String(last[0])).toContain('page=2')
+    expect(dialog()!.textContent).toContain('Page 2 of 2')
+    expect(dialog()!.textContent).toContain('The fifty-first')
+    expect(dialog()!.textContent).toContain('Messages (51)')
+  })
+
+  it('does not carry a draft over to another group', async () => {
+    const { fetchMock } = composerFetch({ history: [textMessage] })
+    await mountModal(fetchMock)
+    await openMessages()
+    await type('Meant for BTF1')
+
+    await wrapper!.setProps({ group: { ...groupFixture(), id: 2, name: 'BTF2' } })
+    await flushPromises()
+    await openMessages()
+
+    expect(textarea().value).toBe('')
+    expect(sendButton().disabled).toBe(true)
+  })
+})
