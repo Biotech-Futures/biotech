@@ -11,7 +11,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.chat.management.consumers import GroupChatConsumer
@@ -24,10 +26,15 @@ from apps.chat.serializers import (
     ReplyToSerializer,
 )
 from apps.chat.views import apply_mentions
+from apps.common.storage import get_chat_storage
 from apps.groups.models import GroupMembership, Groups
 from apps.users.models import AdminScope
+from tests.apps._helpers import StorageCleanupMixin
 
 CHANNEL_TEST_SETTINGS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
+#: Every payload field that carries a user id.
+USER_ID_FIELDS = {"sender_user", "sender_user_id", "user_id", "deleted_by"}
 
 
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
@@ -79,6 +86,23 @@ class AdminSenderTestBase(TestCase):
         self.assertNotIn("Quietly", text)
         self.assertNotIn("ada.admin@test.com", text)
         self.assertNotIn(ADMIN_IDENTITY_KEY, text)
+
+    def assert_admin_id_absent(self, data):
+        """No user-id field anywhere in ``data`` holds the sending admin's id."""
+        found = []
+
+        def walk(value, path):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in USER_ID_FIELDS and item == self.admin.id:
+                        found.append(f"{path}.{key}")
+                    walk(item, f"{path}.{key}")
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    walk(item, f"{path}[{index}]")
+
+        walk(data, "")
+        self.assertEqual(found, [], "admin id exposed")
 
     def by_id(self, items, message):
         return next(item for item in items if item["id"] == message.id)
@@ -418,6 +442,40 @@ class ConsumerTests(AdminSenderTestBase):
         self.assertEqual((admin["sender_name"], admin["sender_user_id"]), ("Ada Quietly", self.admin.id))
         self.assertNotIn(ADMIN_IDENTITY_KEY, admin)
 
+    def test_consumer_reveals_the_deleter_only_to_admins(self):
+        frame = {
+            "type": "chat.message",
+            "payload": {
+                "event": "message.deleted",
+                "type": "message.deleted",
+                "group_id": self.group.id,
+                "message_id": self.admin_message.id,
+                "message": {
+                    "id": self.admin_message.id,
+                    "sender_user": None,
+                    "sender_name": "Administrator",
+                    "sent_as_admin": True,
+                    "is_deleted": True,
+                    "deleted_by": None,
+                    "deleted_by_name": "Admin",
+                    "deleted_by_is_admin": True,
+                },
+                ADMIN_IDENTITY_KEY: {
+                    "message": {"sender_user": self.admin.id, "sender_name": "Ada Quietly", "deleted_by": self.admin.id},
+                },
+            },
+        }
+        for viewer in (self.student, self.mentor, self.supervisor):
+            with self.subTest(viewer=viewer.email):
+                sent = self.deliver(self.consumer_for(viewer), frame)
+                self.assertIsNone(sent["message"]["deleted_by"])
+                self.assert_admin_id_absent(sent)
+                self.assert_no_real_identity(sent)
+
+        sent = self.deliver(self.consumer_for(self.other_admin), frame)
+        self.assertEqual(sent["message"]["deleted_by"], self.admin.id)
+        self.assertNotIn(ADMIN_IDENTITY_KEY, sent)
+
     def test_ordinary_frames_pass_through_untouched_without_an_admin_check(self):
         frame = {
             "type": "chat.message",
@@ -433,3 +491,134 @@ class ConsumerTests(AdminSenderTestBase):
             sent = self.deliver(consumer, frame)
         check.assert_not_called()
         self.assertEqual(sent, frame["payload"])
+
+
+class DeletionMaskingTests(AdminSenderTestBase):
+    """Deleting an admin-sent message must not reveal the admin via deleted_by."""
+
+    def remove_from_admin_panel(self, message):
+        response = self.client_for(self.admin).delete(
+            f"/api/v1/admin/group/{self.group.id}/messages/{message.id}/"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+
+    def history(self, viewer):
+        # The member list keeps soft-deleted rows as placeholders.
+        return self.client_for(viewer).get(f"/chat/groups/{self.group.id}/messages/").data["items"]
+
+    def test_members_cannot_see_who_deleted_an_admin_message(self):
+        self.remove_from_admin_panel(self.admin_message)
+        for viewer in (self.student, self.mentor, self.supervisor):
+            with self.subTest(viewer=viewer.email):
+                items = self.history(viewer)
+                item = self.by_id(items, self.admin_message)
+                self.assertTrue(item["is_deleted"])
+                self.assertIsNone(item["deleted_by"])
+                # Generic deletion metadata stays: it names no one.
+                self.assertEqual(item["deleted_by_name"], "Admin")
+                self.assertTrue(item["deleted_by_is_admin"])
+                self.assertEqual(item["sender_name"], "Administrator")
+                self.assert_admin_id_absent(items)
+                self.assert_no_real_identity(items)
+
+    def test_admins_still_see_who_deleted_it(self):
+        self.remove_from_admin_panel(self.admin_message)
+        item = self.by_id(self.history(self.other_admin), self.admin_message)
+        self.assertEqual(item["deleted_by"], self.admin.id)
+        self.assertEqual(item["sender_name"], "Ada Quietly")
+
+    def test_detail_of_a_deleted_admin_message_reveals_nothing(self):
+        self.remove_from_admin_panel(self.admin_message)
+        response = self.client_for(self.student).get(
+            f"/chat/groups/{self.group.id}/messages/{self.admin_message.id}/"
+        )
+        self.assertIn(response.status_code, (200, 404))
+        self.assert_admin_id_absent(response.data)
+        self.assert_no_real_identity(response.data)
+
+    def test_ordinary_deletions_are_unchanged(self):
+        # A member deleting their own message, and an admin moderating a member's
+        # message, keep reporting the deleter exactly as before.
+        own = Messages.objects.create(group=self.group, sender_user=self.mentor, message_text="oops")
+        moderated = Messages.objects.create(group=self.group, sender_user=self.student, message_text="off-topic")
+        self.assertEqual(
+            self.client_for(self.mentor).delete(f"/chat/groups/{self.group.id}/messages/{own.id}/").status_code, 204,
+        )
+        self.remove_from_admin_panel(moderated)
+
+        items = self.history(self.student)
+        own_item = self.by_id(items, own)
+        self.assertEqual((own_item["deleted_by"], own_item["sender_name"]), (self.mentor.id, "Mia Mentor"))
+        moderated_item = self.by_id(items, moderated)
+        self.assertEqual(moderated_item["deleted_by"], self.admin.id)
+        self.assertEqual(moderated_item["sender_name"], "Sam Student")
+        self.assertFalse(moderated_item["sent_as_admin"])
+
+    @patch("apps.chat.views.get_channel_layer")
+    def test_deletion_broadcast_hides_the_deleter_and_keeps_it_server_side(self, get_layer):
+        layer = MagicMock()
+        layer.group_send = AsyncMock()
+        get_layer.return_value = layer
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client_for(self.admin).delete(
+                f"/chat/groups/{self.group.id}/messages/{self.admin_message.id}/"
+            )
+        self.assertEqual(response.status_code, 204)
+
+        [(_, envelope)] = [call.args for call in layer.group_send.call_args_list]
+        payload = envelope["payload"]
+        self.assertEqual(payload["event"], "message.deleted")
+        self.assertIsNone(payload["message"]["deleted_by"])
+        self.assertIsNone(payload["message"]["sender_user"])
+        self.assert_admin_id_absent(payload["message"])
+        self.assertEqual(payload[ADMIN_IDENTITY_KEY], {
+            "message": {"sender_user": self.admin.id, "sender_name": "Ada Quietly", "deleted_by": self.admin.id},
+        })
+
+    @patch("apps.chat.views.get_channel_layer")
+    def test_member_message_deletion_broadcast_is_unchanged(self, get_layer):
+        layer = MagicMock()
+        layer.group_send = AsyncMock()
+        get_layer.return_value = layer
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client_for(self.admin).delete(f"/chat/groups/{self.group.id}/messages/{self.mentor_message.id}/")
+
+        [(_, envelope)] = [call.args for call in layer.group_send.call_args_list]
+        self.assertNotIn(ADMIN_IDENTITY_KEY, envelope["payload"])
+        self.assertEqual(envelope["payload"]["message"]["deleted_by"], self.admin.id)
+        self.assertEqual(envelope["payload"]["message"]["sender_user"], self.mentor.id)
+
+
+class UploadCannotClaimAdminTests(StorageCleanupMixin, AdminSenderTestBase):
+    storage_attr = "chat_storage"
+    storage_keys_attr = "created_chat_storage_keys"
+
+    def setUp(self):
+        super().setUp()
+        self.chat_storage = get_chat_storage()
+        self.created_chat_storage_keys = []
+
+    def upload(self, user):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client_for(user).post(
+                reverse("group-messages-upload", kwargs={"group_pk": self.group.id}),
+                {
+                    "message_text": "See attached",
+                    "uploaded_file": SimpleUploadedFile("plan.pdf", b"plan bytes", content_type="application/pdf"),
+                    "sent_as_admin": "true",
+                },
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, 201, response.data)
+        message = Messages.objects.prefetch_related("attachments").get(pk=response.data["id"])
+        self.created_chat_storage_keys.append(message.attachments.get().storage_key)
+        return response, message
+
+    def test_member_upload_cannot_set_sent_as_admin(self):
+        response, message = self.upload(self.student)
+        self.assertFalse(message.sent_as_admin)
+        self.assertEqual(response.data["sender_name"], "Sam Student")
+
+    def test_admin_upload_in_group_chat_is_not_flagged(self):
+        _, message = self.upload(self.admin)
+        self.assertFalse(message.sent_as_admin)

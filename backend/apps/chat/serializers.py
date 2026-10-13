@@ -55,12 +55,19 @@ def can_see_admin_sender(context) -> bool:
 
 
 def mask_admin_sender(data, message, context, *, id_field, name_field):
-    """Replace the sender of an admin-sent ``message`` in ``data``, in place."""
+    """Replace the sender of an admin-sent ``message`` in ``data``, in place.
+
+    Its deleter is masked too: only an admin can delete an admin-sent message,
+    usually the one who sent it, so ``deleted_by`` would hand back the id the
+    sender fields hide. ``deleted_by_name`` is already the generic "Admin".
+    """
     if getattr(message, "sent_as_admin", False) and not can_see_admin_sender(context):
         if id_field in data:
             data[id_field] = None
         if name_field in data:
             data[name_field] = ADMINISTRATOR_SENDER_NAME
+        if "deleted_by" in data:
+            data["deleted_by"] = None
     return data
 
 

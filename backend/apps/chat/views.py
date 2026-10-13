@@ -201,6 +201,8 @@ def _admin_identity(message) -> dict:
             "sender_user": message.sender_user_id,
             "sender_name": message.sender_user.get_full_name(),
         }
+        if message.deleted_by_id is not None:
+            identity["message"]["deleted_by"] = message.deleted_by_id
     parent = message.reply_to
     if parent is not None and parent.sent_as_admin:
         identity["reply_to"] = {
