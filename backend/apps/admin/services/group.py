@@ -20,6 +20,8 @@ from apps.groups.models import (
 )
 from apps.groups.models.groups import default_group_year
 from apps.chat.models import Messages
+from apps.chat.serializers import MessageSerializer
+from apps.chat.views import publish_new_message
 from apps.users.models import User, StudentProfile
 from apps.audit.services import log_audit_event
 
@@ -37,13 +39,14 @@ class GroupSenderDict(TypedDict):
     id: str
     name: str
     email: str
-    role: Optional[str]  # "student", "mentor", or None
+    role: Optional[str]  # "student", "mentor", "admin" (sent as Administrator), or None
 
 
 class GroupMessageDict(TypedDict):
     id: str
     group_id: str
     sender: GroupSenderDict
+    sent_as_admin: bool
     text: str
     sent_at: str
     edited_at: Optional[str]
@@ -356,6 +359,59 @@ def query_group_by_id(group_id: str) -> dict:
     }
 
 
+def _format_group_message(msg, gid: int) -> GroupMessageDict:
+    """One message as the admin history and send endpoints return it.
+
+    Admins see the real sender of a message sent as Administrator; ``role``
+    is "admin" and ``sent_as_admin`` is set so the UI can label it.
+    """
+    sender_user = msg.sender_user
+    role = "admin" if msg.sent_as_admin else _get_member_role(sender_user)
+
+    attachments = []
+    for att in msg.attachments.all():
+        attachments.append({
+            "id": att.id,
+            "filename": att.attachment_filename,
+            "mime_type": att.attachment_mime_type,
+            "size": att.attachment_size,
+            # Trailing slash matters: without it Django's APPEND_SLASH
+            # answers 301, and a browser will not follow a redirect on a
+            # cross-origin request that carried an Authorization header.
+            "download_url": (
+                f"/api/v1/chat/groups/{gid}/messages/{msg.id}"
+                f"/attachments/{att.id}/download/"
+            ),
+        })
+
+    gif = None
+    if hasattr(msg, "gif"):
+        g = msg.gif
+        gif = {
+            "gif_url": g.gif_url,
+            "preview_url": g.preview_url,
+            "title": g.title,
+        }
+
+    return {
+        "id": str(msg.id),
+        "group_id": str(msg.group_id),
+        "sender": {
+            "id": str(sender_user.id),
+            "name": f"{sender_user.first_name} {sender_user.last_name}".strip(),
+            "email": sender_user.email,
+            "role": role,
+        },
+        "sent_as_admin": msg.sent_as_admin,
+        "message_type": msg.message_type,
+        "text": msg.message_text,
+        "attachments": attachments,
+        "gif": gif,
+        "sent_at": msg.sent_at.isoformat(),
+        "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
+    }
+
+
 def query_group_messages(
     group_id: str,
     page: int = 1,
@@ -401,53 +457,8 @@ def query_group_messages(
         .order_by("sent_at", "id")[offset:offset + limit]
     )
 
-    items = []
-    for msg in message_records:
-        sender_user = msg.sender_user
-        role = _get_member_role(sender_user)
+    items = [_format_group_message(msg, gid) for msg in message_records]
 
-        attachments = []
-        for att in msg.attachments.all():
-            attachments.append({
-                "id": att.id,
-                "filename": att.attachment_filename,
-                "mime_type": att.attachment_mime_type,
-                "size": att.attachment_size,
-                # Trailing slash matters: without it Django's APPEND_SLASH
-                # answers 301, and a browser will not follow a redirect on a
-                # cross-origin request that carried an Authorization header.
-                "download_url": (
-                    f"/api/v1/chat/groups/{gid}/messages/{msg.id}"
-                    f"/attachments/{att.id}/download/"
-                ),
-            })
-
-        gif = None
-        if hasattr(msg, "gif"):
-            g = msg.gif
-            gif = {
-                "gif_url": g.gif_url,
-                "preview_url": g.preview_url,
-                "title": g.title,
-            }
-
-        items.append({
-            "id": str(msg.id),
-            "group_id": str(msg.group_id),
-            "sender": {
-                "id": str(sender_user.id),
-                "name": f"{sender_user.first_name} {sender_user.last_name}".strip(),
-                "email": sender_user.email,
-                "role": role,
-            },
-            "message_type": msg.message_type,
-            "text": msg.message_text,
-            "attachments": attachments,
-            "gif": gif,
-            "sent_at": msg.sent_at.isoformat(),
-            "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
-        })
-    
     has_more = offset + len(items) < total
     
     return {
@@ -673,6 +684,59 @@ def remove_group_member(group_id: str, user_id: int, initiated_by=None) -> dict:
 
 
 @transaction.atomic
+def send_group_message(group_id: str, text, initiated_by) -> dict:
+    """Post ``text`` into a group's chat as Administrator (AM6).
+
+    The admin is stored as the real sender with ``sent_as_admin`` set, so
+    members see "Administrator" while admins see who sent it. Text goes
+    through the chat API's own serializer, so it is validated and sanitised
+    exactly like a member's message; mentions, the live broadcast and link
+    previews then follow the same path as any new message.
+    """
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        return {"msg": "Group not found", "data": None}
+
+    if not _fetch_group_base_by_id(gid):
+        return {"msg": "Group not found", "data": None}
+
+    if not isinstance(text, str) or not text.strip():
+        return {"msg": "Message cannot be empty", "data": None}
+
+    serializer = MessageSerializer(data={"message_text": text})
+    if not serializer.is_valid():
+        errors = serializer.errors
+        detail = errors.get("non_field_errors") or errors.get("message_text") or ["Invalid message"]
+        return {"msg": str(detail[0]), "data": None}
+
+    with transaction.atomic():
+        message = serializer.save(sender_user=initiated_by, group_id=gid, sent_as_admin=True)
+        # Broadcast and link previews run on commit, after the audit row.
+        publish_new_message(message, viewer_id=initiated_by.id)
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="message",
+            entity_id=message.id,
+            action="create",
+            after_state={
+                "id": message.id,
+                "groupId": message.group_id,
+                "senderUserId": message.sender_user_id,
+                "sentAsAdmin": True,
+                "messageText": message.message_text,
+                "sentAt": message.sent_at.isoformat() if message.sent_at else None,
+            },
+        )
+
+    message = (
+        Messages.objects.select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
+        .prefetch_related("attachments")
+        .get(pk=message.pk)
+    )
+    return {"msg": "Message sent", "data": _format_group_message(message, gid)}
+
+
 def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> dict:
     """
     Soft-delete a message from a group.
