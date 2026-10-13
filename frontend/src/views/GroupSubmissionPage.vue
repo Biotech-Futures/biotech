@@ -741,6 +741,7 @@ const activeTab = ref<TabKey>('questions')
 const isSaving = ref(false)
 const isSubmitting = ref(false)
 const isReopening = ref(false)
+const isRefreshing = ref(false)
 const busySlot = ref<SubmissionSlot | ''>('')
 const uploadPercent = ref(0)
 const now = ref(Date.now())
@@ -810,38 +811,67 @@ live.onRemoteText((field, text) => {
   if (wasSaved) savedSnapshot.value = currentSnapshot()
 })
 
+// Something changed elsewhere (a submit, reopen, file, tick or an admin's save): caught up at once.
+live.onChanged(() => void catchUp())
+
 const FILE_SLOTS: SubmissionSlot[] = ['poster', 'report', 'prototype']
 
-// A teammate submitted, reopened or changed a file: their action shows here at once.
-// An admin's saved answers come without live text, so untouched boxes are brought in line.
-live.onChanged((item) => void (item === 'draft' ? resyncUntouchedFields() : refreshFromElsewhere()))
+function fileKeys(entry: SubmissionDetail | null): string {
+  return FILE_SLOTS.map((slot) => entry?.submission?.[slot]?.storage_key ?? '').join('|')
+}
 
-/** Takes the entry's latest status and files; typed text is left alone unless the entry was locked or unlocked. */
-async function refreshFromElsewhere() {
+/** Brings the page in line with the server: status, files and ticks always, and any box not being edited here. */
+async function catchUp() {
+  resyncTimer = null
+  // An admin's edits are their own until Save or Submit, so nothing is brought in meanwhile.
   if (!detail.value || isSubmitting.value || isReopening.value || adminEditing.value) return
   try {
     const before = resultsApplied
     const latest = await fetchSubmission(groupId.value)
-    if (!detail.value) return
-    // A save or submit answered meanwhile, so this copy is older than the page: fetch again.
-    if (resultsApplied !== before) return void refreshFromElsewhere()
-    const files = (entry: typeof latest) =>
-      FILE_SLOTS.map((slot) => entry.submission?.[slot]?.storage_key ?? '').join('|')
+    if (!detail.value || adminEditing.value) return
+    // A write answered meanwhile, so this copy may be older than the page: fetch again.
+    if (resultsApplied !== before) return void catchUp()
     const wasLocked = isLocked.value
     const submittedBefore = detail.value.submission?.submitted_at ?? ''
-    const filesBefore = files(detail.value)
+    const filesBefore = fileKeys(detail.value)
     detail.value = latest
     // A resubmission keeps the entry locked, so a new submitted copy is checked for too.
-    if (wasLocked !== isLocked.value || submittedBefore !== (latest.submission?.submitted_at ?? '')) syncFromDetail()
-    if (filesBefore !== files(latest)) {
+    if (wasLocked !== isLocked.value || submittedBefore !== (latest.submission?.submitted_at ?? '')) {
+      syncFromDetail()
+      await syncPreviewForTab()
+      return
+    }
+    if (filesBefore !== fileKeys(latest)) {
       syncChecklist()
       await syncPreviewForTab()
     } else {
       mergeChecklist()
     }
+    syncUntouchedFields()
   } catch {
-    // Best effort: the next focus or action brings the page up to date.
+    // Best effort: the next change, release or reconnect tries again.
   }
+}
+
+/** Live text can be missed, so boxes not edited here, and not being typed in, take what was saved. */
+function syncUntouchedFields() {
+  const saved = detail.value?.submission
+  if (!saved || showsSubmittedCopy.value) return
+  const wasSaved = currentSnapshot() === savedSnapshot.value
+  questions.value.forEach(({ key }) => {
+    if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
+    answers[key] = saved.answers?.[key] ?? ''
+    savedAnswers[key] = answers[key]
+  })
+  if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
+    projectTitle.value = saved.project_title ?? ''
+    savedTitle = projectTitle.value
+  }
+  if (prototypeUrl.value === savedLink) {
+    prototypeUrl.value = saved.prototype_url ?? ''
+    savedLink = prototypeUrl.value
+  }
+  if (wasSaved) savedSnapshot.value = currentSnapshot()
 }
 
 // Allows for the typist's own autosave, which follows their last keystroke by AUTOSAVE_DELAY_MS.
@@ -850,40 +880,12 @@ let resyncTimer: ReturnType<typeof setTimeout> | null = null
 live.onSettled((reason) => {
   if (resyncTimer) clearTimeout(resyncTimer)
   // Back after time away: catch up at once, then again once any last autosave has landed.
-  if (reason === 'rejoined') void resyncUntouchedFields()
-  resyncTimer = setTimeout(() => void resyncUntouchedFields(), RESYNC_DELAY_MS)
+  if (reason === 'rejoined') void catchUp()
+  resyncTimer = setTimeout(() => void catchUp(), RESYNC_DELAY_MS)
 })
 
-/** Live text can be missed, so fields not edited here are brought in line with what was saved. */
-async function resyncUntouchedFields() {
-  resyncTimer = null
-  // A save in flight is safe: its field still differs from the saved copy, so it is skipped.
-  if (!detail.value || !isEditable.value || adminEditing.value || isSubmitting.value || isReopening.value) return
-  try {
-    const before = resultsApplied
-    const latest = await fetchSubmission(groupId.value)
-    // A save answered meanwhile, so this copy may predate it: fetch again.
-    if (resultsApplied !== before) return void resyncUntouchedFields()
-    const saved = latest.submission
-    if (!saved || !isEditable.value || adminEditing.value) return
-    const wasSaved = currentSnapshot() === savedSnapshot.value
-    questions.value.forEach(({ key }) => {
-      if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
-      answers[key] = saved.answers?.[key] ?? ''
-      savedAnswers[key] = answers[key]
-    })
-    if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
-      projectTitle.value = saved.project_title ?? ''
-      savedTitle = projectTitle.value
-    }
-    if (wasSaved) savedSnapshot.value = currentSnapshot()
-  } catch {
-    // Best effort: the next release or reconnect tries again.
-  }
-}
-
 const isBusy = computed(
-  () => isSaving.value || isSubmitting.value || isReopening.value || Boolean(busySlot.value)
+  () => isSaving.value || isSubmitting.value || isReopening.value || isRefreshing.value || Boolean(busySlot.value)
 )
 
 const showsSubmittedCopy = computed(() => {
@@ -1608,7 +1610,9 @@ const adminEntry = computed(() => {
   const when = submission?.submitted_at ? formatDayMonthTime(submission.submitted_at) : ''
   switch (stage.value) {
     case 'submitted':
-      return `${submission?.auto_submitted ? 'Auto-submitted' : 'Submitted'} ${when}`
+      return `${submission?.auto_submitted ? 'Auto-submitted' : 'Submitted'} ${when}${
+        hasUnsubmittedChanges() ? ', with saved changes not yet submitted' : ''
+      }`
     case 'revising':
       return `Reopened, last submitted ${when}`
     case 'in_progress':
@@ -1617,6 +1621,24 @@ const adminEntry = computed(() => {
       return 'Not started'
   }
 })
+
+/** A submitted entry whose working copy differs: changes an admin saved but has not submitted. */
+function hasUnsubmittedChanges(): boolean {
+  const entry = detail.value?.submission
+  if (!entry?.is_locked) return false
+  const sameAnswers = questions.value.every(
+    ({ key }) => (entry.answers?.[key] ?? '') === (entry.submitted_answers?.[key] ?? '')
+  )
+  const sameFiles = FILE_SLOTS.every(
+    (slot) => (entry[slot]?.storage_key ?? '') === (entry[`submitted_${slot}` as const]?.storage_key ?? '')
+  )
+  return !(
+    sameAnswers &&
+    sameFiles &&
+    entry.project_title === entry.submitted_project_title &&
+    entry.prototype_url === entry.submitted_prototype_url
+  )
+}
 
 /** Whether the team can still edit; past the deadline but open means a grace period or extension. */
 const studentsNote = computed(() => {
@@ -1648,23 +1670,39 @@ function answerAdminDialog(ok: boolean) {
   answerDialog = null
 }
 
-function startAdminEdit() {
+/** The entry as the server now holds it; the copy loaded earlier misses the team's saves since. */
+async function reloadDetail() {
+  isRefreshing.value = true
+  try {
+    detail.value = await fetchSubmission(groupId.value)
+    resultsApplied += 1
+  } catch {
+    // Kept as it was; the next save or refresh reports any problem.
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+async function startAdminEdit() {
+  await reloadDetail()
+  rememberEditStart()
   adminEditing.value = true
   // A submitted entry is edited from its working copy, which the team does not see.
   syncFromDetail()
-  void syncPreviewForTab()
+  await syncPreviewForTab()
 }
 
-function leaveAdminEdit() {
+async function leaveAdminEdit() {
   adminEditing.value = false
   clearPending()
+  await reloadDetail()
   syncFromDetail()
-  void syncPreviewForTab()
+  await syncPreviewForTab()
 }
 
 async function adminDiscard() {
   if (!(await askAdmin('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
-  leaveAdminEdit()
+  await leaveAdminEdit()
   setMessage('Changes discarded.')
 }
 
@@ -1690,24 +1728,45 @@ function adminBlocked(forSubmit: boolean): boolean {
   return Boolean(blocker)
 }
 
-/** How many of the answers the admin changed the team has also changed since the admin began. */
-async function conflictCount(): Promise<number> {
-  const latest = (await fetchSubmission(groupId.value)).submission
-  const answers = Object.keys(changedAnswers()).filter(
-    (key) => (latest?.answers?.[key] ?? '') !== (savedAnswers[key] ?? '')
-  ).length
-  const title = projectTitle.value !== savedTitle && (latest?.project_title ?? '') !== savedTitle
-  return answers + (title ? 1 : 0)
+/** The files as they stood when the admin chose Edit, to tell whether the team replaced one since. */
+let filesAtEditStart: Partial<Record<SubmissionSlot, string>> = {}
+
+function rememberEditStart() {
+  const submission = detail.value?.submission
+  filesAtEditStart = Object.fromEntries(FILE_SLOTS.map((slot) => [slot, submission?.[slot]?.storage_key ?? '']))
 }
 
-/** True to go ahead: no conflicts, or the admin chose to overwrite them. */
-async function overwriteAllowed(): Promise<boolean> {
-  const conflicts = await conflictCount()
+/** Parts the admin changed that the team also changed since the admin began. */
+function conflictsWith(latest: SubmissionDetail['submission']): number {
+  const answerClashes = Object.keys(changedAnswers()).filter(
+    (key) => (latest?.answers?.[key] ?? '') !== (savedAnswers[key] ?? '')
+  ).length
+  const titleClash = projectTitle.value !== savedTitle && (latest?.project_title ?? '') !== savedTitle
+  const linkClash = normalisedLink() !== savedLink && (latest?.prototype_url ?? '') !== savedLink
+  const fileClashes = FILE_SLOTS.filter(
+    (slot) => slot in pendingFiles && (latest?.[slot]?.storage_key ?? '') !== (filesAtEditStart[slot] ?? '')
+  ).length
+  const tickClashes = Object.keys(checklistChanges()).filter(
+    (key) => Boolean(latest?.poster_checklist?.[key]) !== Boolean(savedChecklist[key])
+  ).length
+  return answerClashes + fileClashes + tickClashes + (titleClash ? 1 : 0) + (linkClash ? 1 : 0)
+}
+
+/**
+ * Takes the entry's current state from the server before an admin's Save or Submit, so reopening
+ * and the success message follow it, and asks before overwriting the team's edits. The admin's edits stay.
+ */
+async function readyToWrite(): Promise<boolean> {
+  const latest = await fetchSubmission(groupId.value)
+  if (!detail.value) return false
+  detail.value = { ...detail.value, deadline: latest.deadline, submission: latest.submission }
+  resultsApplied += 1
+  const conflicts = conflictsWith(latest.submission)
   return (
     !conflicts ||
     askAdmin(
       conflicts === 1 ? 'Overwrite a conflicting change?' : `Overwrite ${conflicts} conflicting changes?`,
-      'The team edited some of the same answers while you were editing. Continuing replaces their version of those answers.',
+      'The team edited some of the same parts while you were editing. Continuing replaces their version of those.',
       'Overwrite'
     )
   )
@@ -1744,7 +1803,7 @@ async function adminSave() {
   isSaving.value = true
   setMessage('')
   try {
-    if (!(await overwriteAllowed())) return
+    if (!(await readyToWrite())) return
     // Before the deadline the team sees the changes and can resubmit; after it, their submission stays as it is.
     const reopen = isLocked.value && isOpen.value
     if (
@@ -1760,7 +1819,7 @@ async function adminSave() {
     if (reopen) applyResult(await reopenEntry(groupId.value))
     const locked = isLocked.value
     await publishAdminChanges()
-    leaveAdminEdit()
+    await leaveAdminEdit()
     setMessage(
       locked
         ? `Saved. ${teamName.value} still sees their submission until you submit.`
@@ -1779,7 +1838,7 @@ async function adminSubmit() {
   isSubmitting.value = true
   setMessage('')
   try {
-    if (!(await overwriteAllowed())) return
+    if (!(await readyToWrite())) return
     if (
       !(await askAdmin(
         `Submit for ${teamName.value}?`,
@@ -1791,7 +1850,7 @@ async function adminSubmit() {
     }
     await publishAdminChanges()
     applyResult(await submitEntry(groupId.value))
-    leaveAdminEdit()
+    await leaveAdminEdit()
     setMessage(`Submitted for ${teamName.value}.`)
   } catch (error) {
     await showAdminError(error)

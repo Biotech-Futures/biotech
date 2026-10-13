@@ -141,3 +141,10 @@ class PosterChecklistTests(ChecklistTestCase):
 
         self.assertEqual(self._entry().poster_checklist, {item: False for item in CHECKLIST_ITEMS})
 
+    def test_a_saved_link_tells_teammates_open_pages(self):
+        client = self._client(self.student)
+
+        with patch("apps.submissions.views.notify_changed") as notify:
+            client.put(self._url("group-submission"), {"prototype_url": "https://example.com/demo"}, format="json")
+
+        notify.assert_called_once_with("submission", self.group.id, "link", by=self.student)

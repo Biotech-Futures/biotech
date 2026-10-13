@@ -164,11 +164,13 @@ class GroupSubmissionView(APIView):
                 }
             submission.save()
 
-        # An admin's save reaches the team's open pages, which have no live text for it.
+        # Open pages catch up on what live text does not carry: an admin's save, ticks and the link.
         if _is_staff(request.user):
             notify_changed("submission", group.id, "draft", by=request.user)
         elif "poster_checklist" in data:
             notify_changed("submission", group.id, "checklist", by=request.user)
+        elif "prototype_url" in data:
+            notify_changed("submission", group.id, "link", by=request.user)
 
         return Response({
             "deadline": _deadline_payload(group.id),
