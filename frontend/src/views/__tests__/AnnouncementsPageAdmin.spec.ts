@@ -497,6 +497,25 @@ describe('AnnouncementsPage - Admin Integration', () => {
         expect(wrapper!.text()).toContain('Email notification sent successfully (3 delivered)')
       })
 
+      it('sends one notification when Send Notification is confirmed twice in the same tick', async () => {
+        const settle = pendingNotify()
+        await mountPage()
+        await openMenuItem('Send Notification')
+
+        // The real dialog button; both clicks land before Vue re-renders it busy.
+        const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.admin-modal button')).find(
+          (b) => b.textContent?.trim() === 'Send Notification'
+        )!
+        confirm.click()
+        confirm.click()
+        await flushPromises()
+
+        expect(adminApi.notifyAdminAnnouncement).toHaveBeenCalledTimes(1)
+
+        settle.resolve({ msg: 'ok', status: 'success', attempted: 1, succeeded: 1, failed: 0 })
+        await flushPromises()
+      })
+
       it('clears the indicator and reports the error when sending fails', async () => {
         const settle = pendingNotify()
         await mountPage()

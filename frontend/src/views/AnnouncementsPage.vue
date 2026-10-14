@@ -307,6 +307,10 @@ watch(
 )
 
 const onDialogConfirm = async () => {
+  // ConfirmDialog ignores clicks while busy, but it only sees `busy` after the
+  // next render; this stops a second confirm in the same tick (e.g. sending a
+  // notification twice).
+  if (confirmDialog.busy) return
   confirmDialog.busy = true
   try {
     await confirmDialog.onConfirm()
