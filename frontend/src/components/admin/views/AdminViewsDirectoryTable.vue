@@ -23,7 +23,8 @@
 
       <template #cell-name="{ row }">
         <div class="admin-views-table__primary">
-          <strong>{{ toView(row).name }}</strong>
+          <!-- Only the name underlines when its row is hovered. -->
+          <strong class="data-table-primary-text">{{ toView(row).name }}</strong>
           <span v-if="toView(row).description" class="admin-views-table__muted">
             {{ toView(row).description }}
           </span>

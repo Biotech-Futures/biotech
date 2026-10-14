@@ -248,9 +248,7 @@ import {
 const props = defineProps<{
   /** The student to show; the panel is open while there is one. */
   student: SupervisedStudent | null
-  /** Open at the Guardian Details section. */
-  atGuardian?: boolean
-  /** Open with the guardian form already open (Enter Guardian Details). */
+  /** Open at the guardian form, already open (Enter Guardian Details). */
   editGuardian?: boolean
 }>()
 
@@ -264,12 +262,12 @@ const emit = defineEmits<{
 
 const display = (value?: string | null) => String(value ?? '').trim() || '—'
 
-// Scrolled to the top of the panel when opened at the guardian.
+// Scrolled to the top of the panel when opened to edit the guardian.
 const guardianSection = ref<HTMLElement | null>(null)
 watch(
-  () => [props.student?.id, props.atGuardian],
+  () => [props.student?.id, props.editGuardian],
   async () => {
-    if (!props.student || !props.atGuardian) return
+    if (!props.student || !props.editGuardian) return
     await nextTick()
     guardianSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   },

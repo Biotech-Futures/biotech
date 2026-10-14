@@ -323,7 +323,8 @@ const loadResourceLookups = async (): Promise<void> => {
 // The table's columns; Name and Modified sort, Modified by its time.
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '', sortable: false, cellClass: () => 'resource-icon-cell' },
-  { key: 'name', label: 'Name', wrap: true },
+  // Names the row, though the icon comes first.
+  { key: 'name', label: 'Name', wrap: true, primary: true },
   { key: 'type', label: 'Type', sortable: false },
   { key: 'kind', label: 'Kind', sortable: false },
   { key: 'labels', label: 'Labels', wrap: true, sortable: false },

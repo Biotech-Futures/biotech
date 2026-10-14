@@ -35,7 +35,10 @@
         :empty-message="groupQuery.trim() ? 'No groups match your search.' : 'No groups.'"
         :action-columns="2"
         :show-all-details="showDetails"
+        clickable-rows
+        :row-clickable="(row) => candidateOf(row).has_submission"
         @update:sort="toggleSort($event.key)"
+        @row-click="openGroup(candidateOf($event).group_id)"
       >
         <template v-if="candidatesResp" #stats>
           {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked ·
@@ -184,6 +187,8 @@
         search-placeholder="Group name"
         empty-message="No finalists yet."
         :action-columns="2"
+        clickable-rows
+        @row-click="openGroup(finalistOf($event).group_id)"
       >
         <template #head-marker>
           Marker
@@ -274,6 +279,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   addFinalist,
   fetchFinalistCandidates,
@@ -406,6 +412,10 @@ const marksTableColumns = computed<DataTableColumn[]>(() => [
 ])
 const candidateOf = (row: Record<string, unknown>) => row as unknown as FinalistCandidateRow
 
+// A row opens its group's marking, as its Open does.
+const router = useRouter()
+const openGroup = (groupId: number) => router.push(`/grading/groups/${groupId}`)
+
 // The Group Marks ranking keyed by group, so the Current Finalists table
 // can show each finalist's total and marker.
 const candidatesByGroup = computed(
@@ -418,7 +428,8 @@ const totalsByGroup = computed(
 // Current Finalists' columns, none sorted: # is the order they were picked.
 const finalistColumns: DataTableColumn[] = [
   { key: 'order', label: '#', sortable: false },
-  { key: 'group', label: 'Group', sortable: false },
+  // Names the row, though # comes first.
+  { key: 'group', label: 'Group', sortable: false, primary: true },
   { key: 'flaggedAt', label: 'Flagged at', sortable: false },
   { key: 'flaggedBy', label: 'Flagged by', sortable: false },
   { key: 'late', label: 'Late', sortable: false },

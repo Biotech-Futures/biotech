@@ -113,7 +113,8 @@
                 class="data-table-row"
                 :class="[
                   {
-                    'data-table-row--clickable': clickableRows || (hasDetail() && !allDetailsShown),
+                    'data-table-row--clickable': opensRow(row) || (hasDetail() && !allDetailsShown),
+                    'data-table-row--opens': opensRow(row),
                     'data-table-row--two-line': twoLineRows,
                     'data-table-row--joined': joinedDetails && hasDetail() && rowHasDetail(row),
                   },
@@ -153,6 +154,7 @@
                     {
                       'data-table-cell--wrap': column.wrap,
                       [`data-table-cell--${column.align}`]: Boolean(column.align),
+                      'data-table-cell--primary': column.key === primaryKey,
                     },
                     column.cellClass?.(row),
                   ]"
@@ -185,7 +187,11 @@
               <tr
                 v-if="hasDetail() && rowHasDetail(row) && (allDetailsShown || expandedIds.has(rowId(row)))"
                 class="data-table-detail-row"
-                :class="{ 'data-table-detail-row--joined': joinedDetails }"
+                :class="{
+                  'data-table-detail-row--joined': joinedDetails,
+                  'data-table-detail-row--opens': opensRow(row),
+                }"
+                @click="onDetailClick(row)"
               >
                 <td :colspan="emptyColspan()">
                   <slot name="row-detail" :row="row" />
@@ -284,6 +290,10 @@ export type DataTableColumn = {
   // Classes for a cell, worked out from its row.
   cellClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
+  // The column that names the row, underlined while a row that opens is
+  // hovered; the first column when none is. In a cell that holds more than
+  // the name, the page marks the name with data-table-primary-text.
+  primary?: boolean
 }
 
 export type DataTableSort = { key: string; direction: 'asc' | 'desc' }
@@ -318,6 +328,8 @@ const props = withDefaults(
     detailFor?: (row: Record<string, unknown>) => boolean
     // Rows that open something when clicked; emits row-click.
     clickableRows?: boolean
+    // Which of them do, when not every row (a group with no submission).
+    rowClickable?: (row: Record<string, unknown>) => boolean
     rowClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
     // Server mode: give the total and the table shows `rows` as the current
     // page, leaving search, sorting and paging to the page through the
@@ -346,6 +358,7 @@ const props = withDefaults(
     joinedDetails: false,
     detailFor: undefined,
     clickableRows: false,
+    rowClickable: undefined,
     rowClass: undefined,
     totalCount: undefined,
     page: undefined,
@@ -533,9 +546,22 @@ const rowHasDetail = (row: Record<string, unknown>) => props.detailFor?.(row) ??
 // Details shown under every row, with no chevrons to open them.
 const allDetailsShown = computed(() => props.showAllDetails || props.joinedDetails)
 
+// Whether clicking the row opens something (row-click), not its details.
+const opensRow = (row: Record<string, unknown>) =>
+  props.clickableRows &&
+  (props.rowClickable?.(row) ?? true) &&
+  !(hasDetail() && !allDetailsShown.value && rowHasDetail(row))
+
+// The column whose cell names each row.
+const primaryKey = computed(() => (props.columns.find((column) => column.primary) ?? props.columns[0])?.key)
+
 const onRowClick = (row: Record<string, unknown>) => {
   if (hasDetail() && !allDetailsShown.value && rowHasDetail(row)) toggleDetail(row)
-  else if (props.clickableRows) emit('row-click', row)
+  else if (opensRow(row)) emit('row-click', row)
+}
+
+const onDetailClick = (row: Record<string, unknown>) => {
+  if (opensRow(row)) emit('row-click', row)
 }
 
 const emptyColspan = () =>
@@ -940,7 +966,8 @@ const togglePageSelection = () => {
   pointer-events: none;
 }
 
-.data-table-row--clickable {
+.data-table-row--clickable,
+.data-table-detail-row--opens {
   cursor: pointer;
 }
 
@@ -1133,5 +1160,25 @@ tbody tr:last-child td {
     flex-basis: 100%;
     max-width: none;
   }
+}
+</style>
+
+<style>
+/* A row that opens something, while it or its details are hovered: its name
+   underlined, as a link's would be. Only the part the page marks
+   data-table-primary-text when it marks one (a name over its description),
+   else all of the name cell, its buttons too, which an underline on the cell
+   alone wouldn't reach. */
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--opens:hover))
+  .data-table-cell--primary
+  .data-table-cell:not(:has(.data-table-primary-text)),
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--opens:hover))
+  .data-table-cell--primary
+  .data-table-cell:not(:has(.data-table-primary-text))
+  *,
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--opens:hover))
+  .data-table-cell--primary
+  .data-table-primary-text {
+  text-decoration: underline;
 }
 </style>

@@ -37,8 +37,13 @@
       <span class="admin-users__role-badge">{{ roleLabel(toAdminUser(row).role) }}</span>
     </template>
     <template #cell-student="{ row }">
+      <!-- Only the name underlines when its row is hovered, not the email. -->
       <div class="admin-users__student-cell">
-        <button type="button" class="admin-users__name-btn" @click.stop="emit('view', toAdminUser(row))">
+        <button
+          type="button"
+          class="admin-users__name-btn data-table-primary-text"
+          @click.stop="emit('view', toAdminUser(row))"
+        >
           {{ userName(toAdminUser(row)) }}
         </button>
         <span class="admin-users__email">{{ toAdminUser(row).email || '—' }}</span>

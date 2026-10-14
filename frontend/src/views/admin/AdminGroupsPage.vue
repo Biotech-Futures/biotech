@@ -120,6 +120,8 @@
       search-placeholder="Search by group name..."
       empty-message="No groups found."
       :action-columns="3"
+      clickable-rows
+      @row-click="openDetail(toGroup($event))"
       @update:selected="onTableSelected"
       @update:sort="onSortChange"
       @update:page="onPageChange"

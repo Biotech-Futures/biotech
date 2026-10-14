@@ -48,9 +48,6 @@
         <template #cell-student="{ row, value }">
           <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row)">{{ value }}</button>
         </template>
-        <template #cell-parentGuardian="{ row, value }">
-          <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row, 'guardian')">{{ value }}</button>
-        </template>
         <!-- Options sits beside Search, in the table's search card. -->
         <template #filters="{ rows, pageRows, selectedRows }">
           <SupervisorTableOptions
@@ -155,7 +152,6 @@
 
     <SupervisorStudentSheet
       :student="sheetStudent"
-      :at-guardian="route.query.show === 'guardian' || route.query.show === 'edit-guardian'"
       :edit-guardian="route.query.show === 'edit-guardian'"
       @close="closeSheet"
       @saved="students = $event"
@@ -211,13 +207,12 @@ const emailConfirm = ref<{
 } | null>(null)
 
 // The student whose panel is open, kept in the address (?student=12, plus
-// show=guardian to open at their guardian, or show=edit-guardian with its
-// form open) so a refresh opens it again.
+// show=edit-guardian to open at the guardian form) so a refresh opens it again.
 const route = useRoute()
 const router = useRouter()
 const sheetStudentId = computed(() => Number(route.query.student) || null)
 const sheetStudent = computed(() => students.value.find((student) => student.id === sheetStudentId.value) ?? null)
-const openSheet = (row: Record<string, unknown>, show?: 'guardian' | 'edit-guardian') => {
+const openSheet = (row: Record<string, unknown>, show?: 'edit-guardian') => {
   const query: LocationQueryRaw = { ...route.query, student: String(row.id) }
   if (show) query.show = show
   else delete query.show
