@@ -21,6 +21,8 @@ type RemoteText = (field: string, text: string) => void
 type Settled = (reason: 'released' | 'rejoined') => void
 /** Something about the item changed elsewhere, e.g. it was submitted; `by` is who did it. */
 type Changed = (item: string, by: string | null) => void
+/** A shared-document message ("doc-…"), for a room whose kind keeps one. */
+type DocMessage = (message: Record<string, unknown>) => void
 type Timer = ReturnType<typeof setTimeout>
 
 export function liveRoomUrl(kind: string, roomId: string): string {
@@ -46,7 +48,11 @@ export function typingLabel(names: string[]): string {
  * else is typing in is locked here, so two people never type over each other. Connects only
  * while `active` is true and the tab is visible; saving never depends on it.
  */
-export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boolean>) {
+/**
+ * With `coediting` on, a field is never locked: everyone types in it at once (the text itself
+ * travels as shared-document messages), and every typist's name shows under it.
+ */
+export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boolean>, coediting?: Ref<boolean>) {
   const typers = reactive<Record<string, Record<number, string>>>({})
   const expiry = new Map<string, Timer>()
   const lastSent = new Map<string, number>()
@@ -57,6 +63,11 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
   const remoteTextHandlers: RemoteText[] = []
   const settledHandlers: Settled[] = []
   const changedHandlers: Changed[] = []
+  const docHandlers: DocMessage[] = []
+  const openHandlers: Array<() => void> = []
+  const closeHandlers: Array<() => void> = []
+  const isConnected = ref(false)
+  const isShared = () => Boolean(coediting?.value)
   const isVisible = ref(document.visibilityState === 'visible')
   let myId: number | null = null
   let socket: WebSocket | null = null
@@ -116,7 +127,7 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
 
   /** Two people starting on one field at once: the earlier account keeps it, on every screen. */
   function yieldsTo(userId: number, field: string): boolean {
-    if (!isTypingHere(field)) return true
+    if (isShared() || !isTypingHere(field)) return true
     if (myId === null || userId > myId) return false
     stopOwnTyping(field)
     return true
@@ -137,6 +148,11 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
       return
     }
     const { field, user } = event
+    if (typeof event.type === 'string' && event.type.startsWith('doc-')) {
+      const message = event as Record<string, unknown>
+      docHandlers.forEach((handler) => handler(message))
+      return
+    }
     if (event.type === 'hello' && typeof user?.id === 'number') {
       myId = user.id
       return
@@ -175,11 +191,14 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
       if (dropped || joinedRoom === room) notifySettled('rejoined')
       joinedRoom = room
       dropped = false
+      isConnected.value = true
+      openHandlers.forEach((handler) => handler())
     }
     ws.onmessage = (event) => onMessage(event.data)
     ws.onclose = (event) => {
       if (socket !== ws) return
       socket = null
+      notifyClosed()
       clearOwnTimers()
       clearTypers()
       if (event.code === NO_ACCESS || !shouldConnect()) return
@@ -212,7 +231,21 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
     const ws = socket
     socket = null
     ws?.close(1000)
+    if (ws) notifyClosed()
     clearTypers()
+  }
+
+  function notifyClosed() {
+    if (!isConnected.value) return
+    isConnected.value = false
+    closeHandlers.forEach((handler) => handler())
+  }
+
+  /** Sends a shared-document message; false when there is no open connection to send it on. */
+  function sendDoc(message: object): boolean {
+    if (socket?.readyState !== WebSocket.OPEN) return false
+    socket.send(JSON.stringify(message))
+    return true
   }
 
   function send(message: object) {
@@ -222,7 +255,7 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
   /** Call on each keystroke in `field`; signals are throttled and a stop follows a pause. */
   function sendTyping(field: string) {
     // Silent until the server says who we are, so a clash can always be settled.
-    if (socket?.readyState !== WebSocket.OPEN || myId === null || isLocked(field)) return
+    if (socket?.readyState !== WebSocket.OPEN || myId === null || (!isShared() && isLocked(field))) return
     const now = Date.now()
     if (now - (lastSent.get(field) ?? 0) >= RESEND_TYPING_MS) {
       send({ type: 'typing', field, typing: true })
@@ -262,9 +295,9 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
     return carets[field] ?? null
   }
 
-  /** Someone else is typing in `field`, so it should not be editable here. */
+  /** Someone else is typing in `field`, so it should not be editable here; never while co-editing. */
   function isLocked(field: string): boolean {
-    return typingIn(field).length > 0 && !isTypingHere(field)
+    return !isShared() && typingIn(field).length > 0 && !isTypingHere(field)
   }
 
   function onRemoteText(handler: RemoteText) {
@@ -277,6 +310,18 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
 
   function onChanged(handler: Changed) {
     changedHandlers.push(handler)
+  }
+
+  function onDoc(handler: DocMessage) {
+    docHandlers.push(handler)
+  }
+
+  function onOpen(handler: () => void) {
+    openHandlers.push(handler)
+  }
+
+  function onClose(handler: () => void) {
+    closeHandlers.push(handler)
   }
 
   function onVisibilityChange() {
@@ -298,5 +343,19 @@ export function useLiveRoom(kind: string, roomId: Ref<string>, active: Ref<boole
     disconnect()
   })
 
-  return { sendTyping, sendText, typingIn, caretIn, isLocked, onRemoteText, onSettled, onChanged }
+  return {
+    sendTyping,
+    sendText,
+    typingIn,
+    caretIn,
+    isLocked,
+    onRemoteText,
+    onSettled,
+    onChanged,
+    sendDoc,
+    onDoc,
+    onOpen,
+    onClose,
+    isConnected
+  }
 }

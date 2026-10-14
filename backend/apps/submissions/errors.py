@@ -97,6 +97,12 @@ class FileNotUploadedYet(APIException):
     default_code = "file_not_uploaded_yet"
 
 
+class CoeditingActive(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This page is out of date. Please refresh it to keep editing."
+    default_code = "coediting_active"
+
+
 class PosterChecklistIncomplete(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Please tick every item in the poster checklist before submitting."

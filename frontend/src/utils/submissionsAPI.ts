@@ -78,6 +78,8 @@ export interface SubmissionDetail {
   /** Upload limit in bytes per slot. */
   max_file_sizes: Record<SubmissionSlot, number>
   admin_access?: boolean
+  /** Answers and title are co-edited live, and the server saves them. */
+  coediting?: boolean
   /** Null until the team first saves something. */
   submission: SubmissionRecord | null
 }

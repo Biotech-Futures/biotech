@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.live.broadcast import notify_changed
 
+from . import coedit
 from .models import Submission
 from .services import current_cohort, deadline_for_group
 from .submitting import complete_submission, delete_superseded, is_complete
@@ -23,7 +24,7 @@ def _past_cutoff(group_id: int, now) -> bool:
     return cutoff is not None and now > cutoff
 
 
-def entries_due(now=None) -> list[Submission]:
+def entries_due(now=None, *, flush: bool = True) -> list[Submission]:
     """This round's never-submitted, complete drafts whose team is past its cut-off."""
     now = now or timezone.now()
     drafts = Submission.objects.filter(
@@ -31,14 +32,24 @@ def entries_due(now=None) -> list[Submission]:
         cohort=current_cohort(),
         group__deleted_at__isnull=True,
     ).select_related("group")
-    return [entry for entry in drafts if is_complete(entry) and _past_cutoff(entry.group_id, now)]
+    due = []
+    for entry in drafts:
+        if not _past_cutoff(entry.group_id, now):
+            continue
+        # Co-edited text reaches the entry before it is judged complete.
+        if flush and coedit.enabled():
+            coedit.flush(entry.group_id)
+            entry.refresh_from_db()
+        if is_complete(entry):
+            due.append(entry)
+    return due
 
 
 def auto_submit_due(now=None, *, dry_run: bool = False) -> dict:
     """Submit every entry due; returns the teams submitted, by name."""
     now = now or timezone.now()
     submitted = []
-    for entry in entries_due(now):
+    for entry in entries_due(now, flush=not dry_run):
         if dry_run:
             submitted.append(entry.group.group_name)
             continue

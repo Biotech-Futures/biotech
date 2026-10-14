@@ -633,6 +633,7 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
 )
+SUBMISSION_COEDITING_ENABLED = config("SUBMISSION_COEDITING_ENABLED", default=False, cast=bool)
 
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the

@@ -154,6 +154,8 @@
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
+        <p v-if="coeditNote" class="submission-muted" data-testid="coedit-note">{{ coeditNote }}</p>
+
         <div class="submission-field">
           <label class="submission-label" for="project-title">
             Project title
@@ -166,8 +168,11 @@
             type="text"
             :maxlength="PROJECT_TITLE_MAX_LENGTH"
             v-show="!live.isLocked(TITLE_FIELD)"
-            :disabled="!isEditable || live.isLocked(TITLE_FIELD)"
+            :disabled="!textEditable || live.isLocked(TITLE_FIELD)"
             @input="shareTyping(TITLE_FIELD, $event)"
+            @compositionstart="startComposing(TITLE_FIELD, $event)"
+            @compositionend="endComposing(TITLE_FIELD, $event)"
+            @keydown="onFieldKeydown(TITLE_FIELD, $event)"
           />
           <LiveTextPanel
             v-if="live.isLocked(TITLE_FIELD)"
@@ -200,8 +205,11 @@
               :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
               :style="boxHeights[question.key] ? { height: `${boxHeights[question.key]}px` } : undefined"
-              :disabled="!isEditable || live.isLocked(question.key)"
+              :disabled="!textEditable || live.isLocked(question.key)"
               @input="shareTyping(question.key, $event)"
+              @compositionstart="startComposing(question.key, $event)"
+              @compositionend="endComposing(question.key, $event)"
+              @keydown="onFieldKeydown(question.key, $event)"
             ></textarea>
             <LiveTextPanel
               v-if="live.isLocked(question.key)"
@@ -600,6 +608,8 @@ import AdminSubmissionBar from '@/components/submission/AdminSubmissionBar.vue'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
 import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
+import { useSharedDoc } from '@/composables/useSharedDoc'
+import { SharedTextField } from '@/utils/sharedText'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatDayMonthTime } from '@/utils/date'
@@ -699,7 +709,7 @@ function tidyLink() {
 
 /** A link with a problem is left out, so the server keeps the last good one. */
 function draftFields(answers: Record<string, string>): {
-  answers: Record<string, string>
+  answers?: Record<string, string>
   project_title?: string
   prototype_url?: string
   poster_checklist?: Record<string, boolean>
@@ -707,8 +717,8 @@ function draftFields(answers: Record<string, string>): {
   const link = linkProblem() ? savedLink : normalisedLink()
   const ticks = checklistChanges()
   return {
-    answers,
-    ...titleIfChanged(),
+    // A team's co-edited text is saved by the server, never sent from here.
+    ...(typingShared.value ? {} : { answers, ...titleIfChanged() }),
     ...(link === savedLink ? {} : { prototype_url: link }),
     ...(Object.keys(ticks).length ? { poster_checklist: ticks } : {})
   }
@@ -777,11 +787,14 @@ const canAct = computed(() => isOpen.value || adminAccess.value)
 const isEditable = computed(() => canAct.value && (adminAccess.value ? adminEditing.value : !isLocked.value))
 
 // While the portal is on screen and the round is open, so changes made elsewhere arrive at once.
+/** Answers and title are one live document that the whole team types into at once; the server saves it. */
+const coediting = computed(() => Boolean(detail.value?.coediting))
 const live = useLiveRoom(
   'submission',
   groupId,
   // An admin editing leaves the room, so their unsaved work is never shown to the team.
-  computed(() => canAct.value && route.name === 'group-submission' && !adminEditing.value)
+  computed(() => canAct.value && route.name === 'group-submission' && !adminEditing.value),
+  coediting
 )
 const TITLE_FIELD = 'project-title'
 /** Room for most of an answer before anyone needs to stretch the box. */
@@ -789,8 +802,85 @@ const ANSWER_ROWS = 7
 /** Heights people have stretched answer boxes to, by question. */
 const boxHeights = reactive<Record<string, number>>({})
 
+const shared = useSharedDoc(live, coediting)
+/** Marks edits typed on this page, so undo covers this person's typing only. */
+const TYPED_HERE = {}
+const sharedFields = new Map<string, SharedTextField>()
+/** Teams type into the shared document; an admin edits privately, as without co-editing. */
+const typingShared = computed(() => coediting.value && !adminAccess.value)
+/** Read-only until the shared document has arrived and the server allows editing it. */
+const textEditable = computed(
+  () => isEditable.value && (!typingShared.value || (shared.synced.value && shared.editable.value))
+)
+const coeditNote = computed(() => {
+  if (!typingShared.value || !isEditable.value) return ''
+  if (!shared.synced.value) return "Connecting to your team's live answers…"
+  return shared.editable.value ? '' : "Your team's answers can't be edited right now."
+})
+
+function sharedName(field: string): string {
+  return field === TITLE_FIELD ? 'title' : `answer:${field}`
+}
+
+function bindSharedFields() {
+  sharedFields.forEach((field) => field.destroy())
+  sharedFields.clear()
+  if (!coediting.value) return
+  for (const field of [TITLE_FIELD, ...questions.value.map((q) => q.key)]) {
+    const box = () => document.getElementById(field) as HTMLInputElement | HTMLTextAreaElement | null
+    sharedFields.set(field, new SharedTextField(shared.text(sharedName(field)), TYPED_HERE, box, (value) => showShared(field, value)))
+  }
+}
+
+/** The shared text is what the server saves, so it counts as saved here. */
+function showShared(field: string, value: string) {
+  // The submitted copy, an admin's private edits, or a half-arrived document are not overwritten.
+  if (showsSubmittedCopy.value || adminEditing.value || !shared.synced.value) return
+  if (field === TITLE_FIELD) {
+    projectTitle.value = value
+    savedTitle = value
+  } else {
+    answers[field] = value
+    savedAnswers[field] = value
+  }
+}
+
+function showAllShared() {
+  sharedFields.forEach((field, name) => showShared(name, field.value))
+}
+
+shared.onReplaced(() => bindSharedFields())
+watch([coediting, questions], () => bindSharedFields())
+watch(
+  () => shared.synced.value,
+  (synced) => {
+    if (synced) showAllShared()
+  }
+)
+// Submitting, reopening or the deadline change what may be edited, so the server is asked again.
+watch([() => isLocked.value, () => isOpen.value], () => {
+  if (typingShared.value) shared.resync()
+})
+
+function startComposing(field: string, event: CompositionEvent) {
+  if (typingShared.value) sharedFields.get(field)?.startComposition(event.target as HTMLTextAreaElement)
+}
+
+function endComposing(field: string, event: CompositionEvent) {
+  if (typingShared.value) sharedFields.get(field)?.endComposition(event.target as HTMLTextAreaElement)
+}
+
+function onFieldKeydown(field: string, event: KeyboardEvent) {
+  if (typingShared.value) sharedFields.get(field)?.keydown(event)
+}
+
 function shareTyping(field: string, event: Event) {
   if (adminAccess.value) return
+  if (typingShared.value) {
+    sharedFields.get(field)?.input(event.target as HTMLInputElement | HTMLTextAreaElement)
+    live.sendTyping(field)
+    return
+  }
   const input = event.target as HTMLInputElement | HTMLTextAreaElement
   live.sendTyping(field)
   live.sendText(field, input.value, input.selectionStart ?? input.value.length)
@@ -798,6 +888,7 @@ function shareTyping(field: string, event: Event) {
 
 // A teammate's text is theirs to save, so it is taken as already saved here.
 live.onRemoteText((field, text) => {
+  if (coediting.value) return
   const wasSaved = currentSnapshot() === savedSnapshot.value
   if (field === TITLE_FIELD) {
     projectTitle.value = text
@@ -858,14 +949,17 @@ function syncUntouchedFields() {
   const saved = detail.value?.submission
   if (!saved || showsSubmittedCopy.value) return
   const wasSaved = currentSnapshot() === savedSnapshot.value
-  questions.value.forEach(({ key }) => {
-    if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
-    answers[key] = saved.answers?.[key] ?? ''
-    savedAnswers[key] = answers[key]
-  })
-  if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
-    projectTitle.value = saved.project_title ?? ''
-    savedTitle = projectTitle.value
+  // While co-editing, answers and title come from the shared document, which is newer than the saved copy.
+  if (!coediting.value) {
+    questions.value.forEach(({ key }) => {
+      if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
+      answers[key] = saved.answers?.[key] ?? ''
+      savedAnswers[key] = answers[key]
+    })
+    if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
+      projectTitle.value = saved.project_title ?? ''
+      savedTitle = projectTitle.value
+    }
   }
   if (prototypeUrl.value === savedLink) {
     prototypeUrl.value = saved.prototype_url ?? ''
@@ -1330,6 +1424,7 @@ function syncFromDetail() {
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
+  if (coediting.value) showAllShared()
 }
 
 async function load() {
@@ -1347,10 +1442,11 @@ async function load() {
 }
 
 function currentSnapshot() {
+  // Co-edited text is saved by the server, so it never makes the page unsaved.
   return JSON.stringify({
-    answers,
+    answers: typingShared.value ? null : answers,
     prototypeUrl: prototypeUrl.value,
-    projectTitle: projectTitle.value,
+    projectTitle: typingShared.value ? null : projectTitle.value,
     posterChecklist
   })
 }
@@ -1362,9 +1458,14 @@ async function persistDraft() {
   const sent = changedAnswers()
   const overLimit = overLimitQuestions()
 
+  const fields = draftFields(sent)
+  if (!Object.keys(fields).length) {
+    savedSnapshot.value = snapshot
+    return
+  }
+
   isSaving.value = true
   try {
-    const fields = draftFields(sent)
     applyResult(await saveDraft(groupId.value, fields))
     // Only what this save sent joins the baseline, so a teammate's newer text is kept.
     Object.assign(savedAnswers, sent)
@@ -1458,8 +1559,15 @@ async function onSubmit() {
       return
     }
 
+    // Everything typed into the shared document reaches the server before the entry is copied.
+    if (typingShared.value && !(await shared.flush())) {
+      setMessage("Couldn't reach your team's live answers. Check your connection and try again.", true)
+      return
+    }
+
     const sent = changedAnswers()
-    applyResult(await saveDraft(groupId.value, draftFields(sent)))
+    const fields = draftFields(sent)
+    if (Object.keys(fields).length) applyResult(await saveDraft(groupId.value, fields))
     Object.assign(savedAnswers, sent)
     applyResult(await submitEntry(groupId.value))
     syncFromDetail()
@@ -1693,6 +1801,8 @@ async function reloadDetail() {
 }
 
 async function startAdminEdit() {
+  // The team's last few seconds of typing are saved first, so editing starts from them.
+  if (coediting.value) await shared.flush()
   await reloadDetail()
   rememberEditStart()
   adminEditing.value = true
@@ -1934,6 +2044,7 @@ window.addEventListener('focus', onPageVisible)
 document.addEventListener('visibilitychange', onPageVisible)
 
 onBeforeUnmount(() => {
+  sharedFields.forEach((field) => field.destroy())
   removeLeaveGuard()
   window.removeEventListener('beforeunload', warnBeforeUnload)
   clearPending()

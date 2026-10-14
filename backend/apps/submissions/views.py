@@ -19,7 +19,9 @@ from apps.live.broadcast import notify_changed
 from config.errors import GroupAccessDenied
 
 from .emails import send_submission_confirmation
+from . import coedit
 from .errors import (
+    CoeditingActive,
     FileNotUploadedYet,
     NoFileUploaded,
     NotSubmittedYet,
@@ -128,6 +130,8 @@ class GroupSubmissionView(APIView):
             "max_file_sizes": max_sizes(),
             # Admins act for a team at any time, without the template checks.
             "admin_access": _is_staff(request.user),
+            # Answers and title are co-edited live, and the server saves them.
+            "coediting": coedit.enabled(),
             # None means the team has not started.
             "submission": (
                 SubmissionSerializer(submission).data if submission is not None else None
@@ -142,6 +146,10 @@ class GroupSubmissionView(APIView):
         payload = SubmissionDraftSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        staff = _is_staff(request.user)
+        # While co-editing, a team's answers and title are saved from the shared document only.
+        if coedit.enabled() and not staff and ("answers" in data or "project_title" in data):
+            raise CoeditingActive()
 
         # Locked so two teammates auto-saving at once cannot overwrite each other.
         with transaction.atomic():
@@ -164,8 +172,14 @@ class GroupSubmissionView(APIView):
                 }
             submission.save()
 
+        if staff and coedit.enabled():
+            written = {coedit.answer_field(key): value for key, value in data.get("answers", {}).items()}
+            if "project_title" in data:
+                written[coedit.TITLE_FIELD] = data["project_title"]
+            coedit.write_fields(group.id, written)
+
         # Open pages catch up on what live text does not carry: an admin's save, ticks and the link.
-        if _is_staff(request.user):
+        if staff:
             notify_changed("submission", group.id, "draft", by=request.user)
         elif "poster_checklist" in data:
             notify_changed("submission", group.id, "checklist", by=request.user)
@@ -322,6 +336,9 @@ class GroupSubmissionSubmitView(APIView):
         group = _get_group(group_id)
         _require_can_edit(request.user, group.id)
         _require_open(group.id, request.user)
+
+        # The shared document's latest text reaches the entry before it is copied.
+        coedit.flush(group.id)
 
         # Locked so a teammate's auto-save cannot land mid-submit and be lost.
         with transaction.atomic():
