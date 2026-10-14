@@ -248,10 +248,30 @@ class ChatFeatureTests(StorageCleanupMixin, TestCase):
         resp = client.delete(self._detail_url(msg.id))
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_forbidden_for_mentor_without_admin_scope(self):
+    def test_delete_forbidden_for_a_member_who_is_not_this_groups_mentor(self):
+        # Since AM8 a mentor *of this group* may remove a student's message,
+        # which is keyed off the membership role - see
+        # tests/apps/chat/test_mentor_moderation.py. This fixture's membership
+        # carries no role, so the user is an ordinary member here and the role
+        # assignment elsewhere in the system grants nothing on its own.
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="mentor try")
         resp = self.client_mentor.delete(self._detail_url(msg.id))
         self.assertEqual(resp.status_code, 403)
+
+    def test_delete_allowed_once_that_membership_is_a_mentor_role(self):
+        GroupMembership.objects.filter(user=self.mentor, group=self.group).update(
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        GroupMembership.objects.filter(user=self.student, group=self.group).update(
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="mentor try")
+
+        resp = self.client_mentor.delete(self._detail_url(msg.id))
+
+        self.assertEqual(resp.status_code, 204)
+        msg.refresh_from_db()
+        self.assertEqual(msg.deleted_by_id, self.mentor.id)
 
     def test_delete_forbidden_for_supervisor_without_admin_scope(self):
         msg = Messages.objects.create(group=self.group, sender_user=self.student, message_text="supervisor try")

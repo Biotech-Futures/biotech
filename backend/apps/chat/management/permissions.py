@@ -1,7 +1,11 @@
 from django.conf import settings
 from rest_framework.permissions import BasePermission
 
-from apps.chat.rbac import can_access_chat_group, can_manage_chat_message
+from apps.chat.rbac import (
+    can_access_chat_group,
+    can_manage_chat_message,
+    can_moderate_chat_message,
+)
 from apps.groups.models import Groups
 
 
@@ -52,18 +56,20 @@ class IsGroupMemberOrAdmin(BasePermission):
 class CanModerateMessage(BasePermission):
     """Delete a chat message.
 
-    Allowed iff the caller is the sender within the self-action window,
-    or an admin.
+    Allowed for an admin, for the sender within the self-action window, and
+    for a mentor of the group removing a student's message. Editing is a
+    different rule - see ``CanEditMessage`` - so a mentor can take a message
+    down without being able to rewrite it.
     """
 
     def has_object_permission(self, request, view, obj):
-        return can_manage_chat_message(getattr(request, "user", None), obj)
+        return can_moderate_chat_message(getattr(request, "user", None), obj)
 
 
 class CanEditMessage(BasePermission):
-    """Edit a chat message. Same rule as CanModerateMessage — sender
-    within the self-action window, or an admin. Kept as a separate class
-    so views wire intent explicitly.
+    """Edit a chat message: the sender within the self-action window, or an
+    admin. Narrower than ``CanModerateMessage`` on purpose - a mentor may
+    delete a student's message but never change its words.
     """
 
     def has_object_permission(self, request, view, obj):

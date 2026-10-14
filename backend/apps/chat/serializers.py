@@ -478,9 +478,22 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         return aggregate_reactions(obj)
 
     def get_message_text(self, obj):
+        # Moderated content is blanked for participants. Admins keep it: they
+        # are the ones who review a removal and decide whether to restore it,
+        # and the same text is already on the admin group screen.
         if obj.deleted_at is not None:
-            return ""
+            return obj.message_text if self._viewer_is_admin() else ""
         return obj.message_text
+
+    def _viewer_is_admin(self) -> bool:
+        # Opt-in: only the direct reads an admin makes for themselves set
+        # ``reveal_deleted``. Broadcast payloads are serialised once and pushed
+        # to every client in the room, so they must never reveal the text just
+        # because an admin triggered them.
+        if not self.context.get("reveal_deleted"):
+            return False
+        request = self.context.get("request")
+        return bool(request and is_admin_actor(getattr(request, "user", None)))
 
     def get_deleted_by_name(self, obj):
         user = getattr(obj, "deleted_by", None)

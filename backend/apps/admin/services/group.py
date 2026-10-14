@@ -382,21 +382,21 @@ def query_group_messages(
         return {"msg": "Group not found", "data": None}
     
     offset = (page - 1) * limit
-    
-    # Get total count
-    total = Messages.objects.filter(
-        group_id=gid,
-        deleted_at__isnull=True
-    ).count()
-    
-    # Fetch paginated messages
+
+    # Soft-deleted messages are included: this endpoint is admin-only, and
+    # moderation needs to see what was removed, by whom, and put it back.
+    # Participants read chat through apps.chat, which filters them out.
+    total = Messages.objects.filter(group_id=gid).count()
+
     message_records = (
         Messages.objects
-        .filter(
-            group_id=gid,
-            deleted_at__isnull=True
+        .filter(group_id=gid)
+        .select_related(
+            "sender_user",
+            "sender_user__mentorprofile",
+            "sender_user__studentprofile",
+            "deleted_by",
         )
-        .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
         .prefetch_related("attachments")
         .order_by("sent_at", "id")[offset:offset + limit]
     )
@@ -446,6 +446,13 @@ def query_group_messages(
             "gif": gif,
             "sent_at": msg.sent_at.isoformat(),
             "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
+            "deleted_at": msg.deleted_at.isoformat() if msg.deleted_at else None,
+            "deleted_by": (
+                f"{msg.deleted_by.first_name} {msg.deleted_by.last_name}".strip()
+                or msg.deleted_by.email
+                if msg.deleted_by_id
+                else None
+            ),
         })
     
     has_more = offset + len(items) < total

@@ -80,6 +80,33 @@ class AdminGroupServiceTests(TestCase):
             ["BTF2", "BTF9", "BTF10", "BTF100"],
         )
 
+    def test_query_group_messages_includes_soft_deleted_messages_for_moderation(self):
+        """Admins read this endpoint to moderate, so a removed message has to be
+        visible here with its text and who removed it. Participants read chat
+        through apps.chat, which still filters deleted rows out."""
+        kept = Messages.objects.create(
+            group=self.group, sender_user=self.mentor, message_text="still here",
+        )
+        removed = Messages.objects.create(
+            group=self.group, sender_user=self.mentor, message_text="taken down",
+        )
+        removed.soft_delete(deleted_by=self.mentor)
+
+        result = query_group_messages(str(self.group.id))
+        items = {item["id"]: item for item in result["data"]["items"]}
+
+        self.assertIn(str(kept.id), items)
+        self.assertIn(str(removed.id), items)
+        self.assertEqual(result["data"]["total"], 2)
+
+        self.assertIsNone(items[str(kept.id)]["deleted_at"])
+        self.assertIsNone(items[str(kept.id)]["deleted_by"])
+
+        tombstoned = items[str(removed.id)]
+        self.assertEqual(tombstoned["text"], "taken down")
+        self.assertIsNotNone(tombstoned["deleted_at"])
+        self.assertEqual(tombstoned["deleted_by"], "Mina Mentor")
+
     def test_query_group_messages_handles_removed_gif_relation(self):
         message = Messages.objects.create(
             group=self.group,

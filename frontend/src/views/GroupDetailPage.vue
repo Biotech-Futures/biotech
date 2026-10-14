@@ -1272,6 +1272,7 @@
                               @click.stop
                             >
                               <button
+                                v-if="canEditMessage(message)"
                                 type="button"
                                 class="inline-kebab-item"
                                 role="menuitem"
@@ -1281,6 +1282,7 @@
                                 <span>Edit</span>
                               </button>
                               <button
+                                v-if="canDeleteMessage(message)"
                                 type="button"
                                 class="inline-kebab-item inline-kebab-item--danger"
                                 role="menuitem"
@@ -1322,9 +1324,26 @@
                     <strong>{{ getReplyText(message.replyTo) }}</strong>
                   </div>
                   <div v-if="message.isDeleted" class="message-text message-text--deleted">
-                    {{ getDeletedMessageText(message) }}
+                    <span class="message-deleted-label">{{ getDeletedMessageText(message) }}</span>
+                    <!-- Admins keep the original text and can undo the removal;
+                         participants see the tombstone line only. -->
+                    <template v-if="auth.isAdmin">
+                      <span v-if="message.text" class="message-deleted-original">{{ message.text }}</span>
+                      <button
+                        type="button"
+                        class="message-restore-btn"
+                        :disabled="restoringMessageId === message.id"
+                        @click="restoreDeletedMessage(message)"
+                      >
+                        {{ restoringMessageId === message.id ? 'Restoring…' : 'Restore' }}
+                      </button>
+                    </template>
                   </div>
-                  <div v-else-if="editingMessageId !== message.id" class="message-text">
+                  <div
+                    v-else-if="editingMessageId !== message.id"
+                    class="message-text"
+                    :class="{ 'message-text--empty': !message.text }"
+                  >
                     <template
                       v-for="(segment, segmentIndex) in getMessageTextSegments(message.text)"
                       :key="`${message.id}-segment-${segmentIndex}`"
@@ -1546,7 +1565,7 @@
                   </div>
 
                   <div
-                    v-if="message.isOwn"
+                    v-if="message.isOwn && !message.isDeleted"
                     class="message-receipt-wrap"
                   >
                     <button
@@ -3284,7 +3303,10 @@ const normalizeMessage = (item) => {
     raw?.deletedByIsAdmin === true ||
     raw?.deleted_by_is_admin === 'true' ||
     raw?.deletedByIsAdmin === 'true'
-  const isOwnMessage = isOwn || (isDeleted && deletedById > 0 && deletedById === currentUserId)
+  // Ownership follows the sender, always. Treating "I deleted it" as "mine"
+  // moved another member's message to the right-hand side and coloured it as
+  // the admin's own; getDeletedMessageText already names the remover.
+  const isOwnMessage = isOwn
   const attachments = Array.isArray(raw?.attachments) ? raw.attachments : []
   const resources = Array.isArray(raw?.resources) ? raw.resources : []
   const author = isOwnMessage
@@ -3320,6 +3342,29 @@ const normalizeMessage = (item) => {
     readBy: Array.isArray(raw?.read_by_ids) ? raw.read_by_ids.map(Number) : [],
     deliveredTo: Array.isArray(raw?.delivered_to_ids) ? raw.delivered_to_ids.map(Number) : [],
     isLocalOnly: Boolean(raw?.isLocalOnly),
+  }
+}
+
+const restoringMessageId = ref(null)
+
+// Restore is admin-only on the API too; the button simply isn't rendered for
+// anyone else. The websocket 'message.restored' event puts the text back for
+// every open client, so no local patching is needed here.
+const restoreDeletedMessage = async (message) => {
+  // ``backendGroupId`` at module scope is a computed; every call site resolves
+  // the plain id the same way, so the URL cannot end up with "[object Object]".
+  const groupId = getBackendGroupId()
+  if (!groupId || !message?.id) return
+  restoringMessageId.value = message.id
+  chatError.value = ''
+  try {
+    await requestJson(`${buildChatMessageUrl(groupId, message.id)}restore/`, {
+      method: 'POST'
+    })
+  } catch (error) {
+    chatError.value = error instanceof Error ? error.message : 'The message could not be restored.'
+  } finally {
+    restoringMessageId.value = null
   }
 }
 
@@ -4746,7 +4791,9 @@ const clearReplyTarget = () => {
   replyTarget.value = null
 }
 
-const canManageMessage = (message) => {
+// Edit: the sender inside their 10-minute window, or an admin. Mirrors
+// CanEditMessage on the API.
+const canEditMessage = (message) => {
   if (!message || isPendingMessage(message) || message.isDeleted) return false
   if (auth.isAdmin) return true
   if (!message.isOwn) return false
@@ -4756,8 +4803,31 @@ const canManageMessage = (message) => {
   return manageWindowNow.value - sentAt <= 10 * 60 * 1000
 }
 
+/** Whoever sent this takes part in the group as a student. */
+const senderIsAStudent = (message) => {
+  const senderId = Number(message?.senderId || 0)
+  if (!senderId) return false
+  return groupMemberships.value.some(
+    (item) =>
+      Number(item.userId) === senderId && String(item.role || '').toLowerCase() === 'student',
+  )
+}
+
+// Delete is wider than edit: a mentor of this group may take a student's
+// message down, but never rewrite it (AM8). Mirrors CanModerateMessage.
+const canDeleteMessage = (message) => {
+  if (!message || isPendingMessage(message) || message.isDeleted) return false
+  if (canEditMessage(message)) return true
+  return myGroupRole.value === 'mentor' && senderIsAStudent(message)
+}
+
+// The kebab exists if either action is available to this viewer.
+const canManageMessage = (message) => canEditMessage(message) || canDeleteMessage(message)
+
 const startMessageEdit = (message) => {
-  if (!canManageMessage(message)) return
+  // Deliberately the edit rule, not the combined one: a mentor who can delete
+  // a student's message must not be able to open it for editing.
+  if (!canEditMessage(message)) return
   clearReplyTarget()
   closeAllComposerPanels({ except: null })
   editingMessageId.value = message.id
@@ -8739,8 +8809,40 @@ onBeforeUnmount(() => {
 }
 
 .message-text--deleted {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
   color: var(--text-secondary);
   font-style: italic;
+}
+
+.message-deleted-label {
+  font-style: italic;
+}
+
+.message-deleted-original {
+  display: block;
+  margin-top: 0.3rem;
+  font-style: normal;
+  opacity: 0.9;
+}
+
+.message-restore-btn {
+  align-self: flex-start;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.message-restore-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .message.own .message-text--deleted {
@@ -9689,6 +9791,19 @@ onBeforeUnmount(() => {
   content: "\00a0\00a0\00a0\00a0\00a0\00a0";
   display: inline-block;
   vertical-align: baseline;
+}
+
+/* An attachment-only message has no text, but the spacer above still drew
+   a full line box above the chip. Nothing here needs clearing of ticks. */
+.message-text--empty {
+  display: none;
+}
+
+/* A deleted bubble carries .message-text too, so it inherited the tick
+   spacer - and as a flex column that became an empty row at the bottom.
+   Deleted messages show no receipt, so there is nothing to clear. */
+.message.own .message-text--deleted::after {
+  content: none;
 }
 
 .message:hover .message-content {

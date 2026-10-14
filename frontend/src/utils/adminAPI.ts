@@ -670,6 +670,10 @@ export interface AdminGroupMessage {
   gif: { gif_url: string; preview_url: string; title: string } | null
   sent_at: string
   edited_at: string | null
+  /** Set when the message has been soft-deleted. Participants no longer see it;
+   *  admins do, so moderation can review and undo. */
+  deleted_at: string | null
+  deleted_by: string | null
 }
 
 export interface AdminGroupMessagesData {
@@ -748,6 +752,40 @@ export const downloadChatAttachment = async (
   link.remove()
   // Revoked on the next tick so the click has already been handled.
   setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+}
+
+/**
+ * Undo a soft-delete. Restore lives on the chat app rather than the admin API
+ * (``POST /chat/groups/<gid>/messages/<id>/restore/``) and is admin-only there,
+ * so this calls it directly instead of proxying.
+ */
+export const restoreGroupMessage = async (
+  groupId: string | number,
+  messageId: string | number
+): Promise<void> => {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  await ensureCsrfCookie(base)
+  const headers = buildSessionHeaders({
+    includeCSRF: true,
+    headers: { Accept: 'application/json' }
+  })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(
+    `${base}/api/v1/chat/groups/${groupId}/messages/${messageId}/restore/`,
+    { method: 'POST', credentials: 'include', headers }
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    let detail = 'The message could not be restored.'
+    try {
+      detail = JSON.parse(body)?.detail || detail
+    } catch {
+      /* non-JSON error body: keep the default */
+    }
+    throw new Error(detail)
+  }
 }
 
 export const fetchGroupMessages = (
