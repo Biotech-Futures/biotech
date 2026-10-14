@@ -33,6 +33,9 @@ from .models import (
 )
 from .og_extractor import extract_urls
 from .serializers import (
+    ADMIN_IDENTITY_KEY,
+    ADMINISTRATOR_SENDER_NAME,
+    MASK_ADMIN_SENDER,
     MentionSerializer,
     MessageAttachmentUploadSerializer,
     MessagePublicSerializer,
@@ -66,6 +69,8 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
     key consistently.
     """
     channel_layer = get_channel_layer()
+    message_payload = dict(message_payload)
+    identity = message_payload.pop(ADMIN_IDENTITY_KEY, None)
     envelope = {
         "type": "chat.message",
         "payload": {
@@ -76,6 +81,9 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
             "message": message_payload,
         },
     }
+    if identity:
+        # Never reaches a client as-is: GroupChatConsumer strips it.
+        envelope["payload"][ADMIN_IDENTITY_KEY] = identity
 
     def _send():
         async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
@@ -183,9 +191,33 @@ def _broadcast_mention(user_id: int, payload: dict) -> None:
     transaction.on_commit(_send)
 
 
+def _admin_identity(message) -> dict:
+    """The real sender fields a non-admin broadcast hides, keyed by where
+    they go in the payload; empty when nothing was hidden. Consumers reveal
+    them to admins and drop them for everyone else."""
+    identity = {}
+    if message.sent_as_admin:
+        identity["message"] = {
+            "sender_user": message.sender_user_id,
+            "sender_name": message.sender_user.get_full_name(),
+        }
+        if message.deleted_by_id is not None:
+            identity["message"]["deleted_by"] = message.deleted_by_id
+    parent = message.reply_to
+    if parent is not None and parent.sent_as_admin:
+        identity["reply_to"] = {
+            "user_id": parent.sender_user_id,
+            "user_name": parent.sender_user.get_full_name() or parent.sender_user.get_username() or "",
+        }
+    return identity
+
+
 def serialize_message_for_broadcast(message, context=None):
-    data = MessageSerializer(message, context=context or {}).data
-    public = MessagePublicSerializer(message, context=context or {}).data
+    # One payload reaches every member, so it is built as a non-admin sees it.
+    # Admins get the real sender back from ADMIN_IDENTITY_KEY in the consumer.
+    context = {**(context or {}), MASK_ADMIN_SENDER: True}
+    data = MessageSerializer(message, context=context).data
+    public = MessagePublicSerializer(message, context=context).data
     if public.get("is_deleted"):
         data["message_text"] = public.get("message_text", "")
         data["deleted_by"] = public.get("deleted_by")
@@ -193,6 +225,9 @@ def serialize_message_for_broadcast(message, context=None):
         data["deleted_by_is_admin"] = public.get("deleted_by_is_admin", False)
     data["attachments"] = public.get("attachments", [])
     data["preview"] = public.get("preview")
+    identity = _admin_identity(message)
+    if identity:
+        data[ADMIN_IDENTITY_KEY] = identity
     return data
 
 
@@ -272,6 +307,16 @@ def apply_mentions(message) -> list[int]:
         "sender_user_id": message.sender_user_id,
         "preview": (message.message_text or "")[:140],
     }
+    if message.sent_as_admin:
+        # Same rule as message payloads: hidden unless the recipient is an
+        # admin, which GroupChatConsumer decides per connection.
+        payload.update(sender_user_id=None, sender_name=ADMINISTRATOR_SENDER_NAME)
+        payload[ADMIN_IDENTITY_KEY] = {
+            "payload": {
+                "sender_user_id": message.sender_user_id,
+                "sender_name": message.sender_user.get_full_name(),
+            }
+        }
     for uid in to_create:
         _broadcast_mention(uid, payload)
     return sorted(to_create)
@@ -342,6 +387,101 @@ def mark_delivered_cursor(user, group_id: int, up_to_id: int) -> int:
 
     _broadcast_delivered(group_id, user.id, up_to_id)
     return len(scope_ids)
+
+
+def message_for_broadcast(message, viewer_id=None):
+    """``message`` with the relations a broadcast serializes, fetched once.
+
+    Re-fetch only when the prefetch cache is empty — get_object()-derived
+    instances (partial_update, destroy) already have attachments+resources
+    prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
+    created instances from serializer.save() do need the fetch.
+    """
+    cache = getattr(message, "_prefetched_objects_cache", None) or {}
+    if (
+        "attachments" not in cache
+        or "resources" not in cache
+        or "reactions" not in cache
+        or "statuses" not in cache
+    ):
+        try:
+            message = (
+                Messages.objects.select_related("sender_user", "deleted_by", "reply_to", "preview")
+                .prefetch_related(
+                    "attachments",
+                    "resources__resource",
+                    Prefetch(
+                        "reactions",
+                        queryset=MessageReaction.objects.select_related("user").order_by("id"),
+                    ),
+                    Prefetch(
+                        "statuses",
+                        queryset=MessageStatus.objects.only(
+                            "id", "message_id", "user_id", "read_at", "delivered_at"
+                        ),
+                    ),
+                )
+                .annotate(
+                    _is_read_by_me=Exists(
+                        MessageStatus.objects.filter(
+                            message=OuterRef("pk"),
+                            user_id=viewer_id,
+                            read_at__isnull=False,
+                        )
+                    ),
+                    _is_delivered_to_me=Exists(
+                        MessageStatus.objects.filter(
+                            message=OuterRef("pk"),
+                            user_id=viewer_id,
+                            delivered_at__isnull=False,
+                        )
+                    ),
+                )
+                .get(pk=message.pk)
+            )
+        except Messages.DoesNotExist:
+            pass
+    return message
+
+
+def dispatch_link_previews(message: Messages) -> None:
+    """Fire-and-forget OG unfurl for every URL in the message body.
+
+    We do NOT block the HTTP response on this — the user gets ``201``
+    immediately and the websocket later carries ``message.preview_ready``
+    per the worker contract documented in ``apps.chat.tasks``.
+
+    Why ``transaction.on_commit``:
+
+    1. If the surrounding DB write is rolled back (e.g. permissions
+       check fails late, signal raises), the unfurl never starts and
+       cannot hit a non-existent message id.
+    2. The worker thread opens its own DB connection — it must read a
+       **committed** row, otherwise it sees nothing.
+    """
+    urls = extract_urls(message.message_text)
+    if not urls:
+        return
+    msg_id = message.id
+
+    def _enqueue():
+        for url in urls:
+            dispatch_og(msg_id, url)
+
+    transaction.on_commit(_enqueue)
+
+
+def publish_new_message(message, *, context=None, viewer_id=None) -> None:
+    """Mentions, the ``message.created`` broadcast and link previews for a
+    message just saved. The chat API and the admin interface both send
+    through here, so a new message reaches the group the same way."""
+    apply_mentions(message)
+    _broadcast(
+        message.group_id,
+        "message.created",
+        serialize_message_for_broadcast(message_for_broadcast(message, viewer_id), context=context),
+    )
+    dispatch_link_previews(message)
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -454,87 +594,14 @@ class MessageViewSet(viewsets.ModelViewSet):
         return MessagePublicSerializer(message, context=self.get_serializer_context()).data
 
     def _serialize_broadcast_message(self, message):
-        # Re-fetch only when the prefetch cache is empty — get_object()-derived
-        # instances (partial_update, destroy) already have attachments+resources
-        # prefetched, so the broadcast doesn't need to round-trip the DB. Freshly
-        # created instances from serializer.save() do need the fetch.
-        cache = getattr(message, "_prefetched_objects_cache", None) or {}
-        if (
-            "attachments" not in cache
-            or "resources" not in cache
-            or "reactions" not in cache
-            or "statuses" not in cache
-        ):
-            user_id = getattr(getattr(self, "request", None), "user", None)
-            user_id = getattr(user_id, "id", None)
-            try:
-                message = (
-                    Messages.objects.select_related("sender_user", "deleted_by", "reply_to", "preview")
-                    .prefetch_related(
-                        "attachments",
-                        "resources__resource",
-                        Prefetch(
-                            "reactions",
-                            queryset=MessageReaction.objects.select_related("user").order_by("id"),
-                        ),
-                        Prefetch(
-                            "statuses",
-                            queryset=MessageStatus.objects.only(
-                                "id", "message_id", "user_id", "read_at", "delivered_at"
-                            ),
-                        ),
-                    )
-                    .annotate(
-                        _is_read_by_me=Exists(
-                            MessageStatus.objects.filter(
-                                message=OuterRef("pk"),
-                                user_id=user_id,
-                                read_at__isnull=False,
-                            )
-                        ),
-                        _is_delivered_to_me=Exists(
-                            MessageStatus.objects.filter(
-                                message=OuterRef("pk"),
-                                user_id=user_id,
-                                delivered_at__isnull=False,
-                            )
-                        ),
-                    )
-                    .get(pk=message.pk)
-                )
-            except Messages.DoesNotExist:
-                pass
-
+        viewer = getattr(getattr(self, "request", None), "user", None)
         return serialize_message_for_broadcast(
-            message,
+            message_for_broadcast(message, getattr(viewer, "id", None)),
             context=self.get_serializer_context(),
         )
 
     def _dispatch_link_previews(self, message: Messages) -> None:
-        """Fire-and-forget OG unfurl for every URL in the message body.
-
-        We do NOT block the HTTP response on this — the user gets ``201``
-        immediately and the websocket later carries ``message.preview_ready``
-        per the worker contract documented in ``apps.chat.tasks``.
-
-        Why ``transaction.on_commit``:
-
-        1. If the surrounding DB write is rolled back (e.g. permissions
-           check fails late, signal raises), the unfurl never starts and
-           cannot hit a non-existent message id.
-        2. The worker thread opens its own DB connection — it must read a
-           **committed** row, otherwise it sees nothing.
-        """
-        urls = extract_urls(message.message_text)
-        if not urls:
-            return
-        msg_id = message.id
-
-        def _enqueue():
-            for url in urls:
-                dispatch_og(msg_id, url)
-
-        transaction.on_commit(_enqueue)
+        dispatch_link_previews(message)
 
     def _get_group(self):
         group_pk = self.kwargs.get("group_pk")
@@ -705,9 +772,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         gid = int(self.kwargs.get("group_pk"))
         msg = serializer.save(sender_user=self.request.user, group_id=gid)
-        apply_mentions(msg)
-        _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
-        self._dispatch_link_previews(msg)
+        publish_new_message(msg, context=self.get_serializer_context(), viewer_id=self.request.user.id)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -741,14 +806,11 @@ class MessageViewSet(viewsets.ModelViewSet):
             serializer.context["attachment_data"] = attachment_data
             with transaction.atomic():
                 message = serializer.save(sender_user=request.user, group_id=gid)
-                apply_mentions(message)
-                # _broadcast itself wraps in transaction.on_commit, so a rollback
-                # of this atomic block discards the WS event automatically.
-                _broadcast(gid, "message.created", self._serialize_broadcast_message(message))
-                # Attachment captions can carry URLs too — keep unfurl behavior
-                # uniform with the plain-text POST path. Dispatch is on_commit,
-                # so a failed transaction still cleans up cleanly.
-                self._dispatch_link_previews(message)
+                # The broadcast and link previews are both on_commit, so a
+                # rollback of this atomic block discards them automatically.
+                # Attachment captions can carry URLs too, hence the same path
+                # as plain-text posts.
+                publish_new_message(message, context=self.get_serializer_context(), viewer_id=request.user.id)
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
@@ -1150,7 +1212,7 @@ class MentionViewSet(viewsets.GenericViewSet):
             .filter(mentioned_user=request.user, read_at__isnull=True)
             .count()
         )
-        data = MentionSerializer(items, many=True).data
+        data = MentionSerializer(items, many=True, context=self.get_serializer_context()).data
         next_before = items[-1].id if len(items) == limit else None
         return Response(
             {"items": data, "next_before": next_before, "unread_count": unread_count},
@@ -1168,7 +1230,10 @@ class MentionViewSet(viewsets.GenericViewSet):
         if mention.read_at is None:
             mention.read_at = timezone.now()
             mention.save(update_fields=["read_at"])
-        return Response(MentionSerializer(mention).data, status=status.HTTP_200_OK)
+        return Response(
+            MentionSerializer(mention, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
 
     # POST /chat/mentions/mark-all-read/
     @action(detail=False, methods=["post"], url_path="mark-all-read")

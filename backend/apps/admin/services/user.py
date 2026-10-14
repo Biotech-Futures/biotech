@@ -13,6 +13,7 @@ from apps.users.models import (
     AreasOfInterest, UserInterest, StudentSupervisor
 )
 from apps.users.models.admin_scope import AdminScope
+from apps.users.models.mentor_profile import normalize_mentor_background
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
@@ -1021,6 +1022,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         role = input_data.get("role", "student")
         country_name = (input_data.get("country") or "").strip()
         state_name = (input_data.get("state") or "").strip()
+        mentor_background = None
 
         # Check if user exists
         if User.objects.filter(email=email).exists():
@@ -1101,7 +1103,18 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "data": None
                 })
                 continue
-        
+
+            # Single create and CSV bulk import both arrive here.
+            try:
+                mentor_background = normalize_mentor_background(input_data.get("mentorBackground"))
+            except ValueError as exc:
+                results.append({
+                    "input": input_data,
+                    "msg": str(exc),
+                    "data": None
+                })
+                continue
+
         # Validate interests for student/mentor
         if role in ["student", "mentor"]:
             interests = input_data.get("interests") or []
@@ -1230,7 +1243,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 if role == "mentor":
                     upsert_mentor_profile(
                         new_user_id,
-                        background=input_data.get("mentorBackground"),
+                        background=mentor_background,
                         institution=input_data.get("mentorInstitution"),
                         mentor_reason=input_data.get("mentorReason"),
                         max_group_count=input_data.get("mentorMaxGroupCount")
@@ -1523,6 +1536,25 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
         if next_max_count is None:
             return {"msg": "Max group count is required for mentor users", "data": None}
 
+        # Omitted keeps the stored background. A value outside the five
+        # categories is rejected unless it is the one already stored: older
+        # free-text backgrounds are preserved until an admin picks a category.
+        next_background = MentorProfile.objects.filter(user_id=user_id).values_list(
+            'background', flat=True
+        ).first()
+        if "mentorBackground" in input_data:
+            sent_background = input_data["mentorBackground"]
+            try:
+                next_background = normalize_mentor_background(sent_background)
+            except ValueError as exc:
+                unchanged = (
+                    isinstance(sent_background, str)
+                    and next_background is not None
+                    and sent_background.strip() == next_background.strip()
+                )
+                if not unchanged:
+                    return {"msg": str(exc), "data": None}
+
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id)
     before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
@@ -1644,9 +1676,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             if next_role == "mentor":
                 upsert_mentor_profile(
                     user_id,
-                    background=input_data.get("mentorBackground", MentorProfile.objects.filter(
-                        user_id=user_id
-                    ).values_list("background", flat=True).first()),
+                    background=next_background,
                     institution=next_institution,
                     mentor_reason=next_reason,
                     max_group_count=next_max_count

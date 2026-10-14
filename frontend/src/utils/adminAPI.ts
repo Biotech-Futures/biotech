@@ -663,7 +663,10 @@ export interface AdminGroupMessageAttachment {
 export interface AdminGroupMessage {
   id: string
   group_id: string
+  /** The real sender, always; `role` is 'admin' for a message sent as Administrator. */
   sender: { id: string; name: string; email: string; role: string | null }
+  /** Sent from the admin panel: group members see the sender as "Administrator". */
+  sent_as_admin: boolean
   message_type: string
   text: string
   attachments: AdminGroupMessageAttachment[]
@@ -795,6 +798,15 @@ export const fetchGroupMessages = (
   adminGet<AdminEnvelope<AdminGroupMessagesData>>(
     `/group/${groupId}/messages/${buildAdminQuery(params)}`
   ).then((env) => env.data)
+
+/**
+ * Post a text message into a group's chat as Administrator. Members see the
+ * sender as "Administrator"; admins (and the history above) see who sent it.
+ */
+export const sendGroupMessage = (groupId: string | number, text: string): Promise<AdminGroupMessage> =>
+  adminPost<AdminEnvelope<AdminGroupMessage>>(`/group/${groupId}/messages/`, { text }).then(
+    (env) => env.data
+  )
 
 /** Soft-delete a message from a group. */
 export const removeGroupMessage = (groupId: string | number, messageId: string | number) =>

@@ -97,7 +97,16 @@
                   <span class="group-detail__member-email">{{ message.sender.email }}</span>
                 </div>
                 <div class="group-detail__message-meta">
-                  <span v-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
+                  <!-- Admins still see who sent it (name and email above);
+                       group members see it from "Administrator". -->
+                  <span
+                    v-if="message.sent_as_admin"
+                    class="group-detail__role-badge group-detail__role-badge--admin"
+                    title="Group members see this message from Administrator"
+                  >
+                    Sent as Administrator
+                  </span>
+                  <span v-else-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
                   <span class="group-detail__muted">{{ formatShortDateTime(message.sent_at) }}</span>
                   <!-- A deleted message is hidden from participants but kept in
                        full here, so moderation can review it and put it back. -->
@@ -229,6 +238,30 @@
               Next
             </button>
           </div>
+
+          <form class="group-detail__composer" novalidate @submit.prevent="sendMessage">
+            <label class="form-label" for="group-detail-compose">Send a message as Administrator</label>
+            <textarea
+              id="group-detail-compose"
+              v-model="draft"
+              class="form-input"
+              rows="3"
+              placeholder="Write a message to this group"
+              :disabled="sending"
+              aria-describedby="group-detail-compose-hint"
+            ></textarea>
+            <p id="group-detail-compose-hint" class="group-detail__muted">
+              Group members see this from "Administrator". Other admins can see it was you.
+            </p>
+            <p v-if="sendError" class="group-detail__error" role="alert">{{ sendError }}</p>
+            <p v-if="sendNotice" class="group-detail__notice" role="status">{{ sendNotice }}</p>
+            <div class="group-detail__composer-actions">
+              <button type="submit" class="btn btn-sm btn-primary" :disabled="!canSend">
+                <i class="fas fa-paper-plane" aria-hidden="true"></i>
+                <span>{{ sending ? 'Sending...' : 'Send' }}</span>
+              </button>
+            </div>
+          </form>
         </section>
       </template>
     </div>
@@ -273,6 +306,7 @@ import {
   removeGroupMember,
   removeGroupMessage,
   restoreGroupMessage,
+  sendGroupMessage,
   downloadChatAttachment,
   resolveChatAttachmentUrl,
   type AdminGroupDetail,
@@ -424,6 +458,51 @@ const changeMessagesPage = (page: number) => {
   loadMessages()
 }
 
+// --- Composer (sent as Administrator) ---------------------------------------
+
+const draft = ref('')
+const sending = ref(false)
+const sendError = ref('')
+const sendNotice = ref('')
+
+const canSend = computed(() => Boolean(props.group) && draft.value.trim().length > 0 && !sending.value)
+
+const resetComposer = () => {
+  draft.value = ''
+  sendError.value = ''
+  sendNotice.value = ''
+}
+
+// A new draft makes the last outcome stale.
+watch(draft, () => {
+  if (draft.value) sendNotice.value = ''
+})
+
+const sendMessage = async () => {
+  if (!canSend.value || !props.group) return
+  sending.value = true
+  sendError.value = ''
+  sendNotice.value = ''
+  try {
+    await sendGroupMessage(props.group.id, draft.value)
+    // Cleared only once the server has it, so a failure keeps the text.
+    draft.value = ''
+    sendNotice.value = 'Message sent.'
+    // History is oldest-first: show the last page, where the new message is.
+    // Re-fetched like a removal so items / total / has_more come from the server.
+    messagesPage.value = Math.max(1, Math.ceil(((messagesTotal.value ?? 0) + 1) / messagesLimit.value))
+    await loadMessages()
+    if (!messages.value.length && messagesPage.value > 1) {
+      messagesPage.value -= 1
+      await loadMessages()
+    }
+  } catch (err) {
+    sendError.value = err instanceof Error && err.message ? err.message : 'Could not send the message. Please try again.'
+  } finally {
+    sending.value = false
+  }
+}
+
 const showMessages = () => {
   view.value = 'messages'
   if (!messagesLoaded.value && !messagesLoading.value) loadMessages()
@@ -446,6 +525,8 @@ watch(
       messagesHasMore.value = false
       messagesError.value = ''
       messagesLoaded.value = false
+      // Never carry a draft over to a different group.
+      resetComposer()
     }
   }
 )
@@ -735,6 +816,36 @@ const confirmRemoveMessage = async () => {
   justify-content: center;
   gap: 0.75rem;
   margin-top: 0.5rem;
+}
+
+/* Distinct from member roles: sent from the admin panel, not by a member. */
+.group-detail__role-badge--admin {
+  background-color: var(--teal);
+  color: var(--white);
+  text-transform: none;
+}
+
+.group-detail__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.group-detail__composer textarea {
+  resize: vertical;
+}
+
+.group-detail__composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.group-detail__notice {
+  color: var(--dark-green);
+  font-size: 0.875rem;
 }
 
 .group-detail__view-messages {

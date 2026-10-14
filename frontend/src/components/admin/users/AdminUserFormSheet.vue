@@ -123,7 +123,26 @@
           </div>
           <div class="form-field form-field--full">
             <label class="form-label" for="f-mbg">Background</label>
-            <input id="f-mbg" v-model.trim="form.mentorBackground" class="form-input" placeholder="e.g. Research" />
+            <select
+              id="f-mbg"
+              v-model="form.mentorBackground"
+              class="form-input"
+              :aria-describedby="legacyMentorBackground ? 'f-mbg-legacy' : undefined"
+            >
+              <option value="">Not set</option>
+              <!-- An older free-text value stays selectable so it isn't shown
+                   as "Not set" or lost on save; it's kept until one is picked. -->
+              <option v-if="legacyMentorBackground" :value="legacyMentorBackground">
+                {{ legacyMentorBackground }} (not a category)
+              </option>
+              <option v-for="option in MENTOR_BACKGROUND_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <p v-if="legacyMentorBackground" id="f-mbg-legacy" class="admin-users-form__hint">
+              This background isn't one of the five categories. It's kept as it is unless you
+              choose a category.
+            </p>
           </div>
           <div class="form-field form-field--full">
             <label class="form-label" for="f-mreason">Mentor reason *</label>
@@ -238,7 +257,13 @@ import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/ad
 import { logApiError } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import { formatFullDate, roleLabel, userName } from '@/utils/userFormat'
-import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
+import {
+  INTEREST_OPTIONS,
+  MENTOR_BACKGROUND_OPTIONS,
+  USER_ROLES,
+  isMentorBackground,
+  type UserRole
+} from '@/utils/userOptions'
 
 interface UserForm {
   firstName: string
@@ -294,6 +319,16 @@ const open = computed({
 
 const isEditing = computed(() => Boolean(props.user))
 const roleUsesInterests = computed(() => form.role === 'student' || form.role === 'mentor')
+
+/** The mentor's stored background, as the form loaded it ('' when unset). */
+const originalMentorBackground = computed(() =>
+  props.user?.role === 'mentor' ? props.user.mentorBackground || '' : ''
+)
+/** A stored background from before the five categories, kept until replaced. */
+const legacyMentorBackground = computed(() => {
+  const stored = originalMentorBackground.value
+  return stored && !isMentorBackground(stored) ? stored : ''
+})
 
 const defaultForm = (): UserForm => ({
   firstName: '',
@@ -556,7 +591,11 @@ const submitForm = async () => {
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
       } else if (role === 'mentor') {
-        payload.mentorBackground = form.mentorBackground || null
+        // Only a change is sent, so an unrelated edit leaves the stored
+        // background (including an older free-text one) untouched.
+        if (form.mentorBackground !== originalMentorBackground.value) {
+          payload.mentorBackground = form.mentorBackground || null
+        }
         payload.mentorInstitution = form.mentorInstitution
         payload.mentorReason = form.mentorReason
         payload.mentorMaxGroupCount = form.mentorMaxGroupCount
