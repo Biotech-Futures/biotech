@@ -609,12 +609,12 @@ class RegistrationGeographyTests(TestCase):
         self.assertEqual(user.state.state_name, "NSW")
         self.assertEqual(user.state.country_id, user.country_id)
 
-    def test_supervisor_inherits_the_students_geography(self):
+    def test_supervisor_nomination_does_not_create_a_privileged_account(self):
         self._register("Australia", region="NSW")
-        sup = User.objects.get(email="sup@example.com")
-        student = User.objects.get(email="kid@example.com")
-        self.assertEqual(sup.country_id, student.country_id)
-        self.assertEqual(sup.state_id, student.state_id)
+        from apps.users.models import RegistrationSubmission
+        self.assertFalse(User.objects.filter(email="sup@example.com").exists())
+        submission = RegistrationSubmission.objects.get(student__email="kid@example.com")
+        self.assertEqual(submission.supervisor_details["email"], "sup@example.com")
 
     def test_country_casing_variant_reuses_the_existing_country(self):
         Countries.objects.create(country_name="Australia")

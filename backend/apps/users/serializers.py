@@ -5,6 +5,7 @@ from .models import (
     MentorProfile,
     SupervisorProfile,
     UserInterest,
+    KnownUniversity,
 )
 from apps.resources.models import RoleAssignmentHistory
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
@@ -14,22 +15,129 @@ from drf_spectacular.utils import extend_schema_field
 from zoneinfo import available_timezones
 
 
-# Validate body payload
+_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher"}
+REGISTRATION_OVERRIDES = {"ConfirmSchoolOverride", "ConfirmNameEmailOverride"}
+
+
+class StrictBooleanField(serializers.BooleanField):
+    def to_internal_value(self, data):
+        if type(data) is not bool:
+            self.fail("invalid", input=data)
+        return data
+
+
+def _has_role(user, profile_model, role_name):
+    return (
+        profile_model.objects.filter(user=user).exists()
+        or RoleAssignmentHistory.objects.filter(
+            user=user, role__role_name__iexact=role_name,
+        ).exists()
+    )
+
+
+def _edit_distance(a, b):
+    if len(a) < len(b):
+        a, b = b, a
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        current = [i + 1]
+        for j, cb in enumerate(b):
+            current.append(min(current[j] + 1, previous[j + 1] + 1, previous[j] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+def registration_warnings(data):
+    """Shared soft checks from registration-validation-v2; never classify error text."""
+    warnings = []
+    school = data.get("SchoolName", "").strip().lower()
+    if ("university" in school or KnownUniversity.matches(school)) and not data.get("ConfirmSchoolOverride"):
+        warnings.append({
+            "code": "university_school",
+            "field": "SchoolName",
+            "override_field": "ConfirmSchoolOverride",
+            "message": "This looks like a university, not a school. Please confirm if this is correct.",
+        })
+    name = (data.get("FirstName", "") + data.get("Surname", "")).strip().lower().replace(" ", "")
+    local = data.get("Title", "").strip().lower().split("@")[0].replace(".", "").replace("_", "")
+    if 1 <= _edit_distance(name, local) <= 2 and not data.get("ConfirmNameEmailOverride"):
+        warnings.append({
+            "code": "name_email_mismatch",
+            "field": "Title",
+            "override_field": "ConfirmNameEmailOverride",
+            "message": "This email looks like it might have a typo compared to the student's name. Please confirm.",
+        })
+    return warnings
+
+
 class UserRegisterBodySerializer(serializers.Serializer):
-    Title = serializers.EmailField()
+    Title = serializers.EmailField(max_length=254)
     FirstName = serializers.CharField(max_length=255)
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
     Region = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    SupervisorEmail = serializers.EmailField()
+    SupervisorEmail = serializers.EmailField(max_length=254)
     SupervisorFirstName = serializers.CharField(max_length=255)
     SupervisorSurname = serializers.CharField(max_length=255)
-    GuardianEmail = serializers.EmailField()
-    GuardianName = serializers.CharField(max_length=255)
-    GuardianSurname = serializers.CharField(max_length=255)
+    GuardianEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
+    GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    GuardianSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     SchoolName = serializers.CharField(max_length=255)
-    YearLevel = serializers.CharField(max_length=255)
+    YearLevel = serializers.ChoiceField(choices=["9", "10", "11", "12"])
     Areaofinterest = serializers.CharField(max_length=255)
+    RegisteredBy = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    ConfirmSchoolOverride = StrictBooleanField(required=False, default=False)
+    ConfirmNameEmailOverride = StrictBooleanField(required=False, default=False)
+
+    def validate_Title(self, value):
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is not None:
+            if _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+                raise serializers.ValidationError(
+                    "This email address already belongs to a supervisor, so it cannot be used to register a student.",
+                    code="student_email_is_supervisor",
+                )
+            raise serializers.ValidationError("An account with this email address already exists.", code="email_taken")
+        return value.strip().lower()
+
+    def validate_SupervisorEmail(self, value):
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is not None:
+            if _has_role(existing, StudentProfile, ROLE_STUDENT):
+                raise serializers.ValidationError(
+                    "This email address belongs to a student, so they cannot be nominated as a supervisor.",
+                    code="supervisor_email_is_student",
+                )
+            if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+                raise serializers.ValidationError(
+                    "This email address belongs to an existing account that is not a supervisor.",
+                    code="supervisor_email_in_use",
+                )
+        return value.strip().lower()
+
+    def validate(self, data):
+        errors = {}
+        if data.get("RegisteredBy", "").strip().lower() not in _GUARDIAN_OPTIONAL_FOR:
+            for field in ("GuardianEmail", "GuardianName", "GuardianSurname"):
+                if not data.get(field, "").strip():
+                    errors[field] = "This field is required when a student registers individually."
+        email = data["Title"].casefold()
+        name = (data["FirstName"].casefold(), data["Surname"].casefold())
+        guardian_name = (data.get("GuardianName", "").casefold(), data.get("GuardianSurname", "").casefold())
+        if email == data.get("GuardianEmail", "").casefold() or (all(guardian_name) and name == guardian_name):
+            errors["GuardianEmail"] = "The guardian cannot be the same person as the student."
+        supervisor_name = (data["SupervisorFirstName"].casefold(), data["SupervisorSurname"].casefold())
+        if email == data["SupervisorEmail"].casefold() or name == supervisor_name:
+            errors["SupervisorEmail"] = "The supervisor cannot be the same person as the student."
+        if errors:
+            raise serializers.ValidationError(errors)
+        if not self.context.get("defer_warnings"):
+            warnings = registration_warnings(data)
+            if warnings:
+                raise serializers.ValidationError({
+                    warning["field"]: warning["message"] for warning in warnings
+                })
+        return data
 
 # Registration Wrapper
 class UserRegisterRequestSerializer(serializers.Serializer):
@@ -47,6 +155,7 @@ class JoinPermissionRequestSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     current_role_id = serializers.SerializerMethodField()
     current_role_name = serializers.SerializerMethodField()
+    profile_image_url = serializers.SerializerMethodField()
 
     #student
     pg_firstname = serializers.SerializerMethodField()
@@ -108,10 +217,14 @@ class UserSerializer(serializers.ModelSerializer):
             "supervisor_school_name",
             "must_change_password",
             "timezone",
+            "pronouns",
+            "profile_image_url",
         ]
         read_only_fields = [
             "id",
             "interests",
+            "pronouns",
+            "profile_image_url",
             "supervisor_name",
             "supervisor_email",
             "supervisor_school_name",
@@ -147,6 +260,11 @@ class UserSerializer(serializers.ModelSerializer):
         if value not in available_timezones():
             raise serializers.ValidationError(f"Unknown IANA timezone: {value!r}")
         return value
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_profile_image_url(self, obj):
+        from .profile_images import profile_image_url
+        return profile_image_url(obj)
 
     def _active_assignment(self, user):
         if user.id in self._cache_assignment:

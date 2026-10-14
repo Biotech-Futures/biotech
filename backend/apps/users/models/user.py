@@ -71,6 +71,9 @@ class User(AbstractUser):
     invited_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
     timezone = models.CharField(max_length=64, default="UTC", blank=False)
+    pronouns = models.CharField(max_length=100, blank=True)
+    profile_image_key = models.CharField(max_length=500, blank=True)
+    profile_image_content_type = models.CharField(max_length=50, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]
