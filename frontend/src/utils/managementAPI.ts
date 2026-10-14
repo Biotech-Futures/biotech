@@ -2,7 +2,6 @@
 // releases, Document Setup, the finalist, results and Symposium emails, and
 // the Finalist Presentation tab). Everything here is under /api/v1/management/.
 import { requestBlob, requestJson, triggerBlobDownload, type ComponentBlock } from './gradingAPI'
-import type { SystemEmailMergeTag } from './systemEmail'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -537,71 +536,6 @@ export interface AnnouncementCategories {
 // GET /api/v1/management/announcement-categories/ — each category's groups.
 export function fetchAnnouncementCategories(): Promise<AnnouncementCategories> {
   return requestJson<AnnouncementCategories>('/api/v1/management/announcement-categories/')
-}
-
-/** The email an outcome announcement goes with: the finalist, non-finalist
- *  and non-submission emails, and the results emails to groups and to
- *  supervisors. */
-export type OutcomeAnnouncementKind =
-  | 'finalists'
-  | 'nonfinalists'
-  | 'nonsubmissions'
-  | 'results-groups'
-  | 'results-supervisors'
-
-/** The in-app announcement that goes with one of those emails. */
-export interface OutcomeAnnouncement {
-  /** Its wording, with merge tags such as {{ slides_due }}, for editing. */
-  title: string
-  /** HTML, as announcements keep it. */
-  body: string
-  /** The same filled in with the current dates and links, as it'd post. */
-  preview: { title: string; body: string }
-  /** The tags its wording can use, as System Emails offers them. */
-  merge_tags: SystemEmailMergeTag[]
-  /** Changed from the email's wording. */
-  edited: boolean
-  /** Who saved the edited wording and when; null until edited. */
-  edited_by: string | null
-  edited_at: string | null
-  /** The groups, or supervisors, the email has reached so far: who sees it. */
-  recipients: number
-  /** What they are, e.g. "finalist group". */
-  noun: string
-  /** Why it can't be posted yet, or "": it waits for its email to be sent. */
-  blocked: string
-  posted_at: string | null
-  posted_by: string | null
-}
-
-const outcomeAnnouncementUrl = (kind: OutcomeAnnouncementKind) =>
-  `/api/v1/management/outcome-announcements/${kind}/`
-
-// GET — its wording (the email's until edited) and when it was posted.
-export function fetchOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind))
-}
-
-// PATCH — save an edited title and body.
-export function updateOutcomeAnnouncement(
-  kind: OutcomeAnnouncementKind,
-  fields: { title: string; body: string }
-): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), {
-    method: 'PATCH',
-    body: JSON.stringify(fields)
-  })
-}
-
-// DELETE — back to the email's wording.
-export function restoreOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), { method: 'DELETE' })
-}
-
-// POST post/ — post it to whoever the email has reached so far, or update the
-// one already posted.
-export function postOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(`${outcomeAnnouncementUrl(kind)}post/`, { method: 'POST' })
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.

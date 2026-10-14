@@ -391,7 +391,7 @@ describe('AdminUsersView', () => {
     // Interests, every one, on a line of their own under the row.
     expect(firstRow.text()).not.toContain('Science')
     expect(firstRow.classes()).toContain('data-table-row--joined')
-    expect(wrapper.find('.data-table-detail-row').text()).toBe('Area(s) of Interest: Science, Maths')
+    expect(wrapper.find('.data-table-detail-row').text()).toBe('Areas of Interest: Science, Maths')
   })
 
   it('maps student sortable columns to the supported backend sort fields', async () => {

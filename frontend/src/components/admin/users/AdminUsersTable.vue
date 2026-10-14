@@ -72,7 +72,7 @@
          and drawn as part of it, as Extend Deadline's reasons. -->
     <template v-if="showsInterests" #row-detail="{ row }">
       <div class="admin-users__interests">
-        <span class="admin-users__interests-label">Area(s) of Interest:</span>
+        <span class="admin-users__interests-label">Areas of Interest:</span>
         {{ toAdminUser(row).interests!.join(', ') }}
       </div>
     </template>
