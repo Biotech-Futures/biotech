@@ -102,32 +102,32 @@
         </section>
       </div>
 
-      <!-- Admins confirm anything the team will see. -->
+      <!-- Confirms a step others will see, or that can't be undone. -->
       <div
-        v-if="adminDialog"
+        v-if="confirmDialog"
         class="submission-dialog-backdrop"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="admin-dialog-title"
+        aria-labelledby="confirm-dialog-title"
         tabindex="-1"
-        data-testid="admin-dialog"
-        @keydown.esc="answerAdminDialog(false)"
+        data-testid="confirm-dialog"
+        @keydown.esc="answerConfirm(false)"
       >
         <section class="submission-dialog">
-          <h2 id="admin-dialog-title" class="submission-dialog__title">{{ adminDialog.title }}</h2>
-          <p class="submission-dialog__body">{{ adminDialog.body }}</p>
+          <h2 id="confirm-dialog-title" class="submission-dialog__title">{{ confirmDialog.title }}</h2>
+          <p class="submission-dialog__body">{{ confirmDialog.body }}</p>
           <div class="submission-dialog__actions">
-            <button type="button" class="btn btn-outline" data-testid="admin-dialog-cancel" @click="answerAdminDialog(false)">
+            <button type="button" class="btn btn-outline" data-testid="confirm-dialog-cancel" @click="answerConfirm(false)">
               Cancel
             </button>
             <button
-              ref="adminDialogConfirm"
+              ref="confirmButton"
               type="button"
               class="btn btn-primary"
-              data-testid="admin-dialog-confirm"
-              @click="answerAdminDialog(true)"
+              data-testid="confirm-dialog-confirm"
+              @click="answerConfirm(true)"
             >
-              {{ adminDialog.confirm }}
+              {{ confirmDialog.confirm }}
             </button>
           </div>
         </section>
@@ -1559,9 +1559,17 @@ async function onSubmit() {
       return
     }
 
-    // Everything typed into the shared document reaches the server before the entry is copied.
-    if (typingShared.value && !(await shared.flush())) {
-      setMessage("Couldn't reach your team's live answers. Check your connection and try again.", true)
+    // Everything typed into the shared document reaches the server before the entry is copied;
+    // if it can't, the last saved answers can still go in, so submitting is never blocked.
+    if (
+      typingShared.value &&
+      !(await shared.flush()) &&
+      !(await askToConfirm(
+        'Submit without your latest typing?',
+        "Your last few seconds of typing couldn't be saved. Submit your answers as last saved?",
+        'Submit anyway'
+      ))
+    ) {
       return
     }
 
@@ -1769,20 +1777,20 @@ const adminDirty = computed(
   () => adminEditing.value && (currentSnapshot() !== savedSnapshot.value || Object.keys(pendingFiles).length > 0)
 )
 
-const adminDialog = ref<{ title: string; body: string; confirm: string } | null>(null)
-const adminDialogConfirm = ref<HTMLButtonElement | null>(null)
+const confirmDialog = ref<{ title: string; body: string; confirm: string } | null>(null)
+const confirmButton = ref<HTMLButtonElement | null>(null)
 let answerDialog: ((ok: boolean) => void) | null = null
 
-function askAdmin(title: string, body: string, confirm: string): Promise<boolean> {
-  adminDialog.value = { title, body, confirm }
-  void nextTick(() => adminDialogConfirm.value?.focus())
+function askToConfirm(title: string, body: string, confirm: string): Promise<boolean> {
+  confirmDialog.value = { title, body, confirm }
+  void nextTick(() => confirmButton.value?.focus())
   return new Promise((resolve) => {
     answerDialog = resolve
   })
 }
 
-function answerAdminDialog(ok: boolean) {
-  adminDialog.value = null
+function answerConfirm(ok: boolean) {
+  confirmDialog.value = null
   answerDialog?.(ok)
   answerDialog = null
 }
@@ -1820,7 +1828,7 @@ async function leaveAdminEdit() {
 }
 
 async function adminDiscard() {
-  if (!(await askAdmin('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
+  if (!(await askToConfirm('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
   await leaveAdminEdit()
   setMessage('Changes discarded.')
 }
@@ -1887,7 +1895,7 @@ async function readyToWrite(): Promise<boolean> {
   const conflicts = conflictsWith(latest.submission)
   return (
     !conflicts ||
-    askAdmin(
+    askToConfirm(
       conflicts === 1 ? 'Overwrite a conflicting change?' : `Overwrite ${conflicts} conflicting changes?`,
       'The team edited some of the same parts while you were editing. Continuing replaces their version of those.',
       'Overwrite'
@@ -1935,7 +1943,7 @@ async function adminSave() {
     const reopen = isLocked.value && isOpen.value
     if (
       reopen &&
-      !(await askAdmin(
+      !(await askToConfirm(
         'Reopen for the team?',
         `Saving reopens ${teamName.value}'s entry with your changes. Their submission stands until it's submitted again.`,
         'Reopen'
@@ -1967,7 +1975,7 @@ async function adminSubmit() {
   try {
     if (!(await readyToWrite())) return
     if (
-      !(await askAdmin(
+      !(await askToConfirm(
         `Submit for ${teamName.value}?`,
         'This becomes their latest submission, and the team is emailed a confirmation.',
         'Submit'

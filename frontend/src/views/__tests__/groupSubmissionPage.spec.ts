@@ -1168,19 +1168,55 @@ describe('co-editing', () => {
     expect(submitEntry).toHaveBeenCalled()
   })
 
-  it('does not submit when the live answers could not be saved', async () => {
+  async function submitWithFailedSave() {
+    const flush = sentOfType('doc-flush')[0] as { id: number }
+    receive({ type: 'doc-flushed', id: flush.id, ok: false })
+    await flushPromises()
+  }
+
+  it('offers to submit the last saved answers when the live ones could not be saved', async () => {
+    const detail = coedited()
+    await mountPage(detail)
+    await connect()
+    submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+    await submitWithFailedSave()
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Submit without your latest typing?')
+    expect(submitEntry).not.toHaveBeenCalled()
+    await wrapper!.find('[data-testid="confirm-dialog-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(submitEntry).toHaveBeenCalled()
+  })
+
+  it('submits nothing when the offer is declined', async () => {
     await mountPage(coedited())
     await connect()
     await goToLastStep()
 
     await buttonNamed(/^Submit$/)!.trigger('click')
     await flushPromises()
-    const flush = sentOfType('doc-flush')[0] as { id: number }
-    receive({ type: 'doc-flushed', id: flush.id, ok: false })
+    await submitWithFailedSave()
+    await wrapper!.find('[data-testid="confirm-dialog-cancel"]').trigger('click')
     await flushPromises()
 
     expect(submitEntry).not.toHaveBeenCalled()
-    expect(wrapper!.find('.submission-message').text()).toContain("Couldn't reach your team's live answers")
+  })
+
+  it('makes the same offer before the live answers have even arrived', async () => {
+    const detail = coedited()
+    await mountPage(detail)
+    submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(sentOfType('doc-flush')).toHaveLength(0)
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Submit your answers as last saved?')
   })
 
   it('leaves an admin editing privately, saving through the page as before', async () => {
@@ -1267,8 +1303,8 @@ describe('the admin view', () => {
     await box().setValue('Fixed by the programme.')
 
     await click('admin-save')
-    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Reopen for the team?')
-    await click('admin-dialog-confirm')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Reopen for the team?')
+    await click('confirm-dialog-confirm')
 
     expect(reopenEntry).toHaveBeenCalled()
     expect(saveDraft).toHaveBeenCalled()
@@ -1283,8 +1319,8 @@ describe('the admin view', () => {
     await box().setValue('Fixed by the programme.')
 
     await click('admin-submit')
-    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('This becomes their latest submission')
-    await click('admin-dialog-confirm')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('This becomes their latest submission')
+    await click('confirm-dialog-confirm')
 
     expect(submitEntry).toHaveBeenCalled()
     expect(reopenEntry).not.toHaveBeenCalled()
@@ -1318,7 +1354,7 @@ describe('the admin view', () => {
 
     for (const key of Object.keys(CONFIRMED_CHECKLIST)) await wrapper!.find(`#checklist-${key}`).setValue(true)
     await click('admin-submit')
-    await click('admin-dialog-confirm')
+    await click('confirm-dialog-confirm')
 
     expect(saveDraft.mock.calls.at(-1)![1].poster_checklist).toEqual(CONFIRMED_CHECKLIST)
     expect(submitEntry).toHaveBeenCalled()
@@ -1351,7 +1387,7 @@ describe('the admin view', () => {
     await box().setValue('Not wanted.')
 
     await click('admin-discard')
-    await click('admin-dialog-confirm')
+    await click('confirm-dialog-confirm')
 
     expect((box().element as HTMLTextAreaElement).value).toBe(ANSWERED.inspiration)
     expect(box().attributes('disabled')).toBeDefined()
@@ -1367,8 +1403,8 @@ describe('the admin view', () => {
 
     await click('admin-save')
 
-    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Overwrite a conflicting change?')
-    await click('admin-dialog-cancel')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('confirm-dialog-cancel')
     expect(saveDraft).not.toHaveBeenCalled()
   })
 
@@ -1419,8 +1455,8 @@ describe('the admin view', () => {
 
     await click('admin-save')
 
-    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Reopen for the team?')
-    await click('admin-dialog-cancel')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Reopen for the team?')
+    await click('confirm-dialog-cancel')
     expect(saveDraft).not.toHaveBeenCalled()
   })
 
@@ -1469,8 +1505,8 @@ describe('the admin view', () => {
 
     await click('admin-save')
 
-    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Overwrite a conflicting change?')
-    await click('admin-dialog-cancel')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('confirm-dialog-cancel')
     expect(uploadSubmissionFile).not.toHaveBeenCalled()
   })
 
