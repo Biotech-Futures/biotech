@@ -1037,6 +1037,13 @@ export interface AdminAnnouncementRoleOption {
   name: string
 }
 
+export interface AdminAnnouncementMergeTag {
+  name: string
+  description: string
+  sample: string
+  html: boolean
+}
+
 export interface AdminAnnouncementNotifyResult {
   msg: string
   deliveryId?: number
@@ -1090,6 +1097,11 @@ export const fetchAnnouncementGroups = () =>
 
 export const fetchAnnouncementRoles = () =>
   adminGet<AdminEnvelope<AdminAnnouncementRoleOption[]>>('/announcement/roles/').then(
+    (env) => env.data || []
+  )
+
+export const fetchAnnouncementMergeTags = () =>
+  adminGet<AdminEnvelope<AdminAnnouncementMergeTag[]>>('/announcement/merge-tags/').then(
     (env) => env.data || []
   )
 
@@ -1563,7 +1575,15 @@ export const runAdminView = (id: number, params: ViewRunParams = {}) =>
   )
 
 /** Get export CSV download URL for a view */
-export const getAdminViewExportUrl = (id: number, search?: string) => {
-  const query = search ? `?search=${encodeURIComponent(search)}` : ''
+export const getAdminViewExportUrl = (
+  id: number,
+  options?: string | { search?: string; sortBy?: string; sortOrder?: 'asc' | 'desc' }
+) => {
+  if (typeof options === 'string') {
+    const query = options ? `?search=${encodeURIComponent(options)}` : ''
+    return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
+  }
+  const query = options ? buildAdminQuery(options) : ''
   return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
 }
+

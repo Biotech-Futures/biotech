@@ -797,7 +797,8 @@ class AnnouncementRetryTests(TestCase):
                 raise smtplib.SMTPServerDisconnected("dropped")
             return real_send(self_msg, *args, **kwargs)
 
-        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=drops_once),                 patch("apps.services.retry.time.sleep") as sleep:
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=drops_once), \
+                patch("apps.services.retry.time.sleep") as sleep:
             result = send_announcement_email(self.announcement.id)
 
         self.assertEqual((result["status"], result["succeeded"], result["failed"]), ("success", 2, 0))
@@ -806,3 +807,88 @@ class AnnouncementRetryTests(TestCase):
         self.assertEqual(tries[-1], tries[0])
         sleep.assert_called_once()
         self.assertEqual(len(mail.outbox), 2)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementEmailLineBreakTests(TestCase):
+    """A plain-text announcement email reads with the same line breaks the
+    portal shows: blank lines become paragraphs, single newlines line breaks."""
+
+    def setUp(self):
+        from django.core import mail
+
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            email="author@example.com", password="testpass", first_name="An",
+        )
+
+    def _send(self, body):
+        from django.core import mail
+
+        announcement = Announcement.objects.create(
+            author_user=self.author,
+            title="Update",
+            body=body,
+            visibility_scope="global",
+        )
+        send_announcement_email(announcement.id, initiated_by=self.author)
+        return mail.outbox
+
+    def test_plain_text_body_keeps_its_paragraphs_and_line_breaks(self):
+        outbox = self._send("First line\nSecond line\n\nSecond paragraph")
+        message = next(m for m in outbox if m.to == ["author@example.com"])
+        html_body, _ = message.alternatives[0]
+        self.assertIn("First line<br>Second line", html_body)
+        self.assertIn("<p>Second paragraph</p>", html_body)
+
+    def test_html_body_is_not_rewrapped(self):
+        outbox = self._send("<p>One</p><p>Two</p>")
+        message = next(m for m in outbox if m.to == ["author@example.com"])
+        html_body, _ = message.alternatives[0]
+        self.assertIn("<p>One</p><p>Two</p>", html_body)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementEmailMergeTagTests(TestCase):
+    """An announcement greeting is filled with each recipient's own name."""
+
+    def setUp(self):
+        from django.core import mail
+
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            email="author@example.com", password="testpass", first_name="An",
+        )
+        self.ada = User.objects.create_user(
+            email="ada@example.com", password="testpass", first_name="Ada",
+        )
+        self.grace = User.objects.create_user(
+            email="grace@example.com", password="testpass", first_name="Grace",
+        )
+        self.announcement = Announcement.objects.create(
+            author_user=self.author,
+            title="Welcome",
+            body="<p>Hi {{ first_name }}, welcome!</p>",
+            visibility_scope="global",
+        )
+
+    def test_each_recipient_gets_their_own_name(self):
+        from django.core import mail
+
+        send_announcement_email(self.announcement.id, initiated_by=self.author)
+        by_address = {message.to[0]: message for message in mail.outbox}
+
+        ada_html, _ = by_address["ada@example.com"].alternatives[0]
+        grace_html, _ = by_address["grace@example.com"].alternatives[0]
+        self.assertIn("Hi Ada,", ada_html)
+        self.assertIn("Hi Grace,", grace_html)
+        self.assertNotIn("{{ first_name }}", ada_html)
+        self.assertNotIn("{{ first_name }}", grace_html)
+
+    def test_plain_text_alternative_is_personalised_too(self):
+        from django.core import mail
+
+        send_announcement_email(self.announcement.id, initiated_by=self.author)
+        message = next(m for m in mail.outbox if m.to == ["ada@example.com"])
+        self.assertIn("Hi Ada,", message.body)
+        self.assertNotIn("{{ first_name }}", message.body)

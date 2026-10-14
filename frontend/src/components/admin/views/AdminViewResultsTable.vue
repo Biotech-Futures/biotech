@@ -80,6 +80,9 @@
     <template #cell-group="{ row }">
       {{ toRow(row).groupName || '—' }}
     </template>
+    <template #cell-group_count="{ row }">
+      {{ toRow(row).groupCount ?? 0 }}
+    </template>
     <template #actions="{ row, column }">
       <button
         v-if="column === 0"

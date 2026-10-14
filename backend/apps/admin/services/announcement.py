@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, TypedDict, Optional, List, Dict, Any, Tuple
 from datetime import datetime
 import logging
@@ -13,6 +14,7 @@ from apps.announcements.models import (
     AnnouncementAudience,
     AnnouncementDelivery,
 )
+from apps.announcements.rendering import body_to_html, fill_merge_tags, merge_tag_reference
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import GroupMembership
 from apps.users.models import User
@@ -603,9 +605,13 @@ def _skipped_send_result(msg: str) -> Dict[str, Any]:
 def _deliver_announcement_to_recipients(
     announcement_id: int,
     emails: List[str],
-    rendered: RenderedEmail,
+    render_for: Callable[[str], RenderedEmail],
 ) -> Tuple[int, List[Dict[str, str]], Optional[str]]:
     """Run the SMTP loop for a single send attempt.
+
+    ``render_for`` returns the email as one recipient should read it: an
+    announcement may greet each of them by name (``{{ first_name }}``), so
+    the wording is per recipient rather than shared.
 
     Returns ``(succeeded_count, failed_entries, connection_error)`` where
     ``connection_error`` is non-None only when the connection itself never
@@ -654,7 +660,7 @@ def _deliver_announcement_to_recipients(
     later = RetryLater(connection)
     try:
         for addr in emails:
-            message = build_message(rendered, addr, from_email=sender.from_email, connection=connection)
+            message = build_message(render_for(addr), addr, from_email=sender.from_email, connection=connection)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it
@@ -783,11 +789,13 @@ def send_announcement_email(
     if not emails:
         return _skipped_send_result("No recipients found")
 
-    excerpt = _build_excerpt(row.get("body", ""))
-    # Announcement bodies are authored in the admin editor (and
-    # may be seeded/imported), so sanitise here as well as
-    # at the editor boundary before trusting the HTML.
-    body_html = clean_email_body(row.get("body", ""))
+    raw_body = row.get("body", "")
+    excerpt = _build_excerpt(raw_body)
+    # The portal gives a plain-text body its paragraphs and line breaks, and
+    # keeps HTML as written; the email must read the same way, so normalise
+    # it first. Bodies are authored in the admin editor (and may be
+    # seeded/imported), so sanitise before trusting the HTML too.
+    body_html = clean_email_body(body_to_html(raw_body))
     platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
     detail_url = f"{platform_url}/#/announcements/{announcement_id}"
     # Plain text carries the whole announcement too — not a truncated excerpt.
@@ -796,7 +804,8 @@ def send_announcement_email(
         f"{row.get('title')}\n\n{body_text}\n\n"
         f"View this announcement on the platform: {detail_url}"
     )
-    # Rendered once and reused for every recipient: nothing in it is personal.
+    # Rendered once for the shared wording; the greeting tags (if any) are
+    # filled per recipient below.
     rendered = render_system_email(
         "announcement",
         {
@@ -807,6 +816,23 @@ def send_announcement_email(
         },
         default_text=text_body,
     )
+
+    # An announcement may greet each reader by name (``{{ first_name }}``).
+    # Filled with each recipient's own details, so the wording is theirs.
+    users_by_email = {
+        user.email: user
+        for user in User.objects.filter(email__in=emails, is_active=True)
+    }
+
+    def render_for(addr: str) -> RenderedEmail:
+        user = users_by_email.get(addr)
+        if user is None:
+            return rendered
+        return rendered._replace(
+            subject=fill_merge_tags(rendered.subject, user, escape=False),
+            html=fill_merge_tags(rendered.html, user, escape=True),
+            text=fill_merge_tags(rendered.text, user, escape=False),
+        )
 
     # Pessimistic delivery row: created up front as FAILED so a mid-send
     # crash still leaves a triageable audit trail. We finalize it after
@@ -821,7 +847,7 @@ def send_announcement_email(
 
     try:
         succeeded, failed, connection_error = _deliver_announcement_to_recipients(
-            announcement_id, emails, rendered,
+            announcement_id, emails, render_for,
         )
     except Exception as exc:  # belt-and-braces — anything truly unexpected
         connection_error = _sanitize_error(exc)
@@ -929,3 +955,12 @@ def list_announcement_roles() -> Dict[str, Any]:
         .values("id", name=F("role_name"))
     )
     return {"msg": "Roles retrieved successfully", "data": roles}
+
+
+def list_announcement_merge_tags() -> Dict[str, Any]:
+    """The merge tags an announcement body may use, for the composer's
+    reference. Each is filled with the reading user's own details."""
+    return {
+        "msg": "Announcement merge tags retrieved successfully",
+        "data": merge_tag_reference(),
+    }

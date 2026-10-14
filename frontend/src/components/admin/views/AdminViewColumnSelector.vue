@@ -36,6 +36,7 @@ const AVAILABLE_COLUMNS: ColumnOption[] = [
   { key: 'role', label: 'Role' },
   { key: 'school', label: 'School / Institution' },
   { key: 'matched_mentor', label: 'Matched Mentor / Group' },
+  { key: 'group_count', label: 'Number of Groups' },
   { key: 'status', label: 'Status' },
   { key: 'phone', label: 'Phone' },
   { key: 'state', label: 'State' },

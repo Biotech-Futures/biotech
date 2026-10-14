@@ -423,6 +423,10 @@ onMounted(() => {
   gap: 0.6rem;
 }
 
+:deep(.data-table-stats) {
+  margin-right: 0;
+}
+
 .admin-view-executed__meta {
   align-items: center;
   display: inline-flex;

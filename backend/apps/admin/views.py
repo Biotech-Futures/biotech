@@ -56,7 +56,7 @@ from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
     update_announcement, archive_announcement, delete_announcement, notify_announcement,
-    list_announcement_groups, list_announcement_roles,
+    list_announcement_groups, list_announcement_roles, list_announcement_merge_tags,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
@@ -1068,6 +1068,15 @@ class AnnouncementRolesListView(APIView):
         return Response(result)
 
 
+class AnnouncementMergeTagsView(APIView):
+    """GET /api/v1/announcement/merge-tags - The merge tags a composer offers"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = list_announcement_merge_tags()
+        return Response(result)
+
+
 # ============================================================================
 # MENTOR ENDPOINTS
 # ============================================================================
@@ -1531,7 +1540,9 @@ class AdminViewExportCsvView(APIView):
             )
 
         search = request.query_params.get("search")
-        return export_view_csv(view, search=search)
+        sort_by = request.query_params.get("sortBy", "createdAt")
+        sort_order = request.query_params.get("sortOrder", "desc")
+        return export_view_csv(view, search=search, sort_by=sort_by, sort_order=sort_order)
 
 
 # ============================================================================
