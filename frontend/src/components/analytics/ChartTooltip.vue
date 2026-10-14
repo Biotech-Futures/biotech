@@ -28,26 +28,39 @@ const props = defineProps<{
 }>()
 
 const tooltipElement = ref<HTMLElement | null>(null)
-const tooltipSize = reactive({ width: 180, height: 68 })
-const cursorGap = -20
+const tooltipSize = reactive({ width: 180, height: 68, zoom: 1 })
+const cursorGap = 4
 const viewportPadding = 8
 
 onUpdated(() => {
-  const rect = tooltipElement.value?.getBoundingClientRect()
-  if (!rect) return
-  if (Math.abs(tooltipSize.width - rect.width) > 0.5) tooltipSize.width = rect.width
-  if (Math.abs(tooltipSize.height - rect.height) > 0.5) tooltipSize.height = rect.height
+  const element = tooltipElement.value
+  if (!element) return
+
+  const rect = element.getBoundingClientRect()
+  const layoutWidth = element.offsetWidth
+  const layoutHeight = element.offsetHeight
+  const renderedZoom = layoutWidth > 0 ? rect.width / layoutWidth : 1
+
+  if (Math.abs(tooltipSize.width - layoutWidth) > 0.5) tooltipSize.width = layoutWidth
+  if (Math.abs(tooltipSize.height - layoutHeight) > 0.5) tooltipSize.height = layoutHeight
+  if (Number.isFinite(renderedZoom) && renderedZoom > 0
+    && Math.abs(tooltipSize.zoom - renderedZoom) > 0.001) {
+    tooltipSize.zoom = renderedZoom
+  }
 })
 
 const tooltipStyle = computed(() => {
-  const viewportWidth = typeof window === 'undefined' ? 1920 : window.innerWidth
-  const viewportHeight = typeof window === 'undefined' ? 1080 : window.innerHeight
+  const zoom = tooltipSize.zoom || 1
+  const viewportWidth = (typeof window === 'undefined' ? 1920 : window.innerWidth) / zoom
+  const viewportHeight = (typeof window === 'undefined' ? 1080 : window.innerHeight) / zoom
+  const anchorX = props.x / zoom
+  const anchorY = props.y / zoom
   const maximumLeft = Math.max(viewportPadding, viewportWidth - tooltipSize.width - viewportPadding)
-  const preferredTop = props.y - cursorGap - tooltipSize.height
+  const preferredTop = anchorY - cursorGap - tooltipSize.height
 
-  const leftAbove = props.x - cursorGap - tooltipSize.width
-  const centreAbove = props.x - tooltipSize.width / 2
-  const rightAbove = props.x + cursorGap
+  const leftAbove = anchorX - cursorGap - tooltipSize.width
+  const centreAbove = anchorX - tooltipSize.width / 2
+  const rightAbove = anchorX + cursorGap
   const left = leftAbove >= viewportPadding
     ? leftAbove
     : centreAbove >= viewportPadding && centreAbove <= maximumLeft

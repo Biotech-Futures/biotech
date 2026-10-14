@@ -39,19 +39,33 @@
 
     <section class="analytics-grid top-grid">
       <article class="analytics-card">
-        <h2>Resource Clicks Over Time</h2>
+        <div class="chart-title-row">
+          <h2>Resource Clicks Over Time</h2>
+          <label class="chart-range-control">
+            <span class="sr-only">Search resource clicks by date</span>
+            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+            <input
+              v-model="clicksDateQuery"
+              type="search"
+              inputmode="search"
+              aria-label="Search resource clicks by year, month, or date"
+              placeholder="YY, MM, YYMM or MMDD"
+            />
+          </label>
+        </div>
         <p class="card-subtitle">Daily clicks recorded in the current database period.</p>
         <div class="chart-with-y-axis">
           <div class="y-axis"><span v-for="tick in yTicks" :key="tick">{{ tick }}</span></div>
           <div class="resource-chart">
             <div class="grid-lines"><span v-for="n in 5" :key="n"></span></div>
-            <div class="bars">
-              <div v-for="point in data.dailyClicks" :key="point.label" class="bar-column">
+            <div v-if="filteredDailyClicks.length" ref="clicksBars" class="bars">
+              <div v-for="point in filteredDailyClicks" :key="point.label" class="bar-column">
                 <strong>{{ point.clicks }}</strong>
                 <div class="bar-track"><div class="bar-fill" :style="{ height: `${(point.clicks / dailyAxisMax) * 100}%` }" @mouseenter="showTooltip($event, point.label, `${point.clicks} clicks`, 'Resource activity')" @mousemove="moveTooltip" @mouseleave="hideTooltip"></div></div>
                 <span>{{ point.label }}</span>
               </div>
             </div>
+            <div v-else class="chart-empty">No records match this date.</div>
           </div>
         </div>
         <div class="axis-title">Number of Clicks</div>
@@ -137,7 +151,7 @@
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import {
@@ -199,6 +213,7 @@ function refreshAnalytics() {
 onMounted(() => loadAnalytics())
 const search = ref('')
 const selectedAudienceRole = ref<'all' | 'Student' | 'Mentor' | 'Supervisor'>('all')
+const clicksDateQuery = ref('')
 type ResourceSortKey = 'clicks' | 'uniqueUsers'
 const resourceSortKey = ref<ResourceSortKey | null>(null)
 const resourceSortDirection = ref<'asc' | 'desc'>('desc')
@@ -206,11 +221,73 @@ const resourceSortDirection = ref<'asc' | 'desc'>('desc')
 useAnalyticsRefreshState('resources', {
   search,
   selectedAudienceRole,
+  clicksDateQuery,
   resourceSortKey,
   resourceSortDirection,
 }, () => !isLoading.value && hasLoaded.value)
 const tooltip = ref({ visible:false,x:0,y:0,title:'',value:'',detail:'' })
-const maxDailyClicks = computed(() => Math.max(...data.dailyClicks.map(p => p.clicks),1))
+const monthNames = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+]
+const filteredDailyClicks = computed(() => {
+  const points = [...data.dailyClicks].sort((a, b) => a.label.localeCompare(b.label))
+  const query = clicksDateQuery.value.trim()
+  if (!query) return points
+
+  const monthNameQuery = query.toLowerCase()
+  if (/^[a-z]+$/.test(monthNameQuery) && monthNameQuery.length >= 3) {
+    const monthIndex = monthNames.findIndex((month) => month.startsWith(monthNameQuery))
+    if (monthIndex >= 0) {
+      const paddedMonth = String(monthIndex + 1).padStart(2, '0')
+      return points.filter((point) => point.label.slice(5, 7) === paddedMonth)
+    }
+    return []
+  }
+
+  const digits = query.replace(/\D/g, '')
+  if (!digits) return []
+
+  // One or two digits can be a month; exactly two digits can also be a
+  // two-digit year. Keep every matching interpretation present in the data.
+  if (/^\d{1,2}$/.test(digits)) {
+    const month = Number(digits)
+    const paddedMonth = String(month).padStart(2, '0')
+    return points.filter((point) => {
+      const compactDate = point.label.replace(/\D/g, '')
+      const matchesMonth = month >= 1 && month <= 12
+        && compactDate.slice(4, 6) === paddedMonth
+      const matchesYear = digits.length === 2
+        && compactDate.slice(2, 4) === digits
+      return matchesMonth || matchesYear
+    })
+  }
+
+  // Four digits can mean a full year, YYMM, or MMDD. Match every valid
+  // interpretation present in the loaded data instead of guessing one.
+  if (/^\d{4}$/.test(digits)) {
+    return points.filter((point) => {
+      const compactDate = point.label.replace(/\D/g, '')
+      return compactDate.slice(0, 4) === digits
+        || compactDate.slice(2, 6) === digits
+        || compactDate.slice(4, 8) === digits
+    })
+  }
+
+  // Dates arrive as YYYY-MM-DD. Comparing the compact value supports YYYY,
+  // YYYYMM and YYYYMMDD as well as the same values typed with separators.
+  return points.filter((point) => point.label.replace(/\D/g, '').startsWith(digits))
+})
+const clicksBars = ref<HTMLElement | null>(null)
+
+watch(filteredDailyClicks, async () => {
+  await nextTick()
+  window.requestAnimationFrame(() => {
+    if (clicksBars.value) clicksBars.value.scrollLeft = clicksBars.value.scrollWidth
+  })
+}, { flush: 'post' })
+
+const maxDailyClicks = computed(() => Math.max(...filteredDailyClicks.value.map(p => p.clicks),1))
 const dailyAxisMax = computed(() => Math.max(4, Math.ceil(maxDailyClicks.value / 4) * 4))
 const maxTypeValue = computed(() => Math.max(...data.byType.map(p => p.value),1))
 const yTicks = computed(() => Array.from({ length: 5 }, (_, index) => dailyAxisMax.value * (4 - index) / 4))
@@ -432,6 +509,45 @@ h1 {
   color: #174243;
 }
 
+.chart-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.chart-range-control {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.chart-range-control i {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  color: #59706e;
+  font-size: 12px;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.chart-range-control input {
+  width: 220px;
+  height: 40px;
+  padding: 0 12px 0 34px;
+  border: 1px solid #bad7b8;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #174243;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chart-range-control input::placeholder {
+  color: #72837f;
+  font-weight: 500;
+}
+
 .card-subtitle {
   margin: 5px 0 16px;
   color: #6c7c78;
@@ -463,6 +579,15 @@ h1 {
 .resource-chart {
   position: relative;
   height: 230px;
+}
+
+.chart-empty {
+  position: absolute;
+  inset: 18px 0 32px;
+  display: grid;
+  place-items: center;
+  color: #6c7c78;
+  font-size: 13px;
 }
 
 .grid-lines {

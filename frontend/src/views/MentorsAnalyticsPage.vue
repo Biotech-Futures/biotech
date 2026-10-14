@@ -55,17 +55,7 @@
 
     <section class="chart-grid" aria-label="Mentor snapshot distributions">
       <article v-for="chart in charts" :key="chart.title" class="analytics-card">
-        <h2>
-          {{ chart.title
-          }}<button
-            type="button"
-            class="info-button"
-            :aria-label="`${chart.title}: ${chart.note}`"
-            :title="chart.note"
-          >
-            <BtfIcon name="info" :size="16" />
-          </button>
-        </h2>
+        <h2>{{ chart.title }}</h2>
         <template v-if="chart.kind === 'donut'">
           <div
             class="interactive-mentor-donut-layout"
@@ -169,16 +159,7 @@
 
     <section class="activity-grid" aria-label="Mentor activity in the selected range">
       <article class="analytics-card activity-card">
-        <h2>
-          Mentor Activity by Month<button
-            type="button"
-            class="info-button"
-            aria-label="Activity definition"
-            title="Each mentor counts once per month; monthly counts are not additive."
-          >
-            <BtfIcon name="info" :size="16" />
-          </button>
-        </h2>
+        <h2>Mentor Activity by Month</h2>
         <p class="card-note">Unique mentors with a login or message · {{ rangeLabel }}</p>
         <p v-if="rangeError" class="empty-state">Choose a valid date range to view activity.</p>
         <p v-else-if="!activity.eventCount" class="empty-state">
@@ -275,16 +256,7 @@
     </section>
     <section class="bottom-grid">
       <article class="analytics-card">
-        <h2>
-          Mentor Coverage<button
-            type="button"
-            class="info-button"
-            aria-label="Coverage definition"
-            title="Supporting groups means at least one assignment. This is the same assigned/unassigned population used by utilisation."
-          >
-            <BtfIcon name="info" :size="16" />
-          </button>
-        </h2>
+        <h2>Mentor Coverage</h2>
         <p class="card-note">Current group support across all {{ snapshot.total }} mentors.</p>
         <div
           class="interactive-mentor-donut-layout"
@@ -621,8 +593,8 @@ function showActivity(event: Event, point: (typeof points.value)[number]) {
   const mouse = event instanceof MouseEvent ? event : null
   tooltip.value = {
     visible: true,
-    x: Math.max(0, Math.min(mouse?.clientX || rect.left, window.innerWidth - 240)),
-    y: Math.max(0, Math.min(mouse?.clientY || rect.top, window.innerHeight - 100)),
+    x: mouse?.clientX ?? rect.left + rect.width / 2,
+    y: mouse?.clientY ?? rect.top + rect.height / 2,
     title: monthLabel(point.month),
     value: `${point.active} active mentors`,
     detail: `${point.messages} messages · ${point.logins} logins`,

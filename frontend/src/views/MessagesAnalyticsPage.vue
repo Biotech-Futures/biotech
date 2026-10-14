@@ -103,7 +103,11 @@
       </article>
     </section>
 
-    <section class="filter-card sticky-filter-card" aria-label="Message analytics filters">
+    <section
+      class="filter-card sticky-filter-card"
+      :class="{ 'is-user-view': contentMode === 'users' }"
+      aria-label="Message analytics filters"
+    >
       <label>
         <span>View</span>
         <select v-model="contentMode" aria-label="Select message analytics view">
@@ -175,10 +179,13 @@
       </button>
     </section>
 
-    <p v-if="contentMode === 'users'" class="filter-scope-note">
-      {{ userGroupCountsUnavailable
-        ? 'User message counts for the selected group are unavailable from the current API response.'
-        : 'User totals use recorded messages for the selected group and period.' }}
+    <p
+      v-if="contentMode === 'users' && (userGroupCountsUnavailable || userRecentGroupCountsUnavailable)"
+      class="filter-scope-note"
+    >
+      <span v-if="userGroupCountsUnavailable">
+        User message counts for the selected group are unavailable from the current API response.
+      </span>
       <span v-if="userRecentGroupCountsUnavailable">
         Past-seven-day user counts for the selected group are unavailable from the current API response.
       </span>
@@ -645,7 +652,6 @@ async function initializeMessages(force = false, preserveFilters = false) {
       }
     : null
   try {
-    const wasFollowingDefaultRange = preserveFilters && !!lastUpdated.value && isUsingObservedDefaultRange()
     const bundle = await loadMessagesAnalyticsBundle(force)
     baseBundle.value = bundle
     datasetAnchorDay.value = observedDatasetAnchor(bundle)
@@ -658,7 +664,7 @@ async function initializeMessages(force = false, preserveFilters = false) {
       return
     }
 
-    if (!preserveFilters || wasFollowingDefaultRange) {
+    if (!preserveFilters) {
       selectedYear.value = availableYears.value[0]!
       applyObservedDateRange()
     } else {
@@ -791,12 +797,6 @@ function defaultObservedStart(start: string, end: string) {
   return defaultStart.toISOString().slice(0, 10) < start
     ? start
     : defaultStart.toISOString().slice(0, 10)
-}
-
-function isUsingObservedDefaultRange() {
-  if (!dataStartDate.value || !dataEndDate.value) return false
-  return startDate.value === defaultObservedStart(dataStartDate.value, dataEndDate.value)
-    && endDate.value === dataEndDate.value
 }
 
 function updateObservedDateBounds() {
@@ -1272,39 +1272,11 @@ const tooltip = ref({
   detail: '',
 })
 
-const TOOLTIP_WIDTH = 230
-const TOOLTIP_HEIGHT = 90
-const TOOLTIP_GAP = 8
-const TOOLTIP_EDGE = 12
-
-function tooltipPosition(event: MouseEvent) {
-  // Keep the tooltip close to the pointer: just above and slightly to the right.
-  let x = event.clientX + TOOLTIP_GAP
-  let y = event.clientY - TOOLTIP_HEIGHT - TOOLTIP_GAP
-
-  // If there is not enough room above, place it just below the pointer.
-  if (y < TOOLTIP_EDGE) {
-    y = event.clientY + TOOLTIP_GAP
-  }
-
-  // If there is not enough room on the right, flip it to the left.
-  if (x + TOOLTIP_WIDTH > window.innerWidth - TOOLTIP_EDGE) {
-    x = event.clientX - TOOLTIP_WIDTH - TOOLTIP_GAP
-  }
-
-  // Keep the tooltip fully inside the viewport.
-  x = Math.max(TOOLTIP_EDGE, Math.min(x, window.innerWidth - TOOLTIP_WIDTH - TOOLTIP_EDGE))
-  y = Math.max(TOOLTIP_EDGE, Math.min(y, window.innerHeight - TOOLTIP_HEIGHT - TOOLTIP_EDGE))
-
-  return { x, y }
-}
-
 function showTooltip(event: MouseEvent, title: string, value: string, detail = '') {
-  const position = tooltipPosition(event)
   tooltip.value = {
     visible: true,
-    x: position.x,
-    y: position.y,
+    x: event.clientX,
+    y: event.clientY,
     title,
     value,
     detail,
@@ -1313,9 +1285,8 @@ function showTooltip(event: MouseEvent, title: string, value: string, detail = '
 
 function moveTooltip(event: MouseEvent) {
   if (!tooltip.value.visible) return
-  const position = tooltipPosition(event)
-  tooltip.value.x = position.x
-  tooltip.value.y = position.y
+  tooltip.value.x = event.clientX
+  tooltip.value.y = event.clientY
 }
 
 function hideTooltip() {
@@ -2825,13 +2796,28 @@ tbody tr:hover {
 /* Shared analytics filter appearance (matches Registration and Activity). */
 .messages-analytics-page .sticky-filter-card {
   display: grid !important;
-  grid-template-columns: 120px repeat(4, minmax(150px, 1fr)) auto !important;
+  grid-template-columns:
+    minmax(100px, 0.7fr)
+    repeat(2, minmax(140px, 1.2fr))
+    minmax(110px, 0.85fr)
+    minmax(140px, 1.15fr)
+    minmax(132px, 0.9fr) !important;
   gap: 12px !important;
   align-items: end !important;
   padding: 16px !important;
   border: 1px solid #d7e3df !important;
   border-radius: 14px !important;
   background: #fff !important;
+}
+
+.messages-analytics-page .sticky-filter-card.is-user-view {
+  grid-template-columns:
+    minmax(90px, 0.65fr)
+    repeat(2, minmax(130px, 1.15fr))
+    minmax(100px, 0.8fr)
+    minmax(130px, 1.1fr)
+    minmax(100px, 0.75fr)
+    minmax(132px, 0.9fr) !important;
 }
 
 .messages-analytics-page .sticky-filter-card label,
@@ -2877,7 +2863,7 @@ tbody tr:hover {
   white-space: nowrap;
 }
 
-@media (max-width: 1250px) {
+@media (max-width: 900px) {
   .messages-analytics-page .sticky-filter-card {
     grid-template-columns: repeat(3, minmax(170px, 1fr)) !important;
   }

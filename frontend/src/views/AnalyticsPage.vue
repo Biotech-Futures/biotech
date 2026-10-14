@@ -587,8 +587,10 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     const bundle = await loadOverviewAnalyticsBundle(force)
     unavailableSources.value = bundle.unavailableSources ?? []
     const year = liveAnalyticsYear(bundle)
-    selectedYear.value = year
     availableAnalyticsYears.value = [year]
+    if (!preserveFilters || !availableAnalyticsYears.value.includes(selectedYear.value)) {
+      selectedYear.value = year
+    }
     selectedData.value = buildOverviewAnalytics(bundle)
     registrationTrend.value = buildRegistrationAnalytics(bundle).trend
     isEmpty.value = unavailableSources.value.length === 0 && overviewBundleIsEmpty(bundle)

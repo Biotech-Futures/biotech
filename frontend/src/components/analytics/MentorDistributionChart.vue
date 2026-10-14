@@ -115,8 +115,8 @@ function show(event: Event, item: MetricBucket) {
   const mouse = event instanceof MouseEvent ? event : null
   tooltip.value = {
     visible: true,
-    x: Math.max(0, Math.min(mouse?.clientX || rect.left, window.innerWidth - 240)),
-    y: Math.max(0, Math.min(mouse?.clientY || rect.top, window.innerHeight - 100)),
+    x: mouse?.clientX ?? rect.left + rect.width / 2,
+    y: mouse?.clientY ?? rect.top + rect.height / 2,
     title: item.label,
     value: `${item.value} mentors`,
     detail: `${percent(item.value, total.value)}% of the snapshot`,

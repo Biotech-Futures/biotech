@@ -332,7 +332,6 @@
           </div>
         </div>
 
-        <p class="card-subtitle">Cumulative account creation dates for current participants. Removed accounts are not included; older records may use invitation dates.</p>
         <div class="chart-with-y-axis">
           <div class="y-axis">
             <span v-for="tick in axisTicks(maxRegistration)" :key="tick">{{ tick }}</span>
@@ -403,8 +402,8 @@
                 <text
                   v-for="point in registrationDots[role]"
                   :key="point.index"
-                  :x="point.x"
-                  :y="registrationLabelPositions[point.index]?.[role]"
+                  :x="point.x + registrationLabelXOffsets[role]"
+                  :y="registrationLabelY(point.y)"
                   text-anchor="middle"
                   :class="['trend-value-label', `${role.slice(0, -1)}-value-label`]"
                 >{{ point.value }}</text>
@@ -880,9 +879,11 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     const year = new Date().getUTCFullYear()
     analyticsAsOf.value = liveAnalyticsAsOf(bundle)
     currentYear.value = year
-    currentMonthIndex.value = new Date().getUTCMonth()
     availableYears.value = [year]
-    selectedYear.value = year
+    if (!preserveFilters) currentMonthIndex.value = new Date().getUTCMonth()
+    if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) {
+      selectedYear.value = year
+    }
     liveData.value = buildUsersAnalytics(bundle)
     isEmpty.value = liveData.value.totalUsers === 0
     hasLoaded.value = true
@@ -1031,36 +1032,21 @@ const tooltip = ref({
   detail: '',
 })
 
-const TOOLTIP_WIDTH = 220
-const TOOLTIP_HEIGHT = 82
-const TOOLTIP_GAP = 8
-const TOOLTIP_EDGE = 12
-
-function tooltipPosition(event: MouseEvent) {
-  let x = event.clientX + TOOLTIP_GAP
-  let y = event.clientY - TOOLTIP_HEIGHT - TOOLTIP_GAP
-
-  if (y < TOOLTIP_EDGE) y = event.clientY + TOOLTIP_GAP
-  if (x + TOOLTIP_WIDTH > window.innerWidth - TOOLTIP_EDGE) {
-    x = event.clientX - TOOLTIP_WIDTH - TOOLTIP_GAP
-  }
-
-  return {
-    x: Math.max(TOOLTIP_EDGE, Math.min(x, window.innerWidth - TOOLTIP_WIDTH - TOOLTIP_EDGE)),
-    y: Math.max(TOOLTIP_EDGE, Math.min(y, window.innerHeight - TOOLTIP_HEIGHT - TOOLTIP_EDGE)),
-  }
-}
-
 function showTooltip(event: MouseEvent, title: string, value: string, detail = '') {
-  const { x, y } = tooltipPosition(event)
-  tooltip.value = { visible: true, x, y, title, value, detail }
+  tooltip.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    title,
+    value,
+    detail,
+  }
 }
 
 function moveTooltip(event: MouseEvent) {
   if (!tooltip.value.visible) return
-  const { x, y } = tooltipPosition(event)
-  tooltip.value.x = x
-  tooltip.value.y = y
+  tooltip.value.x = event.clientX
+  tooltip.value.y = event.clientY
 }
 
 function hideTooltip() {
@@ -1335,52 +1321,17 @@ const visibleRegistrationRoles = computed(() =>
   registrationRoles.filter((role) => !hiddenRegistrationRoles.value.includes(role)),
 )
 
-const registrationLabelPositions = computed(() => {
-  const top = 18
-  const bottom = 202
-  // Leave room for the rendered 16-unit text, its outline and a clear gap.
-  const gap = 24
+// Keep each value close to its point. Small horizontal role offsets separate
+// values when two series share (or nearly share) the same coordinates.
+const registrationLabelXOffsets: Record<(typeof registrationRoles)[number], number> = {
+  students: 0,
+  mentors: -10,
+  supervisors: 10,
+}
 
-  return visibleRegistrationMonths.value.map((_, index) => {
-    const positions = {
-      students: (registrationDots.value.students[index]?.y ?? 195) - 16,
-      mentors: (registrationDots.value.mentors[index]?.y ?? 195) - 16,
-      supervisors: (registrationDots.value.supervisors[index]?.y ?? 195) - 16,
-    }
-    const visibleRoles = [...visibleRegistrationRoles.value]
-      .sort((a, b) => positions[a] - positions[b])
-    const dotYs = visibleRoles.map((role) => registrationDots.value[role][index]?.y ?? 195)
-
-    // A label extends 16 units above and 6 below its baseline (including
-    // its outline). Keep another 3 units clear of each dot's 7-unit radius.
-    const aboveDots = (y: number) => {
-      for (const dotY of [...dotYs].reverse()) {
-        if (y > dotY - 16 && y < dotY + 26) y = dotY - 16
-      }
-      return y
-    }
-    const belowDots = (y: number) => {
-      for (const dotY of dotYs) {
-        if (y > dotY - 16 && y < dotY + 26) y = dotY + 26
-      }
-      return y
-    }
-
-    // Prefer moving crowded labels upwards so they remain above the points.
-    // Adjust the whole stack at the edges instead of clamping each label.
-    let next = bottom + gap
-    for (const role of [...visibleRoles].reverse()) {
-      positions[role] = aboveDots(Math.min(positions[role], next - gap))
-      next = positions[role]
-    }
-    let previous = top - gap
-    for (const role of visibleRoles) {
-      positions[role] = belowDots(Math.max(positions[role], previous + gap))
-      previous = positions[role]
-    }
-    return positions
-  })
-})
+function registrationLabelY(pointY: number) {
+  return Math.max(14, pointY - 9)
+}
 
 const countryHoverAnchors = [
   { name: 'Canada', lon: -106, lat: 57 },
@@ -5022,7 +4973,7 @@ nline-expanded-region .world-map {
 /* Top Areas of Interest: match reference with square control on title right. */
 .users-analytics-page .interests-card .interest-heading-row {
   display: flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
   justify-content: space-between !important;
   gap: 12px !important;
   width: 100% !important;
@@ -5291,7 +5242,7 @@ nline-expanded-region .world-map {
 /* Registration month labels are rendered inside the same SVG as the points,
    so their x positions are guaranteed to match exactly. */
 .users-analytics-page .trend-card .trend-value-label {
-  font-size: 16px;
+  font-size: 11px;
   paint-order: stroke;
   stroke: #ffffff;
   stroke-width: 3px;
