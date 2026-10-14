@@ -212,6 +212,7 @@
       :confirm-label="confirmDialog.confirmLabel"
       :variant="confirmDialog.variant"
       :busy="confirmDialog.busy"
+      :busy-label="confirmDialog.busyLabel"
       @confirm="onDialogConfirm"
     />
   </div>
@@ -279,8 +280,12 @@ interface ConfirmDialogState {
   confirmLabel: string
   variant: 'default' | 'danger' | 'warning'
   busy: boolean
+  /** Shown on the confirm button while ``onConfirm`` runs. */
+  busyLabel: string
   onConfirm: () => Promise<void> | void
 }
+
+const DEFAULT_BUSY_LABEL = 'Working...'
 
 const confirmDialog = reactive<ConfirmDialogState>({
   open: false,
@@ -289,8 +294,17 @@ const confirmDialog = reactive<ConfirmDialogState>({
   confirmLabel: 'Confirm',
   variant: 'danger',
   busy: false,
+  busyLabel: DEFAULT_BUSY_LABEL,
   onConfirm: () => {}
 })
+
+// Only Send Notification sets its own busy label; never let it carry over.
+watch(
+  () => confirmDialog.open,
+  (isOpen) => {
+    if (!isOpen) confirmDialog.busyLabel = DEFAULT_BUSY_LABEL
+  }
+)
 
 const onDialogConfirm = async () => {
   confirmDialog.busy = true
@@ -403,8 +417,15 @@ function onEditAnnouncement(item: Announcement) {
   formSheetOpen.value = true
 }
 
-async function onFormSaved(saved: AdminAnnouncementDetail) {
-  setFeedback(`Announcement "${saved.title}" saved successfully.`, 'success')
+async function onFormSaved(saved: AdminAnnouncementDetail, emailed = false) {
+  // The save response arrives only after sending has finished, but it does not
+  // say how many emails were accepted, so this reports completion, not delivery.
+  setFeedback(
+    emailed
+      ? `Announcement "${saved.title}" saved. Notification emails have finished sending.`
+      : `Announcement "${saved.title}" saved successfully.`,
+    'success'
+  )
   await load()
 }
 
@@ -469,6 +490,9 @@ function onNotifyAnnouncement(item: Announcement) {
   confirmDialog.message = `Send an email notification for "${item.title}" to its target audience now?`
   confirmDialog.confirmLabel = 'Send Notification'
   confirmDialog.variant = 'default'
+  // The request returns once every email has been attempted, so this stays
+  // up for as long as sending takes.
+  confirmDialog.busyLabel = 'Sending emails…'
   confirmDialog.onConfirm = async () => {
     try {
       const res = await notifyAdminAnnouncement(item.id)
