@@ -24,9 +24,6 @@
         </div>
 
     <div v-if="meeting.can_manage" class="meeting-actions">
-      <span class="manage-badge">
-        You can manage
-      </span>
 
       <button
         v-if="!editingMeeting"
@@ -71,7 +68,7 @@
 
               <p>
                 <strong>Timezone:</strong>
-                {{ meeting.timezone_name || 'UTC' }}
+                {{ localTimezone }}
               </p>
             </div>
 
@@ -185,12 +182,18 @@
         </label>
 
         <label>
-          End
-          <input
-            v-model="editEnd"
-            class="edit-input"
-            type="datetime-local"
-          />
+          Duration
+          <div class="duration-input-wrapper">
+            <input
+              v-model.number="editDuration"
+              class="edit-input duration-input"
+              type="number"
+              min="5"
+              max="480"
+              step="5"
+            />
+            <span class="duration-unit">min</span>
+          </div>
         </label>
 
         <label>
@@ -254,6 +257,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 
+const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
 const meeting = ref<GroupMeeting | null>(null)
 
 const loading = ref(true)
@@ -271,7 +276,7 @@ const meetingMessage = ref('')
 const editTitle = ref('')
 const editDescription = ref('')
 const editStart = ref('')
-const editEnd = ref('')
+const editDuration = ref(30)
 const editTimezone = ref('')
 const editJoinLink = ref('')
 const cancellingMeeting = ref(false)
@@ -621,7 +626,11 @@ const startEditing = () => {
   editTitle.value = meeting.value.title
   editDescription.value = meeting.value.description || ''
   editStart.value = toLocalDateTimeInput(meeting.value.start_datetime)
-  editEnd.value = toLocalDateTimeInput(meeting.value.ends_datetime)
+
+  const startMs = new Date(meeting.value.start_datetime).getTime()
+  const endMs = new Date(meeting.value.ends_datetime).getTime()
+
+  editDuration.value = Math.round((endMs - startMs) / 60000)
   editTimezone.value = meeting.value.timezone_name || 'UTC'
   editJoinLink.value = meeting.value.join_link || ''
 
@@ -647,7 +656,9 @@ const saveMeeting = async () => {
       title: editTitle.value,
       description: editDescription.value,
       start_datetime: new Date(editStart.value).toISOString(),
-      ends_datetime: new Date(editEnd.value).toISOString(),
+      ends_datetime: new Date(
+        new Date(editStart.value).getTime() + editDuration.value * 60_000
+      ).toISOString(),
       timezone_name: editTimezone.value,
       join_link: editJoinLink.value,
     })
@@ -717,6 +728,7 @@ const formatMeetingDate = (dateString: string) => {
   return new Intl.DateTimeFormat('en-AU', {
     dateStyle: 'medium',
     timeStyle: 'short',
+    timeZone: localTimezone,
   }).format(date)
 }
 
@@ -743,6 +755,28 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.duration-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.duration-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 75px;
+  appearance: auto;
+}
+
+.duration-unit {
+  position: absolute;
+  right: 40px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+
 .meeting-detail-page {
   max-width: 1080px;
   margin: 0 auto;
@@ -895,13 +929,6 @@ onBeforeUnmount(() => {
   min-height: 90px;
 }
 
-.join-button {
-  display: block;
-  width: 100%;
-  margin-top: 18px;
-  text-align: center;
-}
-
 @media (max-width: 900px) {
   .meeting-content-grid {
     grid-template-columns: 1fr;
@@ -919,10 +946,18 @@ onBeforeUnmount(() => {
   display: inline-block;
   margin-top: 12px;
   padding: 12px 18px;
-  background: #222222;
-  color: white;
+  width: 100%;
+  text-align: center;
+  background: var(--dark-green);
+  color: #ffffff;
   text-decoration: none;
   border-radius: 8px;
+  transition: background 0.2s ease;
+}
+
+.join-button:hover {
+  background: #015940;
+  color: #ffffff;
 }
 
 .secondary-button {
@@ -983,5 +1018,137 @@ onBeforeUnmount(() => {
 .danger-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Edit Meeting and Cancel Meeting - same size and text */
+.meeting-actions .secondary-button,
+.meeting-actions .danger-button {
+  width: 160px;
+  height: 48px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Edit Meeting form */
+.edit-section {
+  background: var(--white);
+  color: var(--teal);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.edit-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.edit-section .edit-input,
+.edit-section .note-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  background: var(--white);
+  color: var(--teal);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.edit-section .edit-input:focus,
+.edit-section .note-textarea:focus {
+  outline: 2px solid var(--dark-green);
+  outline-offset: 1px;
+}
+
+.edit-section .edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.edit-section .edit-actions button:last-child {
+  background: var(--dark-green);
+  border: 1px solid var(--dark-green);
+  color: #ffffff;
+}
+
+.edit-section .edit-actions button:last-child:hover {
+  background: #015940;
+}
+
+/* ===================================
+   Meeting Detail - Dark Mode Fixes
+   =================================== */
+
+/* Meeting description */
+:global(html[data-theme='dark'] .meeting-description) {
+  color: #c8d5d1 !important;
+}
+
+/* Meeting date and time */
+:global(html[data-theme='dark'] .meeting-date),
+:global(html[data-theme='dark'] .meeting-time) {
+  color: #aeb9b6 !important;
+}
+
+/* Shared Meeting Notes and Mentor Summary */
+:global(html[data-theme='dark'] .note-textarea) {
+  background: #1d2826 !important;
+  color: #e6efed !important;
+  border: 1px solid #3c4b47 !important;
+}
+
+/* Placeholder */
+:global(html[data-theme='dark'] .note-textarea::placeholder) {
+  color: #8a9a96 !important;
+}
+
+/* Focus */
+:global(html[data-theme='dark'] .note-textarea:focus) {
+  border-color: #017151 !important;
+  outline: 1px solid #017151;
+}
+
+/* Back to Meetings */
+:global(html[data-theme='dark']) .back-link {
+  color: #c8d5d1 !important;
+}
+
+/* Edit Meeting form inputs */
+:global(html[data-theme='dark']) .edit-section .edit-input,
+:global(html[data-theme='dark']) .edit-section .note-textarea {
+  background: #1d2826 !important;
+  color: #e6efed !important;
+  border-color: #3c4b47 !important;
+}
+
+/* Save Changes button */
+:global(html[data-theme='dark']) .edit-section .edit-actions button:last-child {
+  background: #017151 !important;
+  color: #ffffff !important;
+  border-color: #017151 !important;
+}
+
+/* Back to Meetings - dark mode */
+:global(html[data-theme='dark'] .back-button) {
+  color: #c8d5d1 !important;
+}
+
+:global(html[data-theme='dark'] .back-button:hover) {
+  color: #ffffff !important;
 }
 </style>
