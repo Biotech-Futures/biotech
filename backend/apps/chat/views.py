@@ -649,7 +649,11 @@ class MessageViewSet(viewsets.ModelViewSet):
         limit = max(1, min(limit, 100))
 
         items = list(qs[:limit])
-        data = MessagePublicSerializer(items, many=True, context=self.get_serializer_context()).data
+        # This response goes only to the caller, so an admin may keep the
+        # text of moderated messages here (see MessagePublicSerializer).
+        context = self.get_serializer_context()
+        context["reveal_deleted"] = True
+        data = MessagePublicSerializer(items, many=True, context=context).data
         # ``next_after`` = newest id on the page; pass back as ``after``
         # to poll for what arrived since. ``next_before`` = oldest id on
         # a *full* page; pass back as ``before`` to load older history.
@@ -842,8 +846,25 @@ class MessageViewSet(viewsets.ModelViewSet):
     # DELETE /chat/groups/{gid}/messages/{id}/
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        before_state = MessageSerializer(
+            instance, context=self.get_serializer_context()
+        ).data
         instance.soft_delete(deleted_by=request.user)
+        instance.refresh_from_db()
 
+        # Restores were logged but removals were not, which is backwards for a
+        # soft delete whose whole point is an auditable moderation trail - and
+        # more so now that mentors can take a student's message down too.
+        log_audit_event(
+            actor=request.user,
+            entity_type="message",
+            entity_id=instance.id,
+            action="delete",
+            before_state=before_state,
+            after_state=MessageSerializer(
+                instance, context=self.get_serializer_context()
+            ).data,
+        )
         _broadcast(
             instance.group_id, "message.deleted", self._serialize_broadcast_message(instance)
         )

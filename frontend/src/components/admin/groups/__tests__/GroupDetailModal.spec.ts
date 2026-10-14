@@ -23,7 +23,9 @@ const textMessage = {
   attachments: [],
   gif: null,
   sent_at: '2026-01-05T00:00:00Z',
-  edited_at: null
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
 }
 
 const gifMessage = {
@@ -35,7 +37,9 @@ const gifMessage = {
   attachments: [],
   gif: { gif_url: 'https://example.com/g.gif', preview_url: 'https://example.com/p.gif', title: 'nice' },
   sent_at: '2026-01-06T00:00:00Z',
-  edited_at: null
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
 }
 
 const imageMessage = {
@@ -55,7 +59,9 @@ const imageMessage = {
   ],
   gif: null,
   sent_at: '2026-01-07T00:00:00Z',
-  edited_at: null
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
 }
 
 const fileMessage = {
@@ -75,7 +81,23 @@ const fileMessage = {
   ],
   gif: null,
   sent_at: '2026-01-08T00:00:00Z',
-  edited_at: null
+  edited_at: null,
+  deleted_at: null,
+  deleted_by: null
+}
+
+const deletedMessage = {
+  id: 'm5',
+  group_id: '1',
+  sender: { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student' },
+  message_type: 'text',
+  text: 'something regrettable',
+  attachments: [],
+  gif: null,
+  sent_at: '2026-01-09T00:00:00Z',
+  edited_at: null,
+  deleted_at: '2026-01-09T01:00:00Z',
+  deleted_by: 'Admin User'
 }
 
 const ungroupedStudent = (id: number, firstName: string, lastName: string) => ({
@@ -140,6 +162,9 @@ const fetchMockFor = (opts: {
           { status: 200 }
         )
       )
+    }
+    if (method === 'POST' && u.includes('/restore/')) {
+      return Promise.resolve(new Response(JSON.stringify({ id: 'm5' }), { status: 200 }))
     }
     if (method === 'GET' && u.includes('/messages/')) {
       const page = u.includes('page=2') ? 2 : 1
@@ -299,6 +324,45 @@ describe('GroupDetailModal', () => {
     const chip = dialog()!.querySelector('.group-detail__attachment-chip')
     expect(chip).not.toBeNull()
     expect(chip!.textContent).toContain('report.pdf')
+  })
+
+  it('shows a soft-deleted message with its text, who removed it, and when', async () => {
+    const fetchMock = fetchMockFor({ page1: [deletedMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    const text = dialog()!.textContent!
+    // Admins keep the content: hiding it here would defeat moderation.
+    expect(text).toContain('something regrettable')
+    expect(text).toContain('Deleted by Admin User')
+    expect(text).toContain('hidden from the group')
+    expect(dialog()!.querySelector('.group-detail__message--deleted')).not.toBeNull()
+  })
+
+  it('offers Restore instead of delete on a deleted message, and reloads after', async () => {
+    const fetchMock = fetchMockFor({ page1: [deletedMessage], total: 1 })
+    await mountModal(fetchMock)
+    await openMessages()
+
+    // The trash control is replaced, so a deleted message cannot be re-deleted.
+    expect(dialog()!.querySelector('.group-detail__message-remove')).toBeNull()
+
+    clickButton(dialog()!, 'Restore')
+    await flushPromises()
+
+    const restoreCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).includes('/messages/m5/restore/') &&
+        (init as RequestInit | undefined)?.method === 'POST'
+    )
+    expect(restoreCall).toBeTruthy()
+    // The list is re-fetched so the restored message returns to the live view.
+    const messageGets = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes('/messages/') &&
+        ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET'
+    )
+    expect(messageGets.length).toBeGreaterThan(1)
   })
 
   it('does not fetch messages until the Messages view is opened', async () => {

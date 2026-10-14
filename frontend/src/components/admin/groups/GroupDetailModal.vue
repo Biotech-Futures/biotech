@@ -85,7 +85,12 @@
           <p v-else-if="!messages.length" class="group-detail__muted">No messages in this group yet.</p>
 
           <ul v-else class="group-detail__messages">
-            <li v-for="message in messages" :key="message.id" class="group-detail__message">
+            <li
+              v-for="message in messages"
+              :key="message.id"
+              class="group-detail__message"
+              :class="{ 'group-detail__message--deleted': message.deleted_at }"
+            >
               <div class="group-detail__message-head">
                 <div class="group-detail__message-sender">
                   <span class="group-detail__member-name">{{ message.sender.name || message.sender.email }}</span>
@@ -103,7 +108,19 @@
                   </span>
                   <span v-else-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
                   <span class="group-detail__muted">{{ formatShortDateTime(message.sent_at) }}</span>
+                  <!-- A deleted message is hidden from participants but kept in
+                       full here, so moderation can review it and put it back. -->
                   <button
+                    v-if="message.deleted_at"
+                    type="button"
+                    class="btn btn-sm btn-outline"
+                    :disabled="restoringMessageId === message.id"
+                    @click="restoreMessage(message)"
+                  >
+                    {{ restoringMessageId === message.id ? 'Restoring…' : 'Restore' }}
+                  </button>
+                  <button
+                    v-else
                     type="button"
                     class="group-detail__message-remove"
                     aria-label="Remove message"
@@ -190,6 +207,12 @@
                 </div>
               </div>
 
+              <p v-if="message.deleted_at" class="group-detail__deleted-note">
+                <i class="fas fa-eye-slash" aria-hidden="true"></i>
+                Deleted by {{ message.deleted_by || 'unknown' }} on
+                {{ formatShortDateTime(message.deleted_at) }} — hidden from the group.
+              </p>
+              <p v-if="restoreMessageError" class="group-detail__deleted-error">{{ restoreMessageError }}</p>
               <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatShortDateTime(message.edited_at) }}</p>
             </li>
           </ul>
@@ -282,6 +305,7 @@ import {
   fetchGroupMessages,
   removeGroupMember,
   removeGroupMessage,
+  restoreGroupMessage,
   sendGroupMessage,
   downloadChatAttachment,
   resolveChatAttachmentUrl,
@@ -587,6 +611,24 @@ const attachmentAction = async (
     attachmentError.value =
       error instanceof Error ? error.message : 'The attachment could not be opened.'
     attachmentBusy.value = false
+  }
+}
+
+const restoringMessageId = ref<string | null>(null)
+const restoreMessageError = ref('')
+
+const restoreMessage = async (message: AdminGroupMessage) => {
+  restoringMessageId.value = message.id
+  restoreMessageError.value = ''
+  try {
+    await restoreGroupMessage(message.group_id, message.id)
+    await loadMessages()
+    emit('changed', props.group!.id)
+  } catch (error) {
+    restoreMessageError.value =
+      error instanceof Error ? error.message : 'The message could not be restored.'
+  } finally {
+    restoringMessageId.value = null
   }
 }
 
@@ -901,12 +943,34 @@ const confirmRemoveMessage = async () => {
 
 .group-detail__attachment-error {
   margin: 0 0 0.45rem;
-  color: var(--danger, #b3261e);
+  color: var(--danger);
   font-size: 0.75rem;
 }
 
 .group-detail__attachment-actions {
   display: flex;
   gap: 0.35rem;
+}
+
+.group-detail__message--deleted {
+  border-left: 3px solid var(--border-light);
+  background-color: var(--bg-light);
+  opacity: 0.85;
+}
+
+.group-detail__deleted-note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.group-detail__deleted-error {
+  margin: 0.35rem 0 0;
+  color: var(--danger);
+  font-size: 0.75rem;
 }
 </style>
