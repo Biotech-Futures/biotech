@@ -254,8 +254,8 @@ const fullyRegisteredColumns: DataTableColumn[] = [
 type StudentAction = { value: string; label: string; needsSelection?: boolean }
 
 const pendingDetailsActions: StudentAction[] = [
-  { value: 'email-students', label: 'Email Student', needsSelection: true },
-  { value: 'copy-invite', label: 'Copy Details Link', needsSelection: true },
+  { value: 'email-students', label: 'Send Email', needsSelection: true },
+  { value: 'copy-invite', label: 'Copy link to provide guardian details', needsSelection: true },
   { value: 'enter-guardian', label: 'Enter Guardian Details', needsSelection: true },
 ]
 
