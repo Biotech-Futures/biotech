@@ -69,16 +69,33 @@ export interface RegistrationReceipt {
   submittedAt: string
 }
 
+export interface RegistrationWarning {
+  code: string
+  field: string
+  overrideField: string
+  message: string
+}
+
 export type RegistrationGatewayResult =
   | { ok: true; receipt: RegistrationReceipt }
   | {
       ok: false
       message: string
       fieldErrors?: Record<string, string>
+      warnings?: RegistrationWarning[]
     }
 
 export interface RegistrationGateway {
-  submit(request: RegistrationRequest): Promise<RegistrationGatewayResult>
+  supportedJourneys?: readonly RegistrationIntakeJourney[]
+  submit(
+    request: RegistrationRequest,
+    options?: {
+      attachments?: Record<string, File>
+      invitationToken?: string
+      idempotencyKey?: string
+      overrides?: Record<string, boolean>
+    },
+  ): Promise<RegistrationGatewayResult>
 }
 
 export const REGISTRATION_GATEWAY_KEY: InjectionKey<RegistrationGateway> =

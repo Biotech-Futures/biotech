@@ -1,6 +1,6 @@
 <template>
   <label class="registration-field" :class="{ 'registration-field--wide': wide }">
-    <span class="registration-field__label">
+    <span :id="`${id}-label`" class="registration-field__label">
       {{ label }}
       <small v-if="optional">Optional</small>
       <span v-else-if="required" aria-hidden="true">*</span>
@@ -12,6 +12,7 @@
       :rows="rows"
       :placeholder="placeholder"
       :aria-invalid="Boolean(error)"
+      :aria-labelledby="`${id}-label`"
       :aria-describedby="describedBy"
       :required="required"
       @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
@@ -24,6 +25,7 @@
       :autocomplete="autocomplete"
       :placeholder="placeholder"
       :aria-invalid="Boolean(error)"
+      :aria-labelledby="`${id}-label`"
       :aria-describedby="describedBy"
       :required="required"
       :disabled="disabled"
@@ -74,10 +76,11 @@ const props = withDefaults(
 
 defineEmits<{ 'update:modelValue': [value: string] }>()
 
-const describedBy = computed(() =>
-  [props.hint ? `${props.id}-hint` : '', props.error ? `${props.id}-error` : '']
-    .filter(Boolean)
-    .join(' ') || undefined,
+const describedBy = computed(
+  () =>
+    [props.hint ? `${props.id}-hint` : '', props.error ? `${props.id}-error` : '']
+      .filter(Boolean)
+      .join(' ') || undefined,
 )
 </script>
 
@@ -96,11 +99,10 @@ const describedBy = computed(() =>
 .registration-field__label {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 4px;
   color: var(--registration-ink);
   font-size: 0.9rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .registration-field__label small {
@@ -112,12 +114,12 @@ const describedBy = computed(() =>
 input,
 textarea {
   width: 100%;
-  min-height: 50px;
-  padding: 0 15px;
+  min-height: 44px;
+  padding: 0.625rem;
   border: 1px solid var(--registration-field-line);
-  border-radius: 12px;
+  border-radius: 4px;
   outline: none;
-  background: #fffefa;
+  background: var(--white);
   color: var(--registration-ink);
   font: inherit;
   transition:
@@ -135,7 +137,7 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: #73837e;
+  color: var(--registration-muted);
 }
 
 input:hover,
@@ -146,7 +148,7 @@ textarea:hover {
 input:focus-visible,
 textarea:focus-visible {
   border-color: var(--registration-green);
-  background: #fff;
+  background: var(--white);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
 }
 

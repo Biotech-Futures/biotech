@@ -1,10 +1,5 @@
 <template>
-  <main
-    class="registration-page"
-    :class="{ 'registration-page--supervisor': isSupervisorMode }"
-  >
-    <div class="page-atmosphere" aria-hidden="true"></div>
-
+  <main class="registration-page" :class="{ 'registration-page--supervisor': isSupervisorMode }">
     <header v-if="!isSupervisorMode" class="registration-header">
       <RouterLink to="/login" class="brand-link" aria-label="BIOTech Connect home">
         <img :src="logo" :alt="BRAND_NAME" />
@@ -39,8 +34,12 @@
         </div>
       </dl>
       <div class="success-actions">
-        <button type="button" class="primary-action" @click="resetRegistration">
-          Start another journey
+        <button type="button" class="primary-action" @click="startAnotherRegistration">
+          {{
+            isSupervisorMode && journey === 'supervisor_individual'
+              ? 'Register another student'
+              : 'Start another journey'
+          }}
         </button>
         <RouterLink :to="isSupervisorMode ? '/dashboard' : '/login'" class="secondary-action">
           {{ isSupervisorMode ? 'Return to dashboard' : 'Return to sign in' }}
@@ -55,10 +54,6 @@
     >
       <div class="welcome-copy">
         <h1 id="welcome-title">Join BIOTech Connect</h1>
-        <p>
-          Register for the BIOTech Futures Challenge, build your team, or volunteer as a mentor.
-          We’ll guide you through only the details relevant to you.
-        </p>
         <div class="welcome-actions">
           <button type="button" class="primary-action welcome-primary" @click="beginRegistration">
             Register now
@@ -76,9 +71,7 @@
         </div>
         <h2>One clear registration</h2>
         <ul>
-          <li>
-            Choose whether you’re a student or mentor.
-          </li>
+          <li>Choose how you would like to register.</li>
           <li>Complete a guided form with clear progress.</li>
           <li>Review everything before you submit.</li>
         </ul>
@@ -91,18 +84,8 @@
       aria-labelledby="role-title"
     >
       <button type="button" class="setup-back" @click="selectionStage = 'welcome'">← Back</button>
-      <div class="setup-progress" aria-label="Registration setup progress">
-        <div class="setup-progress__copy">
-          <span>Registration setup</span>
-          <strong>Step 1 of 2</strong>
-        </div>
-        <div class="setup-progress__track" aria-hidden="true">
-          <span style="width: 50%"></span>
-        </div>
-      </div>
       <header class="setup-heading">
         <h1 id="role-title">Who are you registering as?</h1>
-        <p>Choose the role that best describes you. You can go back before submitting.</p>
       </header>
       <div class="role-options">
         <button
@@ -137,6 +120,12 @@
       <p class="setup-signin">
         Already have an account? <RouterLink to="/login">Sign in</RouterLink>
       </p>
+      <p v-if="!invitationToken" class="supervisor-guidance">
+        Supervisors:
+        <RouterLink to="/supervisor/registration">Sign in to register students</RouterLink>. First
+        time supervising? <a :href="`mailto:${SUPPORT_EMAIL}`">Contact BIOTech for an invitation</a>
+        before registering students.
+      </p>
     </section>
 
     <section
@@ -153,21 +142,8 @@
       >
         ← Back to roles
       </button>
-      <div v-if="!isSupervisorMode" class="setup-progress" aria-label="Registration setup progress">
-        <div class="setup-progress__copy">
-          <span>Registration setup</span>
-          <strong>Step 2 of 2</strong>
-        </div>
-        <div class="setup-progress__track" aria-hidden="true">
-          <span style="width: 100%"></span>
-        </div>
-      </div>
-      <header
-        class="setup-heading"
-        :class="{ 'setup-heading--supervisor': isSupervisorMode }"
-      >
+      <header class="setup-heading" :class="{ 'setup-heading--supervisor': isSupervisorMode }">
         <h1 id="pathway-title">{{ pathwayHeading }}</h1>
-        <p>{{ pathwayDescription }}</p>
       </header>
       <div class="pathway-choices">
         <button
@@ -188,37 +164,25 @@
 
     <div v-else class="work-layout">
       <aside class="journey-context">
-        <button type="button" class="change-journey" @click="changeJourney">
+        <button
+          type="button"
+          class="change-journey"
+          :disabled="isCsvEditing"
+          @click="changeJourney"
+        >
           ← Change registration type
         </button>
         <h1>{{ selectedJourney?.title }}</h1>
-        <p>{{ selectedJourney?.description }}</p>
       </aside>
 
       <section class="form-surface">
-        <div
-          class="form-progress"
-          role="progressbar"
-          aria-label="Registration progress"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          :aria-valuenow="progressPercent"
-        >
-          <div class="form-progress__copy">
-            <span>{{ selectedJourney?.role }} registration</span>
-            <strong>{{ progressPercent }}% complete</strong>
-          </div>
-          <div class="form-progress__track">
-            <span :style="{ width: `${progressPercent}%` }"></span>
-          </div>
-        </div>
         <nav class="step-navigation" aria-label="Registration progress">
           <ol>
             <li v-for="(step, index) in steps" :key="step.label">
               <button
                 type="button"
                 :class="{ current: currentStep === index, complete: index < currentStep }"
-                :disabled="index > maxReachedStep"
+                :disabled="index > maxReachedStep || isCsvEditing"
                 :aria-current="currentStep === index ? 'step' : undefined"
                 @click="goToStep(index)"
               >
@@ -230,6 +194,29 @@
         </nav>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
+          <section
+            v-if="registrationWarnings.length"
+            ref="warningSummaryRef"
+            class="registration-warnings"
+            role="alert"
+            tabindex="-1"
+            aria-labelledby="registration-warnings-title"
+          >
+            <h2 id="registration-warnings-title">Check before submitting</h2>
+            <p>
+              No registration has been saved. Correct the details, or confirm each item to continue.
+            </p>
+            <label v-for="warning in registrationWarnings" :key="warning.overrideField">
+              <input
+                v-model="warningAcknowledgements[warning.overrideField]"
+                type="checkbox"
+                :disabled="isSubmitting"
+              />
+              <span
+                ><strong>{{ warningSubject(warning) }}:</strong> {{ warning.message }}</span
+              >
+            </label>
+          </section>
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
@@ -249,18 +236,14 @@
           </div>
 
           <section class="step-content" :aria-labelledby="stepHeadingId">
-            <header class="step-header">
-              <p>{{ currentStep + 1 }} of {{ steps.length }}</p>
-              <h2 :id="stepHeadingId" ref="stepHeadingRef" tabindex="-1">
-                {{ currentStepDefinition.title }}
-              </h2>
-              <span>{{ currentStepDefinition.description }}</span>
-            </header>
+            <h2 :id="stepHeadingId" ref="stepHeadingRef" class="sr-only" tabindex="-1">
+              {{ currentStepDefinition.title }}
+            </h2>
 
             <template v-if="journey === 'student_individual'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
-                :student="forms.studentIndividual.student"
+                v-model:student="forms.studentIndividual.student"
                 prefix="studentIndividual.student"
                 section="identity"
                 :errors="errors"
@@ -269,7 +252,7 @@
 
               <RegistrationStudentEditor
                 v-else-if="currentStep === 1"
-                :student="forms.studentIndividual.student"
+                v-model:student="forms.studentIndividual.student"
                 prefix="studentIndividual.student"
                 section="profile"
                 :errors="errors"
@@ -295,10 +278,8 @@
                         value="school"
                       />
                       <span>
-                        <strong>Existing school supervisor</strong>
-                        <small
-                          >A teacher or school staff member already supporting the challenge.</small
-                        >
+                        <strong>Teacher / school supervisor</strong>
+                        <small>A teacher or school staff member supporting this student.</small>
                       </span>
                     </label>
                     <label>
@@ -320,10 +301,9 @@
                   v-if="forms.studentIndividual.supervisorMode === 'parent'"
                   class="scope-explanation"
                 >
-                  A parent-supervisor confirms their email and may view this student’s high-level
-                  status and update school, year, interests, and profile photo. This does not create
-                  teacher or administrator access, reveal guardian records or consent PDFs, or
-                  authorize consent. Consent still uses the guardian’s recipient-bound link.
+                  A nominated parent is linked only to this student, not other group members.
+                  Guardian details remain private, and registration does not record guardian
+                  permission or provide teacher or administrator access.
                 </div>
 
                 <div class="field-grid">
@@ -362,12 +342,11 @@
                 <div class="section-divider">
                   <h3>Guardian contact</h3>
                   <p>
-                    Required for individual self-registration. Saving these details does not record
-                    consent.
+                    {{ guardianContactExplanation }}
                   </p>
                 </div>
                 <RegistrationStudentEditor
-                  :student="forms.studentIndividual.student"
+                  v-model:student="forms.studentIndividual.student"
                   prefix="studentIndividual.student"
                   section="guardian"
                   :errors="errors"
@@ -378,7 +357,7 @@
             <template v-else-if="journey === 'student_team'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
-                :student="forms.studentTeam.creator"
+                v-model:student="forms.studentTeam.creator"
                 prefix="studentTeam.creator"
                 section="identity"
                 :errors="errors"
@@ -389,17 +368,14 @@
                 <RegistrationInterestSelector
                   id="student-team-interests"
                   v-model="forms.studentTeam.interests"
-                  label="Team interests"
-                  description="Choose one or more areas the team would like to explore together."
+                  label="Mutual Areas of Interest"
+                  description="Choose the areas your group wants to explore together."
                   :error="errors['studentTeam.interests']"
                 />
                 <div class="section-divider section-divider--with-action">
                   <div>
-                    <h3>Teammates</h3>
-                    <p>
-                      Add 1–4 teammates for a total team size of 2–5. Each person receives their own
-                      action journey and completes their own guardian flow.
-                    </p>
+                    <h3>Group members</h3>
+                    <p>There may be between 2 and 5 students per group.</p>
                   </div>
                   <button
                     type="button"
@@ -407,17 +383,33 @@
                     :disabled="forms.studentTeam.teammates.length >= 4"
                     @click="addStudentTeammate"
                   >
-                    Add teammate
+                    Add member
                   </button>
+                </div>
+                <div class="student-entry creator-summary">
+                  <div class="student-entry__heading">
+                    <h3>Member 1 (you)</h3>
+                    <button type="button" @click="goToStep(0)">Edit your details</button>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Name</dt>
+                      <dd>{{ studentName(forms.studentTeam.creator) }}</dd>
+                    </div>
+                    <div>
+                      <dt>Email</dt>
+                      <dd>{{ forms.studentTeam.creator.email }}</dd>
+                    </div>
+                  </dl>
                 </div>
 
                 <div
-                  v-for="(teammate, index) in forms.studentTeam.teammates"
+                  v-for="(_, index) in forms.studentTeam.teammates"
                   :key="`teammate-${index}`"
                   class="student-entry"
                 >
                   <div class="student-entry__heading">
-                    <h3>Teammate {{ index + 1 }}</h3>
+                    <h3>Member {{ index + 2 }}</h3>
                     <button
                       v-if="forms.studentTeam.teammates.length > 1"
                       type="button"
@@ -427,21 +419,23 @@
                     </button>
                   </div>
                   <RegistrationStudentEditor
-                    :student="teammate"
+                    v-model:student="forms.studentTeam.teammates[index]"
                     :prefix="`studentTeam.teammates.${index}`"
                     section="teammate"
                     :errors="errors"
                     require-email-confirm
+                    allow-guardian-defer
                   />
                 </div>
               </div>
 
               <div v-else-if="currentStep === 1" class="step-stack">
                 <RegistrationStudentEditor
-                  :student="forms.studentTeam.creator"
+                  v-model:student="forms.studentTeam.creator"
                   prefix="studentTeam.creator"
                   section="profile"
                   :errors="errors"
+                  :show-interests="false"
                   show-optional-profile
                   :preview-url="photoPreviews['studentTeam.creator']"
                   @photo-selected="
@@ -451,9 +445,7 @@
                 />
                 <div class="section-divider">
                   <h3>Creator’s supervisor</h3>
-                  <p>
-                    Choose an existing school supervisor or a parent supporting only this student.
-                  </p>
+                  <p>Nominate a teacher or school supervisor, or a parent supporting only you.</p>
                 </div>
                 <fieldset class="choice-fieldset">
                   <legend>Supervisor type</legend>
@@ -466,10 +458,8 @@
                         value="school"
                       />
                       <span>
-                        <strong>Existing school supervisor</strong>
-                        <small
-                          >A teacher or school staff member already supporting the challenge.</small
-                        >
+                        <strong>Teacher / school supervisor</strong>
+                        <small>A teacher or school staff member supporting this student.</small>
                       </span>
                     </label>
                     <label>
@@ -525,19 +515,14 @@
                   />
                 </div>
                 <div class="section-divider">
-                  <h3>Creator’s guardian contact</h3>
-                  <p>
-                    This can be deferred in the team pathway. Every teammate supplies their own
-                    guardian details privately; the team creator never sees those details or consent
-                    documents.
-                  </p>
+                  <h3>Guardian contact</h3>
+                  <p>{{ guardianContactExplanation }}</p>
                 </div>
                 <RegistrationStudentEditor
-                  :student="forms.studentTeam.creator"
+                  v-model:student="forms.studentTeam.creator"
                   prefix="studentTeam.creator"
                   section="guardian"
                   :errors="errors"
-                  allow-guardian-defer
                 />
               </div>
             </template>
@@ -545,53 +530,13 @@
             <template v-else-if="journey === 'supervisor_individual'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
-                :student="forms.supervisorIndividual.student"
+                v-model:student="forms.supervisorIndividual.student"
                 prefix="supervisorIndividual.student"
                 section="full"
                 :errors="errors"
                 allow-guardian-defer
                 require-email-confirm
               />
-
-              <div v-else-if="currentStep === 1" class="step-stack">
-                <fieldset class="choice-fieldset">
-                  <legend>Future group preference</legend>
-                  <p class="fieldset-help">
-                    This student is being registered without a pre-formed team.
-                  </p>
-                  <div class="choice-row">
-                    <label>
-                      <input
-                        v-model="forms.supervisorIndividual.groupingPreference"
-                        type="radio"
-                        name="supervisor-grouping-preference"
-                        value="school_only"
-                      />
-                      <span>
-                        <strong>School-only grouping</strong>
-                        <small>Prefer teammates from this student’s school.</small>
-                      </span>
-                    </label>
-                    <label>
-                      <input
-                        v-model="forms.supervisorIndividual.groupingPreference"
-                        type="radio"
-                        name="supervisor-grouping-preference"
-                        value="cross_school"
-                      />
-                      <span>
-                        <strong>Cross-school grouping</strong>
-                        <small>Allow grouping with students from other schools.</small>
-                      </span>
-                    </label>
-                  </div>
-                </fieldset>
-                <div class="scope-explanation">
-                  If guardian details were deferred, the student’s own action journey would collect
-                  them before consent. The registration records that required next step without
-                  granting full registration.
-                </div>
-              </div>
             </template>
 
             <template v-else-if="journey === 'supervisor_group'">
@@ -599,7 +544,8 @@
                 <RegistrationInterestSelector
                   id="supervisor-group-interests"
                   v-model="forms.supervisorGroup.interests"
-                  label="Group interests"
+                  label="Mutual Areas of Interest"
+                  description="Choose the areas of interest for this group."
                   :error="errors['supervisorGroup.interests']"
                 />
               </div>
@@ -638,7 +584,7 @@
                     </button>
                   </div>
                   <RegistrationStudentEditor
-                    :student="student"
+                    v-model:student="forms.supervisorGroup.students[index]"
                     :prefix="`supervisorGroup.students.${index}`"
                     section="full"
                     :errors="errors"
@@ -655,8 +601,8 @@
                   <div>
                     <h3>Use the prescribed CSV template</h3>
                     <p>
-                      Keep the column names unchanged. Separate multiple interests with a vertical
-                      bar (|). Guardian fields may be left blank.
+                      Keep the column names unchanged. Separate multiple interests with commas in
+                      one quoted CSV cell. Guardian fields may be left blank.
                     </p>
                   </div>
                   <button type="button" class="secondary-action" @click="downloadCsvTemplate">
@@ -706,10 +652,45 @@
                   </div>
                 </div>
                 <p class="preview-guidance">
-                  Review-required rows can be included for authoritative review. Invalid rows block
-                  submission until you correct and re-upload the file, or explicitly exclude each
-                  invalid row.
+                  Choose Edit row to correct any student details here. Validation updates as you
+                  type, without re-uploading. Review-required rows can be included for authoritative
+                  review; invalid rows must be fixed or explicitly excluded.
                 </p>
+                <section
+                  v-if="editingCsvRow"
+                  id="csv-row-editor"
+                  class="csv-row-editor"
+                  aria-labelledby="csv-row-editor-title"
+                >
+                  <h3 id="csv-row-editor-title" ref="csvEditorHeadingRef" tabindex="-1">
+                    Edit row {{ editingCsvRow.rowNumber }}
+                  </h3>
+                  <p class="preview-guidance">
+                    Changes are kept in this upload and included when you submit the registration.
+                  </p>
+                  <p v-if="isCsvRowExcluded(editingCsvRow.rowNumber)" class="preview-guidance">
+                    This row is still excluded. Clear its exclusion checkbox to include it after
+                    correcting the details.
+                  </p>
+                  <RegistrationCsvRowEditor
+                    :key="editingCsvRow.rowNumber"
+                    :row="editingCsvRow"
+                    :excluded="isCsvRowExcluded(editingCsvRow.rowNumber)"
+                    :errors="{
+                      ...editingCsvRow.fieldErrors,
+                      ...csvServerFieldsByRow[editingCsvRow.rowNumber],
+                    }"
+                    @update:values="updateCsvRow(editingCsvRow, $event)"
+                  />
+                  <footer class="csv-editor-footer">
+                    <p id="csv-editor-confirmation-hint" class="preview-guidance">
+                      Choose Done editing below to confirm your row changes before continuing.
+                    </p>
+                    <button type="button" class="primary-action" @click="closeCsvEditor">
+                      Done editing
+                    </button>
+                  </footer>
+                </section>
                 <div class="table-scroll">
                   <table>
                     <caption>
@@ -736,16 +717,28 @@
                           <strong :class="`csv-status csv-status--${row.category}`">
                             {{ csvCategoryLabel(row.category) }}
                           </strong>
-                          <ul v-if="row.issues.length">
-                            <li v-for="issue in row.issues" :key="issue">{{ issue }}</li>
+                          <ul v-if="csvRowIssues(row).length">
+                            <li v-for="issue in csvRowIssues(row)" :key="issue">{{ issue }}</li>
                           </ul>
-                          <label v-if="row.category === 'invalid'" class="exclude-row">
+                          <button
+                            type="button"
+                            :id="`csv-edit-${row.rowNumber}`"
+                            class="csv-edit-action"
+                            :aria-label="`Edit row ${row.rowNumber}`"
+                            :aria-expanded="editingCsvRowNumber === row.rowNumber"
+                            aria-controls="csv-row-editor"
+                            @click="editCsvRow(row.rowNumber)"
+                          >
+                            Edit row
+                          </button>
+                          <label class="exclude-row">
                             <input
                               type="checkbox"
+                              :aria-label="`Exclude row ${row.rowNumber}`"
                               :checked="isCsvRowExcluded(row.rowNumber)"
                               @change="toggleCsvRow(row.rowNumber)"
                             />
-                            Exclude this invalid row
+                            Exclude this row
                           </label>
                         </td>
                       </tr>
@@ -785,6 +778,7 @@
                 <RegistrationTextField
                   id="mentor-phone"
                   v-model="forms.mentor.phone"
+                  :error="errors['mentor.phone']"
                   label="Phone"
                   type="tel"
                   autocomplete="tel"
@@ -880,7 +874,7 @@
                   id="mentor-interests"
                   v-model="forms.mentor.interests"
                   label="Relevant interests"
-                  description="Choose the areas where you could support a student team."
+                  description="Choose the areas where you could support a student group."
                   :error="errors['mentor.interests']"
                 />
                 <label class="select-field">
@@ -894,9 +888,9 @@
                     "
                     required
                   >
-                    <option value="" disabled>Select team capacity</option>
+                    <option value="" disabled>Select group capacity</option>
                     <option v-for="count in ['1', '2', '3', '4', '5']" :key="count" :value="count">
-                      {{ count }} {{ count === '1' ? 'team' : 'teams' }}
+                      {{ count }} {{ count === '1' ? 'group' : 'groups' }}
                     </option>
                   </select>
                   <span
@@ -911,7 +905,7 @@
                   id="mentor-background"
                   v-model="forms.mentor.background"
                   label="Relevant background"
-                  hint="Describe experience that would help you support a student team."
+                  hint="Describe experience that would help you support a student group."
                   :error="errors['mentor.background']"
                   multiline
                   required
@@ -957,6 +951,7 @@
                   <RegistrationTextField
                     id="mentor-languages"
                     v-model="forms.mentor.languages"
+                    :error="errors['mentor.languages']"
                     label="Languages spoken"
                     :disabled="forms.mentor.languagesPreferNot"
                     optional
@@ -968,6 +963,7 @@
                   <RegistrationTextField
                     id="mentor-dob"
                     v-model="forms.mentor.dateOfBirth"
+                    :error="errors['mentor.dateOfBirth']"
                     label="Date of birth"
                     type="date"
                     :disabled="forms.mentor.dateOfBirthPreferNot"
@@ -1028,27 +1024,25 @@
                   </div>
                 </dl>
               </div>
-              <div class="review-boundary">
-                <strong>Before you submit</strong>
-                <p v-if="journey === 'mentor'">
-                  These browser checks provide initial feedback only. Your application remains
-                  pending safeguarding and administrator review after submission.
-                </p>
-                <p v-else>
-                  These browser checks provide initial feedback only. Guardian consent is still
-                  required before every student can complete registration. The registration service
-                  will perform authoritative validation when connected.
-                </p>
-              </div>
             </div>
           </section>
 
           <footer class="form-footer">
-            <button type="button" class="secondary-action" :disabled="isSubmitting" @click="goBack">
+            <button
+              type="button"
+              class="secondary-action"
+              :disabled="isSubmitting || isCsvEditing"
+              @click="goBack"
+            >
               {{ currentStep === 0 ? 'Back to registration type' : 'Back' }}
             </button>
             <p>Fields marked * are required.</p>
-            <button type="submit" class="primary-action" :disabled="isSubmitting">
+            <button
+              type="submit"
+              class="primary-action"
+              :disabled="isSubmitting || isCsvEditing"
+              :aria-describedby="isCsvEditing ? 'csv-editor-confirmation-hint' : undefined"
+            >
               <span v-if="isSubmitting" class="spinner" aria-hidden="true"></span>
               {{
                 isSubmitting
@@ -1066,29 +1060,36 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
 import logo from '@/assets/btf-logo.png'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
+import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import { BRAND_CONNECT, BRAND_NAME } from '@/constants/brand'
+import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
   type RegistrationGateway,
   type RegistrationReceipt,
+  type RegistrationWarning,
 } from '@/registration/registrationGateway'
 import {
   createRegistrationForms,
+  CSV_HEADERS,
   createStudent,
+  createPendingPeer,
   findCrossRoleEmailConflicts,
   isValidRegistrationEmail,
   parseRegistrationCsv,
   registrationCsvTemplate,
+  revalidateRegistrationCsvRows,
   type CsvCategory,
+  type CsvHeader,
+  type CsvRow,
   type GuardianDetails,
   type MentorForm,
   type RegistrationJourney,
@@ -1126,14 +1127,19 @@ interface ReviewSection {
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 const MAX_CSV_BYTES = 2 * 1024 * 1024
+const initialInvitationToken =
+  new URLSearchParams(window.location.hash.split('?')[1] || window.location.search).get('invite') ||
+  undefined
 const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const emailLikePattern = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i
+const guardianContactExplanation =
+  'Your nominated guardian will receive an email to provide permission for you to participate in the Challenge. You won’t be able to access most features of the program until this has been completed.'
 
 const roleOptions: RoleOption[] = [
   {
     value: 'student',
     title: 'Student',
-    description: 'Register yourself or create a team with classmates.',
+    description: 'Register yourself or create a group with classmates.',
   },
   {
     value: 'supervisor',
@@ -1143,7 +1149,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'mentor',
     title: 'Mentor',
-    description: 'Apply to support student teams with your expertise.',
+    description: 'Apply to support student groups with your expertise.',
   },
 ]
 
@@ -1179,28 +1185,28 @@ const journeyOptions: JourneyOption[] = [
   {
     value: 'student_team',
     role: 'Student',
-    title: 'Create a student team',
-    description: 'Start a team of 2–5 and invite each teammate into their own action journey.',
+    title: 'Create a student group',
+    description: 'Register a group of 2–5 students, including yourself.',
     steps: [
       {
         label: 'Creator',
         title: 'Start with your details',
-        description: 'You will be the team creator for this registration.',
+        description: 'You will be Member 1 of this group.',
       },
       {
         label: 'Your profile',
         title: 'Complete your own details first',
-        description: 'Add your school, profile, supervisor, and guardian contact before the team.',
+        description: 'Add your school, profile, supervisor, and required guardian contact.',
       },
       {
-        label: 'Team',
-        title: 'Build your team',
-        description: 'Choose team interests and add 1–4 teammates.',
+        label: 'Group',
+        title: 'Build your group',
+        description: 'Add 1–4 other members and choose your group interests.',
       },
       {
         label: 'Review',
-        title: 'Review the team registration',
-        description: 'Check the intended team before saving.',
+        title: 'Review the group registration',
+        description: 'Check the group before saving.',
       },
     ],
   },
@@ -1208,17 +1214,12 @@ const journeyOptions: JourneyOption[] = [
     value: 'supervisor_individual',
     role: 'Supervisor / teacher',
     title: 'Register one student',
-    description: 'Add one ungrouped student and record their future grouping preference.',
+    description: 'Add one student and review their registration details.',
     steps: [
       {
         label: 'Student',
         title: 'Add the student',
         description: 'Guardian contact may be supplied now or deferred.',
-      },
-      {
-        label: 'Grouping',
-        title: 'Set the grouping preference',
-        description: 'Choose how this ungrouped student may be placed later.',
       },
       {
         label: 'Review',
@@ -1236,7 +1237,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'Group',
         title: 'Describe the group',
-        description: 'Choose the shared interest preferences.',
+        description: 'Choose the areas of interest for the group.',
       },
       {
         label: 'Students',
@@ -1321,10 +1322,14 @@ const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: strin
 const props = withDefaults(
   defineProps<{
     mode?: 'canonical' | 'supervisor'
+    invitationToken?: string | null
   }>(),
   { mode: 'canonical' },
 )
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
+const invitationToken = computed(() =>
+  props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
+)
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
 const unavailableGateway: RegistrationGateway = {
   async submit() {
@@ -1337,10 +1342,8 @@ const unavailableGateway: RegistrationGateway = {
 const registrationGateway = injectedGateway || unavailableGateway
 const forms = reactive(createRegistrationForms())
 const journey = ref<RegistrationJourney | null>(null)
-const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'welcome')
-const selectedRole = ref<RegistrationRole | null>(
-  isSupervisorMode.value ? 'supervisor' : null,
-)
+const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'role')
+const selectedRole = ref<RegistrationRole | null>(isSupervisorMode.value ? 'supervisor' : null)
 const currentStep = ref(0)
 const maxReachedStep = ref(0)
 const clientErrors = reactive<Record<string, string>>({})
@@ -1350,8 +1353,17 @@ const errors = computed<Record<string, string>>(() => ({
   ...clientErrors,
 }))
 const csvFileErrors = ref<string[]>([])
+const editingCsvRowNumber = ref<number | null>(null)
+const csvEditorHeadingRef = ref<HTMLElement | null>(null)
 const photoPreviews = reactive<Record<string, string>>({})
+const photoFiles = new WeakMap<StudentDetails, File>()
+let submissionKey = ''
+let submissionSignature = ''
 const serverError = ref('')
+const registrationWarnings = ref<RegistrationWarning[]>([])
+const warningAcknowledgements = reactive<Record<string, boolean>>({})
+const warningOverrides = ref<Record<string, boolean>>({})
+const warningSummaryRef = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 const success = ref<RegistrationReceipt | null>(null)
 const stepHeadingRef = ref<HTMLElement | null>(null)
@@ -1361,7 +1373,14 @@ const selectedJourney = computed(() =>
   journey.value ? journeyOptions.find((option) => option.value === journey.value) : undefined,
 )
 const visibleRoleOptions = computed(() =>
-  roleOptions.filter((role) => role.value !== 'supervisor'),
+  roleOptions.filter(
+    (role) =>
+      role.value !== 'supervisor' &&
+      (!invitationToken.value || role.value === 'student') &&
+      (role.value !== 'mentor' ||
+        !registrationGateway.supportedJourneys ||
+        registrationGateway.supportedJourneys.includes('mentor')),
+  ),
 )
 const successHeading = computed(() =>
   journey.value === 'mentor' ? 'Application received' : 'Registration details received',
@@ -1373,13 +1392,13 @@ const successMessage = computed(() => {
   return 'Guardian consent is still required before full registration. Reference'
 })
 const steps = computed(() => selectedJourney.value?.steps || [])
-const progressPercent = computed(() =>
-  steps.value.length ? Math.round(((currentStep.value + 1) / steps.value.length) * 100) : 0,
-)
 const roleJourneyOptions = computed(() => {
   if (selectedRole.value === 'student') {
     return journeyOptions.filter((option) =>
-      ['student_individual', 'student_team'].includes(option.value),
+      (invitationToken.value
+        ? ['student_individual']
+        : ['student_individual', 'student_team']
+      ).includes(option.value),
     )
   }
   if (selectedRole.value === 'supervisor') {
@@ -1396,11 +1415,6 @@ const pathwayHeading = computed(() =>
       ? 'How would you like to register?'
       : 'How are you registering students?',
 )
-const pathwayDescription = computed(() =>
-  selectedRole.value === 'student'
-    ? 'Register individually or start a team with classmates.'
-    : 'Choose the method that matches the students you are registering today.',
-)
 const currentStepDefinition = computed(
   () =>
     steps.value[currentStep.value] || {
@@ -1416,6 +1430,53 @@ const includedCsvRows = computed(() =>
     (row) => !forms.supervisorCsv.excludedRowNumbers.includes(row.rowNumber),
   ),
 )
+const warningSubject = (warning: RegistrationWarning) => {
+  const field = warning.field.endsWith('.school') ? 'School' : 'Student email'
+  const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
+  if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
+  const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
+  if (student) return `Student ${Number(student[1]) + 1} - ${field}`
+  const teammate = /^studentTeam\.teammates\.(\d+)\./.exec(warning.field)
+  if (teammate) return `Member ${Number(teammate[1]) + 2} - ${field}`
+  return warning.field.startsWith('studentTeam.creator.') ? `Member 1 (you) - ${field}` : field
+}
+const editingCsvRow = computed(() =>
+  forms.supervisorCsv.rows.find((row) => row.rowNumber === editingCsvRowNumber.value),
+)
+const isCsvEditing = computed(
+  () => journey.value === 'supervisor_csv' && Boolean(editingCsvRow.value),
+)
+const csvRequestPaths: Record<CsvHeader, string> = {
+  first_name: 'firstName',
+  last_name: 'lastName',
+  email: 'email',
+  school: 'school',
+  year_level: 'yearLevel',
+  country: 'country',
+  state: 'state',
+  interests: 'interests',
+  guardian_first_name: 'guardian.firstName',
+  guardian_last_name: 'guardian.lastName',
+  guardian_email: 'guardian.email',
+  guardian_relationship: 'guardian.relationship',
+  guardian_relationship_other: 'guardian.relationshipOther',
+  grouping_preference: 'groupingPreference',
+}
+const csvServerFieldsByRow = computed(() => {
+  const result: Record<number, Partial<Record<CsvHeader, string>>> = {}
+  includedCsvRows.value.forEach((row, index) => {
+    const fields: Partial<Record<CsvHeader, string>> = {}
+    for (const header of CSV_HEADERS) {
+      const error = serverFieldErrors[`supervisorCsv.rows.${index}.${csvRequestPaths[header]}`]
+      if (error) fields[header] = error
+    }
+    result[row.rowNumber] = fields
+  })
+  return result
+})
+const csvRowIssues = (row: CsvRow) => [
+  ...new Set([...row.issues, ...Object.values(csvServerFieldsByRow.value[row.rowNumber] || {})]),
+]
 const csvCounts = computed(() => ({
   valid: includedCsvRows.value.filter((row) => row.category === 'valid').length,
   review: includedCsvRows.value.filter((row) => row.category === 'review-required').length,
@@ -1460,7 +1521,7 @@ const reviewSections = computed<ReviewSection[]>(() => {
               value:
                 form.supervisorMode === 'parent'
                   ? 'Nominated parent-supervisor'
-                  : 'Existing school supervisor',
+                  : 'Teacher / school supervisor',
             },
             {
               label: 'Supervisor',
@@ -1477,7 +1538,7 @@ const reviewSections = computed<ReviewSection[]>(() => {
     case 'student_team':
       return [
         {
-          title: 'Team',
+          title: 'Group',
           items: [
             { label: 'Total students', value: String(forms.studentTeam.teammates.length + 1) },
             { label: 'Interests', value: interestSummary(forms.studentTeam.interests) },
@@ -1487,12 +1548,12 @@ const reviewSections = computed<ReviewSection[]>(() => {
           title: 'People',
           items: [
             {
-              label: 'Creator',
+              label: 'Member 1 (you)',
               value: `${studentName(forms.studentTeam.creator)} · ${forms.studentTeam.creator.email}`,
             },
             ...forms.studentTeam.teammates.map((student, index) => ({
-              label: `Teammate ${index + 1}`,
-              value: `${studentName(student)} · ${student.email}`,
+              label: `Member ${index + 2}`,
+              value: `${studentName(student)} · ${student.email} · Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
             })),
             {
               label: 'Creator guardian',
@@ -1519,13 +1580,6 @@ const reviewSections = computed<ReviewSection[]>(() => {
               value: forms.supervisorIndividual.student.guardianDeferred
                 ? 'Deferred'
                 : guardianName(forms.supervisorIndividual.student.guardian),
-            },
-            {
-              label: 'Grouping preference',
-              value:
-                forms.supervisorIndividual.groupingPreference === 'school_only'
-                  ? 'School only'
-                  : 'Cross-school',
             },
           ],
         },
@@ -1592,7 +1646,7 @@ const reviewSections = computed<ReviewSection[]>(() => {
             { label: 'Interests', value: interestSummary(forms.mentor.interests) },
             {
               label: 'Capacity',
-              value: `${forms.mentor.capacity} team${forms.mentor.capacity === '1' ? '' : 's'}`,
+              value: `${forms.mentor.capacity} group${forms.mentor.capacity === '1' ? '' : 's'}`,
             },
             { label: 'Safeguarding status', value: 'Pending administrator review' },
             { label: 'Matching access', value: 'Not activated by this submission' },
@@ -1656,19 +1710,25 @@ const validateStudentIdentity = (student: StudentDetails, prefix: string, confir
   }
 }
 
-const validateStudentProfile = (student: StudentDetails, prefix: string) => {
+const validateStudentProfile = (
+  student: StudentDetails,
+  prefix: string,
+  requireInterests = true,
+) => {
   requireValue(`${prefix}.school`, student.school, 'Enter the student school.')
   requireValue(`${prefix}.yearLevel`, student.yearLevel, 'Select the student year level.')
   requireValue(`${prefix}.country`, student.country, 'Enter the student country.')
-  if (!student.interests.length)
+  if (student.country.trim().toLowerCase() === 'australia')
+    requireValue(`${prefix}.state`, student.state, 'Enter the Australian state or territory.')
+  if (requireInterests && !student.interests.length)
     clientErrors[`${prefix}.interests`] = 'Choose at least one student interest.'
   if (student.pronouns === 'Other') {
     requireValue(`${prefix}.pronounsOther`, student.pronounsOther, 'Enter the student pronouns.')
   }
 }
 
-const validateGuardian = (student: StudentDetails, prefix: string) => {
-  if (student.guardianDeferred) return
+const validateGuardian = (student: StudentDetails, prefix: string, canDefer = true) => {
+  if (canDefer && student.guardianDeferred) return
   const guardian = student.guardian
   requireValue(`${prefix}.guardian.firstName`, guardian.firstName, 'Enter the guardian first name.')
   requireValue(`${prefix}.guardian.lastName`, guardian.lastName, 'Enter the guardian last name.')
@@ -1717,38 +1777,37 @@ const validateCurrentStep = () => {
         'studentIndividual.supervisor',
         forms.studentIndividual.supervisorMode === 'school',
       )
-      validateGuardian(forms.studentIndividual.student, 'studentIndividual.student')
+      validateGuardian(forms.studentIndividual.student, 'studentIndividual.student', false)
     }
   } else if (journey.value === 'student_team') {
     if (step === 0) validateStudentIdentity(forms.studentTeam.creator, 'studentTeam.creator', true)
     if (step === 1) {
-      validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator')
+      validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator', false)
       validateSupervisor(
         forms.studentTeam.supervisor,
         'studentTeam.supervisor',
         forms.studentTeam.supervisorMode === 'school',
       )
-      validateGuardian(forms.studentTeam.creator, 'studentTeam.creator')
+      validateGuardian(forms.studentTeam.creator, 'studentTeam.creator', false)
     }
     if (step === 2) {
-      if (!forms.studentTeam.interests.length) {
-        clientErrors['studentTeam.interests'] = 'Choose at least one team interest.'
-      }
+      if (!forms.studentTeam.interests.length)
+        clientErrors['studentTeam.interests'] = 'Choose at least one group interest.'
       if (forms.studentTeam.teammates.length < 1 || forms.studentTeam.teammates.length > 4) {
-        clientErrors['studentTeam.size'] = 'A student-created team must include 1–4 teammates.'
+        clientErrors['studentTeam.size'] = 'A group must include 2–5 students, including you.'
       }
-      forms.studentTeam.teammates.forEach((student, index) =>
-        validateStudentIdentity(student, `studentTeam.teammates.${index}`, true),
-      )
+      forms.studentTeam.teammates.forEach((student, index) => {
+        validateStudentIdentity(student, `studentTeam.teammates.${index}`, true)
+        validateGuardian(student, `studentTeam.teammates.${index}`)
+      })
     }
   } else if (journey.value === 'supervisor_individual') {
     if (step === 0)
       validateStudentFull(forms.supervisorIndividual.student, 'supervisorIndividual.student')
   } else if (journey.value === 'supervisor_group') {
     if (step === 0) {
-      if (!forms.supervisorGroup.interests.length) {
+      if (!forms.supervisorGroup.interests.length)
         clientErrors['supervisorGroup.interests'] = 'Choose at least one group interest.'
-      }
     }
     if (step === 1) {
       if (forms.supervisorGroup.students.length < 2 || forms.supervisorGroup.students.length > 5) {
@@ -1763,12 +1822,13 @@ const validateCurrentStep = () => {
       clientErrors['supervisorCsv.file'] = 'Upload a CSV that contains at least one student row.'
     }
     if (step === 1) {
+      refreshCsvRows()
       if (!includedCsvRows.value.length) {
         clientErrors['supervisorCsv.rows'] = 'Keep at least one student row in the import.'
       }
       if (csvCounts.value.invalid) {
         clientErrors['supervisorCsv.invalid'] =
-          'Correct and re-upload, or explicitly exclude, every invalid row before continuing.'
+          'Edit and correct, or explicitly exclude, every invalid row before continuing.'
       }
     }
   } else if (journey.value === 'mentor') {
@@ -1809,7 +1869,7 @@ const validateCurrentStep = () => {
       requireValue(
         'mentor.capacity',
         forms.mentor.capacity,
-        'Select how many teams you can support.',
+        'Select how many groups you can support.',
       )
       requireValue(
         'mentor.background',
@@ -1839,7 +1899,7 @@ const validateCurrentStep = () => {
     }
   }
 
-  validateCrossRoleEmails()
+  if (journey.value !== 'supervisor_csv') validateCrossRoleEmails()
   return !Object.keys(clientErrors).length
 }
 
@@ -1890,6 +1950,7 @@ const backToRoleSelection = () => {
 }
 
 const changeJourney = () => {
+  if (blockCsvEditorAction()) return
   journey.value = null
   currentStep.value = 0
   maxReachedStep.value = 0
@@ -1897,7 +1958,9 @@ const changeJourney = () => {
   clearServerErrors()
   serverError.value = ''
   selectionStage.value =
-    isSupervisorMode.value || selectedRole.value === 'student' || selectedRole.value === 'supervisor'
+    isSupervisorMode.value ||
+    selectedRole.value === 'student' ||
+    selectedRole.value === 'supervisor'
       ? 'pathway'
       : selectedRole.value === 'mentor'
         ? 'role'
@@ -1906,6 +1969,7 @@ const changeJourney = () => {
 }
 
 const goToStep = (index: number) => {
+  if (blockCsvEditorAction()) return
   if (index > maxReachedStep.value || index === currentStep.value) return
   currentStep.value = index
   clearErrors()
@@ -1914,6 +1978,7 @@ const goToStep = (index: number) => {
 }
 
 const goBack = () => {
+  if (blockCsvEditorAction()) return
   if (currentStep.value === 0) {
     changeJourney()
     return
@@ -1925,6 +1990,7 @@ const goBack = () => {
 }
 
 const continueJourney = async () => {
+  if (blockCsvEditorAction()) return
   if (!validateCurrentStep()) {
     await focusErrors()
     return
@@ -1966,7 +2032,7 @@ const handlePrimaryAction = () => {
 
 const addStudentTeammate = () => {
   if (forms.studentTeam.teammates.length < 4) {
-    forms.studentTeam.teammates.push(createStudent({ deferGuardian: true }))
+    forms.studentTeam.teammates.push(createPendingPeer())
   }
 }
 
@@ -2005,8 +2071,9 @@ const reindexErrorMap = (
     if (!Number.isInteger(fieldIndex) || fieldIndex < removedIndex) return
     delete errorMap[key]
     if (fieldIndex > removedIndex) {
-      errorMap[`${indexedPrefix}${fieldIndex - 1}${separator === -1 ? '' : suffix.slice(separator)}`] =
-        message
+      errorMap[
+        `${indexedPrefix}${fieldIndex - 1}${separator === -1 ? '' : suffix.slice(separator)}`
+      ] = message
     }
   })
 }
@@ -2031,21 +2098,27 @@ const handlePhoto = (student: StudentDetails, prefix: string, file: File) => {
   if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
   photoPreviews[prefix] = URL.createObjectURL(file)
   student.profilePhoto = { name: file.name, type: file.type, size: file.size }
+  photoFiles.set(student, file)
+  submissionKey = ''
 }
 
 const removePhoto = (student: StudentDetails, prefix: string) => {
   if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
   delete photoPreviews[prefix]
   student.profilePhoto = null
+  photoFiles.delete(student)
+  submissionKey = ''
   delete clientErrors[`${prefix}.profilePhoto`]
 }
 
 const handleCsvUpload = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
+  clearCsvServerErrors()
   csvFileErrors.value = []
   forms.supervisorCsv.rows = []
   forms.supervisorCsv.excludedRowNumbers = []
   forms.supervisorCsv.fileName = ''
+  editingCsvRowNumber.value = null
   delete clientErrors['supervisorCsv.file']
   if (!file) return
   if (file.size > MAX_CSV_BYTES) {
@@ -2083,9 +2156,79 @@ const isCsvRowExcluded = (rowNumber: number) =>
   forms.supervisorCsv.excludedRowNumbers.includes(rowNumber)
 
 const toggleCsvRow = (rowNumber: number) => {
+  const previousRows = includedCsvRows.value
+  const rowErrors = Object.entries(serverFieldErrors).filter(([key]) =>
+    key.startsWith('supervisorCsv.rows.'),
+  )
   const existing = forms.supervisorCsv.excludedRowNumbers.indexOf(rowNumber)
   if (existing >= 0) forms.supervisorCsv.excludedRowNumbers.splice(existing, 1)
   else forms.supervisorCsv.excludedRowNumbers.push(rowNumber)
+  const nextIndices = new Map(includedCsvRows.value.map((row, index) => [row.rowNumber, index]))
+  for (const [key] of rowErrors) delete serverFieldErrors[key]
+  for (const [key, error] of rowErrors) {
+    const match = /^supervisorCsv\.rows\.(\d+)(\..+)$/.exec(key)
+    const previousRow = match ? previousRows[Number(match[1])] : undefined
+    if (!match || !previousRow) {
+      serverFieldErrors[key] = error
+      continue
+    }
+    const nextIndex = nextIndices.get(previousRow.rowNumber)
+    if (nextIndex !== undefined)
+      serverFieldErrors[`supervisorCsv.rows.${nextIndex}${match[2]}`] = error
+  }
+  if (!Object.keys(serverFieldErrors).length) serverError.value = ''
+  refreshCsvRows()
+}
+
+const clearCsvServerErrors = (row?: CsvRow) => {
+  const index = row
+    ? includedCsvRows.value.findIndex((candidate) => candidate.rowNumber === row.rowNumber)
+    : -1
+  const prefix = row ? `supervisorCsv.rows.${index}.` : 'supervisorCsv.'
+  for (const key of Object.keys(serverFieldErrors)) {
+    if (key.startsWith(prefix)) delete serverFieldErrors[key]
+  }
+  if (!Object.keys(serverFieldErrors).length) serverError.value = ''
+}
+
+const refreshCsvRows = () => {
+  forms.supervisorCsv.rows = revalidateRegistrationCsvRows(
+    forms.supervisorCsv.rows,
+    forms.supervisorCsv.excludedRowNumbers,
+  )
+  if (!csvCounts.value.invalid) delete clientErrors['supervisorCsv.invalid']
+  if (includedCsvRows.value.length) delete clientErrors['supervisorCsv.rows']
+}
+
+const editCsvRow = async (rowNumber: number) => {
+  editingCsvRowNumber.value = rowNumber
+  await nextTick()
+  csvEditorHeadingRef.value?.scrollIntoView?.({ block: 'center' })
+  csvEditorHeadingRef.value?.focus({ preventScroll: true })
+}
+
+const closeCsvEditor = async () => {
+  const rowNumber = editingCsvRowNumber.value
+  editingCsvRowNumber.value = null
+  delete clientErrors['supervisorCsv.editor']
+  await nextTick()
+  document.getElementById(`csv-edit-${rowNumber}`)?.focus()
+}
+
+const blockCsvEditorAction = () => {
+  const row = editingCsvRow.value
+  if (!isCsvEditing.value || !row) return false
+  clientErrors['supervisorCsv.editor'] =
+    'Choose Done editing below the row fields before continuing.'
+  currentStep.value = 1
+  void editCsvRow(row.rowNumber)
+  return true
+}
+
+const updateCsvRow = (row: CsvRow, values: CsvRow['values']) => {
+  clearCsvServerErrors(row)
+  row.values = values
+  refreshCsvRows()
 }
 
 const csvCategoryLabel = (category: CsvCategory) =>
@@ -2093,18 +2236,71 @@ const csvCategoryLabel = (category: CsvCategory) =>
 
 const submitRegistration = async () => {
   if (!journey.value || isSubmitting.value) return
+  if (blockCsvEditorAction()) return
   if (!(await validateJourneyBeforeSubmit())) return
+  if (
+    registrationWarnings.value.some((warning) => !warningAcknowledgements[warning.overrideField])
+  ) {
+    warningSummaryRef.value?.focus()
+    return
+  }
+  for (const warning of registrationWarnings.value)
+    warningOverrides.value[warning.overrideField] = true
   serverError.value = ''
   isSubmitting.value = true
   try {
-    const result = await registrationGateway.submit(buildRegistrationRequest(journey.value, forms))
+    const request = buildRegistrationRequest(journey.value, forms)
+    const signature = JSON.stringify({ request, overrides: warningOverrides.value })
+    if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
+    submissionSignature = signature
+    const attachments: Record<string, File> = {}
+    const attach = (student: StudentDetails, prefix: string) => {
+      const file = photoFiles.get(student)
+      if (file) attachments[prefix] = file
+    }
+    if (journey.value === 'student_individual')
+      attach(forms.studentIndividual.student, 'studentIndividual.student')
+    if (journey.value === 'student_team') {
+      attach(forms.studentTeam.creator, 'studentTeam.creator')
+      forms.studentTeam.teammates.forEach((student, index) =>
+        attach(student, `studentTeam.teammates.${index}`),
+      )
+    }
+    if (journey.value === 'supervisor_individual')
+      attach(forms.supervisorIndividual.student, 'supervisorIndividual.student')
+    if (journey.value === 'supervisor_group')
+      forms.supervisorGroup.students.forEach((student, index) =>
+        attach(student, `supervisorGroup.students.${index}`),
+      )
+    const result = await registrationGateway.submit(request, {
+      attachments,
+      invitationToken: invitationToken.value,
+      idempotencyKey: submissionKey,
+      overrides: { ...warningOverrides.value },
+    })
     clearServerErrors()
     if (!result.ok) {
+      if (result.warnings?.length) {
+        registrationWarnings.value = result.warnings
+        Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+        await nextTick()
+        warningSummaryRef.value?.scrollIntoView?.({ block: 'center' })
+        warningSummaryRef.value?.focus()
+        return
+      }
       const fieldErrors = result.fieldErrors || {}
       Object.assign(serverFieldErrors, fieldErrors)
       serverError.value = result.message
       const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
       if (errorStep !== null) currentStep.value = errorStep
+      if (journey.value === 'supervisor_csv') {
+        const rowKey = Object.keys(fieldErrors).find((key) =>
+          /^supervisorCsv\.rows\.\d+\./.test(key),
+        )
+        if (rowKey)
+          editingCsvRowNumber.value =
+            includedCsvRows.value[Number(rowKey.split('.')[2])]?.rowNumber ?? null
+      }
       await focusErrors()
       return
     }
@@ -2126,20 +2322,29 @@ const scrollToTop = () => {
 }
 
 const resetRegistration = () => {
+  submissionKey = ''
+  submissionSignature = ''
   Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
   Object.keys(photoPreviews).forEach((key) => delete photoPreviews[key])
   Object.assign(forms, createRegistrationForms())
   journey.value = null
   selectedRole.value = isSupervisorMode.value ? 'supervisor' : null
-  selectionStage.value = isSupervisorMode.value ? 'pathway' : 'welcome'
+  selectionStage.value = isSupervisorMode.value ? 'pathway' : 'role'
   currentStep.value = 0
   maxReachedStep.value = 0
   success.value = null
   serverError.value = ''
   csvFileErrors.value = []
+  editingCsvRowNumber.value = null
   clearErrors()
   clearServerErrors()
   scrollToTop()
+}
+
+const startAnotherRegistration = () => {
+  const registerStudent = isSupervisorMode.value && journey.value === 'supervisor_individual'
+  resetRegistration()
+  if (registerStudent) selectJourney('supervisor_individual')
 }
 
 const formatSavedDate = (value: string) => {
@@ -2152,26 +2357,64 @@ const formatSavedDate = (value: string) => {
       }).format(date)
 }
 
+watch(invitationToken, resetRegistration)
+watch(
+  forms,
+  () => {
+    registrationWarnings.value = []
+    warningOverrides.value = {}
+    Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
+  },
+  { deep: true },
+)
+
 onBeforeUnmount(() => {
   Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
 })
 </script>
 
 <style scoped>
+.registration-warnings {
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid #9c7940;
+  background: #fff8e8;
+  color: #543f1e;
+  overflow-wrap: anywhere;
+}
+
+.registration-warnings h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.registration-warnings label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-block-start: 1rem;
+  cursor: pointer;
+}
+
+.registration-warnings input {
+  flex: none;
+  margin-block-start: 0.2rem;
+}
+
 .registration-page {
-  --registration-ink: #143f39;
-  --registration-muted: #526d67;
-  --registration-green: #08745a;
-  --registration-green-dark: #075642;
-  --registration-line: #d8e2dd;
-  --registration-field-line: #bdcec7;
+  --registration-ink: var(--charcoal);
+  --registration-muted: var(--text-muted);
+  --registration-green: var(--dark-green);
+  --registration-green-dark: #015940;
+  --registration-line: var(--border-light);
+  --registration-field-line: var(--border-light);
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
   overflow: hidden;
-  background: #f5f2e9;
+  background: var(--bg-light);
   color: var(--registration-ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: inherit;
 }
 
 .registration-page,
@@ -2180,24 +2423,15 @@ onBeforeUnmount(() => {
 }
 
 .registration-page--supervisor {
-  --registration-ink: var(--text-main, #253730);
-  --registration-muted: var(--text-soft, #66756f);
-  --registration-green: var(--dark-green, #017151);
-  --registration-green-dark: var(--dark-green, #017151);
-  --registration-line: var(--line-mid, rgba(14, 31, 25, 0.14));
   min-height: auto;
   overflow: visible;
   background: var(--bg-light, #f8f9fa);
   font-family: inherit;
 }
 
-.registration-page--supervisor .page-atmosphere {
-  display: none;
-}
-
 .registration-page--supervisor .setup-layout,
 .registration-page--supervisor .work-layout {
-  width: min(100%, 1080px);
+  width: min(calc(100% - 64px), 1080px);
   margin-right: auto;
   margin-bottom: 32px;
   margin-left: auto;
@@ -2205,10 +2439,10 @@ onBeforeUnmount(() => {
 
 .registration-page--supervisor .pathway-choices,
 .registration-page--supervisor .form-surface {
-  border-color: var(--line-mid, rgba(14, 31, 25, 0.14));
-  border-radius: 12px;
+  border-color: var(--border-light);
+  border-radius: 8px;
   background: var(--white, #fff);
-  box-shadow: var(--shadow-soft, 0 12px 28px rgba(7, 17, 15, 0.06));
+  box-shadow: none;
 }
 
 .registration-page--supervisor .pathway-choice {
@@ -2221,37 +2455,21 @@ onBeforeUnmount(() => {
   background: var(--light-green, #e9f5ef);
 }
 
-.registration-page--supervisor .work-layout .journey-context h1 {
-  max-width: none;
-  font-size: clamp(1.6rem, 3vw, 2.25rem);
-  line-height: 1.15;
-  letter-spacing: -0.025em;
-}
-
-.page-atmosphere {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 7% 10%, rgba(85, 145, 132, 0.18), transparent 30rem),
-    radial-gradient(circle at 96% 2%, rgba(232, 210, 126, 0.22), transparent 28rem);
-}
-
 .registration-header {
   position: relative;
   z-index: 2;
-  width: min(1220px, calc(100% - 40px));
-  margin: 0 auto;
-  padding: 24px 0;
+  width: 100%;
+  padding: 14px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+  background: var(--dark-green);
 }
 
 .brand-link,
 .sign-in-link {
-  color: var(--registration-ink);
+  color: #fff;
   text-decoration: none;
 }
 
@@ -2259,24 +2477,27 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  font-size: 1.02rem;
-  font-weight: 800;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .brand-link img {
   width: 42px;
   height: 42px;
   object-fit: contain;
+  padding: 4px;
+  border-radius: 50%;
+  background: #fff;
 }
 
 .sign-in-link {
   font-size: 0.9rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .sign-in-link:hover,
 .sign-in-link:focus-visible {
-  color: var(--registration-green);
+  color: #fff;
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -2305,20 +2526,12 @@ onBeforeUnmount(() => {
 }
 
 .welcome-copy h1 {
-  max-width: 10ch;
-  margin: 0 0 24px;
+  margin: 0 0 16px;
   color: var(--registration-ink);
-  font-size: clamp(3rem, 7vw, 5.8rem);
-  line-height: 0.96;
-  letter-spacing: -0.045em;
-}
-
-.welcome-copy > p {
-  max-width: 60ch;
-  margin: 0;
-  color: var(--registration-muted);
-  font-size: 1.08rem;
-  line-height: 1.7;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 
 .welcome-actions {
@@ -2335,9 +2548,8 @@ onBeforeUnmount(() => {
 .welcome-aside {
   padding: clamp(30px, 5vw, 48px);
   border: 1px solid rgba(20, 63, 57, 0.13);
-  border-radius: 24px;
-  background: #fffefa;
-  box-shadow: 0 28px 68px rgba(29, 62, 56, 0.11);
+  border-radius: 8px;
+  background: var(--white);
 }
 
 .welcome-aside__mark {
@@ -2413,59 +2625,16 @@ onBeforeUnmount(() => {
   text-underline-offset: 4px;
 }
 
-.setup-progress {
-  margin-top: 30px;
-}
-
-.setup-progress__copy,
-.form-progress__copy {
-  margin-bottom: 9px;
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  color: var(--registration-muted);
-  font-size: 0.82rem;
-}
-
-.setup-progress__copy strong,
-.form-progress__copy strong {
-  color: var(--registration-green-dark);
-}
-
-.setup-progress__track,
-.form-progress__track {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #dbe5e0;
-}
-
-.setup-progress__track span,
-.form-progress__track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--registration-green);
-}
-
 .setup-heading {
-  margin: 50px 0 34px;
+  margin: 20px 0 24px;
 }
 
 .setup-heading h1 {
-  max-width: 15ch;
   margin: 0;
-  font-size: clamp(2.4rem, 6vw, 4.25rem);
-  line-height: 1;
-  letter-spacing: -0.04em;
-}
-
-.setup-heading p {
-  max-width: 58ch;
-  margin: 16px 0 0;
-  color: var(--registration-muted);
-  font-size: 1rem;
-  line-height: 1.6;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 
 .setup-layout.setup-layout--supervisor {
@@ -2474,17 +2643,6 @@ onBeforeUnmount(() => {
 
 .setup-heading.setup-heading--supervisor {
   margin: 20px 0 24px;
-}
-
-.setup-heading--supervisor h1 {
-  max-width: none;
-  font-size: clamp(1.75rem, 3vw, 2.5rem);
-  line-height: 1.15;
-  letter-spacing: -0.025em;
-}
-
-.setup-heading--supervisor p {
-  margin-top: 8px;
 }
 
 .role-options {
@@ -2500,30 +2658,23 @@ onBeforeUnmount(() => {
   grid-template-rows: auto 1fr auto;
   gap: 25px;
   border: 1px solid rgba(20, 63, 57, 0.16);
-  border-radius: 18px;
-  background: #fffefa;
+  border-radius: 8px;
+  background: var(--white);
   color: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 16px 38px rgba(29, 62, 56, 0.07);
-  transition:
-    border-color 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
+  transition: border-color 160ms ease;
 }
 
 .role-option:hover,
 .role-option:focus-visible {
   border-color: var(--registration-green);
   outline: none;
-  transform: translateY(-3px);
-  box-shadow: 0 22px 44px rgba(29, 62, 56, 0.12);
 }
 
 .role-option:focus-visible {
-  box-shadow:
-    0 22px 44px rgba(29, 62, 56, 0.12),
-    0 0 0 3px rgba(8, 116, 90, 0.2);
+  outline: 2px solid var(--registration-green);
+  outline-offset: 3px;
 }
 
 .role-option__icon {
@@ -2578,12 +2729,24 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
+.supervisor-guidance {
+  max-width: 68ch;
+  margin: 16px auto 0;
+  color: var(--registration-muted);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.supervisor-guidance a {
+  color: var(--registration-green);
+  text-decoration: underline;
+}
+
 .pathway-choices {
   overflow: hidden;
   border: 1px solid rgba(20, 63, 57, 0.14);
-  border-radius: 20px;
-  background: #fffefa;
-  box-shadow: 0 24px 58px rgba(29, 62, 56, 0.09);
+  border-radius: 8px;
+  background: var(--white);
 }
 
 .pathway-choice {
@@ -2641,8 +2804,10 @@ onBeforeUnmount(() => {
 
 .work-layout {
   width: min(980px, calc(100% - 40px));
+  margin-top: 16px;
+  margin-bottom: 40px;
   grid-template-columns: 1fr;
-  gap: 26px;
+  gap: 16px;
 }
 
 .work-layout .journey-context {
@@ -2651,15 +2816,12 @@ onBeforeUnmount(() => {
 }
 
 .work-layout .journey-context h1 {
-  max-width: 18ch;
-  margin: 18px 0 10px;
-  font-size: clamp(2rem, 4vw, 3.2rem);
-}
-
-.form-progress {
-  padding: 24px clamp(24px, 4vw, 48px) 18px;
-  border-bottom: 1px solid var(--registration-line);
-  background: #fffefa;
+  max-width: none;
+  margin: 8px 0 0;
+  font-size: clamp(1.5rem, 2vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 
 .registration-intro,
@@ -2672,21 +2834,15 @@ onBeforeUnmount(() => {
 .registration-intro h1,
 .journey-context h1,
 .success-panel h1 {
-  max-width: 12ch;
-  margin: 0 0 20px;
+  max-width: none;
+  margin: 0 0 16px;
   color: var(--registration-ink);
-  font-size: clamp(2.6rem, 5vw, 4.9rem);
-  line-height: 0.98;
-  letter-spacing: -0.04em;
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
 }
 
-.journey-context h1 {
-  margin-top: 24px;
-  font-size: clamp(2.25rem, 4vw, 3.8rem);
-}
-
-.registration-intro > p,
-.journey-context > p,
 .success-panel > p {
   max-width: 54ch;
   margin: 0;
@@ -2718,9 +2874,8 @@ onBeforeUnmount(() => {
 .success-panel {
   overflow: hidden;
   border: 1px solid rgba(20, 63, 57, 0.13);
-  border-radius: 20px;
-  background: #fffefa;
-  box-shadow: 0 28px 68px rgba(29, 62, 56, 0.11);
+  border-radius: 8px;
+  background: var(--white);
 }
 
 .pathway-heading {
@@ -2731,7 +2886,7 @@ onBeforeUnmount(() => {
 .pathway-heading h2 {
   margin: 0;
   color: var(--registration-ink);
-  font-size: clamp(1.65rem, 3vw, 2.3rem);
+  font-size: clamp(1.5rem, 3vw, 1.75rem);
   letter-spacing: -0.025em;
 }
 
@@ -2825,11 +2980,16 @@ onBeforeUnmount(() => {
   text-underline-offset: 4px;
 }
 
+.change-journey:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .step-navigation {
   overflow-x: auto;
-  padding: 0 clamp(24px, 4vw, 48px);
+  padding: 8px clamp(16px, 3vw, 32px);
   border-bottom: 1px solid var(--registration-line);
-  background: #f8faf7;
+  background: var(--white);
 }
 
 .step-navigation ol {
@@ -2837,6 +2997,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0;
   display: flex;
+  gap: 6px;
   list-style: none;
 }
 
@@ -2845,18 +3006,18 @@ onBeforeUnmount(() => {
 }
 
 .step-navigation button {
-  min-height: 78px;
-  padding: 0 18px;
+  min-height: 44px;
+  padding: 8px 14px;
   display: flex;
   align-items: center;
   gap: 9px;
   border: 0;
-  border-bottom: 3px solid transparent;
+  border-radius: 4px;
   background: transparent;
-  color: #6a7d77;
+  color: var(--registration-muted);
   font: inherit;
-  font-size: 0.82rem;
-  font-weight: 750;
+  font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -2882,8 +3043,8 @@ onBeforeUnmount(() => {
 }
 
 .step-navigation button.current {
-  border-bottom-color: var(--registration-green);
-  color: var(--registration-ink);
+  background: var(--registration-green);
+  color: #fff;
 }
 
 .step-navigation button.current > span,
@@ -2904,44 +3065,11 @@ onBeforeUnmount(() => {
 }
 
 form {
-  padding: clamp(28px, 5vw, 54px);
+  padding: clamp(24px, 3vw, 32px);
 }
 
 .step-content {
-  min-height: 440px;
-}
-
-.step-header {
-  margin-bottom: 36px;
-}
-
-.step-header p {
-  margin: 0 0 7px;
-  color: var(--registration-green-dark);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.step-header h2 {
-  max-width: 22ch;
-  margin: 0;
-  color: var(--registration-ink);
-  font-size: clamp(1.75rem, 4vw, 2.7rem);
-  line-height: 1.08;
-  letter-spacing: -0.03em;
-}
-
-.step-header h2:focus {
-  outline: none;
-}
-
-.step-header > span {
-  max-width: 68ch;
-  margin-top: 10px;
-  display: block;
-  color: var(--registration-muted);
-  font-size: 0.92rem;
-  line-height: 1.55;
+  position: relative;
 }
 
 .field-grid {
@@ -2989,8 +3117,8 @@ form {
   align-items: flex-start;
   gap: 12px;
   border: 1px solid var(--registration-field-line);
-  border-radius: 12px;
-  background: #fffefa;
+  border-radius: 4px;
+  background: var(--white);
   cursor: pointer;
 }
 
@@ -3034,11 +3162,10 @@ form {
   outline-offset: 3px;
 }
 
-.scope-explanation,
-.review-boundary {
+.scope-explanation {
   padding: 17px 18px;
   border: 1px solid #bdd8cc;
-  border-radius: 12px;
+  border-radius: 4px;
   background: #edf6f1;
   color: #315f54;
   font-size: 0.86rem;
@@ -3061,7 +3188,8 @@ form {
 .review-section h3 {
   margin: 0;
   color: var(--registration-ink);
-  font-size: 1rem;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .section-divider p,
@@ -3086,12 +3214,12 @@ form {
   min-height: 40px;
   padding: 0 14px;
   border: 1px solid var(--registration-green);
-  border-radius: 10px;
+  border-radius: 4px;
   background: transparent;
   color: var(--registration-green-dark);
   font: inherit;
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -3125,16 +3253,33 @@ form {
 }
 
 .student-entry__heading button {
-  padding: 3px;
+  min-height: 44px;
+  padding: 6px;
   border: 0;
   background: transparent;
   color: #8b302b;
   font: inherit;
   font-size: 0.8rem;
-  font-weight: 750;
+  font-weight: 500;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
+}
+
+.creator-summary dl {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.creator-summary dl > div {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.creator-summary .student-entry__heading button {
+  color: var(--registration-green);
 }
 
 .upload-step {
@@ -3155,8 +3300,8 @@ form {
   align-content: center;
   gap: 12px;
   border: 1px dashed #8eaa9f;
-  border-radius: 14px;
-  background: #f8faf7;
+  border-radius: 4px;
+  background: var(--white);
   text-align: center;
 }
 
@@ -3183,8 +3328,8 @@ form {
   margin-right: 10px;
   padding: 0 14px;
   border: 1px solid var(--registration-field-line);
-  border-radius: 10px;
-  background: #fffefa;
+  border-radius: 4px;
+  background: var(--white);
   color: var(--registration-green-dark);
   font: inherit;
   font-weight: 750;
@@ -3231,6 +3376,40 @@ form {
   color: var(--registration-muted);
   font-size: 0.86rem;
   line-height: 1.55;
+}
+
+.csv-row-editor {
+  display: grid;
+  gap: 20px;
+  padding-block: 22px;
+  border-block: 1px solid var(--registration-line);
+}
+
+.csv-row-editor h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.csv-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.csv-edit-action {
+  display: block;
+  margin-top: 10px;
+  padding: 5px 0;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--registration-green-dark);
+  font: inherit;
+  font-weight: 750;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .table-scroll {
@@ -3336,11 +3515,12 @@ tr.is-excluded {
 }
 
 .select-field > span {
-  display: flex;
-  justify-content: space-between;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   color: var(--registration-ink);
   font-size: 0.9rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .select-field small {
@@ -3351,12 +3531,12 @@ tr.is-excluded {
 
 .select-field select {
   width: 100%;
-  min-height: 50px;
-  padding: 0 42px 0 15px;
+  min-height: 44px;
+  padding: 0.625rem;
   border: 1px solid var(--registration-field-line);
-  border-radius: 12px;
+  border-radius: 4px;
   outline: none;
-  background: #fffefa;
+  background: var(--white);
   color: var(--registration-ink);
   font: inherit;
 }
@@ -3433,10 +3613,6 @@ dd {
   margin-bottom: 10px;
 }
 
-.review-boundary p {
-  margin: 5px 0 0;
-}
-
 .error-summary,
 .server-error {
   margin-bottom: 28px;
@@ -3444,7 +3620,7 @@ dd {
   display: grid;
   gap: 5px;
   border: 1px solid #dfb4af;
-  border-radius: 12px;
+  border-radius: 4px;
   background: #fff3f1;
   color: #7d2d28;
   font-size: 0.86rem;
@@ -3485,29 +3661,25 @@ dd {
 
 .primary-action,
 .secondary-action {
-  min-height: 48px;
+  min-height: 44px;
   padding: 0 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  border-radius: 11px;
+  border-radius: 4px;
   font: inherit;
-  font-size: 0.9rem;
-  font-weight: 800;
+  font-size: 1rem;
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  transition:
-    transform 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
+  transition: background 160ms ease;
 }
 
 .primary-action {
   border: 1px solid var(--registration-green);
   background: var(--registration-green);
   color: #fff;
-  box-shadow: 0 10px 22px rgba(8, 116, 90, 0.2);
 }
 
 .secondary-action {
@@ -3518,9 +3690,7 @@ dd {
 
 .primary-action:hover:not(:disabled),
 .primary-action:focus-visible {
-  transform: translateY(-1px);
   background: var(--registration-green-dark);
-  box-shadow: 0 14px 28px rgba(8, 116, 90, 0.24);
 }
 
 .secondary-action:hover:not(:disabled),
@@ -3560,8 +3730,7 @@ dd {
 }
 
 .success-panel h1 {
-  max-width: 14ch;
-  font-size: clamp(2.5rem, 6vw, 4.4rem);
+  font-size: 1.75rem;
 }
 
 .success-mark {
@@ -3606,7 +3775,7 @@ dd {
 @media (max-width: 940px) {
   .work-layout {
     grid-template-columns: 1fr;
-    gap: 34px;
+    gap: 16px;
     margin-top: 12px;
   }
 
@@ -3618,7 +3787,7 @@ dd {
   }
 
   .welcome-copy h1 {
-    max-width: 12ch;
+    max-width: none;
   }
 
   .registration-intro,
@@ -3629,7 +3798,7 @@ dd {
 
   .registration-intro h1,
   .journey-context h1 {
-    max-width: 15ch;
+    max-width: none;
   }
 
   .context-note {
@@ -3639,8 +3808,7 @@ dd {
 
 @media (max-width: 700px) {
   .registration-header {
-    width: min(100% - 28px, 1220px);
-    padding-block: 18px;
+    padding: 14px;
   }
 
   .brand-link span {
@@ -3658,12 +3826,17 @@ dd {
     margin-bottom: 38px;
   }
 
+  .registration-page--supervisor .setup-layout,
+  .registration-page--supervisor .work-layout {
+    width: calc(100% - 24px);
+  }
+
   .welcome-layout {
     margin-top: 28px;
   }
 
   .welcome-copy h1 {
-    font-size: clamp(2.7rem, 14vw, 4rem);
+    font-size: 1.5rem;
   }
 
   .welcome-actions {
@@ -3685,7 +3858,11 @@ dd {
   }
 
   .setup-heading {
-    margin-top: 38px;
+    margin-top: 20px;
+  }
+
+  .setup-heading h1 {
+    font-size: 1.5rem;
   }
 
   .role-options {
@@ -3712,7 +3889,7 @@ dd {
   .registration-intro h1,
   .journey-context h1,
   .success-panel h1 {
-    font-size: clamp(2.35rem, 12vw, 3.6rem);
+    font-size: 1.5rem;
   }
 
   .pathway-option {
@@ -3736,12 +3913,12 @@ dd {
   .step-navigation ol {
     min-width: 0;
     width: 100%;
-    justify-content: space-around;
+    flex-wrap: wrap;
   }
 
   .step-navigation button {
-    min-height: 66px;
-    padding-inline: 8px;
+    min-height: 44px;
+    padding-inline: 10px;
   }
 
   .step-navigation__label {

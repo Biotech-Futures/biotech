@@ -7,10 +7,7 @@ import {
   resolveSupervisorRegistrationRouteAccess,
   shouldShowSupervisorRegistrationNavigation,
 } from '@/router/registrationAccess'
-import {
-  PUBLIC_REGISTRATION_PATH,
-  publicRegistrationRoute,
-} from '@/router/publicRegistrationRoute'
+import { PUBLIC_REGISTRATION_PATH, publicRegistrationRoute } from '@/router/publicRegistrationRoute'
 import {
   SUPERVISOR_REGISTRATION_PATH,
   supervisorRegistrationRoute,
@@ -134,25 +131,43 @@ describe('supervisor registration access', () => {
     },
   )
 
-  it.each(['/register', '/register/'])(
-    'keeps public registration shell-free at %s',
-    (path) => {
-      const route = router.resolve(path)
+  it.each(['/register', '/register/'])('keeps public registration shell-free at %s', (path) => {
+    const route = router.resolve(path)
 
-      expect(route.name).toBe('register')
-      expect(route.meta.public).toBe(true)
-      expect(isShellFreeRoute(route)).toBe(true)
-    },
-  )
+    expect(route.name).toBe('register')
+    expect(route.meta.public).toBe(true)
+    expect(isShellFreeRoute(route)).toBe(true)
+  })
 
-  it('declares canonical registration as public and shell-free', () => {
+  it('declares canonical registration as public and shell-free', async () => {
     expect(PUBLIC_REGISTRATION_PATH).toBe('/register')
     expect(publicRegistrationRoute.path).toBe(PUBLIC_REGISTRATION_PATH)
     expect(publicRegistrationRoute.name).toBe('register')
-    expect(publicRegistrationRoute.props).toEqual({ mode: 'canonical' })
+    expect(typeof publicRegistrationRoute.props).toBe('function')
+    await router.push('/register')
+    if (typeof publicRegistrationRoute.props !== 'function') throw new Error('Expected route props')
+    expect(publicRegistrationRoute.props(router.currentRoute.value)).toEqual({
+      mode: 'canonical',
+      invitationToken: null,
+    })
     expect(publicRegistrationRoute.meta).toEqual({ public: true, shellFree: true })
   })
 
+  it('passes only a single invitation token without granting supervisor access', async () => {
+    if (typeof publicRegistrationRoute.props !== 'function') throw new Error('Expected route props')
+    await router.push('/register?invite=signed-token')
+    expect(publicRegistrationRoute.props(router.currentRoute.value)).toEqual({
+      mode: 'canonical',
+      invitationToken: 'signed-token',
+    })
+    await router.push('/register?invite=one&invite=two')
+    expect(publicRegistrationRoute.props(router.currentRoute.value)).toEqual({
+      mode: 'canonical',
+      invitationToken: null,
+    })
+    expect(publicRegistrationRoute.meta?.public).toBe(true)
+    expect(supervisorRegistrationRoute.meta?.public).not.toBe(true)
+  })
   it('preserves shell treatment for public and authenticated routes', () => {
     expect(isShellFreeRoute(router.resolve('/login'))).toBe(true)
     expect(isShellFreeRoute(router.resolve('/dashboard'))).toBe(false)

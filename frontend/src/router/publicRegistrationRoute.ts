@@ -6,6 +6,9 @@ export const publicRegistrationRoute: RouteRecordRaw = {
   path: PUBLIC_REGISTRATION_PATH,
   name: 'register',
   component: () => import('@/views/RegistrationPage.vue'),
-  props: { mode: 'canonical' },
+  props: (route) => ({
+    mode: 'canonical',
+    invitationToken: typeof route.query.invite === 'string' ? route.query.invite : null,
+  }),
   meta: { public: true, shellFree: true },
 }

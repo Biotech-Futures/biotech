@@ -20,10 +20,7 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
     [/^studentTeam\.creator\.(guardian|guardianDeferred)(\.|$)/, 1],
     [/^studentTeam\.(interests|teammates|size)(\.|$)/, 2],
   ],
-  supervisor_individual: [
-    [/^supervisorIndividual\.student(\.|$)/, 0],
-    [/^supervisorIndividual\.groupingPreference$/, 1],
-  ],
+  supervisor_individual: [[/^supervisorIndividual\.student(\.|$)/, 0]],
   supervisor_group: [
     [/^supervisorGroup\.interests(\.|$)/, 0],
     [/^supervisorGroup\.(students|size)(\.|$)/, 1],

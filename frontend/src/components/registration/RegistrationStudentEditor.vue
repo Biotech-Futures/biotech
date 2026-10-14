@@ -86,11 +86,14 @@
           v-model="student.state"
           label="State or region"
           autocomplete="address-level1"
-          optional
+          :error="fieldError('state')"
+          :required="student.country.trim().toLowerCase() === 'australia'"
+          :optional="student.country.trim().toLowerCase() !== 'australia'"
         />
       </div>
 
       <RegistrationInterestSelector
+        v-if="showInterests"
         :id="fieldId('interests')"
         v-model="student.interests"
         label="Student interests"
@@ -122,7 +125,9 @@
         <div class="photo-field">
           <div class="photo-field__copy">
             <label :for="fieldId('profilePhoto')">Profile photo <small>Optional</small></label>
-            <p>JPG, PNG, or WebP, up to 5 MB. The selected image stays in this browser preview.</p>
+            <p>
+              JPG, PNG, or WebP, up to 5 MB. The image is uploaded when you submit registration.
+            </p>
             <input
               :id="fieldId('profilePhoto')"
               type="file"
@@ -151,12 +156,12 @@
 
     <div v-if="showGuardian" class="guardian-editor">
       <label v-if="allowGuardianDefer" class="defer-control">
-        <input v-model="student.guardianDeferred" type="checkbox" />
+        <input v-model="provideGuardian" type="checkbox" />
         <span>
-          <strong>Guardian details will be added later</strong>
+          <strong>Add guardian contact (optional)</strong>
           <small>
-            The student will need to supply them through their own action journey before consent can
-            be completed.
+            If not provided now, the student will need to add these details before guardian
+            permission can be requested.
           </small>
         </span>
       </label>
@@ -239,19 +244,20 @@ import { PRONOUN_OPTIONS, type StudentDetails } from '@/registration/registratio
 
 const props = withDefaults(
   defineProps<{
-    student: StudentDetails
     prefix: string
     section: 'identity' | 'profile' | 'guardian' | 'full' | 'teammate'
     errors: Record<string, string>
     requireEmailConfirm?: boolean
     allowGuardianDefer?: boolean
     showOptionalProfile?: boolean
+    showInterests?: boolean
     previewUrl?: string
   }>(),
   {
     requireEmailConfirm: false,
     allowGuardianDefer: false,
     showOptionalProfile: false,
+    showInterests: true,
     previewUrl: '',
   },
 )
@@ -260,10 +266,21 @@ const emit = defineEmits<{
   'photo-selected': [file: File]
   'remove-photo': []
 }>()
+const student = defineModel<StudentDetails>('student', { required: true })
 
 const showIdentity = computed(() => ['identity', 'full', 'teammate'].includes(props.section))
 const showProfile = computed(() => ['profile', 'full'].includes(props.section))
-const showGuardian = computed(() => ['guardian', 'full'].includes(props.section))
+const showGuardian = computed(
+  () =>
+    ['guardian', 'full'].includes(props.section) ||
+    (props.section === 'teammate' && props.allowGuardianDefer),
+)
+const provideGuardian = computed({
+  get: () => !student.value.guardianDeferred,
+  set: (value: boolean) => {
+    student.value.guardianDeferred = !value
+  },
+})
 const safePrefix = computed(() => props.prefix.replace(/[^a-zA-Z0-9_-]/g, '-'))
 const fieldId = (field: string) => `${safePrefix.value}-${field.replace(/\./g, '-')}`
 const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
@@ -301,11 +318,12 @@ const onPhotoChange = (event: Event) => {
 }
 
 .select-field > span {
-  display: flex;
-  justify-content: space-between;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   color: var(--registration-ink);
   font-size: 0.9rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .select-field small {
@@ -316,12 +334,12 @@ const onPhotoChange = (event: Event) => {
 
 select {
   width: 100%;
-  min-height: 50px;
-  padding: 0 42px 0 15px;
+  min-height: 44px;
+  padding: 0.625rem;
   border: 1px solid var(--registration-field-line);
-  border-radius: 12px;
+  border-radius: 4px;
   outline: none;
-  background: #fffefa;
+  background: var(--white);
   color: var(--registration-ink);
   font: inherit;
 }
@@ -356,7 +374,7 @@ select[aria-invalid='true'] {
 .photo-field__copy > label {
   color: var(--registration-ink);
   font-size: 0.9rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .photo-field__copy small {
@@ -379,15 +397,15 @@ input[type='file'] {
 }
 
 input[type='file']::file-selector-button {
-  min-height: 38px;
+  min-height: 44px;
   margin-right: 10px;
   padding: 0 13px;
   border: 1px solid var(--registration-field-line);
-  border-radius: 10px;
-  background: #fffefa;
+  border-radius: 4px;
+  background: var(--white);
   color: var(--registration-green-dark);
   font: inherit;
-  font-weight: 750;
+  font-weight: 500;
   cursor: pointer;
 }
 

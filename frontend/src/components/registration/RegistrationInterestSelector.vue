@@ -58,7 +58,7 @@ legend {
   padding: 0;
   color: var(--registration-ink);
   font-size: 0.92rem;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 p {

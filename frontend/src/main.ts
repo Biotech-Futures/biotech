@@ -17,8 +17,9 @@ const bootstrap = async () => {
   app.use(pinia)
   const registrationGateway = configuredRegistrationGateway(
     import.meta.env.VITE_REGISTRATION_API_URL,
+    import.meta.env.VITE_API_BASE_URL,
   )
-  if (registrationGateway) app.provide(REGISTRATION_GATEWAY_KEY, registrationGateway)
+  app.provide(REGISTRATION_GATEWAY_KEY, registrationGateway)
 
   const auth = useAuthStore()
   await auth.initializeAuth()
