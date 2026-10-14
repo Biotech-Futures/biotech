@@ -89,10 +89,13 @@
                   v-for="index in actionColumns"
                   :key="`actions-${index}`"
                   class="data-table-head data-table-actions-col"
+                  :class="{ 'data-table-actions-col--headed': Boolean(actionHeadings[index - 1]) }"
                   scope="col"
                 >
-                  <!-- Button columns have no heading, but screen readers still hear one. -->
-                  <span class="sr-only">Actions</span>
+                  <template v-if="actionHeadings[index - 1]">{{ actionHeadings[index - 1] }}</template>
+                  <!-- Button columns have no heading unless given one, but
+                       screen readers still hear one. -->
+                  <span v-else class="sr-only">Actions</span>
                 </th>
               </template>
             </tr>
@@ -179,6 +182,7 @@
                     v-for="index in actionColumns"
                     :key="`actions-${index}`"
                     class="data-table-actions-col"
+                    :class="{ 'data-table-actions-col--headed': Boolean(actionHeadings[index - 1]) }"
                     @click.stop
                   >
                     <slot name="actions" :row="row" :column="index - 1" />
@@ -190,7 +194,10 @@
                 class="data-table-detail-row"
                 :class="{ 'data-table-detail-row--joined': joinedDetails }"
               >
-                <td :colspan="emptyColspan()">
+                <!-- Joined details start under the row's first value, not
+                     under its tick box. -->
+                <td v-if="joinedDetails && selectable" class="data-table-check-col" aria-hidden="true"></td>
+                <td :colspan="joinedDetails && selectable ? emptyColspan() - 1 : emptyColspan()">
                   <slot name="row-detail" :row="row" />
                 </td>
               </tr>
@@ -305,6 +312,9 @@ const props = withDefaults(
     rowKey?: string
     // How many columns the actions slot fills; the slot is told which one.
     actionColumns?: number
+    // A heading to show over each of those columns, by column; a column with
+    // none has a heading only screen readers hear.
+    actionHeadings?: string[]
     emptyMessage?: string
     searchPlaceholder?: string
     // Rows of two separate lines, like a name with an email under it: 70px
@@ -349,6 +359,7 @@ const props = withDefaults(
   {
     rowKey: 'id',
     actionColumns: 1,
+    actionHeadings: () => [],
     emptyMessage: 'No matching entries.',
     searchPlaceholder: 'Search',
     twoLineRows: false,
@@ -1132,6 +1143,12 @@ tbody tr:last-child td {
 
 .data-table-actions-col:last-child {
   padding-right: 0.75rem;
+}
+
+/* A button column with a heading (My Students' Consent Form): its buttons
+   centred under it. */
+.data-table-actions-col--headed {
+  text-align: center;
 }
 
 .data-table-empty {

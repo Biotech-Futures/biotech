@@ -15,6 +15,8 @@
     :action-columns="isStudentMode ? 1 : 2"
     :two-line-rows="isStudentMode"
     clickable-rows
+    :joined-details="showsInterests"
+    :detail-for="(row) => Boolean(toAdminUser(row).interests?.length)"
     @update:selected="emit('update:selected', $event)"
     @update:sort="emit('update:sort', $event)"
     @update:page="emit('page-change', $event)"
@@ -66,21 +68,12 @@
         {{ toAdminUser(row).groupName || '—' }}
       </span>
     </template>
-    <template #cell-interests="{ row }">
-      <div class="admin-users__interests" :title="toAdminUser(row).interests?.join(', ') || undefined">
-        <template v-if="toAdminUser(row).interests?.length">
-          <span
-            v-for="interest in visibleInterests(toAdminUser(row))"
-            :key="interest"
-            class="admin-users__interest-chip"
-          >
-            {{ interest }}
-          </span>
-          <span v-if="toAdminUser(row).interests!.length > 3" class="admin-users__interest-more">
-            +{{ toAdminUser(row).interests!.length - 3 }}
-          </span>
-        </template>
-        <span v-else>—</span>
+    <!-- A student's areas of interest, on a line of their own under the row
+         and drawn as part of it, as Extend Deadline's reasons. -->
+    <template v-if="showsInterests" #row-detail="{ row }">
+      <div class="admin-users__interests">
+        <span class="admin-users__interests-label">Area(s) of Interest:</span>
+        {{ toAdminUser(row).interests!.join(', ') }}
       </div>
     </template>
     <template #cell-status="{ row }">
@@ -151,8 +144,7 @@ import {
   labelizeState,
   roleLabel,
   toAdminUser,
-  userName,
-  visibleInterests
+  userName
 } from '@/utils/userFormat'
 
 const props = defineProps<{
@@ -183,17 +175,18 @@ const emit = defineEmits<{
   (e: 'toggle-active', user: AdminUser): void
 }>()
 
-// The row buttons get their own columns, so Actions isn't one of these.
+// The row buttons get their own columns, so Actions isn't one of these, and
+// interests go on a line under the row.
 const tableColumns = computed<DataTableColumn[]>(() =>
   props.columns
-    .filter((column) => column.key !== 'actions')
+    .filter((column) => column.key !== 'actions' && column.key !== 'interests')
     .map((column) => ({
       key: column.key,
       label: column.label,
-      sortable: Boolean(column.sortable),
-      wrap: column.key === 'interests'
+      sortable: Boolean(column.sortable)
     }))
 )
+const showsInterests = computed(() => props.columns.some((column) => column.key === 'interests'))
 </script>
 
 <style scoped>
@@ -225,24 +218,12 @@ const tableColumns = computed<DataTableColumn[]>(() =>
   gap: 0.1rem;
 }
 
+/* Under a student's row, as Extend Deadline's reasons. */
 .admin-users__interests {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.3rem;
+  font-size: 0.85rem;
 }
 
-.admin-users__interest-chip {
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background-color: var(--light-green);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.admin-users__interest-more {
-  font-size: 0.8rem;
+.admin-users__interests-label {
   color: var(--text-muted);
 }
 

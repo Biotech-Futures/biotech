@@ -68,6 +68,20 @@ describe('rows that open something', () => {
     expect(wrapper.emitted('row-click')).toBeUndefined()
   })
 
+  it('starts joined details under the first value, past the tick box column', () => {
+    const wrapper = mountTable(
+      { selectable: true, joinedDetails: true },
+      { 'row-detail': '<span class="detail">More</span>' }
+    )
+    const cells = wrapper.find('tr.data-table-detail-row').findAll('td')
+
+    expect(cells).toHaveLength(2)
+    expect(cells[0]!.classes()).toContain('data-table-check-col')
+    expect(cells[0]!.text()).toBe('')
+    expect(cells[1]!.attributes('colspan')).toBe(String(columns.length))
+    expect(cells[1]!.text()).toBe('More')
+  })
+
   it('leaves rows that open nothing unmarked', async () => {
     const wrapper = mountTable()
 

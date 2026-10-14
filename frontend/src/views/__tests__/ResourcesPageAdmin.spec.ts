@@ -176,7 +176,13 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
     })
 
     it('shows Edit and Delete on each row, and no View or Download', () => {
+      // Two button columns, one button each.
+      expect(wrapper!.findAll('th.data-table-actions-col')).toHaveLength(2)
       for (const row of [0, 1]) {
+        expect(tableRows()[row]!.findAll('td.data-table-actions-col button').map((b) => b.text())).toEqual([
+          'Edit',
+          'Delete'
+        ])
         expect(rowButton(row, 'Edit')).toBeDefined()
         expect(rowButton(row, 'Delete')).toBeDefined()
         expect(rowButton(row, 'View')).toBeUndefined()

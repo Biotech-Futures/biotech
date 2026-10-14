@@ -138,7 +138,7 @@
           Edit
         </button>
         <button
-          v-else"
+          v-else
           type="button"
           class="btn btn-sm btn-outline"
           @click.stop="confirmDeleteResource(toResource(row))"

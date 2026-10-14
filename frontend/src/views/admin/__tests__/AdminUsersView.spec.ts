@@ -356,7 +356,6 @@ describe('AdminUsersView', () => {
       'Country',
       'State',
       'Group',
-      'Interests',
       'Logged In',
       'Actions'
     ])
@@ -383,13 +382,16 @@ describe('AdminUsersView', () => {
     expect(studentCell.text()).toContain('Ada Lovelace')
     expect(studentCell.text()).toContain('ada@example.com')
 
-    // School / Year / Interests cells render their data in the row.
+    // School / Year cells render their data in the row.
     const firstRow = wrapper.find('.data-table-row')
     expect(firstRow.text()).toContain('State High')
     expect(firstRow.text()).toContain('10')
-    expect(firstRow.text()).toContain('Science')
-    expect(firstRow.text()).toContain('Maths')
     expect(firstRow.text()).toContain('No')
+
+    // Interests, every one, on a line of their own under the row.
+    expect(firstRow.text()).not.toContain('Science')
+    expect(firstRow.classes()).toContain('data-table-row--joined')
+    expect(wrapper.find('.data-table-detail-row').text()).toBe('Area(s) of Interest: Science, Maths')
   })
 
   it('maps student sortable columns to the supported backend sort fields', async () => {
