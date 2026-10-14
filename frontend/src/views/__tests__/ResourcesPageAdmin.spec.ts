@@ -125,8 +125,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       const rows = tableRows()
       expect(rows).toHaveLength(2)
 
-      // Clicking row calls router.push
-      await rows[1].trigger('click')
+      // Clicking a name calls router.push
+      await rows[1].find('.data-table-cell--primary').trigger('click')
       expect(mockPush).toHaveBeenCalledWith({
         name: 'resource-detail',
         params: { id: 101 }
@@ -175,21 +175,22 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(formSheet?.props('resource')).toBeNull()
     })
 
-    it('shows View, Edit and Delete on each row, and no Download', () => {
+    it('shows Edit and Delete on each row, and no View or Download', () => {
       for (const row of [0, 1]) {
-        expect(rowButton(row, 'View')).toBeDefined()
         expect(rowButton(row, 'Edit')).toBeDefined()
         expect(rowButton(row, 'Delete')).toBeDefined()
+        expect(rowButton(row, 'View')).toBeUndefined()
         expect(rowButton(row, 'Download')).toBeUndefined()
       }
     })
 
-    it('opens a resource by its row, but not by its buttons', async () => {
+    it('opens a resource by its name, but not elsewhere on its row', async () => {
       await rowButton(1, 'Edit')?.trigger('click')
+      await tableRows()[1].trigger('click')
       await flushPromises()
       expect(mockPush).not.toHaveBeenCalled()
 
-      await tableRows()[1].trigger('click')
+      await tableRows()[1].find('.data-table-cell--primary').trigger('click')
       await flushPromises()
       expect(mockPush).toHaveBeenCalledWith({
         name: 'resource-detail',
@@ -226,17 +227,6 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       const formSheet = wrapper?.findComponent({ name: 'AdminResourceFormSheet' })
       expect(formSheet?.props('modelValue')).toBe(true)
       expect(formSheet?.props('resource')).toEqual(mockResource1)
-    })
-
-    it('opens the resource when clicking View', async () => {
-      await rowButton(0, 'View')?.trigger('click')
-      await flushPromises()
-
-      expect(mockPush).toHaveBeenCalledTimes(1)
-      expect(mockPush).toHaveBeenCalledWith({
-        name: 'resource-detail',
-        params: { id: 102 }
-      })
     })
 
     it('opens ConfirmDialog when clicking Delete and executes delete', async () => {

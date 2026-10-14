@@ -337,16 +337,20 @@ describe('the group marks ranking', () => {
     expect((search.element as HTMLInputElement).value).toBe('BTF-1')
   })
 
-  it('opens a group that submitted from its row, but not one with no submission', async () => {
+  it('opens a group that submitted from its name, but not one with no submission', async () => {
     const wrapper = await mountPage()
     const row = (name: string) =>
       wrapper.findAll('table')[0]!.findAll('tr.data-table-row').find((r) => r.text().includes(name))!
 
     expect(row('BTF-2').classes()).not.toContain('data-table-row--opens')
-    await row('BTF-2').trigger('click')
+    await row('BTF-2').find('.data-table-cell--primary').trigger('click')
     expect(pushMock).not.toHaveBeenCalled()
 
+    // Elsewhere on the row: nothing.
     await row('BTF-1').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await row('BTF-1').find('.data-table-cell--primary').trigger('click')
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/1')
   })
 
@@ -378,12 +382,15 @@ describe('the current finalists', () => {
     expect(rows).toEqual([['3', 'BTF-1'], ['2', 'BTF-5'], ['1', 'BTF-9']])
   })
 
-  it('opens a finalist group from its row, named by its Group', async () => {
+  it('opens a finalist group from its Group, not the # before it', async () => {
     const wrapper = await mountPage()
     const row = wrapper.findAll('table')[1]!.find('tr.data-table-row')
 
     expect(row.find('.data-table-cell--primary').text()).toBe('BTF-2')
-    await row.trigger('click')
+    await row.find('td').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await row.find('.data-table-cell--primary').trigger('click')
     expect(pushMock).toHaveBeenCalledWith('/grading/groups/2')
   })
 

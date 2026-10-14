@@ -66,7 +66,7 @@
       search-placeholder="Name or description"
       empty-message="No resources found. Try changing your search or filters."
       clickable-rows
-      :action-columns="3"
+      :action-columns="2"
       @update:selected="onSelectedChange"
       @row-click="openResourceDetail(toResource($event).id)"
     >
@@ -126,19 +126,11 @@
         <span v-else class="muted">None</span>
       </template>
 
-      <!-- View | Edit | Delete, each in its own column, as the other tables
-           do. View opens it, as clicking its row does. -->
+      <!-- Edit | Delete, each in its own column, as the other tables do.
+           Clicking its name opens it. -->
       <template v-if="isAdmin" #actions="{ row, column }">
         <button
           v-if="column === 0"
-          type="button"
-          class="btn btn-sm btn-outline"
-          @click.stop="openResourceDetail(toResource(row).id)"
-        >
-          View
-        </button>
-        <button
-          v-else-if="column === 1"
           type="button"
           class="btn btn-sm btn-outline"
           @click.stop="openEditResource(toResource(row))"
@@ -146,7 +138,7 @@
           Edit
         </button>
         <button
-          v-else-if="column === 2"
+          v-else"
           type="button"
           class="btn btn-sm btn-outline"
           @click.stop="confirmDeleteResource(toResource(row))"

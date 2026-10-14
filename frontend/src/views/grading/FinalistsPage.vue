@@ -412,7 +412,7 @@ const marksTableColumns = computed<DataTableColumn[]>(() => [
 ])
 const candidateOf = (row: Record<string, unknown>) => row as unknown as FinalistCandidateRow
 
-// A row opens its group's marking, as its Open does.
+// A group's name opens its marking, as its Open does.
 const router = useRouter()
 const openGroup = (groupId: number) => router.push(`/grading/groups/${groupId}`)
 

@@ -20,13 +20,19 @@ const primaryCells = (wrapper: ReturnType<typeof mountTable>) =>
   bodyRows(wrapper).map((row) => row.find('.data-table-cell--primary').text())
 
 describe('rows that open something', () => {
-  it('marks them, and the first column as the cell that names them, and opens them on click', async () => {
+  it('marks them, and the first column as the cell that names them, which alone opens them', async () => {
     const wrapper = mountTable({ clickableRows: true })
+    const bob = bodyRows(wrapper)[1]!
 
     expect(bodyRows(wrapper).every((row) => row.classes('data-table-row--opens'))).toBe(true)
     expect(primaryCells(wrapper)).toEqual(['a', 'b'])
 
-    await bodyRows(wrapper)[1]!.trigger('click')
+    // Elsewhere on the row: nothing.
+    await bob.trigger('click')
+    await bob.findAll('td')[2]!.trigger('click')
+    expect(wrapper.emitted('row-click')).toBeUndefined()
+
+    await bob.find('.data-table-cell--primary').trigger('click')
     expect(wrapper.emitted('row-click')?.[0]?.[0]).toMatchObject({ id: 2 })
   })
 
@@ -45,31 +51,28 @@ describe('rows that open something', () => {
 
     expect(ada!.classes()).toContain('data-table-row--opens')
     expect(bob!.classes()).not.toContain('data-table-row--opens')
-    expect(bob!.classes()).not.toContain('data-table-row--clickable')
 
-    await bob!.trigger('click')
+    await bob!.find('.data-table-cell--primary').trigger('click')
     expect(wrapper.emitted('row-click')).toBeUndefined()
-    await ada!.trigger('click')
+    await ada!.find('.data-table-cell--primary').trigger('click')
     expect(wrapper.emitted('row-click')).toHaveLength(1)
   })
 
-  it('opens a row from its details too, when they are always shown', async () => {
+  it('does not open a row from its details', async () => {
     const wrapper = mountTable(
       { clickableRows: true, showAllDetails: true },
       { 'row-detail': '<span class="detail">More</span>' }
     )
-    const detail = wrapper.find('tr.data-table-detail-row')
 
-    expect(detail.classes()).toContain('data-table-detail-row--opens')
-    await detail.trigger('click')
-    expect(wrapper.emitted('row-click')?.[0]?.[0]).toMatchObject({ id: 1 })
+    await wrapper.find('tr.data-table-detail-row').trigger('click')
+    expect(wrapper.emitted('row-click')).toBeUndefined()
   })
 
   it('leaves rows that open nothing unmarked', async () => {
     const wrapper = mountTable()
 
     expect(bodyRows(wrapper).some((row) => row.classes('data-table-row--opens'))).toBe(false)
-    await bodyRows(wrapper)[0]!.trigger('click')
+    await bodyRows(wrapper)[0]!.find('.data-table-cell--primary').trigger('click')
     expect(wrapper.emitted('row-click')).toBeUndefined()
   })
 })
