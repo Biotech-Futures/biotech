@@ -591,15 +591,16 @@ onMounted(loadStudents)
   color: var(--text-muted);
 }
 
+/* The table's own text colour, and plain until its row is hovered, as every
+   table's names are (AppDataTable). */
 .supervisor-name-btn {
   padding: 0;
   border: none;
   background: none;
-  color: var(--dark-green);
+  color: inherit;
   font: inherit;
   font-weight: 600;
   text-align: left;
-  text-decoration: underline;
   cursor: pointer;
 }
 
