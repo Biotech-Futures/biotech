@@ -51,10 +51,6 @@ LINK_PREVIEW_DISPATCH_SYNC = True
 # Same reason for auth mail: tests assert on msg.send(), which the pool would race.
 AUTH_EMAIL_DISPATCH_SYNC = True
 
-# And for the unread digest: run inline so mail.outbox is populated when the
-# trigger view returns instead of racing a worker thread.
-UNREAD_DIGEST_DISPATCH_SYNC = True
-
 # The email jobs' tokens: tests set the ones they mean.
 EMAIL_JOBS_TOKEN = ""
 RSVP_REMINDER_TOKEN = ""

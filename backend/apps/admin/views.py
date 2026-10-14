@@ -55,7 +55,7 @@ from apps.admin.services.resource import (
 from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
-    update_announcement, archive_announcement, delete_announcement, send_announcement_email,
+    update_announcement, archive_announcement, delete_announcement, notify_announcement,
     list_announcement_groups, list_announcement_roles,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
@@ -1042,25 +1042,11 @@ class AnnouncementNotifyView(APIView):
             if hasattr(request, "user") and request.user.is_authenticated
             else None
         )
-        result = send_announcement_email(
-            announcement_id, initiated_by=initiated_by,
-        )
-
-        delivery_status = result.get("status")
-        # 200 — every recipient accepted.
-        # 207 — at least one delivered, at least one failed (Multi-Status).
-        # 502 — mail backend was reached but no recipient accepted (or the
-        #       backend itself errored) — distinguishes "broken pipe to SMTP"
-        #       from a client-side validation problem.
-        # 400 — no recipients to send to, or the announcement does not exist.
-        if delivery_status == "success":
-            code = status.HTTP_200_OK
-        elif delivery_status == "partial":
-            code = status.HTTP_207_MULTI_STATUS
-        elif delivery_status == "failed":
-            code = status.HTTP_502_BAD_GATEWAY
-        else:  # "skipped" — no recipients / unknown announcement
-            code = status.HTTP_400_BAD_REQUEST
+        result = notify_announcement(announcement_id, initiated_by=initiated_by)
+        # 202 — queued, to send in its turn after any bulk email going from
+        #       the same mailbox (see ``send_guard``).
+        # 400 — the announcement does not exist.
+        code = status.HTTP_202_ACCEPTED if result["status"] == "queued" else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 

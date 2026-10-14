@@ -472,7 +472,9 @@ function onNotifyAnnouncement(item: Announcement) {
   confirmDialog.onConfirm = async () => {
     try {
       const res = await notifyAdminAnnouncement(item.id)
-      if (res.status === 'success') {
+      if (res.status === 'queued') {
+        setFeedback(res.msg || 'The email is queued and sends shortly.', 'success')
+      } else if (res.status === 'success') {
         setFeedback(`Email notification sent successfully (${res.succeeded} delivered).`, 'success')
       } else if (res.status === 'partial') {
         setFeedback(`Email partially sent (${res.succeeded}/${res.attempted} delivered).`, 'warning')

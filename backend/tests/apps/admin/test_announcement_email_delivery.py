@@ -327,34 +327,34 @@ class AnnouncementNotifyViewTests(TestCase):
         # which collide. The path is stable enough to hard-code in tests.
         self.url = f"/api/v1/admin/announcement/{self.announcement.id}/notify/"
 
-    def test_successful_notify_returns_200_with_rich_body(self):
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        body = response.json()
-        self.assertEqual(body["status"], "success")
-        self.assertGreaterEqual(body["succeeded"], 1)
-        self.assertEqual(body["failed"], 0)
-        self.assertEqual(body["failedRecipients"], [])
-        # Legacy alias still present.
-        self.assertEqual(body["sent"], body["succeeded"])
-        self.assertIsNotNone(body["deliveryId"])
+    def _delivery(self):
+        return AnnouncementDelivery.objects.get(announcement_id=self.announcement.id)
 
-    def test_all_failed_notify_returns_502(self):
+    def test_notify_queues_the_email_which_sends_in_its_turn(self):
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        body = response.json()
+        self.assertEqual(body["status"], "queued")
+        # Sent in its turn: at once under test settings.
+        delivery = self._delivery()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.SUCCESS)
+        self.assertGreaterEqual(delivery.success_count, 1)
+        self.assertEqual((delivery.failure_count, delivery.failed_recipients), (0, []))
+
+    def test_all_failed_notify_is_recorded_as_failed(self):
         with patch(
             "apps.services.system_email.EmailMultiAlternatives.send",
             side_effect=Exception("smtp dead"),
         ):
             response = self.client.post(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        body = response.json()
-        self.assertEqual(body["status"], "failed")
-        self.assertEqual(body["succeeded"], 0)
-        self.assertGreaterEqual(body["failed"], 1)
-        # Legacy alias parity — succeeded/sent must agree on every path.
-        self.assertEqual(body["sent"], 0)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        delivery = self._delivery()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.FAILED)
+        self.assertEqual(delivery.success_count, 0)
+        self.assertGreaterEqual(delivery.failure_count, 1)
 
-    def test_partial_failure_returns_207(self):
+    def test_partial_failure_is_recorded_as_partial(self):
         call_count = {"n": 0}
 
         def fake_send(self, *args, **kwargs):
@@ -369,13 +369,13 @@ class AnnouncementNotifyViewTests(TestCase):
         ):
             response = self.client.post(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_207_MULTI_STATUS)
-        body = response.json()
-        self.assertEqual(body["status"], "partial")
-        self.assertEqual(body["succeeded"], 1)
-        self.assertGreaterEqual(body["failed"], 1)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        delivery = self._delivery()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.PARTIAL)
+        self.assertEqual(delivery.success_count, 1)
+        self.assertGreaterEqual(delivery.failure_count, 1)
 
-    def test_no_recipients_returns_400(self):
+    def test_no_recipients_queues_then_records_nothing(self):
         # We want a *true* empty audience: the admin stays active so the
         # authenticated request still passes IsAdminScoped, but we target a
         # group that has no members, so the resolved recipient set is empty.
@@ -390,9 +390,9 @@ class AnnouncementNotifyViewTests(TestCase):
         self.announcement.save(update_fields=["visibility_scope"])
 
         response = self.client.post(self.url)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        body = response.json()
-        self.assertEqual(body["status"], "skipped")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # Its turn finds nobody to email: no delivery is recorded.
+        self.assertFalse(AnnouncementDelivery.objects.filter(announcement_id=self.announcement.id).exists())
 
     def test_unknown_announcement_returns_400(self):
         url = "/api/v1/admin/announcement/999999/notify/"
@@ -770,3 +770,39 @@ class AnnouncementSystemEmailTests(TestCase):
 
         self.assertEqual(result["status"], "skipped")
         self.assertEqual(mail.outbox, [])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementRetryTests(TestCase):
+    """A send that fails is tried once more, once everyone has been tried."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="admin@example.com", password="adminpass")
+        User.objects.create_user(email="recip@example.com", password="testpass")
+        self.announcement = Announcement.objects.create(
+            author_user=self.admin, title="Hi", body="<p>body</p>", visibility_scope="global",
+        )
+
+    def test_a_send_that_fails_once_goes_when_tried_again_after_the_rest(self):
+        import smtplib
+
+        from django.core import mail
+
+        real_send = mail.EmailMultiAlternatives.send
+        tries = []
+
+        def drops_once(self_msg, *args, **kwargs):
+            tries.append(self_msg.to[0])
+            if tries.count(self_msg.to[0]) == 1 and len(tries) == 1:
+                raise smtplib.SMTPServerDisconnected("dropped")
+            return real_send(self_msg, *args, **kwargs)
+
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=drops_once),                 patch("apps.services.retry.time.sleep") as sleep:
+            result = send_announcement_email(self.announcement.id)
+
+        self.assertEqual((result["status"], result["succeeded"], result["failed"]), ("success", 2, 0))
+        # The first one, tried again after the other.
+        self.assertEqual(len(tries), 3)
+        self.assertEqual(tries[-1], tries[0])
+        sleep.assert_called_once()
+        self.assertEqual(len(mail.outbox), 2)
