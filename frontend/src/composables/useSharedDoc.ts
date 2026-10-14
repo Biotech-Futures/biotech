@@ -5,6 +5,8 @@ import { onBeforeUnmount, ref, shallowRef, watch, type Ref } from 'vue'
 export const SEND_DOC_MS = 100
 /** A save-now request that gets no answer in this time counts as failed. */
 export const FLUSH_TIMEOUT_MS = 8000
+/** After a refused edit, edits are offered again after 1s, 2s, 4s… up to this. */
+export const RECOVER_MAX_MS = 30_000
 /** An empty Yjs update encodes to this many bytes. */
 const EMPTY_UPDATE_BYTES = 2
 /** Marks updates that came from the server, so they are never sent back. */
@@ -49,6 +51,8 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
   const flushes = new Map<number, { resolve: (ok: boolean) => void; timer: ReturnType<typeof setTimeout> }>()
   let pending: Uint8Array[] = []
   let sendTimer: ReturnType<typeof setTimeout> | null = null
+  let recoverTimer: ReturnType<typeof setTimeout> | null = null
+  let recoverAttempts = 0
   let flushCount = 0
   let detach = attach(doc.value)
 
@@ -81,10 +85,31 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
     channel.sendDoc({ type: 'doc-sync', vector: toBase64(Y.encodeStateVector(doc.value)), update: '' })
   }
 
-  /** Drops this copy and starts again from the server's, e.g. after an edit was refused. */
+  /** Drops this copy and starts again from the server's, e.g. once the server rebuilt its document. */
   function restart() {
     replaceDoc(new Y.Doc())
     sync()
+  }
+
+  /**
+   * After a refused edit: this copy is offered again, whole, after a growing pause. The server keeps
+   * what it may (so a passing fault loses no typing) and answers with its full copy otherwise.
+   */
+  function recover() {
+    synced.value = false
+    pending = []
+    if (recoverTimer) return
+    const delay = recoverAttempts === 0 ? 0 : Math.min(RECOVER_MAX_MS, 1000 * 2 ** (recoverAttempts - 1))
+    recoverAttempts += 1
+    recoverTimer = setTimeout(() => {
+      recoverTimer = null
+      if (!enabled.value) return
+      channel.sendDoc({
+        type: 'doc-sync',
+        vector: toBase64(Y.encodeStateVector(doc.value)),
+        update: toBase64(Y.encodeStateAsUpdate(doc.value))
+      })
+    }, delay)
   }
 
   function replaceDoc(next: Y.Doc) {
@@ -116,6 +141,7 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
       }
       channel.sendDoc({ type: 'doc-update', update: toBase64(missing) })
     }
+    recoverAttempts = 0
     synced.value = true
   }
 
@@ -140,6 +166,8 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
         break
       }
       case 'doc-reject':
+        recover()
+        break
       case 'doc-reset':
         restart()
         break
@@ -153,6 +181,9 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
 
   channel.onClose(() => {
     synced.value = false
+    // A reconnect syncs from scratch, offering anything the server lacks.
+    if (recoverTimer) clearTimeout(recoverTimer)
+    recoverTimer = null
     flushes.forEach((_, id) => settleFlush(id, false))
   })
 
@@ -184,6 +215,7 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
 
   onBeforeUnmount(() => {
     if (sendTimer) clearTimeout(sendTimer)
+    if (recoverTimer) clearTimeout(recoverTimer)
     flushes.forEach((_, id) => settleFlush(id, false))
     detach()
     doc.value.destroy()

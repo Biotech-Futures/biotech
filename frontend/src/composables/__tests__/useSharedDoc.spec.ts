@@ -187,15 +187,20 @@ describe('editing', () => {
     expect(room.sent).toHaveLength(0)
   })
 
-  it('starts again from scratch when an edit is refused', () => {
-    const { room } = ready()
+  it('keeps its typing through a refused edit and offers it to the server again', () => {
+    const { room, truth } = ready()
+    shared.text('answer:q1').insert(0, 'Typed just now')
     const before = shared.doc.value
 
     room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
 
-    expect(shared.doc.value).not.toBe(before)
+    expect(shared.doc.value).toBe(before)
     expect(shared.synced.value).toBe(false)
-    expect(room.sent.at(-1)!.type).toBe('doc-sync')
+    const offer = room.sent.at(-1)!
+    expect(offer.type).toBe('doc-sync')
+    Y.applyUpdate(truth.doc, fromBase64(offer.update)!)
+    expect(truth.doc.getText('answer:q1').toString()).toBe('Typed just now')
   })
 
   it('stops counting as ready when the connection drops', () => {
@@ -258,6 +263,123 @@ describe('switching on', () => {
 
     enabled.value = true
     await nextTick()
+
+    expect(room.sent[0]!.type).toBe('doc-sync')
+  })
+})
+
+
+describe('faults', () => {
+  function ready(initial: Record<string, string> = { 'answer:q1': 'Saved.' }) {
+    const room = fakeChannel()
+    const truth = server(initial)
+    mountShared(room.channel)
+    room.open()
+    room.receive(truth.stateFor(room.sent[0]!.vector))
+    room.sent.length = 0
+    return { room, truth }
+  }
+  const syncsSent = (room: ReturnType<typeof fakeChannel>) => room.sent.filter((m) => m.type === 'doc-sync').length
+
+  it('backs off while the server keeps refusing, instead of hammering it', () => {
+    const { room } = ready()
+
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+    expect(syncsSent(room)).toBe(1)
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(999)
+    expect(syncsSent(room)).toBe(1)
+    vi.advanceTimersByTime(1)
+    expect(syncsSent(room)).toBe(2)
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(1999)
+    expect(syncsSent(room)).toBe(2)
+    vi.advanceTimersByTime(1)
+
+    expect(syncsSent(room)).toBe(3)
+  })
+
+  it("takes the server's copy when the offered edits are no longer allowed", () => {
+    const { room, truth } = ready()
+    shared.text('answer:q1').insert(0, 'Too late. ')
+
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+    room.receive(truth.stateFor('', { full: true, editable: false }))
+
+    expect(shared.text('answer:q1').toString()).toBe('Saved.')
+    expect(shared.editable.value).toBe(false)
+  })
+
+  it('counts as ready again once a retry gets through, and resets the back-off', () => {
+    const { room, truth } = ready()
+
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+    room.receive(truth.stateFor(room.sent.at(-1)!.vector))
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+
+    expect(syncsSent(room)).toBe(2)
+  })
+
+  it("applies a teammate's update that arrives before the server's copy", () => {
+    const room = fakeChannel()
+    const truth = server({ 'answer:q1': 'Saved.' })
+    mountShared(room.channel)
+    room.open()
+    const vector = Y.encodeStateVector(truth.doc)
+    truth.doc.getText('answer:q1').insert(6, ' Ben.')
+
+    room.receive({ type: 'doc-update', update: toBase64(Y.encodeStateAsUpdate(truth.doc, vector)) })
+    room.receive(truth.stateFor(room.sent[0]!.vector))
+
+    expect(shared.text('answer:q1').toString()).toBe('Saved. Ben.')
+  })
+
+  it('starts again on a malformed update or a server copy without its state vector', () => {
+    const { room, truth } = ready()
+    const first = shared.doc.value
+
+    room.receive({ type: 'doc-update', update: '%%%' })
+    expect(shared.doc.value).not.toBe(first)
+    room.receive(truth.stateFor('', { vector: undefined }))
+
+    expect(shared.synced.value).toBe(false)
+  })
+
+  it("replaces its copy when the server rebuilt the document", () => {
+    const { room } = ready()
+    shared.text('answer:q1').insert(0, 'Stale. ')
+    const before = shared.doc.value
+
+    room.receive({ type: 'doc-reset' })
+
+    expect(shared.doc.value).not.toBe(before)
+    expect(shared.text('answer:q1').toString()).toBe('')
+    expect(room.sent.at(-1)!.type).toBe('doc-sync')
+  })
+
+  it('fails a save-now at once while recovering, so Submit can offer the last saved answers', async () => {
+    const { room } = ready()
+
+    room.receive({ type: 'doc-reject' })
+
+    await expect(shared.flush()).resolves.toBe(false)
+  })
+
+  it('drops a pending retry when the connection drops, and syncs afresh on reconnecting', () => {
+    const { room } = ready()
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+    room.receive({ type: 'doc-reject' })
+    room.close()
+    room.sent.length = 0
+
+    vi.advanceTimersByTime(60_000)
+    expect(room.sent).toHaveLength(0)
+    room.open()
 
     expect(room.sent[0]!.type).toBe('doc-sync')
   })

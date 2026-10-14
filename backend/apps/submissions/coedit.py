@@ -71,12 +71,13 @@ class _MemoryStore:
             if room in self._data:
                 self._data[room]["updates"].append(update)
 
-    def compact(self, room: int, count: int, base: bytes) -> None:
+    def compact(self, room: int, merged: list[bytes], base: bytes) -> None:
         with self._lock:
             entry = self._data.get(room)
-            if entry is not None:
+            # Skipped if the list no longer starts with exactly what was merged.
+            if entry is not None and entry["updates"][: len(merged)] == merged:
                 entry["base"] = base
-                del entry["updates"][:count]
+                del entry["updates"][: len(merged)]
 
     def mark_saved(self, room: int, saved: str) -> None:
         with self._lock:
@@ -130,13 +131,24 @@ class _RedisStore:
             pipe.expire(key, STATE_TTL_SECONDS)
         pipe.execute()
 
-    def compact(self, room: int, count: int, base: bytes) -> None:
+    def compact(self, room: int, merged: list[bytes], base: bytes) -> None:
+        import redis
+
         base_key, updates_key, _ = self._keys(room)
-        pipe = self._redis.pipeline(transaction=True)
-        pipe.set(base_key, base, ex=STATE_TTL_SECONDS)
-        # Later updates arrive at the end, so dropping the first `count` keeps them.
-        pipe.ltrim(updates_key, count, -1)
-        pipe.execute()
+        with self._redis.pipeline() as pipe:
+            try:
+                # Any write to either key before EXEC cancels the swap, so no unmerged update is dropped.
+                pipe.watch(base_key, updates_key)
+                if pipe.lrange(updates_key, 0, len(merged) - 1) != merged:
+                    pipe.unwatch()
+                    return
+                pipe.multi()
+                pipe.set(base_key, base, ex=STATE_TTL_SECONDS)
+                pipe.ltrim(updates_key, len(merged), -1)
+                pipe.execute()
+            except redis.WatchError:
+                # Someone wrote meanwhile; compacting is only tidying, so it waits for the next time.
+                pass
 
     def mark_saved(self, room: int, saved: str) -> None:
         _, _, saved_key = self._keys(room)
@@ -197,18 +209,27 @@ def _texts(doc: Doc) -> dict[str, str]:
     return {field: str(doc.get(field, type=Text)) for field in _fields()}
 
 
-def _load(room: int) -> tuple[Doc, str | None, int]:
-    """The room's document, built from the saved entry the first time it is needed."""
+def _read(room: int) -> tuple[bytes, list[bytes], str | None]:
+    """The room's stored base and updates, built from the saved entry the first time they are needed."""
     base, updates, saved = store().read(room)
     if base is None:
         texts = _db_texts(Submission.objects.filter(group_id=room).first())
         store().create(room, _build(texts), _digest(texts))
         base, updates, saved = store().read(room)
+    return base, updates, saved
+
+
+def _doc_from(base: bytes, updates: list[bytes]) -> Doc:
     doc = Doc()
     doc.apply_update(base)
     for update in updates:
         doc.apply_update(update)
-    return doc, saved, len(updates)
+    return doc
+
+
+def _load(room: int) -> tuple[Doc, str | None]:
+    base, updates, saved = _read(room)
+    return _doc_from(base, updates), saved
 
 
 def _within_limits(doc: Doc) -> bool:
@@ -235,7 +256,7 @@ def can_edit(user, room: int) -> bool:
 
 def state_since(room: int, state_vector: bytes | None) -> tuple[bytes, bytes]:
     """What a page is missing, and the server's state vector, so the page can send what the server lacks."""
-    doc, _, _ = _load(room)
+    doc, _ = _load(room)
     missing = doc.get_update(state_vector) if state_vector else doc.get_update()
     return missing, doc.get_state()
 
@@ -244,7 +265,8 @@ def apply(user, room: int, update: bytes) -> bool:
     """Adds one client update, if this user may edit and the result stays within limits."""
     if not update or len(update) > MAX_UPDATE_BYTES or not can_edit(user, room):
         return False
-    doc, _, pending = _load(room)
+    base, updates, _ = _read(room)
+    doc = _doc_from(base, updates)
     try:
         doc.apply_update(update)
     except Exception:  # noqa: BLE001 - a malformed update is refused, not raised
@@ -252,8 +274,9 @@ def apply(user, room: int, update: bytes) -> bool:
     if not _within_limits(doc):
         return False
     store().append(room, update)
-    if pending + 1 >= COMPACT_AFTER:
-        store().compact(room, pending + 1, doc.get_update())
+    if len(updates) + 1 >= COMPACT_AFTER:
+        # Only the updates read above are merged, and only dropped if nothing else changed meanwhile.
+        store().compact(room, updates, _doc_from(base, updates).get_update())
     return True
 
 
@@ -265,7 +288,7 @@ def save(room: int) -> bool:
     """
     if not store().exists(room):
         return True
-    doc, saved, _ = _load(room)
+    doc, saved = _load(room)
     texts = _texts(doc)
     questions = {q.key: q for q in SubmissionQuestion.active()}
     with transaction.atomic():
@@ -310,7 +333,7 @@ def write_fields(room: int, texts: dict[str, str]) -> None:
     """Puts an admin's saved text into the document, after it has been written to the entry."""
     if not enabled() or not texts:
         return
-    doc, _, _ = _load(room)
+    doc, _ = _load(room)
     before = doc.get_state()
     with doc.transaction():
         for field, value in texts.items():
