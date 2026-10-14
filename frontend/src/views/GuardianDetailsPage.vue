@@ -22,7 +22,7 @@
         </div>
 
         <form v-else-if="studentName" novalidate @submit.prevent="submit">
-          <h1>Guardian Details of {{ studentName }}</h1>
+          <h1>Guardian Details for {{ studentName }}</h1>
 
           <label class="details-field" for="details-first-name">
             <span>First name</span>
@@ -67,7 +67,7 @@
             <span v-if="submitting" class="details-spinner details-spinner--light" aria-hidden="true"></span>
             {{ submitting ? 'Saving…' : 'Save' }}
           </button>
-          <p class="details-muted">The guardian will then be emailed the consent form.</p>
+          <p class="details-muted">Upon submission the nominated guardian will be sent an email to complete the consent form.</p>
         </form>
       </section>
     </div>
