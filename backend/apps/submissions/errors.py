@@ -75,6 +75,16 @@ class RequiredAnswersMissing(APIException):
         self.extra = {"missing": list(prompts)}
 
 
+class AnswersOverLimit(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Some answers are over their word limit."
+    default_code = "answers_over_limit"
+
+    def __init__(self, prompts):
+        super().__init__()
+        self.extra = {"over_limit": list(prompts)}
+
+
 class PosterFormatRejected(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "Your poster doesn't match the required format. Please check it against the template and try again."

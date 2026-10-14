@@ -125,6 +125,16 @@ class SubmissionDraftSerializer(serializers.Serializer):
         return value
 
 
+def over_limit_answers(submission) -> list[str]:
+    """Prompts of the questions whose answer is over its word limit; only co-edited drafts can hold one."""
+    answers = submission.answers or {}
+    return [
+        question.prompt
+        for question in SubmissionQuestion.active()
+        if question.max_words and SubmissionQuestion.count_words(str(answers.get(question.key, ""))) > question.max_words
+    ]
+
+
 def missing_required_answers(submission) -> list[str]:
     """Prompts of the required questions this entry has left blank."""
     answers = submission.answers or {}

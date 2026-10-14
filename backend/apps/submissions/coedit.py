@@ -278,12 +278,10 @@ def save(room: int) -> bool:
             transaction.on_commit(lambda: broadcast_reset(room))
             return False
         answers = dict(submission.answers or {})
-        for key, question in questions.items():
-            value = texts[answer_field(key)]
-            # An over-limit answer is not saved, as before; the last valid one stays.
-            if question.max_words and SubmissionQuestion.count_words(value) > question.max_words:
-                continue
-            answers[key] = value
+        # Saved as typed, over its word limit or not, so the entry is always the team's real draft;
+        # the limit is checked when the entry is submitted.
+        for key in questions:
+            answers[key] = texts[answer_field(key)]
         title = texts[TITLE_FIELD]
         if len(title) <= PROJECT_TITLE_MAX_LENGTH:
             submission.project_title = title

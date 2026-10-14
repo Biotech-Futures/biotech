@@ -1502,6 +1502,32 @@ describe('the admin view', () => {
     expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Draft, not submitted')
   })
 
+  it("saves a fix to one answer while the team's other answer is over its limit", async () => {
+    const overLimit = 'word '.repeat(151).trim()
+    const detail = asAdmin(
+      buildDetail({ submission: { project_title: TITLE, answers: { ...ANSWERED, solution_purpose: overLimit }, poster: POSTER, stage: 'in_progress' } })
+    )
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+
+    await box().setValue('Fixed by the programme.')
+    await click('admin-save')
+
+    expect(saveDraft.mock.calls.at(-1)![1].answers).toEqual({ inspiration: 'Fixed by the programme.' })
+  })
+
+  it("still stops a save when the admin's own change is over the limit", async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+
+    await box().setValue('word '.repeat(151).trim())
+    await click('admin-save')
+
+    expect(saveDraft).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('Answer too long')
+  })
+
   it('asks before leaving for another team with unsaved changes', async () => {
     await mountPage(draft())
     await click('admin-edit')

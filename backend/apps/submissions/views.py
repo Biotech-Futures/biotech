@@ -21,6 +21,7 @@ from config.errors import GroupAccessDenied
 from .emails import send_submission_confirmation
 from . import coedit
 from .errors import (
+    AnswersOverLimit,
     CoeditingActive,
     FileNotUploadedYet,
     NoFileUploaded,
@@ -43,6 +44,7 @@ from .serializers import (
     SubmissionQuestionSerializer,
     SubmissionSerializer,
     missing_required_answers,
+    over_limit_answers,
 )
 from .services import deadline_for_group
 from .checklist import blank_checklist, detected_checklist, is_confirmed
@@ -359,6 +361,11 @@ class GroupSubmissionSubmitView(APIView):
             missing = missing_required_answers(submission)
             if missing:
                 raise RequiredAnswersMissing(missing)
+
+            # A co-edited draft is saved as typed, so the limit is checked here, for teams and admins alike.
+            too_long = over_limit_answers(submission)
+            if too_long:
+                raise AnswersOverLimit(too_long)
 
             # Admins skip the template checks at upload, but confirm the checklist like a team.
             if not is_confirmed(submission.poster_checklist):

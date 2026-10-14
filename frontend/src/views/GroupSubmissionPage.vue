@@ -1827,7 +1827,10 @@ async function adminDiscard() {
 
 /** What would stop a save, shown as a message; the full requirements apply only to Submit. */
 function adminBlocked(forSubmit: boolean): boolean {
-  const overLimit = overLimitQuestions()
+  // Saving checks only the admin's own changes; a team's over-limit draft is the team's to trim, but cannot be submitted.
+  const overLimit = overLimitQuestions().filter(
+    (q) => forSubmit || (answers[q.key] ?? '') !== (savedAnswers[q.key] ?? '')
+  )
   if (overLimit.length) {
     setMessage(overLimitMessage(overLimit), true)
     void goToBlocker({ step: 'questions', focusKey: overLimit[0].key })

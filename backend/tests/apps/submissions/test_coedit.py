@@ -160,18 +160,20 @@ class SavingTests(CoeditTestCase):
         self.assertEqual(entry.answers[self.key], "Draft two")
         self.assertEqual(entry.project_title, "New title")
 
-    def test_an_over_limit_answer_is_not_saved_and_the_last_valid_one_stays(self):
-        self._entry_with("Short.")
+    def _limit_first_question(self, words=3):
         question = self.questions[0]
-        question.max_words = 3
+        question.max_words = words
         question.save()
+
+    def test_an_over_limit_answer_is_saved_as_typed(self):
+        self._entry_with("Short.")
+        self._limit_first_question()
         client = Client(self.room)
         coedit.apply(self.student, self.room, client.replace(self.field, "one two three four five"))
 
         coedit.save(self.room)
 
-        self.assertEqual(self._entry().answers[self.key], "Short.")
-        self.assertEqual(Client(self.room).text(self.field), "one two three four five")
+        self.assertEqual(self._entry().answers[self.key], "one two three four five")
 
     def test_a_submitted_entry_is_never_written(self):
         self._entry_with("Draft")
@@ -244,6 +246,42 @@ class EndpointTests(CoeditTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._entry().submitted_answers[self.key], "Draft final")
+
+    def _ready_to_submit(self):
+        self._upload(self.student, _poster())
+        self._entry_with("Draft")
+        self._client(self.student).put(self._url("group-submission"), {"poster_checklist": CONFIRMED_CHECKLIST}, format="json")
+
+    def test_submit_refuses_an_answer_over_its_limit_for_teams_and_admins(self):
+        self._ready_to_submit()
+        question = self.questions[0]
+        question.max_words = 3
+        question.save()
+        coedit.apply(self.student, self.room, Client(self.room).replace(self.field, "one two three four five"))
+
+        for user in (self.student, self.admin):
+            with self.subTest(user=user.email):
+                response = self._client(user).post(self._url("group-submission-submit"), {}, format="json")
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["code"], "answers_over_limit")
+        self.assertFalse(self._entry().is_submitted)
+
+    def test_auto_submit_leaves_a_draft_with_an_over_limit_answer(self):
+        self._ready_to_submit()
+        for question in self.questions:
+            coedit.apply(self.student, self.room, Client(self.room).replace(coedit.answer_field(question.key), "word " * 5))
+        question = self.questions[0]
+        question.max_words = 3
+        question.save()
+        Submission.objects.filter(group=self.group).update(cohort=2026)
+        self.deadline.closes_at = timezone.now() - timedelta(days=1)
+        self.deadline.save()
+
+        with patch("apps.submissions.autosubmit.current_cohort", return_value=2026):
+            result = auto_submit_due()
+
+        self.assertEqual(result["submitted"], [])
+        self.assertFalse(self._entry().is_submitted)
 
     def test_auto_submit_takes_the_documents_latest_text(self):
         self._upload(self.student, _poster())
