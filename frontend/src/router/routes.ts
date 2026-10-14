@@ -58,6 +58,7 @@ import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
+import { loadSupervisorResults } from '@/composables/useSupervisorResults';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
@@ -66,6 +67,13 @@ const requireSupervisor = () => {
   const auth = useAuthStore();
   if (!auth.isSupervisor) return { name: 'dashboard', replace: true };
   return true;
+};
+
+// Results opens once marks or certificates are released; till then, My Students.
+const requireSupervisorResults = async () => {
+  const supervisor = requireSupervisor();
+  if (supervisor !== true) return supervisor;
+  return (await loadSupervisorResults(true)) ? true : { name: 'my-students', replace: true };
 };
 
 // /groups has no id of its own — resolve the user's first group from the
@@ -100,6 +108,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
   { path: '/my-students', name: 'my-students', component: () => import('@/views/SupervisorStudentsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/my-groups', name: 'my-groups', component: () => import('@/views/SupervisorGroupsPage.vue'), beforeEnter: requireSupervisor },
+  { path: '/my-results', name: 'my-results', component: () => import('@/views/SupervisorResultsPage.vue'), beforeEnter: requireSupervisorResults },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },

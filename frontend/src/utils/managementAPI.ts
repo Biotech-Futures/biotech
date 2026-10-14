@@ -83,6 +83,83 @@ export async function downloadGroupCertificate(
 }
 
 // ---------------------------------------------------------------------------
+// Results on a supervisor's portal: their students' groups' marks, as the
+// spreadsheet their results email carries, and the certificates of their
+// students and those groups' mentors, once released.
+
+/** Whether marks or certificates are out: Results shows once either is. */
+export interface SupervisorResultsState {
+  marks_released: boolean
+  certificates_released: boolean
+}
+
+/** A column of the marks spreadsheet, named as the spreadsheet names it. */
+export interface SupervisorResultsColumn {
+  /** The spreadsheet's field name, e.g. "TeamCode", "PM1", "PosterComment1". */
+  key: string
+  /** Its heading, as the spreadsheet's: "Group", "PM1", "Poster Comment 1". */
+  label: string
+  /** A mark's rubric criterion, shown on hover; "" for the rest. */
+  title: string
+  /** A mark (or the total), rather than text. */
+  mark: boolean
+}
+
+/** A student's or mentor's certificate on the page. */
+export interface SupervisorResultsPerson {
+  user_id: number
+  name: string
+  kind: 'student' | 'mentor'
+  group_id: number
+  group_name: string
+  /** A finalist group's, while certificates go out without finalists. */
+  withheld: boolean
+  file_name: string
+}
+
+export interface SupervisorResults extends SupervisorResultsState {
+  year: number
+  /** Once marks are released: every column the spreadsheet has, empty or not. */
+  columns: SupervisorResultsColumn[]
+  /** Once marks are released: a row per group, by column key, highest total first. */
+  groups: Array<Record<string, string | number | null>>
+  sheet_file_name: string
+  /** Once certificates are released: the students', then the mentors'. */
+  people: SupervisorResultsPerson[]
+  zip_file_name: string
+}
+
+// GET /api/v1/management/supervisor-results/state/ — for the menu's Results link.
+export function fetchSupervisorResultsState(): Promise<SupervisorResultsState> {
+  return requestJson<SupervisorResultsState>('/api/v1/management/supervisor-results/state/')
+}
+
+// GET /api/v1/management/supervisor-results/ — what the Results page shows.
+export function fetchSupervisorResults(): Promise<SupervisorResults> {
+  return requestJson<SupervisorResults>('/api/v1/management/supervisor-results/')
+}
+
+// GET /api/v1/management/supervisor-results/marks-sheet/ — the marks spreadsheet.
+export async function downloadSupervisorResultsSheet(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/supervisor-results/marks-sheet/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/supervisor-results/certificates/{groupId}/{userId}/ — one certificate.
+export async function downloadSupervisorResultsCertificate(person: SupervisorResultsPerson): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/supervisor-results/certificates/${person.group_id}/${person.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? person.file_name)
+}
+
+// GET /api/v1/management/supervisor-results/certificates/ — every certificate, zipped.
+export async function downloadSupervisorResultsCertificates(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/supervisor-results/certificates/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// ---------------------------------------------------------------------------
 // The submission deadline and per-team extensions
 
 // Per-team extra time on top of the global deadline.
