@@ -207,6 +207,19 @@ def _messages_report(params):
         names = defaultdict(set)
         for membership in GroupMembership.objects.filter(group_id__in=group_names, left_at__isnull=True).exclude(membership_role="").order_by("group_id", "id"):
             names[membership.user_id].add(membership.group_id)
+
+        def current_group_names(user_id):
+            memberships = (
+                (current_group_id, current_group_name)
+                for current_group_id, current_group_name in group_names.items()
+                if current_group_id in names.get(user_id, set())
+            )
+            ordered = sorted(
+                memberships,
+                key=lambda item: (item[1].casefold(), item[1], item[0]),
+            )
+            return ", ".join(group_name for _, group_name in ordered)
+
         def user_details(source):
             return [{"id": row["user_id"], "name": row["name"],
                      "role": participants.get(row["user_id"], "Unavailable"),
@@ -225,9 +238,7 @@ def _messages_report(params):
             visible = user_details(all_activity)
         visible = [row for row in visible if search.casefold() in row["name"].casefold()]
         visible.sort(key=lambda row: row[sort_by], reverse=sort_order == "desc")
-        rows += [[row["id"], row["name"], row["role"], ", ".join(
-            group_name for group_id, group_name in group_names.items() if group_id in names[row["id"]]
-        ) or "Group —",
+        rows += [[row["id"], row["name"], row["role"], current_group_names(row["id"]) or "Group —",
                   row["value"], row["last7Days"]] for row in visible]
     return (), rows, f"messages-analytics-{mode}-{end}.csv"
 
