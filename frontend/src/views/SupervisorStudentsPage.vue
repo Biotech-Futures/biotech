@@ -13,7 +13,6 @@
 
     <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
     <p v-if="error" class="supervisor-error">{{ error }}</p>
-    <p v-else-if="loading" class="supervisor-muted">Loading students...</p>
 
     <nav class="tab-bar" role="tablist" aria-label="Student registration">
       <button
@@ -36,6 +35,8 @@
       class="supervisor-section"
     >
       <h2 class="subheading">{{ section.title }}</h2>
+      <!-- Under the section's heading, above its table. -->
+      <p v-if="loading && !error" class="supervisor-muted supervisor-loading">Loading students...</p>
       <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
@@ -608,6 +609,11 @@ onMounted(loadStudents)
 .supervisor-notice {
   margin: 0 0 1.5rem;
   color: #6c757d;
+}
+
+/* Between the section's heading and its table. */
+.supervisor-loading {
+  margin-bottom: 0.75rem;
 }
 
 .supervisor-error {
