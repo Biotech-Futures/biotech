@@ -124,10 +124,10 @@ describe('Finalist Presentation', () => {
   it("lists this year's times on the Symposium day", async () => {
     const wrapper = await mountPage()
     expect(rows(wrapper)).toEqual([
-      ['9:30', '10:00'],
+      ['09:30', '10:00'],
       ['13:00', '13:30']
     ])
-    expect(wrapper.text()).toContain("They're for the Symposium day, Friday 23 October 2026")
+    expect(wrapper.text()).toContain("They're for the Symposium day, Friday, 23rd October 2026")
     // Sydney time, worked out for that day: daylight saving by late October.
     expect(wrapper.find('[data-testid="sydney-time"]').text()).toBe(
       'All times are Sydney time, AEDT (daylight saving, UTC+11) on that day. ' +
@@ -168,7 +168,7 @@ describe('Finalist Presentation', () => {
     fetchMock.mockResolvedValue(slots({ symposium_date: null, slots: [] }))
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain("They're for the Symposium day. Set its date on Notify Finalists.")
-    expect(wrapper.find('.finalist-presentation__empty').text()).toBe('No times yet.')
+    expect(wrapper.find('.simple-table-empty').text()).toBe('No times yet.')
   })
 
   it('adds a time, then offers the next one straight after it', async () => {
@@ -208,19 +208,19 @@ describe('Finalist Presentation', () => {
     await buttonNamed(wrapper, 'Save').trigger('click')
     await flushPromises()
     expect(updateMock).toHaveBeenCalledWith(1, { starts_at: '09:30', ends_at: '10:15' })
-    expect(rows(wrapper)).toEqual([['9:30', '10:15']])
+    expect(rows(wrapper)).toEqual([['09:30', '10:15']])
 
     await buttonNamed(wrapper, 'Remove').trigger('click')
     await flushPromises()
     expect(deleteMock).toHaveBeenCalledWith(1)
-    expect(wrapper.find('.finalist-presentation__empty').exists()).toBe(true)
+    expect(wrapper.find('.simple-table-empty').exists()).toBe(true)
   })
 
   it('says when there are no finalist teams yet', async () => {
     responsesMock.mockResolvedValue({ teams: [] })
     const wrapper = await mountPage()
-    expect(allocation(wrapper).find('.finalist-presentation__empty').text()).toBe('No finalist teams yet.')
-    expect(allocation(wrapper).find('.finalist-presentation__empty').attributes('colspan')).toBe('5')
+    expect(allocation(wrapper).find('.data-table-empty').text()).toBe('No finalist teams yet.')
+    expect(allocation(wrapper).find('.data-table-empty').attributes('colspan')).toBe('5')
   })
 
   it("Allocate Slots shows when each team answered and the times it can make", async () => {
@@ -235,20 +235,20 @@ describe('Finalist Presentation', () => {
       'Group',
       'Answered',
       'Allocate',
-      '9:30 – 10:00',
-      '13:00 – 13:30'
+      '09:30 - 10:00 AEDT',
+      '13:00 - 13:30 AEDT'
     ])
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
     // When it answered, as Finalist Submissions writes it; who, on hover.
     expect(cells[1]!.text()).toMatch(/^29\/09\/26 \d{2}:10$/)
-    expect(cells[1]!.attributes('title')).toBe('By Zoe Lee')
+    expect(cells[1]!.find('[title]').attributes('title')).toBe('By Zoe Lee')
     expect((cells[2]!.find('select').element as HTMLSelectElement).value).toBe('1')
     expect(cells[2]!.findAll('option').map((o) => o.text())).toEqual([
       'Not allocated',
-      '9:30 – 10:00',
-      '13:00 – 13:30'
+      '09:30 - 10:00 AEDT',
+      '13:00 - 13:30 AEDT'
     ])
     // It can make the morning (the time it has), not the afternoon.
     expect(cells[3]!.find('.fa-check').exists()).toBe(true)
@@ -296,19 +296,27 @@ describe('Finalist Presentation', () => {
     const wrapper = await mountPage()
     const table = wrapper.find('.finalist-presentation__submissions')
     expect(table.find('h3').text()).toBe('Finalist Submissions')
-    expect(table.text()).toContain("Each finalist team's presentation slides, due Friday 16 October 2026")
-    expect(table.findAll('thead th').map((h) => h.text())).toEqual(['Group', 'Submitted', 'Type', ''])
+    expect(table.text()).toContain("Each finalist team's presentation slides, due Friday, 16th October 2026")
+    // Open and Download each have a column, both headed Actions for screen readers.
+    expect(table.findAll('thead th').map((h) => h.text())).toEqual([
+      'Group',
+      'Submitted',
+      'Type',
+      'Actions',
+      'Actions'
+    ])
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
     expect(cells[1]!.text()).toMatch(/^10\/10\/26 \d{2}:05$/)
     expect(cells[2]!.text()).toBe('PPTX')
     // PowerPoint can't show in the browser: only Download, its name on hover.
-    const links = cells[3]!.findAll('a')
+    expect(cells[3]!.find('a').exists()).toBe(false)
+    const links = btf2!.findAll('a')
     expect(links.map((a) => a.text())).toEqual(['Download'])
     expect(links[0]!.attributes('href')).toBe('/slides/2/file/?download=1')
     expect(links[0]!.attributes('title')).toBe('BTF2 slides.pptx')
-    expect(btf10!.text()).toBe('BTF10Not submitted yet')
+    expect(btf10!.findAll('td').slice(0, 3).map((c) => c.text())).toEqual(['BTF10', 'Not submitted yet', '—'])
     expect(btf10!.find('a').exists()).toBe(false)
   })
 
@@ -337,7 +345,7 @@ describe('Finalist Presentation', () => {
     const wrapper = await mountPage()
     const table = wrapper.find('.finalist-presentation__submissions')
     expect(table.text()).toContain("Set the date they're due on Notify Finalists.")
-    expect(table.find('.finalist-presentation__empty').text()).toBe('No finalist teams yet.')
+    expect(table.find('.data-table-empty').text()).toBe('No finalist teams yet.')
   })
 
   it('offers a retry when the times fail to load', async () => {

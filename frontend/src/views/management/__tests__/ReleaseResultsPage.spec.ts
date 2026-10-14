@@ -6,7 +6,6 @@ import {
   downloadResultsSampleSheet,
   downloadSupervisorMarksSheet,
   fetchCertificatesRelease,
-  fetchOutcomeAnnouncement,
   fetchTestEmailRecipients,
   fetchRelease,
   fetchResultsEmailDetails,
@@ -28,21 +27,7 @@ vi.mock('@/utils/managementAPI', () => ({
   fetchResultsEmailDetails: vi.fn(),
   updateResultsEmailDetails: vi.fn(),
   previewResultsEmail: vi.fn(),
-  startResultsEmail: vi.fn(),
-  fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
-    title: `${kind} news`,
-    body: '<p>News.</p>',
-    preview: { title: `${kind} news`, body: '<p>News.</p>' },
-    merge_tags: [],
-    edited: false,
-    edited_by: null,
-    edited_at: null,
-    recipients: 1,
-    noun: 'group',
-    blocked: '',
-    posted_at: null,
-    posted_by: null
-  }))
+  startResultsEmail: vi.fn()
 }))
 const detailsMock = vi.mocked(fetchResultsEmailDetails)
 const saveMock = vi.mocked(updateResultsEmailDetails)
@@ -300,18 +285,10 @@ describe('sample spreadsheet', () => {
 })
 
 describe('announcements', () => {
-  it('has one for the group email and one for the supervisor email, each on its own line', async () => {
+  it('has none to post with the group or supervisor email', async () => {
     const wrapper = await mountPage()
-    const rows = wrapper.findAll('.release-results__send .outcome-announcement__actions')
-    expect(rows.map((row) => row.findAll('button').map((b) => b.text()))).toEqual([
-      ['Preview Group Announcement', 'Edit Group Announcement', 'Post Group Announcement'],
-      ['Preview Supervisor Announcement', 'Edit Supervisor Announcement', 'Post Supervisor Announcement']
-    ])
-    expect(vi.mocked(fetchOutcomeAnnouncement).mock.calls.map(([kind]) => kind)).toEqual(
-      expect.arrayContaining(['results-groups', 'results-supervisors'])
-    )
-    await buttonNamed(wrapper, /^Preview Supervisor Announcement$/).trigger('click')
-    expect(wrapper.find('[aria-label="Supervisor Announcement preview"]').text()).toContain('results-supervisors news')
+    expect(wrapper.find('.outcome-announcement').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Announcement')
   })
 })
 

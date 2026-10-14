@@ -1,9 +1,9 @@
 <template>
   <div class="content-area">
-    <div class="resource-header">
+    <div class="resource-header page-header">
       <div>
-        <h1>Resource Library</h1>
-        <p class="resource-subtitle">Browse available files and pages.</p>
+        <h1 class="page-title">Resource Library</h1>
+        <p class="page-subtitle">Browse available files and pages.</p>
       </div>
       <div v-if="isAdmin" class="resource-header__actions">
         <button
@@ -17,249 +17,136 @@
       </div>
     </div>
 
-    <section class="resource-toolbar" aria-label="Resource filters">
-      <label class="filter-field filter-field-search">
-        <span class="filter-label">Search</span>
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="form-control resource-search"
-          placeholder="Search by name or description..."
-        />
-      </label>
-
-      <label class="filter-field">
-        <span class="filter-label">Type</span>
-        <select v-model="selectedType" class="form-control resource-select" aria-label="Filter by type">
-          <option value="">All types</option>
-          <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
-            {{ formatTypeName(type.type_name) }}
-          </option>
-        </select>
-      </label>
-
-      <label class="filter-field">
-        <span class="filter-label">Since</span>
-        <AppDatePicker
-          v-model="sinceDate"
-          placeholder="Filter since date"
-        />
-        <span v-if="getFieldError('since')" class="field-error">{{ getFieldError('since') }}</span>
-      </label>
-
-      <label class="filter-field">
-        <span class="filter-label">Until</span>
-        <AppDatePicker
-          v-model="untilDate"
-          placeholder="Filter until date"
-        />
-        <span v-if="getFieldError('until')" class="field-error">{{ getFieldError('until') }}</span>
-      </label>
-
-      <label class="filter-field">
-        <span class="filter-label">Sort</span>
-        <select v-model="sortOrder" class="form-control resource-select" aria-label="Sort resources">
-          <option value="newest">Newest first</option>
-          <option value="oldest">Oldest first</option>
-          <option value="name">Name A-Z</option>
-        </select>
-        <span v-if="getFieldError('order')" class="field-error">{{ getFieldError('order') }}</span>
-      </label>
-    </section>
-
-    <div class="resource-layout">
-      <aside class="label-sidebar card" aria-label="Resource labels">
-        <h2>Labels</h2>
-        <button
-          type="button"
-          :class="['label-filter', !selectedLabelId ? 'label-filter-active' : '']"
-          @click="selectedLabelId = ''"
-        >
-          <span>All labels</span>
-        </button>
-        <button
-          v-for="label in labels"
-          :key="label.id"
-          type="button"
-          :class="['label-filter', selectedLabelId === String(label.id) ? 'label-filter-active' : '']"
-          @click="selectedLabelId = String(label.id)"
-        >
-          <span>{{ label.name }}</span>
-          <span class="label-count">{{ label.resource_count ?? 0 }}</span>
-        </button>
-        <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
-      </aside>
-
-      <section class="resource-results">
-        <div v-if="loading" class="card resource-state">
-          <span class="loading"></span>
-          <span>Loading resources...</span>
-        </div>
-
-        <div v-else-if="error" class="card resource-state resource-state-error">
-          <h3>Error</h3>
-          <p>{{ error }}</p>
-          <button @click="loadResources" class="btn btn-primary">Retry</button>
-        </div>
-
-        <div v-else-if="resources.length === 0" class="card resource-state resource-empty-state">
-          <h3>No resources found</h3>
-          <p>Try changing your search or filters.</p>
-        </div>
-
-        <!-- Bulk Actions Bar for Admins -->
-        <BulkActionsBar
-          v-if="isAdmin && selectedResourceIds.length && !loading"
-          :count="selectedResourceIds.length"
-          noun="resource"
-          :disabled="batchBusy"
-          @clear="clearSelection"
-        >
-          <button
-            type="button"
-            class="btn btn-sm btn-outline"
-            :disabled="batchBusy"
-            @click="openBatchAccessModal"
-          >
-            <i class="fas fa-user-shield" aria-hidden="true"></i>
-            <span>Edit Access</span>
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm btn-danger"
-            :disabled="batchBusy"
-            @click="confirmBulkDelete"
-          >
-            <i class="fas fa-trash-can" aria-hidden="true"></i>
-            <span>Delete</span>
-          </button>
-        </BulkActionsBar>
-
-        <div v-if="resources.length > 0" class="resource-list card">
-          <table>
-            <thead>
-              <tr>
-                <th v-if="isAdmin" class="th-select">
-                  <input
-                    type="checkbox"
-                    :checked="allOnPageSelected"
-                    :indeterminate.prop="someOnPageSelected && !allOnPageSelected"
-                    aria-label="Select all resources"
-                    @change="toggleSelectAll"
-                  />
-                </th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Kind</th>
-                <th>Labels</th>
-                <th>Modified</th>
-                <th v-if="isAdmin" class="th-actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="resource in resources"
-                :key="resource.id"
-                class="resource-row"
-                :class="{
-                  'resource-row--menu-open': activeMenuResourceId === resource.id,
-                  'resource-row--selected': isAdmin && selectedResourceIds.includes(resource.id)
-                }"
-                tabindex="0"
-                @click="onRowClick(resource.id, $event)"
-                @keydown.enter="onRowClick(resource.id, $event)"
-              >
-                <td v-if="isAdmin" class="td-select" @click.stop>
-                  <input
-                    type="checkbox"
-                    :checked="selectedResourceIds.includes(resource.id)"
-                    :aria-label="`Select ${resource.name}`"
-                    @change="toggleResourceSelection(resource.id)"
-                  />
-                </td>
-                <td>
-                  <div class="resource-name-cell">
-                    <i :class="getResourceIcon(resource)" aria-hidden="true"></i>
-                    <span>{{ resource.name }}</span>
-                  </div>
-                </td>
-                <td>{{ getResourceTypeLabel(resource) }}</td>
-                <td>{{ getResourceKindLabel(resource.kind) }}</td>
-                <td>
-                  <div v-if="resource.labels?.length" class="label-list">
-                    <span v-for="label in resource.labels" :key="label.id" class="label-chip">
-                      {{ label.name }}
-                    </span>
-                  </div>
-                  <span v-else class="muted">None</span>
-                </td>
-                <td>{{ formatDate(resource.uploaded_at) }}</td>
-                <td v-if="isAdmin" class="td-actions" @click.stop>
-                  <div class="resource-menu">
-                    <button
-                      type="button"
-                      class="resource-more-btn"
-                      :class="{ active: activeMenuResourceId === resource.id }"
-                      aria-label="More resource actions"
-                      aria-haspopup="true"
-                      :aria-expanded="activeMenuResourceId === resource.id"
-                      @click="toggleResourceMenu(resource.id, $event)"
-                    >
-                      <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
-                    </button>
-
-                    <div
-                      v-if="activeMenuResourceId === resource.id"
-                      class="resource-dropdown"
-                      role="menu"
-                    >
-                      <button
-                        type="button"
-                        class="resource-dropdown-item"
-                        role="menuitem"
-                        @click="onMenuAction(resource, 'view')"
-                      >
-                        <i class="fas fa-eye" aria-hidden="true"></i>
-                        <span>View Details</span>
-                      </button>
-                      <button
-                        type="button"
-                        class="resource-dropdown-item"
-                        role="menuitem"
-                        @click="onMenuAction(resource, 'edit')"
-                      >
-                        <i class="fas fa-pen" aria-hidden="true"></i>
-                        <span>Edit Resource</span>
-                      </button>
-                      <button
-                        v-if="resource.kind !== 'page'"
-                        type="button"
-                        class="resource-dropdown-item"
-                        role="menuitem"
-                        @click="onMenuAction(resource, 'download')"
-                      >
-                        <i class="fas fa-download" aria-hidden="true"></i>
-                        <span>Download</span>
-                      </button>
-                      <div class="resource-dropdown-divider"></div>
-                      <button
-                        type="button"
-                        class="resource-dropdown-item resource-dropdown-item--danger"
-                        role="menuitem"
-                        @click="onMenuAction(resource, 'delete')"
-                      >
-                        <i class="fas fa-trash-can" aria-hidden="true"></i>
-                        <span>Delete Resource</span>
-                      </button>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+    <div v-if="error" class="card resource-state resource-state-error">
+      <h3>Error</h3>
+      <p>{{ error }}</p>
+      <button @click="loadResources" class="btn btn-primary">Retry</button>
     </div>
+
+    <!-- Bulk Actions Bar for Admins -->
+    <BulkActionsBar
+      v-if="isAdmin && selectedResourceIds.length && !loading"
+      :count="selectedResourceIds.length"
+      noun="resource"
+      :disabled="batchBusy"
+      @clear="clearSelection"
+    >
+      <button
+        type="button"
+        class="btn btn-sm btn-outline"
+        :disabled="batchBusy"
+        @click="openBatchAccessModal"
+      >
+        <i class="fas fa-user-shield" aria-hidden="true"></i>
+        <span>Edit Access</span>
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm btn-danger"
+        :disabled="batchBusy"
+        @click="confirmBulkDelete"
+      >
+        <i class="fas fa-trash-can" aria-hidden="true"></i>
+        <span>Delete</span>
+      </button>
+    </BulkActionsBar>
+
+    <!-- The shared table. The server searches and filters the rows, and the
+         table sorts them: latest modified first, or by Name or Modified.
+         Label sits after Search. -->
+    <AppDataTable
+      :columns="columns"
+      :rows="tableRows"
+      row-key="id"
+      :loading="loading"
+      :selectable="isAdmin"
+      :selected="selectedResourceIds"
+      :default-sort="DEFAULT_SORT"
+      v-model:search="searchQuery"
+      search-placeholder="Name or description"
+      empty-message="No resources found. Try changing your search or filters."
+      clickable-rows
+      :action-columns="2"
+      @update:selected="onSelectedChange"
+      @row-click="openResourceDetail(toResource($event).id)"
+    >
+      <template #filters>
+        <label class="resource-filter">
+          <span class="resource-filter-label">Label</span>
+          <select v-model="selectedLabelId" aria-label="Filter by label">
+            <option value="">All labels</option>
+            <option v-for="label in labels" :key="label.id" :value="String(label.id)">
+              {{ label.name }} ({{ label.resource_count ?? 0 }})
+            </option>
+          </select>
+          <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
+        </label>
+
+        <label class="resource-filter">
+          <span class="resource-filter-label">Type</span>
+          <select v-model="selectedType" aria-label="Filter by type">
+            <option value="">All types</option>
+            <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
+              {{ formatTypeName(type.type_name) }}
+            </option>
+          </select>
+        </label>
+
+        <label class="resource-filter">
+          <span class="resource-filter-label">Kind</span>
+          <select v-model="selectedKind" aria-label="Filter by kind">
+            <option value="">All kinds</option>
+            <option v-for="kind in RESOURCE_KINDS" :key="kind" :value="kind">
+              {{ getResourceKindLabel(kind) }}
+            </option>
+          </select>
+          <span v-if="getFieldError('kind')" class="field-error">{{ getFieldError('kind') }}</span>
+        </label>
+
+      </template>
+
+      <!-- The icon's own column, with no heading to see. -->
+      <template #head-icon>
+        <span class="sr-only">Icon</span>
+      </template>
+      <template #cell-icon="{ row }">
+        <i class="resource-row-icon" :class="getResourceIcon(toResource(row))" aria-hidden="true"></i>
+      </template>
+
+      <template #cell-name="{ row }">
+        <span class="resource-name-cell">{{ toResource(row).name }}</span>
+      </template>
+
+      <template #cell-labels="{ row }">
+        <span v-if="toResource(row).labels?.length" class="label-list">
+          <span v-for="label in toResource(row).labels" :key="label.id" class="label-chip">
+            {{ label.name }}
+          </span>
+        </span>
+        <span v-else class="muted">None</span>
+      </template>
+
+      <!-- Edit | Delete, each in its own column, as the other tables do.
+           Clicking its name opens it. -->
+      <template v-if="isAdmin" #actions="{ row, column }">
+        <button
+          v-if="column === 0"
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click.stop="openEditResource(toResource(row))"
+        >
+          Edit
+        </button>
+        <button
+          v-else
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click.stop="confirmDeleteResource(toResource(row))"
+        >
+          Delete
+        </button>
+      </template>
+    </AppDataTable>
 
     <!-- Admin Side Panels & Confirm Dialogs -->
     <AdminResourceFormSheet
@@ -306,14 +193,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import AppDatePicker from '../components/AppDatePicker.vue'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminResourceBatchAccessModal from '@/components/admin/resources/AdminResourceBatchAccessModal.vue'
 import AdminResourceFormSheet from '@/components/admin/resources/AdminResourceFormSheet.vue'
 import {
   deleteAdminResource,
-  downloadAdminResourceFile,
   updateAdminResource
 } from '@/utils/adminAPI'
 import {
@@ -326,6 +212,7 @@ import {
   type ResourceType
 } from '../utils/resourcesAPI'
 import { ApiError } from '../utils/apiError'
+import { formatDayMonth } from '../utils/date'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -335,7 +222,6 @@ const isAdmin = computed(() => auth.isAdmin)
 const busy = ref(false)
 const formSheetOpen = ref(false)
 const formEditResource = ref<Resource | null>(null)
-const activeMenuResourceId = ref<number | null>(null)
 const deleteConfirm = ref<{
   open: boolean
   resource: Resource | null
@@ -367,32 +253,16 @@ const fieldErrors = ref<Record<string, string[]>>({})
 const searchQuery = ref('')
 const selectedType = ref('')
 const selectedLabelId = ref('')
-const sinceDate = ref('')
-const untilDate = ref('')
-const sortOrder = ref<'newest' | 'oldest' | 'name'>('newest')
+const selectedKind = ref('')
+// The kinds a resource can be, as the server has them.
+const RESOURCE_KINDS: ResourceKind[] = ['file', 'page', 'attachment']
 let loadSequence = 0
 
 const getFieldError = (field: string): string => fieldErrors.value[field]?.[0] || ''
 
-const validateFilters = (): boolean => {
-  fieldErrors.value = {}
-  if (sinceDate.value && untilDate.value && untilDate.value < sinceDate.value) {
-    fieldErrors.value = {
-      until: ['until must be on or after since.']
-    }
-    return false
-  }
-  return true
-}
-
 const loadResources = async (): Promise<void> => {
   if (!auth.isAuthenticated) {
     error.value = 'You must be logged in to view resources'
-    return
-  }
-
-  if (!validateFilters()) {
-    error.value = ''
     return
   }
 
@@ -405,9 +275,7 @@ const loadResources = async (): Promise<void> => {
       search: searchQuery.value.trim() || undefined,
       type: selectedType.value || undefined,
       label_id: selectedLabelId.value ? Number(selectedLabelId.value) : undefined,
-      since: sinceDate.value || undefined,
-      until: untilDate.value || undefined,
-      order: sortOrder.value,
+      kind: selectedKind.value || undefined,
       page: 1,
       page_size: 100
     })
@@ -444,19 +312,48 @@ const loadResourceLookups = async (): Promise<void> => {
   }
 }
 
+// The table's columns; Name and Modified sort, Modified by its time.
+const columns: DataTableColumn[] = [
+  { key: 'icon', label: '', sortable: false, cellClass: () => 'resource-icon-cell' },
+  // Names the row, though the icon comes first.
+  { key: 'name', label: 'Name', wrap: true, primary: true },
+  { key: 'type', label: 'Type', sortable: false },
+  { key: 'kind', label: 'Kind', sortable: false },
+  { key: 'labels', label: 'Labels', wrap: true, sortable: false },
+  {
+    key: 'modified',
+    label: 'Modified',
+    sortValue: (row) => Date.parse(String((row.resource as Resource).uploaded_at)) || 0,
+  },
+]
+// Latest modified first, until a heading is clicked.
+const DEFAULT_SORT: DataTableSort = { key: 'modified', direction: 'desc' }
+
+const tableRows = computed(() =>
+  resources.value.map((resource) => ({
+    id: resource.id,
+    // The first column's text names the row for its tick box.
+    icon: resource.name,
+    name: resource.name,
+    type: getResourceTypeLabel(resource),
+    kind: getResourceKindLabel(resource.kind),
+    labels: (resource.labels ?? []).map((label) => label.name).join(', '),
+    modified: formatDate(resource.uploaded_at),
+    resource,
+  })),
+)
+const toResource = (row: Record<string, unknown>) => row.resource as Resource
+
+const onSelectedChange = (keys: (string | number)[]) => {
+  selectedResourceIds.value = keys.map(Number)
+}
+
 const openResourceDetail = (id: number): void => {
   router.push({ name: 'resource-detail', params: { id } })
 }
 
-const formatDate = (value: string): string => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Unknown'
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
+// "9 Oct", in the set time.
+const formatDate = (value: string): string => formatDayMonth(value) || 'Unknown'
 
 const formatTypeName = (value?: string | null): string => {
   if (!value) return 'Resource'
@@ -504,7 +401,7 @@ const formatFileSize = (value?: number | null): string => {
 }
 
 let searchTimer: any
-watch([searchQuery, selectedType, selectedLabelId, sortOrder, sinceDate, untilDate], () => {
+watch([searchQuery, selectedType, selectedLabelId, selectedKind], () => {
   window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => {
     loadResources()
@@ -519,37 +416,6 @@ const openCreateResource = () => {
 const openEditResource = (resource: Resource) => {
   formEditResource.value = resource
   formSheetOpen.value = true
-}
-
-const toggleResourceMenu = (id: number, event?: Event) => {
-  event?.stopPropagation()
-  activeMenuResourceId.value = activeMenuResourceId.value === id ? null : id
-}
-
-const closeResourceMenu = () => {
-  activeMenuResourceId.value = null
-}
-
-const onMenuAction = (resource: Resource, action: 'view' | 'edit' | 'download' | 'delete') => {
-  closeResourceMenu()
-  if (action === 'view') {
-    openResourceDetail(resource.id)
-  } else if (action === 'edit') {
-    openEditResource(resource)
-  } else if (action === 'download') {
-    void handleDownload(resource)
-  } else if (action === 'delete') {
-    confirmDeleteResource(resource)
-  }
-}
-
-const handleDownload = async (resource: Resource) => {
-  try {
-    await downloadAdminResourceFile(resource.id, resource.file_name || `${resource.name}.bin`)
-  } catch (err: any) {
-    console.error('Download failed:', err)
-    error.value = err?.message || 'Download failed.'
-  }
 }
 
 const confirmDeleteResource = (resource: Resource) => {
@@ -590,47 +456,8 @@ const onFormEditorDelete = () => {
   }
 }
 
-const allOnPageSelected = computed(() => {
-  if (!resources.value.length) return false
-  return resources.value.every((r) => selectedResourceIds.value.includes(r.id))
-})
-
-const someOnPageSelected = computed(() => {
-  return resources.value.some((r) => selectedResourceIds.value.includes(r.id))
-})
-
-const toggleResourceSelection = (id: number) => {
-  const idx = selectedResourceIds.value.indexOf(id)
-  if (idx > -1) {
-    selectedResourceIds.value.splice(idx, 1)
-  } else {
-    selectedResourceIds.value.push(id)
-  }
-}
-
-const toggleSelectAll = () => {
-  if (allOnPageSelected.value) {
-    const pageIds = new Set(resources.value.map((r) => r.id))
-    selectedResourceIds.value = selectedResourceIds.value.filter((id) => !pageIds.has(id))
-  } else {
-    const set = new Set(selectedResourceIds.value)
-    for (const r of resources.value) {
-      set.add(r.id)
-    }
-    selectedResourceIds.value = Array.from(set)
-  }
-}
-
 const clearSelection = () => {
   selectedResourceIds.value = []
-}
-
-const onRowClick = (resourceId: number, event?: Event) => {
-  const target = event?.target
-  if (target instanceof Element && target.closest('a, button, [data-row-ignore], .resource-menu')) {
-    return
-  }
-  openResourceDetailFromRow(resourceId, event)
 }
 
 const openBatchAccessModal = () => {
@@ -708,40 +535,13 @@ const runBulkDeleteResources = async () => {
   }
 }
 
-const openResourceDetailFromRow = (id: number, event?: Event) => {
-  const target = event?.target
-  if (target instanceof Element && target.closest('a, button, input, select, textarea, [data-row-ignore]')) {
-    return
-  }
-  openResourceDetail(id)
-}
-
-const onDocumentClick = (e: MouseEvent) => {
-  if (activeMenuResourceId.value !== null) {
-    const target = e.target as HTMLElement | null
-    if (!target?.closest('.resource-menu')) {
-      activeMenuResourceId.value = null
-    }
-  }
-}
-
-const onKeyDown = (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && activeMenuResourceId.value !== null) {
-    activeMenuResourceId.value = null
-  }
-}
-
 onMounted(() => {
   loadResourceLookups()
   loadResources()
-  document.addEventListener('click', onDocumentClick)
-  window.addEventListener('keydown', onKeyDown)
 })
 
 onBeforeUnmount(() => {
   window.clearTimeout(searchTimer)
-  document.removeEventListener('click', onDocumentClick)
-  window.removeEventListener('keydown', onKeyDown)
 })
 </script>
 
@@ -751,149 +551,6 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.resource-subtitle {
-  color: var(--text-muted);
-  margin: -0.5rem 0 0;
-}
-
-.resource-toolbar {
-  align-items: center;
-  display: grid;
-  grid-template-columns: minmax(240px, 2fr) minmax(130px, 1fr) minmax(130px, 0.9fr) minmax(130px, 0.9fr) minmax(130px, 1fr);
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.filter-field {
-  display: grid;
-  gap: 0.3rem;
-  min-width: 0;
-}
-
-.filter-label {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-:deep(.app-date-picker-input) {
-  min-height: 42px;
-  font-size: 1rem;
-}
-
-.resource-select,
-.resource-date,
-.resource-search {
-  min-height: 42px;
-  background-color: var(--white);
-}
-
-.field-error {
-  color: var(--danger);
-  font-size: 0.82rem;
-  line-height: 1.25;
-}
-
-.resource-layout {
-  align-items: start;
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: 220px minmax(0, 1fr);
-}
-
-.label-sidebar {
-  margin: 0;
-  padding: 1rem;
-}
-
-.label-sidebar h2 {
-  font-size: 1.1rem;
-  margin-bottom: 0.75rem;
-}
-
-.label-filter {
-  align-items: center;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--charcoal);
-  cursor: pointer;
-  display: flex;
-  font: inherit;
-  justify-content: space-between;
-  margin-bottom: 0.25rem;
-  min-height: 36px;
-  padding: 0.45rem 0.55rem;
-  text-align: left;
-  width: 100%;
-}
-
-.label-filter:hover,
-.label-filter-active {
-  background: var(--accent-green-soft);
-  border-color: rgba(1, 113, 81, 0.18);
-  color: var(--dark-green);
-}
-
-.label-count {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.resource-results {
-  min-width: 0;
-}
-
-.resource-state {
-  align-items: center;
-  display: flex;
-  gap: 0.75rem;
-}
-
-.resource-empty-state {
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.35rem;
-  text-align: center;
-}
-
-.resource-empty-state h3,
-.resource-empty-state p {
-  margin: 0;
-}
-
-.resource-empty-state p {
-  color: var(--text-muted);
-}
-
-.resource-state-error {
-  align-items: flex-start;
-  border-left: 4px solid var(--danger);
-  flex-direction: column;
-}
-
-.resource-list {
-  overflow-x: auto;
-  overflow-y: visible;
-  padding: 0;
-  position: relative;
-}
-
-.resource-row {
-  cursor: pointer;
-}
-
-.resource-row--menu-open {
-  position: relative;
-  z-index: 10;
-}
-
-.resource-row:focus-visible {
-  outline-offset: -2px;
 }
 
 .resource-header__actions {
@@ -903,163 +560,68 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.th-select,
-.td-select {
-  width: 44px;
-  text-align: center;
-  padding-left: 0.85rem !important;
-  padding-right: 0.85rem !important;
-  vertical-align: middle;
-}
-
-.th-select input[type='checkbox'],
-.td-select input[type='checkbox'] {
-  width: 17px;
-  height: 17px;
-  cursor: pointer;
-  accent-color: var(--dark-green);
-  vertical-align: middle;
-}
-
-.resource-row--selected {
-  background-color: var(--light-green) !important;
-}
-
-.th-actions {
-  width: 70px;
-  text-align: right;
-  padding-right: 1.25rem !important;
-}
-
-.td-actions {
-  text-align: right;
-  padding-right: 1rem !important;
-  white-space: nowrap;
-}
-
-.resource-menu {
-  position: relative;
-  display: inline-flex;
-  justify-content: flex-end;
-}
-
-.resource-more-btn {
-  display: inline-flex;
+.resource-state {
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1px solid var(--border-light);
-  background-color: var(--white);
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0;
-  font-size: 0.82rem;
-  transition: all 0.18s ease;
-}
-
-.resource-more-btn:hover,
-.resource-more-btn.active {
-  background-color: var(--accent-green-soft);
-  color: var(--dark-green);
-  border-color: var(--dark-green);
-}
-
-.resource-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 170px;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
-  padding: 0.35rem 0;
-  z-index: 50;
-  text-align: left;
-  animation: dropdown-pop 0.15s ease-out;
-}
-
-@keyframes dropdown-pop {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.resource-dropdown-item {
   display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  padding: 0.5rem 0.85rem;
-  border: none;
-  background: transparent;
-  font-size: 0.84rem;
-  font-weight: 500;
-  color: var(--charcoal);
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  gap: 0.75rem;
 }
 
-.resource-dropdown-item i {
-  width: 16px;
-  text-align: center;
-  font-size: 0.8rem;
+.resource-state-error {
+  align-items: flex-start;
+  border-left: 4px solid var(--danger);
+  flex-direction: column;
+}
+
+/* Label and the other filters, in the table's search card, drawn like Search. */
+.resource-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.resource-filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.resource-dropdown-item:hover {
-  background-color: var(--bg-light);
+.resource-filter select {
+  min-width: 9rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+/* Just wide enough for the icon, close to the name after it. */
+:deep(.resource-icon-cell) {
+  width: 2.5rem;
+  padding-right: 0;
+}
+
+/* Not .resource-icon: main.css has that as a card's big banner. */
+.resource-row-icon {
+  display: inline-block;
+  width: 20px;
   color: var(--dark-green);
-}
-
-.resource-dropdown-item:hover i {
-  color: var(--dark-green);
-}
-
-.resource-dropdown-item--danger {
-  color: var(--danger);
-}
-
-.resource-dropdown-item--danger i {
-  color: var(--danger);
-}
-
-.resource-dropdown-item--danger:hover {
-  background-color: rgba(220, 53, 69, 0.08);
-  color: var(--danger);
-}
-
-.resource-dropdown-item--danger:hover i {
-  color: var(--danger);
-}
-
-.resource-dropdown-divider {
-  height: 1px;
-  background: var(--border-light);
-  margin: 0.3rem 0;
+  text-align: center;
 }
 
 .resource-name-cell {
-  align-items: center;
-  display: flex;
-  gap: 0.9rem;
+  display: block;
   font-weight: 600;
   min-width: 220px;
-}
-
-.resource-name-cell i {
-  color: var(--dark-green);
-  flex: 0 0 22px;
-  text-align: center;
-  width: 20px;
 }
 
 .label-list {
@@ -1086,28 +648,6 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) {
   .resource-header {
     flex-direction: column;
-  }
-
-  .resource-toolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .resource-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .label-sidebar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.35rem;
-  }
-
-  .label-sidebar h2 {
-    grid-column: 1 / -1;
-  }
-
-  .label-filter {
-    margin-bottom: 0;
   }
 }
 </style>

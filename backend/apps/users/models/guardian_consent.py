@@ -6,7 +6,8 @@ class GuardianConsentRequest(models.Model):
     """A consent link emailed to a student's guardian.
 
     Only a hash of the token is stored, so the table can't be used to open
-    links. A link works once, until it expires, and only while it's the newest
+    links. The token is worked out from the request and the server's secret,
+    so a supervisor can copy a link that's already out. A link works once, until it expires, and only while it's the newest
     one for the student: sending another revokes it.
     """
 

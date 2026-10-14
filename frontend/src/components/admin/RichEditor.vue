@@ -34,9 +34,6 @@ interface Props {
    * do survive, drawn with lines and padding the server keeps.
    */
   emailMode?: boolean
-  /** The Box and Button tools, as in email mode, with every other tool kept:
-   *  for announcements. */
-  blocks?: boolean
   /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
   compact?: boolean
   /** Email mode: the email's link placeholders, offered in the link dialog. */
@@ -53,7 +50,6 @@ const props = withDefaults(defineProps<Props>(), {
   placeholder: undefined,
   readOnly: false,
   emailMode: false,
-  blocks: false,
   compact: false,
   linkPlaceholders: () => []
 })
@@ -109,11 +105,12 @@ const editor = useEditor({
     Placeholder.configure({
       placeholder: resolvedPlaceholder.value
     }),
-    // Emails keep the boxes and buttons of their built-in design; announcements
-    // can have them too.
-    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : []),
-    // Emails also keep their text's colours, sizes and spacing.
-    ...(props.emailMode ? [EmailTextStyle, EmailTextStyles] : [])
+    // The boxes and buttons of the emails' built-in design, in every editor.
+    EmailBox,
+    EmailButton,
+    // Every editor keeps its text's colours, sizes and spacing.
+    EmailTextStyle,
+    EmailTextStyles
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -566,133 +563,131 @@ defineExpose({ insertText })
             </div>
           </div>
 
-          <!-- Text colour and size, kept on save (email mode) -->
-          <template v-if="emailMode">
-            <div class="toolbar-sep"></div>
-            <div class="heading-dropdown-container">
+          <!-- Text colour, size and gap, kept on save, in every editor -->
+          <div class="toolbar-sep"></div>
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: !!textColour }"
+              title="Colour the selected text"
+              data-test="text-colour"
+              @mousedown.prevent="toggleEmailMenu('colour', $event)"
+            >
+              <i class="fas fa-palette"></i>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'colour'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
+              <template v-if="colourNote">
+                <div class="dropdown-item email-look-item text-now active" data-test="colour-now">
+                  <span v-if="shownColour" class="email-look-swatch" :style="{ backgroundColor: shownColour }"></span>
+                  {{ colourNote }}
+                </div>
+                <div class="email-look-sep"></div>
+              </template>
               <button
+                v-for="colour in TEXT_COLOURS"
+                :key="colour.value"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: !!textColour }"
-                title="Colour the selected text"
-                data-test="text-colour"
-                @mousedown.prevent="toggleEmailMenu('colour', $event)"
+                class="dropdown-item email-look-item"
+                :class="{ active: isShownColour(colour.value) }"
+                @mousedown.prevent="chooseTextColour(colour.value)"
               >
-                <i class="fas fa-palette"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
+                {{ colour.label }}
               </button>
-              <div
-                v-if="emailMenu === 'colour'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <template v-if="colourNote">
-                  <div class="dropdown-item email-look-item text-now active" data-test="colour-now">
-                    <span v-if="shownColour" class="email-look-swatch" :style="{ backgroundColor: shownColour }"></span>
-                    {{ colourNote }}
-                  </div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="colour in TEXT_COLOURS"
-                  :key="colour.value"
-                  type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: isShownColour(colour.value) }"
-                  @mousedown.prevent="chooseTextColour(colour.value)"
-                >
-                  <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
-                  {{ colour.label }}
+              <template v-if="textColour">
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextColour(null)">
+                  No colour
                 </button>
-                <template v-if="textColour">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextColour(null)">
-                    No colour
-                  </button>
-                </template>
-              </div>
+              </template>
             </div>
-            <div class="heading-dropdown-container">
+          </div>
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: !!textSize }"
+              title="Resize the selected text"
+              data-test="text-size"
+              @mousedown.prevent="toggleEmailMenu('size', $event)"
+            >
+              <i class="fas fa-text-height"></i>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'size'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
+              <template v-if="sizeNote">
+                <div class="dropdown-item text-now active" data-test="size-now">{{ sizeNote }}</div>
+                <div class="email-look-sep"></div>
+              </template>
               <button
+                v-for="size in TEXT_SIZES"
+                :key="size.value"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: !!textSize }"
-                title="Resize the selected text"
-                data-test="text-size"
-                @mousedown.prevent="toggleEmailMenu('size', $event)"
+                class="dropdown-item"
+                :class="{ active: shownSize === size.value }"
+                :style="{ fontSize: size.value }"
+                @mousedown.prevent="chooseTextSize(size.value)"
               >
-                <i class="fas fa-text-height"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                {{ size.label }}
               </button>
-              <div
-                v-if="emailMenu === 'size'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <template v-if="sizeNote">
-                  <div class="dropdown-item text-now active" data-test="size-now">{{ sizeNote }}</div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="size in TEXT_SIZES"
-                  :key="size.value"
-                  type="button"
-                  class="dropdown-item"
-                  :class="{ active: shownSize === size.value }"
-                  :style="{ fontSize: size.value }"
-                  @mousedown.prevent="chooseTextSize(size.value)"
-                >
-                  {{ size.label }}
+              <template v-if="textSize">
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextSize(null)">
+                  Normal size
                 </button>
-                <template v-if="textSize">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextSize(null)">
-                    Normal size
-                  </button>
-                </template>
-              </div>
+              </template>
             </div>
-            <div class="heading-dropdown-container">
+          </div>
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Gap below the selected paragraphs, box or button"
+              data-test="text-gap"
+              @mousedown.prevent="toggleEmailMenu('gap', $event)"
+            >
+              <i class="fas fa-arrows-up-down"></i>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'gap'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
+              <template v-if="gapNote">
+                <div
+                  class="dropdown-item gap-now"
+                  :class="{ active: canSetGap }"
+                  data-test="gap-now"
+                  :title="gapBelow ? undefined : 'No gap is set here: the email app puts its usual space after a paragraph'"
+                >
+                  {{ gapNote }}
+                </div>
+                <div class="email-look-sep"></div>
+              </template>
               <button
+                v-for="gap in TEXT_GAPS"
+                :key="gap.value"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                title="Gap below the selected paragraphs, box or button"
-                data-test="text-gap"
-                @mousedown.prevent="toggleEmailMenu('gap', $event)"
+                class="dropdown-item"
+                :class="{ active: gapBelow === gap.value }"
+                :disabled="!canSetGap"
+                @mousedown.prevent="chooseGap(gap.value)"
               >
-                <i class="fas fa-arrows-up-down"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                {{ gap.label }} ({{ gap.value }})
               </button>
-              <div
-                v-if="emailMenu === 'gap'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <template v-if="gapNote">
-                  <div
-                    class="dropdown-item gap-now"
-                    :class="{ active: canSetGap }"
-                    data-test="gap-now"
-                    :title="gapBelow ? undefined : 'No gap is set here: the email app puts its usual space after a paragraph'"
-                  >
-                    {{ gapNote }}
-                  </div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="gap in TEXT_GAPS"
-                  :key="gap.value"
-                  type="button"
-                  class="dropdown-item"
-                  :class="{ active: gapBelow === gap.value }"
-                  :disabled="!canSetGap"
-                  @mousedown.prevent="chooseGap(gap.value)"
-                >
-                  {{ gap.label }} ({{ gap.value }})
-                </button>
-              </div>
             </div>
-          </template>
+          </div>
 
           <div class="toolbar-sep"></div>
 
@@ -782,84 +777,82 @@ defineExpose({ insertText })
             <i class="fas fa-minus"></i>
           </button>
 
-          <!-- Email design blocks, kept on save -->
-          <template v-if="emailMode || blocks">
-            <div class="heading-dropdown-container">
+          <!-- Box and Button, kept on save, in every editor -->
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: isActive('emailBox') }"
+              title="Put the selected lines in a box, change the box, or take them out"
+              @mousedown.prevent="toggleEmailMenu('box', $event)"
+            >
+              <i class="far fa-square"></i>
+              <span>Box</span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'box'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
               <button
+                v-for="look in BOX_LOOKS"
+                :key="look.id"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: isActive('emailBox') }"
-                title="Put the selected lines in a box, change the box, or take them out"
-                @mousedown.prevent="toggleEmailMenu('box', $event)"
+                class="dropdown-item email-look-item"
+                :class="{ active: boxLook === look.id }"
+                @mousedown.prevent="chooseBoxLook(look.style)"
               >
-                <i class="far fa-square"></i>
-                <span>Box</span>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                <span class="email-look-swatch" :style="swatchOf(look)"></span>
+                {{ look.label }}
               </button>
-              <div
-                v-if="emailMenu === 'box'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <button
-                  v-for="look in BOX_LOOKS"
-                  :key="look.id"
-                  type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: boxLook === look.id }"
-                  @mousedown.prevent="chooseBoxLook(look.style)"
-                >
-                  <span class="email-look-swatch" :style="swatchOf(look)"></span>
-                  {{ look.label }}
+              <template v-if="isActive('emailBox')">
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="chooseBoxLook(null)">
+                  No box
                 </button>
-                <template v-if="isActive('emailBox')">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseBoxLook(null)">
-                    No box
-                  </button>
-                </template>
-              </div>
+              </template>
             </div>
-            <div class="heading-dropdown-container">
+          </div>
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: isActive('emailButton') }"
+              title="Turn this line into a button, or change the button"
+              @mousedown.prevent="toggleEmailMenu('button', $event)"
+            >
+              <i class="fas fa-hand-pointer"></i>
+              <span>Button</span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'button'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
               <button
+                v-for="look in BUTTON_LOOKS"
+                :key="look.id"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: isActive('emailButton') }"
-                title="Turn this line into a button, or change the button"
-                @mousedown.prevent="toggleEmailMenu('button', $event)"
+                class="dropdown-item email-look-item"
+                :class="{ active: buttonLook === look.id }"
+                @mousedown.prevent="chooseButtonLook(look.style)"
               >
-                <i class="fas fa-hand-pointer"></i>
-                <span>Button</span>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                <span class="email-look-swatch" :style="swatchOf(look)"></span>
+                {{ look.label }}
               </button>
-              <div
-                v-if="emailMenu === 'button'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <button
-                  v-for="look in BUTTON_LOOKS"
-                  :key="look.id"
-                  type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: buttonLook === look.id }"
-                  @mousedown.prevent="chooseButtonLook(look.style)"
-                >
-                  <span class="email-look-swatch" :style="swatchOf(look)"></span>
-                  {{ look.label }}
+              <template v-if="isActive('emailButton')">
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="changeButtonLink">
+                  Change link…
                 </button>
-                <template v-if="isActive('emailButton')">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="changeButtonLink">
-                    Change link…
-                  </button>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="removeButton">
-                    No button
-                  </button>
-                </template>
-              </div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="removeButton">
+                  No button
+                </button>
+              </template>
             </div>
-          </template>
+          </div>
 
           <div class="toolbar-sep"></div>
 

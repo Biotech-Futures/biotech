@@ -315,7 +315,7 @@ class ResultsEmailTests(_GradingFixture):
         files = _files(mail.outbox[0])
         sheet = load_workbook(io.BytesIO(files[f"{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
-        self.assertEqual(dict(zip(rows[0], rows[1]))["PosterComment1"], "Bold layout.")
+        self.assertEqual(dict(zip(rows[0], rows[1]))["Poster Comment 1"], "Bold layout.")
 
     def test_supervisors_get_their_students_and_mentors_certificates_and_a_marks_sheet(self):
         # Only Poster and SAQ, as on the marks summary: another marked component stays out.
@@ -339,31 +339,32 @@ class ResultsEmailTests(_GradingFixture):
             "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
         )
 
-        # One row per group, in the marks summary's own field names: each mark
+        # One row per group, headed by the marks summary's own field names
+        # spaced out (the marks as they are, TeamCode as Group): each mark
         # followed by its comment, then the total.
         sheet = load_workbook(io.BytesIO(files[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
         self.assertEqual(rows[0], [
-            "TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory",
-            *(name for i in range(1, 11) for name in (f"PM{i}", f"PosterComment{i}")),
-            *(name for i in range(1, 5) for name in (f"SM{i}", f"ShortAnswerQuestionComment{i}")),
+            "Group", "Students", "Mentor", "Project Title", "Project Category", "Solution Category",
+            *(name for i in range(1, 11) for name in (f"PM{i}", f"Poster Comment {i}")),
+            *(name for i in range(1, 5) for name in (f"SM{i}", f"Short Answer Question Comment {i}")),
             "MTotal",
         ])
-        self.assertEqual(rows[0][6:10], ["PM1", "PosterComment1", "PM2", "PosterComment2"])
+        self.assertEqual(rows[0][6:10], ["PM1", "Poster Comment 1", "PM2", "Poster Comment 2"])
         self.assertEqual(len(rows), 2)
         row = dict(zip(rows[0], rows[1]))
         self.assertEqual(
-            (row["TeamCode"], row["Students"], row["Mentor"]),
+            (row["Group"], row["Students"], row["Mentor"]),
             ("BTF-TEST-1", "Stu amy, Stu ben", "Mo Mentor"),
         )
         # The design mark is poster criterion 1; content is SAQ 1, clarity (SAQ 2) unmarked.
         self.assertEqual((row["PM1"], row["PM2"], row["SM1"], row["SM2"]), (6.5, None, 8, None))
         # A comment sits beside its mark; one not given stays blank.
         self.assertEqual(
-            (row["PosterComment1"], row["ShortAnswerQuestionComment1"]), ("Bold, clear layout.", None)
+            (row["Poster Comment 1"], row["Short Answer Question Comment 1"]), ("Bold, clear layout.", None)
         )
         # Comments are wide and wrap.
-        comment_letter = get_column_letter(rows[0].index("PosterComment1") + 1)
+        comment_letter = get_column_letter(rows[0].index("Poster Comment 1") + 1)
         self.assertEqual(sheet.column_dimensions[comment_letter].width, 30)
         self.assertTrue(sheet[f"{comment_letter}2"].alignment.wrap_text)
         # One total: the Poster and SAQ marks together.
@@ -603,11 +604,13 @@ class ResultsEmailTests(_GradingFixture):
             r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks_Sample.xlsx"',
         )
         rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
-        self.assertEqual(rows[0][:6], ["TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory"])
-        self.assertEqual(rows[0][-3:], ["SM4", "ShortAnswerQuestionComment4", "MTotal"])
+        self.assertEqual(
+            rows[0][:6], ["Group", "Students", "Mentor", "Project Title", "Project Category", "Solution Category"],
+        )
+        self.assertEqual(rows[0][-3:], ["SM4", "Short Answer Question Comment 4", "MTotal"])
         teams = [dict(zip(rows[0], row)) for row in rows[1:]]
-        self.assertEqual(sorted(t["TeamCode"] for t in teams), ["SAMPLE1", "SAMPLE2", "SAMPLE3"])
-        self.assertEqual({t["TeamCode"]: t["Mentor"] for t in teams}["SAMPLE1"], "Dr Sample Mentor")
+        self.assertEqual(sorted(t["Group"] for t in teams), ["SAMPLE1", "SAMPLE2", "SAMPLE3"])
+        self.assertEqual({t["Group"]: t["Mentor"] for t in teams}["SAMPLE1"], "Dr Sample Mentor")
         # Highest total first, as in the real spreadsheet.
         totals = [t["MTotal"] for t in teams]
         self.assertEqual(totals, sorted(totals, reverse=True))
@@ -639,7 +642,7 @@ class ResultsEmailTests(_GradingFixture):
             io.BytesIO(_files(mail.outbox[0])[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])
         ).active
         rows = [[c.value for c in row] for row in sheet.iter_rows()]
-        self.assertEqual(rows[1][rows[0].index("ProjectTitle")], "Plant Sensors")
+        self.assertEqual(rows[1][rows[0].index("Project Title")], "Plant Sensors")
 
     def test_the_spreadsheet_puts_the_highest_total_first(self):
         # A second group of Sam's students that scored less, and one not marked.
@@ -668,7 +671,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"')
         rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
         row = dict(zip(rows[0], rows[1]))
-        self.assertEqual((row["TeamCode"], row["Students"], row["MTotal"]), ("BTF-TEST-1", "Stu amy, Stu ben", 14.5))
+        self.assertEqual((row["Group"], row["Students"], row["MTotal"]), ("BTF-TEST-1", "Stu amy, Stu ben", 14.5))
         # The same as the one the email attaches, and nothing was sent.
         self.assertEqual(mail.outbox, [])
         self._send_all("supervisors")

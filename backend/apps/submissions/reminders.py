@@ -185,3 +185,9 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
         sent += 1
 
     return {"sent": sent, "skipped": skipped, "failed": failed}
+
+
+def reminder_job(actor, options) -> dict:
+    """The queued run of today's reminders (``send_guard.JOBS``). Each
+    team's email that fails is tried once more at once (see ``send_messages``)."""
+    return send_due_reminders()

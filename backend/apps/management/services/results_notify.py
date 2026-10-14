@@ -24,6 +24,7 @@ Who gets them, for the challenge year (``current_cohort``):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -136,6 +137,21 @@ MARKS_SHEET_COLUMNS = [
     *(name for i in range(1, 5) for name in (f"SM{i}", f"ShortAnswerQuestionComment{i}")),
     "MTotal",
 ]
+
+
+
+def _spaced(name: str) -> str:
+    """"TeamCode" as "Team Code", "PosterComment1" as "Poster Comment 1"."""
+    return re.sub(r"([A-Za-z])(\d)", r"\1 \2", re.sub(r"([a-z])([A-Z])", r"\1 \2", name))
+
+
+# The spreadsheet's headings, on every copy (the supervisor email's, the
+# Release Results downloads, the supervisor's Results page): its field names
+# spaced out, but the marks as they are (PM1, SM1, MTotal), and TeamCode as Group.
+MARKS_SHEET_HEADINGS = {
+    name: "Group" if name == "TeamCode" else name if name in MARKS_SHEET_MARKS else _spaced(name)
+    for name in MARKS_SHEET_COLUMNS
+}
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -450,7 +466,9 @@ def _marks_sheet(rows: list[dict]) -> bytes:
         total = row.get("MTotal")
         return (total in (None, ""), -Decimal(total or 0), natural_key(row.get("TeamCode", "")))
 
-    return build_team_marks_xlsx(sorted(rows, key=order), MARKS_SHEET_COLUMNS, set(MARKS_SHEET_MARKS))
+    return build_team_marks_xlsx(
+        sorted(rows, key=order), MARKS_SHEET_COLUMNS, set(MARKS_SHEET_MARKS), MARKS_SHEET_HEADINGS,
+    )
 
 
 def sample_marks_sheet(year: int) -> bytes:

@@ -317,7 +317,7 @@ const handleSubmit = async () => {
 .form-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -329,7 +329,7 @@ const handleSubmit = async () => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--surface-elevated, #ffffff);
-  color: var(--charcoal);
+  color: var(--teal);
   transition: border-color 0.15s ease-in-out;
 }
 
@@ -366,7 +366,7 @@ const handleSubmit = async () => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   user-select: none;
 }

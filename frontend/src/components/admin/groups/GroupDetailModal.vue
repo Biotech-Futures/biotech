@@ -93,7 +93,7 @@
                 </div>
                 <div class="group-detail__message-meta">
                   <span v-if="message.sender.role" class="group-detail__role-badge">{{ message.sender.role }}</span>
-                  <span class="group-detail__muted">{{ formatMessageTime(message.sent_at) }}</span>
+                  <span class="group-detail__muted">{{ formatShortDateTime(message.sent_at) }}</span>
                   <button
                     type="button"
                     class="group-detail__message-remove"
@@ -106,7 +106,7 @@
                 </div>
               </div>
               <p class="group-detail__message-text">{{ messageBody(message) }}</p>
-              <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatMessageTime(message.edited_at) }}</p>
+              <p v-if="message.edited_at" class="group-detail__muted">Edited {{ formatShortDateTime(message.edited_at) }}</p>
             </li>
           </ul>
 
@@ -179,6 +179,7 @@ import {
   type AdminGroupMessage,
   type AdminUser
 } from '@/utils/adminAPI'
+import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_MAX_SIZE } from '@/utils/groupCapacity'
 
 const props = defineProps<{
@@ -393,12 +394,6 @@ const confirmRemoveMessage = async () => {
     removingMessage.value = false
   }
 }
-
-const formatMessageTime = (value: string): string => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
 </script>
 
 <style scoped>
@@ -411,7 +406,7 @@ const formatMessageTime = (value: string): string => {
 .group-detail__section h3 {
   margin: 0 0 0.6rem;
   font-size: 0.95rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__muted {
@@ -426,7 +421,7 @@ const formatMessageTime = (value: string): string => {
 
 .group-detail__mentor {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__members,
@@ -457,7 +452,7 @@ const formatMessageTime = (value: string): string => {
 
 .group-detail__member-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__member-email {
@@ -518,7 +513,7 @@ const formatMessageTime = (value: string): string => {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-detail__members-head {

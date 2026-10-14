@@ -36,6 +36,7 @@ const AVAILABLE_COLUMNS: ColumnOption[] = [
   { key: 'role', label: 'Role' },
   { key: 'school', label: 'School / Institution' },
   { key: 'matched_mentor', label: 'Matched Mentor / Group' },
+  { key: 'group_count', label: 'Number of Groups' },
   { key: 'status', label: 'Status' },
   { key: 'phone', label: 'Phone' },
   { key: 'state', label: 'State' },
@@ -85,7 +86,7 @@ const toggleColumn = (key: string) => {
 .column-selector__label {
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .column-selector__badge {
@@ -111,7 +112,7 @@ const toggleColumn = (key: string) => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   user-select: none;
 }
@@ -125,6 +126,6 @@ const toggleColumn = (key: string) => {
 
 .column-selector__name {
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

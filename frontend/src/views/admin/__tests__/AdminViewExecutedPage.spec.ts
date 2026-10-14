@@ -150,8 +150,9 @@ describe('AdminViewExecutedPage', () => {
     const result = await mountPage([buildUser()], view)
     wrapper = result.wrapper
 
-    const headers = wrapper.findAll('.admin-table__head').map((h) => h.text().replace(/[^\w ]/g, '').trim())
-    expect(headers).toEqual(['Full Name', 'Email', 'Role', 'Actions'])
+    const headers = wrapper.findAll('.data-table-head').map((h) => h.text().replace(/[^\w ]/g, '').trim())
+    // Edit and Activate/Deactivate each have a column, both headed Actions for screen readers.
+    expect(headers).toEqual(['Full Name', 'Email', 'Role', 'Actions', 'Actions'])
   })
 
   it('opens the user detail sheet from a name click, then the edit form from within it', async () => {

@@ -118,7 +118,7 @@ describe('MatchedGroupsPanel', () => {
     expect(replaceInactiveButton).toBeDefined()
   })
 
-  it('hides the "Replace Inactive Mentors" button when every mentor is active', async () => {
+  it('disables the "Replace Inactive Mentors" button when every mentor is active', async () => {
     const fetchMock = fetchMockFor([activeGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
@@ -126,7 +126,8 @@ describe('MatchedGroupsPanel', () => {
 
     expect(wrapper.text()).not.toContain('inactive')
     const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
-    expect(replaceInactiveButton).toBeUndefined()
+    expect(replaceInactiveButton).toBeDefined()
+    expect(replaceInactiveButton!.attributes('disabled')).toBeDefined()
   })
 
   it('expands a row to show its students', async () => {

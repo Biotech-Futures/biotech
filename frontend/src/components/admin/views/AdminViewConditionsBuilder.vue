@@ -336,7 +336,7 @@ const onFieldChange = (row: ViewCondition) => {
   border: 1px solid var(--border-light, #cbd5e1);
   border-radius: 6px;
   background-color: var(--white, #ffffff);
-  color: var(--charcoal);
+  color: var(--teal);
   transition: border-color 0.15s ease-in-out;
 }
 

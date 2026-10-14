@@ -259,6 +259,13 @@ class SystemEmailRecipientsTests(TestCase):
         self.assertEqual(context["GROUP_NAME"], "BTF2")
         self.assertEqual(str(context["SUBMITTED_BY"]), "Ben Bell")
 
+    def test_an_automated_confirmation_names_the_programme(self):
+        Submission.objects.filter(group=self.btf2).update(submitted_by=None, auto_submitted=True)
+
+        context = recipient_context("submission_confirmation", str(self.btf2.id))
+
+        self.assertEqual(context["SUBMITTED_BY"], "BIOTech Futures")
+
     def test_someone_not_on_the_list_is_refused(self):
         mail.outbox = []
         for key, of in (

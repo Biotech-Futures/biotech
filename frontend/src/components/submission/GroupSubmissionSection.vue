@@ -1,8 +1,8 @@
 <template>
-  <nav v-if="canSeeSubmission" class="group-sections" aria-label="Group sections">
+  <nav v-if="canSeeSubmission" class="group-sections tab-bar" aria-label="Group sections">
     <button
       type="button"
-      class="group-section-btn"
+      class="tab-pill"
       :class="{ active: section === 'tasks' }"
       :aria-current="section === 'tasks' ? 'page' : undefined"
       data-testid="section-tab-tasks"
@@ -12,7 +12,7 @@
     </button>
     <button
       type="button"
-      class="group-section-btn"
+      class="tab-pill"
       :class="{ active: section === 'submission' }"
       :aria-current="section === 'submission' ? 'page' : undefined"
       data-testid="section-tab-submission"
@@ -24,7 +24,7 @@
     <button
       v-if="isFinalist"
       type="button"
-      class="group-section-btn"
+      class="tab-pill"
       :class="{ active: section === 'finalist' }"
       :aria-current="section === 'finalist' ? 'page' : undefined"
       data-testid="section-tab-finalist"
@@ -36,7 +36,7 @@
     <button
       v-if="resultsReleased"
       type="button"
-      class="group-section-btn"
+      class="tab-pill"
       :class="{ active: section === 'results' }"
       :aria-current="section === 'results' ? 'page' : undefined"
       data-testid="section-tab-results"
@@ -187,47 +187,9 @@ function goToSection(next: 'tasks' | 'submission' | 'finalist' | 'results') {
 </script>
 
 <style scoped>
-/* The same pill bar as Management's tabs: one white rounded rail, the
-   section open a solid green pill. */
+/* The shared tab bar, start-aligned in the group page's column. */
 .group-sections {
-  display: inline-flex;
   align-self: flex-start;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  /* Not 999px: wrapped onto two rows, a fully round rail turns into a
-     lozenge. 1.4rem still reads as a pill on one row. */
-  border-radius: 1.4rem;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.group-section-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.45rem 1.05rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.group-section-btn:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.group-section-btn.active {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 
 /* Keeps the page's panes as direct flex children of .group-detail. */

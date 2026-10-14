@@ -42,10 +42,10 @@
               <time
                 class="detail__date"
                 :datetime="announcement.date || undefined"
-                :title="fullDate"
+                :title="postedAt"
               >
                 {{ relativeDate }}
-                <span v-if="fullDate" class="detail__date-full"> &middot; {{ fullDate }}</span>
+                <span v-if="postedAt" class="detail__date-full"> &middot; {{ postedAt }}</span>
               </time>
             </div>
           </div>
@@ -107,7 +107,7 @@ import AnnouncementLightbox from '@/components/announcements/AnnouncementLightbo
 import AnnouncementSkeleton from '@/components/announcements/AnnouncementSkeleton.vue'
 import {
   authorInitial,
-  formatFullDate,
+  formatPostedAt,
   formatRelativeDate,
   getAudienceClass,
   getAudienceLabel,
@@ -124,8 +124,8 @@ const shareLabel = ref('Copy link')
 const relativeDate = computed(() =>
   announcement.value ? formatRelativeDate(announcement.value.date) : ''
 )
-const fullDate = computed(() =>
-  announcement.value ? formatFullDate(announcement.value.date) : ''
+const postedAt = computed(() =>
+  announcement.value ? formatPostedAt(announcement.value.date) : ''
 )
 
 const errorTitle = computed(() => {
@@ -214,7 +214,7 @@ watch(() => route.params.id, reload)
 
 .detail-empty h2 {
   margin: 0 0 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .detail-empty p {
@@ -251,7 +251,7 @@ watch(() => route.params.id, reload)
   font-size: 1.85rem;
   font-weight: 700;
   line-height: 1.25;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .detail__meta {
@@ -281,7 +281,7 @@ watch(() => route.params.id, reload)
 
 .detail__author-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.95rem;
 }
 
@@ -304,7 +304,7 @@ watch(() => route.params.id, reload)
 .detail__body {
   padding: 1.75rem 2.25rem;
   line-height: 1.75;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 

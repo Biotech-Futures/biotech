@@ -1,13 +1,11 @@
 """The daily guardian emails, called by a scheduler: the details email to
 students, and the consent form reminder to guardians."""
 from drf_spectacular.utils import extend_schema
-from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common import email_jobs
 
-from . import guardian_details, guardian_reminders
+from . import guardian_details
 
 
 class SendGuardianDetailsRemindersView(APIView):
@@ -18,7 +16,7 @@ class SendGuardianDetailsRemindersView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        return email_jobs.refused(request) or Response(guardian_details.send_due(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or email_jobs.queued(guardian_details.EMAIL_KEY)
 
 
 class SendGuardianConsentRemindersView(APIView):
@@ -30,4 +28,4 @@ class SendGuardianConsentRemindersView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        return email_jobs.refused(request) or Response(guardian_reminders.send_due(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or email_jobs.queued("guardian_consent_request")

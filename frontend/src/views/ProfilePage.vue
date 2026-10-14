@@ -49,7 +49,26 @@
 
       <div class="profile-content">
         <div class="profile-section">
-          <h3 class="profile-section-title">Personal Information</h3>
+          <div class="profile-section-heading">
+            <h3 class="profile-section-title">Personal Information</h3>
+            <!-- A supervisor can change their own name, and nothing else here. -->
+            <button
+              v-if="auth.isSupervisor && !nameEditing"
+              class="btn btn-outline profile-edit-button"
+              type="button"
+              @click="startNameEdit"
+            >
+              Edit name
+            </button>
+          </div>
+          <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
+            <label>First name<input v-model.trim="nameDraft.first_name" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="nameDraft.last_name" required maxlength="255" /></label>
+            <div class="student-edit-actions">
+              <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
+              <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save name' }}</button>
+            </div>
+          </form>
           <div class="profile-field">
             <span class="profile-field-label">Email:</span>
             <span class="profile-field-value">{{ user.email }}</span>
@@ -186,20 +205,7 @@
           <p v-else-if="teamError" class="profile-note">{{ teamError }}</p>
           <template v-else-if="teamMembers.length">
             <p class="profile-note">{{ teamName }}</p>
-            <div class="team-table-wrap">
-              <table class="team-table">
-                <thead><tr><th scope="col">First name</th><th scope="col">Last name</th><th scope="col">Year level</th><th scope="col">School</th><th scope="col">Supervisor</th></tr></thead>
-                <tbody>
-                  <tr v-for="member in teamMembers" :key="member.id">
-                    <td>{{ member.first_name || unsetLabel }}</td>
-                    <td>{{ member.last_name || unsetLabel }}</td>
-                    <td>{{ member.year_level || unsetLabel }}</td>
-                    <td>{{ member.school || unsetLabel }}</td>
-                    <td>{{ member.supervisor || 'Not assigned' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <AppSimpleTable class="team-table" :columns="teamColumns" :rows="teamRows" />
           </template>
           <p v-else class="profile-note">You have not been assigned to a team yet.</p>
         </div>
@@ -398,18 +404,6 @@
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Supervised Students:</span>
-            <span class="profile-field-value">{{ user.supervisor.studentSummary }}</span>
-          </div>
-          <div
-            v-for="student in user.supervisor.students"
-            :key="student.id"
-            class="profile-field"
-          >
-            <span class="profile-field-label">{{ student.relationship }}:</span>
-            <span class="profile-field-value">{{ student.name }} ({{ student.email }})</span>
-          </div>
         </div>
       </div>
     </div>
@@ -424,11 +418,13 @@ import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
+import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import {
-  formatDayMonthYear,
-  formatDayMonthYearTime,
+  formatDayMonth,
+  formatDayMonthTime,
   formatTimeZoneLabel,
   getBrowserTimeZone,
+  getSetTimeZone,
   getTimeZoneDateParts,
   isValidTimeZone,
 } from '@/utils/date'
@@ -482,12 +478,29 @@ const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
 const teamMembers = ref([])
 const teamName = ref('')
+const teamColumns = [
+  { key: 'first_name', label: 'First name' },
+  { key: 'last_name', label: 'Last name' },
+  { key: 'year_level', label: 'Year level' },
+  { key: 'school', label: 'School' },
+  { key: 'supervisor', label: 'Supervisor' },
+]
 const teamLoading = ref(false)
 const teamError = ref('')
 const DEFAULT_PROFILE_AVATAR = ''
 const avatarUrl = ref(DEFAULT_PROFILE_AVATAR)
 const supportEmail = 'support@biotechfutures.org'
 const unsetLabel = 'Not set'
+const teamRows = computed(() =>
+  teamMembers.value.map((member) => ({
+    id: member.id,
+    first_name: member.first_name || unsetLabel,
+    last_name: member.last_name || unsetLabel,
+    year_level: member.year_level || unsetLabel,
+    school: member.school || unsetLabel,
+    supervisor: member.supervisor || 'Not assigned',
+  })),
+)
 let statusMessageTimer = null
 const commonTimeZones = [
   'UTC',
@@ -627,6 +640,41 @@ const startStudentEdit = async () => {
   }
   error.value = ''
   studentEditing.value = true
+}
+
+// A supervisor's own name, the one thing of theirs they can change here.
+const nameEditing = ref(false)
+const nameSaving = ref(false)
+const nameDraft = ref({ first_name: '', last_name: '' })
+
+const startNameEdit = () => {
+  nameDraft.value = { first_name: auth.user?.first_name || '', last_name: auth.user?.last_name || '' }
+  error.value = ''
+  nameEditing.value = true
+}
+
+const saveName = async () => {
+  nameSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(nameDraft.value),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    nameEditing.value = false
+    showTemporaryStatus('Your name has been updated.')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your name could not be updated.'
+  } finally {
+    nameSaving.value = false
+  }
 }
 
 const cancelStudentEdit = () => {
@@ -769,23 +817,15 @@ const user = computed(() => {
   const interests = listOrEmpty(source?.interests)
   const supervisorEmail = valueOrFallback(source?.supervisor_email, unsetLabel)
   const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
-  const supervisedStudents = Array.isArray(source?.supervised_students)
-    ? source.supervised_students.map((student) => {
-      const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || student?.email || 'Student'
-      return {
-        id: student?.id || student?.email || name,
-        name,
-        email: valueOrFallback(student?.email),
-        relationship: capitalise(student?.relationship_type || 'student')
-      }
-    })
-    : []
+  // Not shown (My Students lists them), but a supervisor with students still
+  // gets the Supervisor Details section.
+  const supervisedCount = Array.isArray(source?.supervised_students) ? source.supervised_students.length : 0
   const hasStudentDetails = roleKey === 'student'
   const consentReceived = source?.join_perm === true
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
   const placeholderGuardian = isPlaceholderGuardian(source?.pg_firstname, source?.pg_lastname, source?.first_name, source?.last_name)
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
-  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
+  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedCount > 0)
 
 
   return {
@@ -815,9 +855,9 @@ const user = computed(() => {
       emailAddress: String(source?.pg_email || '').trim(),
       // null when there's no student profile behind the account; treat as not received.
       consentReceived,
-      // "14 Sep 2026 15:30", in the student's own timezone.
+      // "14 Sep, 3:30 pm", in the set time.
       consentReceivedAt: consentReceived && source?.join_perm_granted_at
-        ? formatDayMonthYearTime(source.join_perm_granted_at, auth.timeZone)
+        ? formatDayMonthTime(source.join_perm_granted_at)
         : '',
       pending: source?.pending_guardian
         ? {
@@ -840,11 +880,7 @@ const user = computed(() => {
     },
     supervisor: {
       hasDetails: hasSupervisorDetails,
-      schoolName: valueOrFallback(source?.supervisor_school_name),
-      studentSummary: supervisedStudents.length === 1
-        ? '1 student'
-        : `${supervisedStudents.length} students`,
-      students: supervisedStudents
+      schoolName: valueOrFallback(source?.supervisor_school_name)
     }
   }
 })
@@ -885,11 +921,12 @@ const reminderLine = computed(() => {
   const guardian = user.value?.guardian
   if (guardian?.consentReceived && !guardian?.pending) return ''
   const last = reminder.last_sent_at
-    ? `Last emailed ${formatDayMonthYearTime(reminder.last_sent_at, auth.timeZone)}.`
+    ? `Last emailed ${formatDayMonthTime(reminder.last_sent_at)}.`
     : 'Not emailed yet.'
   if (!reminder.next_due_at) return last
-  const today = getTimeZoneDateParts(new Date(now.value), auth.timeZone)
-  const due = getTimeZoneDateParts(reminder.next_due_at, auth.timeZone)
+  const zone = getSetTimeZone()
+  const today = getTimeZoneDateParts(new Date(now.value), zone)
+  const due = getTimeZoneDateParts(reminder.next_due_at, zone)
   const days = today && due
     ? Math.round((Date.UTC(due.year, due.month - 1, due.day) - Date.UTC(today.year, today.month - 1, today.day)) / 86400000)
     : null
@@ -897,7 +934,7 @@ const reminderLine = computed(() => {
     ? 'today'
     : days === 1
       ? 'tomorrow'
-      : `on ${formatDayMonthYear(reminder.next_due_at, auth.timeZone)}`
+      : `on ${formatDayMonth(reminder.next_due_at)}`
   return `${last} They'll be emailed again ${when}.`
 })
 
@@ -1167,7 +1204,13 @@ onMounted(async () => {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
+}
+
+/* Dark theme: the timezone box and its list on black, rather than white. */
+:root[data-theme='dark'] .timezone-input {
+  background: #000;
+  color-scheme: dark;
 }
 
 .timezone-actions {
@@ -1208,7 +1251,7 @@ onMounted(async () => {
   border-left: 4px solid var(--dark-green);
   border-radius: 6px;
   background: var(--bg-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .guardian-notice--error {
@@ -1275,7 +1318,7 @@ onMounted(async () => {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .guardian-error {
@@ -1305,7 +1348,7 @@ onMounted(async () => {
 
 .guardian-pending p {
   margin: 0 0 0.75rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .profile-link {
@@ -1330,7 +1373,7 @@ onMounted(async () => {
 .profile-edit-button { margin:0; font-size:.85rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--charcoal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
 .student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }
@@ -1338,12 +1381,7 @@ onMounted(async () => {
 .student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
 .student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
 .student-edit-actions .btn { margin:0; }
-.team-table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border-light); border-radius:8px; }
-.team-table { width:100%; border-collapse:collapse; min-width:360px; }
-.team-table th, .team-table td { padding:.75rem 1rem; text-align:left; border-bottom:1px solid var(--border-light); }
-.team-table th { background:var(--accent-green-soft); color:var(--dark-green); font-size:.82rem; letter-spacing:.04em; text-transform:uppercase; }
-.team-table tr:last-child td { border-bottom:0; }
-.team-table td:first-child { display:flex; align-items:center; gap:.6rem; }
+.team-table { margin-top:1rem; }
 .member-initial { display:inline-grid; place-items:center; width:2rem; height:2rem; border-radius:50%; background:var(--accent-green-soft); color:var(--dark-green); font-weight:700; }
 .member-role { color:#657069; font-size:.88rem; }
 

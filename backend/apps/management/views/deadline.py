@@ -4,6 +4,8 @@ The deadline itself belongs to the submissions app (it gates the student
 portal); this endpoint only lets graders/admins see and set it, going through
 ``services.deadline``.
 """
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
@@ -13,6 +15,16 @@ from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 
 from ..services import deadline as deadlines
+
+
+def _statement_time(at, user):
+    """``09/10/2026 at 16:12`` in the user's Profile timezone, as the site
+    writes a time in a sentence."""
+    try:
+        zone = ZoneInfo(getattr(user, "timezone", "") or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("UTC")
+    return at.astimezone(zone).strftime("%d/%m/%Y at %H:%M")
 
 
 class _SetDeadlineSerializer(serializers.Serializer):
@@ -57,7 +69,7 @@ class GroupExtensionListView(APIView):
             return Response(
                 {"detail": (
                     "The extension must be later than the current deadline "
-                    f"({deadline['closes_at'].isoformat()})."
+                    f"({_statement_time(deadline['closes_at'], request.user)})."
                 )},
                 status=status.HTTP_400_BAD_REQUEST,
             )

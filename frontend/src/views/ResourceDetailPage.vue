@@ -510,7 +510,7 @@ onBeforeUnmount(clearPreview)
 }
 
 .detail-file-facts dd {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -579,7 +579,7 @@ onBeforeUnmount(clearPreview)
 }
 
 .preview-text {
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: Consolas, 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.5;
@@ -592,7 +592,7 @@ onBeforeUnmount(clearPreview)
 
 .resource-page-preview {
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .resource-page-body {

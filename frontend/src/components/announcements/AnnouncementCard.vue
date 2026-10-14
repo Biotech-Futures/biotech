@@ -44,9 +44,8 @@
               <time
                 class="announcement__date"
                 :datetime="announcement.date || undefined"
-                :title="fullDate"
               >
-                {{ overviewDateTime }}
+                {{ postedAt }}
               </time>
             </div>
           </div>
@@ -190,8 +189,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
 import {
   authorInitial,
-  formatFullDate,
-  formatOverviewDateTime,
+  formatPostedAt,
   getAudienceClass,
   getAudienceLabel,
   type Announcement
@@ -255,8 +253,7 @@ function handleAction(action: 'view' | 'edit' | 'notify' | 'archive' | 'delete')
 }
 
 const hasImages = computed(() => props.announcement.images.length > 0)
-const overviewDateTime = computed(() => formatOverviewDateTime(props.announcement.date))
-const fullDate = computed(() => formatFullDate(props.announcement.date))
+const postedAt = computed(() => formatPostedAt(props.announcement.date) || 'Recently posted')
 
 const detailRoute = computed(() => ({
   name: 'announcement-detail',
@@ -504,7 +501,7 @@ const onImageError = (url: string) => {
 }
 
 .announcement__author-name {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   font-size: 0.92rem;
   text-overflow: ellipsis;
@@ -533,7 +530,7 @@ const onImageError = (url: string) => {
 
 .announcement__title-link {
   display: -webkit-box;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: none;
   background-image: linear-gradient(currentColor, currentColor);
   background-size: 0 1px;
@@ -557,7 +554,7 @@ const onImageError = (url: string) => {
   position: relative;
   flex: 1;
   min-height: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.7;
   max-height: 6.9em;
   overflow: hidden;

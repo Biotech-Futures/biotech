@@ -472,7 +472,9 @@ function onNotifyAnnouncement(item: Announcement) {
   confirmDialog.onConfirm = async () => {
     try {
       const res = await notifyAdminAnnouncement(item.id)
-      if (res.status === 'success') {
+      if (res.status === 'queued') {
+        setFeedback(res.msg || 'The email is queued and sends shortly.', 'success')
+      } else if (res.status === 'success') {
         setFeedback(`Email notification sent successfully (${res.succeeded} delivered).`, 'success')
       } else if (res.status === 'partial') {
         setFeedback(`Email partially sent (${res.succeeded}/${res.attempted} delivered).`, 'warning')
@@ -569,7 +571,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .announcements {
-  --hero-bg: linear-gradient(135deg, rgba(1, 113, 81, 0.06), rgba(94, 169, 158, 0.08));
+  --hero-bg: linear-gradient(135deg, rgba(1, 113, 81, 0.06), rgba(62, 173, 159, 0.08));
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
@@ -609,7 +611,7 @@ onBeforeUnmount(() => {
   font-size: 2rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .announcements__subtitle {
@@ -619,7 +621,7 @@ onBeforeUnmount(() => {
 }
 
 .announcements__subtitle strong {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -653,7 +655,7 @@ onBeforeUnmount(() => {
   outline: 0;
   background: transparent;
   font: inherit;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .announcements__search input::placeholder {
@@ -674,7 +676,7 @@ onBeforeUnmount(() => {
 
 .announcements__search-clear:hover {
   background-color: rgba(0, 0, 0, 0.05);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .announcements__filterbar {
@@ -704,7 +706,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   border: 1px solid var(--border-light, #e0e0e0);
   background: var(--white, #ffffff);
-  color: var(--charcoal, #174243);
+  color: var(--teal, #174243);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -725,7 +727,7 @@ onBeforeUnmount(() => {
   appearance: none;
   border: 1px solid rgba(14, 31, 25, 0.12);
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   padding: 0.45rem 0.95rem;
   border-radius: 999px;
   font-size: 0.88rem;
@@ -767,7 +769,7 @@ onBeforeUnmount(() => {
 .announcements__empty h2,
 .announcements__error h2 {
   margin: 0 0 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .announcements__empty p,

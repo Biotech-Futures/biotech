@@ -196,18 +196,21 @@ _TEAM_SHEET_WIDTHS = {
 }
 
 
-def build_team_marks_xlsx(rows: Iterable[dict], columns: list[str], numeric: set[str]) -> bytes:
+def build_team_marks_xlsx(
+    rows: Iterable[dict], columns: list[str], numeric: set[str], headings: dict[str, str] | None = None,
+) -> bytes:
     """The marks spreadsheet a supervisor's results email carries: one row
     per team, one column per name in ``columns`` (the marks summary's own
     field names, e.g. TeamCode, PM1, PosterComment1, SM4), filled from
-    ``rows``: each team's marks summary fields. The ``numeric`` columns hold
+    ``rows``: each team's marks summary fields, and headed as ``headings``
+    names each (its field name when it doesn't). The ``numeric`` columns hold
     marks and are written as numbers; a mark not given stays blank. Text
     columns and comments are widened and wrap.
     """
     wb = Workbook()
     ws = wb.active
     ws.title = "Marks"
-    ws.append(columns)
+    ws.append([(headings or {}).get(column, column) for column in columns])
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for fields in rows:

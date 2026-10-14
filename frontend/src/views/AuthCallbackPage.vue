@@ -179,7 +179,7 @@ onMounted(async () => {
 
   background:
     radial-gradient(circle at 80% 20%, rgba(129, 214, 184, 0.28), transparent 32%),
-    radial-gradient(circle at 20% 80%, rgba(195, 235, 202, 0.35), transparent 30%),
+    radial-gradient(circle at 20% 80%, rgba(195, 236, 202, 0.35), transparent 30%),
     #f3faf6;
 
   font-family:

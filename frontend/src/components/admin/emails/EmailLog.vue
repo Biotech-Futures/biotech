@@ -59,6 +59,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { deliveryNote } from '@/composables/useEmailRun'
+import { formatShortDateTime, formatStatementTime } from '@/utils/date'
 import { nameParts, type SystemEmailLogEntry } from '@/utils/systemEmail'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 
@@ -74,16 +75,14 @@ const email = computed(() => props.emails.find((item) => item.key === props.sele
 
 const withMissed = computed(() => props.emails.filter((item) => item.missed.length))
 
-/** "29/09/2026 23:58", as Notify Finalists shows when it last emailed. */
-const formatWhen = (iso: string) => {
-  const at = new Date(iso)
-  return `${at.toLocaleDateString('en-GB')} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-}
+/** Each send's time: "29/09/26 23:58". */
+const formatWhen = (iso: string) => formatShortDateTime(iso)
 
+// "Last Emailed at 29/09/2026 at 23:58", as Notify Finalists writes it.
 const lastEmailed = (item: SystemEmailLogEntry) => {
   if (!item.lastSentAt) return 'Not emailed yet.'
   const by = item.lastSentBy ? ` by ${item.lastSentBy}` : ''
-  return `Last Emailed at ${formatWhen(item.lastSentAt)}${by}.`
+  return `Last Emailed at ${formatStatementTime(item.lastSentAt)}${by}.`
 }
 </script>
 
@@ -158,6 +157,6 @@ const lastEmailed = (item: SystemEmailLogEntry) => {
 }
 
 :root[data-theme='dark'] .email-log__name {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

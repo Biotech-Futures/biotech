@@ -336,7 +336,7 @@ const renderCell = (value: unknown) => {
   padding: 0.85rem 1rem;
   text-align: center;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border-bottom: 2px solid var(--border-light);
   white-space: nowrap;
@@ -382,7 +382,7 @@ const renderCell = (value: unknown) => {
 
 .admin-table__cell {
   padding: 0.75rem 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -451,7 +451,7 @@ const renderCell = (value: unknown) => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -472,7 +472,7 @@ const renderCell = (value: unknown) => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.8rem;
   cursor: pointer;
   display: inline-flex;
@@ -496,7 +496,7 @@ const renderCell = (value: unknown) => {
   text-align: center;
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 @keyframes admin-table-spin {

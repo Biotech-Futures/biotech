@@ -1,23 +1,21 @@
 <template>
   <div class="content-area events-page">
-    <div class="page-head">
-      <div>
-        <h1>Events &amp; Workshops</h1>
-        <p class="page-subtitle">
-          {{ auth.roleLabel }} events available to your program access.
-        </p>
-      </div>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">Events &amp; Workshops</h1>
+      <p class="page-subtitle">
+        {{ auth.roleLabel }} events available to your program access.
+      </p>
+    </header>
 
     <div class="event-tabs-bar">
-      <div class="event-tabs" role="tablist" aria-label="Event view">
+      <div class="tab-bar" role="tablist" aria-label="Event view">
         <button
           v-for="tab in viewTabs"
           :key="tab.value"
           type="button"
           role="tab"
           :aria-selected="viewMode === tab.value"
-          class="event-tab"
+          class="tab-pill"
           :class="{ active: viewMode === tab.value }"
           @click="setViewMode(tab.value)"
         >
@@ -250,7 +248,7 @@
         <div class="event-content">
           <div class="event-card-topline">
             <span class="event-date">
-              {{ formatDate(ev.start_datetime, ev) }}
+              {{ formatDate(ev.start_datetime) }}
             </span>
 
             <div class="event-card-topline-right">
@@ -346,7 +344,7 @@
           <div class="event-meta">
             <div class="event-meta-item">
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(ev.start_datetime, ev.ends_datetime, ev) }}
+              {{ formatTime(ev.start_datetime, ev.ends_datetime) }}
             </div>
 
             <div v-if="eventHasPhysicalPlace(ev)" class="event-meta-item">
@@ -524,11 +522,11 @@
           <div class="detail-meta">
             <span>
               <i class="fas fa-calendar-day" aria-hidden="true"></i>
-              {{ formatDate(selected?.start_datetime, selected) }}
+              {{ formatDate(selected?.start_datetime) }}
             </span>
             <span>
               <i class="fas fa-clock" aria-hidden="true"></i>
-              {{ formatTime(selected?.start_datetime, selected?.ends_datetime, selected) }}
+              {{ formatTime(selected?.start_datetime, selected?.ends_datetime) }}
             </span>
             <span>
               <i class="fas fa-users" aria-hidden="true"></i>
@@ -766,7 +764,7 @@ import {
   resolveEventUrl,
   setEventRsvp
 } from '../utils/eventsAPI'
-import { formatEventDate, formatEventTimeRange } from '../utils/date'
+import { formatEventDay, formatEventTimeRange, getSetTimeZone } from '../utils/date'
 import { sanitizeRichText } from '../composables/useAnnouncements'
 
 type ViewMode = 'upcoming' | 'mine' | 'past'
@@ -1197,8 +1195,6 @@ const resetFilters = () => {
   }
 }
 
-const eventDisplayTimeZone = (ev?: BackendEvent | null) => ev?.event_timezone || auth.timeZone
-
 const eventFormat = (ev?: BackendEvent | null): EventFormat => {
   if (ev?.event_format === 'virtual' || ev?.event_format === 'hybrid') return ev.event_format
   return 'in_person'
@@ -1214,11 +1210,12 @@ const eventHasPhysicalPlace = (ev?: BackendEvent | null) => {
   return format !== 'virtual' && Boolean(ev?.location)
 }
 
-const formatDate = (dateStr?: string | null, ev?: BackendEvent | null) =>
-  formatEventDate(dateStr, eventDisplayTimeZone(ev))
+// "Friday, 9th October 2026" and "16:12 - 18:00 AEDT", in the set time
+// with that zone's label.
+const formatDate = (dateStr?: string | null) => formatEventDay(dateStr)
 
-const formatTime = (start?: string | null, end?: string | null, ev?: BackendEvent | null) =>
-  formatEventTimeRange(start, end, eventDisplayTimeZone(ev))
+const formatTime = (start?: string | null, end?: string | null) =>
+  formatEventTimeRange(start, end, getSetTimeZone())
 
 const prettyType = (type?: string | null) => {
   if (!type) return 'General'
@@ -1566,43 +1563,22 @@ const onFormEditorDelete = () => {
 .events-page {
   --event-dark-green: #017151;
   --event-light-green: #bad7bb;
-  --event-air-force-blue: #39687b;
-  --event-mint-green: #5ea99e;
-  --event-yellow: #f1e5a6;
+  --event-air-force-blue: #26697d;
+  --event-mint-green: #3ead9f;
+  --event-yellow: #f3e69d;
   --event-charcoal: #174243;
   --event-soft-green: rgba(186, 215, 187, 0.44);
-  --event-soft-mint: rgba(94, 169, 158, 0.18);
-  --event-soft-blue: rgba(57, 104, 123, 0.12);
-  --event-soft-yellow: rgba(241, 229, 166, 0.78);
+  --event-soft-mint: rgba(62, 173, 159, 0.18);
+  --event-soft-blue: rgba(38, 105, 125, 0.12);
+  --event-soft-yellow: rgba(243, 230, 157, 0.78);
 
   width: 100%;
   min-height: calc(100vh - 64px);
   padding: clamp(1rem, 2vw, 1.5rem);
+  /* 48px above the heading, as on the other pages. */
+  padding-top: 3rem;
   background-color: var(--bg-light);
-  color: var(--charcoal);
-}
-
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.25rem;
-}
-
-.page-head h1 {
-  margin: 0;
-  font-size: clamp(1.5rem, 2.2vw, 2rem);
-}
-
-.page-subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--text-muted);
-}
-
-.page-head__actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  color: var(--teal);
 }
 
 /* Event tabs bar (selector + actions in-line) */
@@ -1612,7 +1588,7 @@ const onFormEditorDelete = () => {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .event-tabs-bar__actions {
@@ -1621,40 +1597,9 @@ const onFormEditorDelete = () => {
   gap: 0.5rem;
 }
 
-/* Segmented pill tabs */
-.event-tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
+/* The bar above leaves the 20px below the tabs, beside the New Event button. */
+.event-tabs-bar .tab-bar {
   margin-bottom: 0;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.event-tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.event-tab:hover:not(.active) {
-  color: var(--event-charcoal);
-  background: var(--event-soft-green);
-}
-
-.event-tab.active {
-  background: var(--event-dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 
 /* Sticky filter bar */
@@ -1713,7 +1658,7 @@ const onFormEditorDelete = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
@@ -1985,7 +1930,7 @@ const onFormEditorDelete = () => {
   background: transparent;
   font-size: 0.84rem;
   font-weight: 500;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   text-align: left;
   transition: background-color 0.15s ease, color 0.15s ease;
@@ -2159,19 +2104,19 @@ const onFormEditorDelete = () => {
 .event-capacity-pill--low {
   background: var(--event-soft-yellow);
   color: var(--event-air-force-blue);
-  border-color: rgba(57, 104, 123, 0.28);
+  border-color: rgba(38, 105, 125, 0.28);
 }
 
 .event-capacity-pill--full {
   background: var(--event-soft-blue);
   color: var(--event-air-force-blue);
-  border-color: rgba(57, 104, 123, 0.28);
+  border-color: rgba(38, 105, 125, 0.28);
 }
 
 .event-title {
   font-size: 1.05rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin: 0;
   line-height: 1.35;
   display: -webkit-box;
@@ -2239,7 +2184,7 @@ const onFormEditorDelete = () => {
 .event-description-preview :deep(h4),
 .event-description-preview :deep(h5),
 .event-description-preview :deep(h6) {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 700;
 }
 
@@ -2279,7 +2224,7 @@ const onFormEditorDelete = () => {
   overflow: hidden;
   padding: 0.4rem;
   border-radius: 5px;
-  background: var(--charcoal);
+  background: var(--teal);
   color: var(--white);
   white-space: pre-wrap;
 }
@@ -2410,7 +2355,7 @@ const onFormEditorDelete = () => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   font-size: 0.8rem;
   cursor: pointer;
@@ -2445,7 +2390,7 @@ const onFormEditorDelete = () => {
 }
 
 .rsvp-choice-waitlist:hover:not(:disabled):not(.active) {
-  background: rgba(94, 169, 158, 0.26);
+  background: rgba(62, 173, 159, 0.26);
   border-color: var(--event-mint-green);
   color: var(--event-air-force-blue);
 }
@@ -2467,7 +2412,7 @@ const onFormEditorDelete = () => {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.02em;
-  border: 1px solid rgba(94, 169, 158, 0.34);
+  border: 1px solid rgba(62, 173, 159, 0.34);
 }
 
 .event-waitlist-chip i {
@@ -2653,7 +2598,7 @@ const onFormEditorDelete = () => {
 .empty-title {
   margin: 0 0 0.4rem;
   font-size: 1.1rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .empty-message {
@@ -2671,7 +2616,7 @@ const onFormEditorDelete = () => {
 .event-modal-content {
   max-width: 720px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border: 1px solid var(--border-light);
   /* Replace the global slideIn keyframe for this modal only. */
   animation: events-modal-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2743,7 +2688,7 @@ const onFormEditorDelete = () => {
 }
 
 .detail-description {
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.6;
   margin: 1rem 0;
 }
@@ -2759,7 +2704,7 @@ const onFormEditorDelete = () => {
 .detail-description-rich :deep(h5),
 .detail-description-rich :deep(h6) {
   margin: 0.9rem 0 0.45rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 700;
   line-height: 1.25;
 }
@@ -2808,7 +2753,7 @@ const onFormEditorDelete = () => {
   margin: 0.75rem 0;
   padding: 0.75rem;
   border-radius: 8px;
-  background: var(--charcoal);
+  background: var(--teal);
   color: var(--white);
   white-space: pre-wrap;
 }
@@ -2897,13 +2842,13 @@ const onFormEditorDelete = () => {
 }
 
 .detail-pending-callout {
-  border: 1px solid rgba(57, 104, 123, 0.28);
+  border: 1px solid rgba(38, 105, 125, 0.28);
   background: var(--event-soft-blue);
   color: var(--event-air-force-blue);
 }
 
 .detail-waitlist-callout {
-  border: 1px solid rgba(94, 169, 158, 0.34);
+  border: 1px solid rgba(62, 173, 159, 0.34);
   background: var(--event-soft-mint);
   color: var(--event-air-force-blue);
 }
@@ -2935,7 +2880,7 @@ const onFormEditorDelete = () => {
 }
 
 .detail-capacity-value {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -2996,7 +2941,7 @@ const onFormEditorDelete = () => {
 
 /* Reduced-motion: strip non-essential transitions */
 @media (prefers-reduced-motion: reduce) {
-  .event-tab,
+  .tab-pill,
   .filter-input,
   .event-card,
   .rsvp-choice,
@@ -3024,7 +2969,6 @@ const onFormEditorDelete = () => {
 }
 
 /* Focus visibility */
-.event-tab:focus-visible,
 .filter-chip:focus-visible,
 .filter-search-clear:focus-visible,
 .rsvp-choice:focus-visible,
