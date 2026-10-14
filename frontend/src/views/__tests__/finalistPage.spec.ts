@@ -11,6 +11,7 @@ const submitAvailability = vi.fn()
 const uploadPresentation = vi.fn()
 const submitFinalist = vi.fn()
 const reopenFinalist = vi.fn()
+const removePresentation = vi.fn()
 
 vi.mock('@/utils/finalistAPI', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/finalistAPI')>()
@@ -21,6 +22,7 @@ vi.mock('@/utils/finalistAPI', async (importOriginal) => {
     uploadPresentation: (...args: unknown[]) => uploadPresentation(...args),
     submitFinalist: (...args: unknown[]) => submitFinalist(...args),
     reopenFinalist: (...args: unknown[]) => reopenFinalist(...args),
+    removePresentation: (...args: unknown[]) => removePresentation(...args),
   }
 })
 
@@ -403,5 +405,140 @@ describe('after the deadline', () => {
     await flushPromises()
 
     expect(wrapper!.find('fieldset').attributes('disabled')).toBeUndefined()
+  })
+})
+
+
+describe('the admin view', () => {
+  const asAdmin = (detail: FinalistDetail): FinalistDetail => ({ ...detail, admin_access: true })
+  const draft = () => asAdmin(buildDetail({ ...answered([1]), presentation: PDF, stage: 'in_progress' }))
+  const submitted = () => asAdmin(buildDetail(lockedEntry()))
+  const click = async (testId: string) => {
+    await wrapper!.find(`[data-testid="${testId}"]`).trigger('click')
+    await flushPromises()
+  }
+
+  it('opens read-only, with its own bar and without the team buttons', async () => {
+    await mountPage(draft())
+
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('BTF1')
+    expect(wrapper!.find('.status-line').exists()).toBe(false)
+    expect(checkbox(2).element.matches(':disabled')).toBe(true)
+    expect(submitTimes().exists()).toBe(false)
+  })
+
+  it('keeps ticked times local until Save, then saves them', async () => {
+    await mountPage(draft())
+    submitAvailability.mockResolvedValue(result({ ...answered([1, 2]), presentation: PDF }))
+    await click('admin-edit')
+
+    await checkbox(2).setValue(true)
+    expect(submitAvailability).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Unsaved changes')
+    await click('admin-save')
+
+    expect(submitAvailability).toHaveBeenCalledWith('1', [1, 2])
+    expect(wrapper!.find('.submission-message').text()).toContain("Saved to BTF1's finalist entry.")
+  })
+
+  it('asks to reopen a submitted entry before saving, as for the presentation', async () => {
+    await mountPage(submitted())
+    reopenFinalist.mockResolvedValue(result({ ...answered([1]), presentation: PDF, stage: 'revising', is_submitted: true }))
+    submitAvailability.mockResolvedValue(result(answered([1, 3])))
+    await click('admin-edit')
+    await checkbox(3).setValue(true)
+
+    await click('admin-save')
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Reopen for the team?')
+    await click('admin-dialog-confirm')
+
+    expect(reopenFinalist).toHaveBeenCalled()
+    expect(submitAvailability).toHaveBeenCalledWith('1', [1, 3])
+  })
+
+  it('submits over a submitted entry without reopening it, times and all', async () => {
+    await mountPage(submitted())
+    submitAvailability.mockResolvedValue(result({ ...lockedEntry(), ...answered([1, 3]) }))
+    submitFinalist.mockResolvedValue(result(lockedEntry()))
+    await click('admin-edit')
+    await checkbox(3).setValue(true)
+
+    await click('admin-submit')
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('This becomes their latest finalist submission.')
+    await click('admin-dialog-confirm')
+
+    expect(reopenFinalist).not.toHaveBeenCalled()
+    expect(submitAvailability).toHaveBeenCalledWith('1', [1, 3])
+    expect(submitFinalist).toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('Submitted for BTF1.')
+  })
+
+  it('holds a new presentation until Save', async () => {
+    await mountPage(draft())
+    uploadPresentation.mockResolvedValue(result({ ...answered([1]), presentation: PDF }))
+    await click('admin-edit')
+
+    await wrapper!.find('[data-testid="drop-presentation"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'new-deck.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect(uploadPresentation).not.toHaveBeenCalled()
+    expect(wrapper!.text()).toContain('not saved yet')
+
+    await click('admin-save')
+
+    expect(uploadPresentation).toHaveBeenCalledWith('1', expect.any(File), expect.any(Function))
+  })
+
+  it('asks before overwriting times the team changed meanwhile', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await checkbox(2).setValue(true)
+    fetchFinalist.mockResolvedValue(asAdmin(buildDetail({ ...answered([3]), presentation: PDF, stage: 'in_progress' })))
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('admin-dialog-cancel')
+    expect(submitAvailability).not.toHaveBeenCalled()
+  })
+
+  it('discards changes after asking', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await checkbox(2).setValue(true)
+
+    await click('admin-discard')
+    await click('admin-dialog-confirm')
+
+    expect((checkbox(2).element as HTMLInputElement).checked).toBe(false)
+    expect(checkbox(2).element.matches(':disabled')).toBe(true)
+  })
+
+  it('needs a presentation and some times to submit', async () => {
+    await mountPage(asAdmin(buildDetail({ stage: 'not_started' })))
+    await click('admin-edit')
+
+    await click('admin-submit')
+    expect(wrapper!.find('.submission-message').text()).toContain('Choose at least one session')
+
+    await checkbox(1).setValue(true)
+    await click('admin-submit')
+    expect(wrapper!.find('.submission-message').text()).toContain('A presentation must be uploaded')
+    expect(submitFinalist).not.toHaveBeenCalled()
+  })
+
+  it('asks before leaving for another team with unsaved changes', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await checkbox(2).setValue(true)
+    const confirm = vi.fn().mockReturnValue(false)
+    vi.stubGlobal('confirm', confirm)
+
+    await wrapper!.vm.$router.push('/groups/2/finalist')
+
+    expect(confirm).toHaveBeenCalled()
+    expect(wrapper!.vm.$route.params.id).toBe('1')
+    vi.unstubAllGlobals()
   })
 })

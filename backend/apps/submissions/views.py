@@ -77,8 +77,9 @@ def _require_can_edit(user, group_id: int) -> None:
     _require_can_view(user, group_id)
 
 
-def _require_unlocked(submission) -> None:
-    if submission is not None and submission.is_locked:
+def _require_unlocked(submission, user) -> None:
+    """A submitted entry is read-only for its team; admins edit it without reopening it."""
+    if submission is not None and submission.is_locked and not _is_staff(user):
         raise SubmissionLocked()
 
 
@@ -125,7 +126,7 @@ class GroupSubmissionView(APIView):
                 for instruction in SubmissionInstruction.objects.all()
             },
             "max_file_sizes": max_sizes(),
-            # Admins act for a team at any time, without the template checks or checklist.
+            # Admins act for a team at any time, without the template checks.
             "admin_access": _is_staff(request.user),
             # None means the team has not started.
             "submission": (
@@ -147,7 +148,7 @@ class GroupSubmissionView(APIView):
             submission, _ = (
                 Submission.objects.select_for_update().get_or_create(group=group)
             )
-            _require_unlocked(submission)
+            _require_unlocked(submission, request.user)
 
             if "project_title" in data:
                 submission.project_title = data["project_title"]
@@ -163,8 +164,13 @@ class GroupSubmissionView(APIView):
                 }
             submission.save()
 
-        if "poster_checklist" in data:
+        # Open pages catch up on what live text does not carry: an admin's save, ticks and the link.
+        if _is_staff(request.user):
+            notify_changed("submission", group.id, "draft", by=request.user)
+        elif "poster_checklist" in data:
             notify_changed("submission", group.id, "checklist", by=request.user)
+        elif "prototype_url" in data:
+            notify_changed("submission", group.id, "link", by=request.user)
 
         return Response({
             "deadline": _deadline_payload(group.id),
@@ -204,7 +210,7 @@ class GroupSubmissionFileView(APIView):
             poster_flag = checks.as_flag()
 
         submission, _ = Submission.objects.get_or_create(group=group)
-        _require_unlocked(submission)
+        _require_unlocked(submission, request.user)
 
         # Removes the stored blob again if the save below raises.
         with submission_file_service(slot).stored_file(
@@ -216,7 +222,7 @@ class GroupSubmissionFileView(APIView):
         ) as file_data, transaction.atomic():
             # Read again under the lock, in case the entry was submitted while the file uploaded.
             submission = Submission.objects.select_for_update().get(pk=submission.pk)
-            _require_unlocked(submission)
+            _require_unlocked(submission, request.user)
             previous = getattr(submission, slot) or {}
             setattr(submission, slot, file_data)
             fields = [slot, "updated_at"]
@@ -249,7 +255,7 @@ class GroupSubmissionFileView(APIView):
 
         with transaction.atomic():
             submission = Submission.objects.select_for_update().filter(group=group).first()
-            _require_unlocked(submission)
+            _require_unlocked(submission, request.user)
             existing = (getattr(submission, slot) or {}) if submission else {}
             if not existing:
                 raise FileNotUploadedYet()
@@ -322,7 +328,8 @@ class GroupSubmissionSubmitView(APIView):
             submission, _ = (
                 Submission.objects.select_for_update().get_or_create(group=group)
             )
-            if submission.is_locked:
+            staff = _is_staff(request.user)
+            if submission.is_locked and not staff:
                 raise SubmissionLocked()
 
             if not submission.poster:
@@ -336,8 +343,8 @@ class GroupSubmissionSubmitView(APIView):
             if missing:
                 raise RequiredAnswersMissing(missing)
 
-            staff = _is_staff(request.user)
-            if not staff and not is_confirmed(submission.poster_checklist):
+            # Admins skip the template checks at upload, but confirm the checklist like a team.
+            if not is_confirmed(submission.poster_checklist):
                 raise PosterChecklistIncomplete()
 
             superseded = complete_submission(

@@ -39,6 +39,8 @@ export interface FinalistDetail {
   /** The day they're on (set on Notify Finalists); null until it is. */
   symposium_date: string | null
   max_file_size: number
+  /** The viewer is an admin, who acts for the team in their own edit mode. */
+  admin_access?: boolean
   /** Null until the team first saves something. */
   entry: FinalistEntry | null
 }
