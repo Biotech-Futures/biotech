@@ -248,3 +248,70 @@ class SendRunTests(TestCase):
             send_guard._kick()
         self.assertEqual(run_state("test_bad")["run"]["error"], send_guard.NOT_READY)
         self.assertEqual(run_state("test_email")["run"]["emailed"], 1)
+
+
+# What the stand-in jobs below were given, in the order they ran.
+JOB_RUNS: list = []
+
+
+def _stand_in_job(actor, options):
+    """A job that only notes it ran, and says what it sent."""
+    JOB_RUNS.append(options["name"])
+    return {"sent": options.get("sent", 0), "failed": options.get("failed", 0)}
+
+
+@override_settings(EMAIL_BACKEND=LOCMEM)
+class QueuedJobTests(TestCase):
+    """Announcements and the scheduled emails queue as jobs: each runs its own
+    send in its turn, in the queue of the mailbox its email goes from."""
+
+    def setUp(self):
+        self.actor = User.objects.create_user(email="admin@example.com", password="pw12345!")
+        JOB_RUNS.clear()
+        stand_in = "tests.apps.management.test_send_guard:_stand_in_job"
+        # The RSVP reminders go from info@, the digest from connect@.
+        jobs = mock.patch.dict(send_guard.JOBS, {"rsvp_reminder": stand_in, "unread_messages": stand_in})
+        jobs.start()
+        self.addCleanup(jobs.stop)
+
+    def test_a_job_runs_in_its_turn_and_its_run_is_noted(self):
+        send_guard.queue_job("rsvp_reminder", self.actor, {"name": "rsvp", "sent": 3, "failed": 1})
+
+        self.assertEqual(JOB_RUNS, ["rsvp"])
+        run = EmailSendRun.objects.get(key="rsvp_reminder")
+        self.assertEqual((run.emailed, run.failed, run.error, run.held_until), (3, 1, "", None))
+        self.assertEqual(run.started_by, self.actor)
+        self.assertFalse(QueuedEmailSend.objects.exists())
+
+    def test_a_job_waits_while_its_mailbox_sends_and_comes_once(self):
+        send_guard._take(QUEUE_KEY)
+        send_guard.queue_job("rsvp_reminder", options={"name": "rsvp"})
+        # The same one again while it still waits: not queued twice.
+        send_guard.queue_job("rsvp_reminder", options={"name": "rsvp"})
+        self.assertEqual(JOB_RUNS, [])
+        self.assertEqual(QueuedEmailSend.objects.filter(key="rsvp_reminder").count(), 1)
+
+        send_guard._let_go()
+        send_guard._kick()
+        self.assertEqual(JOB_RUNS, ["rsvp"])
+
+    def test_a_job_waits_behind_a_bulk_email_from_the_same_mailbox(self):
+        # Results going from info@: the RSVP reminders wait, as Management's emails do.
+        EmailSendRun.objects.create(key="results_team", held_until=timezone.now() + timedelta(minutes=5))
+        send_guard.queue_job("rsvp_reminder", options={"name": "rsvp"})
+        self.assertEqual(JOB_RUNS, [])
+        self.assertEqual(run_state("results_team")["queued"], 0)
+
+        EmailSendRun.objects.filter(key="results_team").update(held_until=None, finished_at=timezone.now())
+        send_guard._kick()
+        self.assertEqual(JOB_RUNS, ["rsvp"])
+
+    def test_another_mailbox_does_not_wait(self):
+        # info@'s queue is busy: the digest, from connect@, goes anyway.
+        send_guard._take(QUEUE_KEY)
+        send_guard.queue_job("rsvp_reminder", options={"name": "rsvp"})
+        send_guard.queue_job("unread_messages", options={"name": "digest"})
+
+        self.assertEqual(JOB_RUNS, ["digest"])
+        self.assertEqual(list(QueuedEmailSend.objects.values_list("key", flat=True)), ["rsvp_reminder"])
+        self.assertEqual(send_guard.queue_key("connect"), f"{QUEUE_KEY}:connect")

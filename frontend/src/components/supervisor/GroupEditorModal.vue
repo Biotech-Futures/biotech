@@ -7,7 +7,7 @@
           <i class="fas fa-user-group group-editor-lead-icon" aria-hidden="true"></i>
           <div>
             <h2>{{ displayName }}</h2>
-            <p>{{ isCreate ? 'Areas of interest and students are optional. The system will assign a BTF group number.' : 'View and edit group details' }}</p>
+            <p>{{ isCreate ? 'Students are optional. The system will assign a BTF group number.' : 'View and edit group details' }}</p>
           </div>
         </div>
         <button type="button" class="group-editor-close" aria-label="Close" @click="emit('close')">
@@ -30,26 +30,17 @@
       <hr class="group-editor-rule" />
       </template>
 
-      <section class="group-editor-section" :class="{ 'group-editor-section--first': !isCreate }">
+      <!-- New Group: the areas its students share, counted, as they're added. -->
+      <section v-if="isCreate" class="group-editor-section">
         <p class="group-editor-label">
           <i class="fas fa-tags" aria-hidden="true"></i>
-          Area(s) of Interest
+          Shared Areas of Interest
         </p>
-        <p class="group-editor-hint">Select one or more areas of interest, these will be used to assign an appropriate mentor</p>
-        <div class="interest-options">
-          <label v-for="option in interestOptions" :key="option" class="interest-option">
-            <input
-              type="checkbox"
-              :checked="isSelectedInterest(option)"
-              @change="toggleInterest(option)"
-            />
-            <span>{{ option }}</span>
-          </label>
-        </div>
+        <SharedInterestChips v-if="sharedAreas.length" :interests="sharedAreas" :total="students.length" />
+        <p v-else class="group-editor-hint">Add students to see the areas of interest they share.</p>
       </section>
 
-      <!-- Only when making a group: Edit Interest is for its interests, and
-           students move by dragging them on My Groups. -->
+      <!-- Only when making a group; students move by dragging them on My Groups. -->
       <template v-if="isCreate">
       <hr class="group-editor-rule" />
 
@@ -98,18 +89,6 @@
             @click="createGroup"
           >
             Create Group
-          </button>
-        </template>
-        <!-- Edit Interest: groups are deleted from My Groups' Delete selected. -->
-        <template v-else>
-          <button
-            type="button"
-            class="btn btn-primary"
-            :disabled="busy || selectedInterests.length < 1"
-            :title="selectedInterests.length < 1 ? 'Select at least one area of interest' : ''"
-            @click="saveGroup"
-          >
-            Save
           </button>
         </template>
       </div>
@@ -197,19 +176,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import {
   addSupervisedGroupMembers,
   createSupervisedGroup,
-  DEFAULT_GROUP_INTERESTS,
   personName,
   removeSupervisedGroupMembers,
-  updateSupervisedGroup,
   type AvailableMentor,
   type GroupPerson,
   type SupervisedGroup,
 } from '@/utils/supervisedGroups'
 import { DEFAULT_GROUP_MAX_SIZE, GROUP_FULL_MESSAGE } from '@/utils/groupCapacity'
+import { sharedInterests } from '@/utils/groupInterests'
+import SharedInterestChips from '@/components/SharedInterestChips.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 
 const props = withDefaults(
@@ -234,23 +213,15 @@ const pickedIds = ref<number[]>([])
 const pendingRemove = ref<GroupPerson | null>(null)
 const pendingSchoolMix = ref<{ kind: 'inside' | 'outside'; message: string } | null>(null)
 const localMembers = ref<GroupPerson[]>([...props.group.members])
-const selectedInterests = ref<string[]>([...(props.group.interests || [])])
 const capacityFlash = useFlashMessage(5000)
 
 const isCreate = computed(() => props.mode === 'create')
 const displayName = computed(() => (isCreate.value ? 'New Group' : props.group.group_name))
 const displayMembers = computed(() => (isCreate.value ? localMembers.value : props.group.members))
 const students = computed(() => displayMembers.value.filter((member) => member.role === 'student'))
+// New Group: what its students share, from the interests they came with.
+const sharedAreas = computed(() => sharedInterests(students.value.map((student) => student.interests)))
 const memberIds = computed(() => new Set(displayMembers.value.map((member) => member.id)))
-const sameInterest = (left: string, right: string) => left.trim().toLowerCase() === right.trim().toLowerCase()
-const interestOptions = computed(() => {
-  const extras = selectedInterests.value.filter(
-    (item) => !DEFAULT_GROUP_INTERESTS.some((official) => sameInterest(official, item)),
-  )
-  return [...DEFAULT_GROUP_INTERESTS, ...extras]
-})
-const isSelectedInterest = (interest: string) =>
-  selectedInterests.value.some((item) => sameInterest(item, interest))
 const assignedGroupName = (person: AvailableMentor) => {
   const name = person.group_name?.trim()
   if (!name) return ''
@@ -293,24 +264,6 @@ const togglePicked = (person: AvailableMentor, event: Event) => {
 const confirmAllocated = () => {
   if (pendingAllocated.value) pickedIds.value = [...pickedIds.value, pendingAllocated.value.id]
   pendingAllocated.value = null
-}
-
-watch(
-  () => props.group.interests,
-  (next) => {
-    selectedInterests.value = [...(next || [])]
-  },
-)
-
-const persistInterests = async (next: string[]) => {
-  selectedInterests.value = next
-}
-
-const toggleInterest = (interest: string) => {
-  const next = isSelectedInterest(interest)
-    ? selectedInterests.value.filter((item) => !sameInterest(item, interest))
-    : [...selectedInterests.value, interest]
-  void persistInterests(next)
 }
 
 const closePicker = () => {
@@ -437,29 +390,13 @@ const createGroup = async () => {
   busy.value = true
   error.value = ''
   try {
-    let created = await createSupervisedGroup(selectedInterests.value)
+    let created = await createSupervisedGroup([])
     const studentIds = localMembers.value.filter((member) => member.role === 'student').map((member) => member.id)
     if (studentIds.length) created = await addSupervisedGroupMembers(created.id, studentIds, 'student')
     emit('updated', created)
     emit('close')
   } catch (saveError) {
     error.value = saveError instanceof Error ? saveError.message : 'Group could not be created.'
-  } finally {
-    busy.value = false
-  }
-}
-
-const saveGroup = async () => {
-  if (selectedInterests.value.length < 1) {
-    error.value = 'Please select at least one area of interest.'
-    return
-  }
-  busy.value = true
-  error.value = ''
-  try {
-    emit('updated', await updateSupervisedGroup(props.group.id, { interests: selectedInterests.value }))
-  } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : 'Group could not be saved.'
   } finally {
     busy.value = false
   }
@@ -599,7 +536,6 @@ const saveGroup = async () => {
 }
 
 .interest-chips,
-.interest-options,
 .interest-custom-row {
   display: flex;
   flex-wrap: wrap;
@@ -624,48 +560,6 @@ const saveGroup = async () => {
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
-}
-
-.interest-options {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.interest-option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  color: #3d4a4a;
-  font-size: 0.9rem;
-}
-
-.interest-option input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 1.1rem;
-  height: 1.1rem;
-  border: 2px solid #c0c0c0;
-  border-radius: 3px;
-  background: #fff;
-  cursor: pointer;
-  flex-shrink: 0;
-  position: relative;
-}
-
-.interest-option input[type="checkbox"]:checked {
-  background: var(--dark-green, #017151);
-  border-color: var(--dark-green, #017151);
-}
-
-.interest-option input[type="checkbox"]:checked::after {
-  content: '✓';
-  color: #fff;
-  font-size: 0.75rem;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
 }
 
 .interest-custom-row {

@@ -46,24 +46,20 @@
           <button type="button" class="btn btn-primary" @click="openCreateGroup">Create Group</button>
         </div>
       </div>
-      <p v-if="selectedGroupIds.size" class="groups-bulk">
-        {{ selectedGroupIds.size }} selected
-        <span class="groups-bulk-actions">
-          <!-- One group's interests at a time. -->
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="selectedGroupIds.size !== 1"
-            :title="selectedGroupIds.size !== 1 ? 'Select one group to edit its interests' : ''"
-            @click="openEditInterests"
-          >
-            Edit Interest
-          </button>
+      <div v-if="groups.length" class="groups-bulk">
+        <label class="groups-select-all">
+          <input type="checkbox" class="group-check" :checked="allSelected" @change="toggleSelectAll" />
+          Select all
+        </label>
+        <!-- There, hidden, while nothing's ticked: the row is already as tall
+             as with Delete selected, so ticking a card doesn't move the cards. -->
+        <span :class="{ 'groups-bulk-hidden': !selectedGroupIds.size }">{{ selectedGroupIds.size }} selected</span>
+        <span class="groups-bulk-actions" :class="{ 'groups-bulk-hidden': !selectedGroupIds.size }">
           <button type="button" class="btn btn-outline btn-sm" @click="pendingBulkDelete = true">
             Delete selected
           </button>
         </span>
-      </p>
+      </div>
       <article
         v-for="group in groups"
         :key="group.id"
@@ -104,16 +100,19 @@
           </div>
         </div>
 
-        <div v-if="group.sharedInterests.length" class="interest-tags">
-          <span v-for="interest in group.sharedInterests" :key="interest" class="interest-tag">
-            {{ interest }}
-          </span>
-        </div>
-        <p v-else class="supervisor-muted">No areas of interest tagged yet.</p>
+        <!-- What its students share, each counted, headed like Students. -->
+        <h3>Shared Areas of Interest</h3>
+        <SharedInterestChips
+          v-if="group.shared.length"
+          :interests="group.shared"
+          :total="group.students.length"
+          numbered
+        />
+        <p v-else class="supervisor-muted">None yet.</p>
 
         <h3>Students</h3>
         <ul class="student-rows">
-          <li v-for="student in group.students" :key="student.id">
+          <li v-for="(student, index) in group.students" :key="student.id">
             <button
               type="button"
               class="student-row"
@@ -122,6 +121,8 @@
               @dragend="draggingId = null"
               @click="sheetStudentId = student.id"
             >
+              <!-- The number the areas of interest above show them by. -->
+              <span class="student-number">{{ index + 1 }}</span>
               {{ studentName(student) }}
             </button>
           </li>
@@ -136,12 +137,17 @@
     </section>
 
     <!-- A student's details, opened by clicking their box, as on My Students. -->
-    <SupervisorStudentSheet :student="sheetStudent" @close="sheetStudentId = null" @saved="students = $event" />
+    <SupervisorStudentSheet
+      :student="sheetStudent"
+      @close="sheetStudentId = null"
+      @saved="students = $event"
+      @updated="students = students.map((student) => (student.id === $event.id ? $event : student))"
+    />
 
     <GroupEditorModal
       v-if="editorGroup"
       :group="editorGroup"
-      :mode="editorMode"
+      mode="create"
       :students-available="studentChoices"
       :current-user-id="auth.user?.id ?? null"
       @close="closeEditor"
@@ -181,6 +187,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import SharedInterestChips from '@/components/SharedInterestChips.vue'
 import GroupEditorModal from '@/components/supervisor/GroupEditorModal.vue'
 import SupervisorStudentSheet from '@/components/supervisor/SupervisorStudentSheet.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -201,6 +208,7 @@ import {
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
 import { DEFAULT_GROUP_MAX_SIZE, GROUP_FULL_MESSAGE } from '@/utils/groupCapacity'
+import { sharedInterests } from '@/utils/groupInterests'
 
 const GROUP_LIMIT = DEFAULT_GROUP_MAX_SIZE
 const groupLimit = GROUP_LIMIT
@@ -216,8 +224,6 @@ const sheetStudent = computed(() => students.value.find((student) => student.id 
 const assignment = ref<Record<number, number | null>>({})
 const supervisedGroups = ref<SupervisedGroup[]>([])
 const editorGroup = ref<SupervisedGroup | null>(null)
-// Create Group opens the editor to make one; Edit Interest, to change one.
-const editorMode = ref<'create' | 'edit'>('create')
 const selectedGroupIds = ref<Set<number>>(new Set())
 const pendingBulkDelete = ref(false)
 const pendingSchoolMove = ref<{
@@ -261,6 +267,7 @@ const studentChoices = computed<AvailableMentor[]>(() =>
     group_id: student.group_id,
     group_name: student.group_name,
     school_name: student.school_name,
+    interests: student.interests,
   })),
 )
 
@@ -314,15 +321,11 @@ const groups = computed(() => {
       const members = students.value.filter(
         (student) => assignment.value[student.id] === owned.id,
       )
-      const tagged = owned.interests ?? []
-      const sharedInterests = tagged.length
-        ? tagged
-        : [...new Set(members.flatMap((member) => member.interests))]
       return {
         id: owned.id,
         name: owned.group_name,
         students: members,
-        sharedInterests,
+        shared: sharedInterests(members.map((member) => member.interests)),
       }
     })
 })
@@ -333,6 +336,13 @@ const toggleGroup = (groupId: number) => {
   if (next.has(groupId)) next.delete(groupId)
   else next.add(groupId)
   selectedGroupIds.value = next
+}
+
+const allSelected = computed(
+  () => groups.value.length > 0 && groups.value.every((group) => selectedGroupIds.value.has(group.id)),
+)
+const toggleSelectAll = () => {
+  selectedGroupIds.value = allSelected.value ? new Set() : new Set(groups.value.map((group) => group.id))
 }
 
 const applyOwnedGroup = (group: SupervisedGroup) => {
@@ -545,20 +555,8 @@ const closeEditor = () => {
   editorGroup.value = null
 }
 
-// The one ticked group, in the editor, where its areas of interest are.
-const openEditInterests = () => {
-  if (selectedGroupIds.value.size !== 1) return
-  const [groupId] = selectedGroupIds.value
-  const group = supervisedGroups.value.find((item) => item.id === groupId)
-  if (!group) return
-  clearFlash()
-  editorMode.value = 'edit'
-  editorGroup.value = group
-}
-
 const openCreateGroup = () => {
   clearFlash()
-  editorMode.value = 'create'
   editorGroup.value = {
     id: 0,
     group_name: 'New Group',
@@ -784,11 +782,29 @@ onMounted(async () => {
   color: #6c757d;
 }
 
-/* Edit Interest and Delete selected, on the right. */
+/* Delete selected, on the right. */
 .groups-bulk-actions {
   display: flex;
   gap: 0.5rem;
   margin-left: auto;
+}
+
+.groups-bulk-hidden {
+  visibility: hidden;
+}
+
+/* .btn eases "all" over 0.3s, visibility too, so it would linger after
+   the last untick; it goes at once like the count beside it. */
+.groups-bulk-hidden .btn {
+  transition: none;
+}
+
+.groups-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  cursor: pointer;
 }
 
 /* White, rather than the page's tint showing through; hover keeps its green. */
@@ -875,21 +891,6 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.interest-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.4rem;
-}
-
-.interest-tag {
-  padding: 0.18rem 0.5rem;
-  border-radius: 999px;
-  background: #f0f0f0;
-  color: #333;
-  font-size: 0.82rem;
-}
-
 /* Where a group's next students go: a dashed white box. */
 .drop-hint {
   padding: 0.15rem 1rem;
@@ -913,6 +914,9 @@ onMounted(async () => {
 }
 
 .student-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   width: 100%;
   text-align: left;
   border: 1px solid #e0e0e0;
@@ -922,5 +926,11 @@ onMounted(async () => {
   cursor: grab;
   color: #333;
   font-size: 0.9rem;
+}
+
+/* Just the number, no circle. */
+.student-number {
+  flex-shrink: 0;
+  font-weight: 700;
 }
 </style>

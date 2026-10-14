@@ -77,9 +77,8 @@
         search-placeholder="Group name"
         empty-message="No extensions granted."
         :action-columns="1"
-        show-all-details
+        joined-details
         :detail-for="(row) => Boolean(row.reason)"
-        :row-class="(row) => (row.reason ? 'extensions__row--with-reason' : undefined)"
       >
         <template #cell-group="{ row }">
           <span class="extensions__cell--strong">{{ row.group }}</span>
@@ -105,8 +104,8 @@
             Revoke
           </button>
         </template>
-        <!-- The reason gets a full-width row of its own so multi-line text
-             can wrap; the pair reads as one record. -->
+        <!-- The reason, full width under its extension so a long one can
+             wrap, drawn as part of the same row (joined-details). -->
         <template #row-detail="{ row }">
           <div class="extensions__reason">
             <span class="extensions__muted">Reason:</span> {{ row.reason }}
@@ -463,11 +462,6 @@ onMounted(() => {
 
 .extensions__load-error {
   color: var(--danger);
-}
-
-/* A row followed by its reason reads as one record: no line between them. */
-:deep(.extensions__row--with-reason) td {
-  border-bottom: none;
 }
 
 .extensions__reason {

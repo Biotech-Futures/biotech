@@ -1,11 +1,7 @@
 <template>
   <main class="details-page">
+    <!-- Under the site's top bar, which shows the logo. -->
     <div class="details-shell">
-      <header class="details-brand">
-        <img :src="logo" :alt="BRAND_NAME" class="details-brand__logo" />
-        <span class="details-brand__name">{{ BRAND_NAME }}</span>
-      </header>
-
       <section class="details-card">
         <div v-if="loading" class="details-state" role="status" aria-live="polite">
           <span class="details-spinner" aria-hidden="true"></span>
@@ -26,7 +22,7 @@
         </div>
 
         <form v-else-if="studentName" novalidate @submit.prevent="submit">
-          <h1>Guardian Details of {{ studentName }}</h1>
+          <h1>Guardian Details for {{ studentName }}</h1>
 
           <label class="details-field" for="details-first-name">
             <span>First name</span>
@@ -67,11 +63,11 @@
 
           <p v-if="submitError" class="details-error" role="alert" data-test="details-error">{{ submitError }}</p>
 
-          <button type="submit" class="details-submit" :disabled="submitting" data-test="details-submit">
+          <button type="submit" class="btn btn-primary details-submit" :disabled="submitting" data-test="details-submit">
             <span v-if="submitting" class="details-spinner details-spinner--light" aria-hidden="true"></span>
             {{ submitting ? 'Saving…' : 'Save' }}
           </button>
-          <p class="details-muted">The guardian will then be emailed the consent form.</p>
+          <p class="details-muted">Upon submission the nominated guardian will be sent an email to complete the consent form.</p>
         </form>
       </section>
     </div>
@@ -82,8 +78,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import logo from '@/assets/btf-logo.png'
-import { BRAND_NAME } from '@/constants/brand'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
   fetchGuardianDetailsForm,
@@ -175,20 +169,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* The consent page's look: the same brand header, card and fields. */
+/* The platform's card, fields, button and colours, on the site's background
+   under its top bar (64px). */
 .details-page {
-  --emerald-700: #1f5d4f;
-  --emerald-500: #2fa486;
-  --stone-900: #10211d;
-  --stone-700: #36514a;
-  --stone-500: #648178;
-  --border-soft: rgba(16, 33, 29, 0.12);
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: calc(100vh - 64px);
+  min-height: calc(100dvh - 64px);
   padding: 32px 16px 48px;
-  font-family: Arial, Helvetica, sans-serif;
-  color: var(--stone-900);
-  background: linear-gradient(180deg, #eef7f2 0%, #e7f3ec 40%, #dcece2 100%);
+  color: var(--teal);
+  background: var(--bg-light);
 }
 
 .details-page,
@@ -201,29 +189,11 @@ onMounted(async () => {
   margin: 0 auto;
 }
 
-.details-brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.details-brand__logo {
-  width: 56px;
-  height: 56px;
-  object-fit: contain;
-}
-
-.details-brand__name {
-  font-weight: 700;
-  font-size: 1.6rem;
-}
-
 .details-card {
-  padding: 32px;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 20px 60px rgba(12, 41, 34, 0.12);
+  padding: 1.5rem;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
 }
 
 h1 {
@@ -241,42 +211,40 @@ h1 {
 }
 
 .details-field input {
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  width: 100%;
+  padding: 0.625rem;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  background: var(--white);
+  color: var(--teal);
   font: inherit;
+  font-size: 1rem;
   font-weight: 400;
+  transition: border-color 0.3s ease;
+}
+
+.details-field input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.1);
 }
 
 .details-field input.is-invalid {
-  border-color: rgba(210, 75, 75, 0.6);
+  border-color: var(--danger);
 }
 
 .details-error {
   margin: 18px 0 0;
   padding: 12px 14px;
-  border: 1px solid rgba(210, 75, 75, 0.2);
-  border-radius: 8px;
-  background: rgba(255, 245, 245, 0.95);
-  color: #9f3030;
+  border: 1px solid rgba(220, 53, 69, 0.25);
+  border-radius: 4px;
+  background: rgba(220, 53, 69, 0.06);
+  color: var(--danger);
 }
 
 .details-submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
   width: 100%;
-  min-height: 52px;
   margin-top: 22px;
-  border: 0;
-  border-radius: 12px;
-  color: #ffffff;
-  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
-  font-size: 1rem;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .details-submit:disabled {
@@ -286,7 +254,7 @@ h1 {
 
 .details-muted {
   margin: 14px 0 0;
-  color: var(--stone-500);
+  color: var(--text-muted);
   font-size: 0.9rem;
   text-align: center;
 }
@@ -302,7 +270,6 @@ h1 {
 .details-state p {
   margin: 0;
   max-width: 480px;
-  color: var(--stone-700);
   line-height: 1.6;
 }
 
@@ -312,8 +279,8 @@ h1 {
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: rgba(39, 132, 109, 0.12);
-  color: var(--emerald-700);
+  background: var(--light-green);
+  color: var(--dark-green);
 }
 
 .details-success-icon svg {
@@ -329,8 +296,8 @@ h1 {
 .details-spinner {
   width: 22px;
   height: 22px;
-  border: 2px solid rgba(31, 93, 79, 0.2);
-  border-top-color: var(--emerald-700);
+  border: 2px solid rgba(1, 113, 81, 0.2);
+  border-top-color: var(--dark-green);
   border-radius: 50%;
   animation: details-spin 0.8s linear infinite;
 }

@@ -667,7 +667,14 @@
                 </li>
 
                 <li v-if="!section.rows.length" class="task-empty-state">
-                  <i :class="section.icon" aria-hidden="true"></i>
+                  <!-- Its icon in rings, as on Events when there are none. -->
+                  <span class="task-empty-illustration" aria-hidden="true">
+                    <span class="task-empty-ring task-empty-ring--outer"></span>
+                    <span class="task-empty-ring task-empty-ring--mid"></span>
+                    <span class="task-empty-ring task-empty-ring--inner">
+                      <i :class="section.icon"></i>
+                    </span>
+                  </span>
                   <span>No {{ section.title.toLowerCase() }} yet.</span>
                   <button
                     v-if="(section.key === 'group' && canCreateGroupTasks) || (section.key === 'individual' && canCreateIndividualTasks)"
@@ -7217,6 +7224,44 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
 }
 .task-empty-state i { font-size: 1.4rem; color: #c5cdd3; }
+
+/* The Events page's empty icon: green rings round a dark green circle. */
+.task-empty-illustration {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 0.35rem;
+}
+
+.task-empty-ring {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.task-empty-ring--outer {
+  background: rgba(186, 215, 187, 0.44);
+  opacity: 0.45;
+}
+
+.task-empty-ring--mid {
+  inset: 14px;
+  background: #bad7bb;
+  opacity: 0.7;
+}
+
+.task-empty-ring--inner {
+  inset: 28px;
+  background: var(--dark-green);
+}
+
+.task-empty-state .task-empty-ring--inner i {
+  font-size: 1.1rem;
+  color: #fff;
+}
 .task-empty-cta {
   display: inline-flex;
   align-items: center;
@@ -8699,6 +8744,7 @@ onBeforeUnmount(() => {
 .message-date {
   color: #6c757d;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 /* The sender's name at 14px, with the date and time beside it at 12px. */
@@ -9695,9 +9741,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.message-header {
-  padding-right: 2.2rem;
-}
+/* No room kept on the right: the floating toolbar it was for is gone, so the
+   reply, smile and menu buttons sit at the bubble's right edge. */
 
 /* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
 .message:not(.own) .message-content {

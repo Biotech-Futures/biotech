@@ -47,7 +47,10 @@
         search-placeholder="Group name"
         :sort="tableSort"
         :empty-message="searchQuery.trim() ? 'No groups match your search.' : 'No groups.'"
+        clickable-rows
+        :row-clickable="(row) => rowOf(row).submission_id != null"
         @update:sort="setSort($event.key as SortKey)"
+        @row-click="router.push(`/grading/components/${code}/${rowOf($event).group_id}`)"
       >
         <template #stats>
           {{ submittedCount }}/{{ payload.rows.length }} Submitted ·

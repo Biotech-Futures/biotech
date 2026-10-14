@@ -65,6 +65,20 @@
         <i class="fas fa-chevron-up" aria-hidden="true"></i>
       </button>
     </header>
+    <!-- A public page in the site (meta.siteHeader): the same top bar, with
+         just the logo, as its visitor isn't signed in. -->
+    <header v-else-if="isLoginPage && route.meta.siteHeader === true" class="header">
+      <div class="header-content">
+        <div class="logo-section">
+          <span class="logo">
+            <span class="logo-icon">
+              <img :src="logo" :alt="BRAND_NAME" />
+            </span>
+            <span class="logo-text">{{ BRAND_CONNECT }}</span>
+          </span>
+        </div>
+      </div>
+    </header>
     <button
       v-if="!isLoginPage && onMarkingPage && isHeaderHidden"
       type="button"
@@ -267,6 +281,7 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
@@ -383,10 +398,14 @@ const toggleSidebarSection = (key: SidebarSectionKey) => {
 type SidebarLink = { label: string; to?: string; href?: string; active: boolean }
 
 const { shown: supervisorPagesShown } = useSupervisorPages()
+// Results, once marks or certificates are released.
+const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
-    if (isSupervisor) void loadSupervisorPages()
+    if (!isSupervisor) return
+    void loadSupervisorPages()
+    void loadSupervisorResults()
   },
   { immediate: true },
 )
@@ -427,6 +446,9 @@ const sidebarSections = computed(() => {
         { label: 'My Profile', to: '/profile', active: path === '/profile' },
         { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
         { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
+        ...(supervisorResultsShown.value
+          ? [{ label: 'Results', to: '/my-results', active: path === '/my-results' }]
+          : []),
         { label: 'Contact Support', href: `mailto:${SUPPORT_EMAIL}`, active: false },
       ],
     })

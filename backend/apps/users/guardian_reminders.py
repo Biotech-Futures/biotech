@@ -143,3 +143,9 @@ def send_due(now=None, *, dry_run: bool = False) -> dict:
     if failed:
         logger.error("guardian_reminders.failed sent=%s failed=%s skipped=%s", sent, failed, skipped)
     return {"sent": sent, "failed": failed, "skipped": skipped}
+
+
+def reminder_job(actor, options) -> dict:
+    """The queued run of today's consent reminders (``send_guard.JOBS``).
+    Each that fails is tried once more at once, as every single email is."""
+    return send_due()

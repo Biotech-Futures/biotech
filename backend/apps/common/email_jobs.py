@@ -7,6 +7,9 @@ person behind these calls, so the token stands in for a session.
 
 While the jobs move from ``RSVP_REMINDER_TOKEN`` to ``EMAIL_JOBS_TOKEN``,
 either is accepted, so the two can be set on GitHub and Azure in any order.
+
+Each job queues its run (``queued``) and answers at once: the run sends in its
+turn, after any bulk email going from the same mailbox (``send_guard``).
 """
 import hmac
 
@@ -36,3 +39,11 @@ def refused(request):
     if not sum(hmac.compare_digest(provided, token) for token in accepted):
         return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
     return None
+
+
+def queued(key: str):
+    """Queue the run of email ``key``'s job (``send_guard.JOBS``) and say so."""
+    from apps.management.services.send_guard import queue_job
+
+    queue_job(key)
+    return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)

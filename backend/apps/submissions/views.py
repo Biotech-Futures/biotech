@@ -35,7 +35,6 @@ from .errors import (
 from .models import Submission, SubmissionInstruction, SubmissionQuestion
 from .poster_checks import inspect_poster, student_facing_problems
 from .autosubmit import auto_submit_due
-from .reminders import send_due_reminders
 from .serializers import (
     SubmissionDraftSerializer,
     SubmissionQuestionSerializer,
@@ -393,7 +392,7 @@ class SendSubmissionRemindersView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        return email_jobs.refused(request) or Response(send_due_reminders(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or email_jobs.queued("submission_reminder")
 
 
 class AutoSubmitView(APIView):

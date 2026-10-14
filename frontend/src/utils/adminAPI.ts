@@ -1047,7 +1047,8 @@ export interface AdminAnnouncementMergeTag {
 export interface AdminAnnouncementNotifyResult {
   msg: string
   deliveryId?: number
-  status: 'success' | 'partial' | 'failed' | 'skipped'
+  // queued: it sends in its turn, after any bulk email from the same mailbox.
+  status: 'queued' | 'success' | 'partial' | 'failed' | 'skipped'
   attempted: number
   succeeded: number
   failed: number

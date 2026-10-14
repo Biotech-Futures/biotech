@@ -39,22 +39,30 @@
       <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
-        :action-columns="section.rowActions.length"
+        :action-columns="section.actionHeading ? 1 : section.rowActions.length"
+        :action-headings="section.actionHeading ? [section.actionHeading] : []"
         :default-sort="section.defaultSort"
         clickable-rows
+        joined-details
+        :detail-for="(row) => Boolean((row.interests as string[] | undefined)?.length)"
         @row-click="openSheet"
       >
+        <!-- A student's areas of interest, on a line of their own under the
+             row and drawn as part of it, as Extend Deadline's reasons. -->
+        <template #row-detail="{ row }">
+          <div class="students-interests">
+            <span class="students-interests__label">Areas of Interest:</span>
+            {{ (row.interests as string[]).join(', ') }}
+          </div>
+        </template>
         <!-- A student, or their guardian, opens the student's panel. -->
         <template #cell-student="{ row, value }">
           <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row)">{{ value }}</button>
         </template>
-        <template #cell-parentGuardian="{ row, value }">
-          <button type="button" class="supervisor-name-btn" @click.stop="openSheet(row, 'guardian')">{{ value }}</button>
-        </template>
         <!-- Options sits beside Search, in the table's search card. -->
         <template #filters="{ rows, pageRows, selectedRows }">
           <SupervisorTableOptions
-            :columns="section.columns"
+            :columns="withInterests(section.columns)"
             :rows="rows"
             :page-rows="pageRows"
             :selected-rows="selectedRows"
@@ -96,7 +104,20 @@
         </template>
         <!-- Each row button has its own column with no heading. -->
         <template #actions="{ row, column }">
+          <!-- Under a heading, a row's buttons share its one column. -->
+          <span v-if="section.actionHeading" class="supervisor-row-actions">
+            <button
+              v-for="action in section.rowActions"
+              :key="action.value"
+              type="button"
+              class="btn btn-outline btn-sm"
+              @click="onSectionAction(section.id, action.value, [row])"
+            >
+              {{ action.label }}
+            </button>
+          </span>
           <button
+            v-else
             type="button"
             class="btn btn-outline btn-sm"
             @click="onSectionAction(section.id, section.rowActions[column].value, [row])"
@@ -155,10 +176,10 @@
 
     <SupervisorStudentSheet
       :student="sheetStudent"
-      :at-guardian="route.query.show === 'guardian' || route.query.show === 'edit-guardian'"
       :edit-guardian="route.query.show === 'edit-guardian'"
       @close="closeSheet"
       @saved="students = $event"
+      @updated="replaceStudent"
     />
   </div>
 </template>
@@ -210,18 +231,22 @@ const emailConfirm = ref<{
 } | null>(null)
 
 // The student whose panel is open, kept in the address (?student=12, plus
-// show=guardian to open at their guardian, or show=edit-guardian with its
-// form open) so a refresh opens it again.
+// show=edit-guardian to open at the guardian form) so a refresh opens it again.
 const route = useRoute()
 const router = useRouter()
 const sheetStudentId = computed(() => Number(route.query.student) || null)
 const sheetStudent = computed(() => students.value.find((student) => student.id === sheetStudentId.value) ?? null)
-const openSheet = (row: Record<string, unknown>, show?: 'guardian' | 'edit-guardian') => {
+const openSheet = (row: Record<string, unknown>, show?: 'edit-guardian') => {
   const query: LocationQueryRaw = { ...route.query, student: String(row.id) }
   if (show) query.show = show
   else delete query.show
   void router.replace({ query })
 }
+// The student the panel just saved, in place in the list.
+const replaceStudent = (updated: SupervisedStudent) => {
+  students.value = students.value.map((student) => (student.id === updated.id ? updated : student))
+}
+
 const closeSheet = () => {
   const query = { ...route.query }
   delete query.student
@@ -233,7 +258,6 @@ const pendingColumns: DataTableColumn[] = [
   { key: 'student', label: 'Student' },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year', type: 'number' },
-  { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
 const registeredColumns: DataTableColumn[] = [
@@ -241,7 +265,6 @@ const registeredColumns: DataTableColumn[] = [
   { key: 'parentGuardian', label: 'Guardian' },
   { key: 'school', label: 'School' },
   { key: 'yearLevel', label: 'Year', type: 'number' },
-  { key: 'interests', label: 'Area(s) of Interest', wrap: true },
 ]
 
 const fullyRegisteredColumns: DataTableColumn[] = [
@@ -249,6 +272,14 @@ const fullyRegisteredColumns: DataTableColumn[] = [
   // Sorted by when, not by the shown "09/10/26 16:12".
   { key: 'permissionGiven', label: 'Permission', sortValue: (row) => Date.parse(String(row.permissionGivenAt)) || 0 },
 ]
+
+// Exports keep Area(s) of Interest as a column where the table had one:
+// last, or before Permission.
+const withInterests = (columns: DataTableColumn[]) => {
+  const interests: DataTableColumn = { key: 'interests', label: 'Area(s) of Interest' }
+  const at = columns.findIndex((column) => column.key === 'permissionGiven')
+  return at < 0 ? [...columns, interests] : [...columns.slice(0, at), interests, ...columns.slice(at)]
+}
 
 // A button on the rows or in the selected bar, and whether it needs ticked rows.
 type StudentAction = { value: string; label: string; needsSelection?: boolean }
@@ -280,6 +311,7 @@ const sections = computed(() => [
     columns: pendingColumns,
     defaultSort: undefined,
     rowActions: pendingDetailsActions.map((action) => ({ ...action, needsSelection: false })),
+    actionHeading: undefined,
     bulkActions: pendingDetailsActions,
     emailAll: { value: 'email-students-all', label: 'Email All Students' },
     rows: students.value.filter((student) => classifyStudent(student) === 'pendingDetails').map(toStudentRow),
@@ -291,6 +323,7 @@ const sections = computed(() => [
     columns: registeredColumns,
     defaultSort: undefined,
     rowActions: pendingPermissionActions.map((action) => ({ ...action, needsSelection: false })),
+    actionHeading: undefined,
     bulkActions: pendingPermissionActions,
     emailAll: { value: 'email-guardians-all', label: 'Email All Guardians' },
     rows: students.value
@@ -308,6 +341,8 @@ const sections = computed(() => [
       { value: 'open-consent', label: 'View' },
       { value: 'view-consent', label: 'Download' },
     ],
+    // View and Download together, in one column.
+    actionHeading: 'Consent Form',
     bulkActions: [{ value: 'view-consent-selected', label: 'Download Selected PDFs' }],
     rows: students.value
       .filter((student) => classifyStudent(student) === 'fullyRegistered')
@@ -541,6 +576,21 @@ onMounted(loadStudents)
 
 <style scoped>
 /* A name that opens the student's panel, looking like the table's links. */
+/* A row's buttons in one column, 8px apart. */
+.supervisor-row-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+/* Under a student's row, as Extend Deadline's reasons. */
+.students-interests {
+  font-size: 0.85rem;
+}
+
+.students-interests__label {
+  color: var(--text-muted);
+}
+
 .supervisor-name-btn {
   padding: 0;
   border: none;

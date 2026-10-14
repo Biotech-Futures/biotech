@@ -16,6 +16,7 @@ from typing import Callable
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.groups import Groups
+from apps.services.retry import send_with_retry
 from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
 from ..models import FinalistEmailSettings, ResultsEmailSettings
@@ -184,4 +185,5 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     message = build_message(
         rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
     )
-    message.send(fail_silently=False)
+    # Tried once more if it fails, as every email is.
+    send_with_retry(message)

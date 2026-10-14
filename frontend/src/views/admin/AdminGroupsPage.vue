@@ -119,7 +119,9 @@
       v-model:search="searchInput"
       search-placeholder="Search by group name..."
       empty-message="No groups found."
-      :action-columns="3"
+      :action-columns="2"
+      clickable-rows
+      @row-click="openDetail(toGroup($event))"
       @update:selected="onTableSelected"
       @update:sort="onSortChange"
       @update:page="onPageChange"
@@ -149,19 +151,12 @@
       <template #cell-createdAt="{ row }">
         {{ formatShortDate(toGroup(row).createdAt) }}
       </template>
-      <!-- View | Open | Rename, each in its own column. -->
+      <!-- Open | Rename, each in its own column. Clicking its name shows a
+           group's details. -->
       <template #actions="{ row, column }">
-        <button
-          v-if="column === 0"
-          type="button"
-          class="btn btn-sm btn-outline"
-          @click.stop="openDetail(toGroup(row))"
-        >
-          View
-        </button>
         <!-- The group's own page, as its members see it: tasks, chat and submission. -->
         <RouterLink
-          v-else-if="column === 1"
+          v-if="column === 0"
           :to="{ name: 'group-detail', params: { id: toGroup(row).id } }"
           class="btn btn-sm btn-outline"
           @click.stop
