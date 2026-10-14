@@ -916,6 +916,37 @@ class AnnouncementResponseWaitsForSendingTests(TransactionTestCase):
         )
         self.assert_sending_finished_before_response(response, status.HTTP_200_OK)
 
+    def test_send_email_with_nothing_to_send_still_saves(self):
+        # The form treats a successful save as "sending has finished". When a
+        # send is skipped (no recipients, or announcement emails switched off)
+        # the save must still succeed rather than surface as a failure that an
+        # admin would retry, publishing the announcement twice.
+        from apps.resources.models import Roles
+        from apps.services.models import SystemEmailTemplate
+
+        empty_role = Roles.objects.create(role_name="am7-nobody")
+        response = self.client.post(
+            "/api/v1/admin/announcement/",
+            {"title": "No audience", "body": "<p>Body</p>", "send_email": True, "role_ids": [empty_role.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        SystemEmailTemplate.objects.create(key="announcement", is_enabled=False)
+        announcement = Announcement.objects.create(
+            author_user=self.admin, title="Switched off", body="<p>Body</p>", visibility_scope="global",
+        )
+        response = self.client.put(
+            f"/api/v1/admin/announcement/{announcement.id}/",
+            {"title": "Switched off (updated)", "send_email": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+        self.assertFalse(AnnouncementDelivery.objects.exists())
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(connection.run_on_commit, [])
+
     def test_save_without_send_email_sends_nothing(self):
         response = self.client.post(
             "/api/v1/admin/announcement/", {"title": "Quiet", "body": "<p>Body</p>"}, format="json",
