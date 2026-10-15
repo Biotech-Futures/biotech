@@ -4,8 +4,9 @@ The consolidated frontend/backend change on current `main` implements **one indi
 `POST /api/v1/registration` (both slash variants and `registration-intake/`
 are aliases). It does not implement team, supervisor, CSV or mentor intake;
 those journeys fail explicitly, not via a legacy fallback. It combines the
-production changes from frontend #475 and backend #476 without importing
-their old registration-branch history.
+full `registration` branch and the production changes from frontend #475 and
+backend #476. Registration history is retained while its older frontend wiring
+is reconciled with current main and the newer intake contract.
 
 ## Session-protected management
 

@@ -4,8 +4,10 @@ This template should help get you started developing with Vue 3 in Vite.
 
 ## Production registration
 
-This consolidates frontend #475 and production backend #476 on current `main`,
-without importing the old registration branch or replacing the application shell.
+This merges the full `registration` branch and consolidates frontend #475 and
+production backend #476 on current `main`, without replacing the application shell.
+The original registration history is retained; its older route, authentication
+and gateway code is reconciled with current main and the newer focused changes.
 Registration uses the existing session authentication.
 Student and mentor intake is public at `/#/register`; the existing supervisor
 guard remains in force at `/#/supervisor/registration`. Public registration cannot

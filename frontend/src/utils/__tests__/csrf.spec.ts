@@ -47,6 +47,45 @@ describe('registration CSRF origin isolation', () => {
     expect(getCSRFToken('https://api.example.test')).toBe('prefixed-token')
   })
 
+  it('normalizes path variants while caching independent API origins', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{"csrfToken":"token-a"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"csrfToken":"token-b"}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await ensureCsrfCookie('https://api-a.example.test/v1/')).toBe(true)
+    expect(await ensureCsrfCookie('https://api-b.example.test')).toBe(true)
+    expect(await ensureCsrfCookie('https://api-a.example.test/other')).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(getCSRFToken('https://api-a.example.test')).toBe('token-a')
+    expect(getCSRFToken('https://api-b.example.test/path')).toBe('token-b')
+    expect(buildSessionHeaders({
+      includeCSRF: true,
+      csrfApiBaseUrl: 'https://api-a.example.test/path',
+    }).get('X-CSRFToken')).toBe('token-a')
+    expect(buildSessionHeaders({
+      includeCSRF: true,
+      csrfApiBaseUrl: 'https://api-b.example.test',
+    }).get('X-CSRFToken')).toBe('token-b')
+    expect(buildSessionHeaders({
+      includeCSRF: true,
+      csrfApiBaseUrl: 'https://unknown.example.test',
+    }).has('X-CSRFToken')).toBe(false)
+  })
+
+  it('clears cached tokens for every API origin', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () =>
+      new Response('{"csrfToken":"token"}', { status: 200 }),
+    ))
+    expect(await ensureCsrfCookie('https://api-a.example.test')).toBe(true)
+    expect(await ensureCsrfCookie('https://api-b.example.test')).toBe(true)
+
+    resetCsrfToken()
+
+    expect(getCSRFToken('https://api-a.example.test')).toBeNull()
+    expect(getCSRFToken('https://api-b.example.test')).toBeNull()
+  })
+
   it('invalidates origin caches when existing login callers rotate the token', async () => {
     setCsrfToken('before-login', 'https://override.example.test')
     setCsrfToken('after-login')
