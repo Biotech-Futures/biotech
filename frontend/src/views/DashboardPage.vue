@@ -383,14 +383,6 @@
       @click.self="closeNoMembershipPopup"
     >
       <div class="dashboard-modal" role="dialog" aria-modal="true" aria-labelledby="no-membership-title">
-        <button
-          type="button"
-          class="dashboard-modal-close"
-          aria-label="Close"
-          @click="closeNoMembershipPopup"
-        >
-          <i class="fas fa-times"></i>
-        </button>
 
         <div class="dashboard-modal-icon">
           <i class="fas fa-users-slash"></i>
@@ -412,9 +404,9 @@
 <script setup>
 // Dashboard page
 // Core imports
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import { storeToRefs } from 'pinia'
 
@@ -461,6 +453,20 @@ const announcements = ref([])
 const events = ref([])
 const upcomingEventsCount = ref(0)
 const showNoMembershipNotice = ref(false)
+const route = useRoute()
+const router = useRouter()
+
+watch(
+  () => route.query.notice,
+  (notice) => {
+    if (notice === 'no-group') {
+      showNoMembershipPopup()
+    } else {
+      showNoMembershipNotice.value = false
+    }
+  },
+  { immediate: true }
+)
 
 const dashboardSummary = ref({
   activeGroups: groups.value.length,
@@ -742,6 +748,11 @@ function showNoMembershipPopup() {
 
 function closeNoMembershipPopup() {
   showNoMembershipNotice.value = false
+
+  if (route.query.notice === 'no-group') {
+    const { notice, ...remainingQuery } = route.query
+    void router.replace({ query: remainingQuery })
+  }
 }
 
 const resourcesSectionTitle = computed(() => {
@@ -1394,8 +1405,8 @@ function getGroupSecondaryLabel(group) {
   return String(source).slice(0, 2).toUpperCase()
 }
 
-onMounted(async () => {
-  await loadDashboardData()
+onMounted(() => {
+  void loadDashboardData()
 })
 </script>
 
@@ -3849,6 +3860,18 @@ html[data-theme='dark'] .dashboard-page-shell .event-date-day {
 
 html[data-theme='dark'] .dashboard-page-shell .event-date-rest {
   color: #9eaca8 !important;
+}
+
+/* No-group popup: Got it button */
+.dashboard-modal .btn-primary {
+  background-color: #017151 !important;
+  border-color: #017151 !important;
+  color: #ffffff !important;
+}
+
+.dashboard-modal .btn-primary:hover {
+  background-color: #015940 !important;
+  border-color: #015940 !important;
 }
 
 </style>

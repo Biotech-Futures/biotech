@@ -75,7 +75,11 @@ const resolveGroupsLanding = async () => {
   }
 
   // No group assigned: return to dashboard without showing an error alert.
-  return { name: 'dashboard', replace: true };
+  return {
+    name: 'dashboard',
+    query: { notice: 'no-group' },
+    replace: true,
+  };
 };
 
 const routes: RouteRecordRaw[] = [
