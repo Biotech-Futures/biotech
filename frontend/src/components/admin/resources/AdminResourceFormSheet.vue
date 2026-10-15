@@ -455,9 +455,7 @@ const applyResourceData = (raw: any) => {
   }
 
   const hasVisibilityInfo = raw.visibility_scope !== undefined || roleIds.length > 0
-  if (hasVisibilityInfo && roleIds.length > 0) {
-    form.roleIds = roleIds
-  } else if (hasVisibilityInfo && form.roleIds.length === 0) {
+  if (hasVisibilityInfo && (roleIds.length > 0 || form.roleIds.length === 0)) {
     form.roleIds = roleIds
   }
 
