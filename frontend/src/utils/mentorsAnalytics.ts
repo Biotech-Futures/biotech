@@ -205,7 +205,11 @@ export function mentorsCsv(
   activity: ReturnType<typeof mentorActivity>,
   range: MentorRange,
   asOf: string,
+  available: { groups?: boolean; background?: boolean; activity?: boolean } = {},
 ) {
+  const groupsAvailable = available.groups !== false
+  const activityAvailable = available.activity !== false
+  const unknown = 'Unavailable'
   const rows: (string | number)[][] = [
     ['Section', 'Metric', 'Value', 'Detail'],
     ['Metadata', 'Source', 'Django analytics API', 'Local database-backed data'],
@@ -213,13 +217,13 @@ export function mentorsCsv(
     ['Metadata', 'Activity start', range.start, 'Inclusive UTC date'],
     ['Metadata', 'Activity end', range.end, 'Inclusive UTC date'],
     ['Summary', 'Total Mentors', snapshot.total],
-    ['Summary', 'Mentor Utilisation (%)', snapshot.utilisation],
-    ['Summary', 'Assigned Mentors', snapshot.assigned],
-    ['Summary', 'Unassigned Mentors', snapshot.unassigned],
+    ['Summary', 'Mentor Utilisation (%)', groupsAvailable ? snapshot.utilisation : unknown],
+    ['Summary', 'Assigned Mentors', groupsAvailable ? snapshot.assigned : unknown],
+    ['Summary', 'Unassigned Mentors', groupsAvailable ? snapshot.unassigned : unknown],
     [
       'Summary',
       'Average Students per Mentor',
-      snapshot.averageStudents,
+      groupsAvailable ? snapshot.averageStudents : unknown,
       'Assigned mentors only; unique students per mentor',
     ],
   ]
@@ -232,6 +236,13 @@ export function mentorsCsv(
     'Last Login': snapshot.lastLogin,
     Coverage: snapshot.coverage,
   })) {
+    const missing = section === 'Background' ? available.background === false
+      : section === 'Last Login' ? !activityAvailable
+        : section !== 'Status' && !groupsAvailable
+    if (missing) {
+      rows.push([section, 'Availability', unknown, 'The data for this section could not be loaded.'])
+      continue
+    }
     for (const bucket of buckets)
       rows.push([
         section,
@@ -240,7 +251,7 @@ export function mentorsCsv(
         `${percent(bucket.value, snapshot.total)}% of mentors`,
       ])
   }
-  for (const point of activity.monthly) {
+  for (const point of activityAvailable ? activity.monthly : []) {
     rows.push([
       'Monthly Activity',
       point.month,
@@ -252,10 +263,17 @@ export function mentorsCsv(
       ['Monthly Logins', point.month, point.logins],
     )
   }
-  activity.ranking.forEach((mentor, index) =>
+  ;(activityAvailable ? activity.ranking : []).forEach((mentor, index) =>
     rows.push(['Top 5', mentor.name, mentor.messages, `Rank ${index + 1}`]),
   )
-  snapshot.insights.forEach((item) => rows.push(['Insight', item.label, item.value, item.detail]))
+  if (!activityAvailable) rows.push(['Monthly Activity', 'Availability', unknown, 'Message activity could not be loaded.'])
+  snapshot.insights.forEach((item) => {
+    const missing = ['Unassigned mentors', 'Near capacity', 'Over capacity'].includes(item.label)
+      ? !groupsAvailable
+      : ['No login for more than 30 days', 'No recorded login'].includes(item.label) && !activityAvailable
+    rows.push(['Insight', item.label, missing ? unknown : item.value,
+      missing ? 'The data for this metric could not be loaded.' : item.detail])
+  })
   return (
     '\ufeff' +
     rows

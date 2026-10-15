@@ -47,13 +47,17 @@ export type LiveBundle = {
   resources: Awaited<ReturnType<typeof fetchAllResources>>
 }
 
-export type ParticipantAnalyticsBundle = Pick<LiveBundle, 'users' | 'groupActivity' | 'loginActivity'>
+export type AnalyticsSource = keyof LiveBundle
+export type AnalyticsAvailability = { unavailableSources?: AnalyticsSource[] }
+export type ParticipantAnalyticsBundle = Pick<LiveBundle, 'users' | 'groupActivity' | 'loginActivity'> & AnalyticsAvailability
 export type CoreAnalyticsBundle = ParticipantAnalyticsBundle & Pick<LiveBundle, 'groups'>
 export type MentorAnalyticsBundle = CoreAnalyticsBundle & Pick<LiveBundle, 'mentors'>
-export type ResourceAnalyticsBundle = Pick<LiveBundle, 'resourceAnalytics' | 'resources'>
+export type ResourceAnalyticsBundle = Pick<LiveBundle, 'resourceAnalytics' | 'resources'> & AnalyticsAvailability
 export type EmailAnalyticsBundle = ParticipantAnalyticsBundle & Pick<LiveBundle, 'emailAnalytics'>
-export type OverviewAnalyticsBundle = CoreAnalyticsBundle & ResourceAnalyticsBundle & Pick<LiveBundle, 'emailAnalytics'> & {
-  unavailableSources?: Array<'users' | 'groups' | 'groupActivity' | 'loginActivity' | 'resourceAnalytics' | 'emailAnalytics' | 'resources'>
+export type OverviewAnalyticsBundle = CoreAnalyticsBundle & ResourceAnalyticsBundle & Pick<LiveBundle, 'emailAnalytics'>
+
+export function analyticsSourceAvailable(bundle: AnalyticsAvailability, source: AnalyticsSource) {
+  return !bundle.unavailableSources?.includes(source)
 }
 
 export const ANALYTICS_CACHE_TTL_MS = ANALYTICS_REFRESH_INTERVAL_MS
@@ -92,91 +96,58 @@ function emptyGroupActivity(): GroupActivityResponse {
   }
 }
 
-// Cache complete page payloads instead of globally caching every raw source.
-// This keeps navigation deduplicated while ensuring one page's refresh and
-// data requirements cannot invalidate or expand another page's requests.
-const usersPageLoader = createCachedLoader<ParticipantAnalyticsBundle>(async () => {
-  const [users, loginActivity] = await Promise.all([fetchAllUsers(), fetchLoginActivity()])
-  return { users, loginActivity, groupActivity: emptyGroupActivity() }
-})
+const sourceLoaders = {
+  users: fetchAllUsers,
+  groups: fetchAllGroups,
+  mentors: fetchMentors,
+  groupActivity: fetchGroupActivity,
+  loginActivity: fetchLoginActivity,
+  resourceAnalytics: fetchResourceAnalytics,
+  emailAnalytics: fetchEmailDeliveryAnalytics,
+  resources: fetchAllResources,
+}
 
-const registrationPageLoader = createCachedLoader<ParticipantAnalyticsBundle>(async () => ({
-  users: await fetchAllUsers(),
-  groupActivity: emptyGroupActivity(),
-}))
-
-const groupsPageLoader = createCachedLoader<CoreAnalyticsBundle>(async () => {
-  const [users, groups, groupActivity] = await Promise.all([
-    fetchAllUsers(), fetchAllGroups(), fetchGroupActivity(),
-  ])
-  return { users, groups, groupActivity }
-})
-
-const activityPageLoader = createCachedLoader<CoreAnalyticsBundle>(async () => {
-  const [users, groups, groupActivity, loginActivity] = await Promise.all([
-    fetchAllUsers(), fetchAllGroups(), fetchGroupActivity(), fetchLoginActivity(),
-  ])
-  return { users, groups, groupActivity, loginActivity }
-})
-
-const messagesPageLoader = createCachedLoader<CoreAnalyticsBundle>(async () => {
-  const [users, groups, groupActivity] = await Promise.all([
-    fetchAllUsers(), fetchAllGroups(), fetchGroupActivity(),
-  ])
-  return { users, groups, groupActivity }
-})
-
-const mentorsPageLoader = createCachedLoader<MentorAnalyticsBundle>(async () => {
-  const [users, groups, mentors, groupActivity] = await Promise.all([
-    fetchAllUsers(), fetchAllGroups(), fetchMentors(), fetchGroupActivity(),
-  ])
-  return { users, groups, mentors, groupActivity }
-})
-
-const resourcesPageLoader = createCachedLoader<ResourceAnalyticsBundle>(async () => {
-  const [resourceAnalytics, resources] = await Promise.all([
-    fetchResourceAnalytics(), fetchAllResources(),
-  ])
-  return { resourceAnalytics, resources }
-})
-
-const emailPageLoader = createCachedLoader<EmailAnalyticsBundle>(async () => ({
-  users: [],
-  groupActivity: emptyGroupActivity(),
-  emailAnalytics: await fetchEmailDeliveryAnalytics(),
-}))
-
-const overviewPageLoader = createCachedLoader<OverviewAnalyticsBundle>(async () => {
-  const sources = ['users', 'groups', 'groupActivity', 'loginActivity', 'resourceAnalytics', 'emailAnalytics', 'resources'] as const
-  const results = await Promise.allSettled([
-    fetchAllUsers(),
-    fetchAllGroups(),
-    fetchGroupActivity(),
-    fetchLoginActivity(),
-    fetchResourceAnalytics(),
-    fetchEmailDeliveryAnalytics(),
-    fetchAllResources(),
-  ])
-  const unavailableSources = sources.filter((_, index) => results[index]?.status === 'rejected')
-  if (unavailableSources.length === sources.length) throw new Error('All analytics data sources are unavailable.')
-  const value = <T>(index: number, fallback: T): T => {
-    const result = results[index]
-    return result?.status === 'fulfilled' ? result.value as T : fallback
-  }
+function emptySources(): LiveBundle {
   return {
-    users: value<AdminUser[]>(0, []), groups: value<AdminGroup[]>(1, []),
-    groupActivity: value(2, emptyGroupActivity()), loginActivity: value<LoginActivityResponse | undefined>(3, undefined),
-    resourceAnalytics: value<ResourceAnalyticsResponse>(4, {
+    users: [], groups: [], mentors: [], groupActivity: emptyGroupActivity(), loginActivity: undefined,
+    resourceAnalytics: {
       total_clicks: 0, unique_users: 0, active_resources: 0,
       clicks_by_day: [], top_resources: [], clicks_by_category: [], query_range: { start: null, end: null },
-    }),
-    emailAnalytics: value<EmailDeliveryAnalyticsResponse>(5, {
+    },
+    emailAnalytics: {
       snapshot_at: null, mailboxes: [], totals: { attempted: 0, delivered: 0, failed: 0, delivery_runs: 0 },
       hourly: [], daily: [], recent_deliveries: [],
-    }),
-    resources: value(6, []), unavailableSources,
+    },
+    resources: [],
   }
-})
+}
+
+// Settle sources independently. Empty containers are only safe with their
+// availability flags: views must never interpret a failed source as zero.
+async function loadSources(sources: AnalyticsSource[], required: AnalyticsSource[] = []) {
+  const results = await Promise.allSettled(sources.map((source) => sourceLoaders[source]()))
+  const unavailableSources = sources.filter((_, index) => results[index]?.status === 'rejected')
+  if (unavailableSources.length === sources.length || required.some((source) => unavailableSources.includes(source))) {
+    throw new Error('The data required for this view could not be loaded. Other analytics pages may still be available.')
+  }
+  const values = Object.fromEntries(results.flatMap((result, index) =>
+    result.status === 'fulfilled' ? [[sources[index], result.value]] : [],
+  ))
+  return { ...emptySources(), ...values, unavailableSources } as LiveBundle & AnalyticsAvailability
+}
+
+// Cache per page so one page's failure or refresh does not invalidate another.
+const usersPageLoader = createCachedLoader(() => loadSources(['users', 'loginActivity'], ['users']))
+const registrationPageLoader = createCachedLoader(() => loadSources(['users'], ['users']))
+const groupsPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'groupActivity'], ['groups']))
+const activityPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'groupActivity', 'loginActivity']))
+const messagesPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'groupActivity'], ['groupActivity']))
+const mentorsPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'mentors', 'groupActivity'], ['mentors']))
+const resourcesPageLoader = createCachedLoader(() => loadSources(['resourceAnalytics', 'resources']))
+const emailPageLoader = createCachedLoader(() => loadSources(['emailAnalytics'], ['emailAnalytics']))
+const overviewPageLoader = createCachedLoader(() => loadSources([
+  'users', 'groups', 'groupActivity', 'loginActivity', 'resourceAnalytics', 'emailAnalytics', 'resources',
+]))
 
 export const loadUsersAnalyticsBundle = (force = false) => usersPageLoader(force)
 export const loadRegistrationAnalyticsBundle = (force = false) => registrationPageLoader(force)
@@ -725,7 +696,7 @@ export function buildResourcesAnalytics(bundle: ResourceAnalyticsBundle) {
       name: row.resource_name,
       clicks: row.click_count,
       uniqueUsers: row.unique_users,
-      type: meta?.resource_type ?? 'Uncategorised',
+      type: meta?.resource_type ?? (analyticsSourceAvailable(bundle, 'resources') ? 'Uncategorised' : 'Unavailable'),
       roles,
     }
   })
@@ -1130,8 +1101,8 @@ export function buildOverviewAnalytics(bundle: OverviewAnalyticsBundle): Analyti
   const missing = new Set(bundle.unavailableSources ?? [])
   const dependencies: Record<string, Array<(NonNullable<OverviewAnalyticsBundle['unavailableSources']>)[number]>> = {
     registration: ['users'], users: ['users'], groups: ['groups'], mentors: ['users', 'groups'],
-    activity: ['users', 'loginActivity'], messages: ['users', 'groups', 'groupActivity'],
-    resources: ['resourceAnalytics', 'resources'], email: ['emailAnalytics'],
+    activity: ['loginActivity'], messages: ['groupActivity'],
+    resources: ['resourceAnalytics'], email: ['emailAnalytics'],
   }
   for (const module of result.modules) {
     if (dependencies[module.key]?.some((source) => missing.has(source)) || (module.key === 'activity' && !activity.loginHistoryAvailable)) {
@@ -1150,7 +1121,7 @@ export function buildOverviewAnalytics(bundle: OverviewAnalyticsBundle): Analyti
     return unavailable ? { ...item, value: '—', helper: 'Data is currently unavailable.', unavailable: true } : item
   })
   result.attention = result.attention.filter((item) => {
-    if (missing.has('users') && item.label !== 'Groups without mentors') return false
+    if (missing.has('users') && !['Groups without mentors', 'Email usage approaching limit'].includes(item.label)) return false
     if (missing.has('groups') && item.label === 'Groups without mentors') return false
     return !missing.has('emailAnalytics') || item.label !== 'Email usage approaching limit'
   })
