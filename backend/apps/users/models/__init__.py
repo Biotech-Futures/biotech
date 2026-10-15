@@ -1,6 +1,7 @@
 from .admin_profile import AdminProfile
 from .admin_scope import AdminScope
 from .areas_of_interest import AreasOfInterest
+from .email_verification import EmailVerification, EmailVerificationCredits
 from .guardian_consent import GuardianConsent, GuardianConsentRequest
 from .known_university import KnownUniversity
 from .mentor_availability import MentorAvailability
@@ -16,6 +17,8 @@ __all__ = [
     'AdminProfile',
     'AdminScope',
     'AreasOfInterest',
+    'EmailVerification',
+    'EmailVerificationCredits',
     'GuardianConsent',
     'GuardianConsentRequest',
     'KnownUniversity',
