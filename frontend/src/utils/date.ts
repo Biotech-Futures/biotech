@@ -220,6 +220,52 @@ export function getSetTimeZone(): string {
   return isValidTimeZone(zone) ? zone : getBrowserTimeZone()
 }
 
+/** A zone's offset from UTC at an instant, in minutes: 660 for Sydney in
+ *  daylight saving, -240 for New York in summer, 0 for UTC. */
+function zoneOffsetMinutes(at: Date, timeZone: string): number {
+  const name =
+    getFormatter('en-US', { timeZone: normalizeTimeZone(timeZone), timeZoneName: 'longOffset' })
+      .formatToParts(at)
+      .find((part) => part.type === 'timeZoneName')?.value ?? 'GMT'
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(name)
+  if (!match) return 0 // plain "GMT": UTC itself
+  const minutes = Number(match[2]) * 60 + Number(match[3] ?? 0)
+  return match[1] === '-' ? -minutes : minutes
+}
+
+const formatOffset = (minutes: number) => {
+  const sign = minutes < 0 ? '-' : '+'
+  const abs = Math.abs(minutes)
+  return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+}
+
+/** The first ("start") or last ("end") millisecond of a calendar day
+ *  ("YYYY-MM-DD") in a zone, as an ISO datetime carrying that zone's offset
+ *  on that day: "2026-10-15T00:00:00.000+11:00" for the start of 15 October in
+ *  Sydney. Each moment gets its own offset, so on a day the clocks change the
+ *  start and end differ ("+10:00" and "+11:00" on 4 October 2026 in Sydney).
+ *  Null for anything that isn't a real calendar day. */
+export function zonedDayBoundary(
+  isoDate: string,
+  edge: 'start' | 'end',
+  timeZone = getSetTimeZone(),
+): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate)
+  if (!match) return null
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const [hours, minutes, seconds, ms] = edge === 'start' ? [0, 0, 0, 0] : [23, 59, 59, 999]
+  // The wall-clock moment as if it were UTC.
+  const wall = Date.UTC(year, month - 1, day, hours, minutes, seconds, ms)
+  if (new Date(wall).getUTCDate() !== day) return null // 31 February and the like
+  // The zone's offset there, checked again at the real instant it gives, in
+  // case a clock change falls between the two.
+  let offset = zoneOffsetMinutes(new Date(wall), timeZone)
+  const atInstant = zoneOffsetMinutes(new Date(wall - offset * 60_000), timeZone)
+  if (atInstant !== offset) offset = atInstant
+  const time = edge === 'start' ? '00:00:00.000' : '23:59:59.999'
+  return `${isoDate}T${time}${formatOffset(offset)}`
+}
+
 const LONG_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',

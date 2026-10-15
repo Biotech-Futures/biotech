@@ -27,6 +27,7 @@ const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
   '/admin/tasks',
+  '/admin/logs',
 ]
 
 let wrapper: VueWrapper | null = null
@@ -89,6 +90,7 @@ describe('App sidebar admin section', () => {
 
     expect(wrapper!.find('a[href="#/admin"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
+    expect(wrapper!.find('a[href="#/admin/logs"]').exists()).toBe(false)
   })
 
   it('renders the Admin nav and all expected sub-links for admins', async () => {
