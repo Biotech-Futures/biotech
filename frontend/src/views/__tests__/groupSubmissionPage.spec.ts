@@ -1068,7 +1068,7 @@ describe('co-editing', () => {
     coediting: true,
   })
   const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
-  const sentOfType = (type: string) => (socket().sent as Array<{ type: string }>).filter((m) => m.type === type)
+  const sentOfType = (type: string) => (socket().sent as Array<{ type: string; id?: number }>).filter((m) => m.type === type)
   const receive = (message: object) => socket().onmessage?.({ data: JSON.stringify(message) })
   const box = () => wrapper!.find('#inspiration')
 
@@ -1160,7 +1160,7 @@ describe('co-editing', () => {
 
     await buttonNamed(/^Submit$/)!.trigger('click')
     await flushPromises()
-    const flush = sentOfType('doc-flush')[0] as { id: number }
+    const flush = sentOfType('doc-flush')[0]!
     expect(submitEntry).not.toHaveBeenCalled()
     receive({ type: 'doc-flushed', id: flush.id, ok: true })
     await flushPromises()
@@ -1169,7 +1169,7 @@ describe('co-editing', () => {
   })
 
   async function submitWithFailedSave() {
-    const flush = sentOfType('doc-flush')[0] as { id: number }
+    const flush = sentOfType('doc-flush')[0]!
     receive({ type: 'doc-flushed', id: flush.id, ok: false })
     await flushPromises()
   }
