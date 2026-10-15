@@ -895,7 +895,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       })
       await flushPromises()
 
-      await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
+      await wrapper.find('th.data-table-check-col input[type="checkbox"]').setValue(true)
       await flushPromises()
 
       const editAccessBtn = wrapper.findAll('.bulk-actions-bar .btn').find((b) => b.text().includes('Edit Access'))
