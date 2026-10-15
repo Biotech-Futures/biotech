@@ -1706,3 +1706,106 @@ export const getAdminViewExportUrl = (
   return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
 }
 
+
+// ---------------------------------------------------------------------------
+// System Logs (GET /system-logs/, backend apps.system_logs)
+// ---------------------------------------------------------------------------
+
+export interface SystemLogUser {
+  id: number
+  email: string
+  name: string
+}
+
+/** A row of the System Logs table: the message is a preview, its full text
+ *  and the traceback come from fetchSystemLog. */
+export interface SystemLogRow {
+  id: number
+  /** ISO datetime in UTC; shown in the admin's set timezone. */
+  created_at: string
+  level: number
+  level_name: string
+  logger_name: string
+  message: string
+  message_truncated: boolean
+  has_traceback: boolean
+  request_id: string
+  request_method: string
+  request_path: string
+  status_code: number | null
+  user: SystemLogUser | null
+}
+
+export interface SystemLogDetail {
+  id: number
+  created_at: string
+  level: number
+  level_name: string
+  logger_name: string
+  message: string
+  traceback: string
+  request_id: string
+  request_method: string
+  request_path: string
+  status_code: number | null
+  user: SystemLogUser | null
+  module: string
+  func_name: string
+  line_no: number | null
+  extra: Record<string, unknown>
+}
+
+/** The list and export filters. ``from`` and ``to`` are ISO datetimes with an
+ *  offset (see zonedDayBoundary); ``level`` is the lowest level shown. */
+export interface SystemLogFilterParams {
+  from?: string
+  to?: string
+  level?: string
+  source?: string
+  user?: string
+  q?: string
+  request_id?: string
+}
+
+export interface SystemLogListParams extends SystemLogFilterParams {
+  page?: number
+  page_size?: number
+}
+
+export type SystemLogExportType = 'csv' | 'json'
+
+export const fetchSystemLogs = (params: SystemLogListParams = {}) =>
+  adminGet<PaginatedResult<SystemLogRow>>(`/system-logs/${buildAdminQuery(params)}`)
+
+export const fetchSystemLog = (id: number | string) =>
+  adminGet<SystemLogDetail>(`/system-logs/${id}/`)
+
+/** Download every log row the filters match as CSV (times in UTC) or JSON
+ *  lines, sent with the admin's session like any admin call. */
+export const downloadSystemLogs = async (
+  params: SystemLogFilterParams = {},
+  type: SystemLogExportType = 'csv'
+) => {
+  const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: '*/*' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(`${ADMIN_API_BASE}/system-logs/export/${buildAdminQuery({ ...params, type })}`, {
+    credentials: 'include',
+    headers
+  })
+  if (!res.ok) throw await apiErrorFromResponse(res, 'Could not export the system logs.')
+
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const fileName =
+    disposition.match(/filename="?([^"]+)"?/i)?.[1] || `system-logs.${type === 'json' ? 'jsonl' : 'csv'}`
+
+  const blobUrl = window.URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+}

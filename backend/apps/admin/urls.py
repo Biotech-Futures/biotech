@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from . import views
 
 app_name = 'admin_api'
@@ -134,4 +134,9 @@ urlpatterns = [
     path('view/<int:view_id>/', views.AdminViewDetailView.as_view(), name='view-detail'),
     path('view/<int:view_id>/run/', views.AdminViewRunView.as_view(), name='view-run'),
     path('view/<int:view_id>/export-csv/', views.AdminViewExportCsvView.as_view(), name='view-export-csv'),
+
+    # ========================================================================
+    # SYSTEM LOG ROUTES (apps.system_logs)
+    # ========================================================================
+    path('system-logs/', include('apps.system_logs.urls')),
 ]

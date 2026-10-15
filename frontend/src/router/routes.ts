@@ -125,6 +125,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/admin/views/:id(\\d+)', name: 'admin-view-detail', component: () => import('@/views/admin/AdminViewExecutedPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/emails', name: 'admin-emails', component: () => import('@/views/admin/AdminEmailsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/logs', name: 'admin-logs', component: () => import('@/views/admin/AdminSystemLogsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
   {
