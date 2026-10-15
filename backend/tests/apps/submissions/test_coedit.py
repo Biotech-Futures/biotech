@@ -8,6 +8,7 @@ from django.test import override_settings
 from django.utils import timezone
 from pycrdt import Doc, Text
 
+from apps.live import consumers
 from apps.live.consumers import LiveRoomConsumer
 from apps.submissions import coedit
 from apps.submissions.autosubmit import auto_submit_due
@@ -49,6 +50,8 @@ class CoeditTestCase(ChecklistTestCase):
         super().setUp()
         coedit.store().clear()
         self.addCleanup(coedit.store().clear)
+        consumers._waiting_saves.clear()
+        self.addCleanup(consumers._waiting_saves.clear)
         self.key = self.questions[0].key
         self.field = coedit.answer_field(self.key)
         self.admin = User.objects.create_user(email="admin@test.local", password="x", first_name="Ada")
@@ -302,7 +305,7 @@ class EndpointTests(CoeditTestCase):
         self.assertEqual(self._entry().submitted_answers[self.key], "Typed live.")
 
 
-def _consumer(user, room):
+def _consumer(user, room, channel="ada-channel"):
     consumer = LiveRoomConsumer()
     consumer.room = f"live.submission.{room}"
     consumer.room_id = room
@@ -310,10 +313,9 @@ def _consumer(user, room):
     consumer.scope = {"user": user}
     consumer.user = {"id": user.id, "name": user.first_name}
     consumer._doc_window = (0.0, 0)
-    consumer._doc_save = None
-    consumer._doc_edited = False
+    consumer._may_edit = (float("-inf"), False)
     consumer.channel_layer = AsyncMock()
-    consumer.channel_name = "ada-channel"
+    consumer.channel_name = channel
     consumer.send_json = AsyncMock()
     return consumer
 
@@ -345,7 +347,7 @@ class LiveMessageTests(CoeditTestCase):
         with patch("apps.live.consumers.DOC_SAVE_DELAY", 0):
             async def run():
                 await consumer.receive_json({"type": "doc-update", "update": _b64(update)})
-                await consumer._doc_save
+                await consumers._waiting_saves[consumer.room]
 
             async_to_sync(run)()
 
@@ -414,3 +416,113 @@ class LiveMessageTests(CoeditTestCase):
         async_to_sync(consumer.receive_json)({"type": "doc-update", "update": "%%%not base64"})
 
         consumer.send_json.assert_awaited_with({"type": "doc-reject"})
+
+
+class TeamSaveTests(CoeditTestCase):
+    def _update(self, consumer, update):
+        return consumer.receive_json({"type": "doc-update", "update": _b64(update)})
+
+    def test_teammates_typing_at_once_share_one_save(self):
+        self._entry_with("Draft")
+        ada, ben = _consumer(self.student, self.room, "ada"), _consumer(self.student, self.room, "ben")
+        page = Client(self.room)
+
+        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.2), patch.object(coedit, "save", wraps=coedit.save) as save:
+            async def run():
+                await self._update(ada, page.type(self.field, 5, " one"))
+                await self._update(ben, page.type(self.field, 9, " two"))
+                await consumers._waiting_saves[ada.room]
+
+            async_to_sync(run)()
+
+        self.assertEqual(save.call_count, 1)
+        self.assertEqual(self._entry().answers[self.key], "Draft one two")
+
+    def test_no_save_is_scheduled_while_another_worker_holds_the_teams_save(self):
+        self._entry_with("Draft")
+        consumer = _consumer(self.student, self.room)
+        coedit.claim_save(self.room, 10)
+
+        async_to_sync(self._update)(consumer, Client(self.room).type(self.field, 5, "!"))
+
+        self.assertNotIn(consumer.room, consumers._waiting_saves)
+        self.assertEqual(Client(self.room).text(self.field), "Draft!")
+
+    def test_typing_after_a_save_begins_gets_a_save_of_its_own(self):
+        self._entry_with("Draft")
+        consumer = _consumer(self.student, self.room)
+        page = Client(self.room)
+
+        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.05):
+            async def run():
+                await self._update(consumer, page.type(self.field, 5, " one"))
+                first = consumers._waiting_saves[consumer.room]
+                await first
+                await self._update(consumer, page.type(self.field, 9, " two"))
+                second = consumers._waiting_saves[consumer.room]
+                self.assertIsNot(first, second)
+                await second
+
+            async_to_sync(run)()
+
+        self.assertEqual(self._entry().answers[self.key], "Draft one two")
+
+    def test_the_save_still_runs_after_the_typist_leaves(self):
+        self._entry_with("Draft")
+        consumer = _consumer(self.student, self.room)
+        consumer._text_sends, consumer._pending_text, consumer._open = {}, {}, set()
+        update = Client(self.room).type(self.field, 5, "!")
+
+        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.05):
+            async def run():
+                await self._update(consumer, update)
+                await consumer.disconnect(1000)
+                await consumers._waiting_saves[consumer.room]
+
+            async_to_sync(run)()
+
+        self.assertEqual(self._entry().answers[self.key], "Draft!")
+
+
+class RememberedPermissionTests(CoeditTestCase):
+    def test_a_burst_of_edits_asks_whether_the_typist_may_edit_once(self):
+        self._entry_with("")
+        consumer = _consumer(self.student, self.room)
+        page = Client(self.room)
+
+        with patch.object(coedit, "can_edit", wraps=coedit.can_edit) as can_edit:
+            async def run():
+                for i in range(5):
+                    await consumer.receive_json({"type": "doc-update", "update": _b64(page.type(self.field, i, str(i)))})
+
+            async_to_sync(run)()
+
+        self.assertEqual(can_edit.call_count, 1)
+        self.assertEqual(Client(self.room).text(self.field), "01234")
+
+    def test_the_answer_is_asked_again_once_it_is_a_few_seconds_old(self):
+        self._entry_with("Draft")
+        consumer = _consumer(self.student, self.room)
+        page = Client(self.room)
+        async_to_sync(consumer.receive_json)({"type": "doc-update", "update": _b64(page.type(self.field, 5, " one"))})
+        self.deadline.closes_at = timezone.now() - timedelta(minutes=1)
+        self.deadline.save()
+
+        # Within the few seconds, the remembered answer still stands.
+        async_to_sync(consumer.receive_json)({"type": "doc-update", "update": _b64(page.type(self.field, 9, " two"))})
+        with patch("apps.live.consumers.DOC_PERMISSION_SECONDS", 0):
+            async_to_sync(consumer.receive_json)({"type": "doc-update", "update": _b64(page.type(self.field, 13, " three"))})
+
+        consumer.send_json.assert_awaited_with({"type": "doc-reject"})
+        self.assertEqual(Client(self.room).text(self.field), "Draft one two")
+
+    def test_a_resync_always_asks_afresh(self):
+        self._entry_with("Draft")
+        consumer = _consumer(self.student, self.room)
+        async_to_sync(consumer.receive_json)({"type": "doc-update", "update": _b64(Client(self.room).type(self.field, 5, "!"))})
+        self.deadline.closes_at = timezone.now() - timedelta(minutes=1)
+        self.deadline.save()
+
+        async_to_sync(consumer.receive_json)({"type": "doc-sync", "vector": "", "update": ""})
+
+        self.assertFalse(consumer.send_json.await_args.args[0]["editable"])

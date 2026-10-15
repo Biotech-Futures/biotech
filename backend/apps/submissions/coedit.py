@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 
 from django.conf import settings
 from django.db import transaction
@@ -54,6 +55,7 @@ class _MemoryStore:
     def __init__(self):
         self._lock = threading.Lock()
         self._data: dict[int, dict] = {}
+        self._claims: dict[int, float] = {}
 
     def read(self, room: int):
         with self._lock:
@@ -92,9 +94,22 @@ class _MemoryStore:
         with self._lock:
             return room in self._data
 
+    def claim_save(self, room: int, seconds: float) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            if self._claims.get(room, 0.0) > now:
+                return False
+            self._claims[room] = now + seconds
+            return True
+
+    def release_save(self, room: int) -> None:
+        with self._lock:
+            self._claims.pop(room, None)
+
     def clear(self) -> None:
         with self._lock:
             self._data.clear()
+            self._claims.clear()
 
 
 class _RedisStore:
@@ -164,6 +179,12 @@ class _RedisStore:
 
     def exists(self, room: int) -> bool:
         return bool(self._redis.exists(self._keys(room)[0]))
+
+    def claim_save(self, room: int, seconds: float) -> bool:
+        return bool(self._redis.set(f"coedit:{{{room}}}:saving", 1, nx=True, px=int(seconds * 1000)))
+
+    def release_save(self, room: int) -> None:
+        self._redis.delete(f"coedit:{{{room}}}:saving")
 
     def clear(self) -> None:
         for key in self._redis.scan_iter(match="coedit:*"):
@@ -261,9 +282,12 @@ def state_since(room: int, state_vector: bytes | None) -> tuple[bytes, bytes]:
     return missing, doc.get_state()
 
 
-def apply(user, room: int, update: bytes) -> bool:
-    """Adds one client update, if this user may edit and the result stays within limits."""
-    if not update or len(update) > MAX_UPDATE_BYTES or not can_edit(user, room):
+def apply(user, room: int, update: bytes, checked: bool = False) -> bool:
+    """Adds one client update, if this user may edit and the result stays within limits.
+
+    checked: the caller asked can_edit for this user moments ago, so it is not asked again.
+    """
+    if not update or len(update) > MAX_UPDATE_BYTES or not (checked or can_edit(user, room)):
         return False
     base, updates, _ = _read(room)
     doc = _doc_from(base, updates)
@@ -328,6 +352,15 @@ def flush(room: int) -> bool:
     except Exception:  # noqa: BLE001 - the saved entry stands; the next save tries again
         logger.exception("coedit.flush_failed room=%s", room)
         return False
+
+
+def claim_save(room: int, seconds: float) -> bool:
+    """True for the one caller that should save the team's text next; the rest's edits are in that save."""
+    return store().claim_save(room, seconds)
+
+
+def release_save(room: int) -> None:
+    store().release_save(room)
 
 
 def write_fields(room: int, texts: dict[str, str]) -> None:

@@ -43,9 +43,16 @@ MAX_TEXT_LENGTH = 20_000
 # Shared-document updates: base64 of at most the document module's own limit, at a typist's pace.
 MAX_DOC_MESSAGE_CHARS = 100_000
 MAX_DOC_UPDATES_PER_SECOND = 30
-# A typist's edits are saved this long after they pause, and at once when they leave.
+# A room's edits are saved this long after the first unsaved one, in one save whoever typed.
 DOC_SAVE_DELAY = 2.0
+# How long a room's save claim outlives a worker that died before saving.
+DOC_SAVE_CLAIM_SECONDS = 10.0
+# A connection reuses its "may edit" answer this long, so each edit does not query the database.
+DOC_PERMISSION_SECONDS = 5.0
 DOC_TYPES = ("doc-sync", "doc-update", "doc-flush")
+
+# The save each room is waiting on in this process; it outlives the connection that claimed it.
+_waiting_saves: dict[str, asyncio.Task] = {}
 
 
 def _decode(value) -> bytes | None:
@@ -85,8 +92,7 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
         self.document = document_for(kind)
         self.user = person(user)
         self._doc_window = (0.0, 0)
-        self._doc_save: asyncio.Task | None = None
-        self._doc_edited = False
+        self._may_edit = (float("-inf"), False)
         self._last_frame = 0.0
         self._last_typing: dict[str, float] = {}
         self._last_text: dict[str, float] = {}
@@ -101,12 +107,6 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, code):
         if not getattr(self, "room", None):
             return
-        # Whatever this connection typed is saved now, rather than after the usual pause.
-        pending = getattr(self, "_doc_save", None)
-        if pending is not None:
-            pending.cancel()
-        if getattr(self, "_doc_edited", False):
-            await self._save_document()
         for pending in self._text_sends.values():
             pending.cancel()
         for field, (text, caret) in list(self._pending_text.items()):
@@ -202,16 +202,16 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
         if vector is None or local is None:
             await self.send_json({"type": "doc-reject"})
             return
+        editable = await database_sync_to_async(self._may_edit_now)(user, True)
         accepted = True
         if local:
-            accepted = await database_sync_to_async(document.apply)(user, self.room_id, local)
+            accepted = editable and await self._apply(document, user, local)
             if accepted:
                 await self._share_update(local)
         # Local changes that were refused must not linger in the page, so it starts again from the full state.
         missing, server_vector = await database_sync_to_async(document.state_since)(
             self.room_id, vector if accepted else None
         )
-        editable = await database_sync_to_async(document.can_edit)(user, self.room_id)
         await self.send_json({
             "type": "doc-state", "update": _encode(missing), "vector": _encode(server_vector),
             "full": not accepted, "editable": editable,
@@ -228,28 +228,37 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
         if count + 1 > MAX_DOC_UPDATES_PER_SECOND or not update:
             await self.send_json({"type": "doc-reject"})
             return
-        if not await database_sync_to_async(document.apply)(user, self.room_id, update):
+        if not await self._apply(document, user, update):
             await self.send_json({"type": "doc-reject"})
             return
         await self._share_update(update)
-        self._doc_edited = True
-        if self._doc_save is None or self._doc_save.done():
-            self._doc_save = asyncio.ensure_future(self._save_after_pause())
+
+    async def _apply(self, document, user, update: bytes) -> bool:
+        waiting = _waiting_saves.get(self.room)
+        claim = waiting is None or waiting.done()
+        accepted, claimed = await database_sync_to_async(self._apply_and_claim)(document, user, update, claim)
+        if claimed:
+            _waiting_saves[self.room] = asyncio.ensure_future(_save_after_pause(document, self.room_id, self.room))
+        return accepted
+
+    def _apply_and_claim(self, document, user, update: bytes, claim: bool) -> tuple[bool, bool]:
+        # One trip to the worker thread for the permission, the edit and the room's next save.
+        if not self._may_edit_now(user) or not document.apply(user, self.room_id, update, checked=True):
+            return False, False
+        return True, claim and document.claim_save(self.room_id, DOC_SAVE_CLAIM_SECONDS)
+
+    def _may_edit_now(self, user, fresh: bool = False) -> bool:
+        checked_at, allowed = self._may_edit
+        now = time.monotonic()
+        if fresh or now - checked_at >= DOC_PERMISSION_SECONDS:
+            allowed = self.document.can_edit(user, self.room_id)
+            self._may_edit = (now, allowed)
+        return allowed
 
     async def _share_update(self, update: bytes) -> None:
         await self.channel_layer.group_send(self.room, {
             "type": "room.doc", "update": _encode(update), "sender": self.channel_name,
         })
-
-    async def _save_after_pause(self) -> None:
-        await asyncio.sleep(DOC_SAVE_DELAY)
-        await self._save_document()
-
-    async def _save_document(self) -> None:
-        try:
-            await database_sync_to_async(self.document.save)(self.room_id)
-        except Exception:  # noqa: BLE001 - the next save, or a flush before submitting, tries again
-            logger.exception("live.doc_save_failed room=%s", self.room)
 
     async def room_doc(self, event):
         # Every other connection gets it, including the sender's other tabs.
@@ -277,3 +286,20 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
         if (event.get("user") or {}).get("id") == self.user["id"]:
             return
         await self.send_json({"type": "changed", "item": event["item"], "user": event.get("user")})
+
+
+async def _save_after_pause(document, room_id: int, room: str) -> None:
+    await asyncio.sleep(DOC_SAVE_DELAY)
+    # Edits from here on claim the next save, since this one may read the document before them.
+    if _waiting_saves.get(room) is asyncio.current_task():
+        del _waiting_saves[room]
+    try:
+        await database_sync_to_async(_release_and_save)(document, room_id)
+    except Exception:  # noqa: BLE001 - the next save, or a flush before submitting, tries again
+        logger.exception("live.doc_save_failed room=%s", room)
+
+
+def _release_and_save(document, room_id: int) -> None:
+    # Released before reading, so an edit landing during this save claims the one after it.
+    document.release_save(room_id)
+    document.save(room_id)
