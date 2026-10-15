@@ -1,6 +1,18 @@
+from decimal import Decimal
+from typing import Optional
+
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+
+from apps.common.matching_weights import (
+    REQUIRED_WEIGHT_TOTAL,
+    WEIGHT_FIELDS,
+    ScoringWeights,
+    weights_from_config,
+)
 
 
 class MatchRun(models.Model):
@@ -52,4 +64,111 @@ class MatchRecommendation(models.Model):
 
     def __str__(self):
         return f"Run {self.match_run_id} -> group {self.group_id} / mentor {self.mentor_user_id}"
+
+
+class MatchingConfig(models.Model):
+    """Admin-tunable scoring weights for the matching algorithms (MA1).
+
+    Weights are percentages of the 100-point base score and must total exactly
+    100 — see ``apps.common.matching_weights``. The values are read once per
+    matching run and snapshotted onto ``MatchRun.rules_snapshot``, so changing
+    them never rewrites the rules a past run was scored under. Country is not
+    among them: it stopped scoring in MA4 and only ranks ties via its count.
+
+    There is exactly one config, ever: saving a new row replaces the stored
+    one, so :meth:`get_singleton` is never ambiguous. The run snapshot freezes
+    the weights themselves, so editing the row never rewrites what a past run
+    was scored under.
+    """
+
+    year_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percentage of the base score charged per year of year-level gap.",
+    )
+    timezone_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percentage of the base score charged per hour of timezone gap.",
+    )
+    timezone_max_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Cap on the timezone penalty, as a percentage of the base score.",
+    )
+    size_bonus_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Bonus for a full-sized group, as a percentage of the base score.",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="matching_configs",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "matching_config"
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self):
+        return f"Scoring config #{self.pk}"
+
+    @property
+    def total_weight(self) -> Decimal:
+        # ``Decimal(str(value))`` because an unsaved instance (admin form data,
+        # serializer validation) can still hold the raw string a client sent.
+        total = Decimal("0")
+        for field_name, _ in WEIGHT_FIELDS:
+            value = getattr(self, field_name, None)
+            if value is not None:
+                total += Decimal(str(value))
+        return total
+
+    def weight_total_error(self) -> Optional[str]:
+        """Validation message for the 100% rule, or ``None`` when it holds.
+
+        Shared by ``clean()`` and the API serializer so both reject a config the
+        same way. Values are never normalised: an admin who mistypes a weight is
+        told the total, not silently corrected.
+        """
+        required = Decimal(REQUIRED_WEIGHT_TOTAL)
+        total = self.total_weight
+        if total == required:
+            return None
+        shortfall = required - total
+        direction = "under" if shortfall > 0 else "over"
+        return (
+            f"Matching weights must total exactly {REQUIRED_WEIGHT_TOTAL}% "
+            f"(currently {total}%, {abs(shortfall)}% {direction})."
+        )
+
+    def clean(self):
+        super().clean()
+        error = self.weight_total_error()
+        if error:
+            raise ValidationError({"weight_total": error})
+
+    def to_scoring_weights(self) -> ScoringWeights:
+        return weights_from_config(self)
+
+    def save(self, *args, **kwargs):
+        # A config is a singleton: inserting a new row replaces the previous
+        # one so ``get_singleton()`` stays unambiguous.
+        if self._state.adding:
+            type(self).objects.exclude(pk=self.pk).delete()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_singleton(cls) -> Optional["MatchingConfig"]:
+        """The one stored config, or ``None`` when none has been saved yet."""
+        return cls.objects.first()
 
