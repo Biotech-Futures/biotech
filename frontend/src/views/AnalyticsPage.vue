@@ -75,7 +75,7 @@
         >
           <span class="attention-icon"><i :class="item.icon"></i></span>
           <div>
-            <strong>{{ item.value }}</strong>
+          <strong><AnalyticsNumber :value="item.value" /></strong>
             <p>{{ item.label }}</p>
           </div>
         </article>
@@ -129,7 +129,15 @@
       >
         <div class="summary-copy">
           <p class="card-label">{{ item.label }}</p>
-          <strong class="summary-value">{{ item.value }}</strong>
+          <div class="analytics-value-row">
+            <strong class="summary-value"><AnalyticsNumber :value="item.value" /></strong>
+            <AnalyticsYearChange
+              v-if="overviewComparisons[item.label]"
+              :current="overviewComparisons[item.label]!.current"
+              :previous="overviewComparisons[item.label]!.previous"
+              :label="`vs ${comparisonPreviousYear}`"
+            />
+          </div>
           <span class="summary-trend">{{ item.trend || 'Current period' }}</span>
         </div>
         <div class="summary-visual">
@@ -152,19 +160,26 @@
         <div class="metric-line" :class="{ 'registration-metric-line': module.key === 'registration' }">
           <strong>{{ module.value }}</strong>
 
-          <select
-            v-if="module.key === 'registration'"
-            v-model="registrationPeriod"
-            class="module-period-select registration-value-period-select"
-            aria-label="Registration chart period"
-            @click.stop
-          >
-            <option value="day">Day</option>
-            <option value="week">Week</option>
-            <option value="month">Month</option>
-            <option value="year">Year</option>
-          </select>
+          <template v-if="module.key === 'registration'">
+            <select
+              v-model="registrationPeriod"
+              class="module-period-select registration-value-period-select"
+              aria-label="Registration chart period"
+              @click.stop
+            >
+              <option value="day">Day</option>
+              <option value="week">Week</option>
+              <option value="month">Month</option>
+              <option value="year">Year</option>
+            </select>
 
+            <AnalyticsYearChange
+              v-if="registrationPeriod === 'year'"
+              :current="registrationYearComparison.current"
+              :previous="registrationYearComparison.previous"
+              :label="`vs ${registrationYearComparison.previousYear}`"
+            />
+          </template>
           <span v-else>{{ module.unit }}</span>
         </div>
         <p v-if="!module.unavailable" class="module-helper">{{ module.helper }}</p>
@@ -338,6 +353,8 @@
 
 <script setup lang="ts">
 import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
@@ -351,6 +368,7 @@ import {
   buildRegistrationAnalytics,
   liveAnalyticsYear,
   loadOverviewAnalyticsBundle,
+  participantYearComparison,
   type OverviewAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { useRouter } from 'vue-router'
@@ -359,6 +377,8 @@ import { downloadReportCsv } from '@/utils/reportExport'
 const currentYear = new Date().getFullYear()
 const availableAnalyticsYears = ref<number[]>([currentYear])
 const selectedYear = ref(currentYear)
+const comparisonPreviousYear = ref(currentYear - 1)
+const overviewComparisons = ref<Record<string, { current: number; previous: number }>>({})
 const selectedData = ref<AnalyticsYearData>({ summary: [], modules: [], attention: [] })
 const registrationTrend = ref<Array<{ date: string; students: number; mentors: number }>>([])
 const loadError = ref('')
@@ -496,6 +516,21 @@ const registrationPeriodData = computed(() => {
   }
 })
 
+const registrationYearComparison = computed(() => {
+  const yearlyTotals = new Map<number, number>()
+  for (const row of registrationTrend.value) {
+    const year = Number(row.date.slice(0, 4))
+    yearlyTotals.set(year, (yearlyTotals.get(year) ?? 0) + row.students + row.mentors)
+  }
+  const years = [...yearlyTotals.keys()].sort((a, b) => a - b)
+  const year = years[years.length - 1] ?? selectedYear.value
+  return {
+    current: yearlyTotals.get(year) ?? 0,
+    previous: yearlyTotals.get(year - 1) ?? 0,
+    previousYear: year - 1,
+  }
+})
+
 const recentSevenDayLabels = computed(() => {
   const activityModule = selectedData.value.modules.find((item) => item.key === 'activity')
   const length = activityModule?.chart.length ?? 7
@@ -586,6 +621,22 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     const bundle = await loadOverviewAnalyticsBundle(force)
     unavailableSources.value = bundle.unavailableSources ?? []
     const year = liveAnalyticsYear(bundle)
+    const comparison = participantYearComparison(bundle.users, year)
+    comparisonPreviousYear.value = comparison.previousYear
+    const currentLoginCount = bundle.loginActivity?.by_year.find((row) => row.year === year)?.total ?? 0
+    const previousLoginCount = bundle.loginActivity?.by_year.find((row) => row.year === comparison.previousYear)?.total ?? 0
+    const currentLoginRate = comparison.current.total
+      ? currentLoginCount / comparison.current.total * 100
+      : 0
+    const previousLoginRate = comparison.previous.total
+      ? previousLoginCount / comparison.previous.total * 100
+      : 0
+    overviewComparisons.value = {
+      'Total Students': { current: comparison.current.students, previous: comparison.previous.students },
+      'Total Mentors': { current: comparison.current.mentors, previous: comparison.previous.mentors },
+      'Total Supervisors': { current: comparison.current.supervisors, previous: comparison.previous.supervisors },
+      'Logged In': { current: currentLoginRate, previous: previousLoginRate },
+    }
     availableAnalyticsYears.value = [year]
     if (!preserveFilters || !availableAnalyticsYears.value.includes(selectedYear.value)) {
       selectedYear.value = year
@@ -627,7 +678,7 @@ const attentionIcons: Record<string, string> = {
   'Students not assigned to groups': 'fas fa-user-plus',
   'Groups without mentors': 'fas fa-users',
   'Inactive mentors': 'fas fa-user-tie',
-  'Deactivated accounts': 'fas fa-user',
+  'Inactive accounts': 'fas fa-user',
   'Missing guardian details': 'fas fa-user-shield',
   'Guardian approvals pending': 'fas fa-user-check',
   'Email usage approaching limit': 'fas fa-envelope-circle-check',
@@ -672,13 +723,13 @@ const attentionIssueMeta: Record<
     description: (value) =>
       `${value} mentors are currently inactive. Review mentor status, allocation and recent engagement.`,
     action: 'Review Mentors',
-    to: '/analytics/activity?role=Mentor&issue=inactive-mentors#user-activity-details',
+    to: '/analytics/activity?role=Mentor&status=Inactive#user-activity-details',
   },
-  'Deactivated accounts': {
+  'Inactive accounts': {
     description: (value) =>
-      `${value} user accounts are deactivated. Review user status and account activity.`,
+      `${value} user accounts are inactive. Review user status and account activity.`,
     action: 'Review Users',
-    to: '/analytics/activity?issue=deactivated#user-activity-details',
+    to: '/analytics/activity?status=Inactive#user-activity-details',
   },
   'Missing guardian details': {
     description: (value) =>
@@ -1195,6 +1246,10 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   font-size: clamp(2rem, 2.4vw, 2.75rem);
   line-height: 1;
   color: #12261f;
+}
+
+.analytics-page .summary-card .analytics-value-row {
+  justify-content: flex-start !important;
 }
 
 .summary-trend {

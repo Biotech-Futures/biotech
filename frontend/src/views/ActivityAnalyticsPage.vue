@@ -53,8 +53,16 @@
         <div class="kpi-icon"><i class="fas fa-user-clock"></i></div>
         <div>
           <span>Daily Active Users</span>
-          <strong>{{ yearKpis.dailyActive ?? '—' }}</strong>
-          <small>Most recent day</small>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="yearKpis.dailyActive ?? '—'" /></strong>
+            <AnalyticsYearChange
+              v-if="activityWindowComparison"
+              :current="activityWindowComparison.daily.current"
+              :previous="activityWindowComparison.daily.previous"
+              label="vs previous day"
+            />
+          </div>
+          <small>Selected day</small>
         </div>
       </article>
 
@@ -62,8 +70,16 @@
         <div class="kpi-icon"><i class="fas fa-users"></i></div>
         <div>
           <span>Weekly Active Users</span>
-          <strong>{{ yearKpis.weeklyActive ?? '—' }}</strong>
-          <small>Most recent 7 days</small>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="yearKpis.weeklyActive ?? '—'" /></strong>
+            <AnalyticsYearChange
+              v-if="activityWindowComparison"
+              :current="activityWindowComparison.weekly.current"
+              :previous="activityWindowComparison.weekly.previous"
+              label="vs previous 7 days"
+            />
+          </div>
+          <small>7 days ending on selected date</small>
         </div>
       </article>
 
@@ -71,8 +87,16 @@
         <div class="kpi-icon"><i class="fas fa-calendar-days"></i></div>
         <div>
           <span>Monthly Active Users</span>
-          <strong>{{ yearKpis.monthlyActive ?? '—' }}</strong>
-          <small>Most recent 30 days</small>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="yearKpis.monthlyActive ?? '—'" /></strong>
+            <AnalyticsYearChange
+              v-if="activityWindowComparison"
+              :current="activityWindowComparison.monthly.current"
+              :previous="activityWindowComparison.monthly.previous"
+              label="vs previous 30 days"
+            />
+          </div>
+          <small>30 days ending on selected date</small>
         </div>
       </article>
 
@@ -80,9 +104,25 @@
         <div class="kpi-icon"><i class="fas fa-arrow-right-to-bracket"></i></div>
         <div>
           <span>Logged In</span>
-          <strong>{{ sourceAvailable('users') ? `${selectedLoggedInRate}%` : '—' }}</strong>
-          <small v-if="sourceAvailable('users')">{{ loggedInCount }} of {{ selectedUserYearData.totalUsers }} current users have ever logged in</small>
+          <strong><AnalyticsNumber :value="sourceAvailable('users') ? `${selectedLoggedInRate}%` : '—'" /></strong>
+          <small v-if="sourceAvailable('users')">{{ loggedInCount }} of {{ selectedUserYearData.totalUsers }} current users</small>
           <small v-else>Participant details are unavailable.</small>
+        </div>
+      </article>
+
+      <article v-if="sourceAvailable('loginActivity')" class="kpi-card">
+        <div class="kpi-icon"><i class="fas fa-chart-line"></i></div>
+        <div>
+          <span>Participants Logged In</span>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="yearlyLoginComparison.current" /></strong>
+            <AnalyticsYearChange
+              :current="yearlyLoginComparison.current"
+              :previous="yearlyLoginComparison.previous"
+              :label="`vs ${yearlyLoginComparison.previousYear}`"
+            />
+          </div>
+          <small>Unique users this year</small>
         </div>
       </article>
 
@@ -90,7 +130,7 @@
         <div class="kpi-icon warning"><i class="fas fa-triangle-exclamation"></i></div>
         <div>
           <span>Never Logged In</span>
-          <strong>{{ sourceAvailable('users') ? selectedNeverLoggedIn : '—' }}</strong>
+          <strong><AnalyticsNumber :value="sourceAvailable('users') ? selectedNeverLoggedIn : '—'" /></strong>
           <small>Needs attention</small>
         </div>
       </article>
@@ -140,7 +180,7 @@
 
       <label v-if="viewMode === 'users'">
         <span>User Role</span>
-        <select v-model="selectedRole">
+        <select v-model="selectedRole" aria-label="Filter by user role">
           <option value="all">All Roles</option>
           <option value="Student">Students</option>
           <option value="Mentor">Mentors</option>
@@ -560,7 +600,7 @@
         <div v-if="issueContext" class="activity-issue-context">
           <i class="fas fa-circle-info" aria-hidden="true"></i>
           <span v-if="issueContext === 'inactive-mentors'">Showing mentors with an inactive account.</span>
-          <span v-else>Showing suspended, deactivated or disabled user accounts.</span>
+          <span v-else>Showing inactive user accounts.</span>
         </div>
 
         <div class="table-wrap">
@@ -645,6 +685,8 @@
 
 <script setup lang="ts">
 import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
@@ -654,6 +696,7 @@ import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vu
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
+import { fetchLoginActivity, type LoginActivityResponse } from '@/utils/liveAnalyticsApi'
 import { useRoute } from 'vue-router'
 import type {
   ActivityAnalyticsData,
@@ -699,8 +742,12 @@ const liveUserData = ref<UserAnalyticsYear>({
   regions: [], interests: [],
 })
 const liveGroupData = ref<GroupsAnalyticsYear>({
-  totalGroups: 0, groupGrowth: 0, averageGroupSize: 0, avgSizeChange: 0,
+  totalGroups: 0, groupGrowth: 0, averageGroupSize: 0,
+  averageGroupSizePrevious: null, averageGroupSizePreviousYear: new Date().getFullYear() - 1, avgSizeChange: 0,
   groupsWithMentor: 0, groupsWithoutMentor: 0, mentorStudentRatio: 0,
+  comparisonPreviousYear: new Date().getFullYear() - 1,
+  groupsWithMentorPrevious: null, groupsWithoutMentorPrevious: null,
+  mentorStudentRatioPrevious: null,
   smallGroups: 0, inactiveRecent: 0, nearCapacity: 0,
   groupSizeDistribution: [], groupStatus: [], ratioDistribution: [], groupActivity: [],
 })
@@ -914,11 +961,46 @@ const selectedNeverLoggedIn = computed(() =>
 const loginHistoryAvailable = computed(() => data.loginHistoryAvailable
   ?? !!liveCoreBundle.value?.loginActivity?.by_day.length)
 
+type ActivityWindowComparison = NonNullable<LoginActivityResponse['active_user_comparison']>
+const activityWindowComparison = ref<ActivityWindowComparison | null>(null)
+let activityWindowRequest = 0
+
+async function loadActivityWindowComparison() {
+  const request = ++activityWindowRequest
+  const end = parseInputDate(selectedEndDate.value)
+  if (!end || !sourceAvailable('loginActivity')) {
+    activityWindowComparison.value = null
+    return
+  }
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - 59)
+  try {
+    const response = await fetchLoginActivity(
+      start.toISOString().slice(0, 10),
+      selectedEndDate.value,
+    )
+    if (request === activityWindowRequest) {
+      activityWindowComparison.value = response.active_user_comparison ?? null
+    }
+  } catch {
+    if (request === activityWindowRequest) activityWindowComparison.value = null
+  }
+}
+
 const yearKpis = computed(() => ({
-  dailyActive: data.dailyActive,
-  weeklyActive: data.weeklyActive,
-  monthlyActive: data.monthlyActive,
+  dailyActive: activityWindowComparison.value?.daily.current ?? data.dailyActive,
+  weeklyActive: activityWindowComparison.value?.weekly.current ?? data.weeklyActive,
+  monthlyActive: activityWindowComparison.value?.monthly.current ?? data.monthlyActive,
 }))
+watch(selectedEndDate, () => { void loadActivityWindowComparison() })
+const yearlyLoginComparison = computed(() => {
+  const rows = liveCoreBundle.value?.loginActivity?.by_year ?? []
+  return {
+    current: rows.find((row) => row.year === selectedYear.value)?.total ?? 0,
+    previous: rows.find((row) => row.year === selectedYear.value - 1)?.total ?? 0,
+    previousYear: selectedYear.value - 1,
+  }
+})
 
 
 
@@ -1358,7 +1440,9 @@ const yearUsers = computed(() =>
   data.users.map((user) => ({
     ...user,
     status: (
-      user.lastLogin === null || user.daysInactive === null
+      accountIsInactive(user)
+        ? 'Inactive'
+        : user.lastLogin === null || user.daysInactive === null
         ? 'Never'
         : user.daysInactive <= Number(userActivityThreshold.value)
           ? 'Active'
@@ -1369,7 +1453,7 @@ const yearUsers = computed(() =>
 
 const detailStatusHeading = computed(() => issueContext.value ? 'Account Status' : 'Status')
 
-function accountIsInactive(user: (typeof yearUsers.value)[number]) {
+function accountIsInactive(user: ActivityAnalyticsData['users'][number]) {
   const status = (user.accountStatus ?? '').toLowerCase()
   return user.isActive === false || status === 'deactivated' || status === 'suspended'
 }
@@ -1382,8 +1466,8 @@ function matchesIssueContext(user: (typeof yearUsers.value)[number]) {
 
 function userDetailStatusLabel(user: (typeof yearUsers.value)[number]) {
   if (!issueContext.value) return statusLabel(user.status)
+  if (accountIsInactive(user)) return 'Inactive'
   const accountStatus = (user.accountStatus ?? '').trim()
-  if (user.isActive === false && !['deactivated', 'suspended'].includes(accountStatus.toLowerCase())) return 'Inactive'
   if (accountStatus) return accountStatus.charAt(0).toUpperCase() + accountStatus.slice(1).toLowerCase()
   return user.isActive === false ? 'Inactive' : 'Active'
 }
@@ -1523,6 +1607,7 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     liveGroupData.value = buildGroupsAnalytics(bundle)
     liveCoreBundle.value = bundle
     if (!preserveFilters) applyObservedTrendRange()
+    await loadActivityWindowComparison()
     const hasParticipants = bundle.users.some((user) =>
       ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
     )
@@ -3121,7 +3206,42 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .kpi-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 12px !important;
   margin-bottom: 16px !important;
+}
+
+.activity-analytics-page .kpi-card {
+  min-width: 0 !important;
+  padding-inline: 13px !important;
+  gap: 11px !important;
+}
+
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong {
+  width: 100%;
+  text-align: center;
+}
+
+.activity-analytics-page .kpi-card .analytics-value-row {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 1279px) {
+  .activity-analytics-page .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .activity-analytics-page .kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 .activity-analytics-page .activity-side-stack {

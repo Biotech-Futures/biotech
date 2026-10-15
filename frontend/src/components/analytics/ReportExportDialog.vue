@@ -88,7 +88,7 @@
               <option value="pending">Pending</option>
               <option value="active">Active</option>
               <option value="suspended">Suspended</option>
-              <option value="deactivated">Deactivated</option>
+              <option value="deactivated">Inactive</option>
             </select>
           </label>
 

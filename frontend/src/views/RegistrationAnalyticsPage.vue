@@ -86,7 +86,7 @@
         <div class="kpi-icon"><BtfIcon :name="card.icon" /></div>
         <div>
           <span class="kpi-label">{{ card.label }}</span>
-          <strong>{{ card.total }}</strong>
+          <strong><AnalyticsNumber :value="card.total" /></strong>
           <small>{{ card.students }} students · {{ card.mentors }} mentors</small>
         </div>
       </article>
@@ -94,7 +94,7 @@
         <div class="kpi-icon"><BtfIcon name="shield" /></div>
         <div>
           <span class="kpi-label">Fully registered students</span>
-          <strong>{{ registrationCompletion.guardianApproved }}</strong>
+          <strong><AnalyticsNumber :value="registrationCompletion.guardianApproved" /></strong>
           <small>{{ completionRate }}% have guardian approval</small>
         </div>
       </article>
@@ -394,6 +394,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type {
   RegistrationFollowUp,
@@ -608,14 +609,14 @@ function hideTooltip() {
   tooltip.value.visible = false
 }
 
-function recentBreakdown(days: number) {
-  const range = validDateRange.value
-  if (!range) return { students: 0, mentors: 0 }
-  const start = new Date(range.end)
+function recentBreakdown(days: number, endKey = endDate.value) {
+  const end = parseDate(endKey)
+  if (!end) return { students: 0, mentors: 0 }
+  const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - days + 1)
   const startKey = start.toISOString().slice(0, 10)
   return registrationTrend
-    .filter((point) => point.date >= startKey && point.date <= endDate.value)
+    .filter((point) => point.date >= startKey && point.date <= endKey)
     .reduce(
       (sum, point) => ({
         students: sum.students + point.students,

@@ -48,7 +48,7 @@
         <span class="kpi-icon blue"><i class="fas fa-message"></i></span>
         <div>
           <span class="kpi-label">Total Messages</span>
-          <strong>{{ totalMessages.toLocaleString() }}</strong>
+          <strong><AnalyticsNumber :value="totalMessages" /></strong>
           <small>All recorded messages</small>
         </div>
       </article>
@@ -57,7 +57,10 @@
         <span class="kpi-icon purple"><i class="fas fa-chart-simple"></i></span>
         <div>
           <span class="kpi-label">Messages This Period</span>
-          <strong>{{ periodTotal.toLocaleString() }}</strong>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="periodTotal" /></strong>
+            <AnalyticsYearChange :current="periodTotal" :previous="previousPeriodMetrics.messages" label="vs same period last year" />
+          </div>
           <small>{{ periodLabel }}</small>
         </div>
       </article>
@@ -66,7 +69,10 @@
         <span class="kpi-icon blue"><i class="fas fa-people-group"></i></span>
         <div>
           <span class="kpi-label">Average per Group</span>
-          <strong>{{ averagePerGroup }}</strong>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="averagePerGroup" /></strong>
+            <AnalyticsYearChange :current="Number(averagePerGroup)" :previous="previousPeriodMetrics.averagePerGroup" label="vs same period last year" />
+          </div>
           <small>Across groups with messages</small>
         </div>
       </article>
@@ -75,7 +81,10 @@
         <span class="kpi-icon teal"><i class="fas fa-users"></i></span>
         <div>
           <span class="kpi-label">Groups with Messages</span>
-          <strong>{{ groupsWithMessages }}</strong>
+          <div class="analytics-value-row">
+            <strong><AnalyticsNumber :value="groupsWithMessages" /></strong>
+            <AnalyticsYearChange :current="groupsWithMessages" :previous="previousPeriodMetrics.groupsWithMessages" label="vs same period last year" />
+          </div>
           <small>{{ groupCoverage }}% of total groups</small>
         </div>
       </article>
@@ -85,11 +94,11 @@
         <div>
           <span class="kpi-label">Most Active Group</span>
           <strong class="text-value">{{ mostActiveGroup.name }}</strong>
+          <small class="group-message-count">
+            <strong><AnalyticsNumber :value="mostActiveGroup.value" /></strong>
+            <span>messages</span>
+          </small>
         </div>
-        <small class="group-message-count">
-          <strong>{{ mostActiveGroup.value.toLocaleString() }}</strong>
-          <span>messages</span>
-        </small>
       </article>
 
       <article class="kpi-card group-name-kpi">
@@ -97,11 +106,11 @@
         <div>
           <span class="kpi-label">Lowest Message Group</span>
           <strong class="text-value">{{ leastActiveGroup.name }}</strong>
+          <small class="group-message-count">
+            <strong><AnalyticsNumber :value="leastActiveGroup.value" /></strong>
+            <span>messages</span>
+          </small>
         </div>
-        <small class="group-message-count">
-          <strong>{{ leastActiveGroup.value.toLocaleString() }}</strong>
-          <span>messages</span>
-        </small>
       </article>
     </section>
 
@@ -567,6 +576,8 @@ import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onMounted, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { MessagesAnalyticsYear } from '@/types/analytics'
@@ -973,6 +984,33 @@ const periodTotal = computed(() =>
     ? data.value.totalMessages
     : visibleGroups.value.reduce((sum, group) => sum + group.value, 0),
 )
+function previousYearDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`)
+  date.setUTCFullYear(date.getUTCFullYear() - 1)
+  return date.toISOString().slice(0, 10)
+}
+const previousPeriodMetrics = computed(() => {
+  const activity = baseBundle.value?.groupActivity
+  const range = periodDateRange()
+  if (!activity || !range.start || !range.end) {
+    return { messages: 0, groupsWithMessages: 0, averagePerGroup: 0 }
+  }
+  const start = previousYearDate(range.start)
+  const end = previousYearDate(range.end)
+  const totals = new Map<number, number>()
+  for (const row of activity.messages_by_group_by_day) {
+    if (row.date < start || row.date > end) continue
+    if (selectedGroupId.value !== 'all' && row.group_id !== selectedGroupId.value) continue
+    totals.set(row.group_id, (totals.get(row.group_id) ?? 0) + row.message_count)
+  }
+  const messages = [...totals.values()].reduce((sum, value) => sum + value, 0)
+  const groupsWithMessages = [...totals.values()].filter((value) => value > 0).length
+  return {
+    messages,
+    groupsWithMessages,
+    averagePerGroup: groupsWithMessages ? Number((messages / groupsWithMessages).toFixed(1)) : 0,
+  }
+})
 const groupsWithMessages = computed(() =>
   selectedGroupId.value === 'all' ? data.value.groupsWithMessages : visibleGroups.value.filter((group) => group.value > 0).length,
 )
@@ -2880,6 +2918,73 @@ tbody tr:hover {
   .messages-analytics-page .sticky-filter-card {
     grid-template-columns: minmax(0, 1fr) !important;
   }
+}
+
+/* All six summary cards share the same title, value and helper tracks. */
+.messages-analytics-page .kpi-grid .kpi-card {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 0 !important;
+}
+
+.messages-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) {
+  display: grid !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  align-self: stretch;
+  grid-template-rows: 34px auto 34px !important;
+  align-content: center;
+}
+
+.messages-analytics-page .kpi-grid .kpi-card .kpi-label {
+  display: flex !important;
+  grid-row: 1;
+  align-items: flex-start;
+  margin: 0 !important;
+}
+
+.messages-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) > :is(strong, .analytics-value-row) {
+  grid-row: 2;
+  align-self: center;
+}
+
+.messages-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) > small {
+  grid-row: 3;
+  align-self: start;
+  margin: 0 !important;
+}
+
+.messages-analytics-page .kpi-grid .group-name-kpi .text-value {
+  display: -webkit-box !important;
+  font-size: 15px !important;
+  line-height: 17px !important;
+  max-height: 68px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.messages-analytics-page .kpi-grid .group-message-count {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 4px;
+  padding: 0 !important;
+}
+
+.messages-analytics-page .kpi-grid .group-message-count strong,
+.messages-analytics-page .kpi-grid .group-message-count span {
+  display: inline !important;
+  margin: 0 !important;
+}
+
+.messages-analytics-page .kpi-grid .group-message-count strong {
+  font-size: 18px !important;
+  line-height: 20px !important;
+}
+
+.messages-analytics-page .kpi-grid .group-message-count span {
+  font-size: 10px !important;
+  line-height: 12px !important;
 }
 
 </style>

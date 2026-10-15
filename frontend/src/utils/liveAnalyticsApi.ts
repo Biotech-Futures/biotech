@@ -78,6 +78,21 @@ export type GroupActivityResponse = {
   mentor_count: number
   student_count: number
   students_per_mentor: number | null
+  average_group_size_by_year?: Array<{
+    year: number
+    group_count: number
+    student_memberships: number
+    average_group_size: number
+  }>
+  group_summary_by_year?: Array<{
+    year: number
+    group_count: number
+    groups_with_mentor: number
+    groups_without_mentor: number
+    mentor_count: number
+    student_count: number
+    students_per_mentor: number | null
+  }>
   query_range: { start: string | null; end: string | null }
 }
 
@@ -92,6 +107,11 @@ export type LoginActivityResponse = {
   by_day: Array<LoginActivityCount & { date: string }>
   by_year: Array<LoginActivityCount & { year: number }>
   active_users: { daily: number; weekly: number; monthly: number }
+  active_user_comparison?: {
+    daily: { current: number; previous: number }
+    weekly: { current: number; previous: number }
+    monthly: { current: number; previous: number }
+  }
   latest_activity_date: string | null
   query_range: { start: string | null; end: string | null }
 }
