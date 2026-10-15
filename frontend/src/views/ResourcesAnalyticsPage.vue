@@ -23,6 +23,8 @@
       </div>
     </div>
 
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
+
     <AnalyticsDataState
       :loading="isLoading"
       :error="loadError"
@@ -31,13 +33,13 @@
       @retry="refreshAnalytics"
     >
     <section class="kpi-grid">
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-arrow-pointer"></i></div><div><span class="kpi-label">Resource Clicks</span><strong>{{ data.totalClicks.toLocaleString() }}</strong><small>Total recorded clicks</small></div></article>
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-users"></i></div><div><span class="kpi-label">Unique Users</span><strong>{{ data.uniqueUsers }}</strong><small>Users who accessed resources</small></div></article>
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book"></i></div><div><span class="kpi-label">Active Resources</span><strong>{{ data.activeResources }}</strong><small>Resources with recorded access</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-arrow-pointer"></i></div><div><span class="kpi-label">Resource Clicks</span><strong>{{ sourceAvailable('resourceAnalytics') ? data.totalClicks.toLocaleString() : '—' }}</strong><small>Total recorded clicks</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-users"></i></div><div><span class="kpi-label">Unique Users</span><strong>{{ sourceAvailable('resourceAnalytics') ? data.uniqueUsers : '—' }}</strong><small>Users who accessed resources</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book"></i></div><div><span class="kpi-label">Active Resources</span><strong>{{ sourceAvailable('resourceAnalytics') ? data.activeResources : '—' }}</strong><small>Resources with recorded access</small></div></article>
       <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book-open"></i></div><div><span class="kpi-label">Most Used Resource</span><strong class="resource-name">{{ data.mostUsedResource }}</strong><small>Highest click count</small></div></article>
     </section>
 
-    <section class="analytics-grid top-grid">
+    <section v-if="sourceAvailable('resourceAnalytics')" class="analytics-grid top-grid">
       <article class="analytics-card">
         <div class="chart-title-row">
           <h2>Resource Clicks Over Time</h2>
@@ -94,7 +96,7 @@
           </p>
         </div>
         <div class="resource-table-filters">
-          <select v-model="selectedAudienceRole" aria-label="Filter resources by configured audience">
+          <select :disabled="!sourceAvailable('resources')" v-model="selectedAudienceRole" aria-label="Filter resources by configured audience">
             <option value="all">All audiences</option>
             <option value="Student">Students</option>
             <option value="Mentor">Mentors</option>
@@ -116,13 +118,13 @@
               <th>Resource</th>
               <th>Type</th>
               <th>
-                <button type="button" class="sort-header-button" @click="toggleSort('clicks')">
+                <button :disabled="!sourceAvailable('resourceAnalytics')" type="button" class="sort-header-button" @click="toggleSort('clicks')">
                   Clicks
                   <i :class="sortIcon('clicks')" aria-hidden="true"></i>
                 </button>
               </th>
               <th>
-                <button type="button" class="sort-header-button" @click="toggleSort('uniqueUsers')">
+                <button :disabled="!sourceAvailable('resourceAnalytics')" type="button" class="sort-header-button" @click="toggleSort('uniqueUsers')">
                   Unique Users
                   <i :class="sortIcon('uniqueUsers')" aria-hidden="true"></i>
                 </button>
@@ -134,8 +136,8 @@
             <tr v-for="item in sortedResources" :key="item.id">
               <td><strong>{{ item.name }}</strong></td>
               <td>{{ item.type }}</td>
-              <td>{{ item.clicks }}</td>
-              <td>{{ item.uniqueUsers }}</td>
+              <td>{{ sourceAvailable('resourceAnalytics') ? item.clicks : '—' }}</td>
+              <td>{{ sourceAvailable('resourceAnalytics') ? item.uniqueUsers : '—' }}</td>
             </tr>
           </tbody>
         </table>
@@ -148,6 +150,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -166,6 +170,8 @@ const data = reactive({
   resources: [] as Array<{ id: number; name: string; clicks: number; uniqueUsers: number; type: string; roles: Array<'Student' | 'Mentor' | 'Supervisor'> }>,
   byType: [] as Array<{ label: string; value: number; color: string }>,
 })
+const unavailableSources = ref<AnalyticsSource[]>([])
+const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
@@ -191,8 +197,10 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadResourcesAnalyticsBundle(force)
+    unavailableSources.value = bundle.unavailableSources ?? []
     Object.assign(data, buildResourcesAnalytics(bundle))
-    isEmpty.value = resourceBundleIsEmpty(bundle)
+    if (!sourceAvailable('resources')) selectedAudienceRole.value = 'all'
+    isEmpty.value = unavailableSources.value.length === 0 && resourceBundleIsEmpty(bundle)
     hasLoaded.value = true
     markUpdated()
   } catch (error) {
@@ -337,7 +345,9 @@ function exportCsv() {
   const rows = [
     ['Resource', 'Type', 'Clicks', 'Unique Users'],
     ...sortedResources.value.map((resource) => [
-      resource.name, resource.type, resource.clicks, resource.uniqueUsers,
+      resource.name, resource.type,
+      sourceAvailable('resourceAnalytics') ? resource.clicks : 'Unavailable',
+      sourceAvailable('resourceAnalytics') ? resource.uniqueUsers : 'Unavailable',
     ]),
   ]
   const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')

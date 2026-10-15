@@ -39,6 +39,8 @@
       </div>
     </div>
 
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
+
     <AnalyticsDataState
       :loading="isLoading"
       :error="loadError"
@@ -78,8 +80,9 @@
         <div class="kpi-icon"><i class="fas fa-arrow-right-to-bracket"></i></div>
         <div>
           <span>Logged In</span>
-          <strong>{{ selectedLoggedInRate }}%</strong>
-          <small>{{ loggedInCount }} of {{ selectedUserYearData.totalUsers }} current users have ever logged in</small>
+          <strong>{{ sourceAvailable('users') ? `${selectedLoggedInRate}%` : '—' }}</strong>
+          <small v-if="sourceAvailable('users')">{{ loggedInCount }} of {{ selectedUserYearData.totalUsers }} current users have ever logged in</small>
+          <small v-else>Participant details are unavailable.</small>
         </div>
       </article>
 
@@ -87,7 +90,7 @@
         <div class="kpi-icon warning"><i class="fas fa-triangle-exclamation"></i></div>
         <div>
           <span>Never Logged In</span>
-          <strong>{{ selectedNeverLoggedIn }}</strong>
+          <strong>{{ sourceAvailable('users') ? selectedNeverLoggedIn : '—' }}</strong>
           <small>Needs attention</small>
         </div>
       </article>
@@ -98,7 +101,7 @@
         <span>View</span>
         <select v-model="viewMode">
           <option value="users">Users</option>
-          <option value="groups">Groups</option>
+          <option value="groups" :disabled="!sourceAvailable('groups') || !sourceAvailable('groupActivity')">Groups</option>
         </select>
       </label>
 
@@ -162,9 +165,12 @@
       </button>
     </section>
 
-    <p v-if="viewMode === 'users' && !loginHistoryAvailable" class="filter-scope-note" role="status">
+    <p v-if="viewMode === 'users' && sourceAvailable('users') && !loginHistoryAvailable" class="filter-scope-note" role="status">
       No recorded login history is available. Daily, weekly and monthly activity cannot be calculated.
       Last-login records below remain available; missing history does not mean zero activity.
+    </p>
+    <p v-if="viewMode === 'users' && !sourceAvailable('users')" class="filter-scope-note" role="status">
+      Participant details are unavailable. Recorded login activity is shown when available.
     </p>
     <div v-if="viewMode === 'users' && loginHistoryAvailable" class="analytics-grid main-grid">
       <article class="analytics-card activity-chart-card">
@@ -244,7 +250,7 @@
 
       </article>
 
-      <div class="activity-side-stack">
+      <div v-if="sourceAvailable('users')" class="activity-side-stack">
         <article class="analytics-card login-role-card">
           <div class="card-heading">
             <div>
@@ -275,7 +281,7 @@
     </div>
 
 
-    <template v-else-if="viewMode === 'groups'">
+    <template v-else-if="viewMode === 'groups' && sourceAvailable('groups') && sourceAvailable('groupActivity')">
       <div class="analytics-grid main-grid group-mode-grid">
         <article class="analytics-card activity-chart-card">
           <div class="card-heading">
@@ -518,7 +524,7 @@
     </template>
 
 
-    <div v-if="viewMode === 'users'" class="analytics-grid lower-grid">
+    <div v-if="viewMode === 'users' && sourceAvailable('users')" class="analytics-grid lower-grid">
       <article id="user-activity-details" class="analytics-card table-card">
         <div class="table-heading">
           <div>
@@ -638,6 +644,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -697,11 +705,15 @@ const liveGroupData = ref<GroupsAnalyticsYear>({
   groupSizeDistribution: [], groupStatus: [], ratioDistribution: [], groupActivity: [],
 })
 const liveYear = ref(new Date().getFullYear())
+const unavailableSources = ref<AnalyticsSource[]>([])
+const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
+const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value || (viewMode.value === 'groups'
+  ? !sourceAvailable('groups') || !sourceAvailable('groupActivity')
+  : !sourceAvailable('users')))
 const route = useRoute()
 const issueContext = ref<'inactive-mentors' | 'deactivated' | ''>('')
 
@@ -1501,6 +1513,7 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadActivityAnalyticsBundle(force)
+    unavailableSources.value = bundle.unavailableSources ?? []
     const year = liveAnalyticsYear(bundle)
     today.value = new Date(`${liveAnalyticsAsOf(bundle)}T00:00:00Z`)
     liveYear.value = year
@@ -1513,7 +1526,9 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     const hasParticipants = bundle.users.some((user) =>
       ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
     )
-    isEmpty.value = !hasParticipants && bundle.groups.length === 0
+    isEmpty.value = unavailableSources.value.length === 0 && !hasParticipants && bundle.groups.length === 0
+    if (!sourceAvailable('users') && sourceAvailable('groups') && sourceAvailable('groupActivity')) viewMode.value = 'groups'
+    else if (!sourceAvailable('groups') || !sourceAvailable('groupActivity')) viewMode.value = 'users'
     hasLoaded.value = true
     markUpdated()
   } catch (error) {

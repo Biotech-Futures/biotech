@@ -41,6 +41,8 @@
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
 
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
+
     <AnalyticsDataState
       :loading="isLoading"
       :error="loadError"
@@ -822,6 +824,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -858,6 +862,7 @@ const liveData = ref<UserAnalyticsYear>({
   regions: [],
   interests: [],
 })
+const unavailableSources = ref<AnalyticsSource[]>([])
 const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
@@ -876,6 +881,7 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadUsersAnalyticsBundle(force)
+    unavailableSources.value = bundle.unavailableSources ?? []
     const year = new Date().getUTCFullYear()
     analyticsAsOf.value = liveAnalyticsAsOf(bundle)
     currentYear.value = year
