@@ -39,9 +39,10 @@ function fakeChannel() {
 }
 
 /** The server's copy, answering a page's sync the way the backend does. */
-function server(initial: Record<string, string> = {}) {
+function server(initial: Record<string, string> = {}, generation = 'build-1') {
   const doc = new Y.Doc()
   Object.entries(initial).forEach(([name, value]) => doc.getText(name).insert(0, value))
+  doc.getMap('meta').set('generation', generation)
   return {
     doc,
     stateFor(vector: unknown, extra: Record<string, unknown> = {}) {
@@ -359,6 +360,39 @@ describe('faults', () => {
     expect(shared.doc.value).not.toBe(before)
     expect(shared.text('answer:q1').toString()).toBe('')
     expect(room.sent.at(-1)!.type).toBe('doc-sync')
+  })
+
+  it('names the build its copy came from in everything it sends, so the server never merges another', () => {
+    const { room } = ready()
+    shared.text('answer:q1').insert(6, ' More.')
+    vi.advanceTimersByTime(SEND_DOC_MS)
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+    room.close()
+    room.open()
+
+    expect(room.sent.map((m) => [m.type, m.generation])).toEqual([
+      ['doc-update', 'build-1'],
+      ['doc-sync', 'build-1'],
+      ['doc-sync', 'build-1']
+    ])
+  })
+
+  it("swaps in a rebuilt server copy instead of merging its own into it", () => {
+    const { room } = ready()
+    shared.text('answer:q1').insert(6, ' Unsaved.')
+    const rebuilt = server({ 'answer:q1': 'Saved.' }, 'build-2')
+
+    room.receive({ type: 'doc-reject' })
+    vi.advanceTimersByTime(0)
+    room.receive(rebuilt.stateFor('', { full: true }))
+    vi.advanceTimersByTime(SEND_DOC_MS)
+
+    expect(shared.text('answer:q1').toString()).toBe('Saved.')
+    expect(room.sent.at(-1)!.type).toBe('doc-sync')
+    shared.text('answer:q1').insert(6, '!')
+    vi.advanceTimersByTime(SEND_DOC_MS)
+    expect(room.sent.at(-1)!.generation).toBe('build-2')
   })
 
   it('fails a save-now at once while recovering, so Submit can offer the last saved answers', async () => {

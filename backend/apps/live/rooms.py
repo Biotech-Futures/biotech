@@ -9,8 +9,8 @@ ROOM_ACCESS = {
 
 # Kinds whose rooms also share a live-merged document, by the module that keeps it. The module
 # provides enabled(), can_edit(user, room_id), state_since(room_id, vector) -> (missing, vector),
-# apply(user, room_id, update, checked), save(room_id), flush(room_id), and claim_save(room_id, seconds)
-# with release_save(room_id) so a room's typists share one save.
+# generation(room_id), apply(user, room_id, update, checked, generation), save(room_id), flush(room_id),
+# and claim_save(room_id, seconds) with release_save(room_id) so a room's typists share one save.
 ROOM_DOCUMENTS = {
     "submission": "apps.submissions.coedit",
 }

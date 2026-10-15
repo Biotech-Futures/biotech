@@ -10,14 +10,15 @@ Nothing here is stored; saving stays on each feature's own endpoints.
                       {"type": "changed", "item": "<key>", "user": {"id", "name"} | null}
 
 Rooms whose kind keeps a shared document (see rooms.ROOM_DOCUMENTS) also carry Yjs updates, base64:
-    Client -> server: {"type": "doc-sync", "vector": "<state vector>", "update": "<local changes>" | ""}
-                      {"type": "doc-update", "update": "<update>"}
+    Client -> server: {"type": "doc-sync", "vector": "<state vector>", "update": "<local changes>" | "", "generation"}
+                      {"type": "doc-update", "update": "<update>", "generation"}
                       {"type": "doc-flush", "id": <n>}
     Server -> client: {"type": "doc-state", "update": "<missing>", "vector": "<server's>", "full": bool, "editable": bool}
                       {"type": "doc-update", "update": "<update>"}
                       {"type": "doc-reject"}       the last update was refused; resync from scratch
                       {"type": "doc-reset"}        the document was rebuilt; resync from scratch
                       {"type": "doc-flushed", "id": <n>, "ok": bool}
+"generation" names the build the page's copy came from, or is null before it has one.
 """
 import asyncio
 import base64
@@ -42,6 +43,7 @@ MAX_FIELDS = 100
 MAX_TEXT_LENGTH = 20_000
 # Shared-document updates: base64 of at most the document module's own limit, at a typist's pace.
 MAX_DOC_MESSAGE_CHARS = 100_000
+MAX_GENERATION_LENGTH = 64
 MAX_DOC_UPDATES_PER_SECOND = 30
 # A room's edits are saved this long after the first unsaved one, in one save whoever typed.
 DOC_SAVE_DELAY = 2.0
@@ -53,6 +55,10 @@ DOC_TYPES = ("doc-sync", "doc-update", "doc-flush")
 
 # The save each room is waiting on in this process; it outlives the connection that claimed it.
 _waiting_saves: dict[str, asyncio.Task] = {}
+
+
+def _valid_generation(value) -> bool:
+    return value is None or (isinstance(value, str) and 0 < len(value) <= MAX_GENERATION_LENGTH)
 
 
 def _decode(value) -> bytes | None:
@@ -199,13 +205,15 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
 
     async def _sync_document(self, document, user, content) -> None:
         vector, local = _decode(content.get("vector")), _decode(content.get("update"))
-        if vector is None or local is None:
+        generation = content.get("generation")
+        if vector is None or local is None or not _valid_generation(generation):
             await self.send_json({"type": "doc-reject"})
             return
         editable = await database_sync_to_async(self._may_edit_now)(user, True)
-        accepted = True
-        if local:
-            accepted = editable and await self._apply(document, user, local)
+        # A copy of an earlier build is never merged; the page is sent the whole current one instead.
+        accepted = generation is None or generation == await database_sync_to_async(document.generation)(self.room_id)
+        if local and accepted:
+            accepted = editable and await self._apply(document, user, local, generation)
             if accepted:
                 await self._share_update(local)
         # Local changes that were refused must not linger in the page, so it starts again from the full state.
@@ -224,26 +232,31 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
             started, count = now, 0
         self._doc_window = (started, count + 1)
         update = _decode(content.get("update"))
+        generation = content.get("generation")
         # Refused rather than dropped, so the page resyncs instead of quietly diverging.
-        if count + 1 > MAX_DOC_UPDATES_PER_SECOND or not update:
+        if count + 1 > MAX_DOC_UPDATES_PER_SECOND or not update or not _valid_generation(generation):
             await self.send_json({"type": "doc-reject"})
             return
-        if not await self._apply(document, user, update):
+        if not await self._apply(document, user, update, generation):
             await self.send_json({"type": "doc-reject"})
             return
         await self._share_update(update)
 
-    async def _apply(self, document, user, update: bytes) -> bool:
+    async def _apply(self, document, user, update: bytes, generation: str | None) -> bool:
         waiting = _waiting_saves.get(self.room)
         claim = waiting is None or waiting.done()
-        accepted, claimed = await database_sync_to_async(self._apply_and_claim)(document, user, update, claim)
+        accepted, claimed = await database_sync_to_async(self._apply_and_claim)(
+            document, user, update, generation, claim
+        )
         if claimed:
             _waiting_saves[self.room] = asyncio.ensure_future(_save_after_pause(document, self.room_id, self.room))
         return accepted
 
-    def _apply_and_claim(self, document, user, update: bytes, claim: bool) -> tuple[bool, bool]:
+    def _apply_and_claim(self, document, user, update: bytes, generation, claim: bool) -> tuple[bool, bool]:
         # One trip to the worker thread for the permission, the edit and the room's next save.
-        if not self._may_edit_now(user) or not document.apply(user, self.room_id, update, checked=True):
+        if not self._may_edit_now(user) or not document.apply(
+            user, self.room_id, update, checked=True, generation=generation
+        ):
             return False, False
         return True, claim and document.claim_save(self.room_id, DOC_SAVE_CLAIM_SECONDS)
 

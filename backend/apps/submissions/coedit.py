@@ -12,10 +12,11 @@ import json
 import logging
 import threading
 import time
+import uuid
 
 from django.conf import settings
 from django.db import transaction
-from pycrdt import Doc, Text
+from pycrdt import Doc, Map, Text
 
 from .models import Submission, SubmissionQuestion
 from .services import deadline_for_group
@@ -24,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 TITLE_FIELD = "title"
 ANSWER_PREFIX = "answer:"
+# Each build of a document from the entry carries a fresh label, so a page's copy of an earlier
+# build (Redis restarted, evicted or expired the room) is replaced rather than merged twice over.
+GENERATION_ROOT = "meta"
+GENERATION_KEY = "generation"
 PROJECT_TITLE_MAX_LENGTH = 150
 # Far above any answer, so only a faulty or hostile client reaches them.
 MAX_UPDATE_BYTES = 64 * 1024
@@ -232,7 +237,14 @@ def _build(texts: dict[str, str]) -> bytes:
     doc = Doc()
     for field, value in texts.items():
         doc[field] = Text(value)
+    doc[GENERATION_ROOT] = Map({GENERATION_KEY: uuid.uuid4().hex})
     return doc.get_update()
+
+
+def _generation(doc: Doc) -> str | None:
+    if GENERATION_ROOT not in doc.keys():
+        return None
+    return doc.get(GENERATION_ROOT, type=Map).get(GENERATION_KEY)
 
 
 def _texts(doc: Doc) -> dict[str, str]:
@@ -264,7 +276,7 @@ def _load(room: int) -> tuple[Doc, str | None]:
 
 def _within_limits(doc: Doc) -> bool:
     allowed = set(_fields())
-    if any(name not in allowed for name in doc.keys()):
+    if any(name not in allowed | {GENERATION_ROOT} for name in doc.keys()):
         return False
     return all(len(str(doc.get(field, type=Text))) <= MAX_FIELD_CHARS for field in allowed)
 
@@ -284,6 +296,11 @@ def can_edit(user, room: int) -> bool:
     return deadline_for_group(room).is_open
 
 
+def generation(room: int) -> str | None:
+    """The label of the room's current build; a page holding another must start again from it."""
+    return _generation(_load(room)[0])
+
+
 def state_since(room: int, state_vector: bytes | None) -> tuple[bytes, bytes]:
     """What a page is missing, and the server's state vector, so the page can send what the server lacks."""
     doc, _ = _load(room)
@@ -291,20 +308,24 @@ def state_since(room: int, state_vector: bytes | None) -> tuple[bytes, bytes]:
     return missing, doc.get_state()
 
 
-def apply(user, room: int, update: bytes, checked: bool = False) -> bool:
+def apply(user, room: int, update: bytes, checked: bool = False, generation: str | None = None) -> bool:
     """Adds one client update, if this user may edit and the result stays within limits.
 
     checked: the caller asked can_edit for this user moments ago, so it is not asked again.
+    generation: the build the page's copy came from; an update from another build is refused.
     """
     if not update or len(update) > MAX_UPDATE_BYTES or not (checked or can_edit(user, room)):
         return False
     base, updates, _ = _read(room)
     doc = _doc_from(base, updates)
+    current = _generation(doc)
+    if generation is not None and generation != current:
+        return False
     try:
         doc.apply_update(update)
     except Exception:  # noqa: BLE001 - a malformed update is refused, not raised
         return False
-    if not _within_limits(doc):
+    if not _within_limits(doc) or _generation(doc) != current:
         return False
     store().append(room, update)
     if len(updates) + 1 >= COMPACT_AFTER:

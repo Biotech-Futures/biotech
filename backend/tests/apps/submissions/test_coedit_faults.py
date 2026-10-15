@@ -1,4 +1,5 @@
 """Fault and race tests for co-editing: refused requests, failed saves, and edits landing at once."""
+import base64
 import os
 import socket
 import threading
@@ -9,7 +10,7 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from django.utils import timezone
-from pycrdt import Doc, Text
+from pycrdt import Doc, Map, Text
 
 from apps.live.consumers import _save_after_pause
 from apps.submissions import coedit
@@ -144,6 +145,90 @@ class UnresponsiveRedisTests(unittest.TestCase):
             store.read(1)
 
         self.assertLess(time.monotonic() - started, 2)
+
+
+class LostDocumentTests(CoeditTestCase):
+    """Redis restarted empty, evicted the room, or let it expire, while a page still held its copy."""
+
+    def _page_after_the_document_was_lost(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        coedit.store().clear()
+        page.type(self.field, 5, " more")
+        return page
+
+    def test_a_page_resending_its_copy_cannot_double_the_answer(self):
+        page = self._page_after_the_document_was_lost()
+
+        accepted = coedit.apply(self.student, self.room, page.doc.get_update(), generation=page.generation())
+        coedit.save(self.room)
+
+        self.assertFalse(accepted)
+        self.assertEqual(Client(self.room).text(self.field), "Draft")
+        self.assertEqual(self._entry().answers[self.key], "Draft")
+
+    def test_each_rebuild_gets_a_new_label(self):
+        page = self._page_after_the_document_was_lost()
+
+        self.assertNotEqual(Client(self.room).generation(), page.generation())
+
+    def test_a_page_of_an_earlier_build_is_sent_the_whole_current_copy(self):
+        page = self._page_after_the_document_was_lost()
+        consumer = _consumer(self.student, self.room)
+
+        async_to_sync(consumer.receive_json)({
+            "type": "doc-sync", "vector": _b64(page.doc.get_state()), "update": _b64(page.doc.get_update()),
+            "generation": page.generation(),
+        })
+
+        reply = consumer.send_json.await_args.args[0]
+        self.assertTrue(reply["full"])
+        fresh = Doc()
+        fresh.apply_update(base64.b64decode(reply["update"]))
+        self.assertEqual(str(fresh.get(self.field, type=Text)), "Draft")
+        self.assertEqual(Client(self.room).text(self.field), "Draft")
+
+    def test_an_update_from_an_earlier_build_is_refused(self):
+        page = self._page_after_the_document_was_lost()
+        consumer = _consumer(self.student, self.room)
+        Client(self.room)
+
+        async_to_sync(consumer.receive_json)({
+            "type": "doc-update", "update": _b64(page.type(self.field, 10, "!")), "generation": page.generation(),
+        })
+
+        consumer.send_json.assert_awaited_with({"type": "doc-reject"})
+        self.assertEqual(Client(self.room).text(self.field), "Draft")
+
+    def test_a_page_of_the_current_build_syncs_as_usual(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        consumer = _consumer(self.student, self.room)
+        local = page.type(self.field, 5, "!")
+
+        async_to_sync(consumer.receive_json)({
+            "type": "doc-sync", "vector": _b64(page.doc.get_state()), "update": _b64(local), "generation": page.generation(),
+        })
+
+        self.assertFalse(consumer.send_json.await_args.args[0]["full"])
+        self.assertEqual(Client(self.room).text(self.field), "Draft!")
+
+    def test_an_edit_cannot_change_the_label(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        before = page.doc.get_state()
+        page.doc.get(coedit.GENERATION_ROOT, type=Map)[coedit.GENERATION_KEY] = "forged"
+
+        self.assertFalse(coedit.apply(self.student, self.room, page.doc.get_update(before)))
+        self.assertNotEqual(Client(self.room).generation(), "forged")
+
+    def test_a_malformed_label_is_refused(self):
+        self._entry_with("Draft")
+        consumer = _consumer(self.student, self.room)
+
+        async_to_sync(consumer.receive_json)({"type": "doc-sync", "vector": "", "update": "", "generation": ["x"]})
+
+        consumer.send_json.assert_awaited_with({"type": "doc-reject"})
 
 
 class RejectedRequestTests(CoeditTestCase):

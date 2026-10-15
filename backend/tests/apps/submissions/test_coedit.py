@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from asgiref.sync import async_to_sync
 from django.test import override_settings
 from django.utils import timezone
-from pycrdt import Doc, Text
+from pycrdt import Doc, Map, Text
 
 from apps.live import consumers
 from apps.live.consumers import LiveRoomConsumer
@@ -29,6 +29,9 @@ class Client:
 
     def text(self, field: str) -> str:
         return str(self.doc.get(field, type=Text))
+
+    def generation(self) -> str:
+        return self.doc.get(coedit.GENERATION_ROOT, type=Map).get(coedit.GENERATION_KEY)
 
     def type(self, field: str, at: int, value: str) -> bytes:
         before = self.doc.get_state()

@@ -76,13 +76,24 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
     const updates = pending
     pending = []
     if (!updates.length || !synced.value) return
-    channel.sendDoc({ type: 'doc-update', update: toBase64(Y.mergeUpdates(updates)) })
+    channel.sendDoc({ type: 'doc-update', update: toBase64(Y.mergeUpdates(updates)), generation: generation() })
+  }
+
+  /** Which build of the server's document this copy came from; the server never merges another build's. */
+  function generation(): string | null {
+    const value = doc.value.getMap('meta').get('generation')
+    return typeof value === 'string' ? value : null
   }
 
   function sync() {
     if (!enabled.value) return
     synced.value = false
-    channel.sendDoc({ type: 'doc-sync', vector: toBase64(Y.encodeStateVector(doc.value)), update: '' })
+    channel.sendDoc({
+      type: 'doc-sync',
+      vector: toBase64(Y.encodeStateVector(doc.value)),
+      update: '',
+      generation: generation()
+    })
   }
 
   /** Drops this copy and starts again from the server's, e.g. once the server rebuilt its document. */
@@ -107,7 +118,8 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
       channel.sendDoc({
         type: 'doc-sync',
         vector: toBase64(Y.encodeStateVector(doc.value)),
-        update: toBase64(Y.encodeStateAsUpdate(doc.value))
+        update: toBase64(Y.encodeStateAsUpdate(doc.value)),
+        generation: generation()
       })
     }, delay)
   }
@@ -139,7 +151,7 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
         restart()
         return
       }
-      channel.sendDoc({ type: 'doc-update', update: toBase64(missing) })
+      channel.sendDoc({ type: 'doc-update', update: toBase64(missing), generation: generation() })
     }
     recoverAttempts = 0
     synced.value = true
