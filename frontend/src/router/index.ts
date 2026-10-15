@@ -72,6 +72,7 @@ const router = createRouter({
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
 import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
+import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 router.beforeEach((to, from, next) => {
 
@@ -81,6 +82,7 @@ router.beforeEach((to, from, next) => {
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
   const requiresAdmin = to.meta.requiresAdmin === true
+  const supervisorRegistrationAccess = resolveSupervisorRegistrationRouteAccess(to, auth)
 
   if (to.meta.public === true) {
     // Open to anyone, signed in or not, and never redirected away.
@@ -103,6 +105,9 @@ router.beforeEach((to, from, next) => {
   } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
+
+  } else if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {

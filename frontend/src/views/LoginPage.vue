@@ -84,6 +84,7 @@
         </div>
 
         <div class="legacy-links">
+          <RouterLink class="legacy-website-button" to="/register">Register now</RouterLink>
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -432,7 +433,7 @@
   Imports and external modules.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'

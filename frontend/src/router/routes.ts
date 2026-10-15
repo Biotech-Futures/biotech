@@ -59,6 +59,8 @@ import { useGroupsStore } from '@/stores/groups';
 import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
 import { loadSupervisorResults } from '@/composables/useSupervisorResults';
+import { publicRegistrationRoute } from './publicRegistrationRoute';
+import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
@@ -97,6 +99,8 @@ const routes: RouteRecordRaw[] = [
 
   { path: '/', redirect: '/login' },
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
+  publicRegistrationRoute,
+  supervisorRegistrationRoute,
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/reset-password', redirect: (to) => ({ path: '/auth/reset-password', query: to.query }) },

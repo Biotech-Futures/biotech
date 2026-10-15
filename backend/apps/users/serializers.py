@@ -24,6 +24,48 @@ from zoneinfo import available_timezones
 # Their guardian can be added later. A student registering individually, or a
 # form that doesn't say who filled it in, has to name one.
 _GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher"}
+REGISTRATION_OVERRIDES = {"ConfirmSchoolOverride", "ConfirmNameEmailOverride"}
+
+
+class StrictBooleanField(serializers.BooleanField):
+    def to_internal_value(self, data):
+        if type(data) is not bool:
+            self.fail("invalid", input=data)
+        return data
+
+
+def _edit_distance(a, b):
+    if len(a) < len(b):
+        a, b = b, a
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        current = [i + 1]
+        for j, cb in enumerate(b):
+            current.append(min(current[j] + 1, previous[j + 1] + 1, previous[j] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+def registration_warnings(data):
+    warnings = []
+    school = data.get("SchoolName", "").strip().lower()
+    if ("university" in school or KnownUniversity.matches(school)) and not data.get("ConfirmSchoolOverride"):
+        warnings.append({
+            "code": "university_school",
+            "field": "SchoolName",
+            "override_field": "ConfirmSchoolOverride",
+            "message": "This looks like a university, not a school. Please confirm if this is correct.",
+        })
+    name = (data.get("FirstName", "").strip() + data.get("Surname", "").strip()).lower().replace(" ", "")
+    local = data.get("Title", "").strip().lower().split("@")[0].replace(".", "").replace("_", "")
+    if 1 <= _edit_distance(name, local) <= 2 and not data.get("ConfirmNameEmailOverride"):
+        warnings.append({
+            "code": "name_email_mismatch",
+            "field": "Title",
+            "override_field": "ConfirmNameEmailOverride",
+            "message": "This email looks like it might have a typo compared to the student's name. Please confirm.",
+        })
+    return warnings
 
 
 def _has_role(user, profile_model, role_name) -> bool:
@@ -37,26 +79,32 @@ def _has_role(user, profile_model, role_name) -> bool:
 
 # Validate body payload
 class UserRegisterBodySerializer(serializers.Serializer):
-    Title = serializers.EmailField() ##"Title" as a field name (usually meaning Mr/Mrs/Dr, or a job title) being validated as an email looks like a real bug or a mislabeled field, not something you're missing.
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.context.get("allow_partial_student"):
+            for field in ("Country", "SchoolName", "YearLevel", "Areaofinterest"):
+                self.fields[field].allow_blank = True
+
+    Title = serializers.EmailField(max_length=254)
     FirstName = serializers.CharField(max_length=255)
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
     Region = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    SupervisorEmail = serializers.EmailField()
+    SupervisorEmail = serializers.EmailField(max_length=254)
     SupervisorFirstName = serializers.CharField(max_length=255)
     SupervisorSurname = serializers.CharField(max_length=255)
     # Required unless a peer or supervisor is registering the student; see validate().
-    GuardianEmail = serializers.EmailField(required=False, allow_blank=True)
+    GuardianEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
     GuardianSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     SchoolName = serializers.CharField(max_length=255)
-    YearLevel = serializers.CharField(max_length=255)
+    YearLevel = serializers.ChoiceField(choices=["9", "10", "11", "12"])
     Areaofinterest = serializers.CharField(max_length=255)
     # Who filled the form in: "Self", "Peer" or "Supervisor". A supervisor's
     # registration locks the student's own details; missing leaves them editable.
     RegisteredBy = serializers.CharField(max_length=32, required=False, allow_blank=True)
-    ConfirmSchoolOverride = serializers.BooleanField(required=False, default=False)
-    ConfirmNameEmailOverride = serializers.BooleanField(required=False, default=False)
+    ConfirmSchoolOverride = StrictBooleanField(required=False, default=False)
+    ConfirmNameEmailOverride = StrictBooleanField(required=False, default=False)
 
     def validate_Title(self, value):
         # `Title` is the student's own email (mislabeled field name; confirmed
@@ -131,56 +179,24 @@ class UserRegisterBodySerializer(serializers.Serializer):
             guardian_first and guardian_last
             and student_first == guardian_first and student_last == guardian_last
         ):
+            message = "The guardian cannot be the same person as the student."
             raise serializers.ValidationError(
-                "The guardian cannot be the same person as the student."
+                {"GuardianEmail": message} if self.context.get("canonical_registration_fields") else message
             )
 
         # Supervisor can't be the same person as the student
         if student_email == supervisor_email or (
             student_first == supervisor_first and student_last == supervisor_last
         ):
+            message = "The supervisor cannot be the same person as the student."
             raise serializers.ValidationError(
-                "The supervisor cannot be the same person as the student."
+                {"SupervisorEmail": message} if self.context.get("canonical_registration_fields") else message
             )
 
-        # School name check: soft warning, bypassable.
-        # Simple checks per the client: the word "university" anywhere in the
-        # name, or the whole name being on the list admins keep of known
-        # universities (e.g. "USYD").
-        school_name = data.get("SchoolName", "").strip().lower()
-        looks_like_university = "university" in school_name or KnownUniversity.matches(school_name)
-        if looks_like_university and not data.get("ConfirmSchoolOverride"):
-            raise serializers.ValidationError(
-                "This looks like a university, not a school. Please confirm "
-                "if this is correct, or check ConfirmSchoolOverride to proceed."
-            )
-
-        # Name/email consistency check: soft warning, bypassable.
-        # Edit distance of 1-2 means a likely typo (e.g. "wiliam.nixon" for
-        # William Nixon). Exact matches and totally different emails pass.
-        def _edit_distance(a, b):
-            if len(a) < len(b):
-                a, b = b, a
-            previous_row = list(range(len(b) + 1))
-            for i, ca in enumerate(a):
-                current_row = [i + 1]
-                for j, cb in enumerate(b):
-                    insertions = previous_row[j + 1] + 1
-                    deletions = current_row[j] + 1
-                    substitutions = previous_row[j] + (ca != cb)
-                    current_row.append(min(insertions, deletions, substitutions))
-                previous_row = current_row
-            return previous_row[-1]
-
-        student_name_compact = (student_first + student_last).replace(" ", "")
-        email_local_part = student_email.split("@")[0].replace(".", "").replace("_", "")
-        distance = _edit_distance(student_name_compact, email_local_part)
-        if 1 <= distance <= 2 and not data.get("ConfirmNameEmailOverride"):
-            raise serializers.ValidationError(
-                "This email looks like it might have a typo compared to the "
-                "student's name. Please confirm if this is correct, or check "
-                "ConfirmNameEmailOverride to proceed."
-            )
+        if not self.context.get("defer_warnings"):
+            warnings = registration_warnings(data)
+            if warnings:
+                raise serializers.ValidationError(warnings[0]["message"])
 
         return data
 
@@ -305,9 +321,11 @@ class UserSerializer(serializers.ModelSerializer):
             "details_locked",
             "must_change_password",
             "timezone",
+            "pronouns",
         ]
         read_only_fields = [
             "id",
+            "pronouns",
             "interests",
             "supervisor_name",
             "supervisor_email",
