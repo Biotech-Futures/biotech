@@ -1,4 +1,6 @@
 """Tests for admin mentor match service."""
+from unittest import mock
+
 from django.test import TestCase
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
@@ -165,6 +167,110 @@ class MentorMatchServiceTests(TestCase):
         self.assertEqual(result, {"replaced": 1})
         self.assertTrue(
             GroupMembership.objects.filter(group=self.group, user=new_mentor, left_at__isnull=True).exists()
+        )
+
+    def _replacement_setup(self):
+        """A group with a sitting mentor and a free mentor to swap in."""
+        incoming = User.objects.create_user(
+            email="incoming@example.com", first_name="Ivy", last_name="Incoming",
+            state=self.state, password="testpass", is_active=True,
+        )
+        MentorProfile.objects.create(
+            user=incoming, institution="UAT", mentor_reason="Volunteer", max_group_count=3,
+        )
+        membership = GroupMembership.objects.create(
+            user=self.mentor, group=self.group,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        return membership, incoming
+
+    def test_replace_mentor_emails_both_sides_by_default(self):
+        """MR2: the admin opts out of telling a mentor, never in."""
+        membership, incoming = self._replacement_setup()
+
+        with mock.patch("apps.admin.services.mentor_match.send_system_email") as send:
+            replace_mentor({
+                "membershipId": membership.id,
+                "groupId": self.group.id,
+                "newMentorUserId": incoming.id,
+            })
+
+        sent = {call.args[0]: call.args[1] for call in send.call_args_list}
+        self.assertCountEqual(sent, ["mentor_unassigned", "mentor_assigned"])
+        self.assertEqual(sent["mentor_unassigned"], [self.mentor.email])
+        self.assertEqual(sent["mentor_assigned"], [incoming.email])
+
+    def test_replace_mentor_skips_the_email_the_admin_unticked(self):
+        membership, incoming = self._replacement_setup()
+
+        with mock.patch("apps.admin.services.mentor_match.send_system_email") as send:
+            replace_mentor({
+                "membershipId": membership.id,
+                "groupId": self.group.id,
+                "newMentorUserId": incoming.id,
+                "notifyDeparting": False,
+            })
+
+        self.assertEqual([call.args[0] for call in send.call_args_list], ["mentor_assigned"])
+
+    def test_re_picking_the_sitting_mentor_emails_nobody(self):
+        """Choosing the mentor already on the group is a no-op from their side,
+        so telling them they were removed and re-added would be nonsense."""
+        membership, _ = self._replacement_setup()
+
+        with mock.patch("apps.admin.services.mentor_match.send_system_email") as send:
+            replace_mentor({
+                "membershipId": membership.id,
+                "groupId": self.group.id,
+                "newMentorUserId": self.mentor.id,
+            })
+
+        send.assert_not_called()
+
+    def test_bulk_confirm_skips_groups_whose_mentor_did_not_change(self):
+        membership, incoming = self._replacement_setup()
+        other_group = Groups.objects.create(group_name="Group Two")
+        GroupMembership.objects.create(
+            user=self.mentor, group=other_group,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+
+        with mock.patch("apps.admin.services.mentor_match.send_system_email") as send:
+            confirm_mentor_assignments({
+                "assignments": [
+                    # unchanged: the sitting mentor re-picked
+                    {"groupId": self.group.id, "mentorUserId": self.mentor.id},
+                    # a real change
+                    {"groupId": other_group.id, "mentorUserId": incoming.id},
+                ],
+            })
+
+        groups_emailed = {
+            call.args[2]["GROUP_NAME"] for call in send.call_args_list
+        }
+        self.assertNotIn(self.group.group_name, groups_emailed)
+        self.assertIn(other_group.group_name, groups_emailed)
+
+    def test_a_failed_notification_does_not_undo_the_replacement(self):
+        """The membership change is already confirmed, so a bounced email must
+        not roll it back or surface to the admin as a failed action."""
+        membership, incoming = self._replacement_setup()
+
+        with mock.patch(
+            "apps.admin.services.mentor_match.send_system_email",
+            side_effect=Exception("smtp down"),
+        ):
+            result = replace_mentor({
+                "membershipId": membership.id,
+                "groupId": self.group.id,
+                "newMentorUserId": incoming.id,
+            })
+
+        self.assertEqual(result, {"replaced": 1})
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=self.group, user=incoming, left_at__isnull=True,
+            ).exists()
         )
 
     def test_replace_mentor_raises_for_non_mentor(self):

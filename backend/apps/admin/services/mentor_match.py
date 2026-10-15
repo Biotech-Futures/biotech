@@ -1,3 +1,4 @@
+import logging
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
@@ -6,13 +7,18 @@ from django.utils import timezone
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
+from apps.chat.models import Messages
 from apps.groups.models import Groups, GroupMembership
 from apps.users.models import User, MentorProfile, StudentProfile
 from apps.users.models import UserInterest, AreasOfInterest
+from apps.services.system_email import send_system_email
 from apps.matching_runtime.models import MatchRun
 from apps.common.tz import utc_offset_hours
 from apps.admin.algorithms.mentor import match_mentors, score_mentor_for_group
 from apps.admin.services.mentor import get_mentor_list
+
+
+logger = logging.getLogger(__name__)
 
 
 def unmatched_groups_qs():
@@ -455,6 +461,19 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
 
     group_ids = [r['group_id'] for r in rows]
 
+    # Last message per mentor, so the caller can tell a mentor who has gone
+    # quiet (idle) from one whose account was deactivated. Same aggregation the
+    # Mentors page uses - see apps.admin.services.mentor.
+    last_message_by_mentor = {
+        row['sender_user_id']: row['last_message_at']
+        for row in (
+            Messages.objects
+            .filter(deleted_at__isnull=True, sender_user_id__in=[r['mentor_id'] for r in rows])
+            .values('sender_user_id')
+            .annotate(last_message_at=Max('sent_at'))
+        )
+    }
+
     # Student names per group
     student_name_rows = (
         GroupMembership.objects
@@ -524,6 +543,11 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
                 'mentorId': r['mentor_id'],
                 'name': f"{r['mentor_first_name']} {r['mentor_last_name']}".strip(),
                 'isActive': r['is_active'],
+                'lastMessageAt': (
+                    last_message_by_mentor[r['mentor_id']].isoformat()
+                    if last_message_by_mentor.get(r['mentor_id'])
+                    else None
+                ),
                 'countryName': r['mentor_country_name'],
                 'institution': r['institution'],
             },
@@ -532,12 +556,38 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
     return result
 
 
-def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
+def _notify_mentor_change(email_key, user_id, group_name, initiated_by=None):
+    """Tell one mentor that a group moved to or away from them.
+
+    Best effort on purpose: a bounced notification must not undo a membership
+    change the admin already confirmed, so a failure is swallowed here and
+    surfaces through the system-email log like every other send.
+    """
+    user = User.objects.filter(id=user_id).only("email", "first_name").first()
+    if not user or not user.email:
+        return
+    try:
+        send_system_email(
+            email_key,
+            [user.email],
+            {
+                "MENTOR_FIRST_NAME": user.first_name or "",
+                "GROUP_NAME": group_name or "",
+            },
+            sent_by=initiated_by,
+        )
+    except Exception:
+        logger.exception("mentor_change_email.failed key=%s user=%s", email_key, user_id)
+
+
+def replace_mentor(input_data: Dict[str, Any], initiated_by=None) -> Dict[str, int]:
     """
     Replace a mentor in a group with a new one.
 
     Args:
-        input_data: Dictionary with membershipId, groupId, and newMentorUserId
+        input_data: Dictionary with membershipId, groupId, and newMentorUserId.
+            ``notifyDeparting`` / ``notifyIncoming`` control the two emails and
+            default to True - the admin opts out, not in.
 
     Returns:
         Dictionary with 'replaced' count
@@ -572,6 +622,14 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
             ),
         })
 
+    # Who is leaving, read before the row is closed.
+    departing_id = (
+        GroupMembership.objects
+        .filter(id=input_data['membershipId'], group_id=group_id, left_at__isnull=True)
+        .values_list('user_id', flat=True)
+        .first()
+    )
+
     # Mark old mentor as left
     GroupMembership.objects.filter(
         id=input_data['membershipId'],
@@ -587,15 +645,28 @@ def replace_mentor(input_data: Dict[str, Any]) -> Dict[str, int]:
         joined_at=timezone.now(),
     )
 
+    group_name = (
+        Groups.objects.filter(id=group_id).values_list('group_name', flat=True).first()
+    )
+    # Re-picking the mentor already on the group is a no-op from their side, so
+    # telling them they have been removed and re-added would be nonsense.
+    unchanged = departing_id == new_mentor_id
+    if departing_id and not unchanged and input_data.get('notifyDeparting', True):
+        _notify_mentor_change('mentor_unassigned', departing_id, group_name, initiated_by)
+    if not unchanged and input_data.get('notifyIncoming', True):
+        _notify_mentor_change('mentor_assigned', new_mentor_id, group_name, initiated_by)
+
     return {'replaced': 1}
 
 
-def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
+def confirm_mentor_assignments(input_data: Dict[str, Any], initiated_by=None) -> Dict[str, int]:
     """
     Confirm and finalize mentor assignments to groups.
 
     Args:
-        input_data: Dictionary with 'assignments' list containing group-mentor mappings
+        input_data: Dictionary with 'assignments' list containing group-mentor
+            mappings. ``notifyDeparting`` / ``notifyIncoming`` cover the whole
+            batch and default to True.
 
     Returns:
         Dictionary with 'confirmedCount' of assignments
@@ -677,9 +748,10 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
             left_at__isnull=True,
             user__mentorprofile__isnull=False
         )
-        .values('id')
+        .values('id', 'user_id', 'group_id')
     )
-    
+    departing = [(r['user_id'], r['group_id']) for r in existing_mentor_rows]
+
     if existing_mentor_rows:
         GroupMembership.objects.filter(
             id__in=[r['id'] for r in existing_mentor_rows]
@@ -699,15 +771,47 @@ def confirm_mentor_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
     
     GroupMembership.objects.bulk_create(memberships)
 
+    names = dict(
+        Groups.objects.filter(id__in=group_ids).values_list('id', 'group_name')
+    )
+    # Groups whose mentor did not actually change: picking the sitting mentor
+    # again is a no-op, so neither side hears about it.
+    incoming_by_group = {a['group_id']: a['mentor_user_id'] for a in assignments}
+    unchanged_groups = {
+        group_id
+        for user_id, group_id in departing
+        if incoming_by_group.get(group_id) == user_id
+    }
+
+    if input_data.get('notifyDeparting', True):
+        for user_id, group_id in departing:
+            if group_id in unchanged_groups:
+                continue
+            _notify_mentor_change(
+                'mentor_unassigned', user_id, names.get(group_id), initiated_by,
+            )
+    if input_data.get('notifyIncoming', True):
+        for a in assignments:
+            if a['group_id'] in unchanged_groups:
+                continue
+            _notify_mentor_change(
+                'mentor_assigned', a['mentor_user_id'],
+                names.get(a['group_id']), initiated_by,
+            )
+
     return {'confirmedCount': len(assignments)}
 
 
-def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:
+def unassign_mentors(
+    group_ids: List[int], notify_departing: bool = True, initiated_by=None,
+) -> Dict[str, int]:
     """
     Remove mentor assignments from groups.
 
     Args:
         group_ids: List of group IDs to unassign mentors from
+        notify_departing: Tell each removed mentor they are no longer on the
+            group. Nobody is arriving, so there is no incoming side here.
 
     Returns:
         Dictionary with 'unassignedCount' of removed assignments
@@ -719,7 +823,7 @@ def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:
             left_at__isnull=True,
             user__mentorprofile__isnull=False
         )
-        .values('id')
+        .values('id', 'user_id', 'group_id')
     )
 
     if not mentor_rows:
@@ -728,5 +832,15 @@ def unassign_mentors(group_ids: List[int]) -> Dict[str, int]:
     count = GroupMembership.objects.filter(
         id__in=[r['id'] for r in mentor_rows]
     ).update(left_at=timezone.now())
+
+    if notify_departing:
+        names = dict(
+            Groups.objects.filter(id__in=group_ids).values_list('id', 'group_name')
+        )
+        for row in mentor_rows:
+            _notify_mentor_change(
+                'mentor_unassigned', row['user_id'],
+                names.get(row['group_id']), initiated_by,
+            )
 
     return {'unassignedCount': count}

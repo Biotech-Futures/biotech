@@ -1213,7 +1213,7 @@ class MentorMatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_mentor_assignments(request.data)
+        result = confirm_mentor_assignments(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor assignments confirmed successfully", "data": result})
 
 
@@ -1222,7 +1222,7 @@ class MentorMatchReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = replace_mentor(request.data)
+        result = replace_mentor(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor replaced successfully", "data": result})
 
 
@@ -1256,7 +1256,11 @@ class MentorMatchUnassignView(APIView):
 
     def post(self, request):
         group_ids = request.data.get("groupIds", [])
-        result = unassign_mentors(group_ids)
+        result = unassign_mentors(
+            group_ids,
+            notify_departing=request.data.get('notifyDeparting', True),
+            initiated_by=request.user,
+        )
         return Response({"msg": "Mentors unassigned successfully", "data": result})
 
 
