@@ -92,6 +92,8 @@ function emptyGroupActivity(): GroupActivityResponse {
     mentor_count: 0,
     student_count: 0,
     students_per_mentor: null,
+    average_group_size_by_year: [],
+    group_summary_by_year: [],
     query_range: { start: null, end: null },
   }
 }
@@ -257,6 +259,45 @@ function percent(value: number, total: number) {
 
 function registrationDate(user: AdminUser) {
   return safeDate(user.createdAt ?? user.invitedAt ?? user.activatedAt)
+}
+
+export type ParticipantYearCounts = {
+  total: number
+  students: number
+  mentors: number
+  supervisors: number
+}
+
+function participantCounts(users: AdminUser[]): ParticipantYearCounts {
+  const rows = roleUsers(users)
+  return {
+    total: rows.length,
+    students: rows.filter((user) => roleTitle(user.role) === 'Student').length,
+    mentors: rows.filter((user) => roleTitle(user.role) === 'Mentor').length,
+    supervisors: rows.filter((user) => roleTitle(user.role) === 'Supervisor').length,
+  }
+}
+
+export function participantYearComparison(users: AdminUser[], year: number) {
+  const currentRows = roleUsers(users)
+  const previousRows = currentRows.filter((user) => {
+    const joined = registrationDate(user)
+    return joined !== null && joined.getUTCFullYear() <= year - 1
+  })
+  return {
+    year,
+    previousYear: year - 1,
+    current: participantCounts(currentRows),
+    previous: participantCounts(previousRows),
+  }
+}
+
+export function groupYearComparison(groups: AdminGroup[], year: number) {
+  const previous = groups.filter((group) => {
+    const created = safeDate(group.createdAt)
+    return created !== null && created.getUTCFullYear() <= year - 1
+  }).length
+  return { year, previousYear: year - 1, current: groups.length, previous }
 }
 
 function monthlyCumulative(users: AdminUser[], role: ActivityRole, year: number) {
@@ -556,6 +597,11 @@ export function buildGroupsAnalytics(
   const sizes = groups.map((group) => group.members.filter((member) => member.role.toLowerCase() === 'student').length)
   const withMentor = groups.filter((group) => groupMentors(group).length > 0).length
   const totalStudents = sizes.reduce((sum, value) => sum + value, 0)
+  const averageGroupSize = groups.length ? Number((totalStudents / groups.length).toFixed(1)) : 0
+  const previousAverageGroupSize = bundle.groupActivity.average_group_size_by_year
+    ?.find((row) => row.year === activityYear - 1)?.average_group_size ?? null
+  const previousGroupSummary = bundle.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === activityYear - 1)
   const buckets = ['0', '1–2', '3–4', '5–6', '7–8', '9–10', '11–12', '13–14', '15+']
   const groupSizeDistribution = buckets.map((label) => ({ label, value: 0 }))
   for (const size of sizes) {
@@ -590,11 +636,19 @@ export function buildGroupsAnalytics(
   return {
     totalGroups: groups.length,
     groupGrowth: null,
-    averageGroupSize: groups.length ? Number((totalStudents / groups.length).toFixed(1)) : 0,
-    avgSizeChange: null,
+    averageGroupSize,
+    averageGroupSizePrevious: previousAverageGroupSize,
+    averageGroupSizePreviousYear: activityYear - 1,
+    avgSizeChange: previousAverageGroupSize && previousAverageGroupSize > 0
+      ? Number((((averageGroupSize - previousAverageGroupSize) / previousAverageGroupSize) * 100).toFixed(1))
+      : null,
     groupsWithMentor: withMentor,
     groupsWithoutMentor: groups.length - withMentor,
     mentorStudentRatio: bundle.groupActivity.students_per_mentor,
+    comparisonPreviousYear: activityYear - 1,
+    groupsWithMentorPrevious: previousGroupSummary?.groups_with_mentor ?? null,
+    groupsWithoutMentorPrevious: previousGroupSummary?.groups_without_mentor ?? null,
+    mentorStudentRatioPrevious: previousGroupSummary?.students_per_mentor ?? null,
     smallGroups: sizes.filter((size) => size < 3).length,
     inactiveRecent: inactive + notStarted,
     nearCapacity: sizes.filter((size) => size >= 10).length,
@@ -604,7 +658,16 @@ export function buildGroupsAnalytics(
       { label: 'Inactive', value: inactive, color: BTF_COLORS.mintGreen },
       { label: 'Not started', value: notStarted, color: BTF_COLORS.lightGreen },
     ],
-    ratioDistribution: [...ratioMap.entries()].map(([label, value]) => ({ label, value })),
+    ratioDistribution: [...ratioMap.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => {
+        if (a.label === 'No mentor') return 1
+        if (b.label === 'No mentor') return -1
+        const ratioValue = (label: string) => label === '1:12+'
+          ? 12
+          : Number(label.slice(2))
+        return ratioValue(b.label) - ratioValue(a.label)
+      }),
     groupActivity: Array.from({ length: 12 }, (_, month) => {
       const activeGroupIds = new Set(
         bundle.groupActivity.messages_by_group_by_day
@@ -1045,7 +1108,7 @@ export function buildOverviewAnalytics(bundle: OverviewAnalyticsBundle): Analyti
         chart: [percent(activeCount, users.length), percent(deactivatedCount, users.length)],
         breakdown: [
           { label: 'Active', value: `${percent(activeCount, users.length)}%`, percent: percent(activeCount, users.length) },
-          { label: 'Deactivated', value: `${percent(deactivatedCount, users.length)}%`, percent: percent(deactivatedCount, users.length) },
+          { label: 'Inactive', value: `${percent(deactivatedCount, users.length)}%`, percent: percent(deactivatedCount, users.length) },
         ],
       },
       {
@@ -1090,7 +1153,7 @@ export function buildOverviewAnalytics(bundle: OverviewAnalyticsBundle): Analyti
       { label: 'Students not assigned to groups', value: unassignedStudents, icon: 'user', tone: 'red' as const, source: 'live-api' as const },
       { label: 'Groups without mentors', value: groups.length - groupsWithMentor, icon: 'users', tone: 'teal' as const, source: 'live-api' as const },
       { label: 'Inactive mentors', value: inactiveMentors, icon: 'mentor', tone: 'purple' as const, source: 'live-api' as const },
-      { label: 'Deactivated accounts', value: deactivatedCount, icon: 'warning', tone: 'blue' as const, source: 'live-api' as const },
+      { label: 'Inactive accounts', value: deactivatedCount, icon: 'warning', tone: 'blue' as const, source: 'live-api' as const },
       { label: 'Missing guardian details', value: missingGuardian, icon: 'users', tone: 'red' as const, source: 'live-api' as const },
       { label: 'Guardian approvals pending', value: pendingGuardian, icon: 'mail-check', tone: 'orange' as const, source: 'live-api' as const },
       ...(emailApproaching

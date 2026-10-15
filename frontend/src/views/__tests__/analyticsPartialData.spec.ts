@@ -15,7 +15,12 @@ vi.mock('@/utils/liveAnalyticsApi', () => ({
   fetchResourceAnalytics: vi.fn(), fetchEmailDeliveryAnalytics: vi.fn(), fetchAllResources: vi.fn(),
 }))
 vi.mock('@/utils/reportExport', () => ({ downloadReportCsv: vi.fn().mockResolvedValue('report.csv') }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: {}, hash: '' }) }))
+const routerPush = vi.hoisted(() => vi.fn())
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string>, hash: '' }))
+vi.mock('vue-router', () => ({
+  useRoute: () => routeState,
+  useRouter: () => ({ push: routerPush }),
+}))
 vi.mock('@/composables/useAnalyticsRefreshState', () => ({ useAnalyticsRefreshState: vi.fn() }))
 
 const student: api.AdminUser = {
@@ -41,11 +46,22 @@ const activity: api.GroupActivityResponse = {
   messages_by_group_by_day: [{ date: '2026-10-15', group_id: 7, group_name: 'Sample group', message_count: 23 }],
   messages_by_user_by_group_by_day: [{ date: '2026-10-15', user_id: 1, name: 'Sample Student', group_id: 7, group_name: 'Sample group', message_count: 23 }],
   mentor_activity_by_day: [{ mentor_id: 2, date: '2026-10-15', logins: 1, messages: 2 }],
-  mentor_count: 1, student_count: 1, students_per_mentor: 1, query_range: { start: null, end: null },
+  mentor_count: 1, student_count: 1, students_per_mentor: 1,
+  average_group_size_by_year: [
+    { year: 2025, group_count: 3, student_memberships: 12, average_group_size: 4 },
+    { year: 2026, group_count: 1, student_memberships: 1, average_group_size: 1 },
+  ],
+  group_summary_by_year: [
+    { year: 2025, group_count: 3, groups_with_mentor: 2, groups_without_mentor: 1, mentor_count: 2, student_count: 12, students_per_mentor: 6 },
+    { year: 2026, group_count: 1, groups_with_mentor: 1, groups_without_mentor: 0, mentor_count: 1, student_count: 1, students_per_mentor: 1 },
+  ],
+  query_range: { start: null, end: null },
 }
 let wrappers: VueWrapper[] = []
 beforeEach(() => {
   vi.resetAllMocks()
+  routeState.query = {}
+  routeState.hash = ''
   data.clearLiveAnalyticsCache()
   vi.mocked(api.fetchAllUsers).mockResolvedValue(structuredClone(users))
   vi.mocked(api.fetchAllGroups).mockResolvedValue(structuredClone(groups))
@@ -59,7 +75,13 @@ beforeEach(() => {
   vi.mocked(api.fetchLoginActivity).mockResolvedValue({
     by_day: [{ date: '2026-10-15', students: 1, mentors: 1, supervisors: 0, total: 2 }],
     by_year: [{ year: 2026, students: 1, mentors: 1, supervisors: 0, total: 2 }],
-    active_users: { daily: 2, weekly: 2, monthly: 2 }, latest_activity_date: '2026-10-15', query_range: { start: null, end: null },
+    active_users: { daily: 2, weekly: 2, monthly: 2 },
+    active_user_comparison: {
+      daily: { current: 2, previous: 1 },
+      weekly: { current: 2, previous: 1 },
+      monthly: { current: 2, previous: 1 },
+    },
+    latest_activity_date: '2026-10-15', query_range: { start: null, end: null },
   })
   vi.mocked(api.fetchResourceAnalytics).mockResolvedValue({
     total_clicks: 5, unique_users: 2, active_resources: 1,
@@ -104,6 +126,63 @@ async function downloadedCsv(wrapper: VueWrapper) {
 const error = new Error('HTTP 500')
 
 describe('independent analytics sources', () => {
+  it('derives participant and group year comparisons from creation dates', () => {
+    const participantComparison = data.participantYearComparison([
+      student,
+      { ...student, id: 2, role: 'mentor', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
+      { ...student, id: 3, role: 'supervisor', invitedAt: '2024-08-01T00:00:00Z', activatedAt: '2024-08-01T00:00:00Z' },
+    ], 2026)
+    expect(participantComparison.current).toEqual({ total: 3, students: 1, mentors: 1, supervisors: 1 })
+    expect(participantComparison.previous).toEqual({ total: 2, students: 0, mentors: 1, supervisors: 1 })
+
+    const groupComparison = data.groupYearComparison([
+      groups[0]!,
+      { ...groups[0]!, id: '8', createdAt: '2025-01-01T00:00:00Z' },
+    ], 2026)
+    expect(groupComparison).toMatchObject({ current: 2, previous: 1, previousYear: 2025 })
+  })
+
+  it('sorts mentor-to-student ratios numerically and keeps unmentored groups last', () => {
+    const ratioGroups: api.AdminGroup[] = [4, 5, 3, 2, 1].map((studentCount) => ({
+      id: String(studentCount),
+      name: `Ratio ${studentCount}`,
+      members: Array.from({ length: studentCount }, (_, index) => ({
+        id: `${studentCount}-${index}`,
+        name: `Student ${index}`,
+        email: `student-${studentCount}-${index}@example.test`,
+        role: 'student',
+        membershipId: studentCount * 10 + index,
+      })),
+      mentor: { id: 'mentor', name: 'Mentor', email: 'mentor@example.test', role: 'mentor', membershipId: 999 },
+      createdAt: '2026-08-01T00:00:00Z',
+      updatedAt: '2026-10-15T00:00:00Z',
+    }))
+    ratioGroups.push({
+      id: 'none', name: 'No mentor', members: [], mentor: null,
+      createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z',
+    })
+
+    const result = data.buildGroupsAnalytics({
+      users: [], groups: ratioGroups, groupActivity: { ...structuredClone(activity), messages_by_group: [] },
+    })
+
+    expect(result.ratioDistribution.map((item) => item.label)).toEqual([
+      '1:5', '1:4', '1:3', '1:2', '1:1', 'No mentor',
+    ])
+  })
+
+  it('uses timestamp-based membership history for average group size comparison', () => {
+    const result = data.buildGroupsAnalytics({ users, groups, groupActivity: activity }, 2026)
+    expect(result.averageGroupSize).toBe(1)
+    expect(result.averageGroupSizePrevious).toBe(4)
+    expect(result.averageGroupSizePreviousYear).toBe(2025)
+    expect(result.avgSizeChange).toBe(-75)
+    expect(result.groupsWithMentorPrevious).toBe(2)
+    expect(result.groupsWithoutMentorPrevious).toBe(1)
+    expect(result.mentorStudentRatioPrevious).toBe(6)
+    expect(result.comparisonPreviousYear).toBe(2025)
+  })
+
   it('keeps groups, mentors, activity and messages when users fail', async () => {
     vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
     const [g, m, msg, a] = await Promise.all([data.loadGroupsAnalyticsBundle(), data.loadMentorsAnalyticsBundle(), data.loadMessagesAnalyticsBundle(), data.loadActivityAnalyticsBundle()])
@@ -159,6 +238,60 @@ describe('independent analytics sources', () => {
 })
 
 describe('partial analytics pages', () => {
+  it('opens inactive mentors in Activity with visible filters and matching rows', async () => {
+    routeState.query = { role: 'Mentor', status: 'Inactive' }
+    routeState.hash = '#user-activity-details'
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      student,
+      {
+        ...student,
+        id: 2,
+        firstName: 'Inactive',
+        lastName: 'Mentor',
+        role: 'mentor',
+        isActive: false,
+        hasLoggedIn: false,
+        lastLogin: null,
+        accountStatus: 'deactivated',
+        mentorBackground: 'industry',
+      },
+    ])
+
+    const w = await show(ActivityPage)
+    expect(w.get('[aria-label="Filter by user role"]').element).toHaveProperty('value', 'Mentor')
+    expect(w.get('[aria-label="Filter by activity status"]').element).toHaveProperty('value', 'Inactive')
+    expect(w.get('#user-activity-details tbody').text()).toContain('Inactive Mentor')
+    expect(w.find('.activity-issue-context').exists()).toBe(false)
+  })
+
+  it('opens the matching Admin filters from group issue rows', async () => {
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      { ...student, groupId: null, groupName: null },
+      { ...student, id: 2, role: 'mentor', mentorBackground: 'industry' },
+    ])
+    vi.mocked(api.fetchAllGroups).mockResolvedValue([
+      { ...groups[0]!, mentor: null },
+    ])
+
+    const w = await show(GroupsPage)
+    const issueRows = w.findAll('.group-issue-table-row--clickable')
+    expect(issueRows).toHaveLength(2)
+
+    await issueRows[0]!.trigger('click')
+    expect(routerPush).toHaveBeenLastCalledWith({
+      path: '/admin/users',
+      query: { tab: 'students', inGroup: 'no', search: student.email },
+      hash: '#admin-users-table',
+    })
+
+    await issueRows[1]!.trigger('click')
+    expect(routerPush).toHaveBeenLastCalledWith({
+      path: '/admin/groups',
+      query: { mentorStatus: 'unmatched', search: 'Sample group' },
+      hash: '#admin-groups-table',
+    })
+  })
+
   it('shows group structure and unavailable student allocation, then recovers on retry', async () => {
     vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
     const w = await show(GroupsPage)
@@ -211,6 +344,18 @@ describe('partial analytics pages', () => {
     expect(w.text()).toContain('Participant details are unavailable')
     expect(w.text()).not.toContain('0 of 0 current users')
     expect(w.find('[data-testid="analytics-error-state"]').exists()).toBe(false)
+  })
+  it('compares activity windows ending on the selected date with the preceding windows', async () => {
+    const w = await show(ActivityPage)
+    const labels = w.findAll('.analytics-year-change').map((node) => node.attributes('aria-label'))
+
+    expect(labels).toContain('Increased by 100% vs previous day')
+    expect(labels).toContain('Increased by 100% vs previous 7 days')
+    expect(labels).toContain('Increased by 100% vs previous 30 days')
+    expect(w.text()).toContain('Selected day')
+    expect(w.text()).toContain('7 days ending on selected date')
+    expect(w.text()).toContain('30 days ending on selected date')
+    expect(api.fetchLoginActivity).toHaveBeenCalledWith('2026-08-17', '2026-10-15')
   })
   it('keeps resource activity without inventing category or audience metadata', async () => {
     vi.mocked(api.fetchAllResources).mockRejectedValue(error)

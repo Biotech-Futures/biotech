@@ -129,7 +129,7 @@ const widgets = [
   },
   {
     key: 'suspended_or_deactivated_users',
-    label: 'Suspended / Deactivated',
+    label: 'Inactive accounts',
     icon: 'fa-user-xmark',
     color: 'var(--danger)',
     footer: {

@@ -33,9 +33,10 @@
       @retry="refreshAnalytics"
     >
     <section class="kpi-grid">
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-arrow-pointer"></i></div><div><span class="kpi-label">Resource Clicks</span><strong>{{ sourceAvailable('resourceAnalytics') ? data.totalClicks.toLocaleString() : '—' }}</strong><small>Total recorded clicks</small></div></article>
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-users"></i></div><div><span class="kpi-label">Unique Users</span><strong>{{ sourceAvailable('resourceAnalytics') ? data.uniqueUsers : '—' }}</strong><small>Users who accessed resources</small></div></article>
-      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book"></i></div><div><span class="kpi-label">Active Resources</span><strong>{{ sourceAvailable('resourceAnalytics') ? data.activeResources : '—' }}</strong><small>Resources with recorded access</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-arrow-pointer"></i></div><div><span class="kpi-label">Resource Clicks</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.totalClicks : '—'" /></strong><small>Total recorded clicks</small></div></article>
+      <article v-if="sourceAvailable('resourceAnalytics')" class="kpi-card"><div class="kpi-icon"><i class="fas fa-chart-line"></i></div><div><span class="kpi-label">Clicks</span><div class="analytics-value-row"><strong><AnalyticsNumber :value="resourceYearComparison.current" /></strong><AnalyticsYearChange :current="resourceYearComparison.current" :previous="resourceYearComparison.previous" :label="`vs ${resourceYearComparison.previousYear}`" /></div><small>Recorded clicks during the year</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-users"></i></div><div><span class="kpi-label">Unique Users</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.uniqueUsers : '—'" /></strong><small>Users who accessed resources</small></div></article>
+      <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book"></i></div><div><span class="kpi-label">Active Resources</span><strong><AnalyticsNumber :value="sourceAvailable('resourceAnalytics') ? data.activeResources : '—'" /></strong><small>Resources with recorded access</small></div></article>
       <article class="kpi-card"><div class="kpi-icon"><i class="fas fa-book-open"></i></div><div><span class="kpi-label">Most Used Resource</span><strong class="resource-name">{{ data.mostUsedResource }}</strong><small>Highest click count</small></div></article>
     </section>
 
@@ -157,6 +158,8 @@ import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import {
   buildResourcesAnalytics,
@@ -169,6 +172,21 @@ const data = reactive({
   dailyClicks: [] as Array<{ label: string; clicks: number }>,
   resources: [] as Array<{ id: number; name: string; clicks: number; uniqueUsers: number; type: string; roles: Array<'Student' | 'Mentor' | 'Supervisor'> }>,
   byType: [] as Array<{ label: string; value: number; color: string }>,
+})
+const resourceYearComparison = computed(() => {
+  const years = data.dailyClicks
+    .map((point) => Number(point.label.slice(0, 4)))
+    .filter(Number.isFinite)
+  const year = years.length ? Math.max(...years) : new Date().getUTCFullYear()
+  const clicksForYear = (target: number) => data.dailyClicks
+    .filter((point) => Number(point.label.slice(0, 4)) === target)
+    .reduce((sum, point) => sum + point.clicks, 0)
+  return {
+    year,
+    previousYear: year - 1,
+    current: clicksForYear(year),
+    previous: clicksForYear(year - 1),
+  }
 })
 const unavailableSources = ref<AnalyticsSource[]>([])
 const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
@@ -1068,6 +1086,81 @@ tbody tr:hover td {
 .resources-analytics-page .breadcrumb a:hover {
   color: #017151 !important;
   text-decoration: underline !important;
+}
+
+/* The resource summary has five cards; keep them in one fixed desktop row. */
+.resources-analytics-page .kpi-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.resources-analytics-page .kpi-card {
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 14px;
+  gap: 12px;
+}
+
+.resources-analytics-page .kpi-card > div:not(.kpi-icon) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.resources-analytics-page .kpi-card > div:not(.kpi-icon) > strong:not(.resource-name) {
+  width: 100%;
+  text-align: center;
+}
+
+.resources-analytics-page .kpi-card .analytics-value-row {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Use identical title/value/helper tracks across every resource KPI, including
+   the longer resource-name card. */
+.resources-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) {
+  display: grid !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  align-self: stretch;
+  grid-template-rows: 34px auto 34px !important;
+  align-content: center;
+}
+
+.resources-analytics-page .kpi-grid .kpi-card .kpi-label {
+  display: flex !important;
+  grid-row: 1;
+  align-items: flex-start;
+  margin: 0 !important;
+}
+
+.resources-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) > :is(strong, .analytics-value-row) {
+  grid-row: 2;
+  align-self: center;
+}
+
+.resources-analytics-page .kpi-grid .kpi-card > div:not(.kpi-icon) > small {
+  grid-row: 3;
+  align-self: start;
+  margin: 0 !important;
+}
+
+.resources-analytics-page .kpi-card .resource-name {
+  font-size: 14px !important;
+  line-height: 16px !important;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1279px) {
+  .resources-analytics-page .kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .resources-analytics-page .kpi-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 </style>

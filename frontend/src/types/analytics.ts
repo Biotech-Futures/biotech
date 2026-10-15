@@ -76,10 +76,16 @@ export type GroupsAnalyticsYear = {
   totalGroups: number
   groupGrowth: number | null
   averageGroupSize: number
+  averageGroupSizePrevious: number | null
+  averageGroupSizePreviousYear: number
   avgSizeChange: number | null
   groupsWithMentor: number
   groupsWithoutMentor: number
   mentorStudentRatio: number | null
+  comparisonPreviousYear: number
+  groupsWithMentorPrevious: number | null
+  groupsWithoutMentorPrevious: number | null
+  mentorStudentRatioPrevious: number | null
   smallGroups: number
   inactiveRecent: number
   nearCapacity: number

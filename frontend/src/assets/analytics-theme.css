@@ -53,6 +53,127 @@
   --analytics-white: var(--btf-white);
 }
 
+/* Keep every analytics KPI on the same three horizontal tracks. The copy
+   column fills all space beside the icon, so centring is relative to the
+   actual available card width rather than only the width of the number. */
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) {
+  display: flex !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  align-self: stretch;
+  flex-direction: column;
+  justify-content: center;
+  row-gap: 0 !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > :is(.kpi-label, span:first-child) {
+  display: flex !important;
+  min-height: 32px;
+  align-items: flex-start;
+  margin: 0 !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > strong:not(.text-value):not(.resource-name) {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 40px;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  text-align: center !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) .analytics-value-row,
+.analytics-page .summary-card .analytics-value-row {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 40px;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > small {
+  display: block !important;
+  min-height: 34px;
+  margin: 0 !important;
+}
+
+/* Mentor utilisation adds a progress bar. Reserve the same slot in every
+   mentor card so its title, value and helper remain level with the others. */
+.mentors-analytics-page .kpi-card .kpi-copy {
+  display: grid !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  align-self: stretch;
+  grid-template-rows: 30px 40px 9px minmax(30px, auto);
+  align-content: center;
+}
+
+.mentors-analytics-page .kpi-card .kpi-label {
+  grid-row: 1;
+  margin: 0 !important;
+}
+
+.mentors-analytics-page .kpi-card .analytics-value-row {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 40px;
+  grid-row: 2;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.mentors-analytics-page .kpi-card .progress-track {
+  grid-row: 3;
+  width: 100%;
+  margin: 0 !important;
+}
+
+.mentors-analytics-page .kpi-card .kpi-copy > small {
+  grid-row: 4;
+  margin: 0 !important;
+}
+
+
 .analytics-refresh-button {
   height: 46px;
   padding: 0 16px;
@@ -1055,4 +1176,15 @@
     flex-basis: 100% !important;
     width: 100% !important;
   }
+}
+.analytics-value-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.analytics-value-row > strong {
+  flex: 0 1 auto;
 }

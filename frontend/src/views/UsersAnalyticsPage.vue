@@ -55,8 +55,9 @@
         <div class="kpi-icon blue"><i class="fas fa-users"></i></div>
         <div>
           <span class="kpi-label">Total Users</span>
-          <div class="kpi-value-row">
-            <strong>{{ data.totalUsers.toLocaleString() }}</strong>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.totalUsers" /></strong>
+            <AnalyticsYearChange :current="yearComparison.current.total" :previous="yearComparison.previous.total" :label="`vs ${yearComparison.previousYear}`" />
           </div>
           <small>Current participants on the platform</small>
         </div>
@@ -66,8 +67,9 @@
         <div class="kpi-icon blue"><i class="fas fa-graduation-cap"></i></div>
         <div>
           <span class="kpi-label">Students</span>
-          <div class="kpi-value-row">
-            <strong>{{ data.students.toLocaleString() }}</strong>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.students" /></strong>
+            <AnalyticsYearChange :current="yearComparison.current.students" :previous="yearComparison.previous.students" :label="`vs ${yearComparison.previousYear}`" />
           </div>
           <small>{{ percentage(data.students, data.totalUsers) }}% of users</small>
         </div>
@@ -77,8 +79,9 @@
         <div class="kpi-icon red"><i class="fas fa-user"></i></div>
         <div>
           <span class="kpi-label">Mentors</span>
-          <div class="kpi-value-row">
-            <strong>{{ data.mentors.toLocaleString() }}</strong>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.mentors" /></strong>
+            <AnalyticsYearChange :current="yearComparison.current.mentors" :previous="yearComparison.previous.mentors" :label="`vs ${yearComparison.previousYear}`" />
           </div>
           <small>{{ percentage(data.mentors, data.totalUsers) }}% of users</small>
         </div>
@@ -88,8 +91,9 @@
         <div class="kpi-icon purple"><i class="fas fa-user-friends"></i></div>
         <div>
           <span class="kpi-label">Supervisors</span>
-          <div class="kpi-value-row">
-            <strong>{{ data.supervisors.toLocaleString() }}</strong>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.supervisors" /></strong>
+            <AnalyticsYearChange :current="yearComparison.current.supervisors" :previous="yearComparison.previous.supervisors" :label="`vs ${yearComparison.previousYear}`" />
           </div>
           <small>{{ percentage(data.supervisors, data.totalUsers) }}% of users</small>
         </div>
@@ -831,6 +835,8 @@ import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, onMounted, ref } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { UserAnalyticsYear } from '@/types/analytics'
 import { downloadReportCsv } from '@/utils/reportExport'
@@ -838,11 +844,13 @@ import {
   buildUsersAnalytics,
   liveAnalyticsAsOf,
   loadUsersAnalyticsBundle,
+  participantYearComparison,
 } from '@/utils/liveAnalyticsData'
 
 const currentYear = ref(new Date().getFullYear())
 const availableYears = ref<number[]>([currentYear.value])
 const selectedYear = ref(currentYear.value)
+const yearComparison = ref(participantYearComparison([], currentYear.value))
 const analyticsAsOf = ref('')
 const isCurrentYear = computed(() => selectedYear.value === currentYear.value)
 const liveData = ref<UserAnalyticsYear>({
@@ -885,6 +893,7 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     const year = new Date().getUTCFullYear()
     analyticsAsOf.value = liveAnalyticsAsOf(bundle)
     currentYear.value = year
+    yearComparison.value = participantYearComparison(bundle.users, year)
     availableYears.value = [year]
     if (!preserveFilters) currentMonthIndex.value = new Date().getUTCMonth()
     if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) {

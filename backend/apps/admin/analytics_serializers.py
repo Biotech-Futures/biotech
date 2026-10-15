@@ -82,6 +82,23 @@ class MentorDailyActivitySerializer(serializers.Serializer):
     logins = serializers.IntegerField(min_value=0)
 
 
+class YearlyAverageGroupSizeSerializer(serializers.Serializer):
+    year = serializers.IntegerField(min_value=1, max_value=9999)
+    group_count = serializers.IntegerField(min_value=0)
+    student_memberships = serializers.IntegerField(min_value=0)
+    average_group_size = serializers.FloatField(min_value=0)
+
+
+class YearlyGroupSummarySerializer(serializers.Serializer):
+    year = serializers.IntegerField(min_value=1, max_value=9999)
+    group_count = serializers.IntegerField(min_value=0)
+    groups_with_mentor = serializers.IntegerField(min_value=0)
+    groups_without_mentor = serializers.IntegerField(min_value=0)
+    mentor_count = serializers.IntegerField(min_value=0)
+    student_count = serializers.IntegerField(min_value=0)
+    students_per_mentor = serializers.FloatField(min_value=0, allow_null=True)
+
+
 class GroupActivityAnalyticsDataSerializer(serializers.Serializer):
     mentor_activity_by_day = MentorDailyActivitySerializer(many=True)
     messages_by_group = GroupMessageCountSerializer(many=True)
@@ -92,6 +109,8 @@ class GroupActivityAnalyticsDataSerializer(serializers.Serializer):
     mentor_count = serializers.IntegerField(min_value=0)
     student_count = serializers.IntegerField(min_value=0)
     students_per_mentor = serializers.FloatField(allow_null=True)
+    average_group_size_by_year = YearlyAverageGroupSizeSerializer(many=True)
+    group_summary_by_year = YearlyGroupSummarySerializer(many=True)
     query_range = AnalyticsQueryRangeSerializer()
 
 
@@ -121,10 +140,22 @@ class LoginActivityWindowsSerializer(serializers.Serializer):
     monthly = serializers.IntegerField(min_value=0)
 
 
+class LoginActivityPeriodComparisonSerializer(serializers.Serializer):
+    current = serializers.IntegerField(min_value=0)
+    previous = serializers.IntegerField(min_value=0)
+
+
+class LoginActivityWindowComparisonsSerializer(serializers.Serializer):
+    daily = LoginActivityPeriodComparisonSerializer()
+    weekly = LoginActivityPeriodComparisonSerializer()
+    monthly = LoginActivityPeriodComparisonSerializer()
+
+
 class LoginActivityAnalyticsDataSerializer(serializers.Serializer):
     by_day = DailyLoginActivitySerializer(many=True)
     by_year = YearlyLoginActivitySerializer(many=True)
     active_users = LoginActivityWindowsSerializer()
+    active_user_comparison = LoginActivityWindowComparisonsSerializer()
     latest_activity_date = serializers.DateField(allow_null=True)
     query_range = AnalyticsQueryRangeSerializer()
 

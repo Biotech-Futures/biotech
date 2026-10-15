@@ -64,8 +64,9 @@ def get_group_activity_analytics(
 
     Only active groups, active memberships, and non-deleted messages contribute.
     Group and user rows with zero messages remain visible so inactivity is not
-    hidden by the aggregation. Date bounds apply to message counts; membership
-    metrics remain a current active-member snapshot.
+    hidden by the aggregation. Date bounds apply to message counts. Yearly group
+    sizes are reconstructed from group and membership join/leave timestamps, so
+    they do not depend on a separate snapshot table.
     """
 
     messages_in_range = Messages.objects.filter(deleted_at__isnull=True).filter(
@@ -245,6 +246,70 @@ def get_group_activity_analytics(
         .count()
     )
 
+    comparison_year = (end_date or timezone.localdate()).year
+    average_group_size_by_year = []
+    group_summary_by_year = []
+    for year in (comparison_year - 1, comparison_year):
+        period_end = datetime(
+            year,
+            12,
+            31,
+            23,
+            59,
+            59,
+            999999,
+            tzinfo=datetime_timezone.utc,
+        )
+        groups_at_year_end = Groups.objects.filter(created_at__lte=period_end).filter(
+            Q(deleted_at__isnull=True) | Q(deleted_at__gt=period_end)
+        )
+        group_count = groups_at_year_end.count()
+        memberships_at_year_end = GroupMembership.objects.filter(
+            group__in=groups_at_year_end,
+            joined_at__lte=period_end,
+        ).filter(Q(left_at__isnull=True) | Q(left_at__gt=period_end))
+        student_memberships_at_year_end = memberships_at_year_end.filter(
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        )
+        mentor_memberships_at_year_end = memberships_at_year_end.filter(
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        student_memberships = student_memberships_at_year_end.count()
+        historical_student_count = (
+            student_memberships_at_year_end.values("user_id").distinct().count()
+        )
+        historical_mentor_count = (
+            mentor_memberships_at_year_end.values("user_id").distinct().count()
+        )
+        groups_with_mentor = (
+            mentor_memberships_at_year_end.values("group_id").distinct().count()
+        )
+        average_group_size_by_year.append(
+            {
+                "year": year,
+                "group_count": group_count,
+                "student_memberships": student_memberships,
+                "average_group_size": (
+                    round(student_memberships / group_count, 1) if group_count else 0
+                ),
+            }
+        )
+        group_summary_by_year.append(
+            {
+                "year": year,
+                "group_count": group_count,
+                "groups_with_mentor": groups_with_mentor,
+                "groups_without_mentor": max(group_count - groups_with_mentor, 0),
+                "mentor_count": historical_mentor_count,
+                "student_count": historical_student_count,
+                "students_per_mentor": (
+                    round(historical_student_count / historical_mentor_count, 2)
+                    if historical_mentor_count
+                    else None
+                ),
+            }
+        )
+
     return {
         "messages_by_group": messages_by_group,
         "messages_by_user": messages_by_user,
@@ -257,6 +322,8 @@ def get_group_activity_analytics(
         "students_per_mentor": (
             round(student_count / mentor_count, 2) if mentor_count else None
         ),
+        "average_group_size_by_year": average_group_size_by_year,
+        "group_summary_by_year": group_summary_by_year,
         "query_range": {"start": start_date, "end": end_date},
     }
 
@@ -338,29 +405,49 @@ def get_login_activity_analytics(
     ]
 
     latest_activity_date = by_day[-1]["date"] if by_day else None
+    anchor_date = end_date or latest_activity_date
     windows = {"daily": 0, "weekly": 0, "monthly": 0}
-    if latest_activity_date is not None:
-        for key, days in (("daily", 1), ("weekly", 7), ("monthly", 30)):
-            lower = latest_activity_date - timedelta(days=days - 1)
-            active_ids = set(
+    window_comparisons = {
+        "daily": {"current": 0, "previous": 0},
+        "weekly": {"current": 0, "previous": 0},
+        "monthly": {"current": 0, "previous": 0},
+    }
+    if anchor_date is not None:
+        def unique_users_between(lower: date, upper: date) -> int:
+            return (
                 events.filter(
                     created_at__gte=datetime.combine(
                         lower, time.min, tzinfo=datetime_timezone.utc
                     ),
                     created_at__lt=datetime.combine(
-                        latest_activity_date + timedelta(days=1),
+                        upper + timedelta(days=1),
                         time.min,
                         tzinfo=datetime_timezone.utc,
                     ),
                     actor_user_id__in=role_by_user,
-                ).values_list("actor_user_id", flat=True)
+                )
+                .values("actor_user_id")
+                .distinct()
+                .count()
             )
-            windows[key] = len(active_ids)
+
+        for key, days in (("daily", 1), ("weekly", 7), ("monthly", 30)):
+            current_lower = anchor_date - timedelta(days=days - 1)
+            previous_upper = current_lower - timedelta(days=1)
+            previous_lower = previous_upper - timedelta(days=days - 1)
+            current = unique_users_between(current_lower, anchor_date)
+            previous = unique_users_between(previous_lower, previous_upper)
+            windows[key] = current
+            window_comparisons[key] = {
+                "current": current,
+                "previous": previous,
+            }
 
     return {
         "by_day": by_day,
         "by_year": by_year,
         "active_users": windows,
+        "active_user_comparison": window_comparisons,
         "latest_activity_date": latest_activity_date,
         "query_range": {"start": start_date, "end": end_date},
     }
