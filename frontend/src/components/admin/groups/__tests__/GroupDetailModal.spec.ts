@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import GroupDetailModal from '@/components/admin/groups/GroupDetailModal.vue'
+import type { AdminGroupDetail } from '@/utils/adminAPI'
 
-const groupFixture = () => ({
+const groupFixture = (): AdminGroupDetail => ({
   id: 1,
   name: 'BTF1',
   members: [
