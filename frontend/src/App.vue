@@ -511,8 +511,8 @@ const sidebarSections = computed(() => {
       active: false,
       links: [
         { label: 'My Profile', to: '/profile', active: path === '/profile' },
-        { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
         { label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' },
+        { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
         { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
         ...(supervisorResultsShown.value
           ? [{ label: 'Results', to: '/my-results', active: path === '/my-results' }]

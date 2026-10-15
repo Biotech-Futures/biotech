@@ -3,7 +3,8 @@
     class="announcement"
     :class="{
       'announcement--with-media': hasImages,
-      'has-open-menu': isMenuOpen
+      'has-open-menu': isMenuOpen,
+      'announcement--expanded': expanded
     }"
     role="link"
     tabindex="0"
@@ -147,12 +148,26 @@
       </h2>
 
       <div
+        :id="contentId"
+        ref="contentEl"
         class="announcement__content"
+        :class="{
+          'announcement__content--clipped': clipped && !expanded,
+          'announcement__content--open': expanded,
+          'announcement__content--above-expand': expanded && !hasLink,
+          'announcement__content--to-edge': clipped && !expanded && !hasLink
+        }"
       >
         <div class="announcement__rich" v-html="announcement.bodyHtml"></div>
       </div>
 
-      <div class="announcement__footer">
+      <!-- Only for its Open or External link: without one, the text runs to
+           the bottom of the card. -->
+      <div
+        v-if="hasLink"
+        class="announcement__footer"
+        :class="{ 'announcement__footer--beside-expand': clipped || expanded }"
+      >
         <div class="announcement__actions">
           <RouterLink
             v-if="announcement.route"
@@ -170,21 +185,28 @@
           >
             External link
           </a>
-          <RouterLink
-            :to="{ name: 'announcement-detail', params: { id: announcement.id } }"
-            class="btn btn-text btn-sm"
-          >
-            View details
-            <span class="announcement__arrow" aria-hidden="true">&rarr;</span>
-          </RouterLink>
         </div>
       </div>
+      <!-- More than fits: the rest here, and back again. In the card's corner,
+           over the fade, so it takes no room from the text. -->
+      <button
+        v-if="clipped || expanded"
+        type="button"
+        class="announcement__expand"
+        :aria-expanded="expanded"
+        :aria-controls="contentId"
+        :aria-label="expanded ? 'Show less' : 'Show more'"
+        :title="expanded ? 'Show less' : 'Show more'"
+        @click="expanded = !expanded"
+      >
+        <i class="fas" :class="expanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true"></i>
+      </button>
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
 import {
@@ -279,6 +301,33 @@ const openDetailsFromCard = (event: MouseEvent | KeyboardEvent) => {
 const onImageError = (url: string) => {
   emit('image-error', { id: props.announcement.id, url })
 }
+
+// Its text is cut off after a few lines; the chevron shows the rest in the
+// card, when there's more than fits.
+const contentEl = ref<HTMLElement | null>(null)
+const expanded = ref(false)
+const clipped = ref(false)
+const contentId = computed(() => `announcement-content-${props.announcement.id}`)
+// An Open or External link, which the footer is for.
+const hasLink = computed(() => Boolean(props.announcement.route || props.announcement.link))
+
+const measureClipped = () => {
+  const el = contentEl.value
+  if (el && !expanded.value) clipped.value = el.scrollHeight > el.clientHeight + 1
+}
+
+onMounted(() => {
+  void nextTick(measureClipped)
+  window.addEventListener('resize', measureClipped)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', measureClipped))
+watch(
+  () => props.announcement.bodyHtml,
+  () => {
+    expanded.value = false
+    void nextTick(measureClipped)
+  }
+)
 </script>
 
 <style scoped>
@@ -550,18 +599,19 @@ const onImageError = (url: string) => {
   outline: none;
 }
 
+/* As much of the text as the card has room for, down to its bottom edge. */
 .announcement__content {
   position: relative;
   flex: 1;
   min-height: 0;
   color: var(--teal);
   line-height: 1.7;
-  max-height: 6.9em;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
 
-.announcement__content::after {
+/* The fade over the last lines, while more is cut off. */
+.announcement__content--clipped::after {
   content: '';
   position: absolute;
   inset: auto 0 0 0;
@@ -575,6 +625,35 @@ const onImageError = (url: string) => {
 .announcement__content :deep(table),
 .announcement__content :deep(pre) {
   display: none;
+}
+
+/* Expanded: the whole announcement, its images and tables too, and the card
+   as tall as it needs. */
+.announcement--expanded {
+  height: auto;
+  min-height: 300px;
+}
+
+.announcement__content--open {
+  max-height: none;
+}
+
+/* Expanded with no footer: room under the text for the chevron. */
+.announcement__content--above-expand {
+  padding-bottom: 2.5rem;
+}
+
+/* Cut off with no footer: the text runs on into the card's bottom padding,
+   beside the chevron, fading there. */
+.announcement__content--to-edge {
+  margin-bottom: -0.9rem;
+}
+
+.announcement__content--open :deep(img),
+.announcement__content--open :deep(figure),
+.announcement__content--open :deep(table),
+.announcement__content--open :deep(pre) {
+  display: revert;
 }
 
 .announcement__rich :deep(*) {
@@ -701,30 +780,33 @@ const onImageError = (url: string) => {
   align-items: center;
 }
 
-.announcement__arrow {
-  margin-left: 0.25rem;
-  transition: transform 0.2s ease;
-  display: inline-block;
-}
-
-.announcement__actions a:hover .announcement__arrow {
-  transform: translateX(3px);
-}
-
-.btn-text {
-  background: transparent;
-  border: 0;
-  color: var(--dark-green);
-  font-weight: 600;
-  padding: 0.35rem 0.6rem;
+/* The expand/collapse chevron, in the card's bottom-right corner. */
+.announcement__expand {
+  position: absolute;
+  right: 1.75rem;
+  bottom: 1.5rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  text-decoration: none;
-  font-size: 0.9rem;
+  background: var(--white);
+  color: var(--dark-green);
+  cursor: pointer;
   transition: background-color 0.18s ease;
 }
 
-.btn-text:hover,
-.btn-text:focus-visible {
+/* Open or External link left of the chevron, not under it. */
+.announcement__footer--beside-expand {
+  padding-right: 2.75rem;
+}
+
+.announcement__expand:hover,
+.announcement__expand:focus-visible {
   background-color: rgba(1, 113, 81, 0.08);
   outline: none;
 }
