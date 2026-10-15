@@ -76,3 +76,10 @@ STORAGES = {
 }
 # Pinned on, so turning it off in a local .env cannot stop the suite testing it.
 SUBMISSION_POSTER_CHECKS_ENABLED = True
+
+# System Logs keeps nothing unless a test turns it on (tests/apps/system_logs
+# do), and then writes inline, so a test can read the row at once inside its
+# own transaction. Inline rows roll back with the view's transaction, unlike
+# the background writer's; tests of that case switch the writer back on.
+SYSTEM_LOG_DB_ENABLED = False
+SYSTEM_LOG_DISPATCH_SYNC = True
