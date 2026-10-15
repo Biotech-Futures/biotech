@@ -25,11 +25,15 @@ def custom_exception_handler(exc: Exception, context: dict) -> Optional[Response
 def _resolve_request_id(context: dict) -> str:
     request = context.get("request")
     if request is not None:
+        # The id RequestContextMiddleware gave this request (the client's
+        # X-Request-ID, cleaned), so the one in the error response finds its
+        # rows on the System Logs page.
+        stored = getattr(request, "system_log_request_id", None)
+        if isinstance(stored, str) and stored:
+            return stored
         incoming = request.headers.get(REQUEST_ID_HEADER)
         if incoming:
             return incoming
-    # The id RequestContextMiddleware gave this request, so the one in the
-    # error response finds its rows on the System Logs page.
     return current_request_id() or uuid.uuid4().hex[:12]
 
 

@@ -19,14 +19,21 @@ EXTRA_MAX_KEYS = 20
 # (/services/magic/?...) and Azure SAS URLs (?sig=) all carry secrets there.
 # "#" is allowed before the "?": the SPA's links are hash-routed (/#/auth/...).
 _URL_QUERY = re.compile(r"(?P<url>\bhttps?://[^\s?\"'<>]+)\?[^\s\"'<>]*")
+# The password in a connection URL: postgresql://user:pass@host,
+# rediss://:pass@host. The user name is kept.
+_URL_USERINFO = re.compile(r"(?P<scheme>\b[a-zA-Z][a-zA-Z0-9+.-]*://)(?P<user>[^\s:/@]*):[^\s/@]+@")
 # "Bearer abc...", "Token abc..." as in an Authorization header.
 _AUTH_SCHEME = re.compile(r"(?i)\b(?P<scheme>bearer|token|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
-# name=value / name: value pairs whose name says the value is secret.
+# A JSON Web Token on its own: three base64url parts, the first always "eyJ".
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
+# name=value / name: value pairs whose name says the value is secret, also
+# with the name quoted as in a dict or JSON ('password': 'x', "code": "1"),
+# and the keys in Azure connection strings (AccountKey=...;).
 _SECRET_PAIR = re.compile(
-    r"(?i)\b(?P<name>password|passwd|pwd|secret|client_secret|token|access_token|refresh_token"
-    r"|api_key|apikey|secret_key|account_key|access_key|sessionid|session_key|csrftoken|csrfmiddlewaretoken"
-    r"|sid|otp|code|signature|sig|authorization|cookie)"
-    r"(?P<sep>\s*[=:]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s&,;]+)"
+    r"(?i)\b(?P<name>password|passwd|pwd|pass|secret|client_secret|token|access_token|refresh_token"
+    r"|api_key|apikey|secret_key|account_key|accountkey|sharedaccesskey|access_key|sessionid|session_key"
+    r"|csrftoken|csrfmiddlewaretoken|sid|otp|code|signature|sig|authorization|cookie)"
+    r"(?P<quote>[\"']?)(?P<sep>\s*[=:]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s&,;'\"}]+)"
 )
 
 # Extra keys kept as they are, even though a word in them looks sensitive.
@@ -58,16 +65,18 @@ def strip_ansi(text: str) -> str:
 
 
 def scrub_text(text: str) -> str:
-    """``text`` with terminal colour codes removed, URL query strings, auth
-    headers and secret=value pairs replaced, and NUL characters (which
-    PostgreSQL text can't hold) removed."""
+    """``text`` with terminal colour codes removed; passwords in connection
+    URLs, URL query strings, auth headers, JWTs and secret=value pairs
+    replaced; and NUL characters (which PostgreSQL text can't hold) removed."""
     if not text:
         return ""
     # First, so a code next to a secret can't hide it from the patterns below.
     text = strip_ansi(text.replace("\x00", ""))
+    text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}{m.group('user')}:{REDACTED}@", text)
     text = _URL_QUERY.sub(lambda m: f"{m.group('url')}?{REDACTED}", text)
     text = _AUTH_SCHEME.sub(lambda m: f"{m.group('scheme')} {REDACTED}", text)
-    return _SECRET_PAIR.sub(lambda m: f"{m.group('name')}{m.group('sep')}{REDACTED}", text)
+    text = _JWT.sub(REDACTED, text)
+    return _SECRET_PAIR.sub(lambda m: f"{m.group('name')}{m.group('quote')}{m.group('sep')}{REDACTED}", text)
 
 
 def truncate(text: str, limit: int) -> str:

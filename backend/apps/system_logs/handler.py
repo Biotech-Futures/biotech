@@ -217,7 +217,8 @@ class _Writer:
         with self._lock:
             if self.pid == os.getpid():
                 return
-            self.queue = queue.Queue(maxsize=_setting("SYSTEM_LOG_QUEUE_SIZE", 10_000))
+            # At least 1: a Queue of size 0 has no limit at all.
+            self.queue = queue.Queue(maxsize=max(1, int(_setting("SYSTEM_LOG_QUEUE_SIZE", 10_000))))
             thread = threading.Thread(target=self._run, name="system-log-writer", daemon=True)
             self.pid = os.getpid()
             thread.start()
@@ -260,9 +261,10 @@ class _Writer:
     @staticmethod
     def write_batch(batch: list[dict], *, retry: bool = True) -> None:
         """Save ``batch``. A dropped or stale connection is closed and the
-        batch tried once more on a new one; a row the database refuses is
+        batch tried once more on a new one. A missing table (before
+        ``migrate`` has run) drops the batch; a row the database refuses is
         skipped without losing the rest."""
-        from django.db import DatabaseError, InterfaceError, OperationalError, close_old_connections
+        from django.db import DatabaseError, InterfaceError, OperationalError, ProgrammingError, close_old_connections
 
         from .models import SystemLogEntry
 
@@ -277,23 +279,33 @@ class _Writer:
             if not retry:
                 _report(f"lost {len(batch)} log entries: {type(exc).__name__}")
                 return
+        except ProgrammingError as exc:
+            # No table yet, or one that doesn't match: every row would fail
+            # the same way, so they're not tried one by one.
+            _report(f"lost {len(batch)} log entries: {type(exc).__name__} (has migrate run?)")
+            return
         except DatabaseError:
-            _close_connection()
             _Writer._write_one_by_one(batch)
             return
         _Writer.write_batch(batch, retry=False)
 
     @staticmethod
     def _write_one_by_one(batch: list[dict]) -> None:
+        from django.db import InterfaceError, OperationalError
+
         from .models import SystemLogEntry
 
         lost = 0
         for row in batch:
             try:
                 SystemLogEntry.objects.create(**row)
+            except (OperationalError, InterfaceError):
+                lost += 1
+                # Only a broken connection needs a new one; a refused row
+                # leaves it usable (each statement commits on its own).
+                _close_connection()
             except Exception:  # noqa: BLE001
                 lost += 1
-                _close_connection()
         if lost:
             _report(f"lost {lost} log entries the database refused")
 

@@ -3,7 +3,11 @@ import os
 import threading
 from unittest import mock
 
-from django.db import DataError, DatabaseError, OperationalError
+import subprocess
+import sys
+
+from django.conf import settings
+from django.db import DataError, DatabaseError, OperationalError, ProgrammingError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.system_logs import handler as handler_module
@@ -210,6 +214,35 @@ class WriterBatchTests(SimpleTestCase):
         self.assertEqual(bulk.call_count, 2)
         report.assert_called_once()
 
+    def test_a_missing_table_drops_the_batch_with_one_note_and_no_reconnects(self):
+        # As before migrate has run: every row would fail the same way.
+        with mock.patch.object(SystemLogEntry.objects, "bulk_create", side_effect=ProgrammingError("no such table")) as bulk, \
+                mock.patch.object(SystemLogEntry.objects, "create") as create, \
+                mock.patch.object(handler_module, "_report") as report:
+            _Writer.write_batch([_row() for _ in range(100)])
+
+        bulk.assert_called_once()
+        create.assert_not_called()
+        self.close_connection.assert_not_called()
+        report.assert_called_once()
+        self.assertIn("migrate", report.call_args.args[0])
+
+    def test_refused_rows_keep_the_connection_and_a_broken_one_is_replaced(self):
+        outcomes = iter([DataError("too long"), None, OperationalError("gone"), None])
+
+        def create(**row):
+            outcome = next(outcomes)
+            if outcome:
+                raise outcome
+
+        with mock.patch.object(SystemLogEntry.objects, "bulk_create", side_effect=DataError("too long")), \
+                mock.patch.object(SystemLogEntry.objects, "create", side_effect=create), \
+                mock.patch.object(handler_module, "_report"):
+            _Writer.write_batch([_row() for _ in range(4)])
+
+        # Only the OperationalError closes the connection; the DataError doesn't.
+        self.close_connection.assert_called_once()
+
     def test_skips_only_the_rows_the_database_refuses(self):
         saved = []
 
@@ -262,6 +295,16 @@ class WriterThreadTests(SimpleTestCase):
         self.assertIsNot(writer.queue, first_queue)
         self.assertEqual(writer.pid, os.getpid())
 
+    @override_settings(SYSTEM_LOG_QUEUE_SIZE=0)
+    def test_a_queue_size_of_0_still_has_a_limit(self):
+        # queue.Queue(maxsize=0) would have none at all.
+        writer, _, done = self._writer()
+        with mock.patch.object(handler_module, "_close_connection"):
+            writer.submit(_row())
+            done.wait(5)
+
+        self.assertEqual(writer.queue.maxsize, 1)
+
     def test_full_queue_drops_and_counts_instead_of_blocking(self):
         writer = _Writer()
         writer.pid = os.getpid()
@@ -271,3 +314,36 @@ class WriterThreadTests(SimpleTestCase):
         writer.submit(_row())
         writer.submit(_row())  # must not block
         self.assertEqual(writer.dropped, 1)
+
+
+class DispatchSyncSettingTests(SimpleTestCase):
+    """SYSTEM_LOG_DISPATCH_SYNC is read from the environment only with DEBUG
+    on: inline writes would add a database write to every request that logs.
+    settings.py decides this as it loads, so each case loads it afresh."""
+
+    PRODUCTION_LIKE = {
+        "SYSTEM_LOG_DISPATCH_SYNC": "true",
+        "AZURE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountName=x;AccountKey=eA==;EndpointSuffix=core.windows.net",
+        "FRONTEND_BASE_URL": "https://app.example.org",
+        "BACKEND_URL": "https://api.example.org",
+    }
+
+    def _dispatch_sync_with(self, debug: str) -> str:
+        env = {**os.environ, **self.PRODUCTION_LIKE, "DEBUG": debug}
+        env.pop("DJANGO_SETTINGS_MODULE", None)
+        result = subprocess.run(
+            [sys.executable, "-c", "import config.settings as s; print(s.SYSTEM_LOG_DISPATCH_SYNC)"],
+            cwd=settings.BASE_DIR,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_ignored_with_debug_off(self):
+        self.assertEqual(self._dispatch_sync_with("false"), "False")
+
+    def test_honoured_with_debug_on(self):
+        self.assertEqual(self._dispatch_sync_with("true"), "True")

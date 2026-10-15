@@ -202,3 +202,20 @@ class RealViewWarningTests(_RealWriterMixin, APITransactionTestCase):
         self.assertEqual(entry.user_id, user.id)
         self.assertEqual((entry.request_method, entry.request_path), ("PATCH", "/api/v1/users/me/"))
         self.assertIsNone(entry.status_code)  # logged mid-view, before the response exists
+
+
+@override_settings(ROOT_URLCONF=__name__, SYSTEM_LOG_DB_ENABLED=True, SYSTEM_LOG_DISPATCH_SYNC=True)
+class ErrorResponseRequestIdTests(APITestCase):
+    def test_error_response_gives_the_same_cleaned_id_that_is_stored(self):
+        # Too long, and with a control character: stored cleaned and cut to
+        # 64, and the error response must say exactly that.
+        sent = "trace-" + "x" * 100 + "\x07"
+        user = User.objects.create_user(email="rid.user@example.com", password="pass123")
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get("/probe/broken/", HTTP_X_REQUEST_ID=sent)
+
+        request_id = response.data["request_id"]
+        self.assertEqual(request_id, ("trace-" + "x" * 100)[:64])
+        self.assertEqual(response["X-Request-ID"], request_id)
+        self.assertTrue(SystemLogEntry.objects.filter(request_id=request_id, logger_name="config.exception_handler").exists())

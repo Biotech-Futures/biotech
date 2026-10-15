@@ -509,8 +509,10 @@ SYSTEM_LOG_DB_INFO_LOGGERS = tuple(
 # Records waiting for the background writer; past this, new ones are dropped
 # (and counted) rather than slow a request.
 SYSTEM_LOG_QUEUE_SIZE = config("SYSTEM_LOG_QUEUE_SIZE", default=10_000, cast=int)
-# Write inline instead of on the background thread (tests).
-SYSTEM_LOG_DISPATCH_SYNC = config("SYSTEM_LOG_DISPATCH_SYNC", default="false", cast=env_bool)
+# Write inline instead of on the background thread, for tests and local
+# debugging (settings_test sets it directly). Ignored with DEBUG off: inline
+# writes would put a database write on every request that logs.
+SYSTEM_LOG_DISPATCH_SYNC = DEBUG and config("SYSTEM_LOG_DISPATCH_SYNC", default="false", cast=env_bool)
 
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",

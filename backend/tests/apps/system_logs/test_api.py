@@ -220,6 +220,81 @@ class FilterTests(_AdminApiTestCase):
         self.assertIn("from", response.data["fields"])
 
 
+class BadFilterValueTests(_AdminApiTestCase):
+    """Every value found to break the list or export in review: a value no
+    filter can use is a 400 naming that filter, never a 500, and never a
+    download that starts and then fails."""
+
+    REFUSED = [
+        ({"user": "99999999999999999999"}, "user"),  # past the largest user id
+        ({"level": "99999999999"}, "level"),  # past what the level column holds
+        ({"to": "9999-12-31"}, "to"),  # the day after it overflows
+        ({"from": "0001-01-01T00:00:00+14:00"}, "from"),  # overflows moving to UTC
+        ({"from": "1899-12-31"}, "from"),  # before 1900
+        ({"to": "9999-01-01T00:00:00Z"}, "to"),  # after 9998
+        ({"from": "2026-13-45"}, "from"),  # no such date
+    ]
+
+    def test_unusable_values_are_a_400_naming_the_filter_on_list_and_export(self):
+        make_entry()
+        for params, field in self.REFUSED:
+            for url in (LIST_URL, EXPORT_URL):
+                with self.subTest(params=params, url=url):
+                    response = self.client.get(url, params)
+
+                    self.assertEqual(response.status_code, 400)
+                    self.assertFalse(getattr(response, "streaming", False))
+                    self.assertIn(field, response.data["fields"])
+
+    def test_a_non_ascii_digit_user_is_searched_for_not_a_500(self):
+        # "³" passes str.isdigit() but int() can't read it.
+        make_entry(user=self.member)
+        for url in (LIST_URL, EXPORT_URL):
+            with self.subTest(url=url):
+                response = self.client.get(url, {"user": "³"})
+
+                self.assertEqual(response.status_code, 200)
+                if url == EXPORT_URL:
+                    body = b"".join(response.streaming_content).decode()
+                    self.assertNotIn(self.member.email, body)
+                else:
+                    self.assertEqual(response.data["count"], 0)
+
+    def test_the_year_limits_themselves_are_accepted(self):
+        make_entry()
+        for params in ({"from": "1900-01-01"}, {"to": "9998-12-31"}, {"from": "1900-01-01T00:00:00+14:00"}):
+            for url in (LIST_URL, EXPORT_URL):
+                with self.subTest(params=params, url=url):
+                    response = self.client.get(url, params)
+
+                    self.assertEqual(response.status_code, 200)
+                    if url == EXPORT_URL:
+                        b"".join(response.streaming_content)  # streams to the end
+
+    def test_a_huge_page_size_is_capped(self):
+        for _ in range(3):
+            make_entry()
+
+        with mock.patch("apps.system_logs.views.SystemLogPagination.max_page_size", 2):
+            response = self.client.get(LIST_URL, {"page_size": "100000"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["results"]), 2)
+
+    def test_search_wildcards_are_matched_literally(self):
+        hit = make_entry(message="disk 100%_full")
+        make_entry(message="all good")
+
+        response = self.client.get(LIST_URL, {"q": "%_"})
+
+        self.assertEqual([row["id"] for row in response.data["results"]], [hit.id])
+        body = b"".join(self.client.get(EXPORT_URL, {"q": "%_", "type": "json"}).streaming_content).decode()
+        self.assertEqual(len(body.splitlines()), 1)
+
+    def test_a_page_that_is_not_a_number_is_drfs_404(self):
+        self.assertEqual(self.client.get(LIST_URL, {"page": "abc"}).status_code, 404)
+
+
 class DetailTests(_AdminApiTestCase):
     def test_returns_the_full_row(self):
         entry = make_entry(message="m" * 1000, traceback="Traceback (most recent call last): ...", extra={"reason": "x"})
