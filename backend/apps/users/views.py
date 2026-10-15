@@ -1041,113 +1041,14 @@ def _registered_by(value) -> str:
 
 
 class UserRegisterView(APIView):
-    """Public student self-registration endpoint.
-
-    ``AllowAny`` is intentional — this is the front door for new students.
-    Hardening on top of the permission:
-
-    * Per-IP rate limit so the endpoint can't be used to bulk-create
-      ``StudentProfile`` rows or to flood the supervisor table.
-    * Refuses to overwrite an existing user. The legacy implementation
-      ``get_or_create``'d both the student and the supervisor by email and
-      then unconditionally wrote ``first_name`` / ``last_name`` back, which
-      let any anonymous caller rename any existing user (incl. admins).
-    """
+    """Compatibility entry point for callers importing the legacy view."""
     permission_classes = [permissions.AllowAny]
     serializer_class = UserRegisterRequestSerializer
 
     @extend_schema(request=UserRegisterRequestSerializer, responses={200: UserRegisterRequestSerializer})
-    @transaction.atomic
     def post(self, request):
-        ip = _client_ip(request)
-        rate_key = f"registration_ip:{ip}"
-        attempts = cache.get(rate_key, 0)
-        if attempts >= REGISTRATION_PER_IP_LIMIT:
-            logger.warning("registration: rate limit hit ip=%s attempts=%s", ip, attempts)
-            raise TooManyFailedAttempts()
-        cache.set(rate_key, attempts + 1, REGISTRATION_WINDOW_SECONDS)
-
-        data = request.data
-        databody = data["body"]
-
-        student_email = (databody.get("Title") or "").strip().lower()
-        supervisor_email = (databody.get("SupervisorEmail") or "").strip().lower()
-        if not student_email or not supervisor_email:
-            raise serializers.ValidationError({"body": "Student and supervisor emails are required."})
-
-        # Refuse to clobber an existing account. Self-registration is for
-        # brand new students; account recovery flows live under /services/.
-        if User.objects.filter(email__iexact=student_email).exists():
-            raise serializers.ValidationError({"Title": "An account with this email already exists."})
-
-        user = User.objects.create_user(email=student_email)
-        user.first_name = databody["FirstName"]
-        user.last_name = databody["Surname"]
-
-        # iexact so a casing variant can't fork a second country off the real one.
-        country, created = Countries.objects.get_or_create(
-            country_name__iexact=databody["Country"],
-            defaults={"country_name": databody["Country"]},
-        )
-        user.country = country
-
-        # Region is sub-national (AU sends NSW/VIC/...) and is often absent. A blank
-        # state is fine — country is what matching needs. Never fall back to the
-        # country name here: that is what used to show "United Arab Emirates" as a state.
-        region = (databody.get("Region") or "").strip()
-        if region and region.casefold() != country.country_name.strip().casefold():
-            user.state, s_created = CountryStates.objects.get_or_create(
-                country=country, state_name=region
-            )
-
-        user.save()
-
-        # roleassignmenthistory creation
-        # Look up roles by stable name (registration must work in any env, regardless of seed order).
-        now = timezone.now()
-        role = get_role_by_name(ROLE_STUDENT)
-        rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
-
-        #supervisorprofile check
-        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
-        sup.first_name = databody["SupervisorFirstName"]
-        sup.last_name = databody["SupervisorSurname"]
-        # Registration carries no supervisor geography and the pair are at the same
-        # school, so inherit the student's — matching _resolve_supervisor_id on the
-        # import path. Only fills gaps; never moves an existing supervisor.
-        if sup.country_id is None:
-            sup.country = user.country
-        if sup.state_id is None:
-            sup.state = user.state
-        sup.save()
-        sup_role = get_role_by_name(ROLE_SUPERVISOR)
-        sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
-
-        supprof, supprof_created = SupervisorProfile.objects.get_or_create(user=sup, school_name=databody["SchoolName"])
-
-        sp = StudentProfile.objects.create(
-            user=user,
-            pg_first_name=databody["GuardianName"],
-            pg_last_name=databody["GuardianSurname"],
-            pg_email=(databody.get("GuardianEmail") or "").strip().lower() or None,
-            # The form requires the guardian's name, so a guardian is on file.
-            parent_guardian_flag=True,
-            supervisor=supprof,
-            school_name=databody["SchoolName"],
-            year_lvl=databody["YearLevel"],
-            registered_by=_registered_by(databody.get("RegisteredBy")),
-        )
-
-        ss = StudentSupervisor.objects.create(
-            student_user=sp,
-            supervisor_user=supprof,
-        )
-
-        si = UserInterest.objects.create(
-            interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
-            user=user
-        )
-        return Response(data["body"])
+        from .registration_intake import register
+        return register(request)
 
 
 #issue 128
