@@ -431,12 +431,15 @@ class MeRetrieveView(generics.RetrieveAPIView):
 
                 # Changing guardian details invalidates a prior consent response.
                 if guardian_changed:
+                    profile.parent_guardian_flag = bool(
+                        profile.pg_first_name.strip() and profile.pg_last_name.strip() and profile.pg_email
+                    )
                     profile.has_join_permission = False
                     profile.joinperm_responseID = None
                     profile.joinperm_granted_at = None
                     profile.guardian_reminder_sent_at = None
                     profile.guardian_reminder_due_at = None
-                    profile_update_fields.extend(["has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
+                    profile_update_fields.extend(["parent_guardian_flag", "has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
                 if profile_update_fields:
                     profile.save(update_fields=list(set(profile_update_fields)))
                 _log_edit(user, user.id, "profile_update", {"fields": sorted(student_update_data)})

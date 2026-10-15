@@ -10,7 +10,7 @@ from .student_supervisor import StudentSupervisor
 from .supervisor_profile import SupervisorProfile
 from .user import User, UserManager
 from .user_interest import UserInterest
-from .registration import RegistrationInvitation, RegistrationSubmission, RegistrationWindow
+from .registration import RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow
 
 __all__ = [
     'AdminProfile',
@@ -28,6 +28,7 @@ __all__ = [
     'UserManager',
     'UserInterest',
     'RegistrationInvitation',
+    'RegistrationStudent',
     'RegistrationSubmission',
     'RegistrationWindow',
 ]

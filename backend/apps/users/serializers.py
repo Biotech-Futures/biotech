@@ -79,6 +79,12 @@ def _has_role(user, profile_model, role_name) -> bool:
 
 # Validate body payload
 class UserRegisterBodySerializer(serializers.Serializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.context.get("allow_partial_student"):
+            for field in ("Country", "SchoolName", "YearLevel", "Areaofinterest"):
+                self.fields[field].allow_blank = True
+
     Title = serializers.EmailField(max_length=254)
     FirstName = serializers.CharField(max_length=255)
     Surname = serializers.CharField(max_length=255)

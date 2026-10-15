@@ -51,6 +51,8 @@ class RegistrationSubmission(models.Model):
     window = models.ForeignKey(RegistrationWindow, on_delete=models.PROTECT)
     journey = models.CharField(max_length=32, default="student_individual")
     student = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    student_count = models.PositiveSmallIntegerField(default=1)
+    group = models.ForeignKey("groups.Groups", null=True, blank=True, on_delete=models.PROTECT)
     invitation = models.OneToOneField(
         RegistrationInvitation, null=True, blank=True, on_delete=models.PROTECT,
     )
@@ -65,3 +67,22 @@ class RegistrationSubmission(models.Model):
     guardian_relationship = models.CharField(max_length=255, blank=True)
     grouping_preference = models.CharField(max_length=32, blank=True)
     source = models.JSONField(default=dict)
+
+
+class RegistrationStudent(models.Model):
+    submission = models.ForeignKey(
+        RegistrationSubmission, related_name="participants", on_delete=models.CASCADE,
+    )
+    student = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    position = models.PositiveSmallIntegerField()
+    guardian_phone = models.CharField(max_length=50, blank=True)
+    guardian_relationship = models.CharField(max_length=255, blank=True)
+    grouping_preference = models.CharField(max_length=32, blank=True)
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["submission", "position"], name="registration_student_position_unique",
+            ),
+        ]

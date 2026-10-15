@@ -9,7 +9,7 @@ production backend #476 on current `main`, without replacing the application she
 The original registration history is retained; its older route, authentication
 and gateway code is reconciled with current main and the newer focused changes.
 Registration uses the existing session authentication.
-Student and mentor intake is public at `/#/register`; the existing supervisor
+Student and mentor forms are public at `/#/register`; the existing supervisor
 guard remains in force at `/#/supervisor/registration`. Public registration cannot
 grant supervisor access. First-time supervisors are directed to request an invitation.
 
@@ -37,21 +37,30 @@ and `message`. Each warning requires explicit acknowledgement; only
 registration data clears acknowledgements. Hard field errors are displayed on
 the relevant step or original CSV row and cannot be overridden.
 
-**Deployment limitation:** the included production backend implements only
-`student_individual`, including single-use late links, real receipts, photos,
-idempotency and warning acknowledgements. Team, supervisor individual/group/CSV
-and mentor forms are retained, but their submissions fail explicitly. Do not
-advertise the full journey set as operational until separate backend adapters
-exist. There is no fake runtime success or fallback to the legacy body endpoint.
+The production backend supports all five student journeys. Student-created and
+supervisor-created groups contain two to five students and persist real group
+memberships and shared group interests. Authenticated supervisors can register
+individuals, groups or up to 500 CSV students per request; supervisor identity
+comes from the session, not the payload. CSV receipts preserve included rows'
+original line numbers and individual grouping preferences.
+
+Team creators provide complete details and guardian contact. Identity-only
+teammates remain pending with unknown school/geography left blank, not invented.
+Represented students may defer guardian details and complete them through the
+existing protected profile/guardian workflows; registration never grants consent.
+Every batch, receipt and photo is persisted atomically. Single-use late links
+remain limited to `student_individual`; mentor intake still fails explicitly.
+There is no fake runtime success or fallback to the legacy body endpoint.
 See [backend deployment and migration guidance](../backend/REGISTRATION.md).
 
-### Existing adapter and future journey extensions
+### Student adapter and future mentor extension
 
 The individual adapter at `/api/v1/registration` preserves legacy `{body: ...}`
 callers. It parses ordinary JSON or multipart `request` JSON and reuses current
 main's `UserRegisterBodySerializer`, `KnownUniversity`, private photo storage,
-and protected consent/authentication workflows. Future supervisor adapters must
-resolve authenticated identity on the server, never trust public identity claims.
+and protected consent/authentication workflows. Supervisor journeys require a
+current authorized supervisor account and existing profile. Their names, email
+and school are resolved on the server; payload supervisor claims are rejected.
 
 For each complete student, map the intake fields to the existing
 `UserRegisterBodySerializer` input:
@@ -70,14 +79,13 @@ For each complete student, map the intake fields to the existing
 Normalized individual intake derives `RegisteredBy=Self` on the server. Legacy
 provenance labels are retained for existing detail-lock behavior, but cannot
 bypass the self-registration guardian checks or grant supervisor privileges.
-Future group adapters must derive `Self` for group
-creators, `Peer` for represented group members, and `Supervisor` for supervised
-intake. Creators must provide guardian contact. Identity-only peer records may
-use a deliberately partial validation path and remain pending completion;
-do not invent school, country or interests to satisfy the complete-record
-serializer. Group interests belong to the group, not the creator's personal
-interests. Add a narrowly scoped group-interest validation context rather than
-relaxing the existing individual-student rules.
+The server derives `Self` for group creators, `Peer` for represented group
+members, and `Supervisor` for supervised intake. Creators must provide guardian
+contact. Identity-only peer records use a narrowly scoped partial validation
+path and remain pending completion; school, country and interests are not
+invented to satisfy the complete-record serializer. Group interests belong to
+the group, not the creator's personal interests. Individual-student rules remain
+strict. A supervised registration retains main's supervisor-owned detail lock.
 
 The adapter explicitly validates through the shared serializer. School and
 name/email checks use one shared helper for legacy and normalized validation.
@@ -88,9 +96,10 @@ first, then return all unacknowledged warnings as HTTP 400 with canonical
 without `warnings`; translate legacy fields back to intake field paths so the
 frontend can focus the correct step and original CSV row.
 
-Future group or CSV adapters must persist the entire intake atomically, along with a real submission
-receipt. Scope idempotency to the actor/invitation and a digest of normalized
-data plus actual photo bytes: unchanged retries return the existing receipt
+The adapter persists the entire intake atomically, along with a real submission
+receipt and ordered per-student intake metadata. Idempotency is scoped to the
+actor/invitation and a digest of request data plus actual photo bytes:
+unchanged retries return the existing receipt
 with HTTP 200, changed data using the same key must fail, and new submissions
 return HTTP 201. Validate images using the existing backend image validator.
 Keep CSV `source.rowNumbers` aligned with the included student array. Mentor
@@ -103,7 +112,7 @@ Do not reuse the legacy view's account-creation side effects as validation:
 supervisor invitations, role grants, activation and guardian permission remain
 server-owned workflows, and registration itself must not confirm consent.
 The included `backend/apps/users/registration_intake.py` and its tests define
-the individual wire contract. They intentionally do not implement those extra journeys.
+the five student journeys' shared wire contract. Mentor intake is not implemented.
 
 Late invitations are accepted and restricted to one student. Staff/admin
 management is available through the session/CSRF-protected
