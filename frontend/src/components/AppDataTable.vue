@@ -46,6 +46,7 @@
         ref="wrapEl"
         class="data-table-wrap table-scroll-box"
         :class="{ 'data-table-wrap--loading': loading }"
+        :style="pagerBoxStyle"
         @scroll="syncFromTable"
       >
         <table>
@@ -222,7 +223,7 @@
         <span class="sr-only">Rows per page</span>
         <select :value="pageSize" @change="onPageSizeChange">
           <option v-for="size in sizeOptions" :key="size" :value="size">
-            {{ size === DATA_TABLE_ALL ? 'All' : `${size} / page` }}
+            {{ size === DATA_TABLE_ALL ? 'All' : size }}
           </option>
         </select>
       </label>
@@ -235,7 +236,7 @@
           class="data-table-page-btn"
           :disabled="page <= 1 || loading"
           aria-label="Previous page"
-          @click="page -= 1"
+          @click="prevPage"
         >
           <i class="fas fa-chevron-left" aria-hidden="true"></i>
         </button>
@@ -254,7 +255,7 @@
           class="data-table-page-btn"
           :disabled="page >= totalPages || loading"
           aria-label="Next page"
-          @click="page += 1"
+          @click="nextPage"
         >
           <i class="fas fa-chevron-right" aria-hidden="true"></i>
         </button>
@@ -266,6 +267,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
+import { usePagerAnchor } from '@/composables/usePagerAnchor'
 import { useTopScrollbar } from '@/composables/useTopScrollbar'
 import {
   DATA_TABLE_ALL,
@@ -687,7 +689,27 @@ const refitToWindow = () => {
   else void nextTick(countRowsThatFit)
 }
 
-watch(pagedRows, () => void nextTick(countRowsThatFit))
+// Paging keeps the bottom bar still on screen, its < and > under the mouse,
+// whatever the rows' heights (see usePagerAnchor); a new search, sort, size or
+// count of rows lets the table's height go again.
+const {
+  turn: turnPage,
+  settle: settlePager,
+  reset: resetPager,
+  boxStyle: pagerBoxStyle,
+} = usePagerAnchor(bottomEl, wrapEl)
+const prevPage = () => turnPage(() => {
+  page.value -= 1
+})
+const nextPage = () => turnPage(() => {
+  page.value += 1
+})
+watch([search, sortKey, sortDir, pageSize, total], resetPager)
+
+watch(pagedRows, () => void nextTick(() => {
+  countRowsThatFit()
+  settlePager()
+}))
 onMounted(() => {
   void nextTick(countRowsThatFit)
   window.addEventListener('resize', refitToWindow)
@@ -729,7 +751,9 @@ const onPageDraftInput = (event: Event) => {
 
 const jumpToPage = () => {
   const next = Math.min(totalPages.value, Math.max(1, Math.floor(Number(pageDraft.value) || 1)))
-  page.value = next
+  if (next !== page.value) turnPage(() => {
+    page.value = next
+  })
   pageDraft.value = String(next)
 }
 

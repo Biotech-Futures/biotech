@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 
 const columns: DataTableColumn[] = [
@@ -88,5 +88,47 @@ describe('rows that open something', () => {
     expect(bodyRows(wrapper).some((row) => row.classes('data-table-row--opens'))).toBe(false)
     await bodyRows(wrapper)[0]!.find('.data-table-cell--primary').trigger('click')
     expect(wrapper.emitted('row-click')).toBeUndefined()
+  })
+})
+
+describe('the bottom bar', () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, icon: 'x', name: `Name ${i + 1}`, school: 'S' }))
+
+  it('offers rows per page as plain numbers', () => {
+    const wrapper = mountTable({ rows: many, pageSize: 5 })
+    expect(wrapper.findAll('.data-table-page-size option').map((option) => option.text())).toEqual([
+      '5',
+      '7',
+      '15',
+      '30',
+      'All'
+    ])
+  })
+
+  it('stays where it is on screen when paging, however tall the next page is', async () => {
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => {})
+    const wrapper = mountTable({ rows: many, pageSize: 5 })
+    const bar = wrapper.find('.data-table-bottom').element as HTMLElement
+    const box = wrapper.find('.data-table-wrap').element as HTMLElement
+    Object.defineProperty(box, 'offsetHeight', { configurable: true, value: 300 })
+    // On screen at 500px when > is pressed; the taller page pushes it to 560px.
+    vi.spyOn(bar, 'getBoundingClientRect')
+      .mockReturnValueOnce({ top: 500 } as DOMRect)
+      .mockReturnValueOnce({ top: 560 } as DOMRect)
+
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.data-table-page-info').text()).toBe('Page 2 of 3')
+    // Scrolled by as much as it moved, so it's back under the mouse...
+    expect(scrollBy).toHaveBeenCalledWith(0, 60)
+    // ...and the table keeps its height, so a shorter page can't pull it up.
+    expect(box.style.minHeight).toBe('300px')
+
+    // A new search lets the height go.
+    await wrapper.find('.data-table-search-input').setValue('Name 1')
+    await flushPromises()
+    expect(box.style.minHeight).toBe('')
+    scrollBy.mockRestore()
   })
 })

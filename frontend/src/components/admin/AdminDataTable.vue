@@ -1,6 +1,11 @@
 <template>
   <div class="admin-table">
-    <div class="admin-table__scroll" :class="{ 'admin-table__scroll--loading': loading }">
+    <div
+      ref="scrollEl"
+      class="admin-table__scroll"
+      :class="{ 'admin-table__scroll--loading': loading }"
+      :style="pagerBoxStyle"
+    >
       <table class="admin-table__table">
         <thead>
           <tr>
@@ -103,6 +108,7 @@
 
     <div
       v-if="showPagination"
+      ref="footerEl"
       class="admin-table__footer"
     >
       <div class="admin-table__footer-left">
@@ -114,7 +120,7 @@
             @change="onPageSizeChange"
           >
             <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }} / page
+              {{ size }}
             </option>
           </select>
         </label>
@@ -149,7 +155,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+
+import { usePagerAnchor } from '@/composables/usePagerAnchor'
 
 export interface AdminColumn {
   key: string
@@ -281,7 +289,21 @@ const onColumnSort = (key: string) => {
   emit('update:sort', { key, direction })
 }
 
-const onPageChange = (page: number) => emit('page-change', page)
+// Paging keeps the footer still on screen, its < and > under the mouse,
+// whatever the rows' heights (see usePagerAnchor): settled once the new rows
+// come; a new size, count or sort lets the table's height go again.
+const scrollEl = ref<HTMLElement | null>(null)
+const footerEl = ref<HTMLElement | null>(null)
+const {
+  turn: turnPage,
+  settle: settlePager,
+  reset: resetPager,
+  boxStyle: pagerBoxStyle
+} = usePagerAnchor(footerEl, scrollEl)
+watch(() => props.rows, () => void nextTick(settlePager))
+watch([() => props.pageSize, () => props.totalCount, () => props.sortState], resetPager)
+
+const onPageChange = (page: number) => turnPage(() => emit('page-change', page))
 
 const onPageSizeChange = (event: Event) => {
   const value = Number((event.target as HTMLSelectElement).value)
