@@ -1834,7 +1834,9 @@ const showGroupMembersDialog = ref(false)
 
 // Active mobile tab
 const activeTab = ref('tasks')
-const workspaceView = ref('tasks')
+const workspaceView = ref(
+  route.query.tab === 'meetings' ? 'meetings' : 'tasks'
+)
 
 // Live task state
 const tasks = ref([])
@@ -6337,6 +6339,29 @@ onBeforeUnmount(() => {
 .tab-btn.active {
   color: var(--dark-green);
   border-bottom-color: var(--dark-green);
+}
+
+/* Left workspace: switch above scrollable card */
+.workspace-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-column > .workspace-switch {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-bottom: 0;
+}
+
+.workspace-column > .pane--tasks {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* Split layout */

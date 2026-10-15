@@ -660,9 +660,12 @@ const handleCancelMeeting = async () => {
 
 const goBack = () => {
   router.push({
-    name: 'group-meetings',
+    name: 'group-detail',
     params: {
       id: route.params.id,
+    },
+    query: {
+      tab: 'meetings',
     },
   })
 }
