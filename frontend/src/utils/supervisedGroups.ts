@@ -9,6 +9,8 @@ export type GroupPerson = {
   last_name: string
   email: string
   role: string
+  /** A student's areas of interest, when the page knows them. */
+  interests?: string[]
 }
 
 export type SupervisedGroup = {
@@ -18,6 +20,8 @@ export type SupervisedGroup = {
   interests: string[]
 }
 
+// The program's official areas of interest. Keep in step with the backend's
+// users/migrations/0023_load_areas_of_interest.py, which loads them.
 export const DEFAULT_GROUP_INTERESTS = [
   'Biomedical Innovations',
   'Environmental Sustainability & Climate Tech',
@@ -38,6 +42,7 @@ export type AvailableMentor = {
   group_id?: number | null
   group_name?: string | null
   school_name?: string | null
+  interests?: string[]
 }
 
 const headers = async (unsafe = false) => {

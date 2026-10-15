@@ -1,4 +1,5 @@
 """Tests for the poster checklist a team confirms before submitting."""
+import tempfile
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -28,6 +29,12 @@ class ChecklistTestCase(TestCase):
     """A team of one with an open round; shared with the admin access tests."""
 
     def setUp(self):
+        # Uploads go to a throwaway folder rather than the local media folder.
+        media = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(media.cleanup)
+        setting = override_settings(MEDIA_ROOT=media.name)
+        setting.enable()
+        self.addCleanup(setting.disable)
         reset_managed_storage_caches()
         self.addCleanup(reset_managed_storage_caches)
         role = Roles.objects.create(role_name="student")
@@ -133,3 +140,11 @@ class PosterChecklistTests(ChecklistTestCase):
         self._client(self.student).delete(self._url("group-submission-file", slot="poster"))
 
         self.assertEqual(self._entry().poster_checklist, {item: False for item in CHECKLIST_ITEMS})
+
+    def test_a_saved_link_tells_teammates_open_pages(self):
+        client = self._client(self.student)
+
+        with patch("apps.submissions.views.notify_changed") as notify:
+            client.put(self._url("group-submission"), {"prototype_url": "https://example.com/demo"}, format="json")
+
+        notify.assert_called_once_with("submission", self.group.id, "link", by=self.student)

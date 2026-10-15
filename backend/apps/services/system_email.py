@@ -37,6 +37,7 @@ from .email_log import note_send, reason_for
 from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
+from .retry import send_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -458,7 +459,8 @@ def send_system_email(
 
     Returns ``SENT``, ``SKIPPED`` (type switched off) or ``FAILED``. Never raises
     for send errors. With ``background=True`` the message is handed to the mail
-    pool and ``SENT`` means queued.
+    pool and ``SENT`` means queued. A send that fails is tried once more at
+    once, over a fresh connection (see ``retry``); only then is it a miss.
     """
     if not is_email_enabled(key):
         logger.info("system_email.skipped_disabled key=%s", key)
@@ -477,7 +479,7 @@ def send_system_email(
         return SENT
 
     try:
-        message.send(fail_silently=False)
+        send_with_retry(message)
     except Exception as exc:
         # Not logger.exception: SMTP errors carry recipient addresses in their args.
         logger.error("system_email.send_failed key=%s error=%s", key, type(exc).__name__)
@@ -514,7 +516,7 @@ class _NotedSend:
 
     def send(self):
         try:
-            self.message.send(fail_silently=False)
+            send_with_retry(self.message)
         except Exception as exc:
             recipient_count = len(self.message.recipients())
             note_send(

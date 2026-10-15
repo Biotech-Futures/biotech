@@ -16,13 +16,12 @@ genuinely newer ones arrive.
 """
 
 import logging
-import threading
 from datetime import timedelta
+from functools import partial
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import connection as db_connection
 from django.db.models import Count, Max, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -32,6 +31,7 @@ from apps.chat.models import ChatDigestState, Messages, MessageStatus
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
 from apps.services.email_log import UNREACHABLE, note_send, reason_for
+from apps.services.retry import RetryLater, reset
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -327,6 +327,8 @@ def send_unread_message_digests(*, dry_run=False):
     sent = 0
     failed = 0
     missed = {}
+    # Those that fail, kept to try once more once everyone has been tried.
+    later = RetryLater(connection)
     try:
         for candidate, summary in pending:
             _total, _groups, new_hwm = summary
@@ -335,24 +337,34 @@ def send_unread_message_digests(*, dry_run=False):
             # (a newer message) — acceptable for a low-stakes reminder.
             if not _claim_user(candidate["user_id"], new_hwm, cutoff, now):
                 continue
+            resend = partial(_render_and_send, connection, candidate, summary, sender)
             try:
-                _render_and_send(connection, candidate, summary, sender)
+                resend()
             except Exception as exc:
+                # Reset the SMTP transaction so a per-address failure doesn't
+                # poison the next recipient on the shared connection.
+                reset(connection)
+                if later.keep(exc, candidate, resend):
+                    continue
                 failed += 1
                 missed[candidate["email"]] = reason_for(exc)
                 logger.warning(
                     "unread_digest.send_failed user=%s error=%s",
                     candidate["user_id"], exc,
                 )
-                # Reset the SMTP transaction so a per-address failure doesn't
-                # poison the next recipient on the shared connection.
-                try:
-                    if getattr(connection, "connection", None):
-                        connection.connection.rset()
-                except Exception:
-                    pass
             else:
                 sent += 1
+        # Once more, a few seconds on, over a fresh connection (see ``retry``).
+        for candidate, exc in later.run():
+            if exc is None:
+                sent += 1
+                continue
+            failed += 1
+            missed[candidate["email"]] = reason_for(exc)
+            logger.warning(
+                "unread_digest.send_failed user=%s error=%s",
+                candidate["user_id"], exc,
+            )
     finally:
         try:
             connection.close()
@@ -371,47 +383,28 @@ def send_unread_message_digests(*, dry_run=False):
     return considered, sent, failed
 
 
-_dispatch_lock = threading.Lock()
-
-
-def _run_digest_in_thread() -> None:
-    try:
-        considered, sent, failed = send_unread_message_digests()
-        logger.info(
-            "unread_digest.completed considered=%s sent=%s failed=%s",
-            considered, sent, failed,
-        )
-    except Exception:
-        logger.exception("unread_digest.worker_crashed")
-    finally:
-        _dispatch_lock.release()
-        try:
-            db_connection.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
+def digest_job(actor, options):
+    """The queued digest run (``send_guard.JOBS``)."""
+    considered, sent, failed = send_unread_message_digests()
+    logger.info(
+        "unread_digest.completed considered=%s sent=%s failed=%s",
+        considered, sent, failed,
+    )
+    return {"sent": sent, "failed": failed}
 
 
 def dispatch_unread_digest() -> str:
-    """Fire-and-forget the digest run so the trigger request returns instantly.
+    """Queue the digest run so the trigger request returns instantly.
 
     The full run (one unread query per candidate + one SMTP round trip per
     email) outgrew Azure's ~230s gateway cap, 504-ing the cron while the work
-    completed anyway. Mirrors ``apps.chat.tasks.dispatch_og``; the lock is
-    per-process only — double-send across workers is already prevented by the
-    ``ChatDigestState`` claim. Returns ``"started"`` or ``"already_running"``.
+    completed anyway. It sends in its turn, after any bulk email going from
+    the same mailbox, one run at a time across every worker (``send_guard``);
+    a run queued while another still waits is dropped, and the
+    ``ChatDigestState`` claim stops anyone being emailed twice. Returns
+    ``"queued"``.
     """
-    if getattr(settings, "UNREAD_DIGEST_DISPATCH_SYNC", False):
-        send_unread_message_digests()
-        return "started"
+    from apps.management.services.send_guard import queue_job
 
-    if not _dispatch_lock.acquire(blocking=False):
-        logger.info("unread_digest.already_running")
-        return "already_running"
-    try:
-        threading.Thread(
-            target=_run_digest_in_thread, name="unread-digest", daemon=True
-        ).start()
-    except Exception:
-        _dispatch_lock.release()
-        raise
-    return "started"
+    queue_job("unread_messages")
+    return "queued"

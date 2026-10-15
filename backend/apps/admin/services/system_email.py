@@ -46,6 +46,7 @@ from apps.services.email_registry import (
     unknown_merge_tags,
 )
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
+from apps.services.retry import send_with_retry
 from apps.services.system_email import (
     build_message,
     clean_email_body,
@@ -509,7 +510,8 @@ def send_test_email(
     )
 
     try:
-        message.send(fail_silently=False)
+        # Tried once more if it fails, as every email is.
+        send_with_retry(message)
     except Exception as exc:
         record_email_delivery(
             f"test_{key}",

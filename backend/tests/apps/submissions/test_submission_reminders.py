@@ -184,11 +184,15 @@ class ReminderTriggerEndpointTests(TestCase):
 
         self.url = reverse("submission-send-reminders")
 
-    def test_the_right_token_runs_the_job(self):
+    def test_the_right_token_queues_the_job(self):
+        from apps.management.models import EmailSendRun
+
         response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="s3cret")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("sent", response.data)
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data, {"status": "queued"})
+        # Run in its turn: at once under test settings.
+        self.assertIsNotNone(EmailSendRun.objects.get(key="submission_reminder").finished_at)
 
     def test_a_wrong_token_is_refused(self):
         response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="wrong")

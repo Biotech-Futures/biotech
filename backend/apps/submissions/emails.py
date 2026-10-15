@@ -12,6 +12,7 @@ from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
 from apps.services.email_log import UNREACHABLE, note_send, reason_for
 from apps.services.mailer import send_async
+from apps.services.retry import reset, send_with_retry
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -149,8 +150,9 @@ def group_message(rendered, group, addresses, *, sender):
 
 def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
     """Send each message over one connection, signed in as ``sender``'s
-    mailbox; one failing doesn't stop the rest. Returns (sent, failed). Noted
-    in the Log on System Emails as a send of ``kind``."""
+    mailbox; one failing is tried once more at once (see ``retry``), and
+    doesn't stop the rest. Returns (sent, failed). Noted in the Log on System
+    Emails as a send of ``kind``."""
     if not messages:
         return 0, 0
 
@@ -178,11 +180,12 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
         for message in messages:
             message.connection = connection
             try:
-                message.send()
+                send_with_retry(message)
             except Exception as exc:
                 failed += 1
                 failed_recipients += len(message.recipients())
                 missed.update(dict.fromkeys(message.recipients(), reason_for(exc)))
+                reset(connection)
                 # Not logger.exception, which would log the recipient address.
                 logger.error(
                     "submission_email.recipient_failed kind=%s error=%s",

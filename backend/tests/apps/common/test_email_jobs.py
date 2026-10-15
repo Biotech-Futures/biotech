@@ -21,20 +21,32 @@ JOBS = (
 @override_settings(EMAIL_JOBS_TOKEN="one-token")
 class EmailJobsTokenTests(TestCase):
     def setUp(self):
-        # Nobody is emailed: each job's own work is stood in for.
+        # Nobody is emailed: each job queues its run, and the queue is stood in for.
         stack = ExitStack()
         self.addCleanup(stack.close)
-        stack.enter_context(patch("apps.events.views.send_due_rsvp_reminders", return_value=(0, 0, 0)))
-        stack.enter_context(patch("apps.submissions.views.send_due_reminders", return_value={}))
-        stack.enter_context(patch("apps.chat.services.digest.dispatch_unread_digest", return_value="started"))
-        stack.enter_context(patch("apps.users.guardian_details.send_due", return_value={}))
-        stack.enter_context(patch("apps.users.guardian_reminders.send_due", return_value={}))
+        self.queue_job = stack.enter_context(patch("apps.management.services.send_guard.queue_job"))
 
     def test_the_one_token_runs_every_job(self):
         for url in JOBS:
             with self.subTest(url):
                 response = self.client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="one-token")
-                self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_202_ACCEPTED))
+                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+                self.assertEqual(response.data["status"], "queued")
+
+    def test_each_job_queues_its_run_to_send_in_its_turn(self):
+        for url in JOBS:
+            self.client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="one-token")
+        self.assertEqual(
+            [call.args[0] for call in self.queue_job.call_args_list],
+            [
+                "rsvp_reminder",
+                "rsvp_reminder",
+                "submission_reminder",
+                "unread_messages",
+                "guardian_details_request",
+                "guardian_consent_request",
+            ],
+        )
 
     def test_a_wrong_token_or_an_old_header_runs_none(self):
         for url in JOBS:
@@ -52,14 +64,14 @@ class EmailJobsTokenTests(TestCase):
         for url in JOBS:
             with self.subTest(url):
                 response = self.client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="old-token")
-                self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_202_ACCEPTED))
+                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
     @override_settings(RSVP_REMINDER_TOKEN="old-token")
     def test_with_both_set_either_token_runs_the_jobs(self):
         for token in ("one-token", "old-token"):
             with self.subTest(token):
                 response = self.client.post(JOBS[0], HTTP_X_EMAIL_JOBS_TOKEN=token)
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(
             self.client.post(JOBS[0], HTTP_X_EMAIL_JOBS_TOKEN="wrong").status_code, status.HTTP_401_UNAUTHORIZED,
         )

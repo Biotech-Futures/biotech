@@ -17,6 +17,7 @@ from django.contrib.auth import get_user_model
 
 from apps.groups.models.groups import Groups
 from apps.services.email_metrics import record_email_delivery
+from apps.services.retry import send_with_retry
 from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
 from ..models import FinalistEmailSettings, ResultsEmailSettings
@@ -186,7 +187,8 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
         rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
     )
     try:
-        message.send(fail_silently=False)
+        # Test emails follow the same retry policy as every other email.
+        send_with_retry(message)
     except Exception:
         record_email_delivery(
             f"test_{test.email}",

@@ -8,6 +8,11 @@ from .views import (
     FinalistNotifyAllView,
     GradingSettingsView,
     SupervisorPagesView,
+    SupervisorResultsCertificatesZipView,
+    SupervisorResultsCertificateView,
+    SupervisorResultsSheetView,
+    SupervisorResultsStateView,
+    SupervisorResultsView,
     GroupExtensionDetailView,
     GroupExtensionListView,
     GroupResultsCertificateView,
@@ -165,6 +170,22 @@ urlpatterns = [
         "groups/<int:group_id>/results/certificate/<int:user_id>/",
         GroupResultsCertificateView.as_view(),
         name="group-results-certificate",
+    ),
+
+    # Results on a supervisor's portal: their students' marks and certificates,
+    # and their groups' mentors' certificates, once released.
+    path("supervisor-results/", SupervisorResultsView.as_view(), name="supervisor-results"),
+    path("supervisor-results/state/", SupervisorResultsStateView.as_view(), name="supervisor-results-state"),
+    path("supervisor-results/marks-sheet/", SupervisorResultsSheetView.as_view(), name="supervisor-results-sheet"),
+    path(
+        "supervisor-results/certificates/",
+        SupervisorResultsCertificatesZipView.as_view(),
+        name="supervisor-results-certificates",
+    ),
+    path(
+        "supervisor-results/certificates/<int:group_id>/<int:user_id>/",
+        SupervisorResultsCertificateView.as_view(),
+        name="supervisor-results-certificate",
     ),
 
     # Results emails to teams and supervisors, from the Release Results tab.

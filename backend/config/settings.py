@@ -163,7 +163,7 @@ RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
     str(value).strip().lower().lstrip(".")
     for value in config(
         "RESOURCE_FILE_ALLOWED_EXTENSIONS",
-        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx,mp4,webm,mov",
         cast=Csv(),
     )
     if str(value).strip()
@@ -176,7 +176,8 @@ RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
             "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
             "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
             "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
-            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+            "video/mp4,video/webm,video/quicktime"
         ),
         cast=Csv(),
     )
@@ -658,10 +659,13 @@ GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false",
 BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
 # Once a run has tried every email, it waits this many seconds, then tries
-# once more the ones that failed.
+# once more the ones that failed: Management's bulk emails, announcements, the
+# RSVP reminders and the unread digest. A single email is tried again at once
+# (apps.services.retry).
 BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
-# Bulk email runs send one at a time; each starts this many seconds after the
-# one before it finished.
+# Bulk email runs (with announcements and the scheduled emails) send one at a
+# time from each mailbox; each starts this many seconds after the one before
+# it finished.
 BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
@@ -687,11 +691,9 @@ UNREAD_DIGEST_QUIET_END_HOUR = config(
     "UNREAD_DIGEST_QUIET_END_HOUR", default=7, cast=int
 )
 UNREAD_DIGEST_QUIET_TZ = config("UNREAD_DIGEST_QUIET_TZ", default="Australia/Sydney")
-# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and runs
-# on a background thread. Sync dispatch (tests) runs it inline instead.
-UNREAD_DIGEST_DISPATCH_SYNC = config(
-    "UNREAD_DIGEST_DISPATCH_SYNC", default="false", cast=env_bool,
-)
+# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and
+# the run is queued, to send in its turn (BULK_EMAIL_DISPATCH_SYNC runs it
+# inline under tests).
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h

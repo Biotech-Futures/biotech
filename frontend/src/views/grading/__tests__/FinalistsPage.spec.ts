@@ -8,6 +8,13 @@ import {
   removeFinalist
 } from '@/utils/gradingAPI'
 
+// A row opens its group through the router.
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }))
+vi.mock('vue-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('vue-router')>()),
+  useRouter: () => ({ push: pushMock })
+}))
+
 vi.mock('@/utils/gradingAPI', () => ({
   addFinalist: vi.fn(),
   fetchFinalistCandidates: vi.fn(),
@@ -51,6 +58,7 @@ const mountPage = async () => {
 }
 
 beforeEach(() => {
+  pushMock.mockReset()
   addMock.mockReset().mockResolvedValue(undefined as never)
   removeMock.mockReset().mockResolvedValue(undefined as never)
   candidatesMock.mockReset().mockResolvedValue({
@@ -329,6 +337,23 @@ describe('the group marks ranking', () => {
     expect((search.element as HTMLInputElement).value).toBe('BTF-1')
   })
 
+  it('opens a group that submitted from its name, but not one with no submission', async () => {
+    const wrapper = await mountPage()
+    const row = (name: string) =>
+      wrapper.findAll('table')[0]!.findAll('tr.data-table-row').find((r) => r.text().includes(name))!
+
+    expect(row('BTF-2').classes()).not.toContain('data-table-row--opens')
+    await row('BTF-2').find('.data-table-cell--primary').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    // Elsewhere on the row: nothing.
+    await row('BTF-1').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await row('BTF-1').find('.data-table-cell--primary').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/grading/groups/1')
+  })
+
   it('a refused add is reported', async () => {
     addMock.mockRejectedValueOnce(new Error('not allowed'))
     const wrapper = await mountPage()
@@ -355,6 +380,18 @@ describe('the current finalists', () => {
     expect(table.find('thead th').text()).toBe('#')
     const rows = table.findAll('tbody tr').map((r) => r.findAll('td').slice(0, 2).map((c) => c.text()))
     expect(rows).toEqual([['3', 'BTF-1'], ['2', 'BTF-5'], ['1', 'BTF-9']])
+  })
+
+  it('opens a finalist group from its Group, not the # before it', async () => {
+    const wrapper = await mountPage()
+    const row = wrapper.findAll('table')[1]!.find('tr.data-table-row')
+
+    expect(row.find('.data-table-cell--primary').text()).toBe('BTF-2')
+    await row.find('td').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await row.find('.data-table-cell--primary').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/grading/groups/2')
   })
 
   it('lists who was flagged, when and by whom', async () => {
