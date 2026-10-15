@@ -281,6 +281,22 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
         self.assertEqual(row.supervisor_details["email"], "teacher@example.com")
 
+    def test_areas_of_interest_are_optional(self):
+        self.body["payload"]["students"][0]["interests"] = []
+        response = self.submit()
+        self.assertEqual(response.status_code, 201, response.data)
+        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
+        self.assertEqual(row.student.userinterest_set.count(), 0)
+
+    def test_a_guardian_needs_only_their_name_and_email(self):
+        guardian = self.body["payload"]["students"][0]["guardian"]
+        guardian.update({"phone": "", "relationship": "", "relationshipOther": ""})
+        response = self.submit()
+        self.assertEqual(response.status_code, 201, response.data)
+        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
+        self.assertEqual(row.guardian_relationship, "")
+        self.assertEqual(StudentProfile.objects.get(user=row.student).pg_email, "guardian@example.com")
+
     def test_existing_supervisor_is_not_renamed_or_given_a_new_role(self):
         sup = User.objects.create_user(email="teacher@example.com", first_name="Original", last_name="Name")
         profile = SupervisorProfile.objects.create(user=sup, school_name="Original School")
@@ -514,7 +530,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
     def test_hard_errors_take_priority_over_warnings_and_confirmations(self):
         invite = self.mint()
         for change in ({"email": "invalid"}, {"yearLevel": "8"}, {"guardianDeferred": True},
-                       {"guardian": {}}, {"interests": []}, {"is_staff": True}):
+                       {"guardian": {}}, {"is_staff": True}):
             body = self.warning_body()
             body["payload"]["students"][0].update(change)
             body["payload"]["students"][0]["overrides"] = {

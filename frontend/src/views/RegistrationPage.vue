@@ -193,27 +193,31 @@
       </aside>
 
       <section class="form-surface">
-        <nav class="step-navigation" aria-label="Registration progress">
-          <ol>
-            <li v-for="(step, index) in steps" :key="step.label">
-              <button
-                type="button"
-                class="tab-pill"
-                :class="{
-                  active: currentStep === index,
-                  current: currentStep === index,
-                  complete: index < currentStep,
-                }"
-                :disabled="index > maxReachedStep || isCsvEditing"
-                :aria-current="currentStep === index ? 'step' : undefined"
-                @click="goToStep(index)"
-              >
-                <span>{{ index + 1 }}</span>
-                <span class="step-navigation__label">{{ step.label }}</span>
-              </button>
-            </li>
-          </ol>
-        </nav>
+        <!-- The steps, with what * means at the right. -->
+        <div class="step-bar">
+          <nav class="step-navigation" aria-label="Registration progress">
+            <ol>
+              <li v-for="(step, index) in steps" :key="step.label">
+                <button
+                  type="button"
+                  class="tab-pill"
+                  :class="{
+                    active: currentStep === index,
+                    current: currentStep === index,
+                    complete: index < currentStep,
+                  }"
+                  :disabled="index > maxReachedStep || isCsvEditing"
+                  :aria-current="currentStep === index ? 'step' : undefined"
+                  @click="goToStep(index)"
+                >
+                  <span>{{ index + 1 }}</span>
+                  <span class="step-navigation__label">{{ step.label }}</span>
+                </button>
+              </li>
+            </ol>
+          </nav>
+          <p class="form-required-note">Fields marked <span class="required-mark">*</span> are required.</p>
+        </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
           <section
@@ -630,7 +634,7 @@
                   </button>
                 </div>
                 <label class="csv-upload">
-                  <span>Choose completed CSV <span aria-hidden="true">*</span></span>
+                  <span>Choose completed CSV <span class="required-mark" aria-hidden="true">*</span></span>
                   <input
                     type="file"
                     accept=".csv,text/csv"
@@ -808,6 +812,8 @@
                   id="mentor-country"
                   v-model="forms.mentor.country"
                   label="Country"
+                  :options="mentorCountryOptions.length ? mentorCountryOptions : undefined"
+                  :placeholder="mentorCountryOptions.length ? 'Select a country' : undefined"
                   :error="errors['mentor.country']"
                   required
                 />
@@ -901,7 +907,7 @@
                   :error="errors['mentor.interests']"
                 />
                 <label class="select-field">
-                  <span>Capacity <span aria-hidden="true">*</span></span>
+                  <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
                   <select
                     id="mentor-capacity"
                     v-model="forms.mentor.capacity"
@@ -1050,16 +1056,18 @@
             </div>
           </section>
 
+          <!-- Back from the second step on; Change registration type, above,
+               goes back from the first. -->
           <footer class="form-footer">
             <button
+              v-if="currentStep > 0"
               type="button"
               class="secondary-action"
               :disabled="isSubmitting || isCsvEditing"
               @click="goBack"
             >
-              {{ currentStep === 0 ? 'Back to registration type' : 'Back' }}
+              Back
             </button>
-            <p>Fields marked * are required.</p>
             <button
               type="submit"
               class="primary-action"
@@ -1093,7 +1101,7 @@ import RegistrationStudentEditor from '@/components/registration/RegistrationStu
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
-import { useStateOptions } from '@/registration/useStateOptions'
+import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -1365,7 +1373,9 @@ const unavailableGateway: RegistrationGateway = {
 }
 const registrationGateway = injectedGateway || unavailableGateway
 const forms = reactive(createRegistrationForms())
-// In Australia, its states from the database, for the mentor's dropdown.
+// The countries, and in Australia its states, from the database, for the
+// mentor's dropdowns.
+const mentorCountryOptions = useCountryOptions()
 const mentorStateOptions = useStateOptions(() => forms.mentor.country)
 const journey = ref<RegistrationJourney | null>(null)
 const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'role')
@@ -1736,41 +1746,25 @@ const validateStudentIdentity = (student: StudentDetails, prefix: string, confir
   }
 }
 
-const validateStudentProfile = (
-  student: StudentDetails,
-  prefix: string,
-  requireInterests = true,
-) => {
+// A student's Areas of Interest are optional.
+const validateStudentProfile = (student: StudentDetails, prefix: string) => {
   requireValue(`${prefix}.school`, student.school, 'Enter the student school.')
   requireValue(`${prefix}.yearLevel`, student.yearLevel, 'Select the student year level.')
   requireValue(`${prefix}.country`, student.country, 'Enter the student country.')
   if (student.country.trim().toLowerCase() === 'australia')
     requireValue(`${prefix}.state`, student.state, 'Enter the Australian state or territory.')
-  if (requireInterests && !student.interests.length)
-    clientErrors[`${prefix}.interests`] = 'Choose at least one student interest.'
   if (student.pronouns === 'Other') {
     requireValue(`${prefix}.pronounsOther`, student.pronounsOther, 'Enter the student pronouns.')
   }
 }
 
+// A guardian is their name and email, as on the Guardian Details form.
 const validateGuardian = (student: StudentDetails, prefix: string, canDefer = true) => {
   if (canDefer && student.guardianDeferred) return
   const guardian = student.guardian
   requireValue(`${prefix}.guardian.firstName`, guardian.firstName, 'Enter the guardian first name.')
   requireValue(`${prefix}.guardian.lastName`, guardian.lastName, 'Enter the guardian last name.')
   validateEmail(`${prefix}.guardian.email`, guardian.email, 'Guardian email')
-  requireValue(
-    `${prefix}.guardian.relationship`,
-    guardian.relationship,
-    'Select the guardian relationship.',
-  )
-  if (guardian.relationship === 'Other') {
-    requireValue(
-      `${prefix}.guardian.relationshipOther`,
-      guardian.relationshipOther,
-      'Describe the guardian relationship.',
-    )
-  }
 }
 
 // A supervisor's students: each email given once, with no confirming it.
@@ -1809,7 +1803,7 @@ const validateCurrentStep = () => {
   } else if (journey.value === 'student_team') {
     if (step === 0) validateStudentIdentity(forms.studentTeam.creator, 'studentTeam.creator', true)
     if (step === 1) {
-      validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator', false)
+      validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator')
       validateSupervisor(
         forms.studentTeam.supervisor,
         'studentTeam.supervisor',
@@ -2457,11 +2451,12 @@ onBeforeUnmount(() => {
   font-family: inherit;
 }
 
-/* From the page's top left corner, as the portal's other pages are. */
+/* From the page's top left corner and its full width, as the portal's
+   other pages are. */
 .registration-page--supervisor .setup-layout,
 .registration-page--supervisor .work-layout {
   width: auto;
-  max-width: 1080px;
+  max-width: none;
   margin: 0;
 }
 
@@ -2981,11 +2976,20 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.step-navigation {
-  overflow-x: auto;
+/* On a narrow screen the note drops below the steps, still on the right. */
+.step-bar {
   padding: 8px clamp(16px, 3vw, 32px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
   border-bottom: 1px solid var(--registration-line);
   background: var(--white);
+}
+
+.step-navigation {
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .step-navigation ol {
@@ -3622,21 +3626,24 @@ dd {
   line-height: 1.35;
 }
 
-.form-footer {
-  margin-top: 46px;
-  padding-top: 24px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 18px;
-  border-top: 1px solid var(--registration-line);
-}
-
-.form-footer p {
-  margin: 0;
+.form-required-note {
+  margin: 0 0 0 auto;
   color: var(--registration-muted);
   font-size: 0.78rem;
-  text-align: center;
+  white-space: nowrap;
+}
+
+/* Back on the left (once there's a step to go back to), Continue or Submit
+   on the right. */
+.form-footer {
+  margin-top: 46px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.form-footer .primary-action {
+  margin-left: auto;
 }
 
 .primary-action,
@@ -3881,7 +3888,7 @@ dd {
     max-width: 50ch;
   }
 
-  .step-navigation {
+  .step-bar {
     padding-inline: 10px;
   }
 
@@ -3933,18 +3940,9 @@ dd {
     border-bottom: 1px solid var(--registration-line);
   }
 
-  .form-footer {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .form-footer p {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
-
   .form-footer .primary-action,
   .form-footer .secondary-action {
-    width: 100%;
+    flex: 1 1 0;
   }
 
   .success-panel {
@@ -3969,11 +3967,12 @@ dd {
   }
 
   .form-footer {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .form-footer p {
-    grid-column: auto;
+  .form-footer .primary-action {
+    margin-left: 0;
   }
 
   .review-section dl > div,

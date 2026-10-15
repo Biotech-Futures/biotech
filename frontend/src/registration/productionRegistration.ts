@@ -112,11 +112,7 @@ export const buildProductionRegistrationRequest = (
             state: values.state,
             interests: parseRegistrationInterests(values.interests),
             guardian,
-            guardianDeferred:
-              !guardian.firstName ||
-              !guardian.lastName ||
-              !guardian.email ||
-              !guardian.relationship,
+            guardianDeferred: !guardian.firstName || !guardian.lastName || !guardian.email,
             groupingPreference: values.grouping_preference,
           }
         })

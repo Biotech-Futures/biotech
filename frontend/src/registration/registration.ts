@@ -386,12 +386,8 @@ const csvRowCategory = (
     reviewIssues.push(`Interest needs review: ${unknownInterests.join(', ')}.`)
   }
 
-  const guardianCore = [
-    values.guardian_first_name,
-    values.guardian_last_name,
-    values.guardian_email,
-    values.guardian_relationship,
-  ]
+  // A guardian is their name and email; a relationship, if given, is checked above.
+  const guardianCore = [values.guardian_first_name, values.guardian_last_name, values.guardian_email]
   if (guardianCore.every((entry) => !entry)) {
     reviewIssues.push('Guardian details are deferred; student follow-up will be required.')
   } else if (guardianCore.some((entry) => !entry)) {

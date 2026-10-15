@@ -25,6 +25,7 @@
         autocomplete="email"
         :error="fieldError('email')"
         required
+        :wide="!requireEmailConfirm"
       />
       <RegistrationTextField
         v-if="requireEmailConfirm"
@@ -49,7 +50,7 @@
           required
         />
         <label class="select-field">
-          <span>Year level <span aria-hidden="true">*</span></span>
+          <span>Year level <span class="required-mark" aria-hidden="true">*</span></span>
           <select
             :id="fieldId('yearLevel')"
             v-model="student.yearLevel"
@@ -77,6 +78,8 @@
           v-model="student.country"
           label="Country"
           autocomplete="country-name"
+          :options="countryOptions.length ? countryOptions : undefined"
+          :placeholder="countryOptions.length ? 'Select a country' : undefined"
           :error="fieldError('country')"
           required
         />
@@ -98,8 +101,8 @@
         v-if="showInterests"
         :id="fieldId('interests')"
         v-model="student.interests"
-        label="Student interests"
-        description="Choose one or more areas that this student wants to explore."
+        label="Areas of Interest"
+        :show-required="false"
         :error="fieldError('interests')"
       />
 
@@ -190,47 +193,7 @@
           type="email"
           :error="fieldError('guardian.email')"
           required
-        />
-        <RegistrationTextField
-          :id="fieldId('guardian.phone')"
-          v-model="student.guardian.phone"
-          label="Guardian phone"
-          type="tel"
-          optional
-        />
-        <label class="select-field">
-          <span>Relationship <span aria-hidden="true">*</span></span>
-          <select
-            :id="fieldId('guardian.relationship')"
-            v-model="student.guardian.relationship"
-            :aria-invalid="Boolean(fieldError('guardian.relationship'))"
-            :aria-describedby="
-              fieldError('guardian.relationship')
-                ? `${fieldId('guardian.relationship')}-error`
-                : undefined
-            "
-            required
-          >
-            <option value="" disabled>Select a relationship</option>
-            <option>Parent</option>
-            <option>Legal guardian</option>
-            <option>Other</option>
-          </select>
-          <span
-            v-if="fieldError('guardian.relationship')"
-            :id="`${fieldId('guardian.relationship')}-error`"
-            class="student-editor__error"
-          >
-            {{ fieldError('guardian.relationship') }}
-          </span>
-        </label>
-        <RegistrationTextField
-          v-if="student.guardian.relationship === 'Other'"
-          :id="fieldId('guardian.relationshipOther')"
-          v-model="student.guardian.relationshipOther"
-          label="Describe the relationship"
-          :error="fieldError('guardian.relationshipOther')"
-          required
+          wide
         />
       </div>
     </div>
@@ -243,7 +206,7 @@ import { computed } from 'vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { isAustralia, PRONOUN_OPTIONS, type StudentDetails } from '@/registration/registration'
-import { useStateOptions } from '@/registration/useStateOptions'
+import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 
 const props = withDefaults(
   defineProps<{
@@ -270,7 +233,8 @@ const emit = defineEmits<{
   'remove-photo': []
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
-// In Australia, its states from the database, for a dropdown.
+// The countries, and in Australia its states, from the database, for dropdowns.
+const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
 
 const showIdentity = computed(() => ['identity', 'full', 'teammate'].includes(props.section))
@@ -450,10 +414,13 @@ input[type='file']::file-selector-button {
   cursor: pointer;
 }
 
+/* In rem, as its text is, so it stays centred on the heading's line at any
+   text size: half that line (0.9rem at 1.6) less half the box. */
 .defer-control input {
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
+  flex: 0 0 auto;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: calc((0.9rem * 1.6 - 1.125rem) / 2);
   accent-color: var(--registration-green);
 }
 
@@ -465,10 +432,10 @@ input[type='file']::file-selector-button {
 .defer-control strong {
   color: var(--registration-ink);
   font-size: 0.9rem;
+  line-height: 1.6;
 }
 
 .defer-control small {
-  max-width: 64ch;
   color: var(--registration-muted);
   font-size: 0.82rem;
   line-height: 1.45;

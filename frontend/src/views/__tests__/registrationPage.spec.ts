@@ -29,8 +29,8 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
 
 beforeEach(() => {
   vi.stubGlobal('scrollTo', vi.fn())
-  // No states to load (a text box), unless a test gives some.
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ states: [] }))))
+  // No countries or states to load (text boxes), unless a test gives some.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}))))
 })
 
 afterEach(() => {
@@ -356,16 +356,30 @@ describe('canonical registration intake', () => {
     expect(csv.text()).not.toContain('Confirm student email')
   })
 
-  it("offers Australia's states from the database as a dropdown, a text box elsewhere", async () => {
+  it("offers the database's countries, and Australia's states, as dropdowns", async () => {
+    const countries = ['Australia', 'New Zealand']
     const states = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA']
-    const send = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ states })))
+    const send = vi.fn<typeof fetch>(async (url) =>
+      new Response(JSON.stringify(String(url).includes('/states/') ? { states } : { countries })),
+    )
     vi.stubGlobal('fetch', send)
     const wrapper = mountPage('supervisor')
     await clickButton(wrapper, 'Register one student')
     await flushPromises()
+    const country = () => wrapper.find('#supervisorIndividual-student-country')
     const state = () => wrapper.find('#supervisorIndividual-student-state')
 
-    expect(String(send.mock.calls[0]![0])).toContain('/api/v1/registration/states/?country=Australia')
+    const asked = send.mock.calls.map(([url]) => String(url))
+    expect(asked.some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
+    expect(asked.some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
+    expect(country().element.tagName).toBe('SELECT')
+    expect(
+      country()
+        .findAll('option')
+        .slice(1)
+        .map((option) => option.attributes('value')),
+    ).toEqual(countries)
+    expect((country().element as HTMLSelectElement).value).toBe('Australia')
     expect(state().element.tagName).toBe('SELECT')
     expect(
       state()
@@ -376,8 +390,19 @@ describe('canonical registration intake', () => {
     await state().setValue('VIC')
     expect((state().element as HTMLSelectElement).value).toBe('VIC')
 
-    await wrapper.find('#supervisorIndividual-student-country').setValue('New Zealand')
+    await country().setValue('New Zealand')
     expect(state().element.tagName).toBe('INPUT')
+  })
+
+  it("gives a supervisor's student one full width email, and Areas of Interest with no *", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    const email = wrapper.get('#supervisorIndividual-student-email').element.closest('.registration-field')
+    expect(email?.classList.contains('registration-field--wide')).toBe(true)
+
+    const legend = wrapper.get('.interest-selector legend')
+    expect(legend.text()).toBe('Areas of Interest')
+    expect(wrapper.text()).not.toContain('Choose one or more areas')
   })
 
   it('shows Member 1, group-only interests and optional member guardian contact', async () => {

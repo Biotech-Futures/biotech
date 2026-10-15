@@ -1,5 +1,5 @@
-"""The registration form's state dropdown: a country's states as the database
-holds them, open to anyone (registration is)."""
+"""The registration form's country and state dropdowns: as the database holds
+them, open to anyone (registration is)."""
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -33,3 +33,14 @@ class RegistrationStatesTests(TestCase):
     def test_none_for_no_country_or_one_without_states(self):
         self.assertEqual(self.client.get(URL).json(), {"states": []})
         self.assertEqual(self.client.get(URL, {"country": "Atlantis"}).json(), {"states": []})
+
+
+class RegistrationCountriesTests(TestCase):
+    def test_lists_every_country_from_the_database_in_order(self):
+        Countries.objects.get_or_create(country_name="New Zealand")
+        Countries.objects.get_or_create(country_name="Australia")
+        response = APIClient().get("/api/v1/registration/countries/")
+        self.assertEqual(response.status_code, 200)
+        expected = list(Countries.objects.order_by("country_name").values_list("country_name", flat=True))
+        self.assertEqual(response.json()["countries"], expected)
+        self.assertIn("Australia", expected)

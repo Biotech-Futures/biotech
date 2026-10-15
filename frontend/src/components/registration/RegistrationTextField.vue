@@ -3,7 +3,7 @@
     <span :id="`${id}-label`" class="registration-field__label">
       {{ label }}
       <small v-if="optional">Optional</small>
-      <span v-else-if="required" aria-hidden="true">*</span>
+      <span v-else-if="required" class="required-mark" aria-hidden="true">*</span>
     </span>
     <textarea
       v-if="multiline"
