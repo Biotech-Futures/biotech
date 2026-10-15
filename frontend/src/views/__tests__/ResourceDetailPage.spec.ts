@@ -165,7 +165,7 @@ describe('AdminRecordedSessionFields', () => {
     await slidesInput.trigger('change')
 
     expect(wrapper.text()).toContain('Presentation slides must be a PDF file')
-    expect(wrapper.emitted('update:slidesFile')?.[0]).toEqual([null])
+    expect(wrapper.emitted('update:slides-file')?.[0]).toEqual([null])
   })
 
   it('accepts PDF file for slides and emits update', async () => {
@@ -189,6 +189,6 @@ describe('AdminRecordedSessionFields', () => {
     await slidesInput.trigger('change')
 
     expect(wrapper.text()).not.toContain('Presentation slides must be a PDF file')
-    expect(wrapper.emitted('update:slidesFile')?.[0]).toEqual([pdfFile])
+    expect(wrapper.emitted('update:slides-file')?.[0]).toEqual([pdfFile])
   })
 })

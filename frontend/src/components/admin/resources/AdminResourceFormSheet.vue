@@ -134,11 +134,8 @@
           :saving="saving"
           :is-editing="isEditing"
           @update:video-file="selectedFile = $event"
-          @update:videoFile="selectedFile = $event"
           @update:slides-file="selectedSlidesFile = $event"
-          @update:slidesFile="selectedSlidesFile = $event"
           @update:acknowledged-oversized="acknowledgedOversized = $event"
-          @update:acknowledgedOversized="acknowledgedOversized = $event"
         />
         <div v-else class="admin-resource-file-upload">
             <div class="admin-resource-file-upload__controls">

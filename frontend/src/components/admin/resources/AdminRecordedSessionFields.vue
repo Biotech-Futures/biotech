@@ -142,11 +142,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:videoFile', file: File | null): void
   (e: 'update:video-file', file: File | null): void
-  (e: 'update:slidesFile', file: File | null): void
   (e: 'update:slides-file', file: File | null): void
-  (e: 'update:acknowledgedOversized', val: boolean): void
   (e: 'update:acknowledged-oversized', val: boolean): void
 }>()
 
@@ -196,17 +193,14 @@ const triggerSlidesInput = () => {
 }
 
 const setVideoFile = (file: File | null) => {
-  emit('update:videoFile', file)
   emit('update:video-file', file)
 }
 
 const setSlidesFile = (file: File | null) => {
-  emit('update:slidesFile', file)
   emit('update:slides-file', file)
 }
 
 const setAcknowledgedOversized = (val: boolean) => {
-  emit('update:acknowledgedOversized', val)
   emit('update:acknowledged-oversized', val)
 }
 
