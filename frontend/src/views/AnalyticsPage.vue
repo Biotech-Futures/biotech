@@ -39,10 +39,7 @@
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
 
-    <p v-if="unavailableSources.length" class="partial-data-notice" role="status">
-      Some analytics modules are unavailable. Available statistics are shown below;
-      unavailable values are marked with a dash. Export requires all data sources.
-    </p>
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="refreshAnalytics" />
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -340,6 +337,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -368,8 +367,8 @@ const isEmpty = ref(false)
 const hasLoaded = ref(false)
 const exporting = ref(false)
 const exportError = ref('')
-const unavailableSources = ref<string[]>([])
-const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value || selectedData.value.modules.some((module) => module.unavailable))
+const unavailableSources = ref<AnalyticsSource[]>([])
+const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value || unavailableSources.value.length > 0 || selectedData.value.modules.some((module) => module.unavailable))
 
 const overviewSummary = computed(() => {
   const originalSummary = selectedData.value.summary

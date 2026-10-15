@@ -19,7 +19,7 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || !availableYears.length || userGroupCountsUnavailable || userRecentGroupCountsUnavailable || exporting" @click="exportCsv">
+          <button type="button" class="export-button" :disabled="loading || !!loadError || (contentMode === 'users' && (!sourceAvailable('users') || !sourceAvailable('groups'))) || !availableYears.length || userGroupCountsUnavailable || userRecentGroupCountsUnavailable || exporting" @click="exportCsv">
             <i class="fas fa-download" aria-hidden="true"></i>
             Export CSV
           </button>
@@ -31,6 +31,8 @@
     </div>
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
+
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="initializeMessages(true)" />
 
     <div v-if="loadError" role="alert" class="filter-card">
       <p>Message analytics could not be loaded. {{ loadError }}</p>
@@ -558,6 +560,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -587,6 +591,8 @@ const liveData = ref<MessagesAnalyticsYear>({
   weekly: [],
   monthWeeks: [],
 })
+const unavailableSources = ref<AnalyticsSource[]>([])
+const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const baseBundle = ref<CoreAnalyticsBundle | null>(null)
 const currentActivity = ref<GroupActivityResponse | null>(null)
@@ -616,11 +622,6 @@ function observedDatasetAnchor(bundle: CoreAnalyticsBundle) {
 
   const observedDays = [
     ...bundle.groupActivity.messages_by_day.map((row) => utcDay(row.date)),
-    ...bundle.users.flatMap((user) => [
-      utcDay(user.lastLogin),
-      utcDay(user.activatedAt),
-      utcDay(user.invitedAt),
-    ]),
   ].filter((day): day is string => day !== null)
 
   observedDays.sort()
@@ -653,6 +654,7 @@ async function initializeMessages(force = false, preserveFilters = false) {
     : null
   try {
     const bundle = await loadMessagesAnalyticsBundle(force)
+    unavailableSources.value = bundle.unavailableSources ?? []
     baseBundle.value = bundle
     datasetAnchorDay.value = observedDatasetAnchor(bundle)
     availableYears.value = messageYears(bundle.groupActivity)
@@ -1013,6 +1015,7 @@ function roleBadgeText(role: string) {
 }
 
 function userGroupName(userId: number | undefined) {
+  if (!sourceAvailable('groups')) return 'Group unavailable'
   if (userId === undefined || !baseBundle.value) return 'Group —'
   const id = String(userId)
   const names = baseBundle.value.groups

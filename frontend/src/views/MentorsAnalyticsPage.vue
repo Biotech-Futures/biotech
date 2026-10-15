@@ -30,6 +30,8 @@
         </div>
       </div>
     </header>
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="initializeMentors(true)" />
+
     <div v-if="loadError" class="range-error" role="alert">
       <span>Mentor analytics could not be loaded. {{ loadError }}</span>
       <button type="button" @click="initializeMentors(true)">Retry</button>
@@ -45,7 +47,7 @@
         <div class="kpi-copy">
           <span class="kpi-label">{{ item.label }}</span
           ><strong class="kpi-value">{{ item.value }}</strong>
-          <div v-if="item.label === 'Mentor Utilisation'" class="progress-track" aria-hidden="true">
+          <div v-if="item.label === 'Mentor Utilisation' && sourceAvailable('groups')" class="progress-track" aria-hidden="true">
             <span :style="{ width: snapshot.utilisation + '%' }"></span>
           </div>
           <small>{{ item.detail }}</small>
@@ -157,7 +159,7 @@
       </article>
     </section>
 
-    <section class="activity-grid" aria-label="Mentor activity in the selected range">
+    <section v-if="sourceAvailable('groupActivity')" class="activity-grid" aria-label="Mentor activity in the selected range">
       <article class="analytics-card activity-card">
         <h2>Mentor Activity by Month</h2>
         <p class="card-note">Unique mentors with a login or message · {{ rangeLabel }}</p>
@@ -255,7 +257,7 @@
       </article>
     </section>
     <section class="bottom-grid">
-      <article class="analytics-card">
+      <article v-if="sourceAvailable('groups')" class="analytics-card">
         <h2>Mentor Coverage</h2>
         <p class="card-note">Current group support across all {{ snapshot.total }} mentors.</p>
         <div
@@ -359,6 +361,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -381,6 +385,8 @@ import {
 
 const liveMentors = ref<DemoMentor[]>([])
 const liveEvents = ref<MentorEvent[]>([])
+const unavailableSources = ref<AnalyticsSource[]>([])
+const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const loading = ref(true)
 const mentorsSnapshotDate = ref(new Date().toISOString().slice(0, 10))
@@ -399,7 +405,11 @@ const snapshot = computed(() =>
   mentorSnapshot(liveMentors.value, liveEvents.value, mentorsSnapshotDate.value),
 )
 const mentorInsightItems = computed(() =>
-  snapshot.value.insights.map((item) => ({
+  snapshot.value.insights.filter((item) => {
+    if (['Unassigned mentors', 'Near capacity', 'Over capacity'].includes(item.label)) return sourceAvailable('groups')
+    if (['No login for more than 30 days', 'No recorded login'].includes(item.label)) return sourceAvailable('groupActivity')
+    return true
+  }).map((item) => ({
     key: item.label,
     value: item.value,
     text: item.label,
@@ -460,7 +470,9 @@ const kpis = computed(() => [
     icon: 'scale',
     detail: 'Unique students per assigned mentor',
   },
-])
+].map((item) => !sourceAvailable('groups') && item.label !== 'Total Mentors'
+  ? { ...item, value: '—', detail: 'Group allocation data is unavailable.' }
+  : item))
 
 type MentorChart = {
   title: string
@@ -470,7 +482,7 @@ type MentorChart = {
   axis?: string
 }
 
-const charts = computed<MentorChart[]>(() => [
+const charts = computed(() => ([
   {
     title: 'Mentor Status',
     note: 'Account state; onboarding includes invited / pending.',
@@ -510,7 +522,12 @@ const charts = computed<MentorChart[]>(() => [
     kind: 'vertical',
     axis: 'last login',
   },
-])
+] as MentorChart[]).filter((chart) => {
+  if (chart.title === 'Mentor Background') return sourceAvailable('users')
+  if (chart.title === 'Last Login Distribution') return sourceAvailable('groupActivity')
+  if (['Mentor Capacity Split', 'Groups per Mentor', 'Students per Mentor'].includes(chart.title)) return sourceAvailable('groups')
+  return true
+}))
 
 const coverageChart = computed<MentorChart>(() => ({
   title: 'Mentor Coverage',
@@ -609,7 +626,11 @@ function exportCsv() {
   if (rangeError.value) return
   try {
     const url = URL.createObjectURL(
-      new Blob([mentorsCsv(snapshot.value, activity.value, range.value, mentorsSnapshotDate.value)], {
+      new Blob([mentorsCsv(snapshot.value, activity.value, range.value, mentorsSnapshotDate.value, {
+        groups: sourceAvailable('groups'),
+        background: sourceAvailable('users'),
+        activity: sourceAvailable('groupActivity'),
+      })], {
         type: 'text/csv;charset=utf-8;',
       }),
     )
@@ -639,6 +660,7 @@ async function initializeMentors(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadMentorsAnalyticsBundle(force)
+    unavailableSources.value = bundle.unavailableSources ?? []
     const live = buildMentorData(bundle)
     liveMentors.value = live.mentors
     liveEvents.value = live.events

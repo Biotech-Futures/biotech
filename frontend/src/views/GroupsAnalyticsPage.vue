@@ -41,6 +41,8 @@
 
     <p v-if="exportError" role="alert">{{ exportError }}</p>
 
+    <AnalyticsPartialNotice :sources="unavailableSources" @retry="initializeGroups(true)" />
+
     <div v-if="loadError" class="range-error" role="alert">
       <span>Groups analytics could not be loaded. {{ loadError }}</span>
       <button type="button" @click="initializeGroups(true)">Retry</button>
@@ -103,7 +105,7 @@
 
     <section class="analytics-grid groups-custom-grid">
 
-<article class="analytics-card group-status-card">
+<article v-if="sourceAvailable('groupActivity')" class="analytics-card group-status-card">
         <h2>Group Status</h2>
         <div class="donut-layout">
           <div class="group-donut-wrap" @mouseleave="clearStatusSelection">
@@ -331,10 +333,11 @@
             <h2>Students not assigned to groups</h2>
             <p>Current students without a group assignment.</p>
           </div>
-          <strong>{{ studentsNotAssignedCount }}</strong>
+          <strong>{{ sourceAvailable('users') ? studentsNotAssignedCount : '—' }}</strong>
         </div>
 
-        <div class="group-issue-table-wrap">
+        <p v-if="!sourceAvailable('users')" role="status">Student allocation details are unavailable.</p>
+        <div v-else class="group-issue-table-wrap">
           <table class="group-issue-table">
             <thead>
               <tr>
@@ -402,6 +405,8 @@
 </template>
 
 <script setup lang="ts">
+import AnalyticsPartialNotice from '@/components/analytics/AnalyticsPartialNotice.vue'
+import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
@@ -440,6 +445,8 @@ const liveData = ref<GroupsAnalyticsYear>({
 })
 const liveUsers = ref<AdminUser[]>([])
 const liveGroups = ref<AdminGroup[]>([])
+const unavailableSources = ref<AnalyticsSource[]>([])
+const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const loading = ref(true)
 const exporting = ref(false)
@@ -460,6 +467,7 @@ async function initializeGroups(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadGroupsAnalyticsBundle(force)
+    unavailableSources.value = bundle.unavailableSources ?? []
     // User records are needed for current allocation only. Keep the existing
     // group charts and year range anchored to group message activity.
     const activityBundle = { ...bundle, users: [] }
@@ -523,7 +531,7 @@ const groupInsightItems = computed(() => [
     text: `groups (${percent(data.value.groupsWithoutMentor, data.value.totalGroups)}%) do not have a mentor assigned.`,
   },
   { key: 'small', value: data.value.smallGroups, text: 'groups have fewer than 3 students.' },
-  { key: 'inactive', value: data.value.inactiveRecent, text: 'groups have had no activity in the past 7 days.' },
+  ...(sourceAvailable('groupActivity') ? [{ key: 'inactive', value: data.value.inactiveRecent, text: 'groups have had no activity in the past 7 days.' }] : []),
   { key: 'capacity', value: data.value.nearCapacity, text: 'groups are nearing capacity (10+ students).' },
 ])
 
