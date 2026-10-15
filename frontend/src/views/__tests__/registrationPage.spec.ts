@@ -1,4 +1,4 @@
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -27,8 +27,17 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
   await button!.trigger('click')
 }
 
+// Upload students by CSV is hidden from the options for now; its flow,
+// opened directly.
+const openCsvUpload = async (wrapper: VueWrapper) => {
+  ;(wrapper.vm as unknown as { selectJourney: (journey: string) => void }).selectJourney('supervisor_csv')
+  await wrapper.vm.$nextTick()
+}
+
 beforeEach(() => {
   vi.stubGlobal('scrollTo', vi.fn())
+  // No countries or states to load (text boxes), unless a test gives some.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({}))))
 })
 
 afterEach(() => {
@@ -112,7 +121,8 @@ describe('canonical registration intake', () => {
         if (mode === 'canonical') {
           await clickButton(wrapper, journey === 'Register as a mentor' ? 'Mentor' : 'Student')
         }
-        if (journey !== 'Register as a mentor') {
+        if (journey === 'Upload students by CSV') await openCsvUpload(wrapper)
+        else if (journey !== 'Register as a mentor') {
           await clickButton(wrapper, journey)
         }
         expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
@@ -215,7 +225,7 @@ describe('canonical registration intake', () => {
 
   it('preserves CSV preview and explicit invalid-row exclusion controls', async () => {
     const wrapper = mountPage('supervisor')
-    await clickButton(wrapper, 'Upload students by CSV')
+    await openCsvUpload(wrapper)
 
     const setup = wrapper.vm as unknown as {
       currentStep: number
@@ -279,7 +289,8 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain('Register students')
     expect(wrapper.text()).not.toContain('How are you registering students?')
     expect(wrapper.text()).not.toContain('Step 2 of 2')
-    expect(wrapper.find('.setup-heading--supervisor').exists()).toBe(true)
+    // The platform's own page heading, as on the portal's other pages.
+    expect(wrapper.find('#pathway-title').classes()).toContain('page-title')
     await clickButton(wrapper, 'Register one student')
     expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
       'Student',
@@ -306,7 +317,7 @@ describe('canonical registration intake', () => {
     expect(group.text()).toContain('Add 2–5 students')
 
     const csv = mountPage('supervisor')
-    await clickButton(csv, 'Upload students by CSV')
+    await openCsvUpload(csv)
     expect(csv.text()).toContain('Choose completed CSV')
   })
 
@@ -321,7 +332,7 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).not.toContain('Automatic BTF name')
   })
 
-  it('requires confirmation email for every manually entered student but not CSV', async () => {
+  it("confirms the email of students registering themselves, not of a supervisor's students", async () => {
     const team = mountPage()
     await clickButton(team, 'Student')
     await clickButton(team, 'Create a student group')
@@ -335,22 +346,127 @@ describe('canonical registration intake', () => {
     const supervisorSetup = supervisor.vm as unknown as { currentStep: number }
     supervisorSetup.currentStep = 0
     await supervisor.vm.$nextTick()
-    expect(supervisor.text()).toContain('Confirm student email')
+    expect(supervisor.text()).not.toContain('Confirm student email')
 
     const group = mountPage('supervisor')
     await clickButton(group, 'Register a student group')
     const groupSetup = group.vm as unknown as { currentStep: number }
     groupSetup.currentStep = 1
     await group.vm.$nextTick()
-    expect(group.text().match(/Confirm student email/g)).toHaveLength(2)
+    expect(group.text()).not.toContain('Confirm student email')
     expect(group.text()).not.toContain('group name')
 
     const csv = mountPage('supervisor')
-    await clickButton(csv, 'Upload students by CSV')
+    await openCsvUpload(csv)
     const csvSetup = csv.vm as unknown as { currentStep: number }
     csvSetup.currentStep = 0
     await csv.vm.$nextTick()
     expect(csv.text()).not.toContain('Confirm student email')
+  })
+
+  it('adds students to Register one student on the same page, its heading and steps unchanged', async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    const add = wrapper.findAll('.form-footer button').find((button) => button.text() === 'Add student')!
+    await add.trigger('click')
+
+    expect(wrapper.get('.page-title').text()).toBe('Register one student')
+    expect(wrapper.findAll('.step-navigation button')).toHaveLength(2)
+    expect(wrapper.findAll('.student-entry__heading h3').map((heading) => heading.text())).toEqual([
+      'Student 1',
+      'Student 2',
+    ])
+    expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
+    expect(wrapper.find('#supervisorIndividual-extraStudents-0-email').exists()).toBe(true)
+
+    // Student 2 can go again; Student 1 can't.
+    const removes = wrapper.findAll('.student-entry__heading button')
+    expect(removes).toHaveLength(1)
+    await removes[0]!.trigger('click')
+    expect(wrapper.find('.student-entry__heading').exists()).toBe(false)
+  })
+
+  it('offers a supervisor no CSV upload for now', () => {
+    const wrapper = mountPage('supervisor')
+    expect(wrapper.text()).toContain('Register one student')
+    expect(wrapper.text()).toContain('Register a student group')
+    expect(wrapper.text()).not.toContain('Upload students by CSV')
+  })
+
+  it("offers the database's countries, and Australia's states, as dropdowns", async () => {
+    const countries = ['Australia', 'New Zealand']
+    const states = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA']
+    const send = vi.fn<typeof fetch>(async (url) =>
+      new Response(JSON.stringify(String(url).includes('/states/') ? { states } : { countries })),
+    )
+    vi.stubGlobal('fetch', send)
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    await flushPromises()
+    const country = () => wrapper.find('#supervisorIndividual-student-country')
+    const state = () => wrapper.find('#supervisorIndividual-student-state')
+
+    const asked = send.mock.calls.map(([url]) => String(url))
+    expect(asked.some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
+    expect(asked.some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
+    expect(country().element.tagName).toBe('SELECT')
+    expect(
+      country()
+        .findAll('option')
+        .slice(1)
+        .map((option) => option.attributes('value')),
+    ).toEqual(countries)
+    expect((country().element as HTMLSelectElement).value).toBe('Australia')
+    expect(state().element.tagName).toBe('SELECT')
+    expect(
+      state()
+        .findAll('option')
+        .slice(1)
+        .map((option) => option.attributes('value')),
+    ).toEqual(states)
+    await state().setValue('VIC')
+    expect((state().element as HTMLSelectElement).value).toBe('VIC')
+
+    await country().setValue('New Zealand')
+    expect(state().element.tagName).toBe('INPUT')
+  })
+
+  it("shows a supervisor's saved registration as the steps' last page, with what Review showed", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    const setup = wrapper.vm as unknown as { success: unknown }
+    setup.success = {
+      referenceCode: 'REG-1',
+      journey: 'supervisor_individual',
+      studentCount: 1,
+      submittedAt: '2026-10-16T00:08:00Z',
+    }
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.success-panel').exists()).toBe(false)
+    expect(wrapper.get('.page-title').text()).toBe('Register one student')
+    expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(2)
+    const body = wrapper.get('.success-body')
+    expect(body.get('h3').text()).toBe('Registration complete')
+    expect(body.text()).not.toContain('REG-1')
+    // What Review showed (the student), then when it was registered.
+    expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual(['Student'])
+    // The last section's last row.
+    const completed = body.findAll('.review-section dl > div').at(-1)!
+    expect(completed.get('dt').text()).toBe('Registration completed')
+    expect(completed.get('dd').text()).toMatch(/16 Oct|15 Oct/)
+    expect(body.get('.form-footer').text()).toContain('Register another student')
+  })
+
+  it("gives a supervisor's student one full width email, and Areas of Interest with no *", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    const email = wrapper.get('#supervisorIndividual-student-email').element.closest('.registration-field')
+    expect(email?.classList.contains('registration-field--wide')).toBe(true)
+
+    const legend = wrapper.get('.interest-selector legend')
+    expect(legend.text()).toBe('Areas of Interest')
+    expect(wrapper.text()).not.toContain('Choose one or more areas')
   })
 
   it('shows Member 1, group-only interests and optional member guardian contact', async () => {

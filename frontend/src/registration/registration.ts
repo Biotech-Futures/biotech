@@ -108,6 +108,9 @@ export interface StudentTeamForm {
 export interface SupervisorIndividualForm {
   student: StudentDetails
   groupingPreference: '' | 'school_only' | 'cross_school'
+  /** Students added with Add student: with ``student``, registered as one
+   *  group (sent as a supervisor's group). */
+  extraStudents: StudentDetails[]
 }
 
 export interface SupervisorGroupForm {
@@ -183,6 +186,8 @@ export const createGuardian = (): GuardianDetails => ({
   relationshipOther: '',
 })
 
+export const isAustralia = (country: string) => country.trim().toLowerCase() === 'australia'
+
 export const createStudent = (options: { deferGuardian?: boolean } = {}): StudentDetails => ({
   firstName: '',
   lastName: '',
@@ -234,6 +239,7 @@ export const createRegistrationForms = (): RegistrationForms => ({
   supervisorIndividual: {
     student: createStudent({ deferGuardian: true }),
     groupingPreference: '',
+    extraStudents: [],
   },
   supervisorGroup: {
     students: [createStudent({ deferGuardian: true }), createStudent({ deferGuardian: true })],
@@ -384,12 +390,8 @@ const csvRowCategory = (
     reviewIssues.push(`Interest needs review: ${unknownInterests.join(', ')}.`)
   }
 
-  const guardianCore = [
-    values.guardian_first_name,
-    values.guardian_last_name,
-    values.guardian_email,
-    values.guardian_relationship,
-  ]
+  // A guardian is their name and email; a relationship, if given, is checked above.
+  const guardianCore = [values.guardian_first_name, values.guardian_last_name, values.guardian_email]
   if (guardianCore.every((entry) => !entry)) {
     reviewIssues.push('Guardian details are deferred; student follow-up will be required.')
   } else if (guardianCore.some((entry) => !entry)) {
@@ -494,7 +496,12 @@ const studentEmailsForJourney = (
     ]
   }
   if (journey === 'supervisor_individual') {
-    return [{ label: 'Student', email: forms.supervisorIndividual.student.email }]
+    const extra = forms.supervisorIndividual.extraStudents
+    if (!extra.length) return [{ label: 'Student', email: forms.supervisorIndividual.student.email }]
+    return [forms.supervisorIndividual.student, ...extra].map((student, index) => ({
+      label: `Student ${index + 1}`,
+      email: student.email,
+    }))
   }
   if (journey === 'supervisor_group') {
     return forms.supervisorGroup.students.map((student, index) => ({
@@ -531,7 +538,13 @@ const adultEmailsForJourney = (
     ]
   }
   if (journey === 'supervisor_individual') {
-    return [{ label: 'Guardian', email: forms.supervisorIndividual.student.guardian.email }]
+    const extra = forms.supervisorIndividual.extraStudents
+    if (!extra.length)
+      return [{ label: 'Guardian', email: forms.supervisorIndividual.student.guardian.email }]
+    return [forms.supervisorIndividual.student, ...extra].map((student, index) => ({
+      label: `Student ${index + 1} guardian`,
+      email: student.guardian.email,
+    }))
   }
   if (journey === 'supervisor_group') {
     return forms.supervisorGroup.students.map((student, index) => ({

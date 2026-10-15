@@ -1,5 +1,9 @@
 <template>
-  <main class="registration-page" :class="{ 'registration-page--supervisor': isSupervisorMode }">
+  <!-- A supervisor's, in the portal: laid out as its other pages are. -->
+  <main
+    class="registration-page"
+    :class="{ 'registration-page--supervisor content-area': isSupervisorMode }"
+  >
     <header v-if="!isSupervisorMode" class="registration-header">
       <RouterLink to="/login" class="brand-link" aria-label="BIOTech Connect home">
         <img :src="logo" :alt="BRAND_NAME" />
@@ -8,7 +12,75 @@
       <RouterLink to="/login" class="sign-in-link">Already registered? Sign in</RouterLink>
     </header>
 
-    <section v-if="success" class="success-panel" aria-live="polite">
+    <!-- A supervisor's, in the portal: as the steps before it, every step
+         done, with Complete and what was saved. -->
+    <div v-if="success && isSupervisorMode" class="work-layout">
+      <aside class="journey-context">
+        <header class="page-header">
+          <h1 class="page-title">{{ selectedJourney?.title }}</h1>
+          <p class="page-subtitle">{{ selectedJourney?.description }}</p>
+        </header>
+      </aside>
+
+      <section class="form-surface" aria-live="polite">
+        <div class="step-bar">
+          <nav class="step-navigation" aria-label="Registration progress">
+            <ol>
+              <li v-for="(step, index) in steps" :key="step.label">
+                <span class="tab-pill complete">
+                  <span>{{ index + 1 }}</span>
+                  <span class="step-navigation__label">{{ step.label }}</span>
+                </span>
+              </li>
+            </ol>
+          </nav>
+        </div>
+
+        <!-- What Review showed, then when it was registered. -->
+        <div class="success-body">
+          <div class="success-intro">
+            <h3>Registration complete</h3>
+            <p class="success-note">Guardian consent is still required before full registration.</p>
+          </div>
+          <div class="review-step">
+            <div
+              v-for="(section, sectionIndex) in reviewSections"
+              :key="section.title"
+              class="review-section"
+            >
+              <h3>{{ section.title }}</h3>
+              <dl>
+                <div v-for="item in section.items" :key="item.label">
+                  <dt>{{ item.label }}</dt>
+                  <dd v-if="item.parts" class="review-parts">
+                    <span v-for="(part, index) in item.parts" :key="index">{{ part }}</span>
+                  </dd>
+                  <dd v-else>{{ item.value || 'Not provided' }}</dd>
+                </div>
+                <!-- When, as the last section's last row. -->
+                <div v-if="sectionIndex === reviewSections.length - 1">
+                  <dt>Registration completed</dt>
+                  <dd>{{ formatDayMonthTime(success.submittedAt) }}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <footer class="form-footer">
+            <RouterLink to="/dashboard" class="secondary-action">Return to dashboard</RouterLink>
+            <button type="button" class="primary-action" @click="startAnotherRegistration">
+              {{
+                journey === 'supervisor_individual'
+                  ? 'Register another student'
+                  : 'Start another journey'
+              }}
+            </button>
+          </footer>
+        </div>
+      </section>
+    </div>
+
+    <section v-else-if="success" class="success-panel" aria-live="polite">
       <div class="success-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24">
           <path d="m5 12 4.2 4.2L19 6.5" />
@@ -83,7 +155,9 @@
       class="setup-layout"
       aria-labelledby="role-title"
     >
-      <button type="button" class="setup-back" @click="selectionStage = 'welcome'">← Back</button>
+      <button type="button" class="btn btn-outline btn-sm setup-back" @click="selectionStage = 'welcome'">
+        <i class="fas fa-chevron-left" aria-hidden="true"></i> Back
+      </button>
       <header class="setup-heading">
         <h1 id="role-title">Who are you registering as?</h1>
       </header>
@@ -131,18 +205,22 @@
     <section
       v-else-if="!journey && selectionStage === 'pathway'"
       class="setup-layout"
-      :class="{ 'setup-layout--supervisor': isSupervisorMode }"
       aria-labelledby="pathway-title"
     >
       <button
         v-if="!isSupervisorMode"
         type="button"
-        class="setup-back"
+        class="btn btn-outline btn-sm setup-back"
         @click="backToRoleSelection"
       >
-        ← Back to roles
+        <i class="fas fa-chevron-left" aria-hidden="true"></i> Back to roles
       </button>
-      <header class="setup-heading" :class="{ 'setup-heading--supervisor': isSupervisorMode }">
+      <!-- A supervisor's, in the portal: the platform's own page heading. -->
+      <header v-if="isSupervisorMode" class="page-header">
+        <h1 id="pathway-title" class="page-title">{{ pathwayHeading }}</h1>
+        <p class="page-subtitle">Register students individually, as a group or from a CSV.</p>
+      </header>
+      <header v-else class="setup-heading">
         <h1 id="pathway-title">{{ pathwayHeading }}</h1>
       </header>
       <div class="pathway-choices">
@@ -157,7 +235,9 @@
             <strong>{{ option.title }}</strong>
             <small>{{ option.description }}</small>
           </span>
-          <span class="pathway-choice__arrow" aria-hidden="true">Continue →</span>
+          <span class="btn btn-outline btn-sm pathway-choice__arrow" aria-hidden="true">
+            Continue <i class="fas fa-chevron-right"></i>
+          </span>
         </button>
       </div>
     </section>
@@ -166,32 +246,49 @@
       <aside class="journey-context">
         <button
           type="button"
-          class="change-journey"
+          class="btn btn-outline btn-sm change-journey"
           :disabled="isCsvEditing"
           @click="changeJourney"
         >
-          ← Change registration type
+          <i class="fas fa-chevron-left" aria-hidden="true"></i> Change registration type
         </button>
-        <h1>{{ selectedJourney?.title }}</h1>
+        <!-- A supervisor's, in the portal: the platform's own page heading. -->
+        <header v-if="isSupervisorMode" class="page-header">
+          <h1 class="page-title">{{ selectedJourney?.title }}</h1>
+          <p class="page-subtitle">{{ selectedJourney?.description }}</p>
+        </header>
+        <h1 v-else>{{ selectedJourney?.title }}</h1>
       </aside>
 
       <section class="form-surface">
-        <nav class="step-navigation" aria-label="Registration progress">
-          <ol>
-            <li v-for="(step, index) in steps" :key="step.label">
-              <button
-                type="button"
-                :class="{ current: currentStep === index, complete: index < currentStep }"
-                :disabled="index > maxReachedStep || isCsvEditing"
-                :aria-current="currentStep === index ? 'step' : undefined"
-                @click="goToStep(index)"
-              >
-                <span>{{ index + 1 }}</span>
-                <span class="step-navigation__label">{{ step.label }}</span>
-              </button>
-            </li>
-          </ol>
-        </nav>
+        <!-- The steps, with what * means at the right. -->
+        <div class="step-bar">
+          <nav class="step-navigation" aria-label="Registration progress">
+            <ol>
+              <li v-for="(step, index) in steps" :key="step.label">
+                <button
+                  type="button"
+                  class="tab-pill"
+                  :class="{
+                    active: currentStep === index,
+                    current: currentStep === index,
+                    complete: index < currentStep,
+                  }"
+                  :disabled="index > maxReachedStep || isCsvEditing"
+                  :aria-current="currentStep === index ? 'step' : undefined"
+                  @click="goToStep(index)"
+                >
+                  <span>{{ index + 1 }}</span>
+                  <span class="step-navigation__label">{{ step.label }}</span>
+                </button>
+              </li>
+            </ol>
+          </nav>
+          <!-- Not on Review, which has no fields. -->
+          <p v-if="steps[currentStep]?.label !== 'Review'" class="form-required-note">
+            Fields marked <span class="required-mark">*</span> are required.
+          </p>
+        </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
           <section
@@ -389,7 +486,9 @@
                 <div class="student-entry creator-summary">
                   <div class="student-entry__heading">
                     <h3>Member 1 (you)</h3>
-                    <button type="button" @click="goToStep(0)">Edit your details</button>
+                    <button type="button" class="btn btn-outline btn-sm" @click="goToStep(0)">
+                      <i class="fas fa-pen" aria-hidden="true"></i> Edit your details
+                    </button>
                   </div>
                   <dl>
                     <div>
@@ -413,9 +512,10 @@
                     <button
                       v-if="forms.studentTeam.teammates.length > 1"
                       type="button"
+                      class="btn btn-outline-danger btn-sm"
                       @click="removeStudentTeammate(index)"
                     >
-                      Remove
+                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
                     </button>
                   </div>
                   <RegistrationStudentEditor
@@ -528,15 +628,52 @@
             </template>
 
             <template v-else-if="journey === 'supervisor_individual'">
-              <RegistrationStudentEditor
-                v-if="currentStep === 0"
-                v-model:student="forms.supervisorIndividual.student"
-                prefix="supervisorIndividual.student"
-                section="full"
-                :errors="errors"
-                allow-guardian-defer
-                require-email-confirm
-              />
+              <!-- With students added (Add student), each in turn, all in one group. -->
+              <div v-if="currentStep === 0" class="step-stack">
+                <div
+                  :class="{
+                    'student-entry student-entry--first':
+                      forms.supervisorIndividual.extraStudents.length,
+                  }"
+                >
+                  <div
+                    v-if="forms.supervisorIndividual.extraStudents.length"
+                    class="student-entry__heading"
+                  >
+                    <h3>Student 1</h3>
+                  </div>
+                  <RegistrationStudentEditor
+                    v-model:student="forms.supervisorIndividual.student"
+                    prefix="supervisorIndividual.student"
+                    section="full"
+                    :errors="errors"
+                    allow-guardian-defer
+                  />
+                </div>
+                <div
+                  v-for="(student, index) in forms.supervisorIndividual.extraStudents"
+                  :key="`extra-student-${index}`"
+                  class="student-entry"
+                >
+                  <div class="student-entry__heading">
+                    <h3>Student {{ index + 2 }}</h3>
+                    <button
+                      type="button"
+                      class="btn btn-outline-danger btn-sm"
+                      @click="removeExtraStudent(index)"
+                    >
+                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
+                    </button>
+                  </div>
+                  <RegistrationStudentEditor
+                    v-model:student="forms.supervisorIndividual.extraStudents[index]"
+                    :prefix="`supervisorIndividual.extraStudents.${index}`"
+                    section="full"
+                    :errors="errors"
+                    allow-guardian-defer
+                  />
+                </div>
+              </div>
             </template>
 
             <template v-else-if="journey === 'supervisor_group'">
@@ -551,22 +688,13 @@
               </div>
 
               <div v-else-if="currentStep === 1" class="step-stack">
-                <div class="section-divider section-divider--with-action section-divider--first">
-                  <div>
-                    <h3>Students</h3>
-                    <p>
-                      Enter 2–5 complete student records. Guardian details can be deferred for the
-                      student’s private follow-up journey.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="small-action"
-                    :disabled="forms.supervisorGroup.students.length >= 5"
-                    @click="addSupervisorGroupStudent"
-                  >
-                    Add student
-                  </button>
+                <!-- Add student is in the footer, beside Continue. -->
+                <div class="section-divider section-divider--first">
+                  <h3>Students</h3>
+                  <p>
+                    Enter 2–5 complete student records. Guardian details can be deferred for the
+                    student’s private follow-up journey.
+                  </p>
                 </div>
                 <div
                   v-for="(student, index) in forms.supervisorGroup.students"
@@ -575,12 +703,14 @@
                 >
                   <div class="student-entry__heading">
                     <h3>Student {{ index + 1 }}</h3>
+                    <!-- A group always has Students 1 and 2; only those after can go. -->
                     <button
-                      v-if="forms.supervisorGroup.students.length > 2"
+                      v-if="index >= 2"
                       type="button"
+                      class="btn btn-outline-danger btn-sm"
                       @click="removeSupervisorGroupStudent(index)"
                     >
-                      Remove
+                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
                     </button>
                   </div>
                   <RegistrationStudentEditor
@@ -589,7 +719,6 @@
                     section="full"
                     :errors="errors"
                     allow-guardian-defer
-                    require-email-confirm
                   />
                 </div>
               </div>
@@ -610,7 +739,7 @@
                   </button>
                 </div>
                 <label class="csv-upload">
-                  <span>Choose completed CSV <span aria-hidden="true">*</span></span>
+                  <span>Choose completed CSV <span class="required-mark" aria-hidden="true">*</span></span>
                   <input
                     type="file"
                     accept=".csv,text/csv"
@@ -788,13 +917,18 @@
                   id="mentor-country"
                   v-model="forms.mentor.country"
                   label="Country"
+                  :options="mentorCountryOptions.length ? mentorCountryOptions : undefined"
+                  :placeholder="mentorCountryOptions.length ? 'Select a country' : undefined"
                   :error="errors['mentor.country']"
                   required
                 />
+                <!-- In Australia, a dropdown of its states and territories. -->
                 <RegistrationTextField
                   id="mentor-state"
                   v-model="forms.mentor.state"
                   label="State or region"
+                  :options="mentorStateOptions.length ? mentorStateOptions : undefined"
+                  :placeholder="mentorStateOptions.length ? 'Select a state' : undefined"
                   :error="errors['mentor.state']"
                   required
                 />
@@ -878,7 +1012,7 @@
                   :error="errors['mentor.interests']"
                 />
                 <label class="select-field">
-                  <span>Capacity <span aria-hidden="true">*</span></span>
+                  <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
                   <select
                     id="mentor-capacity"
                     v-model="forms.mentor.capacity"
@@ -940,7 +1074,7 @@
                     wide
                   />
                   <label class="select-field">
-                    <span>Indigenous identification <small>Optional</small></span>
+                    <span>Indigenous identification <small>(Optional)</small></span>
                     <select v-model="forms.mentor.indigenousStatus">
                       <option value="">Select an option</option>
                       <option>Yes</option>
@@ -1020,23 +1154,41 @@
                 <dl>
                   <div v-for="item in section.items" :key="item.label">
                     <dt>{{ item.label }}</dt>
-                    <dd>{{ item.value || 'Not provided' }}</dd>
+                    <dd v-if="item.parts" class="review-parts">
+                      <span v-for="(part, index) in item.parts" :key="index">{{ part }}</span>
+                    </dd>
+                    <dd v-else>{{ item.value || 'Not provided' }}</dd>
                   </div>
                 </dl>
               </div>
             </div>
           </section>
 
+          <!-- On the right; the steps above go back, and Change registration
+               type back to the start. A group's students are added here. -->
           <footer class="form-footer">
+            <!-- On Register one student: the student and another, in one group. -->
+            <p v-if="journey === 'supervisor_individual' && currentStep === 0" class="form-footer-note">
+              Adding a student will put them in the same group
+            </p>
             <button
+              v-if="journey === 'supervisor_individual' && currentStep === 0"
               type="button"
               class="secondary-action"
-              :disabled="isSubmitting || isCsvEditing"
-              @click="goBack"
+              :disabled="isSubmitting || forms.supervisorIndividual.extraStudents.length >= 4"
+              @click="addExtraStudent"
             >
-              {{ currentStep === 0 ? 'Back to registration type' : 'Back' }}
+              Add student
             </button>
-            <p>Fields marked * are required.</p>
+            <button
+              v-if="journey === 'supervisor_group' && currentStep === 1"
+              type="button"
+              class="secondary-action"
+              :disabled="isSubmitting || forms.supervisorGroup.students.length >= 5"
+              @click="addSupervisorGroupStudent"
+            >
+              Add student
+            </button>
             <button
               type="submit"
               class="primary-action"
@@ -1070,6 +1222,8 @@ import RegistrationStudentEditor from '@/components/registration/RegistrationStu
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
+import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { formatDayMonthTime } from '@/utils/date'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -1095,6 +1249,7 @@ import {
   type RegistrationJourney,
   type StudentDetails,
   type SupervisorDetails,
+  type SupervisorGroupForm,
 } from '@/registration/registration'
 
 interface StepDefinition {
@@ -1122,8 +1277,16 @@ interface RoleOption {
 
 interface ReviewSection {
   title: string
-  items: Array<{ label: string; value: string }>
+  // ``parts``, when given, are shown in columns that line up row to row.
+  items: Array<{ label: string; value: string; parts?: string[] }>
 }
+
+// A member's row on Review: their name, email and guardian, in columns.
+const memberParts = (student: StudentDetails) => [
+  studentName(student),
+  student.email,
+  `Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
+]
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 const MAX_CSV_BYTES = 2 * 1024 * 1024
@@ -1144,7 +1307,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'supervisor',
     title: 'Supervisor or teacher',
-    description: 'Register students individually, as a group, or from a CSV.',
+    description: 'Register students individually, as a group or from a CSV.',
   },
   {
     value: 'mentor',
@@ -1232,7 +1395,7 @@ const journeyOptions: JourneyOption[] = [
     value: 'supervisor_group',
     role: 'Supervisor / teacher',
     title: 'Register a student group',
-    description: 'Create a pre-formed group with 2–5 complete student entries.',
+    description: 'Create a pre-formed group with 2-5 complete student entries.',
     steps: [
       {
         label: 'Group',
@@ -1256,7 +1419,7 @@ const journeyOptions: JourneyOption[] = [
     role: 'Supervisor / teacher',
     title: 'Upload students by CSV',
     description:
-      'Use the prescribed template, parse it locally, and resolve row issues before save.',
+      'Use the prescribed template, parse it locally and resolve row issues before save.',
     steps: [
       {
         label: 'Upload',
@@ -1341,6 +1504,10 @@ const unavailableGateway: RegistrationGateway = {
 }
 const registrationGateway = injectedGateway || unavailableGateway
 const forms = reactive(createRegistrationForms())
+// The countries, and in Australia its states, from the database, for the
+// mentor's dropdowns.
+const mentorCountryOptions = useCountryOptions()
+const mentorStateOptions = useStateOptions(() => forms.mentor.country)
 const journey = ref<RegistrationJourney | null>(null)
 const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'role')
 const selectedRole = ref<RegistrationRole | null>(isSupervisorMode.value ? 'supervisor' : null)
@@ -1402,8 +1569,10 @@ const roleJourneyOptions = computed(() => {
     )
   }
   if (selectedRole.value === 'supervisor') {
+    // Upload students by CSV (supervisor_csv) is hidden for now; its flow is
+    // kept, to offer again by adding it back here.
     return journeyOptions.filter((option) =>
-      ['supervisor_individual', 'supervisor_group', 'supervisor_csv'].includes(option.value),
+      ['supervisor_individual', 'supervisor_group'].includes(option.value),
     )
   }
   return journeyOptions.filter((option) => option.value === 'mentor')
@@ -1436,6 +1605,13 @@ const warningSubject = (warning: RegistrationWarning) => {
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
   if (student) return `Student ${Number(student[1]) + 1} - ${field}`
+  const extra = /^supervisorIndividual\.extraStudents\.(\d+)\./.exec(warning.field)
+  if (extra) return `Student ${Number(extra[1]) + 2} - ${field}`
+  if (
+    warning.field.startsWith('supervisorIndividual.student.') &&
+    forms.supervisorIndividual.extraStudents.length
+  )
+    return `Student 1 - ${field}`
   const teammate = /^studentTeam\.teammates\.(\d+)\./.exec(warning.field)
   if (teammate) return `Member ${Number(teammate[1]) + 2} - ${field}`
   return warning.field.startsWith('studentTeam.creator.') ? `Member 1 (you) - ${field}` : field
@@ -1550,10 +1726,12 @@ const reviewSections = computed<ReviewSection[]>(() => {
             {
               label: 'Member 1 (you)',
               value: `${studentName(forms.studentTeam.creator)} · ${forms.studentTeam.creator.email}`,
+              parts: [studentName(forms.studentTeam.creator), forms.studentTeam.creator.email],
             },
             ...forms.studentTeam.teammates.map((student, index) => ({
               label: `Member ${index + 2}`,
-              value: `${studentName(student)} · ${student.email} · Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
+              value: memberParts(student).join(' · '),
+              parts: memberParts(student),
             })),
             {
               label: 'Creator guardian',
@@ -1569,6 +1747,22 @@ const reviewSections = computed<ReviewSection[]>(() => {
         },
       ]
     case 'supervisor_individual':
+      if (forms.supervisorIndividual.extraStudents.length) {
+        const students = [
+          forms.supervisorIndividual.student,
+          ...forms.supervisorIndividual.extraStudents,
+        ]
+        return [
+          {
+            title: 'Group members',
+            items: students.map((student, index) => ({
+              label: `Student ${index + 1}`,
+              value: memberParts(student).join(' · '),
+              parts: memberParts(student),
+            })),
+          },
+        ]
+      }
       return [
         {
           title: 'Student',
@@ -1587,17 +1781,11 @@ const reviewSections = computed<ReviewSection[]>(() => {
     case 'supervisor_group':
       return [
         {
-          title: 'Group',
-          items: [
-            { label: 'Students', value: String(forms.supervisorGroup.students.length) },
-            { label: 'Interests', value: interestSummary(forms.supervisorGroup.interests) },
-          ],
-        },
-        {
-          title: 'Members',
+          title: 'Group members',
           items: forms.supervisorGroup.students.map((student, index) => ({
             label: `Student ${index + 1}`,
-            value: `${studentName(student)} · ${student.email} · Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
+            value: memberParts(student).join(' · '),
+            parts: memberParts(student),
           })),
         },
       ]
@@ -1710,45 +1898,30 @@ const validateStudentIdentity = (student: StudentDetails, prefix: string, confir
   }
 }
 
-const validateStudentProfile = (
-  student: StudentDetails,
-  prefix: string,
-  requireInterests = true,
-) => {
+// A student's Areas of Interest are optional.
+const validateStudentProfile = (student: StudentDetails, prefix: string) => {
   requireValue(`${prefix}.school`, student.school, 'Enter the student school.')
   requireValue(`${prefix}.yearLevel`, student.yearLevel, 'Select the student year level.')
   requireValue(`${prefix}.country`, student.country, 'Enter the student country.')
   if (student.country.trim().toLowerCase() === 'australia')
     requireValue(`${prefix}.state`, student.state, 'Enter the Australian state or territory.')
-  if (requireInterests && !student.interests.length)
-    clientErrors[`${prefix}.interests`] = 'Choose at least one student interest.'
   if (student.pronouns === 'Other') {
     requireValue(`${prefix}.pronounsOther`, student.pronounsOther, 'Enter the student pronouns.')
   }
 }
 
+// A guardian is their name and email, as on the Guardian Details form.
 const validateGuardian = (student: StudentDetails, prefix: string, canDefer = true) => {
   if (canDefer && student.guardianDeferred) return
   const guardian = student.guardian
   requireValue(`${prefix}.guardian.firstName`, guardian.firstName, 'Enter the guardian first name.')
   requireValue(`${prefix}.guardian.lastName`, guardian.lastName, 'Enter the guardian last name.')
   validateEmail(`${prefix}.guardian.email`, guardian.email, 'Guardian email')
-  requireValue(
-    `${prefix}.guardian.relationship`,
-    guardian.relationship,
-    'Select the guardian relationship.',
-  )
-  if (guardian.relationship === 'Other') {
-    requireValue(
-      `${prefix}.guardian.relationshipOther`,
-      guardian.relationshipOther,
-      'Describe the guardian relationship.',
-    )
-  }
 }
 
+// A supervisor's students: each email given once, with no confirming it.
 const validateStudentFull = (student: StudentDetails, prefix: string) => {
-  validateStudentIdentity(student, prefix, true)
+  validateStudentIdentity(student, prefix)
   validateStudentProfile(student, prefix)
   validateGuardian(student, prefix)
 }
@@ -1782,7 +1955,7 @@ const validateCurrentStep = () => {
   } else if (journey.value === 'student_team') {
     if (step === 0) validateStudentIdentity(forms.studentTeam.creator, 'studentTeam.creator', true)
     if (step === 1) {
-      validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator', false)
+      validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator')
       validateSupervisor(
         forms.studentTeam.supervisor,
         'studentTeam.supervisor',
@@ -1802,8 +1975,12 @@ const validateCurrentStep = () => {
       })
     }
   } else if (journey.value === 'supervisor_individual') {
-    if (step === 0)
+    if (step === 0) {
       validateStudentFull(forms.supervisorIndividual.student, 'supervisorIndividual.student')
+      forms.supervisorIndividual.extraStudents.forEach((student, index) =>
+        validateStudentFull(student, `supervisorIndividual.extraStudents.${index}`),
+      )
+    }
   } else if (journey.value === 'supervisor_group') {
     if (step === 0) {
       if (!forms.supervisorGroup.interests.length)
@@ -1977,18 +2154,6 @@ const goToStep = (index: number) => {
   focusStep()
 }
 
-const goBack = () => {
-  if (blockCsvEditorAction()) return
-  if (currentStep.value === 0) {
-    changeJourney()
-    return
-  }
-  currentStep.value -= 1
-  clearErrors()
-  serverError.value = ''
-  focusStep()
-}
-
 const continueJourney = async () => {
   if (blockCsvEditorAction()) return
   if (!validateCurrentStep()) {
@@ -2047,6 +2212,43 @@ const addSupervisorGroupStudent = () => {
   if (forms.supervisorGroup.students.length < 5) {
     forms.supervisorGroup.students.push(createStudent({ deferGuardian: true }))
   }
+}
+
+// Register one student's Add student: another student on the same page, up
+// to 5 in all, registered together as one group (see oneStudentAsGroup).
+const addExtraStudent = () => {
+  if (forms.supervisorIndividual.extraStudents.length < 4) {
+    forms.supervisorIndividual.extraStudents.push(createStudent({ deferGuardian: true }))
+  }
+}
+
+const removeExtraStudent = (index: number) => {
+  forms.supervisorIndividual.extraStudents.splice(index, 1)
+}
+
+// Register one student with students added: sent as a supervisor's group of
+// them all, its interests every area of interest they were given (a group's
+// members have none of their own).
+const oneStudentAsGroup = (): SupervisorGroupForm => {
+  const students = [forms.supervisorIndividual.student, ...forms.supervisorIndividual.extraStudents]
+  return {
+    students: students.map((student) => ({ ...student, interests: [] })),
+    interests: [...new Set(students.flatMap((student) => student.interests))],
+  }
+}
+
+// That group's server paths back to the page's: student 0 is Student 1, the
+// rest the students added.
+const fromOneStudentGroup = (path: string) => {
+  const student = /^supervisorGroup\.students\.(\d+)(.*)$/.exec(path)
+  if (student) {
+    const index = Number(student[1])
+    return index === 0
+      ? `supervisorIndividual.student${student[2]}`
+      : `supervisorIndividual.extraStudents.${index - 1}${student[2]}`
+  }
+  if (path === 'supervisorGroup.interests') return 'supervisorIndividual.student.interests'
+  return path.replace(/^supervisorGroup\./, 'supervisorIndividual.')
 }
 
 const removeSupervisorGroupStudent = (index: number) => {
@@ -2249,7 +2451,15 @@ const submitRegistration = async () => {
   serverError.value = ''
   isSubmitting.value = true
   try {
-    const request = buildRegistrationRequest(journey.value, forms)
+    const asGroup =
+      journey.value === 'supervisor_individual' &&
+      forms.supervisorIndividual.extraStudents.length > 0
+    const request = asGroup
+      ? buildRegistrationRequest('supervisor_group', {
+          ...forms,
+          supervisorGroup: oneStudentAsGroup(),
+        })
+      : buildRegistrationRequest(journey.value, forms)
     const signature = JSON.stringify({ request, overrides: warningOverrides.value })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
@@ -2281,14 +2491,26 @@ const submitRegistration = async () => {
     clearServerErrors()
     if (!result.ok) {
       if (result.warnings?.length) {
-        registrationWarnings.value = result.warnings
+        registrationWarnings.value = asGroup
+          ? result.warnings.map((warning) => ({
+              ...warning,
+              field: fromOneStudentGroup(warning.field),
+            }))
+          : result.warnings
         Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
         await nextTick()
         warningSummaryRef.value?.scrollIntoView?.({ block: 'center' })
         warningSummaryRef.value?.focus()
         return
       }
-      const fieldErrors = result.fieldErrors || {}
+      const fieldErrors = asGroup
+        ? Object.fromEntries(
+            Object.entries(result.fieldErrors || {}).map(([path, message]) => [
+              fromOneStudentGroup(path),
+              message,
+            ]),
+          )
+        : result.fieldErrors || {}
       Object.assign(serverFieldErrors, fieldErrors)
       serverError.value = result.message
       const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
@@ -2422,19 +2644,26 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
+/* .content-area gives its padding and background; its height is put back
+   here over .registration-page's whole screen. */
 .registration-page--supervisor {
-  min-height: auto;
+  min-height: calc(100vh - 60px);
   overflow: visible;
-  background: var(--bg-light, #f8f9fa);
   font-family: inherit;
 }
 
+/* From the page's top left corner and its full width, as the portal's
+   other pages are. */
 .registration-page--supervisor .setup-layout,
 .registration-page--supervisor .work-layout {
-  width: min(calc(100% - 64px), 1080px);
-  margin-right: auto;
-  margin-bottom: 32px;
-  margin-left: auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
+}
+
+/* The page heading's own space below it, as on the first page. */
+.registration-page--supervisor .work-layout {
+  gap: 0;
 }
 
 .registration-page--supervisor .pathway-choices,
@@ -2608,23 +2837,6 @@ onBeforeUnmount(() => {
   margin: 42px auto 72px;
 }
 
-.setup-back {
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.setup-back:hover,
-.setup-back:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 .setup-heading {
   margin: 20px 0 24px;
 }
@@ -2635,14 +2847,6 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -0.025em;
-}
-
-.setup-layout.setup-layout--supervisor {
-  margin-top: 28px;
-}
-
-.setup-heading.setup-heading--supervisor {
-  margin: 20px 0 24px;
 }
 
 .role-options {
@@ -2715,7 +2919,7 @@ onBeforeUnmount(() => {
 .role-option__arrow {
   color: var(--registration-green);
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .setup-signin {
@@ -2726,7 +2930,7 @@ onBeforeUnmount(() => {
 
 .setup-signin a {
   color: var(--registration-green-dark);
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .supervisor-guidance {
@@ -2795,11 +2999,16 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
+/* The platform's small outline button (as Group Marking's Next); the whole
+   card is the button, so pointing at the card is pointing at it. */
 .pathway-choice__arrow {
   flex: 0 0 auto;
-  color: var(--registration-green-dark);
-  font-size: 0.86rem;
-  font-weight: 800;
+}
+
+.pathway-choice:hover .pathway-choice__arrow,
+.pathway-choice:focus-visible .pathway-choice__arrow {
+  background-color: var(--light-green);
+  border-color: var(--dark-green);
 }
 
 .work-layout {
@@ -2815,7 +3024,12 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-.work-layout .journey-context h1 {
+/* Room under it, as under the platform's other back buttons. */
+.change-journey {
+  margin-bottom: 1rem;
+}
+
+.work-layout .journey-context h1:not(.page-title) {
   max-width: none;
   margin: 8px 0 0;
   font-size: clamp(1.5rem, 2vw, 1.75rem);
@@ -2832,7 +3046,7 @@ onBeforeUnmount(() => {
 }
 
 .registration-intro h1,
-.journey-context h1,
+.journey-context h1:not(.page-title),
 .success-panel h1 {
   max-width: none;
   margin: 0 0 16px;
@@ -2935,7 +3149,7 @@ onBeforeUnmount(() => {
 .pathway-option__role {
   color: var(--registration-green-dark);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -2959,37 +3173,24 @@ onBeforeUnmount(() => {
 .pathway-option__action {
   color: var(--registration-green-dark);
   font-size: 0.84rem;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
-.change-journey {
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.change-journey:hover,
-.change-journey:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-.change-journey:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
+/* On a narrow screen the note drops below the steps, still on the right. */
+.step-bar {
+  padding: 8px clamp(16px, 3vw, 32px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  border-bottom: 1px solid var(--registration-line);
+  background: var(--white);
 }
 
 .step-navigation {
+  min-width: 0;
   overflow-x: auto;
-  padding: 8px clamp(16px, 3vw, 32px);
-  border-bottom: 1px solid var(--registration-line);
-  background: var(--white);
 }
 
 .step-navigation ol {
@@ -3005,30 +3206,16 @@ onBeforeUnmount(() => {
   display: flex;
 }
 
-.step-navigation button {
-  min-height: 44px;
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--registration-muted);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.step-navigation button > span {
-  width: 25px;
-  height: 25px;
+/* The steps are the platform's pill tabs (.tab-pill), each with its number
+   in a circle as tall as the pill's line, so it stays a 34px pill. */
+.step-navigation .tab-pill > span {
+  width: 1.1rem;
+  height: 1.1rem;
   display: grid;
   place-items: center;
   border: 1px solid #aebdb7;
   border-radius: 50%;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
 }
 
 .step-navigation__label {
@@ -3042,30 +3229,54 @@ onBeforeUnmount(() => {
   font-size: inherit !important;
 }
 
-.step-navigation button.current {
-  background: var(--registration-green);
-  color: #fff;
-}
-
-.step-navigation button.current > span,
-.step-navigation button.complete > span {
+.step-navigation .tab-pill.complete > span {
   border-color: var(--registration-green);
   background: var(--registration-green);
   color: #fff;
 }
 
-.step-navigation button:focus-visible {
-  outline: 3px solid rgba(8, 116, 90, 0.22);
-  outline-offset: -4px;
+/* On the open step's green, the number in white. */
+.step-navigation .tab-pill.current > span {
+  border-color: #fff;
+  background: #fff;
+  color: var(--dark-green);
+}
+
+/* Once registered, the steps are only a record: not links. */
+.step-navigation span.tab-pill,
+.step-navigation span.tab-pill:hover {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .step-navigation button:disabled {
+  background: transparent;
   cursor: not-allowed;
   opacity: 0.52;
 }
 
-form {
+form,
+.success-body {
   padding: clamp(24px, 3vw, 32px);
+}
+
+.success-intro {
+  margin-bottom: 32px;
+}
+
+.success-intro h3 {
+  margin: 0;
+  color: var(--registration-ink);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.success-note {
+  margin: 7px 0 0;
+  color: var(--registration-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
 }
 
 .step-content {
@@ -3094,7 +3305,7 @@ form {
   padding: 0;
   color: var(--registration-ink);
   font-size: 1rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .fieldset-help {
@@ -3194,7 +3405,6 @@ form {
 
 .section-divider p,
 .template-download p {
-  max-width: 68ch;
   margin: 7px 0 0;
   color: var(--registration-muted);
   font-size: 0.84rem;
@@ -3245,25 +3455,17 @@ form {
   border-top: 1px solid var(--registration-line);
 }
 
+/* Register one student's Student 1, headed once students are added. */
+.student-entry--first {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .student-entry__heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.student-entry__heading button {
-  min-height: 44px;
-  padding: 6px;
-  border: 0;
-  background: transparent;
-  color: #8b302b;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
 }
 
 .creator-summary dl {
@@ -3276,10 +3478,6 @@ form {
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
   gap: 16px;
-}
-
-.creator-summary .student-entry__heading button {
-  color: var(--registration-green);
 }
 
 .upload-step {
@@ -3308,7 +3506,7 @@ form {
 .csv-upload > span {
   color: var(--registration-ink);
   font-size: 0.94rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .csv-upload small {
@@ -3529,10 +3727,11 @@ tr.is-excluded {
   font-weight: 500;
 }
 
+/* As tall as the text boxes beside it (RegistrationTextField). */
 .select-field select {
   width: 100%;
-  min-height: 44px;
-  padding: 0.625rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--registration-field-line);
   border-radius: 4px;
   outline: none;
@@ -3604,6 +3803,32 @@ dd {
   gap: 32px;
 }
 
+/* No line under the last section: the buttons come next. */
+.review-step > .review-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* A member's name, email and guardian: columns as wide on every row, so
+   they line up. */
+.review-parts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.review-parts span {
+  overflow-wrap: anywhere;
+}
+
+/* Too narrow for columns: one under another. */
+@media (max-width: 700px) {
+  .review-parts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
 .review-section {
   padding-bottom: 24px;
   border-bottom: 1px solid var(--registration-line);
@@ -3642,21 +3867,30 @@ dd {
   line-height: 1.35;
 }
 
-.form-footer {
-  margin-top: 46px;
-  padding-top: 24px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 18px;
-  border-top: 1px solid var(--registration-line);
-}
-
-.form-footer p {
-  margin: 0;
+.form-required-note {
+  margin: 0 0 0 auto;
   color: var(--registration-muted);
   font-size: 0.78rem;
-  text-align: center;
+  white-space: nowrap;
+}
+
+/* On the right: Continue or Submit, with Add student before it on a
+   group's Students step (and a note before that on Register one student). */
+.form-footer {
+  margin-top: 46px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+}
+
+/* Just left of the button it's about, in italics. */
+.form-footer-note {
+  margin: 0;
+  color: var(--registration-muted);
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .primary-action,
@@ -3797,7 +4031,7 @@ dd {
   }
 
   .registration-intro h1,
-  .journey-context h1 {
+  .journey-context h1:not(.page-title) {
     max-width: none;
   }
 
@@ -3824,11 +4058,6 @@ dd {
   .work-layout {
     width: min(100% - 24px, 1220px);
     margin-bottom: 38px;
-  }
-
-  .registration-page--supervisor .setup-layout,
-  .registration-page--supervisor .work-layout {
-    width: calc(100% - 24px);
   }
 
   .welcome-layout {
@@ -3887,7 +4116,7 @@ dd {
   }
 
   .registration-intro h1,
-  .journey-context h1,
+  .journey-context h1:not(.page-title),
   .success-panel h1 {
     font-size: 1.5rem;
   }
@@ -3906,7 +4135,7 @@ dd {
     max-width: 50ch;
   }
 
-  .step-navigation {
+  .step-bar {
     padding-inline: 10px;
   }
 
@@ -3916,8 +4145,7 @@ dd {
     flex-wrap: wrap;
   }
 
-  .step-navigation button {
-    min-height: 44px;
+  .step-navigation .tab-pill {
     padding-inline: 10px;
   }
 
@@ -3925,7 +4153,8 @@ dd {
     display: none !important;
   }
 
-  .step-navigation button.current .step-navigation__label {
+  .step-navigation .tab-pill.current .step-navigation__label,
+  .step-navigation span.tab-pill .step-navigation__label {
     display: inline !important;
   }
 
@@ -3959,18 +4188,9 @@ dd {
     border-bottom: 1px solid var(--registration-line);
   }
 
-  .form-footer {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .form-footer p {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
-
   .form-footer .primary-action,
   .form-footer .secondary-action {
-    width: 100%;
+    flex: 1 1 0;
   }
 
   .success-panel {
@@ -3995,11 +4215,8 @@ dd {
   }
 
   .form-footer {
-    grid-template-columns: 1fr;
-  }
-
-  .form-footer p {
-    grid-column: auto;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .review-section dl > div,

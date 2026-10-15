@@ -2,8 +2,8 @@
   <label class="registration-field" :class="{ 'registration-field--wide': wide }">
     <span :id="`${id}-label`" class="registration-field__label">
       {{ label }}
-      <small v-if="optional">Optional</small>
-      <span v-else-if="required" aria-hidden="true">*</span>
+      <small v-if="optional">(Optional)</small>
+      <span v-else-if="required" class="required-mark" aria-hidden="true">*</span>
     </span>
     <textarea
       v-if="multiline"
@@ -17,6 +17,24 @@
       :required="required"
       @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     ></textarea>
+    <!-- Given options (e.g. Australia's states), a dropdown of them instead. -->
+    <select
+      v-else-if="options"
+      :id="id"
+      :value="modelValue"
+      :autocomplete="autocomplete"
+      :aria-invalid="Boolean(error)"
+      :aria-labelledby="`${id}-label`"
+      :aria-describedby="describedBy"
+      :required="required"
+      :disabled="disabled"
+      @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
+    >
+      <option value="" disabled>{{ placeholder ?? 'Select one' }}</option>
+      <option v-for="option in options" :key="option.value" :value="option.value">
+        {{ option.label }}
+      </option>
+    </select>
     <input
       v-else
       :id="id"
@@ -57,6 +75,7 @@ const props = withDefaults(
     wide?: boolean
     disabled?: boolean
     readonly?: boolean
+    options?: { value: string; label: string }[]
   }>(),
   {
     type: 'text',
@@ -71,6 +90,7 @@ const props = withDefaults(
     wide: false,
     disabled: false,
     readonly: false,
+    options: undefined,
   },
 )
 
@@ -111,11 +131,13 @@ const describedBy = computed(
   font-weight: 500;
 }
 
+/* As big as the platform's other form boxes (e.g. the student sheet's). */
 input,
+select,
 textarea {
   width: 100%;
-  min-height: 44px;
-  padding: 0.625rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--registration-field-line);
   border-radius: 4px;
   outline: none;
@@ -141,11 +163,13 @@ textarea::placeholder {
 }
 
 input:hover,
+select:hover,
 textarea:hover {
   border-color: #8da69d;
 }
 
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   border-color: var(--registration-green);
   background: var(--white);
@@ -153,6 +177,7 @@ textarea:focus-visible {
 }
 
 input[aria-invalid='true'],
+select[aria-invalid='true'],
 textarea[aria-invalid='true'] {
   border-color: #a93732;
 }

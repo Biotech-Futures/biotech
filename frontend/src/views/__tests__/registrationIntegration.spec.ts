@@ -32,7 +32,6 @@ type PageSetup = {
   removeStudentTeammate: (index: number) => void
   removeSupervisorGroupStudent: (index: number) => void
   goToStep: (index: number) => void
-  goBack: () => void
   changeJourney: () => void
   submitRegistration: () => Promise<void>
   handlePhoto: (student: StudentDetails, prefix: string, file: File) => void
@@ -463,7 +462,8 @@ describe('registration gateway UI integration', () => {
         ],
       },
     })
-    expect(wrapper.text()).toContain('CSV-1001')
+    // Registered (a supervisor's finished page gives no reference).
+    expect(wrapper.get('.success-body h3').text()).toBe('Registration complete')
     wrapper.unmount()
   })
 
@@ -502,7 +502,6 @@ describe('registration gateway UI integration', () => {
     ).toBe(true)
     expect(wrapper.get('.change-journey').attributes('disabled')).toBeDefined()
     setup.goToStep(2)
-    setup.goBack()
     setup.changeJourney()
     expect(setup.currentStep).toBe(1)
     expect(setup.journey).toBe('supervisor_csv')
@@ -515,7 +514,7 @@ describe('registration gateway UI integration', () => {
     await wrapper.get('form').trigger('submit')
     await wrapper.get('form').trigger('submit')
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
-    expect(wrapper.text()).toContain('CSV-CONFIRMED')
+    expect(wrapper.get('.success-body h3').text()).toBe('Registration complete')
     wrapper.unmount()
   })
 
@@ -615,6 +614,45 @@ describe('registration gateway UI integration', () => {
     wrapper.unmount()
   })
 
+  it('registers Register one student with students added as one group', async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: true,
+      receipt: {
+        referenceCode: 'REG-3001',
+        journey: 'supervisor_group',
+        studentCount: 2,
+        submittedAt: '2026-10-07T06:00:00Z',
+      },
+    })
+    const wrapper = mountSupervisorWithGateway({ submit: send })
+    await prepareSupervisorStudent(wrapper)
+    const setup = setupOf(wrapper) as unknown as {
+      forms: { supervisorIndividual: { student: object; extraStudents: object[] } }
+    }
+    setup.forms.supervisorIndividual.extraStudents.push({
+      ...setup.forms.supervisorIndividual.student,
+      firstName: 'Sam',
+      email: 'sam@example.com',
+      emailConfirm: 'sam@example.com',
+      interests: ['Water & Energy Tech'],
+    })
+    await wrapper.vm.$nextTick()
+    await submit(wrapper)
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+
+    const request = send.mock.calls[0]![0] as {
+      journey: string
+      payload: { students: Array<{ firstName: string; interests: string[] }>; interests: string[] }
+    }
+    expect(request.journey).toBe('supervisor_group')
+    expect(request.payload.students.map((student) => student.firstName)).toEqual(['Alex', 'Sam'])
+    // The group's interests are theirs; the members have none of their own.
+    expect(request.payload.interests).toEqual(['Biomedical Innovations', 'Water & Energy Tech'])
+    expect(request.payload.students.every((student) => !student.interests.length)).toBe(true)
+    await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
+    wrapper.unmount()
+  })
+
   it('opens a fresh individual student form directly after supervisor registration', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,
@@ -628,7 +666,7 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountSupervisorWithGateway({ submit: send })
     await prepareSupervisorStudent(wrapper)
     await submit(wrapper)
-    await vi.waitFor(() => expect(wrapper.text()).toContain('REG-2001'))
+    await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
     await wrapper
       .findAll('button')
       .find((button) => button.text() === 'Register another student')!
@@ -636,7 +674,7 @@ describe('registration gateway UI integration', () => {
     expect(setupOf(wrapper).journey).toBe('supervisor_individual')
     expect(setupOf(wrapper).currentStep).toBe(0)
     expect(wrapper.get('#supervisorIndividual-student-email').element).toHaveProperty('value', '')
-    expect(wrapper.text()).not.toContain('REG-2001')
+    expect(wrapper.find('.success-body').exists()).toBe(false)
     expect(wrapper.find('.pathway-choices').exists()).toBe(false)
     await prepareSupervisorStudent(wrapper)
     setupOf(wrapper).forms.supervisorIndividual.student.email = 'second@example.com'

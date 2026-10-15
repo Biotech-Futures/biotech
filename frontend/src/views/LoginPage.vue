@@ -84,7 +84,8 @@
         </div>
 
         <div class="legacy-links">
-          <RouterLink class="legacy-website-button" to="/register">Register now</RouterLink>
+          <!-- Register now is hidden for now; to offer it again:
+          <RouterLink class="legacy-website-button" to="/register">Register now</RouterLink> -->
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -433,7 +434,7 @@
   Imports and external modules.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
@@ -1428,8 +1429,13 @@ onBeforeUnmount(() => {
   margin-top: 0.35rem;
 }
 
+/* Register now and Visit Website side by side, apart; one under the other
+   when there isn't room. */
 .legacy-links {
   margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .legacy-website-button {

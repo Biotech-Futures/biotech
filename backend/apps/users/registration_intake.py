@@ -124,11 +124,10 @@ class StudentInput(StrictInput):
             for field in ("school", "yearLevel", "country"):
                 if not data[field]:
                     errors[field] = "This field is required."
-        if self.context.get("group"):
-            if data["interests"]:
-                errors["interests"] = "Choose shared interests on the group, not individual members."
-        elif not data["interests"]:
-            errors["interests"] = "Choose at least one interest."
+        # A student's own interests are optional; a group's members have none
+        # of their own (the group's are shared).
+        if self.context.get("group") and data["interests"]:
+            errors["interests"] = "Choose shared interests on the group, not individual members."
         optional_guardian = self.context.get("guardian_optional", False)
         if data["guardianDeferred"] and not optional_guardian:
             errors["guardianDeferred"] = "A student registering themselves must provide guardian contact."
@@ -137,7 +136,8 @@ class StudentInput(StrictInput):
         if not self.context.get("legacy"):
             guardian = data["guardian"]
             if not (optional_guardian and data["guardianDeferred"]):
-                for field in ("firstName", "lastName", "email", "relationship"):
+                # A guardian is their name and email; a relationship is optional.
+                for field in ("firstName", "lastName", "email"):
                     if not guardian.get(field):
                         errors[f"guardian.{field}"] = "This field is required."
                 if guardian.get("relationship") == "Other" and not guardian.get("relationshipOther"):
@@ -322,7 +322,8 @@ def legacy_request(body):
                 "email": body.get("Title", ""), "firstName": body.get("FirstName", ""),
                 "lastName": body.get("Surname", ""), "country": body.get("Country", ""),
                 "state": body.get("Region", ""), "school": body.get("SchoolName", ""),
-                "yearLevel": body.get("YearLevel", ""), "interests": [body.get("Areaofinterest", "")],
+                "yearLevel": body.get("YearLevel", ""),
+                "interests": [body["Areaofinterest"]] if body.get("Areaofinterest") else [],
                 "guardian": {
                     "email": body.get("GuardianEmail", ""), "firstName": body.get("GuardianName", ""),
                     "lastName": body.get("GuardianSurname", ""),
@@ -687,6 +688,40 @@ class RegistrationIntakeView(APIView):
 
     def post(self, request):
         return register(request)
+
+
+class RegistrationCountriesView(APIView):
+    """GET: every country as the database holds them (loaded by groups' 0012
+    migration), for the registration form's dropdown. Open to anyone, as
+    registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        countries = Countries.objects.order_by("country_name").values_list("country_name", flat=True).distinct()
+        return Response({"countries": list(countries)})
+
+
+class RegistrationStatesView(APIView):
+    """GET ?country=Australia: that country's states as the database holds
+    them (Australia's loaded by groups' 0013 migration), for the registration
+    form's dropdown. Open to anyone, as registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        country = (request.query_params.get("country") or "").strip()
+        states = (
+            CountryStates.objects.filter(country__country_name__iexact=country)
+            .order_by("state_name")
+            .values_list("state_name", flat=True)
+            .distinct()
+            if country
+            else []
+        )
+        return Response({"states": list(states)})
 
 
 class IsRegistrationManager(permissions.BasePermission):

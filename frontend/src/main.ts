@@ -21,7 +21,8 @@ const bootstrap = async () => {
     REGISTRATION_GATEWAY_KEY,
     configuredRegistrationGateway(
       import.meta.env.VITE_REGISTRATION_API_URL,
-      import.meta.env.VITE_API_BASE_URL,
+      // As everywhere else: the backend's own address when none is set (locally).
+      import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
     ),
   )
 

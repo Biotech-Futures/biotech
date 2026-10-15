@@ -1,6 +1,6 @@
 <template>
   <fieldset class="interest-selector" :aria-describedby="error ? `${id}-error` : undefined">
-    <legend>{{ label }} <span aria-hidden="true">*</span></legend>
+    <legend>{{ label }} <span v-if="showRequired" class="required-mark" aria-hidden="true">*</span></legend>
     <p v-if="description">{{ description }}</p>
     <div class="interest-selector__options">
       <label v-for="interest in INTEREST_CATEGORIES" :key="interest">
@@ -30,11 +30,14 @@ const props = withDefaults(
     label?: string
     description?: string
     error?: string
+    /** Whether its label has the * of a required field. */
+    showRequired?: boolean
   }>(),
   {
     label: 'Relevant interests',
     description: undefined,
     error: undefined,
+    showRequired: true,
   },
 )
 
@@ -61,41 +64,41 @@ legend {
   font-weight: 600;
 }
 
+/* The options' own space comes below it. */
 p {
-  margin: 5px 0 14px;
+  margin: 5px 0 0;
   color: var(--registration-muted);
   font-size: 0.86rem;
   line-height: 1.45;
 }
 
+/* The options in two columns, with no lines between them: as far below
+   the heading as they are from each other. */
 .interest-selector__options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid var(--registration-line);
+  gap: 30px 16px;
+  margin-top: 30px;
 }
 
 label {
-  min-height: 48px;
-  padding: 10px 12px 10px 2px;
+  padding: 0 12px 0 2px;
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  border-bottom: 1px solid var(--registration-line);
   color: var(--registration-ink);
   font-size: 0.85rem;
   line-height: 1.35;
   cursor: pointer;
 }
 
-label:nth-child(odd) {
-  margin-right: 16px;
-}
-
+/* In rem, as its text is, so it stays centred on the first line at any
+   text size: half the line (0.85rem at 1.35) less half the box. */
 input {
   flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
-  margin-top: 1px;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  margin-top: calc((0.85rem * 1.35 - 1.0625rem) / 2);
   accent-color: var(--registration-green);
 }
 
@@ -114,10 +117,6 @@ input:focus-visible {
 @media (max-width: 680px) {
   .interest-selector__options {
     grid-template-columns: 1fr;
-  }
-
-  label:nth-child(odd) {
-    margin-right: 0;
   }
 }
 </style>

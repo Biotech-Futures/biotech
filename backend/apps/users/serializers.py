@@ -82,7 +82,7 @@ class UserRegisterBodySerializer(serializers.Serializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.context.get("allow_partial_student"):
-            for field in ("Country", "SchoolName", "YearLevel", "Areaofinterest"):
+            for field in ("Country", "SchoolName", "YearLevel"):
                 self.fields[field].allow_blank = True
 
     Title = serializers.EmailField(max_length=254)
@@ -99,7 +99,8 @@ class UserRegisterBodySerializer(serializers.Serializer):
     GuardianSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     SchoolName = serializers.CharField(max_length=255)
     YearLevel = serializers.ChoiceField(choices=["9", "10", "11", "12"])
-    Areaofinterest = serializers.CharField(max_length=255)
+    # A student's Areas of Interest are optional.
+    Areaofinterest = serializers.CharField(max_length=255, required=False, allow_blank=True)
     # Who filled the form in: "Self", "Peer" or "Supervisor". A supervisor's
     # registration locks the student's own details; missing leaves them editable.
     RegisteredBy = serializers.CharField(max_length=32, required=False, allow_blank=True)
