@@ -227,6 +227,8 @@ class RecordedSessionTests(StorageCleanupMixin, TestCase):
         acc_slides = self.client.get(f"/resources/resource-files/{resource_id}/access/?field=slides")
         self.assertEqual(acc_slides.status_code, status.HTTP_200_OK)
         self.assertTrue(acc_slides.data["has_slides"])
+        self.assertEqual(acc_slides.data["slides_mime_type"], "application/pdf")
+        self.assertEqual(acc_slides.data["slides_file_size"], len(b"%PDF-1.4 slides bytes"))
         self.assertIn("field=slides", acc_slides.data["download_url"])
 
         # Public download endpoint slides on resource without slides -> 404

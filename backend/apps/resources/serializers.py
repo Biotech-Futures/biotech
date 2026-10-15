@@ -57,6 +57,8 @@ class ResourceAccessSerializer(serializers.Serializer):
     body_html = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     detail = serializers.CharField(allow_null=True)
     has_slides = serializers.BooleanField(required=False, default=False)
+    slides_mime_type = serializers.CharField(allow_null=True, required=False)
+    slides_file_size = serializers.IntegerField(allow_null=True, required=False)
     slides_download_url = serializers.CharField(allow_null=True, required=False)
 
 
