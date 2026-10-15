@@ -102,12 +102,52 @@
       >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
-            <li v-for="link in mainNavLinks" :key="link.to" class="sidebar-item">
-              <RouterLink :to="link.to" class="sidebar-link" :class="{ active: link.active }">
-                <i :class="['fas', link.icon, 'sidebar-icon']"></i>
-                <span>{{ link.label }}</span>
-              </RouterLink>
-            </li>
+            <template v-for="entry in mainNavLinks" :key="entry.to">
+              <li v-if="!entry.links" class="sidebar-item">
+                <RouterLink :to="entry.to" class="sidebar-link" :class="{ active: entry.active }">
+                  <i :class="['fas', entry.icon, 'sidebar-icon']"></i>
+                  <span>{{ entry.label }}</span>
+                </RouterLink>
+              </li>
+
+              <li v-else class="sidebar-item">
+                <div class="sidebar-link sidebar-link--admin" :class="{ active: entry.active }">
+                  <RouterLink :to="entry.to" class="sidebar-link__main">
+                    <i :class="['fas', entry.icon, 'sidebar-icon']"></i>
+                    <span>{{ entry.label }}</span>
+                  </RouterLink>
+                  <button
+                    type="button"
+                    class="sidebar-subnav-toggle"
+                    :class="{ 'is-open': !entry.collapsed }"
+                    :aria-expanded="!entry.collapsed"
+                    :aria-controls="entry.id"
+                    :aria-label="`${entry.collapsed ? 'Expand' : 'Collapse'} ${entry.label.toLowerCase()} submenu`"
+                    @click="toggleSidebarSection(entry.key)"
+                  >
+                    <i
+                      :class="entry.collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+                </div>
+                <ul
+                  :id="entry.id"
+                  class="sidebar-subnav"
+                  v-if="!isSidebarCollapsed && !entry.collapsed"
+                >
+                  <li v-for="link in entry.links" :key="link.label" class="sidebar-subitem">
+                    <RouterLink
+                      :to="link.to!"
+                      class="sidebar-sublink"
+                      :class="{ active: link.active }"
+                    >
+                      <span>{{ link.label }}</span>
+                    </RouterLink>
+                  </li>
+                </ul>
+              </li>
+            </template>
 
             <li class="sidebar-item" v-if="auth.isStudent">
               <a href="mailto:support@biotechfutures.org" class="sidebar-link">
@@ -283,6 +323,7 @@ import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
@@ -310,6 +351,7 @@ const handleLogout = async () => {
   await auth.logout()
   // Drop the previous user's group cache so the next session re-fetches.
   groupsStore.reset()
+  clearLiveAnalyticsCache()
   go('/login')
 }
 
@@ -373,13 +415,13 @@ watch(
 )
 const programSearchQuery = ref('')
 
-// Tracks whether the collapsible Admin submenu is hidden, so the stacked
+// Tracks whether each collapsible submenu is hidden, so the stacked
 // (mobile) sidebar stays compact. Defaults to collapsed on small screens and
 // expanded on large ones, matching the layout the user sees. Keeps in sync
 // with viewport changes (e.g. loading at desktop width then resizing down).
-// The supervisor's own pages fold the same way.
-type SidebarSectionKey = 'supervisor' | 'admin'
+type SidebarSectionKey = 'analytics' | 'supervisor' | 'admin'
 const collapsedSidebarSections = ref<Record<SidebarSectionKey, boolean>>({
+  analytics: false,
   supervisor: false,
   admin: false,
 })
@@ -387,7 +429,7 @@ let adminSubnavMediaQuery: MediaQueryList | null = null
 
 const syncAdminSubnavViewport = (event: MediaQueryList | MediaQueryListEvent) => {
   if (event.matches) {
-    collapsedSidebarSections.value = { supervisor: true, admin: true }
+    collapsedSidebarSections.value = { analytics: true, supervisor: true, admin: true }
   }
 }
 
@@ -396,6 +438,24 @@ const toggleSidebarSection = (key: SidebarSectionKey) => {
 }
 
 type SidebarLink = { label: string; to?: string; href?: string; active: boolean }
+type MainNavEntry =
+  | {
+      to: string
+      label: string
+      icon: string
+      active: boolean
+      links?: never
+    }
+  | {
+      key: SidebarSectionKey
+      to: string
+      label: string
+      icon: string
+      active: boolean
+      links: Array<SidebarLink & { to: string }>
+      id: string
+      collapsed: boolean
+    }
 
 const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
@@ -414,13 +474,38 @@ watch(
 // Supervisor Visibility shows them.
 const mainNavLinks = computed(() => {
   if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
-  return [
+  const path = route.path
+  const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
+  ]
+  if (auth.isAdmin) {
+    links.push({
+      key: 'analytics',
+      to: '/analytics',
+      label: 'Analytics',
+      icon: 'fa-chart-column',
+      active: path === '/analytics',
+      id: 'analytics-subnav',
+      collapsed: collapsedSidebarSections.value.analytics,
+      links: [
+        { label: 'Users', to: '/analytics/users', active: path === '/analytics/users' },
+        { label: 'Registration', to: '/analytics/registration', active: path === '/analytics/registration' },
+        { label: 'Groups', to: '/analytics/groups', active: path === '/analytics/groups' },
+        { label: 'Mentors', to: '/analytics/mentors', active: path === '/analytics/mentors' },
+        { label: 'Activity', to: '/analytics/activity', active: path === '/analytics/activity' },
+        { label: 'Messages', to: '/analytics/messages', active: path === '/analytics/messages' },
+        { label: 'Resources', to: '/analytics/resources', active: path === '/analytics/resources' },
+        { label: 'Email Monitoring', to: '/analytics/email', active: path === '/analytics/email' },
+      ],
+    })
+  }
+  links.push(
     { to: '/groups', label: 'Groups', icon: 'fa-users', active: route.path.startsWith('/groups') },
     { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
     { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
-  ]
+  )
+  return links
 })
 
 // The folding entries: a supervisor's own pages and the admin pages, drawn
@@ -481,6 +566,7 @@ const sidebarSections = computed(() => {
 
 const programSearchTargets = [
   { path: '/dashboard', terms: ['home', 'dashboard', 'overview', 'program'] },
+  { path: '/analytics', terms: ['analytics', 'report', 'reports', 'statistics', 'metrics'] },
   { path: '/groups', terms: ['group', 'groups', 'team', 'teams', 'mentor', 'mentoring'] },
   { path: '/events', terms: ['event', 'events', 'calendar', 'session', 'sessions', 'workshop'] },
   { path: '/announcements', terms: ['announcement', 'announcements', 'news', 'updates', 'notice'] },
@@ -738,6 +824,7 @@ watch(
     // changes (login, account switch) drop it so the next load fetches fresh.
     if (oldUserId !== undefined && oldUserId !== newUserId) {
       groupsStore.reset()
+      clearLiveAnalyticsCache()
     }
     // Skip the no-op transition where the switcher stays hidden — avoids
     // refetching while the user is bouncing between non-/groups routes.

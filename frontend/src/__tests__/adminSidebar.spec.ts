@@ -29,6 +29,17 @@ const adminSubLinks = [
   '/admin/tasks',
 ]
 
+const analyticsSubLinks = [
+  '/analytics/users',
+  '/analytics/registration',
+  '/analytics/groups',
+  '/analytics/mentors',
+  '/analytics/activity',
+  '/analytics/messages',
+  '/analytics/resources',
+  '/analytics/email',
+]
+
 let wrapper: VueWrapper | null = null
 let pinia: ReturnType<typeof createPinia>
 
@@ -89,6 +100,7 @@ describe('App sidebar admin section', () => {
 
     expect(wrapper!.find('a[href="#/admin"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
+    expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
   it('renders the Admin nav and all expected sub-links for admins', async () => {
@@ -104,6 +116,18 @@ describe('App sidebar admin section', () => {
       const found = links.some((a) => a.attributes('href') === `#${sub}`)
       expect(found, `expected a sidebar link to ${sub}`).toBe(true)
     }
+
+    const sidebarLinks = wrapper!.findAll('.sidebar-list a')
+    const homeIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/dashboard')
+    const analyticsIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/analytics')
+    expect(analyticsIndex).toBe(homeIndex + 1)
+    expect(sidebarLinks.filter((a) => a.attributes('href') === '#/analytics')).toHaveLength(1)
+    for (const sub of analyticsSubLinks) {
+      expect(sidebarLinks.some((a) => a.attributes('href') === `#${sub}`)).toBe(true)
+    }
+
+    const adminItem = wrapper!.find('a[href="#/admin"]').element.closest('.sidebar-item')
+    expect(adminItem?.textContent).not.toContain('Analytics')
   })
 
   it('collapses the Admin submenu by default on small screens', async () => {
@@ -120,7 +144,7 @@ describe('App sidebar admin section', () => {
       expect(found, `expected sub-link ${sub} to be hidden on mobile`).toBe(false)
     }
 
-    const toggle = wrapper!.find('button.sidebar-subnav-toggle')
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
     expect(toggle.exists()).toBe(true)
     expect(toggle.attributes('aria-expanded')).toBe('false')
 

@@ -737,7 +737,14 @@ def _send_audience_reminders(event, audience):
             event.id, user_id, type(exc).__name__,
         )
     if sent or missed:
-        note_send("rsvp_reminder", missed=missed)
+        note_send(
+            "rsvp_reminder",
+            missed=missed,
+            attempted=sent + failed,
+            delivered=sent,
+            failed=failed,
+            source_mailbox=sender.address,
+        )
     return sent, failed
 
 

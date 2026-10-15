@@ -862,6 +862,11 @@ def send_announcement_email(
         "announcement",
         missed={item["email"]: item.get("reason", NOT_SENT) for item in failed},
         by=initiated_by,
+        attempted=len(emails),
+        delivered=succeeded,
+        failed=len(failed),
+        source_mailbox=sender_for("announcement").address,
+        started_at=delivery.started_at,
     )
 
     failure_count = len(failed)

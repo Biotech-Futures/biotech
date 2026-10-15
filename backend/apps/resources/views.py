@@ -31,7 +31,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError as DRFVa
 from rest_framework.reverse import reverse
 from urllib.parse import urlparse
 from apps.common.filenames import sanitize_upload_filename
-from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience, ResourceLabel
+from .models import Roles, RoleAssignmentHistory, Resources, ResourceAudience, ResourceLabel, ResourceAccessEvent
 from .serializers import (
     RoleSerializer,
     RoleAssignmentHistorySerializer,
@@ -639,6 +639,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
             return Response({"detail": "This resource has no slides file."}, status=status.HTTP_404_NOT_FOUND)
 
         payload = self._build_access_payload(resource, field=field)
+        ResourceAccessEvent.objects.create(resource=resource, user=request.user)
         return Response(ResourceAccessSerializer(payload).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], permission_classes=[IsAuthenticated])
