@@ -1,6 +1,8 @@
 """Fault and race tests for co-editing: refused requests, failed saves, and edits landing at once."""
 import os
+import socket
 import threading
+import time
 import unittest
 from datetime import timedelta
 from unittest.mock import patch
@@ -125,6 +127,23 @@ class StoreFaultTests(CoeditTestCase):
             result = auto_submit_due()
 
         self.assertEqual(result["submitted"], ["BTF7"])
+
+
+class UnresponsiveRedisTests(unittest.TestCase):
+    def test_a_redis_that_stops_answering_fails_the_call_instead_of_hanging(self):
+        # Accepts the connection but never replies, as a stalled Redis does.
+        silent = socket.socket()
+        silent.bind(("127.0.0.1", 0))
+        silent.listen()
+        self.addCleanup(silent.close)
+        with patch.object(coedit, "REDIS_TIMEOUT_SECONDS", 0.2):
+            store = coedit._RedisStore(f"redis://127.0.0.1:{silent.getsockname()[1]}/0")
+
+        started = time.monotonic()
+        with self.assertRaises(Exception):
+            store.read(1)
+
+        self.assertLess(time.monotonic() - started, 2)
 
 
 class RejectedRequestTests(CoeditTestCase):

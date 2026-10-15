@@ -32,6 +32,10 @@ MAX_FIELD_CHARS = 20_000
 COMPACT_AFTER = 200
 # Refreshed on every write; the database is the record, so an expired document is simply rebuilt.
 STATE_TTL_SECONDS = 14 * 24 * 3600
+# A stuck Redis fails a call within this, well inside the page's wait for a save before submitting.
+REDIS_TIMEOUT_SECONDS = 2.0
+# Idle connections are checked before use, since Azure drops them silently after ten minutes.
+REDIS_HEALTH_CHECK_SECONDS = 30
 
 
 def enabled() -> bool:
@@ -118,7 +122,12 @@ class _RedisStore:
     def __init__(self, url: str):
         import redis
 
-        self._redis = redis.Redis.from_url(url)
+        self._redis = redis.Redis.from_url(
+            url,
+            socket_timeout=REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+            health_check_interval=REDIS_HEALTH_CHECK_SECONDS,
+        )
 
     @staticmethod
     def _keys(room: int):
