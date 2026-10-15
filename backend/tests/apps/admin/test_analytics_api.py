@@ -247,6 +247,50 @@ class GroupActivityAnalyticsApiTests(APITestCase):
         self.assertEqual(response.data["data"]["student_count"], 2)
         self.assertIsNone(response.data["data"]["students_per_mentor"])
 
+    def test_average_group_size_is_rebuilt_from_membership_history(self):
+        previous_group = Groups.objects.create(
+            group_name="Historical group",
+            year=2025,
+            created_at=datetime(2025, 1, 1, tzinfo=datetime_timezone.utc),
+            deleted_at=datetime(2026, 1, 1, tzinfo=datetime_timezone.utc),
+        )
+        for user in (self.user, self.student_without_messages):
+            GroupMembership.objects.create(
+                group=previous_group,
+                user=user,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                joined_at=datetime(2025, 2, 1, tzinfo=datetime_timezone.utc),
+                left_at=datetime(2026, 1, 1, tzinfo=datetime_timezone.utc),
+            )
+        GroupMembership.objects.create(
+            group=previous_group,
+            user=self.mentor,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+            joined_at=datetime(2025, 2, 1, tzinfo=datetime_timezone.utc),
+            left_at=datetime(2026, 1, 1, tzinfo=datetime_timezone.utc),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(self.url, {"end": "2026-10-15"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        yearly = {
+            row["year"]: row
+            for row in response.data["data"]["average_group_size_by_year"]
+        }
+        self.assertEqual(yearly[2025]["group_count"], 1)
+        self.assertEqual(yearly[2025]["student_memberships"], 2)
+        self.assertEqual(yearly[2025]["average_group_size"], 2.0)
+        summaries = {
+            row["year"]: row
+            for row in response.data["data"]["group_summary_by_year"]
+        }
+        self.assertEqual(summaries[2025]["groups_with_mentor"], 1)
+        self.assertEqual(summaries[2025]["groups_without_mentor"], 0)
+        self.assertEqual(summaries[2025]["mentor_count"], 1)
+        self.assertEqual(summaries[2025]["student_count"], 2)
+        self.assertEqual(summaries[2025]["students_per_mentor"], 2.0)
+
     def test_date_range_filters_message_counts_inclusively(self):
         Messages.objects.create(
             group=self.group,

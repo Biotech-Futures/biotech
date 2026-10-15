@@ -46,7 +46,7 @@
         <span class="kpi-icon"><i class="fas fa-envelope"></i></span>
         <div>
           <span class="kpi-label">{{ mailbox.email }}</span>
-          <strong>{{ mailbox.currentUsage.toLocaleString() }}</strong>
+          <strong><AnalyticsNumber :value="mailbox.currentUsage" /></strong>
           <small>{{ mailbox.percent }}% of {{ mailbox.quotaLimit.toLocaleString() }} rolling 24-hour quota</small>
         </div>
       </article>
@@ -55,7 +55,7 @@
         <span class="kpi-icon"><i class="fas fa-envelope-open-text"></i></span>
         <div>
           <span class="kpi-label">Combined 24-Hour Usage</span>
-          <strong>{{ combinedUsage.toLocaleString() }}</strong>
+          <strong><AnalyticsNumber :value="combinedUsage" /></strong>
           <small>Across tracked sending mailboxes</small>
         </div>
       </article>
@@ -64,7 +64,7 @@
         <span class="kpi-icon"><i class="fas fa-clock"></i></span>
         <div>
           <span class="kpi-label">Latest Recorded UTC Hour</span>
-          <strong>{{ data.sentLastHour }}</strong>
+          <strong><AnalyticsNumber :value="data.sentLastHour" /></strong>
           <small>{{ latestRecordedHourLabel }} · attempted recipients</small>
         </div>
       </article>
@@ -93,13 +93,13 @@
             <span class="overall-stat-icon"><i class="fas fa-envelope"></i></span>
             <div>
               <span class="overall-stat-label">Emails Delivered</span>
-              <strong>{{ compactNumber(data.overallStats.delivered) }}</strong>
+              <strong><AnalyticsNumber :value="data.overallStats.delivered" /></strong>
             </div>
           </div>
           <div class="overall-stat-meta two-col">
             <div>
               <span>Sent</span>
-              <strong>{{ compactNumber(data.overallStats.sent) }}</strong>
+              <strong><AnalyticsNumber :value="data.overallStats.sent" /></strong>
             </div>
             <div>
               <span>Failed</span>
@@ -113,13 +113,13 @@
             <span class="overall-stat-icon"><i class="fas fa-arrow-pointer"></i></span>
             <div>
               <span class="overall-stat-label">Emails Clicked</span>
-              <strong>{{ optionalMetric(data.overallStats.clicked, true) }}</strong>
+              <strong><AnalyticsNumber :value="data.overallStats.clicked ?? 'Unavailable'" /></strong>
             </div>
           </div>
           <div class="overall-stat-meta two-col">
             <div>
               <span>Opened</span>
-              <strong>{{ optionalMetric(data.overallStats.opened, true) }}</strong>
+              <strong><AnalyticsNumber :value="data.overallStats.opened ?? 'Unavailable'" /></strong>
             </div>
             <div>
               <span>Marked as Spam</span>
@@ -568,6 +568,7 @@ import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import { useRoute } from 'vue-router'
 import type { EmailMonitoringData } from '@/types/analytics'
@@ -646,7 +647,7 @@ const filteredLogs = computed(() => {
 
 
 function compactNumber(value: number) {
-  if (value >= 1000) {
+  if (value >= 10_000) {
     const compact = value / 1000
     return `${Number.isInteger(compact) ? compact.toFixed(0) : compact.toFixed(1)}k`
   }

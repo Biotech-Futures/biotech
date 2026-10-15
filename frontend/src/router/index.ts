@@ -57,6 +57,10 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: routes,
   scrollBehavior(to, from, savedPosition) {
+    if (to.hash) {
+      return { el: to.hash, top: 80, behavior: 'smooth' }
+    }
+
     if (to.path.startsWith('/analytics') && to.path !== from.path && !to.hash) {
       return { left: 0, top: 0 }
     }

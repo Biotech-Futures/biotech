@@ -55,11 +55,11 @@
         <div class="kpi-icon purple"><i class="fas fa-users"></i></div>
         <div>
           <span class="kpi-label">Total Groups</span>
-          <div class="kpi-value-row">
-            <strong>{{ data.totalGroups }}</strong>
-            <span class="trend-up">{{ data.groupGrowth === null ? 'N/A' : `↑ ${data.groupGrowth}%` }}</span>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.totalGroups" /></strong>
+            <AnalyticsYearChange :current="groupComparison.current" :previous="groupComparison.previous" :label="`vs ${groupComparison.previousYear}`" />
           </div>
-          <small>{{ data.groupGrowth === null ? 'No historical snapshot available' : 'vs. last period' }}</small>
+          <small>Current groups, compared by creation year</small>
         </div>
       </article>
 
@@ -67,11 +67,16 @@
         <div class="kpi-icon teal"><i class="fas fa-people-group"></i></div>
         <div>
           <span class="kpi-label">Average Group Size</span>
-          <div class="kpi-value-row">
-            <strong>{{ data.averageGroupSize }}</strong>
-            <span class="trend-down">{{ data.avgSizeChange === null ? 'N/A' : `↓ ${data.avgSizeChange}%` }}</span>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.averageGroupSize" /></strong>
+            <AnalyticsYearChange
+              v-if="data.averageGroupSizePrevious !== null"
+              :current="data.averageGroupSize"
+              :previous="data.averageGroupSizePrevious"
+              :label="`vs ${data.averageGroupSizePreviousYear}`"
+            />
           </div>
-          <small>{{ data.avgSizeChange === null ? 'No historical snapshot available' : 'vs. last period' }}</small>
+          <small>{{ data.averageGroupSizePrevious === null ? 'No earlier membership history available' : `Compared with ${data.averageGroupSizePreviousYear}` }}</small>
         </div>
       </article>
 
@@ -79,8 +84,16 @@
         <div class="kpi-icon blue"><i class="fas fa-shield-halved"></i></div>
         <div>
           <span class="kpi-label">Groups with Mentor</span>
-          <strong class="kpi-value">{{ data.groupsWithMentor }}</strong>
-          <small>{{ percent(data.groupsWithMentor, data.totalGroups) }}%</small>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.groupsWithMentor" /></strong>
+            <AnalyticsYearChange
+              v-if="data.groupsWithMentorPrevious !== null"
+              :current="data.groupsWithMentor"
+              :previous="data.groupsWithMentorPrevious"
+              :label="`vs ${data.comparisonPreviousYear}`"
+            />
+          </div>
+          <small>{{ percent(data.groupsWithMentor, data.totalGroups) }}% of groups assigned</small>
         </div>
       </article>
 
@@ -88,8 +101,16 @@
         <div class="kpi-icon red"><i class="fas fa-user-group"></i></div>
         <div>
           <span class="kpi-label">Groups without Mentor</span>
-          <strong class="kpi-value">{{ data.groupsWithoutMentor }}</strong>
-          <small>{{ percent(data.groupsWithoutMentor, data.totalGroups) }}%</small>
+          <div class="kpi-value-row analytics-value-row">
+            <strong><AnalyticsNumber :value="data.groupsWithoutMentor" /></strong>
+            <AnalyticsYearChange
+              v-if="data.groupsWithoutMentorPrevious !== null"
+              :current="data.groupsWithoutMentor"
+              :previous="data.groupsWithoutMentorPrevious"
+              :label="`vs ${data.comparisonPreviousYear}`"
+            />
+          </div>
+          <small>{{ percent(data.groupsWithoutMentor, data.totalGroups) }}% of groups unassigned</small>
         </div>
       </article>
 
@@ -97,8 +118,16 @@
         <div class="kpi-icon orange"><i class="fas fa-scale-balanced"></i></div>
         <div>
           <span class="kpi-label">Mentor-to-Student Ratio</span>
-          <strong class="kpi-value">{{ data.mentorStudentRatio === null ? 'N/A' : `1 : ${data.mentorStudentRatio}` }}</strong>
-          <small>Target 1 : 8</small>
+          <div class="kpi-value-row analytics-value-row">
+            <strong class="ratio-kpi-value"><AnalyticsNumber :value="data.mentorStudentRatio === null ? 'N/A' : `1 : ${data.mentorStudentRatio}`" /></strong>
+            <AnalyticsYearChange
+              v-if="data.mentorStudentRatio !== null && data.mentorStudentRatioPrevious !== null"
+              :current="data.mentorStudentRatio"
+              :previous="data.mentorStudentRatioPrevious"
+              :label="`vs ${data.comparisonPreviousYear}`"
+            />
+          </div>
+          <small>{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Target 1 : 8' }}</small>
         </div>
       </article>
     </section>
@@ -347,7 +376,16 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="student in studentsNotAssignedRows" :key="student.id">
+              <tr
+                v-for="student in studentsNotAssignedRows"
+                :key="student.id"
+                class="group-issue-table-row--clickable"
+                role="link"
+                tabindex="0"
+                @click="openUnassignedStudent(student.email)"
+                @keydown.enter="openUnassignedStudent(student.email)"
+                @keydown.space.prevent="openUnassignedStudent(student.email)"
+              >
                 <td>{{ student.name }}</td>
                 <td>{{ student.email }}</td>
                 <td><span class="issue-status-chip unassigned">{{ student.status }}</span></td>
@@ -378,7 +416,16 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="group in groupsWithoutMentorRows" :key="group.id">
+              <tr
+                v-for="group in groupsWithoutMentorRows"
+                :key="group.id"
+                class="group-issue-table-row--clickable"
+                role="link"
+                tabindex="0"
+                @click="openUnmentoredGroup(group.name)"
+                @keydown.enter="openUnmentoredGroup(group.name)"
+                @keydown.space.prevent="openUnmentoredGroup(group.name)"
+              >
                 <td>{{ group.name }}</td>
                 <td><span class="issue-status-chip no-mentor">{{ group.status }}</span></td>
               </tr>
@@ -412,12 +459,16 @@ import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { GroupsAnalyticsYear } from '@/types/analytics'
 import {
   analyticsYears,
   buildGroupsAnalytics,
+  groupYearComparison,
+  liveAnalyticsYear,
   loadGroupsAnalyticsBundle,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
@@ -425,16 +476,36 @@ import type { AdminGroup, AdminUser } from '@/utils/liveAnalyticsApi'
 import { downloadReportCsv } from '@/utils/reportExport'
 
 const route = useRoute()
+const router = useRouter()
+
+const openUnassignedStudent = (email: string) => router.push({
+  path: '/admin/users',
+  query: { tab: 'students', inGroup: 'no', search: email },
+  hash: '#admin-users-table',
+})
+
+const openUnmentoredGroup = (name: string) => router.push({
+  path: '/admin/groups',
+  query: { mentorStatus: 'unmatched', search: name },
+  hash: '#admin-groups-table',
+})
 const availableYears = ref<number[]>([new Date().getFullYear()])
 const selectedYear = ref(availableYears.value[0]!)
+const groupComparison = ref(groupYearComparison([], selectedYear.value))
 const liveData = ref<GroupsAnalyticsYear>({
   totalGroups: 0,
   groupGrowth: null,
   averageGroupSize: 0,
+  averageGroupSizePrevious: null,
+  averageGroupSizePreviousYear: selectedYear.value - 1,
   avgSizeChange: null,
   groupsWithMentor: 0,
   groupsWithoutMentor: 0,
   mentorStudentRatio: 0,
+  comparisonPreviousYear: selectedYear.value - 1,
+  groupsWithMentorPrevious: null,
+  groupsWithoutMentorPrevious: null,
+  mentorStudentRatioPrevious: null,
   smallGroups: 0,
   inactiveRecent: 0,
   nearCapacity: 0,
@@ -473,6 +544,7 @@ async function initializeGroups(force = false, preserveFilters = false) {
     const activityBundle = { ...bundle, users: [] }
     groupBundle.value = activityBundle
     availableYears.value = analyticsYears(activityBundle)
+    groupComparison.value = groupYearComparison(bundle.groups, liveAnalyticsYear(bundle))
     if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) selectedYear.value = availableYears.value[0]!
     liveUsers.value = bundle.users
     liveGroups.value = bundle.groups
@@ -909,6 +981,11 @@ async function exportCsv() {
   color: #163f3c;
   font-size: 27px;
   line-height: 1.05;
+}
+
+.kpi-value-row .ratio-kpi-value {
+  font-size: 22px;
+  white-space: nowrap;
 }
 
 .trend-up { color: #017151; font-weight: 700; }
@@ -2100,6 +2177,21 @@ async function exportCsv() {
 .group-issue-table td {
   padding: 10px 12px;
   border-top: 1px solid #edf2f0;
+}
+
+.group-issue-table-row--clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.group-issue-table-row--clickable:hover,
+.group-issue-table-row--clickable:focus-visible {
+  background: #f1f8f5;
+}
+
+.group-issue-table-row--clickable:focus-visible {
+  outline: 2px solid #00866a;
+  outline-offset: -2px;
 }
 
 .issue-status-chip {

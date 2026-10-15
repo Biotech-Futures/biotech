@@ -45,8 +45,16 @@
       <article v-for="item in kpis" :key="item.label" class="kpi-card">
         <span class="kpi-icon"><BtfIcon :name="item.icon" :size="24" /></span>
         <div class="kpi-copy">
-          <span class="kpi-label">{{ item.label }}</span
-          ><strong class="kpi-value">{{ item.value }}</strong>
+          <span class="kpi-label">{{ item.label }}</span>
+          <div class="analytics-value-row">
+            <strong class="kpi-value"><AnalyticsNumber :value="item.value" /></strong>
+            <AnalyticsYearChange
+              v-if="item.comparison"
+              :current="item.comparison.current"
+              :previous="item.comparison.previous"
+              :label="`vs ${item.comparison.previousYear}`"
+            />
+          </div>
           <div v-if="item.label === 'Mentor Utilisation' && sourceAvailable('groups')" class="progress-track" aria-hidden="true">
             <span :style="{ width: snapshot.utilisation + '%' }"></span>
           </div>
@@ -369,6 +377,8 @@ import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
+import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
+import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import MentorDistributionChart from '@/components/analytics/MentorDistributionChart.vue'
 import { BTF_COLORS } from '@/constants/btfTheme'
@@ -439,12 +449,29 @@ const rangeError = computed(() => {
 })
 const activity = computed(() => mentorActivity(liveMentors.value, liveEvents.value, range.value))
 const rangeLabel = computed(() => `${range.value.start} – ${range.value.end} (UTC)`)
+const activeMentorsForYear = (year: number) => new Set(
+  liveEvents.value
+    .filter((event) => Number(event.date.slice(0, 4)) === year && (event.logins > 0 || event.messages > 0))
+    .map((event) => event.mentorId),
+).size
+const activeMentorComparison = computed(() => ({
+  current: activeMentorsForYear(selectedYear.value),
+  previous: activeMentorsForYear(selectedYear.value - 1),
+  previousYear: selectedYear.value - 1,
+}))
 const kpis = computed(() => [
   {
     label: 'Total Mentors',
     value: snapshot.value.total,
     icon: 'users',
     detail: 'All mentor accounts',
+  },
+  {
+    label: 'Active Mentors',
+    value: activeMentorComparison.value.current,
+    icon: 'activity',
+    detail: 'Mentors with a recorded login or message',
+    comparison: activeMentorComparison.value,
   },
   {
     label: 'Mentor Utilisation',
@@ -470,9 +497,15 @@ const kpis = computed(() => [
     icon: 'scale',
     detail: 'Unique students per assigned mentor',
   },
-].map((item) => !sourceAvailable('groups') && item.label !== 'Total Mentors'
-  ? { ...item, value: '—', detail: 'Group allocation data is unavailable.' }
-  : item))
+].map((item) => {
+  if (item.label.startsWith('Active Mentors') && !sourceAvailable('groupActivity')) {
+    return { ...item, value: '—', comparison: undefined, detail: 'Mentor activity data is unavailable.' }
+  }
+  if (!sourceAvailable('groups') && !['Total Mentors'].includes(item.label) && !item.label.startsWith('Active Mentors')) {
+    return { ...item, value: '—', comparison: undefined, detail: 'Group allocation data is unavailable.' }
+  }
+  return item
+}))
 
 type MentorChart = {
   title: string
@@ -1350,9 +1383,9 @@ h2 {
   background: #ecf8f4 !important;
 }
 
-/* Put all five mentor KPI cards on one desktop row. */
+/* Keep all six mentor KPI cards on one desktop row. */
 .mentors-analytics-page .kpi-grid {
-  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
   gap: 12px !important;
 }
 
@@ -1372,6 +1405,12 @@ h2 {
 
 .mentors-analytics-page .kpi-copy {
   min-width: 0 !important;
+  flex: 1 1 auto;
+}
+
+.mentors-analytics-page .kpi-copy > .analytics-value-row {
+  width: 100%;
+  justify-content: center;
 }
 
 .mentors-analytics-page .kpi-label {
@@ -1393,7 +1432,7 @@ h2 {
   max-width: 130px !important;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1279px) {
   .mentors-analytics-page .kpi-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }

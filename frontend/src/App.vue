@@ -98,7 +98,11 @@
     >
       <aside
         class="sidebar"
-        :class="{ 'is-collapsed': isSidebarCollapsed, 'is-marking': onMarkingPage }"
+        :class="{
+          'is-collapsed': isSidebarCollapsed,
+          'is-marking': onMarkingPage,
+          'is-header-hidden': onMarkingPage && isHeaderHidden,
+        }"
       >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
@@ -423,7 +427,7 @@ type SidebarSectionKey = 'analytics' | 'supervisor' | 'admin'
 const collapsedSidebarSections = ref<Record<SidebarSectionKey, boolean>>({
   analytics: false,
   supervisor: false,
-  admin: false,
+  admin: true,
 })
 let adminSubnavMediaQuery: MediaQueryList | null = null
 
@@ -474,31 +478,9 @@ watch(
 // Supervisor Visibility shows them.
 const mainNavLinks = computed(() => {
   if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
-  const path = route.path
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]
-  if (auth.isAdmin) {
-    links.push({
-      key: 'analytics',
-      to: '/analytics',
-      label: 'Analytics',
-      icon: 'fa-chart-column',
-      active: path === '/analytics',
-      id: 'analytics-subnav',
-      collapsed: collapsedSidebarSections.value.analytics,
-      links: [
-        { label: 'Users', to: '/analytics/users', active: path === '/analytics/users' },
-        { label: 'Registration', to: '/analytics/registration', active: path === '/analytics/registration' },
-        { label: 'Groups', to: '/analytics/groups', active: path === '/analytics/groups' },
-        { label: 'Mentors', to: '/analytics/mentors', active: path === '/analytics/mentors' },
-        { label: 'Activity', to: '/analytics/activity', active: path === '/analytics/activity' },
-        { label: 'Messages', to: '/analytics/messages', active: path === '/analytics/messages' },
-        { label: 'Resources', to: '/analytics/resources', active: path === '/analytics/resources' },
-        { label: 'Email Monitoring', to: '/analytics/email', active: path === '/analytics/email' },
-      ],
-    })
-  }
   links.push(
     { to: '/groups', label: 'Groups', icon: 'fa-users', active: route.path.startsWith('/groups') },
     { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
@@ -555,6 +537,23 @@ const sidebarSections = computed(() => {
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
+      ],
+    })
+    sections.push({
+      key: 'analytics',
+      label: 'Analytics',
+      icon: 'fa-chart-column',
+      to: '/analytics',
+      active: path === '/analytics',
+      links: [
+        { label: 'Users', to: '/analytics/users', active: path === '/analytics/users' },
+        { label: 'Registration', to: '/analytics/registration', active: path === '/analytics/registration' },
+        { label: 'Groups', to: '/analytics/groups', active: path === '/analytics/groups' },
+        { label: 'Mentors', to: '/analytics/mentors', active: path === '/analytics/mentors' },
+        { label: 'Activity', to: '/analytics/activity', active: path === '/analytics/activity' },
+        { label: 'Messages', to: '/analytics/messages', active: path === '/analytics/messages' },
+        { label: 'Resources', to: '/analytics/resources', active: path === '/analytics/resources' },
+        { label: 'Email Monitoring', to: '/analytics/email', active: path === '/analytics/email' },
       ],
     })
   }
@@ -1232,19 +1231,37 @@ select {
 .sidebar {
   --sidebar-toggle-offset: 250px;
 
-  position: relative;
+  position: sticky;
+  top: 64px;
   display: flex;
   flex-direction: column;
+  align-self: flex-start;
   width: 250px;
   min-width: 250px;
   flex-shrink: 0;
-  min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
+  min-height: 0;
   padding: 1.5rem 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   background-color: var(--white);
   border-right: 1px solid var(--border-light);
   transition:
     width 0.2s ease,
     min-width 0.2s ease;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.sidebar.is-header-hidden {
+  top: 0;
+  height: 100vh;
 }
 
 .sidebar.is-collapsed {

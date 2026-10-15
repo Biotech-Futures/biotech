@@ -3,6 +3,9 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
+
 const country = { id: 1, countryName: 'Australia' }
 const state = { id: 1, stateName: 'NSW', countryName: 'Australia' }
 
@@ -98,9 +101,28 @@ afterEach(() => {
   document.body.innerHTML = ''
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  routeState.query = {}
 })
 
 describe('AdminUsersView', () => {
+  it('applies status and group membership from a deep link before loading', async () => {
+    routeState.query = { status: 'inactive', inGroup: 'no', search: 'Ada Lovelace' }
+    const fetchMock = fetchMockFor([buildUser({ isActive: false })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    expect(wrapper.get('#status-filter').element).toHaveProperty('value', 'inactive')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'no')
+    expect(wrapper.get('input[type="search"]').element).toHaveProperty('value', 'Ada Lovelace')
+    const url = String(listCall(fetchMock)?.[0] ?? '')
+    expect(url).toContain('active=false')
+    expect(url).toContain('inGroup=no')
+    expect(url).toContain('search=Ada+Lovelace')
+  })
+
   it('loads and renders user rows', async () => {
     vi.stubGlobal(
       'fetch',

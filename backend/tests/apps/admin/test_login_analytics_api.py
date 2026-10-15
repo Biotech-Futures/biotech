@@ -98,6 +98,14 @@ class LoginActivityAnalyticsApiTests(APITestCase):
             [{"year": 2026, "students": 1, "mentors": 1, "supervisors": 0, "total": 2}],
         )
         self.assertEqual(data["active_users"], {"daily": 1, "weekly": 2, "monthly": 2})
+        self.assertEqual(
+            data["active_user_comparison"],
+            {
+                "daily": {"current": 1, "previous": 2},
+                "weekly": {"current": 2, "previous": 0},
+                "monthly": {"current": 2, "previous": 0},
+            },
+        )
         self.assertEqual(data["latest_activity_date"], "2026-08-30")
 
     def test_date_filter_is_inclusive_and_excludes_unsupported_roles(self):

@@ -44,6 +44,7 @@ let wrapper: VueWrapper | null = null
 let pinia: ReturnType<typeof createPinia>
 
 const mountApp = async (options: { viewport?: 'mobile' | 'desktop' } = {}) => {
+  vi.stubGlobal('scrollTo', vi.fn())
   globalThis.fetch = vi
     .fn()
     .mockImplementation(() => Promise.resolve(new Response('[]', { status: 200 })))
@@ -103,7 +104,7 @@ describe('App sidebar admin section', () => {
     expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
-  it('renders the Admin nav and all expected sub-links for admins', async () => {
+  it('keeps Admin collapsed by default and expands it on request', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)
     await mountApp({ viewport: 'desktop' })
@@ -111,20 +112,30 @@ describe('App sidebar admin section', () => {
     const text = wrapper!.text()
     expect(text).toContain('Admin')
 
-    const links = wrapper!.findAll('a')
+    let links = wrapper!.findAll('a')
     for (const sub of adminSubLinks) {
       const found = links.some((a) => a.attributes('href') === `#${sub}`)
-      expect(found, `expected a sidebar link to ${sub}`).toBe(true)
+      expect(found, `expected sub-link ${sub} to be hidden initially`).toBe(false)
     }
 
     const sidebarLinks = wrapper!.findAll('.sidebar-list a')
-    const homeIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/dashboard')
+    const adminIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/admin')
     const analyticsIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/analytics')
-    expect(analyticsIndex).toBe(homeIndex + 1)
+    expect(analyticsIndex).toBe(adminIndex + 1)
     expect(sidebarLinks.filter((a) => a.attributes('href') === '#/analytics')).toHaveLength(1)
     for (const sub of analyticsSubLinks) {
       expect(sidebarLinks.some((a) => a.attributes('href') === `#${sub}`)).toBe(true)
     }
+
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    await toggle.trigger('click')
+
+    links = wrapper!.findAll('a')
+    for (const sub of adminSubLinks) {
+      expect(links.some((a) => a.attributes('href') === `#${sub}`)).toBe(true)
+    }
+    expect(toggle.attributes('aria-expanded')).toBe('true')
 
     const adminItem = wrapper!.find('a[href="#/admin"]').element.closest('.sidebar-item')
     expect(adminItem?.textContent).not.toContain('Analytics')
@@ -149,5 +160,21 @@ describe('App sidebar admin section', () => {
     expect(toggle.attributes('aria-expanded')).toBe('false')
 
     expect(mediaQuery.addEventListener).toHaveBeenCalled()
+  })
+
+  it('keeps the Admin submenu in the state selected by the user while navigating', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(adminUser)
+    await mountApp({ viewport: 'desktop' })
+
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await router.push('/analytics')
+    await flushPromises()
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(true)
   })
 })
