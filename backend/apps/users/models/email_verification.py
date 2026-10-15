@@ -70,8 +70,8 @@ class EmailVerification(models.Model):
 
 class EmailVerificationCredits(models.Model):
     """How many QuickEmailVerification credits are left, as the service last
-    reported it, and which low-credit alerts have gone out since the last
-    top-up. Always a single row (pk=1)."""
+    reported it, which low-credit alerts have gone out since the last top-up,
+    and how many lookups have been made today. Always a single row (pk=1)."""
 
     SINGLETON_PK = 1
 
@@ -82,6 +82,10 @@ class EmailVerificationCredits(models.Model):
     # The thresholds whose alert has been sent, e.g. [500]. A threshold is
     # dropped again once the balance is back at or above it (a top-up).
     alerted_thresholds = models.JSONField(default=list, blank=True)
+    # Paid lookups made on ``lookups_on`` (a UTC date), for the daily cap.
+    # The count starts again on a new day.
+    lookups_on = models.DateField(null=True, blank=True)
+    lookups_today = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "email_verification_credits"

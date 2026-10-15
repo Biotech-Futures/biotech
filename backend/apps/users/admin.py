@@ -36,11 +36,17 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
 @admin.register(EmailVerification)
 class EmailVerificationAdmin(ReadOnlyAdmin):
+    """Rows can be deleted, so a wrongly stored answer (an "invalid" for a
+    mailbox that works, say) is cleared and the address is checked again."""
+
     list_display = ("email", "status", "reason", "checked_at")
     list_filter = ("status",)
     search_fields = ("email",)
 
+    def has_delete_permission(self, request, obj=None):
+        return admin.ModelAdmin.has_delete_permission(self, request, obj)
+
 
 @admin.register(EmailVerificationCredits)
 class EmailVerificationCreditsAdmin(ReadOnlyAdmin):
-    list_display = ("remaining", "updated_at", "alerted_thresholds")
+    list_display = ("remaining", "updated_at", "alerted_thresholds", "lookups_on", "lookups_today")

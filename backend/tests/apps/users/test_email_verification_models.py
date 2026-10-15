@@ -99,6 +99,8 @@ class CreditsTests(TestCase):
         self.assertIsNone(credits.remaining)
         self.assertIsNone(credits.updated_at)
         self.assertEqual(credits.alerted_thresholds, [])
+        self.assertIsNone(credits.lookups_on)
+        self.assertEqual(credits.lookups_today, 0)
         self.assertEqual(str(credits), "Unknown")
 
     def test_there_is_only_ever_one_row(self):
@@ -126,7 +128,7 @@ class ReadOnlyAdminTests(TestCase):
         request.user = User.objects.create_superuser(email="admin@example.com", password="pw-for-tests-only")
         self.request = request
 
-    def test_both_are_shown_in_django_admin_but_cannot_be_changed(self):
+    def test_both_are_shown_in_django_admin_but_cannot_be_added_or_changed(self):
         for model in (EmailVerification, EmailVerificationCredits):
             with self.subTest(model=model.__name__):
                 model_admin = admin.site._registry[model]
@@ -134,4 +136,22 @@ class ReadOnlyAdminTests(TestCase):
                 self.assertTrue(model_admin.has_view_permission(self.request))
                 self.assertFalse(model_admin.has_add_permission(self.request))
                 self.assertFalse(model_admin.has_change_permission(self.request))
-                self.assertFalse(model_admin.has_delete_permission(self.request))
+
+    def test_a_stored_answer_can_be_deleted_so_the_address_is_checked_again(self):
+        row = _stored("kid@example.com", Status.INVALID)
+        model_admin = admin.site._registry[EmailVerification]
+
+        self.assertTrue(model_admin.has_delete_permission(self.request))
+        self.assertTrue(model_admin.has_delete_permission(self.request, row))
+
+    def test_the_credit_balance_cannot_be_deleted(self):
+        credits = EmailVerificationCredits.get()
+        model_admin = admin.site._registry[EmailVerificationCredits]
+
+        self.assertFalse(model_admin.has_delete_permission(self.request))
+        self.assertFalse(model_admin.has_delete_permission(self.request, credits))
+
+    def test_admins_without_the_permission_still_cannot_delete_answers(self):
+        self.request.user = User.objects.create_user(email="staff@example.com", is_staff=True)
+
+        self.assertFalse(admin.site._registry[EmailVerification].has_delete_permission(self.request))
