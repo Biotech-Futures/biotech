@@ -56,10 +56,6 @@
 
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
-import { SUPPORT_EMAIL } from '@/constants/brand';
-
-const NO_GROUP_MEMBERSHIP_MESSAGE =
-  `Please contact the administrator via ${SUPPORT_EMAIL}`;
 
 // /groups has no id of its own — resolve the user's first group from the
 // store and forward there. Falls back to /dashboard when the user has no
@@ -67,9 +63,18 @@ const NO_GROUP_MEMBERSHIP_MESSAGE =
 const resolveGroupsLanding = async () => {
   const store = useGroupsStore();
   await store.ensureLoaded();
+
   const first = store.firstGroup;
-  if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
-  window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
+
+  if (first) {
+    return {
+      name: 'group-detail',
+      params: { id: first.id },
+      replace: true,
+    };
+  }
+
+  // No group assigned: return to dashboard without showing an error alert.
   return { name: 'dashboard', replace: true };
 };
 

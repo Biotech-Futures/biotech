@@ -638,4 +638,43 @@ onMounted(() => {
     align-items: stretch;
   }
 }
+
+/* Timezone dropdown - dark mode */
+:global(html[data-theme='dark']) .timezone-input {
+  background-color: #1d2826 !important;
+  color: #e6efed !important;
+  border: 1px solid #3c4b47 !important;
+  color-scheme: dark;
+}
+
+:global(html[data-theme='dark']) .timezone-input option {
+  background-color: #1d2826;
+  color: #e6efed;
+}
+
+/* Save timezone button - dark mode */
+:global(html[data-theme='dark']) .timezone-actions .btn-primary {
+  background: #017151 !important;
+  color: #ffffff !important;
+  border: 1px solid #017151 !important;
+}
+
+/* Save timezone button hover */
+:global(html[data-theme='dark']) .timezone-actions .btn-primary:hover:not(:disabled) {
+  background: #015940 !important;
+  border-color: #015940 !important;
+}
+
+/* Use device timezone button - dark mode */
+:global(html[data-theme='dark']) .timezone-actions .btn-outline {
+  background: transparent !important;
+  color: #e6efed !important;
+  border: 1px solid #3c4b47 !important;
+}
+
+/* Disabled Save timezone button */
+:global(html[data-theme='dark']) .timezone-actions .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 </style>

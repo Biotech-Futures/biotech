@@ -160,10 +160,10 @@
 
       <!-- Desktop: two columns; mobile: single column via tabs -->
       <div class="split" :data-active="activeTab">
-      <!-- Left column: Tasks / Meetings workspace -->
-      <section class="pane pane--tasks card">
+        <!-- Left column: Tasks / Meetings workspace -->
+        <div class="workspace-column">
 
-        <div class="workspace-switch">
+          <div class="workspace-switch">
           <button
             type="button"
             class="workspace-switch-btn"
@@ -183,7 +183,8 @@
           </button>
         </div>
 
-        <template v-if="workspaceView === 'tasks'">
+        <section class="pane pane--tasks card">
+          <template v-if="workspaceView === 'tasks'">
           <div class="card-header">
             <h3 class="card-title">Tasks</h3>
             <div class="task-header-actions">
@@ -874,6 +875,7 @@
           embedded
         />
         </section>
+      </div> <!-- Close workspace-column -->
 
         <!-- Right column: Discussion -->
         <section class="pane pane--discussion">

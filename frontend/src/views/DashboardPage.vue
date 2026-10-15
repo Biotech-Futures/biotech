@@ -395,8 +395,12 @@
         <div class="dashboard-modal-icon">
           <i class="fas fa-users-slash"></i>
         </div>
-        <h3 id="no-membership-title">No group membership</h3>
-        <p>Please contact the administrator via {{ SUPPORT_EMAIL }}</p>
+<h3 id="no-membership-title">No group assigned yet</h3>
+
+        <p>
+          You're not currently assigned to a group.
+          Once you've been added to a group, it will appear here.
+        </p>
         <button type="button" class="btn btn-primary" @click="closeNoMembershipPopup">
           Got it
         </button>
@@ -709,7 +713,7 @@ const summaryWidgets = computed(() => {
       title: 'Tasks Completed',
       value: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks}`,
       subtext: hasNoAssignedMembership.value
-        ? `Please contact the administrator via ${SUPPORT_EMAIL}`
+        ? 'You are not currently assigned to a group'
         : 'Your progress in the current program cycle',
       icon: 'fas fa-circle-check',
       accent: 'teal',
