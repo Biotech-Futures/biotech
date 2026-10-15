@@ -113,6 +113,29 @@ def can_moderate_chat_message(user, message) -> bool:
     )
 
 
+def can_restore_chat_message(user, message) -> bool:
+    """Authorize undoing a removal, and reading back what was removed.
+
+    An admin may reverse anything. A mentor may reverse only their own
+    removal, and only while they still mentor that group - the same authority
+    that let them take it down, pointed the other way. A member who deleted
+    their own message inside the self-action window does not get it back: that
+    path has always been one-way, and widening it here would expose text the
+    sender chose to withdraw.
+    """
+    if not user or not getattr(user, "is_authenticated", False) or message is None:
+        return False
+    if is_admin(user):
+        return True
+    if getattr(message, "deleted_by_id", None) != getattr(user, "id", None):
+        return False
+
+    target_group = _group_from_value(
+        getattr(message, "group", None) or getattr(message, "group_id", None)
+    )
+    return target_group is not None and _is_group_mentor(user, target_group.id)
+
+
 def can_manage_chat_message(user, message) -> bool:
     """Authorize edit or delete of an existing chat message.
 

@@ -1325,9 +1325,10 @@
                   </div>
                   <div v-if="message.isDeleted" class="message-text message-text--deleted">
                     <span class="message-deleted-label">{{ getDeletedMessageText(message) }}</span>
-                    <!-- Admins keep the original text and can undo the removal;
-                         participants see the tombstone line only. -->
-                    <template v-if="auth.isAdmin">
+                    <!-- Admins, and whoever removed this message, keep the
+                         original text and can undo it. Everyone else sees the
+                         tombstone line only. -->
+                    <template v-if="canRestoreMessage(message)">
                       <span v-if="message.text" class="message-deleted-original">{{ message.text }}</span>
                       <button
                         type="button"
@@ -3343,6 +3344,14 @@ const normalizeMessage = (item) => {
     deliveredTo: Array.isArray(raw?.delivered_to_ids) ? raw.delivered_to_ids.map(Number) : [],
     isLocalOnly: Boolean(raw?.isLocalOnly),
   }
+}
+
+/** Admins may undo any removal; anyone else only their own, which mirrors
+ *  the API. The tombstone carries ``deletedById``, so no extra request. */
+const canRestoreMessage = (message) => {
+  if (!message?.isDeleted) return false
+  if (auth.isAdmin) return true
+  return Number(message.deletedById || 0) === Number(auth.user?.id || 0)
 }
 
 const restoringMessageId = ref(null)

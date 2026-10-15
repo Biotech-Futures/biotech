@@ -21,7 +21,11 @@ from .management.permissions import (
     HasParentalConsentToPost,
     IsGroupMemberOrAdmin,
 )
-from .rbac import can_access_chat_group, chat_recipients_qs
+from .rbac import (
+    can_access_chat_group,
+    can_restore_chat_message,
+    chat_recipients_qs,
+)
 from .models import (
     MessageAttachment,
     MessageMention,
@@ -874,9 +878,9 @@ class MessageViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def restore(self, request, *args, **kwargs):
         instance = self.get_object()
-        if not is_admin(request.user):
+        if not can_restore_chat_message(request.user, instance):
             return Response(
-                {"detail": "Admin access is required to restore messages."},
+                {"detail": "You can only restore messages you removed yourself."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         # A message can only return while its parent group is active.

@@ -98,15 +98,57 @@ class MentorMessageModerationTests(TestCase):
         message.refresh_from_db()
         self.assertEqual(message.message_text, "said something")
 
-    def test_mentor_cannot_restore_what_it_deleted(self):
+    def test_mentor_restores_what_it_removed_itself(self):
         message = self._message_from(self.student)
         self.client_mentor.delete(self._detail_url(message))
+
+        response = self.client_mentor.post(f"{self._detail_url(message)}restore/")
+
+        self.assertEqual(response.status_code, 200)
+        message.refresh_from_db()
+        self.assertIsNone(message.deleted_at)
+        self.assertIsNone(message.deleted_by_id)
+
+    def test_mentor_cannot_restore_another_mentors_removal(self):
+        message = self._message_from(self.student)
+        other = APIClient()
+        other.force_authenticate(user=self.other_mentor)
+        other.delete(self._detail_url(message))
 
         response = self.client_mentor.post(f"{self._detail_url(message)}restore/")
 
         self.assertEqual(response.status_code, 403)
         message.refresh_from_db()
         self.assertIsNotNone(message.deleted_at)
+
+    def test_mentor_cannot_restore_an_admins_removal(self):
+        message = self._message_from(self.student)
+        admin_client = APIClient()
+        admin_client.force_authenticate(user=self.admin)
+        admin_client.delete(self._detail_url(message))
+
+        response = self.client_mentor.post(f"{self._detail_url(message)}restore/")
+
+        self.assertEqual(response.status_code, 403)
+        message.refresh_from_db()
+        self.assertIsNotNone(message.deleted_at)
+
+    def test_mentor_reads_back_only_the_text_it_removed(self):
+        mine = self._message_from(self.student)
+        theirs = self._message_from(self.student)
+        self.client_mentor.delete(self._detail_url(mine))
+        admin_client = APIClient()
+        admin_client.force_authenticate(user=self.admin)
+        admin_client.delete(self._detail_url(theirs))
+
+        listed = self.client_mentor.get(
+            reverse("group-messages-list", kwargs={"group_pk": self.group.id})
+        ).json()["items"]
+        by_id = {str(item["id"]): item for item in listed}
+
+        self.assertEqual(by_id[str(mine.id)]["message_text"], "said something")
+        # Someone else's removal stays a blank tombstone for this mentor.
+        self.assertEqual(by_id[str(theirs.id)]["message_text"], "")
 
     def test_mentor_of_another_group_is_refused(self):
         message = self._message_from(self.student)

@@ -550,18 +550,29 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         # are the ones who review a removal and decide whether to restore it,
         # and the same text is already on the admin group screen.
         if obj.deleted_at is not None:
-            return obj.message_text if self._viewer_is_admin() else ""
+            return obj.message_text if self._may_read_removed(obj) else ""
         return obj.message_text
 
-    def _viewer_is_admin(self) -> bool:
-        # Opt-in: only the direct reads an admin makes for themselves set
+    def _may_read_removed(self, obj) -> bool:
+        """Admins, and whoever removed this particular message.
+
+        A mentor who takes a student's message down can see what they removed
+        and undo it; anyone else - including a mentor looking at someone
+        else's removal - gets the blank tombstone.
+        """
+        # Opt-in: only the direct reads a viewer makes for themselves set
         # ``reveal_deleted``. Broadcast payloads are serialised once and pushed
         # to every client in the room, so they must never reveal the text just
-        # because an admin triggered them.
+        # because a privileged user triggered them.
         if not self.context.get("reveal_deleted"):
             return False
         request = self.context.get("request")
-        return bool(request and is_admin_actor(getattr(request, "user", None)))
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "id", None):
+            return False
+        from apps.chat.rbac import can_restore_chat_message
+
+        return can_restore_chat_message(user, obj)
 
     def get_deleted_by_name(self, obj):
         user = getattr(obj, "deleted_by", None)
