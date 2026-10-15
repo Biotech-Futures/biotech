@@ -64,7 +64,7 @@
         <li>Resets marks and certificates from their tabs.</li>
         <li>Clears all per-group deadline extensions.</li>
         <li>Ends all group memberships - students, mentors and supervisors.</li>
-        <li>Deactivates student, mentor and supervisor accounts and signs them out.</li>
+        <li>Deactivates all student, mentor and supervisor accounts and signs them out.</li>
         <li>Unpublishes last year's announcements so the new cohort starts clean.</li>
       </ol>
       <p class="year__hint">
