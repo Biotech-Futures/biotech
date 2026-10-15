@@ -202,6 +202,19 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    async syncDeviceTimeZone() {
+      try {
+        const deviceTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+        if (deviceTimeZone && deviceTimeZone !== this.timeZone) {
+          await this.updateTimeZone(deviceTimeZone)
+        }
+      } catch (error) {
+        // Do not prevent login if timezone synchronization fails.
+        console.warn('Could not automatically update timezone:', error)
+      }
+    },
+
     async loginWithPassword(email: string, password: string) {
       clearAuthTokens()
 
@@ -235,6 +248,8 @@ export const useAuthStore = defineStore('auth', {
       if (!user) {
         throw new Error('Login succeeded, but the current user profile could not be loaded.')
       }
+
+      await this.syncDeviceTimeZone()
 
       this.initialized = true
       return user

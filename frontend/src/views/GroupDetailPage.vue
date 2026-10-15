@@ -6062,36 +6062,43 @@ onBeforeUnmount(() => {
 
 <style>
 /* Tasks / Meetings workspace switch */
+
 .workspace-switch {
-  display: flex;
+  display: inline-flex;
   flex: 0 0 auto;
-  width: 100%;
-  margin-bottom: 12px;
-  padding: 4px;
-  background: #f5f5f5;
-  border-radius: 8px;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  margin-bottom: 20px;
+  padding: 5px;
+  background: var(--white);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  box-shadow: 0 1px 3px var(--shadow);
 }
 
 .workspace-switch-btn {
-  flex: 1;
-  padding: 9px 16px;
+  flex: 0 0 auto;
+  padding: 10px 20px;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
-  color: #555;
+  color: var(--text-muted);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.workspace-switch-btn:hover {
-  background: #eeeeee;
+.workspace-switch-btn:hover:not(.active) {
+  background: var(--accent-green-soft);
+  color: var(--teal);
 }
 
 .workspace-switch-btn.active {
-  background: #00856a !important;
-  color: white !important;
+  background: var(--dark-green) !important;
+  color: #ffffff !important;
 }
 
 .pane--tasks > .card-header {

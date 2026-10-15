@@ -986,8 +986,9 @@ const resetFilters = () => {
   }
 }
 
-const eventDisplayTimeZone = (ev?: BackendEvent | null) => ev?.event_timezone || auth.timeZone
-
+const eventDisplayTimeZone = (_ev?: BackendEvent | null) =>
+  Intl.DateTimeFormat().resolvedOptions().timeZone
+  
 const eventFormat = (ev?: BackendEvent | null): EventFormat => {
   if (ev?.event_format === 'virtual' || ev?.event_format === 'hybrid') return ev.event_format
   return 'in_person'

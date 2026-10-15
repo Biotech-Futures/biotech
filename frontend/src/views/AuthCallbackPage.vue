@@ -100,6 +100,7 @@ const completeSignIn = async () => {
     }
 
     if (await auth.fetchUserData()) {
+      await auth.syncDeviceTimeZone()
       await redirectAfterLogin(auth, router)
       return
     }
@@ -138,6 +139,7 @@ onMounted(async () => {
       }
 
       if (await auth.fetchUserData()) {
+        await auth.syncDeviceTimeZone()
         await redirectAfterLogin(auth, router)
         return
       }

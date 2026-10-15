@@ -74,18 +74,22 @@
       </label>
 
     <label>
-      <span>Duration <span class="required-mark">*</span></span>
-      <input
-        v-model="newDuration"
-        type="number"
-        min="5"
-        max="480"
-        step="5"
-        class="form-input"
-        :class="{ 'form-input--error': formErrors.duration }"
-        placeholder="Enter duration in minutes"
-        @input="formErrors.duration = ''"
-      />
+      <span>Duration</span>
+
+      <div class="duration-input-wrapper">
+        <input
+          v-model="newDuration"
+          type="number"
+          min="5"
+          max="480"
+          step="5"
+          class="form-input duration-input"
+          :class="{ 'form-input--error': formErrors.duration }"
+          @input="formErrors.duration = ''"
+        />
+        <span class="duration-unit">min</span>
+      </div>
+
       <span v-if="formErrors.duration" class="field-error">
         {{ formErrors.duration }}
       </span>
@@ -177,28 +181,23 @@
               :alt="`${meeting.provider} logo`"
               class="meeting-logo"
             />
-            <i v-else class="fas fa-video"></i>
+            <span v-else class="default-meeting-icon">
+              <i class="fas fa-video"></i>
+            </span>
           </div>
             <div class="meeting-details">
               <h2>{{ meeting.title }}</h2>
+
+              <p v-if="meeting.description" class="description">
+                {{ meeting.description }}
+              </p>
 
               <p class="meeting-time">
                 {{ formatMeetingDate(meeting.start_datetime) }}
               </p>
             </div>
           </div>
-
-          <span v-if="meeting.can_manage" class="manage-badge">
-            You can manage
-          </span>
         </div>
-
-        <p
-          v-if="meeting.description"
-          class="description"
-        >
-          {{ meeting.description }}
-        </p>
 
         <div class="meeting-actions">
 
@@ -277,8 +276,10 @@ const createMessage = ref('')
 const newTitle = ref('')
 const newDescription = ref('')
 const newStart = ref('')
-const newDuration = ref('')
-const newTimezone = ref('Australia/Sydney')
+const newDuration = ref('30')
+const newTimezone = ref(
+  Intl.DateTimeFormat().resolvedOptions().timeZone
+)
 const newJoinLink = ref('')
 
 const formErrors = ref({
@@ -419,7 +420,7 @@ const submitMeeting = async () => {
     newTitle.value = ''
     newDescription.value = ''
     newStart.value = ''
-    newDuration.value = ''
+    newDuration.value = '30'
     newJoinLink.value = ''
 
     selectedWhen.value = 'upcoming'
@@ -489,16 +490,39 @@ onMounted(() => {
 
 <style scoped>
 
+.duration-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.duration-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 75px;
+  appearance: auto;
+  -webkit-appearance: auto;
+}
+
+.duration-unit {
+  position: absolute;
+  right: 40px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+
 /* Schedule Meeting button */
 .schedule-button {
-  background: #00866a !important;
+  background: var(--dark-green) !important;
   color: #ffffff !important;
-  border-color: #00866a !important;
+  border-color: var(--dark-green) !important;
 }
 
 .schedule-button:hover {
-  background: #006f58 !important;
-  border-color: #006f58 !important;
+  background: #015940 !important;
+  border-color: #015940 !important;
 }
 
 .required-mark {
@@ -562,7 +586,8 @@ onMounted(() => {
 }
 
 .tab-button.active {
-  background: #eeeeee;
+  background: var(--light-green);
+  color: #017151;
   font-weight: 600;
 }
 
@@ -605,15 +630,6 @@ onMounted(() => {
   color: #666;
 }
 
-.manage-badge {
-  height: fit-content;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #f1f1f1;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
 .description {
   margin-top: 18px;
   line-height: 1.6;
@@ -641,8 +657,12 @@ onMounted(() => {
 
 .primary-button {
   border: none;
-  background: #222;
-  color: white;
+  background: var(--dark-green);
+  color: #ffffff;
+}
+
+.primary-button:hover {
+  background: #015940;
 }
 
 .secondary-button {
@@ -756,11 +776,6 @@ onMounted(() => {
   font-size: 13px;
 }
 
-.meetings-page--embedded .manage-badge {
-  padding: 4px 7px;
-  font-size: 11px;
-}
-
 .meetings-page--embedded .description{
   margin-top: 10px;
   font-size: 13px;
@@ -822,8 +837,8 @@ onMounted(() => {
 }
 
 :global(html[data-theme='dark']) .tab-button.active {
-  background: #26332f;
-  color: #ffffff;
+  background: #017151 !important;
+  color: #ffffff !important;
 }
 
 /* Meeting cards */
@@ -853,12 +868,6 @@ onMounted(() => {
   color: #d4dcda !important;
 }
 
-/* You can manage */
-:global(html[data-theme='dark'] .manage-badge) {
-  background: #26332f !important;
-  color: #c8d5d1 !important;
-  border: 1px solid #3c4b47 !important;
-}
 
 /* Upcoming / Past */
 :global(html[data-theme='dark'] .tab-button) {
@@ -926,22 +935,19 @@ onMounted(() => {
   color: #d4dcda;
 }
 
-/* "You can manage" badge */
-:global(html[data-theme='dark']) .manage-badge {
-  background: #26332f;
-  color: #c8d5d1;
-  border: 1px solid #3c4b47;
-}
-
 /* Join Meeting */
-:global(html[data-theme='dark']) .primary-button {
-  background: #26332f;
-  color: #ffffff;
-  border: 1px solid #45534f;
+/* Dark mode - Schedule Meeting and Join Meeting */
+:global(html[data-theme='dark']) .primary-button,
+:global(html[data-theme='dark']) .meeting-actions .primary-button {
+  background: #017151 !important;
+  color: #ffffff !important;
+  border-color: #017151 !important;
 }
 
-:global(html[data-theme='dark']) .primary-button:hover {
-  background: #31403b;
+:global(html[data-theme='dark']) .primary-button:hover,
+:global(html[data-theme='dark']) .meeting-actions .primary-button:hover {
+  background: #015940 !important;
+  border-color: #015940 !important;
 }
 
 /* View Details */
@@ -1019,13 +1025,79 @@ onMounted(() => {
 }
 
 .meeting-actions .primary-button {
-  background: #087c59;
-  color: white;
+  background: var(--dark-green);
+  color: #ffffff;
 }
 
 .meeting-actions .secondary-button {
-  border: 1px solid #087c59;
-  color: #087c59;
+  border: 1px solid var(--dark-green);
+  color: var(--dark-green);
 }
 
+/* Align meeting title, description and date */
+.meeting-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.meeting-details h2 {
+  margin: 0;
+}
+
+.meeting-details .description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--teal);
+  overflow-wrap: anywhere;
+}
+
+.meeting-details .meeting-time {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* Default meeting provider icon */
+.default-meeting-icon {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #e5f3e9;
+  color: var(--dark-green);
+  font-size: 24px;
+}
+
+/* Dark mode */
+:global(html[data-theme='dark'] .default-meeting-icon) {
+  background: rgba(1, 113, 81, 0.25);
+  color: #8edbb8;
+}
+
+/* Centre meeting icons vertically in the whole card */
+.meeting-card {
+  position: relative;
+}
+
+.meeting-provider {
+  position: absolute;
+  left: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Align icons in the embedded Group Workspace */
+.meetings-page--embedded .meeting-provider {
+  left: 8px;
+}
+
+/* Reserve space for the icon */
+.meeting-info {
+  padding-left: 76px;
+}
 </style>

@@ -1166,6 +1166,7 @@ const verifyOTP = async () => {
       return
     }
 
+    await auth.syncDeviceTimeZone()
     await redirectAfterLogin(auth, router)
   } catch (requestError) {
     logApiError('verify-login-code', requestError)
