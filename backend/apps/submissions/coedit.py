@@ -288,13 +288,14 @@ def save(room: int) -> bool:
     """
     if not store().exists(room):
         return True
-    doc, saved = _load(room)
-    texts = _texts(doc)
     questions = {q.key: q for q in SubmissionQuestion.active()}
     with transaction.atomic():
         submission, created = Submission.objects.select_for_update().get_or_create(group_id=room)
         if submission.is_locked:
             return False
+        # Read under the row lock, so a save that finished meanwhile is not taken for an outside change.
+        doc, saved = _load(room)
+        texts = _texts(doc)
         current = _db_texts(submission)
         if saved is not None and _digest(current) != saved:
             store().replace(room, _build(current), _digest(current))

@@ -252,6 +252,27 @@ class RaceTests(CoeditTestCase):
         text = Client(self.room).text(self.field)
         self.assertEqual(sorted(text), sorted("0123" * 80))
 
+    def test_typing_between_two_overlapping_saves_is_kept(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        coedit.apply(self.student, self.room, page.type(self.field, 5, " one"))
+        real_atomic, raced = coedit.transaction.atomic, []
+
+        def another_save_first(*args, **kwargs):
+            if not raced:
+                raced.append(True)
+                # Another worker's save commits, then a teammate types, while this save waits for the lock.
+                coedit.save(self.room)
+                coedit.apply(self.student, self.room, page.type(self.field, 9, " two"))
+            return real_atomic(*args, **kwargs)
+
+        with patch.object(coedit.transaction, "atomic", side_effect=another_save_first), patch.object(coedit, "broadcast_reset") as reset:
+            self.assertTrue(coedit.save(self.room))
+
+        reset.assert_not_called()
+        self.assertEqual(Client(self.room).text(self.field), "Draft one two")
+        self.assertEqual(self._entry().answers[self.key], "Draft one two")
+
 
 REDIS_URL = os.environ.get("COEDIT_TEST_REDIS_URL", "")
 
