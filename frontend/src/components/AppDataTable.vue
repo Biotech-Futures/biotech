@@ -46,7 +46,6 @@
         ref="wrapEl"
         class="data-table-wrap table-scroll-box"
         :class="{ 'data-table-wrap--loading': loading }"
-        :style="pagerBoxStyle"
         @scroll="syncFromTable"
       >
         <table>
@@ -223,7 +222,7 @@
         <span class="sr-only">Rows per page</span>
         <select :value="pageSize" @change="onPageSizeChange">
           <option v-for="size in sizeOptions" :key="size" :value="size">
-            {{ size === DATA_TABLE_ALL ? 'All' : size }}
+            {{ size === DATA_TABLE_ALL ? 'All' : size }} Entries
           </option>
         </select>
       </label>
@@ -691,12 +690,11 @@ const refitToWindow = () => {
 
 // Paging keeps the bottom bar still on screen, its < and > under the mouse,
 // whatever the rows' heights (see usePagerAnchor); a new search, sort, size or
-// count of rows lets the table's height go again.
+// count of rows lets go of any room it held below the rows.
 const {
   turn: turnPage,
   settle: settlePager,
   reset: resetPager,
-  boxStyle: pagerBoxStyle,
 } = usePagerAnchor(bottomEl, wrapEl)
 const prevPage = () => turnPage(() => {
   page.value -= 1

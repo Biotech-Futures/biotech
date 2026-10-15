@@ -4,7 +4,6 @@
       ref="scrollEl"
       class="admin-table__scroll"
       :class="{ 'admin-table__scroll--loading': loading }"
-      :style="pagerBoxStyle"
     >
       <table class="admin-table__table">
         <thead>
@@ -291,14 +290,13 @@ const onColumnSort = (key: string) => {
 
 // Paging keeps the footer still on screen, its < and > under the mouse,
 // whatever the rows' heights (see usePagerAnchor): settled once the new rows
-// come; a new size, count or sort lets the table's height go again.
+// come; a new size, count or sort lets go of any room it held below the rows.
 const scrollEl = ref<HTMLElement | null>(null)
 const footerEl = ref<HTMLElement | null>(null)
 const {
   turn: turnPage,
   settle: settlePager,
-  reset: resetPager,
-  boxStyle: pagerBoxStyle
+  reset: resetPager
 } = usePagerAnchor(footerEl, scrollEl)
 watch(() => props.rows, () => void nextTick(settlePager))
 watch([() => props.pageSize, () => props.totalCount, () => props.sortState], resetPager)
