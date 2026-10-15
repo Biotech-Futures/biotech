@@ -96,16 +96,7 @@
               <h2>Shared Meeting Notes</h2>
             </div>
 
-            <textarea
-              ref="noteTextarea"
-              class="note-textarea shared-note-textarea"
-              placeholder="Write shared meeting notes here..."
-              @input="onNoteInput"
-              @compositionstart="composing = true"
-              @compositionend="onCompositionEnd"
-              @focus="sendNotePresence(true)"
-              @blur="sendNotePresence(false)"
-            />
+            <div ref="editorHost" class="note-editor" />
 
             <p v-if="otherUserEditing" class="small-message">
               Another group member is editing...
@@ -241,7 +232,13 @@
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as Y from 'yjs'
+import * as awarenessProtocol from 'y-protocols/awareness'
+import { EditorView, minimalSetup } from 'codemirror'
+import { EditorState } from '@codemirror/state'
+import { placeholder } from '@codemirror/view'
+import { yCollab } from 'y-codemirror.next'
 
+import { useAuthStore } from '@/stores/auth'
 import {
   fetchMeetingById,
   fetchMeetingSummary,
@@ -290,33 +287,40 @@ const noteSocket = ref<WebSocket | null>(null)
 const otherUserEditing = ref(false)
 
 // ---------------------------------------------------------------------------
-// Shared live note (Yjs)
+// Shared live note (Yjs + CodeMirror)
 //
-// The note is a Y.Text. Local typing is diffed into it, its updates are
-// relayed through the meeting socket, and remote updates are written back
-// into the textarea. The server merges and persists every update.
+// The note is a Y.Text bound to a CodeMirror editor by yCollab, which also
+// draws other members' cursors from the Yjs awareness state. Two kinds of
+// frames go over the meeting socket:
+//   - document updates: merged and persisted by the server, then relayed
+//   - awareness updates (name, colour, cursor): relayed only, never stored
 // ---------------------------------------------------------------------------
-
-type TextDelta = Y.YTextEvent['delta']
 
 const REMOTE_ORIGIN = 'remote'
 const UPDATE_FLUSH_MS = 200
 const RECONNECT_MS = 2000
 // Close codes the server uses for "bad meeting id" / "not allowed".
 const FATAL_CLOSE_CODES = [4400, 4403]
+const CURSOR_COLORS = ['#30bced', '#6eeb83', '#ffbc42', '#ee6352', '#9b5de5', '#00bbf9']
+
+const auth = useAuthStore()
 
 const ydoc = new Y.Doc()
 // Must match the root name the backend uses: doc["note"].
 const ytext = ydoc.getText('note')
+const awareness = new awarenessProtocol.Awareness(ydoc)
 
-const noteTextarea = ref<HTMLTextAreaElement | null>(null)
-const composing = ref(false)
+// Same user, same colour, on every device.
+const cursorColor = CURSOR_COLORS[(auth.user?.id ?? 0) % CURSOR_COLORS.length]
+awareness.setLocalStateField('user', {
+  name: auth.user?.first_name || 'Member',
+  color: cursorColor,
+  // Selection highlight: the same colour at ~20% opacity.
+  colorLight: `${cursorColor}33`,
+})
 
-// What the textarea showed the last time it was in step with ytext.
-let renderedText = ''
-// Remote changes held back while an IME composition is in progress --
-// rewriting the textarea mid-composition would cancel it.
-let deferredDeltas: TextDelta[] = []
+const editorHost = ref<HTMLDivElement | null>(null)
+let editorView: EditorView | null = null
 
 let pendingUpdates: Uint8Array[] = []
 let flushTimer: number | undefined
@@ -334,120 +338,53 @@ const toBase64 = (bytes: Uint8Array) => {
 const fromBase64 = (text: string) =>
   Uint8Array.from(atob(text), (char) => char.charCodeAt(0))
 
-/** Where `index` ends up after a remote change is applied. */
-const shiftIndex = (index: number, delta: TextDelta) => {
-  let position = 0
-  let shifted = index
+// The editor host only exists once the meeting has loaded. yCollab keeps the
+// editor in step with ytext from then on, including a sync frame that
+// arrived before the editor was created.
+watch(editorHost, (el) => {
+  if (!el || editorView) return
 
-  for (const op of delta) {
-    if (op.retain !== undefined) {
-      position += op.retain
-    } else if (typeof op.insert === 'string') {
-      if (position <= shifted) shifted += op.insert.length
-      position += op.insert.length
-    } else if (op.delete !== undefined) {
-      if (position < shifted) {
-        shifted -= Math.min(op.delete, shifted - position)
-      }
-    }
-  }
-
-  return shifted
-}
-
-const renderNote = (selectionStart: number, selectionEnd: number) => {
-  const el = noteTextarea.value
-  if (!el) return
-
-  renderedText = ytext.toString()
-  el.value = renderedText
-
-  // Setting a selection range on an unfocused textarea would steal focus
-  // in some browsers.
-  if (document.activeElement === el) {
-    el.setSelectionRange(selectionStart, selectionEnd)
-  }
-}
-
-const onNoteInput = () => {
-  const el = noteTextarea.value
-  if (composing.value || !el) return
-
-  // Reduce the edit to "replace prev[start:prevEnd] with next[start:nextEnd]".
-  const prev = renderedText
-  const next = el.value
-
-  let start = 0
-  while (
-    start < prev.length &&
-    start < next.length &&
-    prev[start] === next[start]
-  ) {
-    start++
-  }
-
-  let prevEnd = prev.length
-  let nextEnd = next.length
-  while (
-    prevEnd > start &&
-    nextEnd > start &&
-    prev[prevEnd - 1] === next[nextEnd - 1]
-  ) {
-    prevEnd--
-    nextEnd--
-  }
-
-  const inserted = next.slice(start, nextEnd)
-
-  // Remote changes that landed mid-composition moved the text under us.
-  let from = start
-  let to = prevEnd
-  for (const delta of deferredDeltas) {
-    from = shiftIndex(from, delta)
-    to = shiftIndex(to, delta)
-  }
-
-  ydoc.transact(() => {
-    if (to > from) ytext.delete(from, to - from)
-    if (inserted) ytext.insert(from, inserted)
+  editorView = new EditorView({
+    parent: el,
+    state: EditorState.create({
+      doc: ytext.toString(),
+      extensions: [
+        minimalSetup,
+        EditorView.lineWrapping,
+        placeholder('Write shared meeting notes here...'),
+        yCollab(ytext, awareness),
+        EditorView.domEventHandlers({
+          focus: () => sendNotePresence(true),
+          blur: () => sendNotePresence(false),
+        }),
+      ],
+    }),
   })
+})
 
-  if (deferredDeltas.length) {
-    deferredDeltas = []
-    const caret = from + inserted.length
-    renderNote(caret, caret)
-  } else {
-    renderedText = next
-  }
-}
+const sendAwareness = (clientIds: number[]) => {
+  if (noteSocket.value?.readyState !== WebSocket.OPEN) return
 
-const onCompositionEnd = () => {
-  composing.value = false
-  onNoteInput()
-}
-
-ytext.observe((event, transaction) => {
-  if (transaction.local) return
-
-  const el = noteTextarea.value
-  if (!el) return
-
-  if (composing.value) {
-    deferredDeltas.push(event.delta)
-    return
-  }
-
-  renderNote(
-    shiftIndex(el.selectionStart, event.delta),
-    shiftIndex(el.selectionEnd, event.delta)
+  const update = awarenessProtocol.encodeAwarenessUpdate(awareness, clientIds)
+  noteSocket.value.send(
+    JSON.stringify({
+      type: 'awareness',
+      update: toBase64(update),
+    })
   )
-})
+}
 
-// The textarea only exists once the meeting has loaded, which can be after
-// the first sync frame has already arrived.
-watch(noteTextarea, (el) => {
-  if (el) renderNote(0, 0)
-})
+// Fires on local cursor moves and on the built-in 15s keep-alive renewal.
+awareness.on(
+  'update',
+  (
+    changes: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown
+  ) => {
+    if (origin === REMOTE_ORIGIN) return
+    sendAwareness(changes.added.concat(changes.updated, changes.removed))
+  }
+)
 
 const flushNoteUpdates = () => {
   flushTimer = undefined
@@ -507,6 +444,9 @@ const connectNoteSocket = () => {
         })
       )
     }
+
+    // Show our cursor to everyone already in the room.
+    sendAwareness([ydoc.clientID])
   }
 
   socket.onmessage = (event) => {
@@ -518,6 +458,20 @@ const connectNoteSocket = () => {
         typeof data.update === 'string'
       ) {
         Y.applyUpdate(ydoc, fromBase64(data.update), REMOTE_ORIGIN)
+      }
+
+      if (data.event === 'note.awareness' && typeof data.update === 'string') {
+        awarenessProtocol.applyAwarenessUpdate(
+          awareness,
+          fromBase64(data.update),
+          REMOTE_ORIGIN
+        )
+      }
+
+      if (data.event === 'note.peer_joined') {
+        // A newcomer has no cursors yet; send ours instead of making them
+        // wait for our next move or keep-alive.
+        sendAwareness([ydoc.clientID])
       }
 
       if (data.event === 'note.presence') {
@@ -732,12 +686,18 @@ onBeforeUnmount(() => {
   window.clearTimeout(flushTimer)
   // Send the last keystrokes that were still waiting on the flush timer.
   flushNoteUpdates()
+  // Remove our cursor right away instead of letting it time out (~30s).
+  // Must run while the socket is still open.
+  awarenessProtocol.removeAwarenessStates(awareness, [ydoc.clientID], 'local')
 
   if (noteSocket.value) {
     noteSocket.value.close()
     noteSocket.value = null
   }
 
+  editorView?.destroy()
+  editorView = null
+  awareness.destroy()
   ydoc.destroy()
 })
 </script>
@@ -883,8 +843,22 @@ onBeforeUnmount(() => {
   padding: 18px;
 }
 
-.shared-note-textarea {
+/* CodeMirror builds its DOM at runtime, so scoped styles need :deep(). */
+.note-editor :deep(.cm-editor) {
   min-height: 250px;
+  padding: 6px 4px;
+  border: 1px solid #cccccc;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.note-editor :deep(.cm-editor.cm-focused) {
+  outline: none;
+  border-color: #888888;
+}
+
+.note-editor :deep(.cm-content) {
+  font-family: inherit;
 }
 
 .summary-panel {

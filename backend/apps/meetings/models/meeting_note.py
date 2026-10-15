@@ -5,10 +5,14 @@ from django.db import models
 class MeetingNote(models.Model):
     """Shared live note -- any active group participant may edit it.
 
-    ``revision`` is an optimistic-concurrency counter. Every
-    accepted write bumps it by one; a client PATCHing with a stale revision
-    is rejected with 409 instead of silently overwriting whatever landed in
-    between. Without it, two people typing at once lose each other's work.
+    Edited collaboratively over the meeting WebSocket (see consumers.py).
+    ``ydoc_state`` is the source of truth: the encoded Yjs document that
+    concurrent edits are merged into, so nobody's typing is lost.
+    ``body`` is a plain-text snapshot of it, rewritten on every merge, for
+    readers that don't speak Yjs (the REST GET, admin, summaries).
+
+    ``revision`` is a plain edit counter, bumped once per merged update.
+    It no longer guards concurrent writes -- the CRDT merge does that.
     """
 
     meeting = models.OneToOneField(
@@ -17,7 +21,7 @@ class MeetingNote(models.Model):
         related_name="note",
     )
     body = models.TextField(blank=True, default="")
-    # Yjs document state. 'body' stays as the plain-text snapshot of it.
+    # Encoded Yjs document state; ``body`` is its plain-text snapshot.
     ydoc_state = models.BinaryField(null=True, blank=True)
     revision = models.PositiveIntegerField(default=0)
     updated_by = models.ForeignKey(

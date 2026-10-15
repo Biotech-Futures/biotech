@@ -13,6 +13,7 @@ import logging
 
 from django.db import transaction
 from django.utils import timezone
+from pycrdt import Doc, Text
 
 from apps.events.models import EventRsvp, EventTargetGroup, Events
 from apps.events.services import visible_events_queryset
@@ -20,16 +21,12 @@ from apps.groups.models import GroupMembership
 
 from .models import GroupMeeting, MeetingNote, MeetingSummary
 
-from pycrdt import Doc,Text
-
 logger = logging.getLogger(__name__)
 
 
 # Meetings are Events carrying this type. Any surface that wants "real"
 # programme events (the admin console list) should exclude it.
 MEETING_EVENT_TYPE = Events.EventTypeChoices.GROUP_MEETING
-
-
 
 
 def meeting_channel_name(meeting_id) -> str:
@@ -212,14 +209,16 @@ def visible_meetings_queryset(user, *, include_cancelled=False):
 
 
 def _load_note_doc(note):
+    """Rebuild the note's Yjs document. Root name must match the client's."""
     doc = Doc()
     doc["note"] = text = Text()
     if note.ydoc_state:
         doc.apply_update(bytes(note.ydoc_state))
     elif note.body:
-        # First open of a noe written before live editing existed.
+        # First open of a note written before live editing existed.
         text += note.body
     return doc, text
+
 
 @transaction.atomic
 def get_note_state(meeting_id) -> bytes:
@@ -230,13 +229,21 @@ def get_note_state(meeting_id) -> bytes:
     doc, _ = _load_note_doc(note)
     state = doc.get_update()
     if not note.ydoc_state:
+        # Persist the imported legacy body now. Importing it again on the
+        # next connect would create a second, independent copy of the text.
         note.ydoc_state = state
         note.save(update_fields=["ydoc_state"])
     return state
 
+
 @transaction.atomic
 def apply_note_update(meeting_id, user_id, update: bytes):
-    """Merge one client's update into the stored document."""
+    """Merge one client's update into the stored document.
+
+    The row lock serialises concurrent updates, so two members typing at
+    once are both merged rather than one overwriting the other. Raises
+    ValueError on a corrupt update; the consumer drops it.
+    """
     note, _ = MeetingNote.objects.select_for_update().get_or_create(
         meeting_id=meeting_id
     )
@@ -246,8 +253,9 @@ def apply_note_update(meeting_id, user_id, update: bytes):
     note.body = str(text)
     note.revision += 1
     note.updated_by_id = user_id
-    note.save(update_fields=["ydoc_state", "body", "revision", "updated_by", "updated_at"])
-    
+    note.save(
+        update_fields=["ydoc_state", "body", "revision", "updated_by", "updated_at"]
+    )
 
 
 def get_or_create_note(meeting):

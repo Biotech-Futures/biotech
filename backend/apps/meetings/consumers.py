@@ -6,40 +6,52 @@ Yjs updates over this socket, the server merges them into the stored
 document (``services.apply_note_update``) and relays them to the rest of
 the room. ``GET /meetings/<id>/note/`` remains for a plain-text read.
 
-Updates travel as base64 inside JSON frames, so this stays a JSON consumer.
+Awareness (each member's name, colour and cursor) rides the same socket.
+It is relayed only, never stored -- it is ephemeral, and clients drop a
+peer's cursor on their own once it stops being renewed.
+
+Binary payloads travel as base64 inside JSON frames, so this stays a JSON
+consumer.
 
 Client -> server:
 
-    {"type": "update",   "update": "<base64 Yjs update>"}
-    {"type": "presence", "editing": true | false}
+    {"type": "update",    "update": "<base64 Yjs update>"}
+    {"type": "awareness", "update": "<base64 awareness update>"}
+    {"type": "presence",  "editing": true | false}
 
 Server -> client:
 
-    {"event": "note.sync",     "update": "<base64 full state>"}   on connect
-    {"event": "note.update",   "update": "<base64 Yjs update>"}   others' edits
-    {"event": "note.presence", "meeting_id", "user_id", "editing"}
+    {"event": "note.sync",        "update": "<base64 full state>"}  on connect
+    {"event": "note.update",      "update": "<base64 Yjs update>"}  others' edits
+    {"event": "note.awareness",   "update": "<base64 awareness>"}   others' cursors
+    {"event": "note.peer_joined"}                     someone connected
+    {"event": "note.presence",    "meeting_id", "user_id", "editing"}
 
-An update is never echoed back to its sender, and neither is a presence
-ping. Any other frame shape is dropped.
+``note.peer_joined`` prompts existing clients to resend their awareness, so
+a newcomer sees cursors immediately rather than at the next move.
+
+Nothing is echoed back to its sender. Any other frame shape is dropped.
 """
 
-import time
 import base64
 import logging
+import time
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from apps.common.rbac import group_participant_qs, is_admin
 
+from . import services
 from .models import GroupMeeting
 from .services import meeting_channel_name
-from . import services
 
+logger = logging.getLogger(__name__)
 
 PRESENCE_RATE_LIMIT_SECONDS = 1.0
 MAX_UPDATE_CHARS = 200_000
-logger = logging.getLogger(__name__)
+MAX_AWARENESS_CHARS = 10_000
+
 
 class MeetingNoteConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
@@ -61,12 +73,18 @@ class MeetingNoteConsumer(AsyncJsonWebsocketConsumer):
 
         self.room_group_name = meeting_channel_name(self.meeting_id)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
-         # Per-connection rate-limit clock for presence fan-outs.
-        self._last_presence_at = 0.0       
+        # Per-connection rate-limit clock for presence fan-outs.
+        self._last_presence_at = 0.0
         await self.accept()
-        state = await database_sync_to_async(services.get_note_state)(self.meeting_id)
-        await self.send_json({"event": "note.sync", "update":base64.b64encode(state).decode()})
 
+        state = await database_sync_to_async(services.get_note_state)(self.meeting_id)
+        await self.send_json(
+            {"event": "note.sync", "update": base64.b64encode(state).decode()}
+        )
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {"type": "note.peer_joined", "sender": self.channel_name},
+        )
 
     @database_sync_to_async
     def _can_access(self, user):
@@ -87,9 +105,24 @@ class MeetingNoteConsumer(AsyncJsonWebsocketConsumer):
             return True
         return group_participant_qs(user, row["group_id"]).exists()
 
+    async def receive_json(self, content, **kwargs):
+        """Handle client -> server frames.
+
+        Never raise here -- an exception tears down the long-lived socket.
+        """
+        if not isinstance(content, dict):
+            return
+        frame_type = content.get("type")
+        if frame_type == "update":
+            await self._handle_update(content)
+        elif frame_type == "awareness":
+            await self._handle_awareness(content)
+        elif frame_type == "presence":
+            await self._handle_presence(content)
+
     async def _handle_update(self, content):
         raw = content.get("update")
-        if not isinstance(raw,str) or len(raw) > MAX_UPDATE_CHARS:
+        if not isinstance(raw, str) or len(raw) > MAX_UPDATE_CHARS:
             return
         try:
             update = base64.b64decode(raw, validate=True)
@@ -97,28 +130,25 @@ class MeetingNoteConsumer(AsyncJsonWebsocketConsumer):
                 self.meeting_id, self.scope["user"].id, update
             )
         except Exception:
-            #Never raise here -- it would tear down the socket.
+            # Bad base64 or a corrupt Yjs update: drop it, keep the socket.
             logger.exception("Bad note update for meeting %s", self.meeting_id)
             return
         await self.channel_layer.group_send(
             self.room_group_name,
-            {"type":"note.update","update": raw,"sender": self.channel_name},
+            {"type": "note.update", "update": raw, "sender": self.channel_name},
         )
 
-    async def note_update(self,event):
-        if event.get("sender") == self.channel_name:
+    async def _handle_awareness(self, content):
+        # Relayed as-is: the server never decodes or stores awareness.
+        raw = content.get("update")
+        if not isinstance(raw, str) or len(raw) > MAX_AWARENESS_CHARS:
             return
-        await self.send_json({"event": "note.update", "update": event["update"]})
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {"type": "note.awareness", "update": raw, "sender": self.channel_name},
+        )
 
-    async def receive_json(self, content, **kwargs):
-
-        if not isinstance(content, dict):
-            return
-        if content.get("type") == "update":
-            await self._handle_update(content)
-            return        
-        if content.get("type") != "presence":
-            return
+    async def _handle_presence(self, content):
         user = self.scope.get("user")
         if user is None or not getattr(user, "is_authenticated", False):
             return
@@ -141,6 +171,23 @@ class MeetingNoteConsumer(AsyncJsonWebsocketConsumer):
                 },
             },
         )
+
+    # -- channel-layer handlers ---------------------------------------------
+
+    async def note_update(self, event):
+        if event.get("sender") == self.channel_name:
+            return
+        await self.send_json({"event": "note.update", "update": event["update"]})
+
+    async def note_awareness(self, event):
+        if event.get("sender") == self.channel_name:
+            return
+        await self.send_json({"event": "note.awareness", "update": event["update"]})
+
+    async def note_peer_joined(self, event):
+        if event.get("sender") == self.channel_name:
+            return
+        await self.send_json({"event": "note.peer_joined"})
 
     async def meeting_event(self, event):
         payload = event.get("payload") or {}
