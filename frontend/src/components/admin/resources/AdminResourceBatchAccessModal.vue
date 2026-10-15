@@ -13,31 +13,14 @@
       </p>
 
       <div class="admin-batch-access-form__grid">
-        <!-- Visibility Scope -->
+        <!-- Target Roles (visibility is role-based only) -->
         <div class="form-field form-field--full">
-          <label class="form-label" for="batch-visibility-scope">Visibility Scope *</label>
-          <select
-            id="batch-visibility-scope"
-            v-model="visibilityScope"
-            class="form-input filter-select"
-            :disabled="busy"
-          >
-            <option value="global">Global (All Users)</option>
-            <option value="role_based">Role-based</option>
-          </select>
-          <p class="admin-batch-access-form__hint">
-            {{ visibilityScope === 'global' ? 'All authenticated students, mentors, and admins will have access.' : 'Restrict visibility to selected user roles.' }}
-          </p>
-        </div>
-
-        <!-- Target Roles -->
-        <div v-if="visibilityScope === 'role_based'" class="form-field form-field--full">
           <label class="form-label">Target Roles *</label>
           <div v-if="loadingRoles" class="batch-access__roles-loading">
             <span class="admin-batch-access-form__spinner" aria-hidden="true"></span>
             <span>Loading roles...</span>
           </div>
-          <fieldset v-else class="admin-batch-access-form__checkbox-grid">
+          <fieldset v-if="!loadingRoles" class="admin-batch-access-form__checkbox-grid">
             <legend class="sr-only">Select visible roles</legend>
             <label
               v-for="role in availableRoles"
@@ -102,7 +85,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'close'): void
-  (e: 'apply', payload: { visibilityScope: 'global' | 'role_based'; roleIds: number[] }): void
+  (e: 'apply', payload: { visibilityScope: 'role_based'; roleIds: number[] }): void
 }>()
 
 const open = computed({
@@ -117,7 +100,6 @@ const sheetDescription = computed(() => {
   return `Updating access settings for ${props.count} selected ${props.count === 1 ? 'resource' : 'resources'}.`
 })
 
-const visibilityScope = ref<'global' | 'role_based'>('role_based')
 const selectedRoleIds = ref<number[]>([])
 const availableRoles = ref<AdminResourceRoleItem[]>([])
 const loadingRoles = ref(false)
@@ -162,7 +144,6 @@ watch(
   (isOpen) => {
     if (isOpen) {
       errorMessage.value = ''
-      visibilityScope.value = 'role_based'
       selectedRoleIds.value = []
       void loadRoles()
     }
@@ -176,15 +157,15 @@ const onCancel = () => {
 }
 
 const onApply = () => {
-  if (visibilityScope.value === 'role_based' && selectedRoleIds.value.length === 0) {
-    errorMessage.value = 'Please select at least one role for role-based visibility.'
+  if (selectedRoleIds.value.length === 0) {
+    errorMessage.value = 'Please select at least one role.'
     return
   }
 
   errorMessage.value = ''
   emit('apply', {
-    visibilityScope: visibilityScope.value,
-    roleIds: visibilityScope.value === 'role_based' ? [...selectedRoleIds.value] : []
+    visibilityScope: 'role_based',
+    roleIds: [...selectedRoleIds.value]
   })
 }
 </script>

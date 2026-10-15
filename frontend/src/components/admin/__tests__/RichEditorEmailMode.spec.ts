@@ -67,7 +67,7 @@ describe('RichEditor in email mode', () => {
     expect(await codeHtml({})).toContain('<code>{{ magic_link }}</code>')
   })
 
-  it("highlights the colour and size the text shows, even from its heading", async () => {
+  it("highlights the size the text shows, even from its heading", async () => {
     const menu = async (modelValue: string, tool: string) => {
       const wrapper = mount(RichEditor, { props: { emailMode: true, modelValue }, attachTo: document.body })
       await flushPromises()
@@ -79,9 +79,16 @@ describe('RichEditor in email mode', () => {
     }
     // The finalist email's heading: dark green, 26px. The cursor starts in it.
     const heading = '<h1 style="color:#017151; font-size:26px">Congratulations</h1>'
-    expect(await menu(heading, 'text-colour')).toEqual({ now: null, active: ['Dark green (BTF)'] })
     expect(await menu(heading, 'text-size')).toEqual({ now: 'Now: 26px', active: [] })
-    expect((await menu('<p>Plain</p>', 'text-colour')).now).toBe('Now: default')
+  })
+
+  it("highlights the text colour in the primary color picker in email mode", async () => {
+    const heading = '<h1 style="color:#017151; font-size:26px">Congratulations</h1>'
+    const wrapper = mount(RichEditor, { props: { emailMode: true, modelValue: heading }, attachTo: document.body })
+    await flushPromises()
+    const colorBtn = wrapper.find('.color-picker-btn')
+    expect(colorBtn.attributes('title')).toBe('Text color (#017151)')
+    wrapper.unmount()
   })
 
   describe('the HTML view', () => {
