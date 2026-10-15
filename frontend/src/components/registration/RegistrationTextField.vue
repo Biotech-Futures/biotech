@@ -2,7 +2,7 @@
   <label class="registration-field" :class="{ 'registration-field--wide': wide }">
     <span :id="`${id}-label`" class="registration-field__label">
       {{ label }}
-      <small v-if="optional">Optional</small>
+      <small v-if="optional">(Optional)</small>
       <span v-else-if="required" class="required-mark" aria-hidden="true">*</span>
     </span>
     <textarea

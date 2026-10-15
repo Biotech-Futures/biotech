@@ -394,6 +394,33 @@ describe('canonical registration intake', () => {
     expect(state().element.tagName).toBe('INPUT')
   })
 
+  it("shows a supervisor's saved registration as the steps' last page, with what Review showed", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    const setup = wrapper.vm as unknown as { success: unknown }
+    setup.success = {
+      referenceCode: 'REG-1',
+      journey: 'supervisor_individual',
+      studentCount: 1,
+      submittedAt: '2026-10-16T00:08:00Z',
+    }
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.success-panel').exists()).toBe(false)
+    expect(wrapper.get('.page-title').text()).toBe('Register one student')
+    expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(2)
+    const body = wrapper.get('.success-body')
+    expect(body.get('h3').text()).toBe('Registration complete')
+    expect(body.text()).not.toContain('REG-1')
+    // What Review showed (the student), then when it was registered.
+    expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual(['Student'])
+    // The last section's last row.
+    const completed = body.findAll('.review-section dl > div').at(-1)!
+    expect(completed.get('dt').text()).toBe('Registration completed')
+    expect(completed.get('dd').text()).toMatch(/16 Oct|15 Oct/)
+    expect(body.get('.form-footer').text()).toContain('Register another student')
+  })
+
   it("gives a supervisor's student one full width email, and Areas of Interest with no *", async () => {
     const wrapper = mountPage('supervisor')
     await clickButton(wrapper, 'Register one student')

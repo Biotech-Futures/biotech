@@ -12,7 +12,75 @@
       <RouterLink to="/login" class="sign-in-link">Already registered? Sign in</RouterLink>
     </header>
 
-    <section v-if="success" class="success-panel" aria-live="polite">
+    <!-- A supervisor's, in the portal: as the steps before it, every step
+         done, with Complete and what was saved. -->
+    <div v-if="success && isSupervisorMode" class="work-layout">
+      <aside class="journey-context">
+        <header class="page-header">
+          <h1 class="page-title">{{ selectedJourney?.title }}</h1>
+          <p class="page-subtitle">{{ selectedJourney?.description }}</p>
+        </header>
+      </aside>
+
+      <section class="form-surface" aria-live="polite">
+        <div class="step-bar">
+          <nav class="step-navigation" aria-label="Registration progress">
+            <ol>
+              <li v-for="(step, index) in steps" :key="step.label">
+                <span class="tab-pill complete">
+                  <span>{{ index + 1 }}</span>
+                  <span class="step-navigation__label">{{ step.label }}</span>
+                </span>
+              </li>
+            </ol>
+          </nav>
+        </div>
+
+        <!-- What Review showed, then when it was registered. -->
+        <div class="success-body">
+          <div class="success-intro">
+            <h3>Registration complete</h3>
+            <p class="success-note">Guardian consent is still required before full registration.</p>
+          </div>
+          <div class="review-step">
+            <div
+              v-for="(section, sectionIndex) in reviewSections"
+              :key="section.title"
+              class="review-section"
+            >
+              <h3>{{ section.title }}</h3>
+              <dl>
+                <div v-for="item in section.items" :key="item.label">
+                  <dt>{{ item.label }}</dt>
+                  <dd v-if="item.parts" class="review-parts">
+                    <span v-for="(part, index) in item.parts" :key="index">{{ part }}</span>
+                  </dd>
+                  <dd v-else>{{ item.value || 'Not provided' }}</dd>
+                </div>
+                <!-- When, as the last section's last row. -->
+                <div v-if="sectionIndex === reviewSections.length - 1">
+                  <dt>Registration completed</dt>
+                  <dd>{{ formatDayMonthTime(success.submittedAt) }}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <footer class="form-footer">
+            <RouterLink to="/dashboard" class="secondary-action">Return to dashboard</RouterLink>
+            <button type="button" class="primary-action" @click="startAnotherRegistration">
+              {{
+                journey === 'supervisor_individual'
+                  ? 'Register another student'
+                  : 'Start another journey'
+              }}
+            </button>
+          </footer>
+        </div>
+      </section>
+    </div>
+
+    <section v-else-if="success" class="success-panel" aria-live="polite">
       <div class="success-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24">
           <path d="m5 12 4.2 4.2L19 6.5" />
@@ -150,7 +218,7 @@
       <!-- A supervisor's, in the portal: the platform's own page heading. -->
       <header v-if="isSupervisorMode" class="page-header">
         <h1 id="pathway-title" class="page-title">{{ pathwayHeading }}</h1>
-        <p class="page-subtitle">Register students individually, as a group, or from a CSV.</p>
+        <p class="page-subtitle">Register students individually, as a group or from a CSV.</p>
       </header>
       <header v-else class="setup-heading">
         <h1 id="pathway-title">{{ pathwayHeading }}</h1>
@@ -216,7 +284,10 @@
               </li>
             </ol>
           </nav>
-          <p class="form-required-note">Fields marked <span class="required-mark">*</span> are required.</p>
+          <!-- Not on Review, which has no fields. -->
+          <p v-if="steps[currentStep]?.label !== 'Review'" class="form-required-note">
+            Fields marked <span class="required-mark">*</span> are required.
+          </p>
         </div>
 
         <form novalidate :aria-busy="isSubmitting" @submit.prevent="handlePrimaryAction">
@@ -415,7 +486,9 @@
                 <div class="student-entry creator-summary">
                   <div class="student-entry__heading">
                     <h3>Member 1 (you)</h3>
-                    <button type="button" @click="goToStep(0)">Edit your details</button>
+                    <button type="button" class="btn btn-outline btn-sm" @click="goToStep(0)">
+                      <i class="fas fa-pen" aria-hidden="true"></i> Edit your details
+                    </button>
                   </div>
                   <dl>
                     <div>
@@ -439,9 +512,10 @@
                     <button
                       v-if="forms.studentTeam.teammates.length > 1"
                       type="button"
+                      class="btn btn-outline-danger btn-sm"
                       @click="removeStudentTeammate(index)"
                     >
-                      Remove
+                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
                     </button>
                   </div>
                   <RegistrationStudentEditor
@@ -576,22 +650,13 @@
               </div>
 
               <div v-else-if="currentStep === 1" class="step-stack">
-                <div class="section-divider section-divider--with-action section-divider--first">
-                  <div>
-                    <h3>Students</h3>
-                    <p>
-                      Enter 2–5 complete student records. Guardian details can be deferred for the
-                      student’s private follow-up journey.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    class="small-action"
-                    :disabled="forms.supervisorGroup.students.length >= 5"
-                    @click="addSupervisorGroupStudent"
-                  >
-                    Add student
-                  </button>
+                <!-- Add student is in the footer, beside Continue. -->
+                <div class="section-divider section-divider--first">
+                  <h3>Students</h3>
+                  <p>
+                    Enter 2–5 complete student records. Guardian details can be deferred for the
+                    student’s private follow-up journey.
+                  </p>
                 </div>
                 <div
                   v-for="(student, index) in forms.supervisorGroup.students"
@@ -600,12 +665,14 @@
                 >
                   <div class="student-entry__heading">
                     <h3>Student {{ index + 1 }}</h3>
+                    <!-- A group always has Students 1 and 2; only those after can go. -->
                     <button
-                      v-if="forms.supervisorGroup.students.length > 2"
+                      v-if="index >= 2"
                       type="button"
+                      class="btn btn-outline-danger btn-sm"
                       @click="removeSupervisorGroupStudent(index)"
                     >
-                      Remove
+                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
                     </button>
                   </div>
                   <RegistrationStudentEditor
@@ -969,7 +1036,7 @@
                     wide
                   />
                   <label class="select-field">
-                    <span>Indigenous identification <small>Optional</small></span>
+                    <span>Indigenous identification <small>(Optional)</small></span>
                     <select v-model="forms.mentor.indigenousStatus">
                       <option value="">Select an option</option>
                       <option>Yes</option>
@@ -1049,24 +1116,27 @@
                 <dl>
                   <div v-for="item in section.items" :key="item.label">
                     <dt>{{ item.label }}</dt>
-                    <dd>{{ item.value || 'Not provided' }}</dd>
+                    <dd v-if="item.parts" class="review-parts">
+                      <span v-for="(part, index) in item.parts" :key="index">{{ part }}</span>
+                    </dd>
+                    <dd v-else>{{ item.value || 'Not provided' }}</dd>
                   </div>
                 </dl>
               </div>
             </div>
           </section>
 
-          <!-- Back from the second step on; Change registration type, above,
-               goes back from the first. -->
+          <!-- On the right; the steps above go back, and Change registration
+               type back to the start. A group's students are added here. -->
           <footer class="form-footer">
             <button
-              v-if="currentStep > 0"
+              v-if="journey === 'supervisor_group' && currentStep === 1"
               type="button"
               class="secondary-action"
-              :disabled="isSubmitting || isCsvEditing"
-              @click="goBack"
+              :disabled="isSubmitting || forms.supervisorGroup.students.length >= 5"
+              @click="addSupervisorGroupStudent"
             >
-              Back
+              Add student
             </button>
             <button
               type="submit"
@@ -1102,6 +1172,7 @@ import RegistrationTextField from '@/components/registration/RegistrationTextFie
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { formatDayMonthTime } from '@/utils/date'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -1154,8 +1225,16 @@ interface RoleOption {
 
 interface ReviewSection {
   title: string
-  items: Array<{ label: string; value: string }>
+  // ``parts``, when given, are shown in columns that line up row to row.
+  items: Array<{ label: string; value: string; parts?: string[] }>
 }
+
+// A member's row on Review: their name, email and guardian, in columns.
+const memberParts = (student: StudentDetails) => [
+  studentName(student),
+  student.email,
+  `Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
+]
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 const MAX_CSV_BYTES = 2 * 1024 * 1024
@@ -1176,7 +1255,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'supervisor',
     title: 'Supervisor or teacher',
-    description: 'Register students individually, as a group, or from a CSV.',
+    description: 'Register students individually, as a group or from a CSV.',
   },
   {
     value: 'mentor',
@@ -1586,10 +1665,12 @@ const reviewSections = computed<ReviewSection[]>(() => {
             {
               label: 'Member 1 (you)',
               value: `${studentName(forms.studentTeam.creator)} · ${forms.studentTeam.creator.email}`,
+              parts: [studentName(forms.studentTeam.creator), forms.studentTeam.creator.email],
             },
             ...forms.studentTeam.teammates.map((student, index) => ({
               label: `Member ${index + 2}`,
-              value: `${studentName(student)} · ${student.email} · Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
+              value: memberParts(student).join(' · '),
+              parts: memberParts(student),
             })),
             {
               label: 'Creator guardian',
@@ -1625,7 +1706,6 @@ const reviewSections = computed<ReviewSection[]>(() => {
         {
           title: 'Group',
           items: [
-            { label: 'Students', value: String(forms.supervisorGroup.students.length) },
             { label: 'Interests', value: interestSummary(forms.supervisorGroup.interests) },
           ],
         },
@@ -1633,7 +1713,8 @@ const reviewSections = computed<ReviewSection[]>(() => {
           title: 'Members',
           items: forms.supervisorGroup.students.map((student, index) => ({
             label: `Student ${index + 1}`,
-            value: `${studentName(student)} · ${student.email} · Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
+            value: memberParts(student).join(' · '),
+            parts: memberParts(student),
           })),
         },
       ]
@@ -1993,18 +2074,6 @@ const goToStep = (index: number) => {
   if (blockCsvEditorAction()) return
   if (index > maxReachedStep.value || index === currentStep.value) return
   currentStep.value = index
-  clearErrors()
-  serverError.value = ''
-  focusStep()
-}
-
-const goBack = () => {
-  if (blockCsvEditorAction()) return
-  if (currentStep.value === 0) {
-    changeJourney()
-    return
-  }
-  currentStep.value -= 1
   clearErrors()
   serverError.value = ''
   focusStep()
@@ -3007,7 +3076,7 @@ onBeforeUnmount(() => {
 
 /* The steps are the platform's pill tabs (.tab-pill), each with its number
    in a circle as tall as the pill's line, so it stays a 34px pill. */
-.step-navigation button > span {
+.step-navigation .tab-pill > span {
   width: 1.1rem;
   height: 1.1rem;
   display: grid;
@@ -3028,17 +3097,25 @@ onBeforeUnmount(() => {
   font-size: inherit !important;
 }
 
-.step-navigation button.complete > span {
+.step-navigation .tab-pill.complete > span {
   border-color: var(--registration-green);
   background: var(--registration-green);
   color: #fff;
 }
 
 /* On the open step's green, the number in white. */
-.step-navigation button.current > span {
+.step-navigation .tab-pill.current > span {
   border-color: #fff;
   background: #fff;
   color: var(--dark-green);
+}
+
+/* Once registered, the steps are only a record: not links. */
+.step-navigation span.tab-pill,
+.step-navigation span.tab-pill:hover {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .step-navigation button:disabled {
@@ -3047,8 +3124,27 @@ onBeforeUnmount(() => {
   opacity: 0.52;
 }
 
-form {
+form,
+.success-body {
   padding: clamp(24px, 3vw, 32px);
+}
+
+.success-intro {
+  margin-bottom: 32px;
+}
+
+.success-intro h3 {
+  margin: 0;
+  color: var(--registration-ink);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.success-note {
+  margin: 7px 0 0;
+  color: var(--registration-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
 }
 
 .step-content {
@@ -3177,7 +3273,6 @@ form {
 
 .section-divider p,
 .template-download p {
-  max-width: 68ch;
   margin: 7px 0 0;
   color: var(--registration-muted);
   font-size: 0.84rem;
@@ -3235,20 +3330,6 @@ form {
   gap: 16px;
 }
 
-.student-entry__heading button {
-  min-height: 44px;
-  padding: 6px;
-  border: 0;
-  background: transparent;
-  color: #8b302b;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
 .creator-summary dl {
   margin: 0;
   display: grid;
@@ -3259,10 +3340,6 @@ form {
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
   gap: 16px;
-}
-
-.creator-summary .student-entry__heading button {
-  color: var(--registration-green);
 }
 
 .upload-step {
@@ -3588,6 +3665,32 @@ dd {
   gap: 32px;
 }
 
+/* No line under the last section: the buttons come next. */
+.review-step > .review-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* A member's name, email and guardian: columns as wide on every row, so
+   they line up. */
+.review-parts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.review-parts span {
+  overflow-wrap: anywhere;
+}
+
+/* Too narrow for columns: one under another. */
+@media (max-width: 700px) {
+  .review-parts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
 .review-section {
   padding-bottom: 24px;
   border-bottom: 1px solid var(--registration-line);
@@ -3633,17 +3736,14 @@ dd {
   white-space: nowrap;
 }
 
-/* Back on the left (once there's a step to go back to), Continue or Submit
-   on the right. */
+/* On the right: Continue or Submit, with Add student before it on a
+   group's Students step. */
 .form-footer {
   margin-top: 46px;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 18px;
-}
-
-.form-footer .primary-action {
-  margin-left: auto;
 }
 
 .primary-action,
@@ -3898,7 +3998,7 @@ dd {
     flex-wrap: wrap;
   }
 
-  .step-navigation button {
+  .step-navigation .tab-pill {
     padding-inline: 10px;
   }
 
@@ -3906,7 +4006,8 @@ dd {
     display: none !important;
   }
 
-  .step-navigation button.current .step-navigation__label {
+  .step-navigation .tab-pill.current .step-navigation__label,
+  .step-navigation span.tab-pill .step-navigation__label {
     display: inline !important;
   }
 
@@ -3969,10 +4070,6 @@ dd {
   .form-footer {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .form-footer .primary-action {
-    margin-left: 0;
   }
 
   .review-section dl > div,

@@ -109,7 +109,7 @@
       <div v-if="showOptionalProfile" class="student-editor__extras">
         <div class="student-editor__grid">
           <label class="select-field">
-            <span>Pronouns <small>Optional</small></span>
+            <span>Pronouns <small>(Optional)</small></span>
             <select :id="fieldId('pronouns')" v-model="student.pronouns">
               <option value="">Select pronouns</option>
               <option v-for="pronoun in PRONOUN_OPTIONS" :key="pronoun" :value="pronoun">
@@ -129,7 +129,7 @@
 
         <div class="photo-field">
           <div class="photo-field__copy">
-            <label :for="fieldId('profilePhoto')">Profile photo <small>Optional</small></label>
+            <label :for="fieldId('profilePhoto')">Profile photo <small>(Optional)</small></label>
             <p>
               JPG, PNG, or WebP, up to 5 MB. The image is uploaded when you submit registration.
             </p>

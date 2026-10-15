@@ -1113,12 +1113,10 @@ select {
   border-bottom-color: var(--border-light);
 }
 
-:root[data-theme='dark'] .notification-title,
 :root[data-theme='dark'] .panel-quick-copy strong {
   color: var(--teal);
 }
 
-:root[data-theme='dark'] .account-subtitle,
 :root[data-theme='dark'] .panel-quick-copy small {
   color: var(--text-muted);
 }
@@ -1659,17 +1657,19 @@ select {
   min-width: 0;
 }
 
+/* The header is the platform's dark green (.notification-header): the
+   avatar white with green initials, as in the top bar, and the text and
+   close button in white. */
 .account-avatar {
   width: 42px;
   height: 42px;
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: linear-gradient(180deg, #314e43 0%, #22362f 100%);
-  color: #ffffff;
+  background: #ffffff;
+  color: var(--dark-green);
   font-size: 0.9rem;
-  font-weight: 800;
-  box-shadow: 0 10px 24px rgba(8, 14, 13, 0.16);
+  font-weight: 700;
 }
 
 .account-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
@@ -1681,18 +1681,24 @@ select {
 .notification-title {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--text-strong);
+  color: #ffffff;
 }
 
 .account-subtitle {
   margin: 0.16rem 0 0;
   font-size: 0.74rem;
-  color: var(--text-soft);
+  color: rgba(255, 255, 255, 0.8);
   line-height: 1.4;
 }
 
 .account-close-button {
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.account-close-button:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .notification-panel-section {
