@@ -27,6 +27,13 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
   await button!.trigger('click')
 }
 
+// Upload students by CSV is hidden from the options for now; its flow,
+// opened directly.
+const openCsvUpload = async (wrapper: VueWrapper) => {
+  ;(wrapper.vm as unknown as { selectJourney: (journey: string) => void }).selectJourney('supervisor_csv')
+  await wrapper.vm.$nextTick()
+}
+
 beforeEach(() => {
   vi.stubGlobal('scrollTo', vi.fn())
   // No countries or states to load (text boxes), unless a test gives some.
@@ -114,7 +121,8 @@ describe('canonical registration intake', () => {
         if (mode === 'canonical') {
           await clickButton(wrapper, journey === 'Register as a mentor' ? 'Mentor' : 'Student')
         }
-        if (journey !== 'Register as a mentor') {
+        if (journey === 'Upload students by CSV') await openCsvUpload(wrapper)
+        else if (journey !== 'Register as a mentor') {
           await clickButton(wrapper, journey)
         }
         expect(wrapper.find('[role="progressbar"]').exists()).toBe(false)
@@ -217,7 +225,7 @@ describe('canonical registration intake', () => {
 
   it('preserves CSV preview and explicit invalid-row exclusion controls', async () => {
     const wrapper = mountPage('supervisor')
-    await clickButton(wrapper, 'Upload students by CSV')
+    await openCsvUpload(wrapper)
 
     const setup = wrapper.vm as unknown as {
       currentStep: number
@@ -309,7 +317,7 @@ describe('canonical registration intake', () => {
     expect(group.text()).toContain('Add 2–5 students')
 
     const csv = mountPage('supervisor')
-    await clickButton(csv, 'Upload students by CSV')
+    await openCsvUpload(csv)
     expect(csv.text()).toContain('Choose completed CSV')
   })
 
@@ -349,11 +357,40 @@ describe('canonical registration intake', () => {
     expect(group.text()).not.toContain('group name')
 
     const csv = mountPage('supervisor')
-    await clickButton(csv, 'Upload students by CSV')
+    await openCsvUpload(csv)
     const csvSetup = csv.vm as unknown as { currentStep: number }
     csvSetup.currentStep = 0
     await csv.vm.$nextTick()
     expect(csv.text()).not.toContain('Confirm student email')
+  })
+
+  it('adds students to Register one student on the same page, its heading and steps unchanged', async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    const add = wrapper.findAll('.form-footer button').find((button) => button.text() === 'Add student')!
+    await add.trigger('click')
+
+    expect(wrapper.get('.page-title').text()).toBe('Register one student')
+    expect(wrapper.findAll('.step-navigation button')).toHaveLength(2)
+    expect(wrapper.findAll('.student-entry__heading h3').map((heading) => heading.text())).toEqual([
+      'Student 1',
+      'Student 2',
+    ])
+    expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
+    expect(wrapper.find('#supervisorIndividual-extraStudents-0-email').exists()).toBe(true)
+
+    // Student 2 can go again; Student 1 can't.
+    const removes = wrapper.findAll('.student-entry__heading button')
+    expect(removes).toHaveLength(1)
+    await removes[0]!.trigger('click')
+    expect(wrapper.find('.student-entry__heading').exists()).toBe(false)
+  })
+
+  it('offers a supervisor no CSV upload for now', () => {
+    const wrapper = mountPage('supervisor')
+    expect(wrapper.text()).toContain('Register one student')
+    expect(wrapper.text()).toContain('Register a student group')
+    expect(wrapper.text()).not.toContain('Upload students by CSV')
   })
 
   it("offers the database's countries, and Australia's states, as dropdowns", async () => {

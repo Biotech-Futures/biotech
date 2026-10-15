@@ -614,6 +614,45 @@ describe('registration gateway UI integration', () => {
     wrapper.unmount()
   })
 
+  it('registers Register one student with students added as one group', async () => {
+    const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
+      ok: true,
+      receipt: {
+        referenceCode: 'REG-3001',
+        journey: 'supervisor_group',
+        studentCount: 2,
+        submittedAt: '2026-10-07T06:00:00Z',
+      },
+    })
+    const wrapper = mountSupervisorWithGateway({ submit: send })
+    await prepareSupervisorStudent(wrapper)
+    const setup = setupOf(wrapper) as unknown as {
+      forms: { supervisorIndividual: { student: object; extraStudents: object[] } }
+    }
+    setup.forms.supervisorIndividual.extraStudents.push({
+      ...setup.forms.supervisorIndividual.student,
+      firstName: 'Sam',
+      email: 'sam@example.com',
+      emailConfirm: 'sam@example.com',
+      interests: ['Water & Energy Tech'],
+    })
+    await wrapper.vm.$nextTick()
+    await submit(wrapper)
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+
+    const request = send.mock.calls[0]![0] as {
+      journey: string
+      payload: { students: Array<{ firstName: string; interests: string[] }>; interests: string[] }
+    }
+    expect(request.journey).toBe('supervisor_group')
+    expect(request.payload.students.map((student) => student.firstName)).toEqual(['Alex', 'Sam'])
+    // The group's interests are theirs; the members have none of their own.
+    expect(request.payload.interests).toEqual(['Biomedical Innovations', 'Water & Energy Tech'])
+    expect(request.payload.students.every((student) => !student.interests.length)).toBe(true)
+    await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
+    wrapper.unmount()
+  })
+
   it('opens a fresh individual student form directly after supervisor registration', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,

@@ -628,14 +628,52 @@
             </template>
 
             <template v-else-if="journey === 'supervisor_individual'">
-              <RegistrationStudentEditor
-                v-if="currentStep === 0"
-                v-model:student="forms.supervisorIndividual.student"
-                prefix="supervisorIndividual.student"
-                section="full"
-                :errors="errors"
-                allow-guardian-defer
-              />
+              <!-- With students added (Add student), each in turn, all in one group. -->
+              <div v-if="currentStep === 0" class="step-stack">
+                <div
+                  :class="{
+                    'student-entry student-entry--first':
+                      forms.supervisorIndividual.extraStudents.length,
+                  }"
+                >
+                  <div
+                    v-if="forms.supervisorIndividual.extraStudents.length"
+                    class="student-entry__heading"
+                  >
+                    <h3>Student 1</h3>
+                  </div>
+                  <RegistrationStudentEditor
+                    v-model:student="forms.supervisorIndividual.student"
+                    prefix="supervisorIndividual.student"
+                    section="full"
+                    :errors="errors"
+                    allow-guardian-defer
+                  />
+                </div>
+                <div
+                  v-for="(student, index) in forms.supervisorIndividual.extraStudents"
+                  :key="`extra-student-${index}`"
+                  class="student-entry"
+                >
+                  <div class="student-entry__heading">
+                    <h3>Student {{ index + 2 }}</h3>
+                    <button
+                      type="button"
+                      class="btn btn-outline-danger btn-sm"
+                      @click="removeExtraStudent(index)"
+                    >
+                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
+                    </button>
+                  </div>
+                  <RegistrationStudentEditor
+                    v-model:student="forms.supervisorIndividual.extraStudents[index]"
+                    :prefix="`supervisorIndividual.extraStudents.${index}`"
+                    section="full"
+                    :errors="errors"
+                    allow-guardian-defer
+                  />
+                </div>
+              </div>
             </template>
 
             <template v-else-if="journey === 'supervisor_group'">
@@ -1129,6 +1167,19 @@
           <!-- On the right; the steps above go back, and Change registration
                type back to the start. A group's students are added here. -->
           <footer class="form-footer">
+            <!-- On Register one student: the student and another, in one group. -->
+            <p v-if="journey === 'supervisor_individual' && currentStep === 0" class="form-footer-note">
+              Adding a student will put them in the same group
+            </p>
+            <button
+              v-if="journey === 'supervisor_individual' && currentStep === 0"
+              type="button"
+              class="secondary-action"
+              :disabled="isSubmitting || forms.supervisorIndividual.extraStudents.length >= 4"
+              @click="addExtraStudent"
+            >
+              Add student
+            </button>
             <button
               v-if="journey === 'supervisor_group' && currentStep === 1"
               type="button"
@@ -1198,6 +1249,7 @@ import {
   type RegistrationJourney,
   type StudentDetails,
   type SupervisorDetails,
+  type SupervisorGroupForm,
 } from '@/registration/registration'
 
 interface StepDefinition {
@@ -1343,7 +1395,7 @@ const journeyOptions: JourneyOption[] = [
     value: 'supervisor_group',
     role: 'Supervisor / teacher',
     title: 'Register a student group',
-    description: 'Create a pre-formed group with 2–5 complete student entries.',
+    description: 'Create a pre-formed group with 2-5 complete student entries.',
     steps: [
       {
         label: 'Group',
@@ -1367,7 +1419,7 @@ const journeyOptions: JourneyOption[] = [
     role: 'Supervisor / teacher',
     title: 'Upload students by CSV',
     description:
-      'Use the prescribed template, parse it locally, and resolve row issues before save.',
+      'Use the prescribed template, parse it locally and resolve row issues before save.',
     steps: [
       {
         label: 'Upload',
@@ -1517,8 +1569,10 @@ const roleJourneyOptions = computed(() => {
     )
   }
   if (selectedRole.value === 'supervisor') {
+    // Upload students by CSV (supervisor_csv) is hidden for now; its flow is
+    // kept, to offer again by adding it back here.
     return journeyOptions.filter((option) =>
-      ['supervisor_individual', 'supervisor_group', 'supervisor_csv'].includes(option.value),
+      ['supervisor_individual', 'supervisor_group'].includes(option.value),
     )
   }
   return journeyOptions.filter((option) => option.value === 'mentor')
@@ -1551,6 +1605,13 @@ const warningSubject = (warning: RegistrationWarning) => {
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
   if (student) return `Student ${Number(student[1]) + 1} - ${field}`
+  const extra = /^supervisorIndividual\.extraStudents\.(\d+)\./.exec(warning.field)
+  if (extra) return `Student ${Number(extra[1]) + 2} - ${field}`
+  if (
+    warning.field.startsWith('supervisorIndividual.student.') &&
+    forms.supervisorIndividual.extraStudents.length
+  )
+    return `Student 1 - ${field}`
   const teammate = /^studentTeam\.teammates\.(\d+)\./.exec(warning.field)
   if (teammate) return `Member ${Number(teammate[1]) + 2} - ${field}`
   return warning.field.startsWith('studentTeam.creator.') ? `Member 1 (you) - ${field}` : field
@@ -1686,6 +1747,22 @@ const reviewSections = computed<ReviewSection[]>(() => {
         },
       ]
     case 'supervisor_individual':
+      if (forms.supervisorIndividual.extraStudents.length) {
+        const students = [
+          forms.supervisorIndividual.student,
+          ...forms.supervisorIndividual.extraStudents,
+        ]
+        return [
+          {
+            title: 'Group members',
+            items: students.map((student, index) => ({
+              label: `Student ${index + 1}`,
+              value: memberParts(student).join(' · '),
+              parts: memberParts(student),
+            })),
+          },
+        ]
+      }
       return [
         {
           title: 'Student',
@@ -1704,13 +1781,7 @@ const reviewSections = computed<ReviewSection[]>(() => {
     case 'supervisor_group':
       return [
         {
-          title: 'Group',
-          items: [
-            { label: 'Interests', value: interestSummary(forms.supervisorGroup.interests) },
-          ],
-        },
-        {
-          title: 'Members',
+          title: 'Group members',
           items: forms.supervisorGroup.students.map((student, index) => ({
             label: `Student ${index + 1}`,
             value: memberParts(student).join(' · '),
@@ -1904,8 +1975,12 @@ const validateCurrentStep = () => {
       })
     }
   } else if (journey.value === 'supervisor_individual') {
-    if (step === 0)
+    if (step === 0) {
       validateStudentFull(forms.supervisorIndividual.student, 'supervisorIndividual.student')
+      forms.supervisorIndividual.extraStudents.forEach((student, index) =>
+        validateStudentFull(student, `supervisorIndividual.extraStudents.${index}`),
+      )
+    }
   } else if (journey.value === 'supervisor_group') {
     if (step === 0) {
       if (!forms.supervisorGroup.interests.length)
@@ -2139,6 +2214,43 @@ const addSupervisorGroupStudent = () => {
   }
 }
 
+// Register one student's Add student: another student on the same page, up
+// to 5 in all, registered together as one group (see oneStudentAsGroup).
+const addExtraStudent = () => {
+  if (forms.supervisorIndividual.extraStudents.length < 4) {
+    forms.supervisorIndividual.extraStudents.push(createStudent({ deferGuardian: true }))
+  }
+}
+
+const removeExtraStudent = (index: number) => {
+  forms.supervisorIndividual.extraStudents.splice(index, 1)
+}
+
+// Register one student with students added: sent as a supervisor's group of
+// them all, its interests every area of interest they were given (a group's
+// members have none of their own).
+const oneStudentAsGroup = (): SupervisorGroupForm => {
+  const students = [forms.supervisorIndividual.student, ...forms.supervisorIndividual.extraStudents]
+  return {
+    students: students.map((student) => ({ ...student, interests: [] })),
+    interests: [...new Set(students.flatMap((student) => student.interests))],
+  }
+}
+
+// That group's server paths back to the page's: student 0 is Student 1, the
+// rest the students added.
+const fromOneStudentGroup = (path: string) => {
+  const student = /^supervisorGroup\.students\.(\d+)(.*)$/.exec(path)
+  if (student) {
+    const index = Number(student[1])
+    return index === 0
+      ? `supervisorIndividual.student${student[2]}`
+      : `supervisorIndividual.extraStudents.${index - 1}${student[2]}`
+  }
+  if (path === 'supervisorGroup.interests') return 'supervisorIndividual.student.interests'
+  return path.replace(/^supervisorGroup\./, 'supervisorIndividual.')
+}
+
 const removeSupervisorGroupStudent = (index: number) => {
   if (forms.supervisorGroup.students.length > 2) {
     forms.supervisorGroup.students.splice(index, 1)
@@ -2339,7 +2451,15 @@ const submitRegistration = async () => {
   serverError.value = ''
   isSubmitting.value = true
   try {
-    const request = buildRegistrationRequest(journey.value, forms)
+    const asGroup =
+      journey.value === 'supervisor_individual' &&
+      forms.supervisorIndividual.extraStudents.length > 0
+    const request = asGroup
+      ? buildRegistrationRequest('supervisor_group', {
+          ...forms,
+          supervisorGroup: oneStudentAsGroup(),
+        })
+      : buildRegistrationRequest(journey.value, forms)
     const signature = JSON.stringify({ request, overrides: warningOverrides.value })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
@@ -2371,14 +2491,26 @@ const submitRegistration = async () => {
     clearServerErrors()
     if (!result.ok) {
       if (result.warnings?.length) {
-        registrationWarnings.value = result.warnings
+        registrationWarnings.value = asGroup
+          ? result.warnings.map((warning) => ({
+              ...warning,
+              field: fromOneStudentGroup(warning.field),
+            }))
+          : result.warnings
         Object.keys(warningAcknowledgements).forEach((key) => delete warningAcknowledgements[key])
         await nextTick()
         warningSummaryRef.value?.scrollIntoView?.({ block: 'center' })
         warningSummaryRef.value?.focus()
         return
       }
-      const fieldErrors = result.fieldErrors || {}
+      const fieldErrors = asGroup
+        ? Object.fromEntries(
+            Object.entries(result.fieldErrors || {}).map(([path, message]) => [
+              fromOneStudentGroup(path),
+              message,
+            ]),
+          )
+        : result.fieldErrors || {}
       Object.assign(serverFieldErrors, fieldErrors)
       serverError.value = result.message
       const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
@@ -3323,6 +3455,12 @@ form,
   border-top: 1px solid var(--registration-line);
 }
 
+/* Register one student's Student 1, headed once students are added. */
+.student-entry--first {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .student-entry__heading {
   display: flex;
   align-items: center;
@@ -3737,13 +3875,22 @@ dd {
 }
 
 /* On the right: Continue or Submit, with Add student before it on a
-   group's Students step. */
+   group's Students step (and a note before that on Register one student). */
 .form-footer {
   margin-top: 46px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 18px;
+}
+
+/* Just left of the button it's about, in italics. */
+.form-footer-note {
+  margin: 0;
+  color: var(--registration-muted);
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .primary-action,
