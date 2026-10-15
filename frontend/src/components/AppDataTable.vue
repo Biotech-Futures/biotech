@@ -1182,14 +1182,21 @@ tbody tr:last-child td {
 </style>
 
 <style>
-/* The name cell of a row that opens something, while hovered: its name
-   underlined, as a link's would be. Only the part the page marks
-   data-table-primary-text when it marks one (a name over its description),
-   else all of the cell, its buttons too, which an underline on the cell
-   alone wouldn't reach. */
-.data-table-row--opens .data-table-cell--primary:hover .data-table-cell:not(:has(.data-table-primary-text)),
-.data-table-row--opens .data-table-cell--primary:hover .data-table-cell:not(:has(.data-table-primary-text)) *,
-.data-table-row--opens .data-table-cell--primary:hover .data-table-primary-text {
+/* A row that opens something, while the mouse is anywhere on it (its joined
+   line too): its name underlined, as a link's would be, though only the name
+   cell opens it. Only the part the page marks data-table-primary-text when it
+   marks one (a name over its description), else all of the cell, its buttons
+   too, which an underline on the cell alone wouldn't reach. */
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--joined:hover))
+  .data-table-cell--primary
+  .data-table-cell:not(:has(.data-table-primary-text)),
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--joined:hover))
+  .data-table-cell--primary
+  .data-table-cell:not(:has(.data-table-primary-text))
+  *,
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--joined:hover))
+  .data-table-cell--primary
+  .data-table-primary-text {
   text-decoration: underline;
 }
 </style>

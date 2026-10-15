@@ -44,6 +44,7 @@ from django.utils import timezone
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_registry import get_email_type
+from apps.services.email_metrics import record_email_delivery
 from apps.services.system_email import is_email_enabled, sender_connection, sender_for, senders
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
@@ -463,7 +464,32 @@ def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("email run %s failed", key)
     finally:
-        EmailSendRun.objects.filter(key=key).update(held_until=None, finished_at=timezone.now())
+        completed_at = timezone.now()
+        EmailSendRun.objects.filter(key=key).update(
+            held_until=None, finished_at=completed_at
+        )
+        _record_run_metrics(key, completed_at)
+
+
+def _record_run_metrics(key: str, completed_at) -> None:
+    """Record the final, de-duplicated recipient outcome for one bulk run."""
+    try:
+        run = EmailSendRun.objects.filter(key=key).first()
+        if run is None:
+            return
+        failed = len(run.missed)
+        record_email_delivery(
+            key,
+            source_mailbox=sender_for(key).address,
+            attempted=run.emailed + failed,
+            delivered=run.emailed,
+            failed=failed,
+            initiated_by=run.started_by,
+            started_at=run.started_at,
+            completed_at=completed_at,
+        )
+    except Exception:  # noqa: BLE001 - metrics must never break the send queue
+        logger.exception("email run %s: metric write failed", key)
 
 
 def _send(key: str, item: Work, connection, cache: dict) -> list[dict]:

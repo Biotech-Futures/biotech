@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from uuid import uuid4
+import warnings
 
 from django.core.files.base import ContentFile
+from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from apps.common.storage import ManagedFileService, get_profile_image_storage
@@ -31,6 +33,17 @@ def validate_profile_image(uploaded_file) -> tuple[str, str]:
     is_webp = content_type == "image/webp" and header.startswith(signature) and header[8:12] == b"WEBP"
     if (content_type != "image/webp" and not header.startswith(signature)) or (content_type == "image/webp" and not is_webp):
         raise serializers.ValidationError({"image": "The uploaded file is not a valid image."})
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(uploaded_file) as image:
+                if image.format != {"png": "PNG", "jpg": "JPEG", "webp": "WEBP"}[extension]:
+                    raise serializers.ValidationError({"image": "The uploaded file is not a valid image."})
+                image.verify()
+    except (UnidentifiedImageError, OSError, SyntaxError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise serializers.ValidationError({"image": "The uploaded file is not a valid image."})
+    finally:
+        uploaded_file.seek(0)
     return content_type, extension
 
 

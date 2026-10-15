@@ -38,6 +38,7 @@ from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
 from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
+from apps.services.email_metrics import record_email_delivery
 from apps.services.email_registry import (
     EMAIL_TYPES,
     get_email_type,
@@ -512,6 +513,14 @@ def send_test_email(
         # Tried once more if it fails, as every email is.
         send_with_retry(message)
     except Exception as exc:
+        record_email_delivery(
+            f"test_{key}",
+            source_mailbox=sender.address,
+            attempted=1,
+            delivered=0,
+            failed=1,
+            initiated_by=requested_by,
+        )
         # Not logger.exception: SMTP errors can carry the address in their args.
         logger.error(
             "admin.system_email.test_send_failed key=%s error=%s",
@@ -522,6 +531,15 @@ def send_test_email(
             "msg": "The test email could not be sent. Check the mail backend and try again.",
             "data": None,
         }
+
+    record_email_delivery(
+        f"test_{key}",
+        source_mailbox=sender.address,
+        attempted=1,
+        delivered=1,
+        failed=0,
+        initiated_by=requested_by,
+    )
 
     return {
         "msg": f"Test email sent to {recipient}",

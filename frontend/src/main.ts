@@ -2,9 +2,13 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import './assets/btf-tokens.css'
 import './assets/main.css'
+import './assets/analytics-theme.css'
 import { useAuthStore } from './stores/auth'
 import { BRAND_CONNECT } from './constants/brand'
+import { REGISTRATION_GATEWAY_KEY } from './registration/registrationGateway'
+import { configuredRegistrationGateway } from './registration/httpRegistrationGateway'
 
 document.title = BRAND_CONNECT
 
@@ -13,6 +17,13 @@ const bootstrap = async () => {
   const pinia = createPinia()
 
   app.use(pinia)
+  app.provide(
+    REGISTRATION_GATEWAY_KEY,
+    configuredRegistrationGateway(
+      import.meta.env.VITE_REGISTRATION_API_URL,
+      import.meta.env.VITE_API_BASE_URL,
+    ),
+  )
 
   const auth = useAuthStore()
   await auth.initializeAuth()

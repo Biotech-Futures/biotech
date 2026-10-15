@@ -59,6 +59,8 @@ import { useGroupsStore } from '@/stores/groups';
 import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
 import { loadSupervisorResults } from '@/composables/useSupervisorResults';
+import { publicRegistrationRoute } from './publicRegistrationRoute';
+import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
@@ -97,6 +99,8 @@ const routes: RouteRecordRaw[] = [
 
   { path: '/', redirect: '/login' },
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
+  publicRegistrationRoute,
+  supervisorRegistrationRoute,
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/reset-password', redirect: (to) => ({ path: '/auth/reset-password', query: to.query }) },
@@ -106,6 +110,15 @@ const routes: RouteRecordRaw[] = [
   // Opened from a supervisor's Copy Details Link; no account needed.
   { path: '/guardian-details/:token', name: 'guardian-details-form', component: () => import('@/views/GuardianDetailsPage.vue'), meta: { public: true, siteHeader: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
+  { path: '/analytics', name: 'analytics', component: () => import('@/views/AnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/users', name: 'users-analytics', component: () => import('@/views/UsersAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/mentors', name: 'mentors-analytics', component: () => import('@/views/MentorsAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/registration', name: 'registration-analytics', component: () => import('@/views/RegistrationAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/groups', name: 'groups-analytics', component: () => import('@/views/GroupsAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/activity', name: 'activity-analytics', component: () => import('@/views/ActivityAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/messages', name: 'messages-analytics', component: () => import('@/views/MessagesAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/resources', name: 'resources-analytics', component: () => import('@/views/ResourcesAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/email', name: 'email-monitoring-analytics', component: () => import('@/views/EmailMonitoringAnalyticsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/my-students', name: 'my-students', component: () => import('@/views/SupervisorStudentsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/my-groups', name: 'my-groups', component: () => import('@/views/SupervisorGroupsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/my-results', name: 'my-results', component: () => import('@/views/SupervisorResultsPage.vue'), beforeEnter: requireSupervisorResults },

@@ -362,3 +362,51 @@ class SystemEmailLog(models.Model):
 
     def __str__(self):
         return f"SystemEmailLog({self.key})"
+
+
+class EmailDeliveryMetric(models.Model):
+    """One aggregate outcome from a real email send operation.
+
+    This table intentionally stores counts rather than recipient addresses. It
+    is the common analytics source for system emails, announcement batches,
+    chat digests, and management bulk sends, regardless of which mailbox was
+    selected for the message.
+    """
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        PARTIAL = "partial", "Partial"
+        FAILED = "failed", "Failed"
+
+    email_type = models.SlugField(max_length=64)
+    source_mailbox = models.EmailField()
+    attempted_count = models.PositiveIntegerField(default=0)
+    delivered_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "email_delivery_metric"
+        ordering = ["-started_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["source_mailbox", "started_at"],
+                name="email_metric_mail_started_idx",
+            ),
+            models.Index(
+                fields=["email_type", "started_at"],
+                name="email_metric_type_started_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email_type}: {self.source_mailbox} ({self.status})"

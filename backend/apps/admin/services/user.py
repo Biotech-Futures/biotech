@@ -4,7 +4,8 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction, IntegrityError
 from django.utils import timezone
-from django.db.models import Exists, Max, OuterRef, Q, ProtectedError
+from django.db.models import Exists, Max, OuterRef, Q, ProtectedError, Value
+from django.db.models.functions import Concat
 from typing import List, Dict, Any, Optional
 
 # Import models
@@ -707,6 +708,7 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
         filters &= (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
+            Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
@@ -727,10 +729,10 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
     if active is not None:
         filters &= Q(is_active=active)
 
-    return _filter_by_active_group_membership(
-        User.objects.filter(filters),
-        in_group,
+    users = User.objects.annotate(
+        search_full_name=Concat("first_name", Value(" "), "last_name")
     )
+    return _filter_by_active_group_membership(users.filter(filters), in_group)
 
 
 def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,

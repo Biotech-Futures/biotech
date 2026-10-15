@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -163,7 +164,7 @@ RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
     str(value).strip().lower().lstrip(".")
     for value in config(
         "RESOURCE_FILE_ALLOWED_EXTENSIONS",
-        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx,mp4,webm,mov",
         cast=Csv(),
     )
     if str(value).strip()
@@ -176,7 +177,8 @@ RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
             "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
             "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
             "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
-            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+            "video/mp4,video/webm,video/quicktime"
         ),
         cast=Csv(),
     )
@@ -480,6 +482,11 @@ CORS_ALLOWED_ORIGINS = config(
 )
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    *default_headers,
+    "idempotency-key",
+    "x-registration-invitation",
+]
 
 # Response headers the SPA is allowed to read on cross-origin fetches.
 # Browsers hide everything but a small safelist otherwise: without this the
