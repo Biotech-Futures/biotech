@@ -1,341 +1,136 @@
-# Mentor Management System
+# BIOTech Futures — Web Platform
 
-A Django-based mentor-student matching management system for automatically assigning student groups and mentors, with mentor management functionality.
+A Django and Vue-based platform supporting student groups, mentors, resources, events, and collaborative group work. This repository also contains mentor-management and matching functionality.
 
-## Project Overview
+## Project Structure
 
-The system's main features include:
-- Import student and mentor data from Excel files
-- Automatically group students (based on pre-assigned group numbers and interest matching)
-- Automatically assign mentors to groups
-- Mentor replacement and account management
-- Email notification functionality
+- `backend/` — Django API, database models, migrations, and server-side functionality.
+- `frontend/` — Vue frontend, pages, and interactive group workspace.
+- `backend/requirements.txt` — Python dependencies.
+- `frontend/package.json` and `frontend/package-lock.json` — JavaScript dependencies and locked versions.
 
-## Environment Requirements
+## Prerequisites
 
-- Python 3.8+
-- Django 4.2.23
-- SQLite database (default)
-- Other dependencies listed in `backend/requirements.txt`
+Install Python, Node.js/npm, and the database required by your local Django configuration. The current BIOTech development setup uses PostgreSQL; check your local environment configuration for the correct connection details. Obtain any required environment variables and test credentials from the team through an approved private channel. Do not commit passwords or `.env` files.
 
-## Quick Start
+## Quick Start (Local Development)
 
-### 1. Environment Setup
+Run the backend and frontend in **separate terminals**. Commands below start from the repository root.
+
+### 1. Clone or update the repository
 
 ```bash
-# Clone the project (if from Git repository)
-# git clone <repository-url>
-# cd COMP5615_xinsheng_demo_mentorManage
+git clone <repository-url>
+cd biotech
+```
 
-# Navigate to backend directory
+If you already have the repository, pull the appropriate team branch instead of cloning again.
+
+### 2. Backend setup
+
+```bash
 cd backend
-
-# Create virtual environment (recommended)
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Database Initialization
-
-```bash
-# Execute in backend directory
+python3 -m venv .venv
+source .venv/bin/activate       # Linux / macOS / WSL
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 python manage.py migrate
-
-# Create superuser (optional, for Django admin interface)
-python manage.py createsuperuser
-```
-
-### 3. Import Test Data
-
-```bash
-# Import data from an Excel export (provide your own file — no test data is
-# committed to the repo). The importer expects the P11 column layout.
-python manage.py import_p11 "/path/to/your-export.xlsx"
-```
-
-### 4. Start Service
-
-```bash
-# Start Django development server
-python manage.py runserver
-
-# Service will start at http://127.0.0.1:8000
-```
-
-## Feature Testing Guide
-
-### 1. Basic Functionality Testing
-
-#### 1.1 Health Check
-Visit: http://127.0.0.1:8000/api/health/
-Should return: `{"status": "ok", "service": "ws3-backend"}`
-
-#### 1.2 Django Admin Interface
-Visit: http://127.0.0.1:8000/admin/
-Login with created superuser to view and manage:
-- Students
-- Mentors
-- Student Groups
-- Interest Tags
-
-### 2. Core Functionality Testing
-
-#### 2.1 Reset All Groups and Mentor Assignments
-
-Use the `test.py` script in the project root:
-
-```bash
-# Execute in project root directory
-python test.py
-```
-
-Or call the API directly:
-```bash
-curl -X POST "http://127.0.0.1:8000/api/reset_groups/?mode=delete_all&reset_seq=1"
-```
-
-**Function Description**:
-- Delete all existing groups
-- Clear all mentor assignments
-- Reset group ID sequence number
-
-#### 2.2 Auto-group Students
-
-```bash
-curl -X POST "http://127.0.0.1:8000/api/auto_group/"
-```
-
-**Function Description**:
-- First process students with pre-assigned group numbers (from Excel "Group Number" column)
-- Then auto-group students without pre-assigned group numbers by interests
-- Maximum 5 people per group
-- Group by track
-
-#### 2.3 Fallback Grouping (Handle Remaining Students)
-
-```bash
-curl -X POST "http://127.0.0.1:8000/api/auto_group_fallback/"
-```
-
-**Function Description**:
-- Handle students who are still ungrouped
-- Prioritize grouping by shared interests
-- Secondary grouping by year level and regional proximity
-
-#### 2.4 Assign Mentors
-
-```bash
-curl -X POST "http://127.0.0.1:8000/api/assign_mentors/"
-```
-
-**Function Description**:
-- Automatically assign mentors to groups without mentors
-- Matching rules:
-  - Must have at least one shared interest
-  - Consider mentor capacity limits
-  - Match by track priority
-  - Consider experience level matching
-
-### 3. Mentor Management Functionality Testing
-
-#### 3.1 Using Web Interface
-
-**Accessing Web Interface**:
-
-Method 1: Direct HTML file access
-- Find `frontend/admin.html` in file manager and double-click to open
-
-Method 2: Access through Django server (recommended)
-
-Quick setup steps:
-```bash
-# 1. Copy frontend file to Django templates directory
-cp frontend/admin.html backend/matching/templates/admin_interface.html
-
-# 2. Add to backend/matching/views.py:
-def admin_interface(request):
-    return render(request, 'admin_interface.html')
-
-# 3. Add to backend/matching/urls.py urlpatterns:
-path("admin-interface/", admin_interface, name="admin_interface"),
-
-# 4. Restart Django server
 python manage.py runserver
 ```
 
-Then visit: http://127.0.0.1:8000/api/admin-interface/
+The development backend normally runs at `http://127.0.0.1:8000/`. Make sure your database is running and your local Django settings are configured before applying migrations. If the project already has a virtual environment, activate it instead of creating another.
 
-This interface provides the following features:
-
-**Replace Single Group Mentor**:
-1. Enter group ID and new mentor ID
-2. Click "Replacement of mentors and notification"
-3. System will send email notifications to relevant parties
-
-**Deactivate Mentor Account**:
-1. Enter mentor ID
-2. Click "Deactivate the mentorstutor and clear the group"
-3. Mentor is marked as inactive, their assigned groups' mentor assignments are cleared
-
-#### 3.2 Using API Interfaces
-
-**Replace Group Mentor**:
-```bash
-curl -X POST "http://127.0.0.1:8000/api/replace_group_mentor/" \
-  -H "Content-Type: application/json" \
-  -d '{"group_id": 1, "new_mentor_id": 2}'
-```
-
-**Deactivate Mentor**:
-```bash
-curl -X POST "http://127.0.0.1:8000/api/deactivate_mentor/" \
-  -H "Content-Type: application/json" \
-  -d '{"mentor_id": 2}'
-```
-
-**Bulk Operations Preview** (placeholder functionality):
-```bash
-curl "http://127.0.0.1:8000/api/bulk_inactive_mentors_preview/"
-```
-
-### 4. Complete Workflow Testing
-
-#### 4.1 Complete Reset and Reassignment Workflow
+### 3. Frontend setup (new terminal)
 
 ```bash
-# 1. Reset all data
-python test.py
-
-# 2. Auto-group
-curl -X POST "http://127.0.0.1:8000/api/auto_group/"
-
-# 3. Fallback grouping (if needed)
-curl -X POST "http://127.0.0.1:8000/api/auto_group_fallback/"
-
-# 4. Assign mentors
-curl -X POST "http://127.0.0.1:8000/api/assign_mentors/"
+cd frontend
+npm ci
+npm run dev
 ```
 
-#### 4.2 Verify Results
+Open the local URL shown by Vite in the terminal (for example, `http://localhost:5173/`; your port may differ).
 
-1. **Check Django Admin Interface**:
-   - Visit http://127.0.0.1:8000/admin/
-   - Check if student groups are created correctly
-   - Check if mentor assignments are reasonable
+**Important:** `npm ci` installs **all** frontend dependencies listed in `package-lock.json`, including `y-protocols`. You do **not** need to install `y-protocols` separately or add it to Python's `requirements.txt`.
 
-2. **Check API Responses**:
-   - Each API call returns detailed execution results
-   - Includes number of groups created, mentor assignment information, etc.
+If `npm ci` fails because the lockfile is out of sync with `package.json`, ask the team to correct and commit the lockfile. Do not manually edit `node_modules`.
 
-## Email Notification Functionality
+## Updating Your Local Copy
 
-### Development Environment
-In development environment, emails are output to Django console and not actually sent.
-
-### Production Environment
-To enable real email sending, set the following environment variables:
+After pulling changes from GitHub, refresh dependencies when the dependency files have changed:
 
 ```bash
-export EMAIL_HOST="smtp.gmail.com"
-export EMAIL_PORT="587"
-export EMAIL_HOST_USER="your-email@gmail.com"
-export EMAIL_HOST_PASSWORD="your-app-password"
-export EMAIL_USE_TLS="true"
-export EMAIL_FROM_ADDRESS="info@biotechfutures.org"
+# From the repository root
+cd frontend
+npm ci
+npm run dev
 ```
 
-## Data Model Description
+For backend dependency changes, activate the Python virtual environment and rerun `python -m pip install -r requirements.txt`. Apply any new Django migrations with `python manage.py migrate`.
 
-### Student
-- Basic info: name, email, school, year level
-- Geographic info: country, region, track
-- Interest tags: many-to-many relationship
-- Pre-assigned group number: from Excel Group Number column
+> **Note:** `git pull` downloads code and dependency manifests, but does not install new npm or Python packages automatically. The first install (and reinstall after dependency changes) must still be run locally.
 
-### Mentor
-- Basic info: name, email, institution
-- Background info: experience level, professional field
-- Geographic info: country, region, track
-- Capacity limit: maximum number of groups they can handle
-- Active status: whether available
+## Main Features
 
-### StudentGroup
-- Basic info: group name, track
-- Year range: minimum and maximum year levels
-- Members: many-to-many relationship
-- Interests: union of member interests
-- Mentor: foreign key relationship
+- Authentication and sign-in flow.
+- Group workspace with Tasks and Meetings views.
+- Group meeting details and collaborative meeting notes.
+- Group discussion and member collaboration.
+- Resource management and document previews.
+- Event content and banner display.
+- Mentor/student management and matching functionality.
+
+Some functionality may still be under development. Availability depends on the branch, user role, and configured services.
+
+## Testing and Verification
+
+### Frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+Check the available scripts in `frontend/package.json` for build, type-checking, and test commands before running them.
+
+For the group meetings interface, sign in with an account assigned to a group, open the group page, select **Meetings**, open a meeting, and use **Back to Meetings** to return to the group's Meetings view.
+
+### Backend
+
+```bash
+cd backend
+source .venv/bin/activate
+python manage.py check
+python manage.py test
+```
+
+The exact tests available depend on the checked-out branch and your local test database configuration.
 
 ## Troubleshooting
 
-### Common Issues
+| Problem | What to check |
+| --- | --- |
+| `Failed to resolve import "y-protocols/awareness"` | Run `npm ci` inside `frontend/`, then restart Vite. |
+| `Module not found` in frontend | Confirm you are in `frontend/` and have installed dependencies with `npm ci`. |
+| Frontend cannot reach the API | Confirm Django is running and the frontend API base URL points to the correct backend address. |
+| Database connection or SSL error | Check PostgreSQL service, credentials, port, and local SSL settings. |
+| Unapplied migrations | Run `python manage.py migrate` in `backend/`. |
+| Port already in use | Stop the existing development server or use another available port. |
+| No group visible | Check that the signed-in user has a group membership; some views require an assigned group. |
 
-1. **Excel Import Failure**:
-   - Ensure Excel file path is correct
-   - Check if Excel file contains "Students" and "Mentors" worksheets
-   - Ensure column names match expected format
+## Working as a Team
 
-2. **API Call Failure**:
-   - Check if Django service is running
-   - Confirm API endpoint URL is correct
-   - Check request format (JSON format, Content-Type, etc.)
+1. Work on the agreed branch and pull updates before starting new work.
+2. Commit source code and dependency manifests when adding packages; do not commit `node_modules/` or Python virtual environments.
+3. Keep secrets and machine-specific settings out of commits.
+4. Use pull requests and team review procedures before merging shared changes.
+5. Update this README whenever setup steps or required dependencies change.
 
-3. **Email Sending Failure**:
-   - Development environment: check console output
-   - Production environment: check SMTP configuration
+## Legacy Mentor-Management Operations
 
-4. **Database Errors**:
-   - Run `python manage.py migrate` to update database
-   - Check database file permissions
+The original mentor-management documentation described Excel import, automated grouping, mentor assignment, replacement, account deactivation, and email notifications. These workflows may belong to older modules or branches; **verify the current API routes and management commands in the checked-out code before using them**. In particular, avoid running reset/delete-all operations against shared or production data.
 
-### Debugging Tips
-
-1. **View Django Logs**:
-   - Set `DEBUG = True` in settings.py
-   - Check console output for detailed error information
-
-2. **Use Django Shell**:
-   ```bash
-   python manage.py shell
-   ```
-   Can interactively test models and queries
-
-3. **Check Database Content**:
-   ```bash
-   python manage.py dbshell
-   ```
-   Direct access to SQLite database
-
-## Extended Features
-
-### Bulk Operations (Placeholder Functionality)
-The system reserves interfaces for bulk processing inactive mentors, currently returning placeholder data:
-- `GET /api/bulk_inactive_mentors_preview/` - Preview inactive mentors
-- `POST /api/bulk_replace_inactive_mentors/` - Bulk replace mentors
-
-### Custom Configuration
-Can adjust through modifying `backend/core/settings.py`:
-- Database configuration
-- Email settings
-- Other Django settings
-
-## Contributing Guidelines
-
-1. Each workflow uses independent branches
-2. Keep commit messages concise and clear
-3. Merge to main branch through Pull Request
-4. Ensure main branch remains stable and deployable
+For current admin functionality, consult the Django admin routes and the backend's application-specific documentation. Configure email and other external services through approved environment settings, not hard-coded credentials.
 
 ## License
 
-Please add appropriate license information as needed for the project.
-
-
+See the repository's license information, if provided, or contact the project maintainers.
