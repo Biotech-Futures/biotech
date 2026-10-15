@@ -33,7 +33,7 @@
         <template #stats>
           Matched: {{ groups.length }}
           <span v-if="inactiveCount > 0" class="matched-groups__inactive">
-            · <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} inactive
+            · <i class="fas fa-triangle-exclamation" aria-hidden="true"></i> {{ inactiveCount }} to replace
           </span>
         </template>
         <template #search-side>
@@ -46,7 +46,7 @@
             type="button"
             class="btn btn-sm btn-outline"
             :disabled="inactiveCount === 0"
-            :title="inactiveCount === 0 ? 'No matched mentors are inactive' : undefined"
+            :title="inactiveCount === 0 ? 'No matched mentors need replacing' : undefined"
             @click="bulkDialogOpen = true"
           >
             <i class="fas fa-rotate" aria-hidden="true"></i> Replace Inactive Mentors
@@ -101,6 +101,20 @@
             <button type="button" class="btn btn-sm btn-outline" :disabled="replaceBusy" @click="cancelReplace">
               Cancel
             </button>
+            <!-- Both on by default: the admin opts out of telling a mentor,
+                 rather than having to remember to opt in. -->
+            <label class="matched-groups__notify">
+              <input v-model="notifyDeparting" type="checkbox" :disabled="replaceBusy" />
+              Notify departing mentor
+            </label>
+            <label class="matched-groups__notify">
+              <input
+                v-model="notifyIncoming"
+                type="checkbox"
+                :disabled="replaceBusy || selectedMentorId === UNASSIGN_VALUE"
+              />
+              Notify incoming mentor
+            </label>
           </div>
           <button
             v-else
@@ -169,6 +183,7 @@ import {
   type MatchedGroup,
   type MentorListItem
 } from '@/utils/adminAPI'
+import { mentorConcern } from '@/utils/mentorFormat'
 import { logApiError } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
@@ -201,7 +216,13 @@ const load = async () => {
 
 onMounted(load)
 
-const inactiveGroups = computed(() => groups.value.filter((g) => !g.mentor.isActive))
+// Both reasons belong here: a deactivated mentor cannot take part at all, and
+// an idle one has gone quiet. The dialog labels each so an admin can tell them
+// apart. Previously this counted only deactivated accounts, which is why this
+// tab and the Mentors page reported different numbers.
+const inactiveGroups = computed(() =>
+  groups.value.filter((g) => mentorConcern(g.mentor) !== null)
+)
 const inactiveCount = computed(() => inactiveGroups.value.length)
 
 const showFullMentors = ref(false)
@@ -287,6 +308,8 @@ const selectedMentorId = ref('')
 const replaceBusy = ref(false)
 
 const startReplace = (membershipId: number) => {
+  notifyDeparting.value = true
+  notifyIncoming.value = true
   replacingId.value = membershipId
   selectedMentorId.value = ''
 }
@@ -305,18 +328,24 @@ const optionsFor = (group: MatchedGroup): MentorListItem[] =>
     (m) => showFullMentors.value || m.remainingCapacity > 0 || m.mentorId === group.mentor.mentorId
   )
 
+const notifyDeparting = ref(true)
+const notifyIncoming = ref(true)
+
 const confirmReplace = async (group: MatchedGroup) => {
   if (!selectedMentorId.value) return
   replaceBusy.value = true
   error.value = ''
   try {
     if (selectedMentorId.value === UNASSIGN_VALUE) {
-      await unassignMentors([group.groupId])
+      // Nobody is arriving, so only the departing flag can apply here.
+      await unassignMentors([group.groupId], { notifyDeparting: notifyDeparting.value })
     } else {
       await replaceMentor({
         membershipId: group.membershipId,
         groupId: group.groupId,
-        newMentorUserId: Number(selectedMentorId.value)
+        newMentorUserId: Number(selectedMentorId.value),
+        notifyDeparting: notifyDeparting.value,
+        notifyIncoming: notifyIncoming.value
       })
     }
   } catch (err) {
@@ -545,5 +574,14 @@ const onBulkConfirmed = () => {
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.4rem;
+}
+
+.matched-groups__notify {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 </style>

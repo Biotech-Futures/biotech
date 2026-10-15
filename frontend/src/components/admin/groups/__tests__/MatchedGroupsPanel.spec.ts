@@ -12,7 +12,15 @@ const activeGroup = {
     { name: 'Ada Lovelace', hasLoggedIn: true, interests: ['Genomics'] },
     { name: 'Grace Hopper', hasLoggedIn: false, interests: [] }
   ],
-  mentor: { mentorId: 20, name: 'Marie Curie', isActive: true, countryName: 'Australia', institution: 'USYD' }
+  mentor: {
+    mentorId: 20,
+    name: 'Marie Curie',
+    isActive: true,
+    // Recent enough not to count as idle.
+    lastMessageAt: new Date().toISOString(),
+    countryName: 'Australia',
+    institution: 'USYD'
+  }
 }
 
 const inactiveGroup = {
@@ -22,7 +30,14 @@ const inactiveGroup = {
   countryName: 'Singapore',
   studentCount: 0,
   students: [],
-  mentor: { mentorId: 21, name: 'Nikola Tesla', isActive: false, countryName: 'Singapore', institution: null }
+  mentor: {
+    mentorId: 21,
+    name: 'Nikola Tesla',
+    isActive: false,
+    lastMessageAt: null,
+    countryName: 'Singapore',
+    institution: null
+  }
 }
 
 const mentorPool = [
@@ -113,18 +128,18 @@ describe('MatchedGroupsPanel', () => {
     // Curie is mentorId 20 there: currentAssignedCount 1, maxGroupCount 4).
     expect(wrapper.text()).toContain('1/4')
     expect(wrapper.text()).toContain('BTF2')
-    expect(wrapper.text()).toContain('1 inactive')
+    expect(wrapper.text()).toContain('1 to replace')
     const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
     expect(replaceInactiveButton).toBeDefined()
   })
 
-  it('disables the "Replace Inactive Mentors" button when every mentor is active', async () => {
+  it('disables the "Replace Inactive Mentors" button when no mentor needs replacing', async () => {
     const fetchMock = fetchMockFor([activeGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('inactive')
+    expect(wrapper.text()).not.toContain('to replace')
     const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
     expect(replaceInactiveButton).toBeDefined()
     expect(replaceInactiveButton!.attributes('disabled')).toBeDefined()
@@ -167,7 +182,12 @@ describe('MatchedGroupsPanel', () => {
       ([u, i]) => String(u).includes('/mentor-match/unassign/') && (i as RequestInit | undefined)?.method === 'POST'
     ) as [string, RequestInit]
     expect(call).toBeDefined()
-    expect(JSON.parse(String(call[1].body))).toEqual({ groupIds: [1] })
+    // Nobody arrives on an unassign, so only the departing flag is sent,
+    // and it defaults to on.
+    expect(JSON.parse(String(call[1].body))).toEqual({
+      groupIds: [1],
+      notifyDeparting: true
+    })
   })
 
   it('replaces a mentor via the per-row replace control', async () => {
@@ -193,8 +213,42 @@ describe('MatchedGroupsPanel', () => {
     expect(JSON.parse(String(call[1].body))).toEqual({
       membershipId: 100,
       groupId: 1,
-      newMentorUserId: 23
+      newMentorUserId: 23,
+      // Both notifications are opt-out, so an untouched form sends true.
+      notifyDeparting: true,
+      notifyIncoming: true
     })
+  })
+
+  it('sends notifyIncoming false when the admin unticks it', async () => {
+    const fetchMock = fetchMockFor([activeGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
+    await replaceButton!.trigger('click')
+    await wrapper.find('select').setValue('23')
+
+    const boxes = wrapper.findAll('.matched-groups__notify input')
+    expect(boxes).toHaveLength(2)
+    // Both start ticked - the admin opts out rather than in.
+    expect(boxes.every((box) => (box.element as HTMLInputElement).checked)).toBe(true)
+
+    await boxes[1].setValue(false)
+
+    const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
+    await confirmButton!.trigger('click')
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) =>
+        String(u).includes('/mentor-match/replace/') &&
+        (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body))
+    expect(body.notifyDeparting).toBe(true)
+    expect(body.notifyIncoming).toBe(false)
   })
 
   it('reports a post-replace refresh failure as a stale list, not a failed replace', async () => {
@@ -263,6 +317,46 @@ describe('MatchedGroupsPanel', () => {
     expect(wrapper.find('select').exists()).toBe(true)
   })
 
+  it('sends the unticked flag from the bulk dialog', async () => {
+    // The dialog's own checkboxes, not the per-row ones: a mis-wired v-model
+    // here would still pass the defaults test above and silently ignore an
+    // admin who unticks a box.
+    const fetchMock = fetchMockFor([activeGroup, inactiveGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    const bulkButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    await bulkButton!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    const boxes = Array.from(
+      dialog.querySelectorAll('.replace-dialog__notify input')
+    ) as HTMLInputElement[]
+    expect(boxes).toHaveLength(2)
+    expect(boxes.every((box) => box.checked)).toBe(true)
+
+    boxes[0].checked = false
+    boxes[0].dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    const confirmButton = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim().startsWith('Confirm')
+    ) as HTMLButtonElement
+    confirmButton.dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    const call = fetchMock.mock.calls.find(
+      ([u, i]) =>
+        String(u).includes('/mentor-match/confirm/') &&
+        (i as RequestInit | undefined)?.method === 'POST'
+    ) as [string, RequestInit]
+    const body = JSON.parse(String(call[1].body))
+    expect(body.notifyDeparting).toBe(false)
+    expect(body.notifyIncoming).toBe(true)
+  })
+
   it('replaces an inactive mentor via the bulk "Replace Inactive Mentors" dialog', async () => {
     const fetchMock = fetchMockFor([activeGroup, inactiveGroup])
     vi.stubGlobal('fetch', fetchMock)
@@ -292,7 +386,9 @@ describe('MatchedGroupsPanel', () => {
     ) as [string, RequestInit]
     expect(call).toBeDefined()
     expect(JSON.parse(String(call[1].body))).toEqual({
-      assignments: [{ groupId: 2, mentorUserId: 23 }]
+      assignments: [{ groupId: 2, mentorUserId: 23 }],
+      notifyDeparting: true,
+      notifyIncoming: true
     })
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
   })

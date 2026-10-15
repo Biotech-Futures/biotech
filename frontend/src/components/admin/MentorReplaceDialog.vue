@@ -19,7 +19,11 @@
         <div class="replace-dialog__group">
           <p class="replace-dialog__name">{{ group.groupName }}</p>
           <p class="replace-dialog__current">
-            Current: <span class="replace-dialog__danger">{{ group.mentor.name }} (inactive)</span>
+            Current:
+            <span class="replace-dialog__danger">
+              {{ group.mentor.name }}
+              ({{ mentorConcern(group.mentor) === 'idle' ? 'idle' : 'inactive' }})
+            </span>
           </p>
           <p v-if="topSuggestionFor(group.groupId)" class="replace-dialog__suggested">
             ★ Suggested: {{ topName(group.groupId) }} (score {{ topScore(group.groupId) }})
@@ -41,6 +45,19 @@
           </option>
         </select>
       </div>
+    </div>
+
+    <!-- One pair for the batch: the admin is confirming a single action over
+         several groups, so per-row toggles would be noise. -->
+    <div class="replace-dialog__notify">
+      <label>
+        <input v-model="notifyDeparting" type="checkbox" :disabled="busy" />
+        Notify departing mentors
+      </label>
+      <label>
+        <input v-model="notifyIncoming" type="checkbox" :disabled="busy" />
+        Notify incoming mentors
+      </label>
     </div>
 
     <template #footer>
@@ -70,6 +87,7 @@ import {
   fetchMentorReplaceSuggestions,
   unassignMentors
 } from '@/utils/adminAPI'
+import { mentorConcern } from '@/utils/mentorFormat'
 import { logApiError } from '@/utils/apiError'
 
 const UNASSIGN_VALUE = '__unassign__'
@@ -93,7 +111,9 @@ const selections = reactive<Record<number, string>>({})
 
 const description = computed(() => {
   const count = props.inactiveGroups.length
-  return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'has' : 'have'} an inactive mentor. The best match from the matcher is pre-selected - adjust any, or choose "Unassign" to leave a group unmatched.`
+  // "needs a new mentor" covers both reasons without claiming either; each row
+  // says which one applies.
+  return `${count} group${count === 1 ? '' : 's'} ${count === 1 ? 'needs' : 'need'} a new mentor. The best match from the matcher is pre-selected - adjust any, or choose "Unassign" to leave a group unmatched.`
 })
 
 const suggestionsFor = (groupId: number): MentorReplaceSuggestion[] =>
@@ -136,6 +156,9 @@ const optionsFor = (groupId: number): ReplaceOption[] => {
 const actionCount = computed(
   () => props.inactiveGroups.filter((group) => selections[group.groupId]).length
 )
+
+const notifyDeparting = ref(true)
+const notifyIncoming = ref(true)
 
 const applyDefaults = () => {
   for (const group of props.inactiveGroups) {
@@ -214,9 +237,17 @@ const confirm = async () => {
   try {
     await Promise.all([
       assignments.length
-        ? confirmMentorAssignments(assignments).then((result) => result.confirmedCount)
+        ? confirmMentorAssignments(assignments, {
+            notifyDeparting: notifyDeparting.value,
+            notifyIncoming: notifyIncoming.value
+          }).then((result) => result.confirmedCount)
         : Promise.resolve(0),
-      unassigns.length ? unassignMentors(unassigns).then((result) => result.unassignedCount) : Promise.resolve(0)
+      // An unassigned group gains no mentor, so only the departing flag applies.
+      unassigns.length
+        ? unassignMentors(unassigns, { notifyDeparting: notifyDeparting.value }).then(
+            (result) => result.unassignedCount
+          )
+        : Promise.resolve(0)
     ])
     reset()
     emit('update:open', false)
@@ -322,5 +353,22 @@ const confirm = async () => {
   .replace-dialog__spinner {
     animation: none;
   }
+}
+
+.replace-dialog__notify {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border-light);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.replace-dialog__notify label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 </style>
