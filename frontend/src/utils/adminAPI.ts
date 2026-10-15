@@ -540,6 +540,12 @@ export interface AdminGroupMember {
   /** "student" | "mentor" */
   role: string
   membershipId: number | null
+  interests?: string[]
+}
+
+export interface MutualInterestItem {
+  name: string
+  count: number
 }
 
 export interface AdminGroupDetail {
@@ -547,6 +553,7 @@ export interface AdminGroupDetail {
   name: string
   members: AdminGroupMember[]
   mentor: AdminGroupMember | null
+  mutualInterests?: MutualInterestItem[]
   createdAt: string
   updatedAt: string
 }

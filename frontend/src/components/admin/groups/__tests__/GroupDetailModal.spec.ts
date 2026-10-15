@@ -574,4 +574,66 @@ describe('GroupDetailModal', () => {
     expect(page2Call).toBeDefined()
     expect(dialog()!.textContent).toContain('[GIF]')
   })
+
+  it('renders mutual areas of interest when 2 or more members share interests', async () => {
+    const groupWithInterests = {
+      ...groupFixture(),
+      members: [
+        { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student', membershipId: 100, interests: ['Bioinformatics', 'Genetics'] },
+        { id: '11', name: 'Grace Hopper', email: 'grace@example.com', role: 'student', membershipId: 101, interests: ['Bioinformatics', 'Robotics'] }
+      ],
+      mentor: { id: '20', name: 'Marie Curie', email: 'marie@example.com', role: 'mentor', membershipId: 200, interests: ['Bioinformatics', 'Genetics'] }
+    }
+    const fetchMock = fetchMockFor()
+    await mountModal(fetchMock, groupWithInterests)
+
+    expect(dialog()!.textContent).toContain('Mutual Areas of Interest')
+    expect(dialog()!.textContent).toContain('Bioinformatics')
+    expect(dialog()!.textContent).toContain('(3)')
+    expect(dialog()!.textContent).toContain('Genetics')
+    expect(dialog()!.textContent).toContain('(2)')
+    expect(dialog()!.textContent).not.toContain('Robotics')
+  })
+
+  it('renders "No mutual areas of interest identified yet." when no interests overlap', async () => {
+    const groupWithNoOverlap = {
+      ...groupFixture(),
+      members: [
+        { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student', membershipId: 100, interests: ['Physics'] },
+        { id: '11', name: 'Grace Hopper', email: 'grace@example.com', role: 'student', membershipId: 101, interests: ['Robotics'] }
+      ],
+      mentor: { id: '20', name: 'Marie Curie', email: 'marie@example.com', role: 'mentor', membershipId: 200, interests: ['Chemistry'] }
+    }
+    const fetchMock = fetchMockFor()
+    await mountModal(fetchMock, groupWithNoOverlap)
+
+    expect(dialog()!.textContent).toContain('Mutual Areas of Interest')
+    expect(dialog()!.textContent).toContain('No mutual areas of interest identified yet.')
+  })
+
+  it('updates mutual areas of interest dynamically when a member is removed', async () => {
+    const groupWithInterests = {
+      ...groupFixture(),
+      members: [
+        { id: '10', name: 'Ada Lovelace', email: 'ada@example.com', role: 'student', membershipId: 100, interests: ['Bioinformatics'] },
+        { id: '11', name: 'Grace Hopper', email: 'grace@example.com', role: 'student', membershipId: 101, interests: ['Bioinformatics'] }
+      ],
+      mentor: null
+    }
+    const fetchMock = fetchMockFor()
+    await mountModal(fetchMock, groupWithInterests)
+
+    expect(dialog()!.textContent).toContain('Bioinformatics')
+    expect(dialog()!.textContent).toContain('(2)')
+
+    const removeBtn = Array.from(dialog()!.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Remove'
+    ) as HTMLButtonElement
+    removeBtn.click()
+    await flushPromises()
+    clickButton(confirmDialog()!, 'Remove')
+    await flushPromises()
+
+    expect(dialog()!.textContent).toContain('No mutual areas of interest identified yet.')
+  })
 })

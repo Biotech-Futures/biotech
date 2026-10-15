@@ -18,6 +18,21 @@
         </section>
 
         <section class="group-detail__section">
+          <h3>Mutual Areas of Interest</h3>
+          <div v-if="mutualInterests.length" class="group-detail__interests">
+            <span
+              v-for="item in mutualInterests"
+              :key="item.name"
+              class="group-detail__interest-tag"
+            >
+              {{ item.name }}
+              <span class="group-detail__interest-count">({{ item.count }})</span>
+            </span>
+          </div>
+          <p v-else class="group-detail__muted">No mutual areas of interest identified yet.</p>
+        </section>
+
+        <section class="group-detail__section">
           <div class="group-detail__members-head">
             <h3>Members ({{ members.length }})</h3>
             <button
@@ -177,7 +192,8 @@ import {
   type AdminGroupDetail,
   type AdminGroupMember,
   type AdminGroupMessage,
-  type AdminUser
+  type AdminUser,
+  type MutualInterestItem
 } from '@/utils/adminAPI'
 import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_MAX_SIZE } from '@/utils/groupCapacity'
@@ -256,6 +272,39 @@ const confirmRemoveMember = async () => {
   }
 }
 
+// --- Mutual areas of interest ----------------------------------------------
+
+const mutualInterests = computed<MutualInterestItem[]>(() => {
+  const allMembers: AdminGroupMember[] = [
+    ...members.value,
+    ...(props.group?.mentor ? [props.group.mentor] : [])
+  ]
+  const countMap = new Map<string, number>()
+  for (const m of allMembers) {
+    const ints = new Set(m.interests || [])
+    for (const interest of ints) {
+      countMap.set(interest, (countMap.get(interest) || 0) + 1)
+    }
+  }
+  const computedList: MutualInterestItem[] = []
+  for (const [name, count] of countMap.entries()) {
+    if (count >= 2) {
+      computedList.push({ name, count })
+    }
+  }
+  computedList.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+
+  if (computedList.length > 0) {
+    return computedList
+  }
+
+  if (props.group?.mutualInterests && props.group.mutualInterests.length > 0) {
+    return props.group.mutualInterests
+  }
+
+  return []
+})
+
 // --- Add students ----------------------------------------------------------
 
 // Seats are derived from the local list so they stay correct after an add or
@@ -277,7 +326,8 @@ const onStudentsAdded = (added: AdminUser[]) => {
       name: [student.firstName, student.lastName].filter(Boolean).join(' '),
       email: student.email ?? '',
       role: 'student',
-      membershipId: null
+      membershipId: null,
+      interests: student.interests ? [...student.interests] : []
     }))
   ]
   emit('changed', props.group.id)
@@ -566,5 +616,28 @@ const confirmRemoveMessage = async () => {
 
 .group-detail__back:hover {
   text-decoration: underline;
+}
+
+.group-detail__interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.group-detail__interest-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.group-detail__interest-count {
+  font-weight: 500;
+  opacity: 0.85;
 }
 </style>
