@@ -324,6 +324,9 @@ const props = withDefaults(
     defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
+    // Off: no "All" in rows per page, for a server that caps how many rows
+    // one page can hold (System Logs).
+    allowAllRows?: boolean
   }>(),
   {
     rowKey: 'id',
@@ -344,6 +347,7 @@ const props = withDefaults(
     sort: undefined,
     defaultSort: undefined,
     selected: undefined,
+    allowAllRows: true,
   },
 )
 
@@ -640,11 +644,12 @@ onMounted(() => {
 })
 onBeforeUnmount(() => window.removeEventListener('resize', refitToWindow))
 
-// 7, 15 and 30, the fitted size among them, then All.
+// 7, 15 and 30, the fitted size among them, then All (unless turned off).
 const sizeOptions = computed(() => {
   const sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
   if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) sizes.push(fittedSize.value)
-  return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
+  sizes.sort((a, b) => a - b)
+  return props.allowAllRows ? [...sizes, DATA_TABLE_ALL] : sizes
 })
 
 // Search is 252px wide, or wide enough for every word of its placeholder:

@@ -67,17 +67,23 @@ export function useAdminSystemLogs() {
   const appliedSearch = ref('')
   let searchTimer: ReturnType<typeof setTimeout> | null = null
 
-  watch(searchInput, (value) => {
+  const cancelPendingSearch = () => {
     if (searchTimer) clearTimeout(searchTimer)
+    searchTimer = null
+  }
+
+  watch(searchInput, (value) => {
+    cancelPendingSearch()
+    // Nothing to ask for when the search wouldn't change (spaces only, or
+    // cleared along with the filters).
+    if (value.trim() === appliedSearch.value) return
     searchTimer = setTimeout(() => {
       appliedSearch.value = value.trim()
       reloadFromFirstPage()
     }, 350)
   })
 
-  onBeforeUnmount(() => {
-    if (searchTimer) clearTimeout(searchTimer)
-  })
+  onBeforeUnmount(cancelPendingSearch)
 
   // -- Filters -----------------------------------------------------------------
   const filters = ref<SystemLogFilters>(defaultSystemLogFilters())
@@ -104,6 +110,10 @@ export function useAdminSystemLogs() {
 
   const load = async () => {
     if (dateRangeError.value) {
+      // A request still on its way is for filters no longer shown: it must
+      // not fill the table under the error.
+      latestRequest += 1
+      loading.value = false
       rows.value = []
       totalCount.value = 0
       return
@@ -142,10 +152,13 @@ export function useAdminSystemLogs() {
     reloadFromFirstPage()
   }
 
+  // One request: the search is cleared before its box, so the box's watcher
+  // has nothing to ask for, and any search still waiting is dropped.
   const clearFilters = () => {
+    cancelPendingSearch()
     filters.value = defaultSystemLogFilters()
-    searchInput.value = ''
     appliedSearch.value = ''
+    searchInput.value = ''
     reloadFromFirstPage()
   }
 

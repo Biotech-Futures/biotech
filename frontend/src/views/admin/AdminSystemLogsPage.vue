@@ -28,6 +28,7 @@
         row-key="id"
         :loading="loading"
         :selectable="false"
+        :allow-all-rows="false"
         :page="page"
         :page-size="pageSize"
         :total-count="totalCount"
@@ -158,7 +159,15 @@ const {
   exportLogs
 } = useAdminSystemLogs()
 
-const tableRows = computed(() => rows.value as unknown as Record<string, unknown>[])
+// `time` is what AppDataTable names a row by in its expand button's label
+// ("Show details for 15/10/26 16:38:59 ERROR apps.services.mailer"); the cell
+// itself is drawn by the cell-time slot.
+const tableRows = computed(() =>
+  rows.value.map((log) => ({
+    ...log,
+    time: `${formatExactTime(log.created_at)} ${log.level_name} ${log.logger_name}`
+  })) as unknown as Record<string, unknown>[]
+)
 
 const toLog = (row: Record<string, unknown>) => row as unknown as SystemLogRow
 

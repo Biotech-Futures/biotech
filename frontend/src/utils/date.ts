@@ -254,9 +254,12 @@ export function zonedDayBoundary(
   if (!match) return null
   const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
   const [hours, minutes, seconds, ms] = edge === 'start' ? [0, 0, 0, 0] : [23, 59, 59, 999]
-  // The wall-clock moment as if it were UTC.
-  const wall = Date.UTC(year, month - 1, day, hours, minutes, seconds, ms)
-  if (new Date(wall).getUTCDate() !== day) return null // 31 February and the like
+  // The wall-clock moment as if it were UTC. setUTCFullYear, as Date.UTC
+  // reads years 0-99 as 1900-1999.
+  const at = new Date(Date.UTC(2000, 0, 1, hours, minutes, seconds, ms))
+  at.setUTCFullYear(year, month - 1, day)
+  const wall = at.getTime()
+  if (at.getUTCFullYear() !== year || at.getUTCDate() !== day) return null // 31 February and the like
   // The zone's offset there, checked again at the real instant it gives, in
   // case a clock change falls between the two.
   let offset = zoneOffsetMinutes(new Date(wall), timeZone)

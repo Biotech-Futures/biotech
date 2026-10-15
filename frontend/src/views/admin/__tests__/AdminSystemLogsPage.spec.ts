@@ -202,6 +202,107 @@ describe('AdminSystemLogsPage', () => {
     expect(button('Clear filters')).toBeUndefined()
   })
 
+  it('does not offer All rows per page, as the server caps a page at 200', async () => {
+    await mountPage()
+
+    const options = wrapper!.findAll('.data-table-page-size option').map((option) => option.text())
+    expect(options).not.toContain('All')
+  })
+
+  it('names each row in its expand button by local time, level and source', async () => {
+    await mountPage()
+
+    expect(wrapper!.find('.data-table-expand-btn').attributes('aria-label')).toBe(
+      'Show details for 09/10/26 16:12:01 ERROR apps.services.mailer'
+    )
+  })
+
+  it('ignores a date while its year is still being typed', async () => {
+    await mountPage()
+    const calls = listMock.mock.calls.length
+
+    // What a date box reports after each year digit.
+    for (const partial of ['0002-10-15', '0020-10-15', '0202-10-15']) {
+      await setField('#log-from-filter', partial)
+    }
+    expect(listMock.mock.calls.length).toBe(calls)
+
+    await setField('#log-from-filter', '2026-10-15')
+    expect(listMock.mock.calls.length).toBe(calls + 1)
+    expect(lastListCall().from).toBe('2026-10-15T00:00:00.000+11:00')
+  })
+
+  it('shows only the newest results when replies arrive out of order', async () => {
+    await mountPage()
+    let resolveOlder!: (value: ReturnType<typeof page>) => void
+    let resolveNewer!: (value: ReturnType<typeof page>) => void
+    listMock
+      .mockReturnValueOnce(new Promise((done) => (resolveOlder = done)))
+      .mockReturnValueOnce(new Promise((done) => (resolveNewer = done)))
+
+    await setField('#log-level-filter', 'WARNING') // older request
+    await setField('#log-level-filter', 'ERROR') // newer request
+
+    resolveNewer(page([buildRow({ id: 2, message: 'newer result' })]))
+    await flushPromises()
+    resolveOlder(page([buildRow({ id: 3, message: 'older result' })]))
+    await flushPromises()
+
+    const text = wrapper!.find('tbody').text()
+    expect(text).toContain('newer result')
+    expect(text).not.toContain('older result')
+  })
+
+  it('keeps a reply on its way out of the table once From is after To', async () => {
+    await mountPage()
+    let resolveInFlight!: (value: ReturnType<typeof page>) => void
+    listMock.mockReturnValueOnce(new Promise((done) => (resolveInFlight = done)))
+
+    await setField('#log-to-filter', '2026-10-01') // request on its way
+    await setField('#log-from-filter', '2026-10-15') // now From is after To
+
+    resolveInFlight(page([buildRow({ message: 'stale result' })]))
+    await flushPromises()
+
+    expect(wrapper!.findAll('tbody tr.data-table-row')).toHaveLength(0)
+    expect(wrapper!.find('.data-table-empty').text()).toBe('Choose a "From" date on or before the "To" date.')
+  })
+
+  it('clears filters and a search with exactly one request', async () => {
+    await mountPage()
+    vi.useFakeTimers()
+    await wrapper!.find('input[type="search"]').setValue('smtp')
+    vi.advanceTimersByTime(350)
+    await flushPromises()
+    await setField('#log-level-filter', 'ERROR')
+    // More typed, still waiting to be searched for, when Clear is pressed.
+    await wrapper!.find('input[type="search"]').setValue('smtp refused')
+    const before = listMock.mock.calls.length
+
+    await button('Clear filters').trigger('click')
+    vi.advanceTimersByTime(1000)
+    await flushPromises()
+
+    expect(listMock.mock.calls.length).toBe(before + 1)
+    expect(lastListCall()).toMatchObject({ q: undefined, level: undefined, page: 1 })
+    expect((wrapper!.find('input[type="search"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('does not ask again for a search that only adds spaces', async () => {
+    await mountPage()
+    vi.useFakeTimers()
+    await wrapper!.find('input[type="search"]').setValue('smtp')
+    vi.advanceTimersByTime(350)
+    await flushPromises()
+    const before = listMock.mock.calls.length
+
+    await wrapper!.find('input[type="search"]').setValue('smtp  ')
+    vi.advanceTimersByTime(350)
+    await flushPromises()
+
+    expect(listMock.mock.calls.length).toBe(before)
+  })
+
   it('loads the full message and traceback when a row is expanded', async () => {
     let resolveDetail!: (value: Awaited<ReturnType<typeof fetchSystemLog>>) => void
     detailMock.mockReturnValue(new Promise((done) => (resolveDetail = done)))

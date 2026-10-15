@@ -98,8 +98,21 @@ const emit = defineEmits<{
   (e: 'clear'): void
 }>()
 
+// The years the backend accepts. A date box reports each year digit as it's
+// typed ("0002", "0020", "0202", "2026"); only a full year is applied.
+const MIN_YEAR = 1900
+const MAX_YEAR = 9998
+
+const isUsableDay = (value: string) => {
+  if (!value) return true // cleared
+  const year = Number(value.slice(0, value.indexOf('-')))
+  return year >= MIN_YEAR && year <= MAX_YEAR
+}
+
 const emitPatch = (field: SystemLogFilterField, event: Event) => {
-  emit('patch', { field, value: (event.target as HTMLInputElement | HTMLSelectElement).value })
+  const value = (event.target as HTMLInputElement | HTMLSelectElement).value
+  if ((field === 'fromDate' || field === 'toDate') && !isUsableDay(value)) return
+  emit('patch', { field, value })
 }
 </script>
 

@@ -42,6 +42,13 @@ describe('zonedDayBoundary', () => {
     expect(zonedDayBoundary('2026-10-15', 'start')).toBe('2026-10-15T00:00:00.000+11:00')
   })
 
+  it('reads every year as written, not 0-99 as 1900-1999', () => {
+    // Year 0 is a leap year, 1900 isn't: read as 1900, 29 February would be refused.
+    expect(zonedDayBoundary('0000-02-29', 'start', 'UTC')).toBe('0000-02-29T00:00:00.000+00:00')
+    // Sydney had no daylight saving in 1950.
+    expect(zonedDayBoundary('1950-01-15', 'start', SYDNEY)).toBe('1950-01-15T00:00:00.000+10:00')
+  })
+
   it('refuses anything that is not a real calendar day', () => {
     expect(zonedDayBoundary('', 'start', SYDNEY)).toBeNull()
     expect(zonedDayBoundary('15/10/2026', 'start', SYDNEY)).toBeNull()
