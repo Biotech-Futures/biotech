@@ -533,6 +533,8 @@ class ResourcesViewSet(mixins.ListModelMixin,
                 "body_html": None,
                 "detail": detail,
                 "has_slides": bool(resource.slides_storage_key),
+                "slides_mime_type": resource.slides_mime_type,
+                "slides_file_size": resource.slides_file_size,
                 "slides_download_url": download_url,
             }
 
