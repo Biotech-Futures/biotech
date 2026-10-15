@@ -228,6 +228,17 @@ export async function updateTicket(id: number, patch: TicketPatch): Promise<Tick
   return ticketDetailSchema.parse(data)
 }
 
+export async function reviewScreeningMessage(
+  id: number,
+  decision: 'approve' | 'delete'
+): Promise<TicketDetail> {
+  const data = await requestJson<unknown>(`${BASE}/${id}/screening-review/`, {
+    method: 'POST',
+    body: JSON.stringify({ decision })
+  })
+  return ticketDetailSchema.parse(data)
+}
+
 export type TicketMessageInput = {
   messageType: 'support_reply' | 'internal_note'
   body: string

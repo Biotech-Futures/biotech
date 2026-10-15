@@ -153,7 +153,12 @@ def _compute_unread(candidate):
         group_scope |= Q(group_id=gid, sent_at__gte=joined_at)
 
     rows = (
-        Messages.objects.filter(group_scope, deleted_at__isnull=True, id__gt=hwm)
+        Messages.objects.filter(
+            group_scope,
+            deleted_at__isnull=True,
+            is_suppressed=False,
+            id__gt=hwm,
+        )
         .exclude(sender_user_id=user_id)
         # BOTH conditions in ONE exclude() -> a single NOT EXISTS(read row for
         # this user). MessageStatus rows are created lazily, so a message with no
@@ -187,7 +192,10 @@ def _group_max_ids():
     """
     return {
         r["group_id"]: r["max_id"]
-        for r in Messages.objects.filter(deleted_at__isnull=True)
+        for r in Messages.objects.filter(
+            deleted_at__isnull=True,
+            is_suppressed=False,
+        )
         .values("group_id")
         .annotate(max_id=Max("id"))
     }

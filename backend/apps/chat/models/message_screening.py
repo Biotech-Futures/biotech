@@ -8,6 +8,8 @@ class MessageScreeningStatus(models.TextChoices):
     SUSPICIOUS = "suspicious", "Suspicious"
     SAFE = "safe", "Safe"
     FLAGGED = "flagged", "Flagged"
+    APPROVED = "approved", "Approved by support"
+    REJECTED = "rejected", "Deleted by support"
     FAILED = "failed", "Failed"
 
 
@@ -46,6 +48,14 @@ class MessageScreening(models.Model):
     attempt_count = models.PositiveIntegerField(default=0)
     last_attempt_at = models.DateTimeField(null=True, blank=True)
     screened_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_message_screenings",
+    )
     ticket = models.OneToOneField(
         "tickets.Ticket",
         null=True,

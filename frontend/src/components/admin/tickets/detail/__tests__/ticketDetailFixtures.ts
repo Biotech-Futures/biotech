@@ -112,6 +112,7 @@ export const api = {
   fetchAssignees: vi.mocked(agentAPI.fetchAssignees),
   fetchTicketHistory: vi.mocked(agentAPI.fetchTicketHistory),
   updateTicket: vi.mocked(agentAPI.updateTicket),
+  reviewScreeningMessage: vi.mocked(agentAPI.reviewScreeningMessage),
   sendTicketMessage: vi.mocked(agentAPI.sendTicketMessage),
   deleteTicket: vi.mocked(agentAPI.deleteTicket),
   downloadTicketAttachment: vi.mocked(agentAPI.downloadTicketAttachment)

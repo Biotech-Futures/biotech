@@ -12,6 +12,7 @@ role itself, which only admins may do.
 """
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, Q
 import re
@@ -45,6 +46,7 @@ from .models import (
 from .permissions import IsSupportScoped
 from .serializers_admin import (
     BulkAssignSerializer,
+    ScreeningDecisionSerializer,
     SupportMessageSerializer,
     SupportScopeGrantSerializer,
     TicketPatchSerializer,
@@ -265,9 +267,25 @@ def _detail(ticket, *, overdue):
         "firstResponseAt": ticket.first_response_at,
         "resolvedAt": ticket.resolved_at,
         "overdue": overdue,
+        "screeningReview": _screening_review(ticket),
         # Internal notes included: this is the side of the wall that works in
         # them.
         "messages": [_support_message(m) for m in messages],
+    }
+
+
+def _screening_review(ticket):
+    try:
+        screening = ticket.message_screening
+    except ObjectDoesNotExist:
+        return None
+    reviewer = getattr(screening, "reviewed_by", None)
+    return {
+        "status": screening.status,
+        "messageId": screening.message_id,
+        "suppressed": bool(screening.message.is_suppressed),
+        "reviewedAt": screening.reviewed_at,
+        "reviewedBy": _person(reviewer) if reviewer else None,
     }
 
 
@@ -632,6 +650,110 @@ class TicketAdminDetailView(APIView):
             lifecycle.assign(
                 ticket=ticket, actor=request.user, assignee=changes["assignee"]
             )
+
+
+class TicketScreeningReviewView(APIView):
+    """Approve or remove an AI-suppressed message from its ticket."""
+
+    permission_classes = SUPPORT_PERMISSIONS
+
+    def post(self, request, ticket_id):
+        serializer = ScreeningDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        decision = serializer.validated_data["decision"]
+
+        from apps.chat.models import MessageScreening, MessageScreeningStatus
+        from apps.chat.views import (
+            _broadcast,
+            broadcast_message_approved,
+            serialize_message_for_broadcast,
+        )
+
+        with transaction.atomic():
+            ticket = (
+                live_tickets()
+                .select_for_update()
+                .filter(pk=ticket_id, channel=TicketChannel.AI_SCREENING)
+                .first()
+            )
+            if ticket is None:
+                return _not_found()
+            screening = (
+                MessageScreening.objects
+                .select_for_update()
+                .select_related("message", "reviewed_by")
+                .filter(ticket=ticket)
+                .first()
+            )
+            if screening is None:
+                return Response(
+                    {"msg": "This ticket has no screening decision to review."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if screening.status != MessageScreeningStatus.FLAGGED:
+                return Response(
+                    {"msg": "This screening decision has already been completed."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            message = screening.message
+            if message.deleted_at is not None and decision == "approve":
+                return Response(
+                    {"msg": "A deleted message cannot be approved."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            before = {
+                "screening_status": screening.status,
+                "message_suppressed": message.is_suppressed,
+                "message_deleted": message.deleted_at is not None,
+            }
+            now = timezone.now()
+            screening.status = (
+                MessageScreeningStatus.APPROVED
+                if decision == "approve"
+                else MessageScreeningStatus.REJECTED
+            )
+            screening.reviewed_at = now
+            screening.reviewed_by = request.user
+            screening.save(
+                update_fields=["status", "reviewed_at", "reviewed_by", "updated_at"]
+            )
+
+            if decision == "approve":
+                message.approve_suppressed()
+                broadcast_message_approved(message)
+            else:
+                if message.deleted_at is None:
+                    message.soft_delete(deleted_by=request.user)
+                _broadcast(
+                    message.group_id,
+                    "message.deleted",
+                    serialize_message_for_broadcast(message),
+                )
+
+            log_audit_event(
+                actor=request.user,
+                entity_type=lifecycle.AUDIT_ENTITY_TYPE,
+                entity_id=ticket.pk,
+                action=f"screening_{decision}",
+                before_state=before,
+                after_state={
+                    "screening_status": screening.status,
+                    "message_suppressed": message.is_suppressed,
+                    "message_deleted": message.deleted_at is not None,
+                },
+            )
+            lifecycle.set_status(
+                ticket=ticket,
+                new_status=TicketStatus.RESOLVED,
+                actor=request.user,
+            )
+
+        ticket.refresh_from_db()
+        return Response({
+            "msg": "Screening decision recorded successfully",
+            "data": _detail(ticket, overdue=ticket.pk in overdue_ids([ticket])),
+        })
 
 
 class TicketDeleteView(APIView):

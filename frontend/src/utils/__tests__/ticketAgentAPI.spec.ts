@@ -22,6 +22,7 @@ import {
   fetchTicketSummary,
   grantSupport,
   revokeSupport,
+  reviewScreeningMessage,
   saveTicketExport,
   sendTicketMessage,
   serverMessage,
@@ -496,6 +497,27 @@ describe('one ticket', () => {
     await updateTicket(42, { priority: 'high', category: 'flagged_content', assignee: undefined })
 
     expect(jsonBody()).toEqual({ priority: 'high', category: 'flagged_content' })
+  })
+
+  it('records an AI screening decision through the ticket endpoint', async () => {
+    answer(ok({
+      ...DETAIL,
+      status: 'resolved',
+      screeningReview: {
+        status: 'approved',
+        messageId: 91,
+        suppressed: false,
+        reviewedAt: '2026-10-15T02:00:00Z',
+        reviewedBy: { id: 7, name: 'Sam Reid' }
+      }
+    }))
+
+    const ticket = await reviewScreeningMessage(42, 'approve')
+
+    expect(last().method).toBe('POST')
+    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/42/screening-review/')
+    expect(jsonBody()).toEqual({ decision: 'approve' })
+    expect(ticket.screeningReview?.status).toBe('approved')
   })
 
   it('sends a reply as multipart with every file under one key', async () => {

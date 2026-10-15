@@ -14,6 +14,7 @@ from .views_admin import (
     TicketQueueExportView,
     TicketQueueView,
     TicketRegionsView,
+    TicketScreeningReviewView,
     TicketSummaryView,
     TicketSupportMessageView,
 )
@@ -42,6 +43,11 @@ urlpatterns = [
     path("<int:ticket_id>/", TicketAdminDetailView.as_view(), name="detail"),
     path("<int:ticket_id>/delete/", TicketDeleteView.as_view(), name="delete"),
     path("<int:ticket_id>/history/", TicketHistoryView.as_view(), name="history"),
+    path(
+        "<int:ticket_id>/screening-review/",
+        TicketScreeningReviewView.as_view(),
+        name="screening-review",
+    ),
     path("<int:ticket_id>/messages/", TicketSupportMessageView.as_view(), name="messages"),
     path("<int:ticket_id>/attachments/<int:attachment_id>/",
          TicketAdminAttachmentDownloadView.as_view(), name="attachment-download"),

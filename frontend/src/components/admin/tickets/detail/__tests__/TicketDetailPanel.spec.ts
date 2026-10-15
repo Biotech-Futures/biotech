@@ -32,6 +32,7 @@ vi.mock('@/utils/ticketAgentAPI', async (importOriginal) => ({
   fetchAssignees: vi.fn(),
   fetchTicketHistory: vi.fn(),
   updateTicket: vi.fn(),
+  reviewScreeningMessage: vi.fn(),
   sendTicketMessage: vi.fn(),
   deleteTicket: vi.fn(),
   downloadTicketAttachment: vi.fn()
@@ -220,6 +221,55 @@ describe('opening a ticket', () => {
       'Unassigned',
       'Sam Reid'
     ])
+  })
+})
+
+describe('AI screening review', () => {
+  const pendingReview = {
+    status: 'flagged' as const,
+    messageId: 42,
+    suppressed: true,
+    reviewedAt: null,
+    reviewedBy: null
+  }
+
+  it('approves and restores a suppressed message from its ticket', async () => {
+    const reviewed = ticketWith({
+      status: 'resolved',
+      screeningReview: {
+        ...pendingReview,
+        status: 'approved',
+        suppressed: false,
+        reviewedAt: '2026-10-15T02:00:00Z',
+        reviewedBy: { id: 1, name: 'Sam Reid' }
+      }
+    })
+    api.reviewScreeningMessage.mockResolvedValue(reviewed)
+    const panel = await openPanel(
+      ticketWith({ channel: 'ai_screening', screeningReview: pendingReview })
+    )
+
+    await panel.page.get('.ticket-panel__screening-approve').trigger('click')
+    await flushPromises()
+
+    expect(api.reviewScreeningMessage).toHaveBeenCalledWith(7, 'approve')
+    expect(panel.page.get('.ticket-panel__screening-complete').text().replace(/\s+/g, ' ')).toBe(
+      'Message approved and restored by Sam Reid.'
+    )
+    expect(panel.wrapper.emitted('changed')).toHaveLength(1)
+  })
+
+  it('requires confirmation before deleting a suppressed message', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const panel = await openPanel(
+      ticketWith({ channel: 'ai_screening', screeningReview: pendingReview })
+    )
+
+    await panel.page.get('.ticket-panel__screening-delete').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(api.reviewScreeningMessage).not.toHaveBeenCalled()
   })
 })
 

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import models
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
@@ -272,12 +273,20 @@ class ReplyToSerializer(serializers.ModelSerializer):
         return sender.get_full_name() or sender.get_username() or ""
 
     def get_text(self, obj):
-        if obj.deleted_at is not None:
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        if obj.deleted_at is not None or (
+            obj.is_suppressed and obj.sender_user_id != viewer_id
+        ):
             return None
         return obj.message_text
 
     def get_deleted(self, obj):
-        return obj.deleted_at is not None
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        return obj.deleted_at is not None or (
+            obj.is_suppressed and obj.sender_user_id != viewer_id
+        )
 
 
 class ReplyToIdField(serializers.PrimaryKeyRelatedField):
@@ -309,10 +318,12 @@ class ReplyToIdField(serializers.PrimaryKeyRelatedField):
         group_pk = view.kwargs.get("group_pk")
         if group_pk is None:
             return Messages.objects.none()
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
         return Messages.objects.filter(
             group_id=group_pk,
             deleted_at__isnull=True,
-        )
+        ).filter(models.Q(is_suppressed=False) | models.Q(sender_user_id=viewer_id))
 
 
 class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
@@ -325,6 +336,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
     deleted_by_is_admin = serializers.SerializerMethodField()
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    is_suppressed = serializers.BooleanField(read_only=True)
+    suppressed_at = serializers.DateTimeField(read_only=True)
     reactions = serializers.SerializerMethodField()
     # Counts are derived from the id lists so the two can never disagree —
     # see MessageReceiptFieldsMixin. Without the ids the FE cannot tell a
@@ -364,6 +377,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
+            "is_suppressed",
+            "suppressed_at",
             "attachments",
             "resources",
             "reactions",
@@ -430,6 +445,8 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
     deleted_at = serializers.DateTimeField(read_only=True)
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    is_suppressed = serializers.BooleanField(read_only=True)
+    suppressed_at = serializers.DateTimeField(read_only=True)
     attachments = serializers.SerializerMethodField()
     resources = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
@@ -466,6 +483,8 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
             "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
+            "is_suppressed",
+            "suppressed_at",
             "attachments",
             "resources",
             "reactions",

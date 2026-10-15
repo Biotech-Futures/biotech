@@ -60,6 +60,8 @@ class TicketHandoffFailureTests(TestCase):
         self.assertIsNone(screening.ticket_id)
         self.assertIn("ticket service down", screening.error_message)
         self.assertEqual(Ticket.objects.count(), 0)
+        screening.message.refresh_from_db()
+        self.assertFalse(screening.message.is_suppressed)
 
     @override_settings(OPENAI_API_KEY="test-key")
     @patch("apps.chat.services.screening.requests.post")

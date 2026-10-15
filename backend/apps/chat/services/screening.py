@@ -239,9 +239,20 @@ def screen_suspicious_message(screening_id: int) -> MessageScreening | None:
             )
 
             if verdict.flagged:
+                # Suppression and ticket creation are one decision. If the
+                # ticket handoff fails the transaction rolls back, leaving the
+                # message visible and the screening retryable rather than
+                # hiding content with no case for support to resolve.
+                screening.message.suppress()
                 ticket = create_ticket_for_flagged_message(screening, verdict)
                 screening.ticket = ticket
                 screening.save(update_fields=["ticket", "updated_at"])
+                # The event contains no message text: recipients only need to
+                # remove the row, while the sender keeps their existing copy
+                # and marks it as awaiting review.
+                from apps.chat.views import broadcast_message_suppressed
+
+                broadcast_message_suppressed(screening.message)
             return screening
     except MessageScreening.DoesNotExist:
         return None

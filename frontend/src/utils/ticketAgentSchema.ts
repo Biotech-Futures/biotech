@@ -168,6 +168,16 @@ export const ticketDetailSchema = z.object({
   firstResponseAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   overdue: z.boolean(),
+  screeningReview: z
+    .object({
+      status: z.enum(['flagged', 'approved', 'rejected']),
+      messageId: z.number(),
+      suppressed: z.boolean(),
+      reviewedAt: z.string().nullable(),
+      reviewedBy: personSchema.nullable()
+    })
+    .nullable()
+    .default(null),
   messages: z.array(ticketMessageSchema)
 })
 
@@ -263,6 +273,8 @@ export const TICKET_AUDIT_ACTIONS = [
   { value: 'category', label: 'Category changed' },
   { value: 'resolve', label: 'Resolved' },
   { value: 'reopen', label: 'Reopened' },
+  { value: 'screening_approve', label: 'Screening approved' },
+  { value: 'screening_delete', label: 'Screening message deleted' },
   { value: 'delete', label: 'Deleted' }
 ]
 

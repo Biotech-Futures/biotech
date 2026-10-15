@@ -1178,6 +1178,7 @@
                     {
                       own: message.isOwn,
                       pending: message.isLocalOnly,
+                      suppressed: message.isSuppressed,
                       'search-hit': String(highlightedSearchMessageId) === String(message.id),
                     },
                   ]"
@@ -1188,6 +1189,9 @@
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
+                      <span v-if="message.isSuppressed" class="message-suppressed-label">
+                        Hidden pending review
+                      </span>
                       <span class="message-date">{{ formatDate(message.date) }}</span>
                       <span class="message-time">{{ message.time }}</span>
                       <!-- Inline action cluster: always-visible reply + smile,
@@ -1196,7 +1200,7 @@
                            an admin (``canManageMessage``). -->
                       <span class="message-inline-actions">
                         <button
-                          v-if="!message.isDeleted"
+                          v-if="!message.isDeleted && !message.isSuppressed"
                           type="button"
                           class="inline-action-btn"
                           title="Reply"
@@ -1206,7 +1210,7 @@
                           <i class="fas fa-reply"></i>
                         </button>
                         <button
-                          v-if="!message.isDeleted && supportsMessageReactions"
+                          v-if="!message.isDeleted && !message.isSuppressed && supportsMessageReactions"
                           type="button"
                           class="inline-action-btn"
                           :class="{ active: activeReactionPickerMessageId === message.id }"
@@ -3300,6 +3304,8 @@ const normalizeMessage = (item) => {
     deletedByName,
     deletedByIsAdmin,
     isEdited: Boolean(raw?.is_edited || raw?.isEdited || raw?.edited_at),
+    isSuppressed: Boolean(raw?.is_suppressed || raw?.isSuppressed),
+    suppressedAt: raw?.suppressed_at || raw?.suppressedAt || null,
     isDeleted,
     readCount: Number(raw?.read_count || raw?.readCount || 0),
     deliveredCount: Number(raw?.delivered_count || raw?.deliveredCount || 0),
@@ -4720,7 +4726,7 @@ const clearReplyTarget = () => {
 }
 
 const canManageMessage = (message) => {
-  if (!message || isPendingMessage(message) || message.isDeleted) return false
+  if (!message || isPendingMessage(message) || message.isDeleted || message.isSuppressed) return false
   if (auth.isAdmin) return true
   if (!message.isOwn) return false
 
@@ -4913,6 +4919,32 @@ const handleSocketPayload = async (payload) => {
   const socketMessage =
     payload.message && typeof payload.message === 'object' ? payload.message : null
   const socketMessageId = socketMessage?.id ?? payload.message_id
+
+  if (eventName === 'message.suppressed' && socketMessageId) {
+    // The server deliberately sends no text in this event. Everybody except
+    // the sender removes the row; the sender keeps their existing local copy
+    // in a muted state while support reviews the linked ticket.
+    if (Number(payload.sender_user_id || 0) === Number(auth.user?.id || 0)) {
+      applyMessageUpdate(socketMessageId, (message) => ({
+        ...message,
+        isSuppressed: true,
+        suppressedAt: payload.suppressed_at || new Date().toISOString(),
+      }))
+    } else {
+      messages.value = messages.value.filter(
+        (message) => String(message.id) !== String(socketMessageId),
+      )
+      mentionItems.value = mentionItems.value.filter(
+        (mention) => String(mention.message_id) !== String(socketMessageId),
+      )
+    }
+    return
+  }
+
+  if (eventName === 'message.moderation_approved' && socketMessage) {
+    upsertMessage(socketMessage)
+    return
+  }
 
   if (eventName === 'message.created' && socketMessage) {
     upsertMessage(socketMessage)
@@ -8629,16 +8661,16 @@ onBeforeUnmount(() => {
 }
 
 .message-edited {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-blue) 18%, transparent);
-  color: var(--text-primary);
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 400;
+  opacity: 0.68;
+}
+
+.message-suppressed-label {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #5f6b70;
 }
 
 .message-attachments {
@@ -9600,6 +9632,22 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 14px rgba(31, 122, 63, 0.26);
 }
 
+.message.suppressed .message-content,
+.message.own.suppressed .message-content {
+  background: #eef1f2;
+  border-color: #c8d0d3;
+  color: #59656a;
+  box-shadow: none;
+}
+
+.pane--discussion .message.own.suppressed .message-text,
+.message.own.suppressed .message-author,
+.message.own.suppressed .message-time,
+.message.own.suppressed .message-date,
+.message.own.suppressed .message-action-btn {
+  color: #59656a !important;
+}
+
 /* Resource chip + open/download popover */
 .resource-chip-wrap {
   position: relative;
@@ -10031,8 +10079,8 @@ onBeforeUnmount(() => {
 }
 
 .message-edited {
-  background: #eef3f5;
-  color: var(--air-force-blue);
+  background: transparent;
+  color: inherit;
 }
 
 .reaction-pick-group {

@@ -86,6 +86,47 @@
               :apply="applyPatch"
             />
 
+            <section
+              v-if="ticket.screeningReview"
+              class="ticket-panel__screening-review"
+              aria-labelledby="screening-review-title"
+            >
+              <h3 id="screening-review-title">Automated message review</h3>
+              <template v-if="ticket.screeningReview.status === 'flagged'">
+                <p>
+                  This message is hidden from everyone except its sender while you review it.
+                  Make the decision here rather than in the group conversation.
+                </p>
+                <div class="ticket-panel__screening-actions">
+                  <button
+                    type="button"
+                    class="ticket-panel__screening-approve"
+                    :disabled="screeningDecisionBusy !== null"
+                    @click="decideScreening('approve')"
+                  >
+                    {{ screeningDecisionBusy === 'approve' ? 'Approving…' : 'Approve and show' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="ticket-panel__screening-delete"
+                    :disabled="screeningDecisionBusy !== null"
+                    @click="decideScreening('delete')"
+                  >
+                    {{ screeningDecisionBusy === 'delete' ? 'Deleting…' : 'Delete message' }}
+                  </button>
+                </div>
+              </template>
+              <p v-else class="ticket-panel__screening-complete">
+                Message {{ ticket.screeningReview.status === 'approved' ? 'approved and restored' : 'deleted' }}
+                <template v-if="ticket.screeningReview.reviewedBy">
+                  by {{ ticket.screeningReview.reviewedBy.name }}</template
+                >.
+              </p>
+              <p v-if="screeningDecisionError" class="ticket-panel__error" role="alert">
+                {{ screeningDecisionError }}
+              </p>
+            </section>
+
             <div class="ticket-panel__tabs" role="tablist" aria-label="Ticket sections">
               <button
                 v-for="item in TABS"
@@ -195,6 +236,7 @@ import {
   fetchTicketDetail,
   fetchTicketHistory,
   sendTicketMessage,
+  reviewScreeningMessage,
   updateTicket,
   type TicketPatch
 } from '@/utils/ticketAgentAPI'
@@ -376,6 +418,8 @@ function onTabKeydown(event: KeyboardEvent) {
 
 const updateError = ref<string | null>(null)
 const deleteError = ref<string | null>(null)
+const screeningDecisionError = ref<string | null>(null)
+const screeningDecisionBusy = ref<'approve' | 'delete' | null>(null)
 
 let writeSeq = 0
 let paintedWriteSeq = 0
@@ -466,6 +510,29 @@ async function applyPatch(patch: TicketPatch): Promise<void> {
   } catch (error) {
     logApiError('ticket update', error)
     if (id === props.ticketId) updateError.value = changeNotSavedMessage(error)
+  }
+}
+
+async function decideScreening(decision: 'approve' | 'delete'): Promise<void> {
+  if (screeningDecisionBusy.value) return
+  if (
+    decision === 'delete' &&
+    !window.confirm('Delete this message? It will remain recorded in the ticket audit history.')
+  ) {
+    return
+  }
+  const id = props.ticketId
+  screeningDecisionBusy.value = decision
+  screeningDecisionError.value = null
+  try {
+    await write(id, () => reviewScreeningMessage(id, decision))
+  } catch (error) {
+    logApiError('screening decision', error)
+    if (id === props.ticketId) {
+      screeningDecisionError.value = changeNotSavedMessage(error)
+    }
+  } finally {
+    screeningDecisionBusy.value = null
   }
 }
 
@@ -564,6 +631,8 @@ watch(
     // message boxes are keyed by ticket and reset themselves.
     updateError.value = null
     deleteError.value = null
+    screeningDecisionError.value = null
+    screeningDecisionBusy.value = null
     confirmOpen.value = false
     history.value = null
     historyState.value = 'loading'
@@ -802,6 +871,60 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 0.88rem;
   color: var(--panel-danger);
+}
+
+.ticket-panel__screening-review {
+  padding: 1rem;
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-ground) 88%, #eef3f1);
+}
+
+.ticket-panel__screening-review h3,
+.ticket-panel__screening-review p {
+  margin: 0;
+}
+
+.ticket-panel__screening-review p {
+  margin-top: 0.45rem;
+  color: var(--panel-muted);
+  line-height: 1.45;
+}
+
+.ticket-panel__screening-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.ticket-panel__screening-actions button {
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ticket-panel__screening-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.ticket-panel__screening-approve {
+  border: 1px solid var(--panel-accent);
+  background: var(--panel-accent);
+  color: var(--white);
+}
+
+.ticket-panel__screening-delete {
+  border: 1px solid var(--panel-danger);
+  background: var(--panel-ground);
+  color: var(--panel-danger);
+}
+
+.ticket-panel__screening-complete {
+  font-weight: 600;
 }
 
 .ticket-panel__assignees-failed {

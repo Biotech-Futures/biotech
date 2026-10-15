@@ -896,6 +896,8 @@ describe('the filters above the audit table (new)', () => {
       'Category changed',
       'Resolved',
       'Reopened',
+      'Screening approved',
+      'Screening message deleted',
       'Deleted'
     ])
 

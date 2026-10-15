@@ -89,6 +89,10 @@ class SupportMessageSerializer(serializers.Serializer):
         return attrs
 
 
+class ScreeningDecisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=["approve", "delete"])
+
+
 class BulkAssignSerializer(serializers.Serializer):
     ticketIds = serializers.ListField(
         child=serializers.IntegerField(), allow_empty=False, max_length=200

@@ -119,6 +119,9 @@ class MessageScreeningServiceTests(TestCase):
         self.assertEqual(result.categories, {"violence": True})
         self.assertEqual(result.category_scores, {"violence": 0.97})
         self.assertEqual(result.attempt_count, 1)
+        message.refresh_from_db()
+        self.assertTrue(message.is_suppressed)
+        self.assertIsNotNone(message.suppressed_at)
 
     @override_settings(OPENAI_API_KEY="test-key")
     @patch("apps.chat.services.screening.requests.post")
@@ -130,6 +133,8 @@ class MessageScreeningServiceTests(TestCase):
 
         self.assertEqual(result.status, MessageScreeningStatus.SAFE)
         self.assertEqual(Ticket.objects.count(), 0)
+        result.message.refresh_from_db()
+        self.assertFalse(result.message.is_suppressed)
 
     @override_settings(OPENAI_API_KEY="test-key")
     @patch("apps.chat.services.screening.requests.post")

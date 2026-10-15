@@ -367,6 +367,8 @@ describe('auditActionLabel', () => {
   it('gives the stored action as words', () => {
     expect(auditActionLabel('status')).toBe('Status changed')
     expect(auditActionLabel('create')).toBe('Created')
+    expect(auditActionLabel('screening_approve')).toBe('Screening approved')
+    expect(auditActionLabel('screening_delete')).toBe('Screening message deleted')
   })
 
   it('falls back to the stored value rather than to a dash', () => {
