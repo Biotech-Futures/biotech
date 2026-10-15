@@ -58,6 +58,11 @@ BULK_EMAIL_DISPATCH_SYNC = True
 BULK_EMAIL_RETRY_SECONDS = 0
 BULK_EMAIL_QUEUE_GAP_SECONDS = 0
 
+# A dummy QuickEmailVerification key, so no test can pick up a real one from the
+# environment (its HTTP is mocked anyway), and its checks run inline.
+QEV_API_KEY = "test-dummy-key"
+EMAIL_VERIFICATION_DISPATCH_SYNC = True
+
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,
 # which then tries to parse an AZURE_CONNECTION_STRING that CI doesn't set.
 # Force-False here (rather than relying on settings_local.py) because the
