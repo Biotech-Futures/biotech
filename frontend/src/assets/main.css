@@ -350,10 +350,16 @@ h5 {
   background: var(--accent-green-soft);
 }
 
+/* In the dark theme the tabs that aren't open read in white, not grey. */
+:root[data-theme='dark'] .tab-pill:not(.active) {
+  color: #fff;
+}
+
 .tab-pill.active,
 .tab-pill.active:hover {
   background: var(--dark-green);
-  color: #fff;
+  /* White, or the dark theme's dark text on the green. */
+  color: var(--white);
   box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 

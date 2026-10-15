@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from .models import FinalistEntry
+from .serializers import submitter_name
 from .services import current_cohort
 
 
@@ -152,16 +153,10 @@ class FinalistEntrySerializer(serializers.ModelSerializer):
 
     def get_availability_submitted_by_name(self, obj) -> str:
         answer = self._answer(obj)
-        return _name(answer.submitted_by) if answer and answer.submitted_at else ""
+        return submitter_name(answer.submitted_by) if answer and answer.submitted_at else ""
 
     def get_submitted_by_name(self, obj) -> str:
-        return _name(obj.submitted_by)
-
-
-def _name(user) -> str:
-    if user is None:
-        return ""
-    return f"{user.first_name} {user.last_name}".strip() or user.email
+        return submitter_name(obj.submitted_by)
 
 
 class FinalistAvailabilitySerializer(serializers.Serializer):

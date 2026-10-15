@@ -11,7 +11,7 @@
       two-line-rows
       :page-size="DATA_TABLE_ALL"
       empty-message="No views found."
-      :action-columns="3"
+      :action-columns="2"
       clickable-rows
       @update:selected="onSelectedChange"
       @update:search="emit('update:search', $event)"
@@ -23,7 +23,8 @@
 
       <template #cell-name="{ row }">
         <div class="admin-views-table__primary">
-          <strong>{{ toView(row).name }}</strong>
+          <!-- Only the name underlines when its row is hovered. -->
+          <strong class="data-table-primary-text">{{ toView(row).name }}</strong>
           <span v-if="toView(row).description" class="admin-views-table__muted">
             {{ toView(row).description }}
           </span>
@@ -41,16 +42,9 @@
         >
           Edit
         </button>
+        <!-- No View: clicking its name opens a view. -->
         <button
-          v-else-if="column === 1"
-          type="button"
-          class="btn btn-sm btn-outline"
-          @click.stop="goRun(toView(row))"
-        >
-          View
-        </button>
-        <button
-          v-else-if="column === 2 && toView(row).isDefault"
+          v-else-if="column === 1 && toView(row).isDefault"
           type="button"
           class="btn btn-sm btn-outline"
           @click.stop="exportCsv(toView(row))"
@@ -58,7 +52,7 @@
           Export
         </button>
         <button
-          v-else-if="column === 2"
+          v-else-if="column === 1"
           type="button"
           class="btn btn-sm btn-outline"
           @click.stop="openDelete(toView(row))"

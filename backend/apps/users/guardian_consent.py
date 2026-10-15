@@ -18,6 +18,7 @@ from typing import NamedTuple, Optional
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 from PIL import Image, UnidentifiedImageError
 
 from apps.audit.services import log_audit_event
@@ -85,26 +86,62 @@ def consent_link(token: str) -> str:
     return f"{settings.FRONTEND_BASE_URL}/#/consent/{token}"
 
 
+def _token_for(request: GuardianConsentRequest) -> str:
+    """A link's token, worked out from the request and the server's secret, so
+    a link already out can be copied again while the table still holds only
+    its hash."""
+    value = f"{request.pk}:{int(request.expires_at.timestamp())}"
+    digest = salted_hmac("guardian-consent-link", value, algorithm="sha256").digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
 def issue_request(profile: StudentProfile, guardian: Guardian, sent_by=None) -> tuple:
     """A new consent link for ``guardian``. Earlier links for the student stop
-    working, so only the newest email's link can be used. Returns the request
-    and the raw token, which exists only in the emailed link."""
+    working, so only the newest link can be used. Returns the request and the
+    raw token."""
     now = timezone.now()
     GuardianConsentRequest.objects.filter(
         student=profile, used_at__isnull=True, revoked_at__isnull=True,
     ).update(revoked_at=now)
-    token = secrets.token_urlsafe(32)
     request = GuardianConsentRequest.objects.create(
         student=profile,
-        token_hash=_hash(token),
+        # A stand-in until the request has the id its token is worked out from.
+        token_hash=_hash(secrets.token_urlsafe(32)),
         guardian_first_name=guardian.first_name,
         guardian_last_name=guardian.last_name,
         guardian_email=guardian.email,
         for_pending_guardian=guardian.pending,
         sent_by=sent_by,
-        expires_at=now + LINK_LIFETIME,
+        # Whole seconds, so the token works out the same after a database
+        # round trip.
+        expires_at=(now + LINK_LIFETIME).replace(microsecond=0),
     )
+    token = _token_for(request)
+    request.token_hash = _hash(token)
+    request.save(update_fields=["token_hash"])
     return request, token
+
+
+def token_still_out(profile: StudentProfile, guardian: Guardian) -> Optional[str]:
+    """The token of the student's newest link if ``guardian`` can still use
+    it, else None. Links made before tokens could be worked out again can't be
+    copied, so those count as gone too."""
+    request = (
+        GuardianConsentRequest.objects.filter(
+            student=profile,
+            used_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+            guardian_email=guardian.email,
+            for_pending_guardian=guardian.pending,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if request is None:
+        return None
+    token = _token_for(request)
+    return token if _hash(token) == request.token_hash else None
 
 
 def open_request(token: str, *, for_update: bool = False) -> GuardianConsentRequest:

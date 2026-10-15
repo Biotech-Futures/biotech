@@ -327,34 +327,34 @@ class AnnouncementNotifyViewTests(TestCase):
         # which collide. The path is stable enough to hard-code in tests.
         self.url = f"/api/v1/admin/announcement/{self.announcement.id}/notify/"
 
-    def test_successful_notify_returns_200_with_rich_body(self):
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        body = response.json()
-        self.assertEqual(body["status"], "success")
-        self.assertGreaterEqual(body["succeeded"], 1)
-        self.assertEqual(body["failed"], 0)
-        self.assertEqual(body["failedRecipients"], [])
-        # Legacy alias still present.
-        self.assertEqual(body["sent"], body["succeeded"])
-        self.assertIsNotNone(body["deliveryId"])
+    def _delivery(self):
+        return AnnouncementDelivery.objects.get(announcement_id=self.announcement.id)
 
-    def test_all_failed_notify_returns_502(self):
+    def test_notify_queues_the_email_which_sends_in_its_turn(self):
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        body = response.json()
+        self.assertEqual(body["status"], "queued")
+        # Sent in its turn: at once under test settings.
+        delivery = self._delivery()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.SUCCESS)
+        self.assertGreaterEqual(delivery.success_count, 1)
+        self.assertEqual((delivery.failure_count, delivery.failed_recipients), (0, []))
+
+    def test_all_failed_notify_is_recorded_as_failed(self):
         with patch(
             "apps.services.system_email.EmailMultiAlternatives.send",
             side_effect=Exception("smtp dead"),
         ):
             response = self.client.post(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-        body = response.json()
-        self.assertEqual(body["status"], "failed")
-        self.assertEqual(body["succeeded"], 0)
-        self.assertGreaterEqual(body["failed"], 1)
-        # Legacy alias parity — succeeded/sent must agree on every path.
-        self.assertEqual(body["sent"], 0)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        delivery = self._delivery()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.FAILED)
+        self.assertEqual(delivery.success_count, 0)
+        self.assertGreaterEqual(delivery.failure_count, 1)
 
-    def test_partial_failure_returns_207(self):
+    def test_partial_failure_is_recorded_as_partial(self):
         call_count = {"n": 0}
 
         def fake_send(self, *args, **kwargs):
@@ -369,13 +369,13 @@ class AnnouncementNotifyViewTests(TestCase):
         ):
             response = self.client.post(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_207_MULTI_STATUS)
-        body = response.json()
-        self.assertEqual(body["status"], "partial")
-        self.assertEqual(body["succeeded"], 1)
-        self.assertGreaterEqual(body["failed"], 1)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        delivery = self._delivery()
+        self.assertEqual(delivery.status, AnnouncementDelivery.Status.PARTIAL)
+        self.assertEqual(delivery.success_count, 1)
+        self.assertGreaterEqual(delivery.failure_count, 1)
 
-    def test_no_recipients_returns_400(self):
+    def test_no_recipients_queues_then_records_nothing(self):
         # We want a *true* empty audience: the admin stays active so the
         # authenticated request still passes IsAdminScoped, but we target a
         # group that has no members, so the resolved recipient set is empty.
@@ -390,9 +390,9 @@ class AnnouncementNotifyViewTests(TestCase):
         self.announcement.save(update_fields=["visibility_scope"])
 
         response = self.client.post(self.url)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        body = response.json()
-        self.assertEqual(body["status"], "skipped")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        # Its turn finds nobody to email: no delivery is recorded.
+        self.assertFalse(AnnouncementDelivery.objects.filter(announcement_id=self.announcement.id).exists())
 
     def test_unknown_announcement_returns_400(self):
         url = "/api/v1/admin/announcement/999999/notify/"
@@ -612,18 +612,33 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
         self.assertIn("<html", html_body)
         self.assertIn("</html>", html_body)
 
-    def test_html_body_contains_title_and_excerpt(self):
+    def test_html_body_contains_full_announcement_text(self):
+        # The whole announcement is in the email, not a truncated preview, so
+        # recipients never have to open the platform to read it.
+        long_tail = "The practical runs until 4pm in Lab 3, bring closed shoes."
         outbox, _ = self._send(
             title="Mid-term update",
-            body="<p>Lab tour moved to <strong>Friday</strong>.</p>",
+            body=f"<p>Lab tour moved to <strong>Friday</strong>.</p><p>{long_tail}</p>",
         )
         html_body, _ = outbox[0].alternatives[0]
         # Title is rendered into the dark header band.
         self.assertIn("Mid-term update", html_body)
-        # Excerpt is HTML-stripped and re-escaped, so the <strong> tag from
-        # the source body must not survive into the email markup.
-        self.assertNotIn("<strong>Friday</strong>", html_body)
-        self.assertIn("Friday", html_body)
+        # The body is kept as written, formatting included.
+        self.assertIn("<strong>Friday</strong>", html_body)
+        self.assertIn(long_tail, html_body)
+        # And the removed call-to-action must not creep back in.
+        self.assertNotIn("Read full announcement", html_body)
+
+    def test_html_body_strips_scripts_from_announcement(self):
+        outbox, _ = self._send(
+            body='<p>Safe</p><script>alert("xss")</script>'
+            '<p onclick="steal()">Click</p>',
+        )
+        html_body, _ = outbox[0].alternatives[0]
+        self.assertIn("Safe", html_body)
+        self.assertNotIn("<script", html_body)
+        self.assertNotIn('alert("xss")', html_body)
+        self.assertNotIn("onclick", html_body)
 
     def test_html_body_escapes_xss_in_title(self):
         outbox, _ = self._send(title='<script>alert("xss")</script>Notice')
@@ -636,12 +651,26 @@ class AnnouncementEmailHtmlBodyTests(TestCase):
     def test_html_body_links_to_announcement_detail(self):
         outbox, announcement = self._send()
         html_body, _ = outbox[0].alternatives[0]
-        # The CTA links to the announcement detail page. We don't pin the
-        # exact host (settings-driven) — just assert the announcement id is
-        # in the URL and that the link is wrapped in an anchor.
+        # We don't pin the exact host (settings-driven) — just assert
+        # the id is in the URL and that the link is wrapped in an anchor.
         self.assertIn(f"/{announcement.id}", html_body)
         self.assertIn("<a href=", html_body)
-        self.assertIn("Read full announcement", html_body)
+        self.assertIn("View this announcement on the platform", html_body)
+        self.assertNotIn("Read full announcement", html_body)
+
+    def test_plain_text_body_carries_the_full_announcement(self):
+        long_tail = "The practical runs until 4pm in Lab 3."
+        outbox, _ = self._send(
+            title="Mid-term update",
+            body=f"<p>Lab tour moved to <strong>Friday</strong>.</p><p>{long_tail}</p>",
+        )
+        message = outbox[0]
+        self.assertIn("Mid-term update", message.body)
+        self.assertIn("Friday", message.body)
+        self.assertIn(long_tail, message.body)
+        # Plain text carries no HTML markup.
+        self.assertNotIn("<p>", message.body)
+        self.assertNotIn("<strong>", message.body)
 
     def test_html_and_plain_text_share_subject(self):
         outbox, _ = self._send(title="Subject sanity")
@@ -701,6 +730,26 @@ class AnnouncementSystemEmailTests(TestCase):
         self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
         self.assertIn(f"/#/announcements/{self.announcement.id}", html_body)
 
+    def test_edited_email_can_embed_the_full_body(self):
+        # An admin who edits the wording opts into the whole announcement with
+        # the {{ body }} tag; it is inserted as HTML, not escaped.
+        from django.core import mail
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(
+            key="announcement",
+            subject="New: {{ title }}",
+            body_html="<p>Heads up:</p>{{ body }}",
+        )
+        send_announcement_email(self.announcement.id)
+
+        message = mail.outbox[0]
+        html_body, _ = message.alternatives[0]
+        self.assertIn("Heads up:", html_body)
+        self.assertIn("<p>Friday in the Great Hall.</p>", html_body)
+        # The tag itself must have been filled, not left literal.
+        self.assertNotIn("{{ body }}", html_body)
+
     def test_switched_off_skips_without_delivery_row(self):
         from django.core import mail
         from apps.services.models import SystemEmailTemplate
@@ -721,3 +770,125 @@ class AnnouncementSystemEmailTests(TestCase):
 
         self.assertEqual(result["status"], "skipped")
         self.assertEqual(mail.outbox, [])
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementRetryTests(TestCase):
+    """A send that fails is tried once more, once everyone has been tried."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(email="admin@example.com", password="adminpass")
+        User.objects.create_user(email="recip@example.com", password="testpass")
+        self.announcement = Announcement.objects.create(
+            author_user=self.admin, title="Hi", body="<p>body</p>", visibility_scope="global",
+        )
+
+    def test_a_send_that_fails_once_goes_when_tried_again_after_the_rest(self):
+        import smtplib
+
+        from django.core import mail
+
+        real_send = mail.EmailMultiAlternatives.send
+        tries = []
+
+        def drops_once(self_msg, *args, **kwargs):
+            tries.append(self_msg.to[0])
+            if tries.count(self_msg.to[0]) == 1 and len(tries) == 1:
+                raise smtplib.SMTPServerDisconnected("dropped")
+            return real_send(self_msg, *args, **kwargs)
+
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=drops_once), \
+                patch("apps.services.retry.time.sleep") as sleep:
+            result = send_announcement_email(self.announcement.id)
+
+        self.assertEqual((result["status"], result["succeeded"], result["failed"]), ("success", 2, 0))
+        # The first one, tried again after the other.
+        self.assertEqual(len(tries), 3)
+        self.assertEqual(tries[-1], tries[0])
+        sleep.assert_called_once()
+        self.assertEqual(len(mail.outbox), 2)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementEmailLineBreakTests(TestCase):
+    """A plain-text announcement email reads with the same line breaks the
+    portal shows: blank lines become paragraphs, single newlines line breaks."""
+
+    def setUp(self):
+        from django.core import mail
+
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            email="author@example.com", password="testpass", first_name="An",
+        )
+
+    def _send(self, body):
+        from django.core import mail
+
+        announcement = Announcement.objects.create(
+            author_user=self.author,
+            title="Update",
+            body=body,
+            visibility_scope="global",
+        )
+        send_announcement_email(announcement.id, initiated_by=self.author)
+        return mail.outbox
+
+    def test_plain_text_body_keeps_its_paragraphs_and_line_breaks(self):
+        outbox = self._send("First line\nSecond line\n\nSecond paragraph")
+        message = next(m for m in outbox if m.to == ["author@example.com"])
+        html_body, _ = message.alternatives[0]
+        self.assertIn("First line<br>Second line", html_body)
+        self.assertIn("<p>Second paragraph</p>", html_body)
+
+    def test_html_body_is_not_rewrapped(self):
+        outbox = self._send("<p>One</p><p>Two</p>")
+        message = next(m for m in outbox if m.to == ["author@example.com"])
+        html_body, _ = message.alternatives[0]
+        self.assertIn("<p>One</p><p>Two</p>", html_body)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AnnouncementEmailMergeTagTests(TestCase):
+    """An announcement greeting is filled with each recipient's own name."""
+
+    def setUp(self):
+        from django.core import mail
+
+        mail.outbox = []
+        self.author = User.objects.create_user(
+            email="author@example.com", password="testpass", first_name="An",
+        )
+        self.ada = User.objects.create_user(
+            email="ada@example.com", password="testpass", first_name="Ada",
+        )
+        self.grace = User.objects.create_user(
+            email="grace@example.com", password="testpass", first_name="Grace",
+        )
+        self.announcement = Announcement.objects.create(
+            author_user=self.author,
+            title="Welcome",
+            body="<p>Hi {{ first_name }}, welcome!</p>",
+            visibility_scope="global",
+        )
+
+    def test_each_recipient_gets_their_own_name(self):
+        from django.core import mail
+
+        send_announcement_email(self.announcement.id, initiated_by=self.author)
+        by_address = {message.to[0]: message for message in mail.outbox}
+
+        ada_html, _ = by_address["ada@example.com"].alternatives[0]
+        grace_html, _ = by_address["grace@example.com"].alternatives[0]
+        self.assertIn("Hi Ada,", ada_html)
+        self.assertIn("Hi Grace,", grace_html)
+        self.assertNotIn("{{ first_name }}", ada_html)
+        self.assertNotIn("{{ first_name }}", grace_html)
+
+    def test_plain_text_alternative_is_personalised_too(self):
+        from django.core import mail
+
+        send_announcement_email(self.announcement.id, initiated_by=self.author)
+        message = next(m for m in mail.outbox if m.to == ["ada@example.com"])
+        self.assertIn("Hi Ada,", message.body)
+        self.assertNotIn("{{ first_name }}", message.body)

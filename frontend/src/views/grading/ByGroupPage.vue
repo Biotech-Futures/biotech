@@ -21,8 +21,11 @@
         :page-size="DATA_TABLE_ALL"
         search-placeholder="Group name"
         :empty-message="query.trim() ? 'No groups match your search.' : 'No groups.'"
+        clickable-rows
+        :row-clickable="(row) => groupOf(row).submission_id != null"
         @update:sort="setSort($event.key as SortKey)"
         @search-enter="open"
+        @row-click="router.push(`/grading/groups/${groupOf($event).group_id}`)"
       >
         <!-- Enter in Search opens the group it names; this says when none does. -->
         <template v-if="error" #filters>
@@ -59,14 +62,7 @@
         </template>
         <template #cell-time="{ row }">
           <template v-if="groupOf(row).submission_id != null && groupOf(row).submitted_at">
-            {{ new Date(groupOf(row).submitted_at!).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }) }}
-            {{
-              new Date(groupOf(row).submitted_at!).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-                hourCycle: 'h23'
-              })
-            }}
+            {{ formatShortDateTime(groupOf(row).submitted_at) }}
           </template>
           <span v-else class="by-group__muted">—</span>
         </template>
@@ -123,6 +119,7 @@ import { useRouter } from 'vue-router'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import { useJobPolling } from '@/composables/useJobPolling'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatShortDateTime } from '@/utils/date'
 import { fetchComponentRows } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 

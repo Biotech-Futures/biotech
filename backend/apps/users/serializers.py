@@ -198,6 +198,13 @@ class JoinPermissionRequestSerializer(serializers.Serializer):
     body = JoinPermissionBodySerializer()
 
 
+class SelfNameSerializer(serializers.Serializer):
+    """The name a supervisor may change on their own profile."""
+
+    first_name = serializers.CharField(max_length=255, required=False)
+    last_name = serializers.CharField(max_length=255, required=False)
+
+
 class StudentSelfProfileUpdateSerializer(serializers.Serializer):
     """Fields a student may update only when no supervisor manages them."""
 
@@ -605,11 +612,24 @@ class SupervisedStudentEmailSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=["guardian_details", "guardian_consent"])
 
 
+class SupervisedStudentIdsSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
 class SupervisedStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     email = serializers.EmailField()
+    country_id = serializers.IntegerField(allow_null=True)
+    country_name = serializers.CharField(allow_blank=True)
+    state_id = serializers.IntegerField(allow_null=True)
+    state_name = serializers.CharField(allow_blank=True)
+    account_status = serializers.CharField()
+    media_consent = serializers.BooleanField(allow_null=True)
     school_name = serializers.CharField(allow_blank=True)
     year_lvl = serializers.CharField(allow_blank=True)
     interests = serializers.ListField(child=serializers.CharField())
@@ -698,6 +718,9 @@ class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=255)
     last_name = serializers.CharField(max_length=255)
     email = serializers.EmailField(required=False)
+    # Where the student is, as their Personal information shows it.
+    country_id = serializers.PrimaryKeyRelatedField(queryset=Countries.objects.all(), required=False, allow_null=True)
+    state_id = serializers.PrimaryKeyRelatedField(queryset=CountryStates.objects.all(), required=False, allow_null=True)
     school_name = serializers.CharField(max_length=255)
     year_lvl = serializers.ChoiceField(choices=[(str(year), str(year)) for year in range(9, 13)])
     interests = serializers.ListField(

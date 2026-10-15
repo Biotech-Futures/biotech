@@ -316,12 +316,13 @@ def _submitted_teams() -> list[dict]:
 
 def _confirmation_context(value: str) -> dict:
     from apps.submissions.emails import build_components
+    from apps.submissions.serializers import submitted_by_label
 
     group = _group(value)
     submission = group.submission
     return {
         **_submission_context(group, *build_components(submission)),
-        "SUBMITTED_BY": submission.submitted_by,
+        "SUBMITTED_BY": submitted_by_label(submission),
     }
 
 

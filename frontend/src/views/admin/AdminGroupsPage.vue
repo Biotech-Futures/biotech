@@ -3,7 +3,7 @@
     <header class="page-header">
       <h1 class="page-title">Groups &amp; Matching</h1>
       <p class="page-subtitle">
-        Manage student groups, run matching, and review mentor assignments.
+        Manage student groups, run matching and review mentor assignments.
       </p>
     </header>
 
@@ -54,7 +54,7 @@
       <div v-if="activeTab === 'groups'" class="admin-groups__actions">
         <button type="button" class="btn btn-primary" @click="openCreate">
           <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Add group</span>
+          <span>Add Group</span>
         </button>
       </div>
     </div>
@@ -119,7 +119,9 @@
       v-model:search="searchInput"
       search-placeholder="Search by group name..."
       empty-message="No groups found."
-      :action-columns="3"
+      :action-columns="2"
+      clickable-rows
+      @row-click="openDetail(toGroup($event))"
       @update:selected="onTableSelected"
       @update:sort="onSortChange"
       @update:page="onPageChange"
@@ -147,21 +149,14 @@
         <span v-else class="admin-groups__unmatched">Unassigned</span>
       </template>
       <template #cell-createdAt="{ row }">
-        {{ formatDateAU(toGroup(row).createdAt) }}
+        {{ formatShortDate(toGroup(row).createdAt) }}
       </template>
-      <!-- View | Open | Rename, each in its own column. -->
+      <!-- Open | Rename, each in its own column. Clicking its name shows a
+           group's details. -->
       <template #actions="{ row, column }">
-        <button
-          v-if="column === 0"
-          type="button"
-          class="btn btn-sm btn-outline"
-          @click.stop="openDetail(toGroup(row))"
-        >
-          View
-        </button>
         <!-- The group's own page, as its members see it: tasks, chat and submission. -->
         <RouterLink
-          v-else-if="column === 1"
+          v-if="column === 0"
           :to="{ name: 'group-detail', params: { id: toGroup(row).id } }"
           class="btn btn-sm btn-outline"
           @click.stop
@@ -226,7 +221,7 @@
 
     <FormSheet
       v-model="formOpen"
-      :title="formMode === 'create' ? 'Add group' : 'Rename group'"
+      :title="formMode === 'create' ? 'Add Group' : 'Rename Group'"
       :description="formMode === 'create'
         ? 'Leave the name blank to auto-generate the next group name.'
         : undefined"
@@ -284,7 +279,7 @@ import {
   type GroupListDetailParams
 } from '@/utils/adminAPI'
 import { fitPageSize, serverPageLimit } from '@/utils/dataTable'
-import { formatDateAU } from '@/utils/date'
+import { formatShortDate } from '@/utils/date'
 
 // "Groups" (the list built here), "Student Matching", "Mentor Matching" and
 // "Matched Groups" (confirmed mentor assignments, mentor replace/unassign) are
@@ -690,7 +685,7 @@ const submitForm = async () => {
   margin-bottom: 0;
 }
 
-/* "Add group" action in toolbar */
+/* "Add Group" action in toolbar */
 .admin-groups__actions {
   display: flex;
   flex-wrap: wrap;

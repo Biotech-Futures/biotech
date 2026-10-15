@@ -1,6 +1,21 @@
 from rest_framework import serializers
 
 from .models import Announcement, AnnouncementAudience
+from .rendering import fill_merge_tags
+
+
+def _requesting_user(serializer):
+    """The user reading the announcement, when there is one.
+
+    The platform fills an announcement's merge tags (``{{ first_name }}``)
+    with the reader's own details. The admin dashboard reads through its own
+    API (``apps.admin``), which keeps the body as written so it stays
+    editable, so only these serializers fill them."""
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if user is not None and getattr(user, "is_authenticated", False):
+        return user
+    return None
 
 
 class AnnouncementAudienceSerializer(serializers.ModelSerializer):
@@ -75,6 +90,13 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         self._replace_audiences(announcement, audience_rules)
         return announcement
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        user = _requesting_user(self)
+        if user is not None and data.get("body"):
+            data["body"] = fill_merge_tags(data["body"], user)
+        return data
+
 
 class AnnouncementListSerializer(AnnouncementSerializer):
     """Truncates ``body`` for list responses.
@@ -91,7 +113,8 @@ class AnnouncementListSerializer(AnnouncementSerializer):
         fields = AnnouncementSerializer.Meta.fields + ["body_truncated"]
 
     def get_body(self, obj):
-        body = obj.body or ""
+        # Fill before truncating, so a cut can never leave half a tag behind.
+        body = fill_merge_tags(obj.body or "", _requesting_user(self))
         if len(body) <= self.LIST_BODY_CAP:
             return body
         return body[: self.LIST_BODY_CAP]

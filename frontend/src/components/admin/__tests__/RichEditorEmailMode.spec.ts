@@ -23,16 +23,16 @@ describe('RichEditor in email mode', () => {
     expect(labels).toEqual(expect.arrayContaining(['Image', 'File', 'Table']))
   })
 
-  it('offers text size and gap in email mode only', async () => {
+  it('offers text colour, size and gap in every editor', async () => {
     const tools = async (props: Record<string, unknown>) => {
       const wrapper = mount(RichEditor, { props, attachTo: document.body })
       await flushPromises()
-      const found = ['text-size', 'text-gap'].filter((name) => wrapper.find(`[data-test="${name}"]`).exists())
+      const found = ['text-colour', 'text-size', 'text-gap'].filter((name) => wrapper.find(`[data-test="${name}"]`).exists())
       wrapper.unmount()
       return found
     }
-    expect(await tools({ emailMode: true })).toEqual(['text-size', 'text-gap'])
-    expect(await tools({})).toEqual([])
+    expect(await tools({ emailMode: true })).toEqual(['text-colour', 'text-size', 'text-gap'])
+    expect(await tools({})).toEqual(['text-colour', 'text-size', 'text-gap'])
   })
 
   it('highlights the gap below the paragraph, even one not on offer', async () => {

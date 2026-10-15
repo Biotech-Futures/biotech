@@ -287,7 +287,7 @@
                       <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
 
                       <div class="list-row-meta">
-                        {{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}
+                        {{ getAnnouncementDate(announcement) }}
                       </div>
 
                       <div
@@ -423,10 +423,12 @@ import { useAuthStore } from '@/stores/auth'
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 
 import {
-  formatAnnouncementDateAU,
+  formatDayMonth,
   formatEventDate,
   formatEventTimeRange,
+  getSetTimeZone,
 } from '@/utils/date'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
@@ -909,9 +911,12 @@ function sanitizeDashboardAnnouncementRichText(value) {
       return
     }
 
+    // The editor's colours, sizes and gaps stay; any other attribute goes.
+    const style = cleanEmailStyle(element.getAttribute('style'))
     for (const attribute of Array.from(element.attributes)) {
       element.removeAttribute(attribute.name)
     }
+    if (style) element.setAttribute('style', style)
 
     Array.from(element.childNodes).forEach(cleanNode)
   }
@@ -929,10 +934,6 @@ function getAnnouncementBody(announcement) {
     announcement?.excerpt ||
     ''
   )
-}
-
-function formatEventTime(startValue, endValue) {
-  return formatEventTimeRange(startValue, endValue, timeZone.value)
 }
 
 function normalizeEventFormat(event) {
@@ -1032,7 +1033,7 @@ function normalizeResource(resource) {
     type: resolveResourceIconType(typeLabel),
     category: typeLabel,
     updated:
-      resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
+      resource?.uploaded_at || resource?.updated || resource?.date || resource?.created_at,
     role: normalizedRoles[0] || 'all',
     roles: normalizedRoles,
   }
@@ -1077,7 +1078,8 @@ function normalizeEvent(event) {
     id: event?.id,
     title: event?.event_name || event?.title || event?.name || 'Untitled event',
     date: start,
-    time: formatEventTimeRange(start, end, eventTimezone) || event?.time || '',
+    // In the set time, labelled with that zone, like the Events page.
+    time: formatEventTimeRange(start, end, getSetTimeZone()) || event?.time || '',
     location: hasPhysicalPlace ? event.location : format === 'virtual' ? 'Online' : 'Location TBC',
     mode: getEventModeLabel(format),
     link: format === 'virtual' || format === 'hybrid' ? event?.location_link || event?.link : '',
@@ -1388,8 +1390,9 @@ function getAnnouncementTitle(item) {
   return item?.title || item?.name || item?.subject || 'Untitled announcement'
 }
 
-function getAnnouncementMeta(item) {
-  return item?.updated || item?.date || item?.created_at || 'Recently posted'
+// "9 Oct", in the set time.
+function getAnnouncementDate(item) {
+  return formatDayMonth(item?.updated || item?.date || item?.created_at) || 'Recently posted'
 }
 
 function getAnnouncementSnippet(item) {
@@ -1411,8 +1414,9 @@ function getResourceTitle(item) {
   return item?.title || item?.name || 'Untitled resource'
 }
 
+// "9 Oct", in the set time, after "Updated".
 function getResourceMeta(item) {
-  return item?.updated || item?.date || item?.created_at || 'Recently updated'
+  return formatDayMonth(item?.updated || item?.date || item?.created_at) || 'recently'
 }
 
 function getResourceCategory(item) {

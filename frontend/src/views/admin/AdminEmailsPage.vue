@@ -298,18 +298,22 @@ onMounted(async () => {
 }
 
 .admin-emails__header {
+  /* The title and subtitle, then a row under them: the switch on the left
+     and the Failed Sending Emails button on the right. */
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 1rem;
   /* With the page's 16px gap, 20px under the subtitle. */
   margin-bottom: 0.25rem;
 }
 
+/* One row under the subtitle: the switch on the left, the button on the right. */
 .admin-emails__header-actions {
   display: flex;
+  align-self: stretch;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
 }
 
@@ -343,7 +347,7 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.admin-emails__global input:disabled + .admin-emails__global-track {
+.admin-emails__global input:disabled ~ .admin-emails__global-track {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -358,7 +362,7 @@ onMounted(async () => {
   transition: background-color 0.15s ease;
 }
 
-.admin-emails__global input:checked + .admin-emails__global-track {
+.admin-emails__global input:checked ~ .admin-emails__global-track {
   background: var(--dark-green);
 }
 
@@ -373,7 +377,7 @@ onMounted(async () => {
   transition: transform 0.15s ease;
 }
 
-.admin-emails__global input:checked + .admin-emails__global-track .admin-emails__global-knob {
+.admin-emails__global input:checked ~ .admin-emails__global-track .admin-emails__global-knob {
   transform: translateX(1.25rem);
 }
 

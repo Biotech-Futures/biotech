@@ -193,10 +193,12 @@ class Submission(models.Model):
     poster = models.JSONField(null=True, blank=True)
     report = models.JSONField(null=True, blank=True)
     prototype = models.JSONField(null=True, blank=True)
-    prototype_url = models.URLField(blank=True)
+    prototype_url = models.URLField(max_length=500, blank=True)
 
     # What the format checks found at upload.
     poster_checks = models.JSONField(null=True, blank=True)
+    # The team's poster checklist, by item; reset whenever a new poster is uploaded.
+    poster_checklist = models.JSONField(default=dict, blank=True)
 
     # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
     submitted_project_title = models.CharField(max_length=150, blank=True)
@@ -205,7 +207,7 @@ class Submission(models.Model):
     submitted_poster_checks = models.JSONField(null=True, blank=True)
     submitted_report = models.JSONField(null=True, blank=True)
     submitted_prototype = models.JSONField(null=True, blank=True)
-    submitted_prototype_url = models.URLField(blank=True)
+    submitted_prototype_url = models.URLField(max_length=500, blank=True)
 
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(
@@ -219,6 +221,8 @@ class Submission(models.Model):
     reopened_at = models.DateTimeField(null=True, blank=True)
     # Recorded at submit, so a later deadline change cannot make an entry late.
     is_late = models.BooleanField(default=False)
+    # Submitted by the system after the team's cut-off, as their complete draft stood.
+    auto_submitted = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

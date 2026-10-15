@@ -1,4 +1,3 @@
-import threading
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
@@ -35,7 +34,6 @@ DIGEST_SETTINGS = dict(
     CONNECT_DEFAULT_FROM_EMAIL="BIOTech Connect <connect@biotechfutures.org>",
     EMAIL_JOBS_TOKEN="secret-token",
     UNREAD_DIGEST_MIN_INTERVAL_HOURS=24,
-    UNREAD_DIGEST_DISPATCH_SYNC=True,
     # start == end disables quiet hours so these tests never depend on the
     # wall-clock time they happen to run at.
     UNREAD_DIGEST_QUIET_START_HOUR=0,
@@ -320,7 +318,7 @@ class UnreadDigestTriggerViewTests(TestCase):
     def test_202_on_valid_token(self):
         resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
         self.assertEqual(resp.status_code, 202)
-        self.assertEqual(resp.data["status"], "started")
+        self.assertEqual(resp.data["status"], "queued")
 
     def test_valid_trigger_sends_digest(self):
         # End-to-end through the view (sync dispatch): unread message -> email.
@@ -343,17 +341,16 @@ class UnreadDigestTriggerViewTests(TestCase):
         self.assertEqual(resp.status_code, 202)
         self.assertEqual([box.to[0] for box in mail.outbox], ["bob@t.com"])
 
-    def test_202_already_running_when_lock_held(self):
-        # Hold the dispatch lock so the async path reports the in-flight run
-        # without spawning a second thread.
-        self.assertTrue(digest_service._dispatch_lock.acquire(blocking=False))
-        try:
-            with override_settings(UNREAD_DIGEST_DISPATCH_SYNC=False):
-                resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
-        finally:
-            digest_service._dispatch_lock.release()
-        self.assertEqual(resp.status_code, 202)
-        self.assertEqual(resp.data["status"], "already_running")
+    def test_a_run_triggered_while_another_waits_its_turn_is_dropped(self):
+        from apps.management.models import QueuedEmailSend
+        from apps.management.services import send_guard
+
+        # Its mailbox's queue is busy sending, so the run waits its turn.
+        send_guard._take(send_guard.queue_key("connect"))
+        for _ in range(2):
+            resp = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
+            self.assertEqual((resp.status_code, resp.data["status"]), (202, "queued"))
+        self.assertEqual(QueuedEmailSend.objects.filter(key="unread_messages").count(), 1)
 
 
 @override_settings(**DIGEST_SETTINGS)
@@ -449,36 +446,33 @@ class UnreadDigestQuietHoursTests(TestCase):
 
 
 class UnreadDigestDispatchTests(TestCase):
-    """Lock hygiene on the real thread path, which every other class bypasses
-    via UNREAD_DIGEST_DISPATCH_SYNC. The digest itself is stubbed: what's
-    under test is that the lock frees again whatever the run does."""
+    """The digest run is queued in its mailbox's queue (connect@) and sent in
+    its turn: at once under test settings. The digest itself is stubbed: what's
+    under test is that its run is noted and the queue lets go, whatever the
+    run does."""
 
-    def _dispatch_and_await(self, digest_stub):
-        ran = threading.Event()
+    def _dispatch(self, digest_stub):
+        from apps.management.models import EmailSendRun
+        from apps.management.services import send_guard
 
-        def tracked():
-            try:
-                return digest_stub()
-            finally:
-                ran.set()
+        with patch.object(digest_service, "send_unread_message_digests", side_effect=digest_stub):
+            self.assertEqual(digest_service.dispatch_unread_digest(), "queued")
+        queue = EmailSendRun.objects.get(key=send_guard.queue_key("connect"))
+        self.assertIsNone(queue.held_until, "the queue's hold leaked")
+        return EmailSendRun.objects.get(key="unread_messages")
 
-        with override_settings(UNREAD_DIGEST_DISPATCH_SYNC=False), patch.object(
-            digest_service, "send_unread_message_digests", side_effect=tracked
-        ):
-            self.assertEqual(digest_service.dispatch_unread_digest(), "started")
-            self.assertTrue(ran.wait(5), "digest thread never ran")
-        # Release happens just after the stub returns; poll-acquire to sync.
-        self.assertTrue(
-            digest_service._dispatch_lock.acquire(timeout=5),
-            "dispatch lock leaked",
-        )
-        digest_service._dispatch_lock.release()
+    def test_a_run_is_noted_and_the_queue_let_go(self):
+        run = self._dispatch(lambda: (3, 2, 1))
+        self.assertEqual((run.emailed, run.failed, run.error), (2, 1, ""))
+        self.assertIsNotNone(run.finished_at)
 
-    def test_lock_released_after_successful_run(self):
-        self._dispatch_and_await(lambda: (0, 0, 0))
+    def test_a_crashed_run_is_noted_and_the_queue_let_go(self):
+        from apps.management.services import send_guard
 
-    def test_lock_released_after_crashed_run(self):
         def boom():
             raise RuntimeError("boom")
 
-        self._dispatch_and_await(boom)
+        with self.assertLogs("apps.management.services.send_guard", level="ERROR"):
+            run = self._dispatch(boom)
+        self.assertEqual(run.error, send_guard.JOB_FAILED)
+        self.assertIsNone(run.held_until)

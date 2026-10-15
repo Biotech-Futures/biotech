@@ -7,7 +7,6 @@
   --field-bg: var(--white);
   --field-border: var(--border-light);
   --field-disabled-bg: var(--bg-light);
-  --notice-bg: var(--bg-light);
   --muted: var(--text-muted);
   --body-text: var(--teal);
   --accent: var(--dark-green);
@@ -116,20 +115,6 @@
   color: var(--error);
 }
 
-.poster-notice {
-  margin-top: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-left: 4px solid var(--accent);
-  border-radius: 8px;
-  background: var(--notice-bg);
-  color: var(--body-text);
-  font-size: 0.875rem;
-}
-
-.poster-notice__body {
-  margin: 0;
-}
-
 .submission-message {
   display: flex;
   align-items: center;
@@ -183,7 +168,7 @@
 
 .submission-dialog__body {
   margin: 0;
-  color: var(--muted);
+  color: var(--body-text);
   font-size: 0.95rem;
   line-height: 1.5;
 }
@@ -227,6 +212,12 @@
 .submission-count.is-over-limit {
   color: var(--error);
   font-weight: 600;
+}
+
+.submission-field-note {
+  font-size: 0.875rem;
+  color: var(--error);
+  margin: 0.3rem 0 0;
 }
 
 /* Step strip */
@@ -300,8 +291,17 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+/* Stretched from the bottom border instead (StretchHandle). */
 .submission-textarea {
-  resize: vertical;
+  resize: none;
+}
+
+.submission-stretch {
+  position: relative;
+}
+
+.submission-stretch > .submission-textarea {
+  display: block;
 }
 
 .content-area .form-control::placeholder,
@@ -342,6 +342,11 @@
 .submission-slot--plain {
   border-bottom: none;
   padding-top: 0;
+}
+
+.submission-slot--divided {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--panel-border);
 }
 
 

@@ -18,6 +18,7 @@ import {
   updateSystemEmailTemplate
 } from '@/utils/adminAPI'
 import type { SystemEmailLogEntry, SystemEmailTemplate } from '@/utils/systemEmail'
+import { formatShortDateTime, formatStatementTime } from '@/utils/date'
 
 vi.mock('@/utils/adminAPI', () => ({
   fetchSystemEmailLog: vi.fn(),
@@ -285,10 +286,9 @@ describe('AdminEmailsPage', () => {
   })
 
   describe('the Log', () => {
-    const at = (iso: string) => {
-      const when = new Date(iso)
-      return `${when.toLocaleDateString('en-GB')} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    }
+    // Each send's time as the log's rows write it, and in its sentences.
+    const at = (iso: string) => formatShortDateTime(iso)
+    const atInSentence = (iso: string) => formatStatementTime(iso)
     const logEntry = (overrides: Partial<SystemEmailLogEntry> = {}): SystemEmailLogEntry => ({
       key: 'password_reset',
       name: 'Password reset',
@@ -393,7 +393,7 @@ describe('AdminEmailsPage', () => {
 
       const panel = wrapper.find('[data-test="emails-log-panel"]')
       expect(panel.find('[data-test="log-last-emailed"]').text()).toBe(
-        `Last Emailed at ${at('2026-09-29T13:58:00Z')}.`
+        `Last Emailed at ${atInSentence('2026-09-29T13:58:00Z')}.`
       )
       expect(panel.find('.email-log__note').text()).toBe(
         "Emails can take a few minutes to arrive. Any that can't be delivered, such as a mistyped address " +
@@ -411,7 +411,7 @@ describe('AdminEmailsPage', () => {
       await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
 
       expect(wrapper.find('[data-test="log-last-emailed"]').text()).toBe(
-        `Last Emailed at ${at('2026-09-29T13:58:00Z')} by test1 1.`
+        `Last Emailed at ${atInSentence('2026-09-29T13:58:00Z')} by test1 1.`
       )
       expect(wrapper.find('.email-log__note').text()).toMatch(/and the rest of the group still gets it\.$/)
     })

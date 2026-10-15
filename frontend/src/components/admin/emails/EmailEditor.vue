@@ -70,10 +70,11 @@
       </select>
     </div>
 
-    <!-- Tags go into whichever of Subject or Body was used last. -->
+    <!-- Only a list of the placeholders this email can use: clicking one
+         puts nothing in Subject or Body. -->
     <div class="editor__field">
       <span class="editor__label">Placeholders</span>
-      <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
+      <MergeTagPalette :tags="emailTemplate.mergeTags" :insertable="false" />
     </div>
 
     <div class="editor__field">
@@ -82,7 +83,6 @@
            hint, made password managers (Bitwarden) offer to fill it. -->
       <input
         id="template-subject"
-        ref="subjectInput"
         type="text"
         autocomplete="off"
         data-bwignore
@@ -93,7 +93,6 @@
         :placeholder="emailTemplate.defaultSubject"
         :disabled="saving || restoring"
         maxlength="255"
-        @focus="activeField = 'subject'"
         @input="emit('update:subject', ($event.target as HTMLInputElement).value)"
       />
     </div>
@@ -103,16 +102,14 @@
       <!-- Like Subject, read-only only while its wording is being written: a
            read-only editor drops its toolbar, which flashed on quick saves like
            Send from. -->
-      <div class="email-editor__body" @focusin="activeField = 'body'">
+      <div class="email-editor__body">
         <RichEditor
-          ref="bodyEditor"
           :model-value="body"
           email-mode
           compact
           :link-placeholders="linkPlaceholders"
           :read-only="saving || restoring"
           @update:model-value="emit('update:body', $event)"
-          @focus="activeField = 'body'"
         />
       </div>
     </div>
@@ -211,17 +208,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
 import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import {
   mergeTagToken,
   nameParts,
-  type SystemEmailMergeTag,
   type SystemEmailTemplate,
   type SystemEmailTestRecipient
 } from '@/utils/systemEmail'
 import { useAuthStore } from '@/stores/auth'
+import { formatStatementTime } from '@/utils/date'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
 
@@ -275,17 +272,11 @@ const lockReason = () => {
   }
 }
 
+// "Last edited by Ada Admin · 05/10/2026 at 15:42".
 const lastEditedLabel = () => {
   const { updatedBy, updatedAt } = props.emailTemplate
   if (!updatedBy || !updatedAt) return ''
-  const when = new Date(updatedAt).toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-  return `Last edited by ${updatedBy} \u00b7 ${when}`
+  return `Last edited by ${updatedBy} \u00b7 ${formatStatementTime(updatedAt)}`
 }
 
 const emit = defineEmits<{
@@ -298,42 +289,9 @@ const emit = defineEmits<{
   (e: 'test-send', to: string): void
 }>()
 
-type EditableField = 'subject' | 'body'
-
-const activeField = ref<EditableField>('body')
-const subjectInput = ref<HTMLInputElement | null>(null)
-const bodyEditor = ref<{ insertText: (text: string) => void } | null>(null)
-
 const onToggleEnabled = (enabled: boolean) => {
   if (props.emailTemplate.locked && !enabled) return
   emit('toggle-enabled', enabled)
-}
-
-const onInsertTag = (tag: SystemEmailMergeTag) => {
-  const token = mergeTagToken(tag.name)
-  if (activeField.value === 'subject') {
-    insertIntoSubject(token)
-  } else {
-    bodyEditor.value?.insertText(token)
-  }
-}
-
-/** Insert at the caret (or append) so tags land where the admin is typing. */
-const insertIntoSubject = (token: string) => {
-  const input = subjectInput.value
-  if (!input) {
-    emit('update:subject', `${props.subject}${token}`)
-    return
-  }
-  const start = input.selectionStart ?? input.value.length
-  const end = input.selectionEnd ?? start
-  const next = `${input.value.slice(0, start)}${token}${input.value.slice(end)}`
-  emit('update:subject', next)
-  void nextTick(() => {
-    input.focus()
-    const caret = start + token.length
-    input.setSelectionRange(caret, caret)
-  })
 }
 </script>
 
@@ -343,6 +301,19 @@ const insertIntoSubject = (token: string) => {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
+}
+
+/* System Emails' placeholder chips are white; the palette's own green stays
+   on Management's Outcome Announcement. They're only a list to read, so
+   they don't change on hover. */
+.email-editor :deep(.merge-tags__list .merge-tags__tag) {
+  background: var(--white);
+  color: var(--black);
+}
+
+/* Black would vanish on the dark card, so dark mode keeps light text. */
+:root[data-theme='dark'] .email-editor :deep(.merge-tags__list .merge-tags__tag) {
+  color: var(--teal);
 }
 
 /* No line above the buttons here: on System Emails it sits above Preview

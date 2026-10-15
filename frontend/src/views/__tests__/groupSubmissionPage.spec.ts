@@ -52,6 +52,7 @@ const POSTER = { storage_key: 'x/p.pdf', name: 'poster.pdf', mime: 'application/
 const ANSWERED = { solution_purpose: 'An answer.', inspiration: 'Another answer.' }
 
 const TITLE = 'Coral Rescue Kit'
+const CONFIRMED_CHECKLIST = { supervisor_email: true, btf_logo: true, school_logo: true, team_code: true, page_size: true }
 
 const emptyRecord = (): SubmissionRecord => ({
   project_title: '',
@@ -75,6 +76,8 @@ const emptyRecord = (): SubmissionRecord => ({
   is_submitted: false,
   is_locked: false,
   is_late: false,
+  auto_submitted: false,
+  poster_checklist: {},
   updated_at: new Date().toISOString(),
 })
 
@@ -301,7 +304,7 @@ describe('submitting', () => {
     await flushPromises()
 
     expect(wrapper!.find('.submission-message').text()).toContain(
-      'A poster must be uploaded before the entry can be submitted.',
+      'Please upload your poster before submitting.',
     )
     expect(wrapper!.find('[aria-current="step"]').text()).toContain('Poster')
     expect(submitEntry).not.toHaveBeenCalled()
@@ -367,7 +370,9 @@ describe('submitting', () => {
   })
 
   it('calls the API when submit is pressed', async () => {
-    const detail = buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER } })
+    const detail = buildDetail({
+      submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist: CONFIRMED_CHECKLIST },
+    })
     await mountPage(detail)
     await goToLastStep()
     saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
@@ -672,7 +677,7 @@ describe('dropping a file onto a slot', () => {
     await flushPromises()
 
     expect(uploadSubmissionFile).not.toHaveBeenCalled()
-    expect(wrapper!.find('.submission-message').text()).toContain('The limit is')
+    expect(wrapper!.find('.submission-message').text()).toContain('over the')
   })
 
   it('ignores a drop once submissions are closed', async () => {
@@ -969,112 +974,402 @@ describe('the poster template link', () => {
   })
 })
 
-describe('what the format checks found about the poster', () => {
-  const warned = (warnings: { code: string; message: string }[]) =>
+describe('the poster checklist', () => {
+  const withPoster = (checklist: Record<string, boolean>, warnings: { code: string; message: string }[] = []) =>
     buildDetail({
       submission: {
+        project_title: TITLE,
         answers: ANSWERED,
         poster: POSTER,
-        poster_checks: {
-          has_text: true,
-          unreadable: false,
-          warnings: warnings.map((w) => ({ ...w, passed: false })),
-        },
+        poster_checklist: checklist,
+        poster_checks: { has_text: true, unreadable: false, warnings: warnings.map((w) => ({ ...w, passed: false })) },
       },
     })
-
   const goToPoster = async () => {
     await buttonNamed(/Poster/)!.trigger('click')
     await flushPromises()
   }
+  const box = (key: string) => wrapper!.find(`#checklist-${key}`).element as HTMLInputElement
 
-  it('points at the requirements rather than naming what it could not find', async () => {
-    await mountPage(
-      warned([{ code: 'team_code', message: 'We could not find your team code (BTF1).' }]),
-    )
+  it('arrives with detected items ticked once a poster is attached', async () => {
+    await mountPage(withPoster({ team_code: true, page_size: true }))
     await goToPoster()
 
-    const notice = wrapper!.find('.poster-notice').text()
-    expect(notice).toContain('submission requirements')
-    expect(notice).not.toContain('could not find')
+    expect(box('team_code').checked).toBe(true)
+    expect(box('btf_logo').checked).toBe(false)
+    expect(wrapper!.find('[data-testid="poster-checklist"]').text()).toContain('2 of 5 confirmed')
   })
 
-  it('leads with the upload having worked, so it does not read as a refusal', async () => {
-    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
+  it('is shown but cannot be ticked before a poster is attached', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
     await goToPoster()
 
-    expect(wrapper!.find('.poster-notice').text()).toMatch(/^Uploaded\./)
+    expect(wrapper!.findAll('[data-testid="poster-checklist"] input')).toHaveLength(5)
+    expect(box('btf_logo').disabled).toBe(true)
   })
 
-  it('keeps the notice to a single line', async () => {
-    await mountPage(warned([{ code: 'team_code', message: 'Missing team code.' }]))
-    await goToPoster()
-
-    expect(wrapper!.findAll('.poster-notice p')).toHaveLength(1)
-  })
-
-  it('clears the notice by itself after four seconds', async () => {
-    vi.useFakeTimers()
-    try {
-      await mountPage(warned([{ code: 'a_series_size', message: 'Not an A-series size.' }]))
-      await goToPoster()
-      expect(wrapper!.find('.poster-notice').exists()).toBe(true)
-
-      await vi.advanceTimersByTimeAsync(4000)
-
-      expect(wrapper!.find('.poster-notice').exists()).toBe(false)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('does not warn at all when the poster passed every check', async () => {
-    await mountPage(
-      buildDetail({
-        submission: {
-          answers: ANSWERED,
-          poster: POSTER,
-          poster_checks: { has_text: true, unreadable: false, warnings: [] },
-        },
-      }),
-    )
-    await goToPoster()
-
-    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
-  })
-
-  it('says nothing about a poster that carried no readable text', async () => {
-    await mountPage(
-      buildDetail({
-        submission: {
-          answers: ANSWERED,
-          poster: POSTER,
-          poster_checks: { has_text: false, unreadable: false, warnings: [] },
-        },
-      }),
-    )
-    await goToPoster()
-
-    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
-  })
-
-  it('reports on the submitted poster once the entry is locked', async () => {
-    // The draft and submitted findings disagree, so the wrong one would show a notice.
-    const detail = submittedDetail()
-    detail.submission!.poster_checks = {
-      has_text: true,
-      unreadable: false,
-      warnings: [{ code: 'team_code', message: 'Draft finding.', passed: false }],
-    }
-    detail.submission!.submitted_poster_checks = {
-      has_text: true,
-      unreadable: false,
-      warnings: [],
-    }
+  it('saves only the ticks that changed', async () => {
+    const detail = withPoster({ team_code: true })
     await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
     await goToPoster()
 
-    expect(wrapper!.find('.poster-notice').exists()).toBe(false)
+    await wrapper!.find('#checklist-btf_logo').setValue(true)
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft.mock.calls.at(-1)![1].poster_checklist).toEqual({ btf_logo: true })
+  })
+
+  it('takes the whole platform to the top when an upload is refused', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    uploadSubmissionFile.mockRejectedValue(new Error('Your poster must be in portrait orientation.'))
+    await goToPoster()
+    const scroller = wrapper!.element.parentElement!
+    Object.defineProperty(scroller, 'scrollTop', { configurable: true, value: 400 })
+    scroller.scrollTo = vi.fn()
+    const windowScroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'poster.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain('portrait orientation')
+    expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+    expect(windowScroll).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+    windowScroll.mockRestore()
+  })
+
+  it('holds Submit until every item is ticked', async () => {
+    await mountPage(withPoster({ ...CONFIRMED_CHECKLIST, btf_logo: false }))
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'Please tick every item in the poster checklist before submitting.'
+    )
+    expect(document.activeElement?.id).toBe('checklist-btf_logo')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('the admin view', () => {
+  const asAdmin = (detail: SubmissionDetail): SubmissionDetail => ({ ...detail, admin_access: true })
+  const draft = (isOpen = false, poster_checklist: Record<string, boolean> = CONFIRMED_CHECKLIST) =>
+    asAdmin(
+      buildDetail({ isOpen, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist, stage: 'in_progress' } })
+    )
+  const submitted = (isOpen = false) => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = isOpen
+    detail.submission!.project_title = TITLE
+    detail.submission!.submitted_project_title = TITLE
+    detail.submission!.poster_checklist = CONFIRMED_CHECKLIST
+    return asAdmin(detail)
+  }
+  const click = async (testId: string) => {
+    await wrapper!.find(`[data-testid="${testId}"]`).trigger('click')
+    await flushPromises()
+  }
+  const box = () => wrapper!.find('#inspiration')
+  const result = (detail: SubmissionDetail) => ({ deadline: detail.deadline, submission: detail.submission! })
+
+  it('opens read-only in every state, with its own bar instead of the team status', async () => {
+    await mountPage(draft(true))
+
+    expect(box().attributes('disabled')).toBeDefined()
+    const bar = wrapper!.find('[data-testid="admin-bar"]').text()
+    expect(bar).toContain('BTF1')
+    expect(bar).toContain('Draft, not submitted')
+    expect(bar).toContain('Can edit until')
+    expect(wrapper!.find('.status-line').exists()).toBe(false)
+    expect(buttonNamed(/^Submit$/)).toBeUndefined()
+  })
+
+  it('edits without saving anything until Save', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+
+    await box().setValue('Fixed by the programme.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Unsaved changes')
+  })
+
+  it("saves to the team's draft on Save, then goes back to read-only", async () => {
+    const detail = draft()
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-save')
+
+    expect(saveDraft.mock.calls.at(-1)![1].answers).toEqual({ inspiration: 'Fixed by the programme.' })
+    expect(wrapper!.find('.submission-message').text()).toContain("Saved to BTF1's draft.")
+    expect(box().attributes('disabled')).toBeDefined()
+  })
+
+  it('asks before reopening a submitted entry while the round is open', async () => {
+    const detail = submitted(true)
+    await mountPage(detail)
+    reopenEntry.mockResolvedValue(result(reopenedDetail()))
+    saveDraft.mockResolvedValue(result(reopenedDetail()))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-save')
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Reopen for the team?')
+    await click('admin-dialog-confirm')
+
+    expect(reopenEntry).toHaveBeenCalled()
+    expect(saveDraft).toHaveBeenCalled()
+  })
+
+  it('submits a submitted entry for the team after the deadline without reopening it', async () => {
+    const detail = submitted()
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    submitEntry.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-submit')
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('This becomes their latest submission')
+    await click('admin-dialog-confirm')
+
+    expect(submitEntry).toHaveBeenCalled()
+    expect(reopenEntry).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('Submitted for BTF1.')
+  })
+
+  it('needs every checklist item ticked to submit, without the template checks', async () => {
+    await mountPage(draft(false, { ...CONFIRMED_CHECKLIST, btf_logo: false }))
+    await click('admin-edit')
+
+    await click('admin-submit')
+
+    expect(wrapper!.find('.submission-message').text()).toContain('Please tick every item in the poster checklist')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('starts the checklist afresh for a new poster, and sends every tick with it', async () => {
+    const detail = draft()
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue(result(detail))
+    saveDraft.mockResolvedValue(result(detail))
+    submitEntry.mockResolvedValue(result(submitted()))
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect((wrapper!.find('#checklist-team_code').element as HTMLInputElement).checked).toBe(false)
+
+    for (const key of Object.keys(CONFIRMED_CHECKLIST)) await wrapper!.find(`#checklist-${key}`).setValue(true)
+    await click('admin-submit')
+    await click('admin-dialog-confirm')
+
+    expect(saveDraft.mock.calls.at(-1)![1].poster_checklist).toEqual(CONFIRMED_CHECKLIST)
+    expect(submitEntry).toHaveBeenCalled()
+  })
+
+  it('holds an uploaded file until Save', async () => {
+    const detail = draft()
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue(result(detail))
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+    expect(wrapper!.text()).toContain('not saved yet')
+
+    await click('admin-save')
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', expect.any(File), expect.any(Function))
+  })
+
+  it('discards changes after asking', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Not wanted.')
+
+    await click('admin-discard')
+    await click('admin-dialog-confirm')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe(ANSWERED.inspiration)
+    expect(box().attributes('disabled')).toBeDefined()
+  })
+
+  it('warns before overwriting an answer the team changed meanwhile', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ submission: { project_title: TITLE, answers: { ...ANSWERED, inspiration: 'The team’s edit' }, poster: POSTER } }))
+    )
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('admin-dialog-cancel')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  const savedByTeam = (inspiration: string, isOpen = false) =>
+    asAdmin(buildDetail({ isOpen, submission: { project_title: TITLE, answers: { ...ANSWERED, inspiration }, poster: POSTER, stage: 'in_progress' } }))
+
+  it("starts editing from the team's latest saved answers", async () => {
+    await mountPage(draft())
+    fetchSubmission.mockResolvedValue(savedByTeam('Saved by the team since.'))
+
+    await click('admin-edit')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Saved by the team since.')
+  })
+
+  it("shows the team's latest saved answers on leaving edit mode", async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    fetchSubmission.mockResolvedValue(savedByTeam('Saved by the team while you edited.'))
+
+    await click('admin-done')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Saved by the team while you edited.')
+  })
+
+  it('catches up on what the team saved while viewing', async () => {
+    await mountPage(draft(true))
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!
+    socket.readyState = FakeSocket.OPEN
+    socket.onopen?.()
+    const fromBen = (message: object) =>
+      socket.onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+    fetchSubmission.mockResolvedValue(savedByTeam('Ben’s saved answer.', true))
+
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    await flushPromises()
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Ben’s saved answer.')
+  })
+
+  it('asks to reopen if the team submitted while you were editing, in an open round', async () => {
+    await mountPage(draft(true))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    fetchSubmission.mockResolvedValue(submitted(true))
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Reopen for the team?')
+    await click('admin-dialog-cancel')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps changes off a submission the team made while you were editing, after the deadline', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    const teamSubmitted = submitted()
+    fetchSubmission.mockResolvedValue(teamSubmitted)
+    saveDraft.mockResolvedValue(result(teamSubmitted))
+
+    await click('admin-save')
+
+    expect(reopenEntry).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('BTF1 still sees their submission until you submit.')
+  })
+
+  it('shows a link the team just added while viewing', async () => {
+    await mountPage(draft(true))
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!
+    socket.readyState = FakeSocket.OPEN
+    socket.onopen?.()
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ isOpen: true, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, prototype_url: 'https://example.com/demo', stage: 'in_progress' } }))
+    )
+
+    socket.onmessage?.({ data: JSON.stringify({ type: 'changed', item: 'link', user: { id: 9, name: 'Ben' } }) })
+    await flushPromises()
+
+    expect((wrapper!.find('#prototype-url').element as HTMLInputElement).value).toBe('https://example.com/demo')
+  })
+
+  it('treats a poster the team replaced meanwhile as a conflict', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    const replaced = { ...POSTER, storage_key: 'x/team-new.pdf' }
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: replaced, stage: 'in_progress' } }))
+    )
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="admin-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('admin-dialog-cancel')
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+  })
+
+  it('says when a submitted entry has saved changes not yet submitted', async () => {
+    const detail = submitted()
+    detail.submission!.answers = { ...ANSWERED, inspiration: 'Saved by an admin, not submitted.' }
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('saved changes not yet submitted')
+  })
+
+  it('keeps the bar current while viewing, as the team saves', async () => {
+    await mountPage(asAdmin(buildDetail({ isOpen: true, submission: null })))
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!
+    socket.readyState = FakeSocket.OPEN
+    socket.onopen?.()
+    fetchSubmission.mockResolvedValue(savedByTeam('A first answer.', true))
+
+    const fromBen = (message: object) =>
+      socket.onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+
+    // An ordinary save sends no signal of its own; the catch-up follows Ben stopping typing.
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Draft, not submitted')
+  })
+
+  it('asks before leaving for another team with unsaved changes', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Unsaved.')
+    const confirm = vi.fn().mockReturnValue(false)
+    vi.stubGlobal('confirm', confirm)
+
+    await wrapper!.vm.$router.push('/groups/2/submission')
+
+    expect(confirm).toHaveBeenCalled()
+    expect(wrapper!.vm.$route.params.id).toBe('1')
   })
 })
 
@@ -1164,6 +1459,8 @@ describe('what the status line says', () => {
     expect(text).toContain('Submitted')
     expect(text).toContain('unfinished revision was not submitted')
     expect(text).not.toContain('In Progress')
+    expect(text).toContain('Submissions are closed. Your unfinished revision')
+    expect(text).not.toContain('..')
   })
 })
 
@@ -1646,6 +1943,56 @@ describe('bringing boxes back in line after live text', () => {
     expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('My unsaved change')
     expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s draft, finished')
   })
+
+  it('catches up on coming back to the tab, so an old answer is never edited over', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    fetchSubmission.mockResolvedValue(savedByBen('Ben wrote this while you were away'))
+
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    await flushPromises()
+    visibility.mockRestore()
+
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe(
+      'Ben wrote this while you were away'
+    )
+  })
+
+  it('fetches again when your own save lands while a refresh is loading', async () => {
+    const detail = buildDetail({ submission: { answers: ANSWERED } })
+    await mountPage(detail)
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    let finishSave: (value: unknown) => void = () => undefined
+    saveDraft.mockReturnValueOnce(new Promise((resolve) => (finishSave = resolve)))
+    let finishRefresh: (value: unknown) => void = () => undefined
+    fetchSubmission.mockReturnValueOnce(new Promise((resolve) => (finishRefresh = resolve)))
+
+    await wrapper!.find('#solution_purpose').setValue('My latest answer')
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    // The autosave goes out at 2 s and the refresh at 2.5 s; both are still loading.
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    const mine = { ...ANSWERED, solution_purpose: 'My latest answer', inspiration: 'Ben’s answer' }
+    fetchSubmission.mockResolvedValue(buildDetail({ submission: { answers: mine } }))
+    finishSave({ deadline: detail.deadline, submission: buildDetail({ submission: { answers: mine } }).submission })
+    await flushPromises()
+    // The refresh began before the save landed, so it holds the old answer.
+    finishRefresh(savedByBen('Ben’s answer'))
+    await flushPromises()
+
+    expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('My latest answer')
+    expect((wrapper!.find('#inspiration').element as HTMLTextAreaElement).value).toBe('Ben’s answer')
+  })
 })
 
 describe('live panel and title', () => {
@@ -1722,6 +2069,30 @@ describe('changes made elsewhere', () => {
     expect(wrapper!.find('.submission-message').exists()).toBe(false)
   })
 
+  it('picks up a teammate’s new prototype link', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+    fetchSubmission.mockResolvedValue(buildDetail({ submission: { answers: ANSWERED, prototype_url: 'https://example.com/demo' } }))
+
+    changed('draft')
+    await flushPromises()
+
+    expect((wrapper!.find('#prototype-url').element as HTMLInputElement).value).toBe('https://example.com/demo')
+  })
+
+  it('picks up checklist ticks an admin saved', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    openSocket()
+    fetchSubmission.mockResolvedValue(
+      buildDetail({ submission: { answers: ANSWERED, poster: POSTER, poster_checklist: { btf_logo: true } } })
+    )
+
+    changed('draft')
+    await flushPromises()
+
+    expect((wrapper!.find('#checklist-btf_logo').element as HTMLInputElement).checked).toBe(true)
+  })
+
   it('picks up a teammate’s new poster without touching what you are typing', async () => {
     await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
     openSocket()
@@ -1738,5 +2109,159 @@ describe('changes made elsewhere', () => {
     await buttonNamed(/Poster/)!.trigger('click')
     await flushPromises()
     expect(wrapper!.text()).toContain('poster.pdf')
+  })
+
+  it("takes a teammate's checklist ticks, keeping one ticked here and not yet saved", async () => {
+    const poster = (checklist: Record<string, boolean>) =>
+      buildDetail({ submission: { answers: ANSWERED, poster: POSTER, poster_checklist: checklist } })
+    await mountPage(poster({}))
+    openSocket()
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('#checklist-school_logo').setValue(true)
+    fetchSubmission.mockResolvedValue(poster({ btf_logo: true }))
+
+    changed('checklist')
+    await flushPromises()
+
+    const box = (key: string) => wrapper!.find(`#checklist-${key}`).element as HTMLInputElement
+    expect(box('btf_logo').checked).toBe(true)
+    expect(box('school_logo').checked).toBe(true)
+  })
+})
+
+describe('the prototype link', () => {
+  const linkInput = () => wrapper!.find('#prototype-url')
+  const linkNote = () => wrapper!.find('#prototype-url-note')
+  const waitForAutosave = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+  }
+
+  const mountEditable = async () => {
+    const detail = buildDetail({
+      submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist: CONFIRMED_CHECKLIST },
+    })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    await goToLastStep()
+  }
+
+  it('adds https:// to a link given without it, and saves that', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('www.figma.com/file/abc')
+    await linkInput().trigger('blur')
+    await waitForAutosave()
+
+    expect((linkInput().element as HTMLInputElement).value).toBe('https://www.figma.com/file/abc')
+    expect(linkNote().exists()).toBe(false)
+    expect(saveDraft).toHaveBeenLastCalledWith(
+      '1',
+      expect.objectContaining({ prototype_url: 'https://www.figma.com/file/abc' }),
+    )
+  })
+
+  it('does not flag a link while it is still being typed', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('fig')
+
+    expect(linkNote().exists()).toBe(false)
+  })
+
+  it('flags text that is not a link and keeps saving the rest without it', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('on our drive')
+    await linkInput().trigger('blur')
+    await waitForAutosave()
+
+    expect(linkNote().text()).toContain("doesn't look like a web link")
+    expect(linkInput().attributes('aria-invalid')).toBe('true')
+    const sent = saveDraft.mock.calls.at(-1)![1]
+    expect(sent).not.toHaveProperty('prototype_url')
+    expect(sent).toHaveProperty('answers')
+  })
+
+  it('flags a link over 500 characters', async () => {
+    await mountEditable()
+
+    await linkInput().setValue(`https://example.com/${'a'.repeat(490)}`)
+    await linkInput().trigger('blur')
+
+    expect(linkNote().text()).toContain('longer than 500 characters')
+  })
+
+  it('only sends the link when it was changed here', async () => {
+    const detail = buildDetail({
+      submission: { project_title: TITLE, answers: ANSWERED, prototype_url: 'https://example.com/demo' },
+    })
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+
+    await wrapper!.find('#inspiration').setValue('An edit')
+    await waitForAutosave()
+
+    expect(saveDraft.mock.calls[0]![1]).not.toHaveProperty('prototype_url')
+  })
+
+  it('stops a submit until the link is fixed or cleared', async () => {
+    await mountEditable()
+
+    await linkInput().setValue('on our drive')
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('.submission-message').text()).toContain(
+      'The prototype link needs fixing before the entry can be submitted.',
+    )
+    expect(document.activeElement?.id).toBe('prototype-url')
+    expect(linkNote().exists()).toBe(true)
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+})
+
+describe('stretching an answer box', () => {
+  it('gives each question a grip on its bottom border that sets the box height', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    const field = () => wrapper!.find('#inspiration').element.closest('.submission-field')!
+    const handle = wrapper!.findAll('[data-testid="stretch-handle"]')[1]!
+
+    await handle.trigger('keydown', { key: 'ArrowDown' })
+
+    expect(wrapper!.findAll('[data-testid="stretch-handle"]')).toHaveLength(2)
+    expect((field().querySelector('textarea') as HTMLTextAreaElement).style.height).toMatch(/px$/)
+  })
+})
+
+describe('automated submission', () => {
+  it('says the entry was submitted automatically, and when', async () => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = false
+    detail.submission!.auto_submitted = true
+    detail.submission!.submitted_by_name = ''
+    await mountPage(detail)
+
+    const line = wrapper!.find('.status-line').text()
+    expect(line).toContain('Submitted')
+    expect(line).toMatch(/Automated Submission on \S/)
+    expect(line).not.toContain('By ')
+  })
+
+  it('names the person for an ordinary submission', async () => {
+    const detail = submittedDetail()
+    detail.submission!.submitted_by_name = 'Laura Bennett'
+    await mountPage(detail)
+
+    expect(wrapper!.find('.status-line').text()).toContain('By Laura Bennett on')
+  })
+})
+
+describe('answer box size', () => {
+  it('opens each answer box at seven lines', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+
+    expect(wrapper!.find('#inspiration').attributes('rows')).toBe('7')
   })
 })

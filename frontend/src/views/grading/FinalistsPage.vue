@@ -35,7 +35,10 @@
         :empty-message="groupQuery.trim() ? 'No groups match your search.' : 'No groups.'"
         :action-columns="2"
         :show-all-details="showDetails"
+        clickable-rows
+        :row-clickable="(row) => candidateOf(row).has_submission"
         @update:sort="toggleSort($event.key)"
+        @row-click="openGroup(candidateOf($event).group_id)"
       >
         <template v-if="candidatesResp" #stats>
           {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked ·
@@ -184,6 +187,8 @@
         search-placeholder="Group name"
         empty-message="No finalists yet."
         :action-columns="2"
+        clickable-rows
+        @row-click="openGroup(finalistOf($event).group_id)"
       >
         <template #head-marker>
           Marker
@@ -274,6 +279,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   addFinalist,
   fetchFinalistCandidates,
@@ -287,6 +293,7 @@ import {
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatShortDateTime } from '@/utils/date'
 
 const list = ref<FinalistListResponse | null>(null)
 const isLoading = ref(false)
@@ -405,6 +412,10 @@ const marksTableColumns = computed<DataTableColumn[]>(() => [
 ])
 const candidateOf = (row: Record<string, unknown>) => row as unknown as FinalistCandidateRow
 
+// A group's name opens its marking, as its Open does.
+const router = useRouter()
+const openGroup = (groupId: number) => router.push(`/grading/groups/${groupId}`)
+
 // The Group Marks ranking keyed by group, so the Current Finalists table
 // can show each finalist's total and marker.
 const candidatesByGroup = computed(
@@ -417,20 +428,14 @@ const totalsByGroup = computed(
 // Current Finalists' columns, none sorted: # is the order they were picked.
 const finalistColumns: DataTableColumn[] = [
   { key: 'order', label: '#', sortable: false },
-  { key: 'group', label: 'Group', sortable: false },
+  // Names the row, though # comes first.
+  { key: 'group', label: 'Group', sortable: false, primary: true },
   { key: 'flaggedAt', label: 'Flagged at', sortable: false },
   { key: 'flaggedBy', label: 'Flagged by', sortable: false },
   { key: 'late', label: 'Late', sortable: false },
   { key: 'total', label: 'Total', sortable: false },
   { key: 'marker', label: 'Marker', sortable: false }
 ]
-
-const flaggedAtText = (at: string) => {
-  const when = new Date(at)
-  const date = when.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
-  const time = when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-  return `${date} ${time}`
-}
 
 // Each finalist as a table row: plain text for search, and the finalist itself
 // for the cells drawn here.
@@ -442,7 +447,7 @@ const finalistRows = computed(() =>
       finalist: f,
       order: finalistsInOrder.value.length - i,
       group: f.group_name,
-      flaggedAt: flaggedAtText(f.flagged_at),
+      flaggedAt: formatShortDateTime(f.flagged_at),
       flaggedBy: f.flagged_by ?? '—',
       late: candidate?.is_late ? candidate.late_by || 'Late' : '—',
       total: totalsByGroup.value.get(f.group_id) ?? '—',

@@ -697,6 +697,20 @@ class ResourceListFilterValidationTests(StorageCleanupMixin, TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("label_id", response.data["fields"])
 
+    def test_kind_filter_returns_only_that_kind(self):
+        response = self._list(kind="page")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 2)
+
+        response = self._list(kind="file")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"], [])
+
+    def test_kind_unknown_returns_400(self):
+        response = self._list(kind="video")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("kind", response.data["fields"])
+
     def test_label_id_unknown_returns_empty_results(self):
         response = self._list(label_id=999999)
         self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -60,6 +60,7 @@ const router = createRouter({
 
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
+import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
 
 router.beforeEach((to, from, next) => {
 
@@ -99,6 +100,9 @@ router.beforeEach((to, from, next) => {
     }
 
     next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
+  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from supervisors until Management > Supervisor Visibility shows them.
+    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

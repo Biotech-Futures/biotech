@@ -31,6 +31,7 @@ import { useRoute } from 'vue-router'
 const route = useRoute()
 
 const tabs = [
+  { label: 'Supervisor Visibility', to: '/management/supervisor-visibility' },
   { label: 'Submission Deadline', to: '/management/submission-deadline' },
   { label: 'Extend Deadline', to: '/management/extend-deadline' },
   { label: 'Notify Finalists', to: '/management/notify-finalists' },

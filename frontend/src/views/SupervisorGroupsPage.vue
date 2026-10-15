@@ -2,7 +2,7 @@
   <div class="content-area supervisor-groups-page">
     <p v-if="loading" class="supervisor-muted">Loading groups...</p>
 
-    <section v-else class="waiting-area" aria-label="Waiting Area" @dragover.prevent @drop="onDropWaiting">
+    <section v-else class="waiting-area" aria-label="Waiting Area" @dragover="onDragOverWaiting" @drop="onDropWaiting">
       <p v-if="flashMessage" class="waiting-flash" role="status">{{ flashMessage }}</p>
       <div class="waiting-area-header">
         <h1>Waiting Area</h1>
@@ -10,11 +10,14 @@
           {{ waitingStudents.length }} {{ waitingStudents.length === 1 ? 'Student' : 'Students' }}
         </span>
       </div>
-      <p class="waiting-copy">
+      <!-- Each its own paragraph, the same gap between each line of text and
+           above the students. -->
+      <p class="waiting-copy waiting-copy--tight">
         Students in this area will be assigned to a group on the challenge start date.
-        Students will be matched to groups in the supervisor's school, or in or out of the
-        supervisor's school.
+        Students will be matched to groups in your school, or in or out of your school.
       </p>
+      <p class="waiting-copy waiting-copy--tight">Click a student to see their details.</p>
+      <p class="waiting-copy">Drag and drop students around the page from one box to another.</p>
       <div class="waiting-bubbles">
         <button
           v-for="student in waitingStudents"
@@ -23,6 +26,8 @@
           class="student-bubble"
           draggable="true"
           @dragstart="onDragStart($event, student.id)"
+          @dragend="draggingId = null"
+          @click="sheetStudentId = student.id"
         >
           {{ studentName(student) }}
         </button>
@@ -35,38 +40,52 @@
     <section v-if="!loading" class="groups-board">
       <div class="groups-board-toolbar">
         <div class="groups-board-heading">
-          <label class="group-select-all">
-            <input
-              type="checkbox"
-              class="group-check"
-              :checked="allGroupsSelected"
-              :indeterminate.prop="someGroupsSelected"
-              :aria-label="allGroupsSelected ? 'Deselect all groups' : 'Select all groups'"
-              @change="toggleSelectAll"
-            />
-            <h2>My Groups</h2>
-          </label>
+          <h2>My Groups</h2>
         </div>
         <div class="groups-board-toolbar-actions">
           <button type="button" class="btn btn-primary" @click="openCreateGroup">Create Group</button>
         </div>
       </div>
-      <p v-if="selectedGroupIds.size" class="groups-bulk">
-        {{ selectedGroupIds.size }} selected
-        <button type="button" class="btn btn-outline btn-sm" @click="pendingBulkDelete = true">
-          Delete selected
-        </button>
-      </p>
+      <div v-if="groups.length" class="groups-bulk">
+        <label class="groups-select-all">
+          <input type="checkbox" class="group-check" :checked="allSelected" @change="toggleSelectAll" />
+          Select all
+        </label>
+        <!-- There, hidden, while nothing's ticked: the row is already as tall
+             as with Delete selected, so ticking a card doesn't move the cards. -->
+        <span :class="{ 'groups-bulk-hidden': !selectedGroupIds.size }">{{ selectedGroupIds.size }} selected</span>
+        <span class="groups-bulk-actions" :class="{ 'groups-bulk-hidden': !selectedGroupIds.size }">
+          <button type="button" class="btn btn-outline btn-sm" @click="pendingBulkDelete = true">
+            Delete selected
+          </button>
+        </span>
+      </div>
       <article
         v-for="group in groups"
         :key="group.id"
         class="group-card"
-        :class="{ selected: selectedGroupIds.has(group.id) }"
-        @dragover.prevent
+        :class="{
+          selected: selectedGroupIds.has(group.id),
+          'group-card--full': isFullFor(group),
+          'group-card--drop-target': dropTargetGroupId === group.id,
+          'group-card--moving': draggingGroupId === group.id,
+        }"
+        @dragover="onDragOver($event, group)"
         @drop="onDrop($event, group.id)"
       >
         <div class="group-card-header">
           <div class="group-card-title">
+            <!-- Drag a group by this to move it among the others. -->
+            <span
+              class="group-drag-handle"
+              draggable="true"
+              :title="`Drag to move ${group.name}`"
+              :aria-label="`Move ${group.name}`"
+              @dragstart="onGroupDragStart($event, group.id)"
+              @dragend="endGroupDrag"
+            >
+              <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+            </span>
             <input
               type="checkbox"
               class="group-check"
@@ -81,31 +100,49 @@
           </div>
         </div>
 
-        <div v-if="group.sharedInterests.length" class="interest-tags">
-          <span v-for="interest in group.sharedInterests" :key="interest" class="interest-tag">
-            {{ interest }}
-          </span>
-        </div>
-        <p v-else class="supervisor-muted">No areas of interest tagged yet.</p>
+        <!-- What its students share, each counted, headed like Students. -->
+        <h3>Shared Areas of Interest</h3>
+        <SharedInterestChips
+          v-if="group.shared.length"
+          :interests="group.shared"
+          :total="group.students.length"
+          numbered
+        />
+        <p v-else class="supervisor-muted">None yet.</p>
 
         <h3>Students</h3>
         <ul class="student-rows">
-          <li v-for="student in group.students" :key="student.id">
+          <li v-for="(student, index) in group.students" :key="student.id">
             <button
               type="button"
               class="student-row"
               draggable="true"
               @dragstart="onDragStart($event, student.id)"
+              @dragend="draggingId = null"
+              @click="sheetStudentId = student.id"
             >
+              <!-- The number the areas of interest above show them by. -->
+              <span class="student-number">{{ index + 1 }}</span>
               {{ studentName(student) }}
             </button>
           </li>
-          <li v-if="!group.students.length" class="supervisor-muted">
-            No students in this group. Drop a student here.
+          <li v-if="!group.students.length" class="supervisor-muted">No students in this group.</li>
+          <!-- Under the students until the group is full. Only a hint: a drop on
+               it lands on the card, as anywhere else on it. -->
+          <li v-if="group.students.length < groupLimit" class="drop-hint">
+            Drag and drop students from other boxes
           </li>
         </ul>
       </article>
     </section>
+
+    <!-- A student's details, opened by clicking their box, as on My Students. -->
+    <SupervisorStudentSheet
+      :student="sheetStudent"
+      @close="sheetStudentId = null"
+      @saved="students = $event"
+      @updated="students = students.map((student) => (student.id === $event.id ? $event : student))"
+    />
 
     <GroupEditorModal
       v-if="editorGroup"
@@ -115,7 +152,6 @@
       :current-user-id="auth.user?.id ?? null"
       @close="closeEditor"
       @updated="onGroupUpdated"
-      @deleted="onGroupDeleted"
     />
 
     <div v-if="pendingSchoolMove" class="bulk-delete-backdrop">
@@ -151,7 +187,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import SharedInterestChips from '@/components/SharedInterestChips.vue'
 import GroupEditorModal from '@/components/supervisor/GroupEditorModal.vue'
+import SupervisorStudentSheet from '@/components/supervisor/SupervisorStudentSheet.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
@@ -159,6 +197,7 @@ import {
   addSupervisedGroupMembers,
   deleteSupervisedGroup,
   fetchSupervisedGroups,
+  saveSupervisedGroupOrder,
   removeSupervisedGroupMembers,
   type AvailableMentor,
   type SupervisedGroup,
@@ -168,8 +207,10 @@ import {
   fullName,
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
+import { DEFAULT_GROUP_MAX_SIZE, GROUP_FULL_MESSAGE } from '@/utils/groupCapacity'
+import { sharedInterests } from '@/utils/groupInterests'
 
-const GROUP_LIMIT = 5
+const GROUP_LIMIT = DEFAULT_GROUP_MAX_SIZE
 const groupLimit = GROUP_LIMIT
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
@@ -177,6 +218,9 @@ const loading = ref(true)
 const flashMessage = ref('')
 let flashTimer: ReturnType<typeof setTimeout> | null = null
 const students = ref<SupervisedStudent[]>([])
+// The student whose details panel is open.
+const sheetStudentId = ref<number | null>(null)
+const sheetStudent = computed(() => students.value.find((student) => student.id === sheetStudentId.value) ?? null)
 const assignment = ref<Record<number, number | null>>({})
 const supervisedGroups = ref<SupervisedGroup[]>([])
 const editorGroup = ref<SupervisedGroup | null>(null)
@@ -223,6 +267,7 @@ const studentChoices = computed<AvailableMentor[]>(() =>
     group_id: student.group_id,
     group_name: student.group_name,
     school_name: student.school_name,
+    interests: student.interests,
   })),
 )
 
@@ -269,33 +314,22 @@ const waitingStudents = computed(() =>
   students.value.filter((student) => !assignment.value[student.id]),
 )
 
+// In the supervisor's own order, as the server gives it and moving them sets.
 const groups = computed(() => {
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-  return [...supervisedGroups.value]
-    .sort((left, right) => collator.compare(left.group_name, right.group_name))
+  return supervisedGroups.value
     .map((owned) => {
       const members = students.value.filter(
         (student) => assignment.value[student.id] === owned.id,
       )
-      const tagged = owned.interests ?? []
-      const sharedInterests = tagged.length
-        ? tagged
-        : [...new Set(members.flatMap((member) => member.interests))]
       return {
         id: owned.id,
         name: owned.group_name,
         students: members,
-        sharedInterests,
+        shared: sharedInterests(members.map((member) => member.interests)),
       }
     })
 })
 
-const allGroupsSelected = computed(
-  () => groups.value.length > 0 && groups.value.every((group) => selectedGroupIds.value.has(group.id)),
-)
-const someGroupsSelected = computed(
-  () => !allGroupsSelected.value && groups.value.some((group) => selectedGroupIds.value.has(group.id)),
-)
 
 const toggleGroup = (groupId: number) => {
   const next = new Set(selectedGroupIds.value)
@@ -304,10 +338,11 @@ const toggleGroup = (groupId: number) => {
   selectedGroupIds.value = next
 }
 
+const allSelected = computed(
+  () => groups.value.length > 0 && groups.value.every((group) => selectedGroupIds.value.has(group.id)),
+)
 const toggleSelectAll = () => {
-  selectedGroupIds.value = allGroupsSelected.value
-    ? new Set()
-    : new Set(groups.value.map((group) => group.id))
+  selectedGroupIds.value = allSelected.value ? new Set() : new Set(groups.value.map((group) => group.id))
 }
 
 const applyOwnedGroup = (group: SupervisedGroup) => {
@@ -350,7 +385,7 @@ const moveStudent = async (studentId: number, groupId: number | null) => {
     }
     const destCount = students.value.filter((student) => assignment.value[student.id] === groupId).length
     if (destCount >= GROUP_LIMIT) {
-      showFlash(`This group already has ${GROUP_LIMIT} students.`)
+      showFlash(GROUP_FULL_MESSAGE)
       return
     }
   }
@@ -376,16 +411,94 @@ const moveStudent = async (studentId: number, groupId: number | null) => {
   }
 }
 
+// The student being dragged, so a full group can show it won't take them.
+const draggingId = ref<number | null>(null)
+
 const onDragStart = (event: DragEvent, studentId: number) => {
   event.dataTransfer?.setData('text/plain', String(studentId))
+  draggingId.value = studentId
+}
+
+// A group with no room for the dragged student, who isn't already in it.
+const isFullFor = (group: { students: { id: number }[] }) =>
+  draggingId.value !== null &&
+  group.students.length >= groupLimit &&
+  !group.students.some((student) => student.id === draggingId.value)
+
+// A group being moved, and the group it would take the place of.
+const draggingGroupId = ref<number | null>(null)
+const dropTargetGroupId = ref<number | null>(null)
+
+const onGroupDragStart = (event: DragEvent, groupId: number) => {
+  draggingGroupId.value = groupId
+  if (!event.dataTransfer) return
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('application/x-group', String(groupId))
+  // The whole box follows the pointer, not just the handle.
+  const card = (event.target as HTMLElement).closest('.group-card')
+  if (card) event.dataTransfer.setDragImage(card, 24, 24)
+}
+
+const endGroupDrag = () => {
+  draggingGroupId.value = null
+  dropTargetGroupId.value = null
+}
+
+// Moves the dragged group into the target's place: after it when moving
+// down the page, before it when moving up. Saved for the supervisor.
+const moveGroupTo = async (targetId: number) => {
+  const movingId = draggingGroupId.value
+  endGroupDrag()
+  if (movingId === null || movingId === targetId) return
+  const before = [...supervisedGroups.value]
+  const from = before.findIndex((group) => group.id === movingId)
+  const to = before.findIndex((group) => group.id === targetId)
+  if (from < 0 || to < 0) return
+  const next = [...before]
+  const [moving] = next.splice(from, 1)
+  next.splice(to, 0, moving!)
+  supervisedGroups.value = next
+  try {
+    await saveSupervisedGroupOrder(next.map((group) => group.id))
+  } catch (saveError) {
+    supervisedGroups.value = before
+    showFlash(saveError instanceof Error ? saveError.message : 'The new order could not be saved.')
+  }
+}
+
+// Students drop here; a group being moved doesn't.
+const onDragOverWaiting = (event: DragEvent) => {
+  if (draggingGroupId.value === null) event.preventDefault()
+}
+
+// Only a group with room takes the drop; a full one shows the no-drop cursor.
+// A group being moved can go in any other group's place.
+const onDragOver = (event: DragEvent, group: { id: number; students: { id: number }[] }) => {
+  if (draggingGroupId.value !== null) {
+    event.preventDefault()
+    dropTargetGroupId.value = group.id === draggingGroupId.value ? null : group.id
+    return
+  }
+  if (isFullFor(group)) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    return
+  }
+  event.preventDefault()
 }
 
 const onDropWaiting = (event: DragEvent) => {
+  if (draggingGroupId.value !== null) return
   const studentId = Number(event.dataTransfer?.getData('text/plain'))
   if (Number.isFinite(studentId)) void moveStudent(studentId, null)
 }
 
 const onDrop = (event: DragEvent, groupId: number) => {
+  if (draggingGroupId.value !== null) {
+    event.preventDefault()
+    void moveGroupTo(groupId)
+    return
+  }
+  draggingId.value = null
   const studentId = Number(event.dataTransfer?.getData('text/plain'))
   if (!Number.isFinite(studentId)) return
   const student = students.value.find((item) => item.id === studentId)
@@ -558,6 +671,13 @@ onMounted(async () => {
   margin: 0.45rem 0 0.85rem;
 }
 
+/* Text over text leaves more room than text over a box, so the hint's
+   paragraphs sit closer to look as far apart as the last one is from the
+   students below it. */
+.waiting-copy--tight {
+  margin-bottom: 0.45rem;
+}
+
 .waiting-count,
 .group-count {
   padding: 0.25rem 0.65rem;
@@ -602,7 +722,6 @@ onMounted(async () => {
 .groups-board-toolbar,
 .groups-board-heading,
 .groups-board-toolbar-actions,
-.group-select-all,
 .group-card-title,
 .groups-bulk,
 .bulk-delete-actions {
@@ -618,7 +737,6 @@ onMounted(async () => {
 }
 
 .groups-board-heading,
-.group-select-all,
 .group-card-title,
 .groups-bulk,
 .groups-board-toolbar-actions {
@@ -658,30 +776,70 @@ onMounted(async () => {
   transform: translate(-50%, -50%);
 }
 
-.group-check:indeterminate {
-  background: var(--dark-green, #017151);
-  border-color: var(--dark-green, #017151);
-}
-
-.group-check:indeterminate::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0.55rem;
-  height: 2px;
-  background: #fff;
-  transform: translate(-50%, -50%);
-}
-
 .groups-bulk {
   grid-column: 1 / -1;
   margin: 0;
   color: #6c757d;
 }
 
+/* Delete selected, on the right. */
+.groups-bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.groups-bulk-hidden {
+  visibility: hidden;
+}
+
+/* .btn eases "all" over 0.3s, visibility too, so it would linger after
+   the last untick; it goes at once like the count beside it. */
+.groups-bulk-hidden .btn {
+  transition: none;
+}
+
+.groups-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* White, rather than the page's tint showing through; hover keeps its green. */
+.groups-bulk-actions .btn:not(:hover) {
+  background-color: var(--white);
+}
+
 .group-card.selected {
   outline: 2px solid #333;
+}
+
+/* The grip a group is dragged by, beside its tick box. */
+.group-drag-handle {
+  color: #9aa3a0;
+  cursor: grab;
+  padding: 0 0.1rem;
+}
+
+.group-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Where a group being moved will go, and the group itself while it moves. */
+.group-card--drop-target {
+  outline: 2px dashed var(--dark-green);
+  outline-offset: 2px;
+}
+
+.group-card--moving {
+  opacity: 0.4;
+}
+
+/* A full group while a student is dragged: greyed, as it won't take them. */
+.group-card--full {
+  opacity: 0.5;
 }
 
 .group-card-actions {
@@ -733,19 +891,16 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.interest-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-top: 0.4rem;
-}
-
-.interest-tag {
-  padding: 0.18rem 0.5rem;
-  border-radius: 999px;
-  background: #f0f0f0;
-  color: #333;
-  font-size: 0.82rem;
+/* Where a group's next students go: a dashed white box. */
+.drop-hint {
+  padding: 0.15rem 1rem;
+  line-height: 1.4;
+  border: 1px dashed #c0c0c0;
+  border-radius: 6px;
+  background: var(--white);
+  color: #6c757d;
+  font-size: 0.85rem;
+  text-align: center;
 }
 
 .student-rows {
@@ -759,6 +914,9 @@ onMounted(async () => {
 }
 
 .student-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   width: 100%;
   text-align: left;
   border: 1px solid #e0e0e0;
@@ -768,5 +926,11 @@ onMounted(async () => {
   cursor: grab;
   color: #333;
   font-size: 0.9rem;
+}
+
+/* Just the number, no circle. */
+.student-number {
+  flex-shrink: 0;
+  font-weight: 700;
 }
 </style>

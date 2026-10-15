@@ -1,5 +1,9 @@
 """Question and guidance fixtures; CI disables migrations, so seeded data never exists there."""
-from apps.submissions.models import SubmissionInstruction, SubmissionQuestion
+from apps.submissions.checklist import CHECKLIST_ITEMS
+from apps.submissions.models import Submission, SubmissionInstruction, SubmissionQuestion
+
+# Every poster checklist item ticked, as a team would before submitting.
+CONFIRMED_CHECKLIST = {item: True for item in CHECKLIST_ITEMS}
 
 
 QUESTIONS = (
@@ -47,3 +51,8 @@ def install_instructions():
 
 def install_reference_data():
     return install_question_set(), install_instructions()
+
+
+def confirm_checklist(group):
+    """Tick the team's whole poster checklist, as Submit requires."""
+    Submission.objects.filter(group=group).update(poster_checklist=CONFIRMED_CHECKLIST)

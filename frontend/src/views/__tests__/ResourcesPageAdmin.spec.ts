@@ -57,6 +57,11 @@ const adminUser = {
 
 let wrapper: VueWrapper | null = null
 
+// The shared table's rows, and a row's own button by its text.
+const tableRows = () => wrapper!.findAll('tr.data-table-row')
+const rowButton = (rowIndex: number, label: string) =>
+  tableRows()[rowIndex].findAll('button').find((button) => button.text() === label)
+
 describe('ResourcesPage - Admin Integration & Role Access', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -94,7 +99,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
   })
 
   describe('Student Access View', () => {
-    it('does NOT render admin controls (Upload button, Actions column, More buttons)', async () => {
+    it('does NOT render admin controls (Upload button, Actions columns, tick boxes)', async () => {
       const auth = useAuthStore()
       auth.user = studentUser
       auth.initialized = true
@@ -112,18 +117,16 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       // Header button
       expect(wrapper.text()).not.toContain('Upload Resource')
 
-      // Table headers
-      expect(wrapper.find('.th-actions').exists()).toBe(false)
-
-      // More buttons
-      expect(wrapper.findAll('.resource-more-btn')).toHaveLength(0)
+      // No action columns or tick boxes
+      expect(wrapper.find('.data-table-actions-col').exists()).toBe(false)
+      expect(wrapper.find('.data-table-check-col').exists()).toBe(false)
 
       // Rows are still rendered for student
-      const rows = wrapper.findAll('.resource-row')
+      const rows = tableRows()
       expect(rows).toHaveLength(2)
 
-      // Clicking row calls router.push
-      await rows[0].trigger('click')
+      // Clicking a name calls router.push
+      await rows[1].find('.data-table-cell--primary').trigger('click')
       expect(mockPush).toHaveBeenCalledWith({
         name: 'resource-detail',
         params: { id: 101 }
@@ -148,15 +151,15 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
     })
 
-    it('renders elevated admin controls (Upload Resource button, Actions header, More buttons, Checkboxes)', () => {
+    it('renders elevated admin controls (Upload Resource button, action buttons, Checkboxes)', () => {
       expect(wrapper?.text()).toContain('Upload Resource')
       expect(wrapper?.text()).not.toContain('Batch Mode')
-      expect(wrapper?.find('.th-actions').exists()).toBe(true)
-      expect(wrapper?.find('.th-select').exists()).toBe(true)
-      expect(wrapper?.findAll('.td-select')).toHaveLength(2)
+      expect(wrapper?.find('th.data-table-actions-col').exists()).toBe(true)
+      expect(wrapper?.find('th.data-table-check-col').exists()).toBe(true)
+      expect(wrapper?.findAll('td.data-table-check-col')).toHaveLength(2)
 
-      const moreButtons = wrapper?.findAll('.resource-more-btn')
-      expect(moreButtons?.length).toBe(2)
+      expect(rowButton(0, 'Edit')).toBeDefined()
+      expect(rowButton(1, 'Edit')).toBeDefined()
     })
 
     it('opens Upload Resource side panel when clicking Upload Resource button', async () => {
@@ -172,51 +175,56 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(formSheet?.props('resource')).toBeNull()
     })
 
-    it('toggles the More actions dropdown on resource row', async () => {
-      const moreBtn = wrapper?.find('.resource-more-btn')
-      expect(moreBtn?.exists()).toBe(true)
-
-      expect(wrapper?.find('.resource-dropdown').exists()).toBe(false)
-
-      await moreBtn?.trigger('click')
-      await flushPromises()
-
-      const dropdown = wrapper?.find('.resource-dropdown')
-      expect(dropdown?.exists()).toBe(true)
-      expect(dropdown?.text()).toContain('View Details')
-      expect(dropdown?.text()).toContain('Edit Resource')
-      expect(dropdown?.text()).toContain('Download')
-      expect(dropdown?.text()).toContain('Delete Resource')
-
-      // Clicking outside / toggling again closes it
-      await moreBtn?.trigger('click')
-      await flushPromises()
-      expect(wrapper?.find('.resource-dropdown').exists()).toBe(false)
+    it('shows Edit and Delete on each row, and no View or Download', () => {
+      // Two button columns, one button each.
+      expect(wrapper!.findAll('th.data-table-actions-col')).toHaveLength(2)
+      for (const row of [0, 1]) {
+        expect(tableRows()[row]!.findAll('td.data-table-actions-col button').map((b) => b.text())).toEqual([
+          'Edit',
+          'Delete'
+        ])
+        expect(rowButton(row, 'Edit')).toBeDefined()
+        expect(rowButton(row, 'Delete')).toBeDefined()
+        expect(rowButton(row, 'View')).toBeUndefined()
+        expect(rowButton(row, 'Download')).toBeUndefined()
+      }
     })
 
-    it('navigates to detail page when clicking View Details in More dropdown without triggering row click collision', async () => {
-      const moreBtn = wrapper?.find('.resource-more-btn')
-      await moreBtn?.trigger('click')
+    it('opens a resource by its name, but not elsewhere on its row', async () => {
+      await rowButton(1, 'Edit')?.trigger('click')
+      await tableRows()[1].trigger('click')
       await flushPromises()
+      expect(mockPush).not.toHaveBeenCalled()
 
-      const viewDetailsBtn = wrapper?.findAll('.resource-dropdown-item').find((b) => b.text().includes('View Details'))
-      expect(viewDetailsBtn).toBeDefined()
-
-      await viewDetailsBtn?.trigger('click')
+      await tableRows()[1].find('.data-table-cell--primary').trigger('click')
       await flushPromises()
-
       expect(mockPush).toHaveBeenCalledWith({
         name: 'resource-detail',
         params: { id: 101 }
       })
     })
 
-    it('opens Edit Resource form sheet when clicking Edit in dropdown', async () => {
-      const moreBtn = wrapper?.find('.resource-more-btn')
-      await moreBtn?.trigger('click')
-      await flushPromises()
+    it('lists the latest modified first, and sorts by Modified and Name', async () => {
+      const names = () => tableRows().map((row) => row.find('.resource-name-cell').text())
+      const sortBy = async (label: string) => {
+        await wrapper!.findAll('.data-table-sort-btn').find((button) => button.text() === label)?.trigger('click')
+        await flushPromises()
+      }
 
-      const editBtn = wrapper?.findAll('.resource-dropdown-item').find((b) => b.text().includes('Edit Resource'))
+      expect(names()).toEqual(['Biotech Competition Rules', 'Mentor Handbook 2026'])
+
+      await sortBy('Modified')
+      expect(names()).toEqual(['Mentor Handbook 2026', 'Biotech Competition Rules'])
+
+      await sortBy('Name')
+      expect(names()).toEqual(['Biotech Competition Rules', 'Mentor Handbook 2026'])
+
+      // Only Name and Modified sort.
+      expect(wrapper!.findAll('.data-table-sort-btn').map((button) => button.text())).toEqual(['Name', 'Modified'])
+    })
+
+    it('opens Edit Resource form sheet when clicking Edit', async () => {
+      const editBtn = rowButton(1, 'Edit')
       expect(editBtn).toBeDefined()
 
       await editBtn?.trigger('click')
@@ -227,26 +235,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(formSheet?.props('resource')).toEqual(mockResource1)
     })
 
-    it('triggers download when clicking Download in dropdown for file resource', async () => {
-      const moreBtn = wrapper?.find('.resource-more-btn')
-      await moreBtn?.trigger('click')
-      await flushPromises()
-
-      const downloadBtn = wrapper?.findAll('.resource-dropdown-item').find((b) => b.text().includes('Download'))
-      expect(downloadBtn).toBeDefined()
-
-      await downloadBtn?.trigger('click')
-      await flushPromises()
-
-      expect(adminApi.downloadAdminResourceFile).toHaveBeenCalledWith(101, 'mentor_handbook.pdf')
-    })
-
-    it('opens ConfirmDialog when clicking Delete Resource in dropdown and executes delete', async () => {
-      const moreBtn = wrapper?.find('.resource-more-btn')
-      await moreBtn?.trigger('click')
-      await flushPromises()
-
-      const deleteBtn = wrapper?.findAll('.resource-dropdown-item').find((b) => b.text().includes('Delete Resource'))
+    it('opens ConfirmDialog when clicking Delete and executes delete', async () => {
+      const deleteBtn = rowButton(1, 'Delete')
       expect(deleteBtn).toBeDefined()
 
       await deleteBtn?.trigger('click')
@@ -799,15 +789,15 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       wrapper = mount(ResourcesPage)
       await flushPromises()
 
-      expect(wrapper.find('.th-select').exists()).toBe(false)
-      expect(wrapper.findAll('.td-select')).toHaveLength(0)
+      expect(wrapper.find('th.data-table-check-col').exists()).toBe(false)
+      expect(wrapper.findAll('td.data-table-check-col')).toHaveLength(0)
       expect(wrapper.text()).not.toContain('Batch Mode')
 
       auth.user = adminUser
       await flushPromises()
 
-      expect(wrapper.find('.th-select').exists()).toBe(true)
-      expect(wrapper.findAll('.td-select')).toHaveLength(2)
+      expect(wrapper.find('th.data-table-check-col').exists()).toBe(true)
+      expect(wrapper.findAll('td.data-table-check-col')).toHaveLength(2)
       expect(wrapper.text()).not.toContain('Batch Mode')
     })
 
@@ -819,21 +809,19 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       wrapper = mount(ResourcesPage)
       await flushPromises()
 
-      const rows = wrapper.findAll('.resource-row')
-      const firstCheckbox = rows[0].find('.td-select input[type="checkbox"]')
+      const rows = tableRows()
+      const firstCheckbox = rows[0].find('td.data-table-check-col input[type="checkbox"]')
       expect(firstCheckbox.exists()).toBe(true)
 
       await firstCheckbox.setValue(true)
       await flushPromises()
-
-      expect(rows[0].classes()).toContain('resource-row--selected')
 
       // Bulk bar appears showing 1 selected
       expect(wrapper.find('.bulk-actions-bar').exists()).toBe(true)
       expect(wrapper.find('.bulk-actions-bar__count').text()).toContain('1 resource selected')
 
       // Click master checkbox to select all
-      const selectAll = wrapper.find('.th-select input[type="checkbox"]')
+      const selectAll = wrapper.find('th.data-table-check-col input[type="checkbox"]')
       await selectAll.setValue(true)
       await flushPromises()
 
@@ -858,7 +846,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
 
       // Select all via master checkbox
-      await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
+      await wrapper.find('th.data-table-check-col input[type="checkbox"]').setValue(true)
       await flushPromises()
 
       // Click Edit Access in BulkActionsBar
@@ -970,7 +958,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
 
       // Select both
-      await wrapper.find('.th-select input[type="checkbox"]').setValue(true)
+      await wrapper.find('th.data-table-check-col input[type="checkbox"]').setValue(true)
       await flushPromises()
 
       // Click Delete in BulkActionsBar

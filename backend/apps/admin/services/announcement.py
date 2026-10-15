@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, TypedDict, Optional, List, Dict, Any, Tuple
 from datetime import datetime
 import logging
@@ -13,14 +14,18 @@ from apps.announcements.models import (
     AnnouncementAudience,
     AnnouncementDelivery,
 )
+from apps.announcements.rendering import body_to_html, fill_merge_tags, merge_tag_reference
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import GroupMembership
 from apps.users.models import User
 from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, UNREACHABLE, note_send, reason_for
+from apps.services.retry import RetryLater, reset
 from apps.services.system_email import (
     RenderedEmail,
     build_message,
+    clean_email_body,
+    html_to_text,
     is_email_enabled,
     render_system_email,
     sender_connection,
@@ -397,11 +402,31 @@ def _schedule_announcement_email(
     in the request), the deferred send is silently dropped, so we never
     notify recipients about an announcement that doesn't actually exist.
     """
-    transaction.on_commit(
-        lambda: send_announcement_email(
-            announcement_id, initiated_by=initiated_by,
-        )
-    )
+    transaction.on_commit(lambda: queue_announcement_email(announcement_id, initiated_by))
+
+
+def queue_announcement_email(announcement_id: int, initiated_by: Optional["UserType"] = None) -> None:
+    """Queue the announcement's email to send in its turn, after any bulk
+    email going from the same mailbox (see ``send_guard``)."""
+    from apps.management.services.send_guard import queue_job
+
+    actor = initiated_by if getattr(initiated_by, "pk", None) else None
+    queue_job("announcement", actor, {"announcement_id": announcement_id})
+
+
+def announcement_job(actor, options: Dict[str, Any]) -> Dict[str, int]:
+    """The queued send of one announcement's email (``send_guard.JOBS``)."""
+    result = send_announcement_email(options["announcement_id"], initiated_by=actor)
+    return {"sent": result.get("succeeded", 0), "failed": result.get("failed", 0)}
+
+
+def notify_announcement(announcement_id: int, initiated_by: Optional["UserType"] = None) -> Dict[str, Any]:
+    """Email Notification on an announcement: queued to send in its turn,
+    or skipped at once when there's no such announcement."""
+    if not _fetch_announcement(announcement_id):
+        return _skipped_send_result("Announcement not found")
+    queue_announcement_email(announcement_id, initiated_by)
+    return {**_skipped_send_result("The email is queued and sends shortly."), "status": "queued"}
 
 
 def _resolve_author_user_id(
@@ -580,9 +605,13 @@ def _skipped_send_result(msg: str) -> Dict[str, Any]:
 def _deliver_announcement_to_recipients(
     announcement_id: int,
     emails: List[str],
-    rendered: RenderedEmail,
+    render_for: Callable[[str], RenderedEmail],
 ) -> Tuple[int, List[Dict[str, str]], Optional[str]]:
     """Run the SMTP loop for a single send attempt.
+
+    ``render_for`` returns the email as one recipient should read it: an
+    announcement may greet each of them by name (``{{ first_name }}``), so
+    the wording is per recipient rather than shared.
 
     Returns ``(succeeded_count, failed_entries, connection_error)`` where
     ``connection_error`` is non-None only when the connection itself never
@@ -627,15 +656,20 @@ def _deliver_announcement_to_recipients(
             failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
         return 0, failed, connection_error
 
+    # Those that fail, kept to try once more once everyone has been tried.
+    later = RetryLater(connection)
     try:
         for addr in emails:
-            message = build_message(rendered, addr, from_email=sender.from_email, connection=connection)
+            message = build_message(render_for(addr), addr, from_email=sender.from_email, connection=connection)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it
                 # raises on SMTP errors.
                 result = message.send(fail_silently=False)
             except Exception as exc:
+                if later.keep(exc, addr, lambda message=message: message.send(fail_silently=False)):
+                    reset(connection)
+                    continue
                 failed.append({
                     "email": addr,
                     "error": _sanitize_error(exc),
@@ -670,6 +704,17 @@ def _deliver_announcement_to_recipients(
                         "announcement_id=%s recipient=%s",
                         announcement_id, addr,
                     )
+        # Once more, a few seconds on, over a fresh connection (see ``retry``).
+        for addr, exc in later.run():
+            if exc is None:
+                succeeded += 1
+                continue
+            failed.append({"email": addr, "error": _sanitize_error(exc), "reason": reason_for(exc)})
+            logger.warning(
+                "announcement_email.send_failed "
+                "announcement_id=%s recipient=%s error=%s",
+                announcement_id, addr, _sanitize_error(exc),
+            )
     finally:
         try:
             connection.close()
@@ -744,19 +789,50 @@ def send_announcement_email(
     if not emails:
         return _skipped_send_result("No recipients found")
 
-    excerpt = _build_excerpt(row.get("body", ""))
+    raw_body = row.get("body", "")
+    excerpt = _build_excerpt(raw_body)
+    # The portal gives a plain-text body its paragraphs and line breaks, and
+    # keeps HTML as written; the email must read the same way, so normalise
+    # it first. Bodies are authored in the admin editor (and may be
+    # seeded/imported), so sanitise before trusting the HTML too.
+    body_html = clean_email_body(body_to_html(raw_body))
     platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
     detail_url = f"{platform_url}/#/announcements/{announcement_id}"
+    # Plain text carries the whole announcement too — not a truncated excerpt.
+    body_text = html_to_text(body_html)
     text_body = (
-        f"{row.get('title')}\n\n{excerpt}\n\n"
-        f"View on the platform: {detail_url}"
+        f"{row.get('title')}\n\n{body_text}\n\n"
+        f"View this announcement on the platform: {detail_url}"
     )
-    # Rendered once and reused for every recipient: nothing in it is personal.
+    # Rendered once for the shared wording; the greeting tags (if any) are
+    # filled per recipient below.
     rendered = render_system_email(
         "announcement",
-        {"title": row.get("title", ""), "excerpt": excerpt, "detail_url": detail_url},
+        {
+            "title": row.get("title", ""),
+            "body": body_html,
+            "excerpt": excerpt,
+            "detail_url": detail_url,
+        },
         default_text=text_body,
     )
+
+    # An announcement may greet each reader by name (``{{ first_name }}``).
+    # Filled with each recipient's own details, so the wording is theirs.
+    users_by_email = {
+        user.email: user
+        for user in User.objects.filter(email__in=emails, is_active=True)
+    }
+
+    def render_for(addr: str) -> RenderedEmail:
+        user = users_by_email.get(addr)
+        if user is None:
+            return rendered
+        return rendered._replace(
+            subject=fill_merge_tags(rendered.subject, user, escape=False),
+            html=fill_merge_tags(rendered.html, user, escape=True),
+            text=fill_merge_tags(rendered.text, user, escape=False),
+        )
 
     # Pessimistic delivery row: created up front as FAILED so a mid-send
     # crash still leaves a triageable audit trail. We finalize it after
@@ -771,7 +847,7 @@ def send_announcement_email(
 
     try:
         succeeded, failed, connection_error = _deliver_announcement_to_recipients(
-            announcement_id, emails, rendered,
+            announcement_id, emails, render_for,
         )
     except Exception as exc:  # belt-and-braces — anything truly unexpected
         connection_error = _sanitize_error(exc)
@@ -879,3 +955,12 @@ def list_announcement_roles() -> Dict[str, Any]:
         .values("id", name=F("role_name"))
     )
     return {"msg": "Roles retrieved successfully", "data": roles}
+
+
+def list_announcement_merge_tags() -> Dict[str, Any]:
+    """The merge tags an announcement body may use, for the composer's
+    reference. Each is filled with the reading user's own details."""
+    return {
+        "msg": "Announcement merge tags retrieved successfully",
+        "data": merge_tag_reference(),
+    }
