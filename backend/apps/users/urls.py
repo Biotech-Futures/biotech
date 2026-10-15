@@ -29,7 +29,7 @@ from .views import (
     SupervisedStudentOptionsView,
     SupervisedStudentsView,
 )
-from .registration_intake import RegistrationIntakeView, RegistrationManagementView
+from .registration_intake import RegistrationIntakeView, RegistrationManagementView, RegistrationStatesView
 
 urlpatterns = [
     path("users/me/profile-options/", StudentProfileOptionsView.as_view(), name="student-profile-options"),
@@ -69,6 +69,7 @@ urlpatterns = [
     path("registration", RegistrationIntakeView.as_view(), name="registration"),
     path("registration/", RegistrationIntakeView.as_view(), name="registration-slash"),
     path("registration-intake/", RegistrationIntakeView.as_view(), name="registration-intake"),
+    path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
     path("registration-management/", RegistrationManagementView.as_view(), name="registration-management"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
     path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),

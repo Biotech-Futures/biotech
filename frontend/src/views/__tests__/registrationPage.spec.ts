@@ -1,4 +1,4 @@
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,6 +29,8 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
 
 beforeEach(() => {
   vi.stubGlobal('scrollTo', vi.fn())
+  // No states to load (a text box), unless a test gives some.
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ states: [] }))))
 })
 
 afterEach(() => {
@@ -279,7 +281,8 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain('Register students')
     expect(wrapper.text()).not.toContain('How are you registering students?')
     expect(wrapper.text()).not.toContain('Step 2 of 2')
-    expect(wrapper.find('.setup-heading--supervisor').exists()).toBe(true)
+    // The platform's own page heading, as on the portal's other pages.
+    expect(wrapper.find('#pathway-title').classes()).toContain('page-title')
     await clickButton(wrapper, 'Register one student')
     expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
       'Student',
@@ -321,7 +324,7 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).not.toContain('Automatic BTF name')
   })
 
-  it('requires confirmation email for every manually entered student but not CSV', async () => {
+  it("confirms the email of students registering themselves, not of a supervisor's students", async () => {
     const team = mountPage()
     await clickButton(team, 'Student')
     await clickButton(team, 'Create a student group')
@@ -335,14 +338,14 @@ describe('canonical registration intake', () => {
     const supervisorSetup = supervisor.vm as unknown as { currentStep: number }
     supervisorSetup.currentStep = 0
     await supervisor.vm.$nextTick()
-    expect(supervisor.text()).toContain('Confirm student email')
+    expect(supervisor.text()).not.toContain('Confirm student email')
 
     const group = mountPage('supervisor')
     await clickButton(group, 'Register a student group')
     const groupSetup = group.vm as unknown as { currentStep: number }
     groupSetup.currentStep = 1
     await group.vm.$nextTick()
-    expect(group.text().match(/Confirm student email/g)).toHaveLength(2)
+    expect(group.text()).not.toContain('Confirm student email')
     expect(group.text()).not.toContain('group name')
 
     const csv = mountPage('supervisor')
@@ -351,6 +354,30 @@ describe('canonical registration intake', () => {
     csvSetup.currentStep = 0
     await csv.vm.$nextTick()
     expect(csv.text()).not.toContain('Confirm student email')
+  })
+
+  it("offers Australia's states from the database as a dropdown, a text box elsewhere", async () => {
+    const states = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA']
+    const send = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ states })))
+    vi.stubGlobal('fetch', send)
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register one student')
+    await flushPromises()
+    const state = () => wrapper.find('#supervisorIndividual-student-state')
+
+    expect(String(send.mock.calls[0]![0])).toContain('/api/v1/registration/states/?country=Australia')
+    expect(state().element.tagName).toBe('SELECT')
+    expect(
+      state()
+        .findAll('option')
+        .slice(1)
+        .map((option) => option.attributes('value')),
+    ).toEqual(states)
+    await state().setValue('VIC')
+    expect((state().element as HTMLSelectElement).value).toBe('VIC')
+
+    await wrapper.find('#supervisorIndividual-student-country').setValue('New Zealand')
+    expect(state().element.tagName).toBe('INPUT')
   })
 
   it('shows Member 1, group-only interests and optional member guardian contact', async () => {

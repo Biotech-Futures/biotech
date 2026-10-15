@@ -689,6 +689,27 @@ class RegistrationIntakeView(APIView):
         return register(request)
 
 
+class RegistrationStatesView(APIView):
+    """GET ?country=Australia: that country's states as the database holds
+    them (Australia's loaded by groups' 0013 migration), for the registration
+    form's dropdown. Open to anyone, as registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        country = (request.query_params.get("country") or "").strip()
+        states = (
+            CountryStates.objects.filter(country__country_name__iexact=country)
+            .order_by("state_name")
+            .values_list("state_name", flat=True)
+            .distinct()
+            if country
+            else []
+        )
+        return Response({"states": list(states)})
+
+
 class IsRegistrationManager(permissions.BasePermission):
     message = "Staff or administrator permission is required."
 

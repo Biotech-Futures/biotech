@@ -47,7 +47,6 @@
           autocomplete="organization"
           :error="fieldError('school')"
           required
-          wide
         />
         <label class="select-field">
           <span>Year level <span aria-hidden="true">*</span></span>
@@ -81,14 +80,17 @@
           :error="fieldError('country')"
           required
         />
+        <!-- In Australia, a dropdown of its states and territories. -->
         <RegistrationTextField
           :id="fieldId('state')"
           v-model="student.state"
           label="State or region"
           autocomplete="address-level1"
+          :options="stateOptions.length ? stateOptions : undefined"
+          :placeholder="stateOptions.length ? 'Select a state' : undefined"
           :error="fieldError('state')"
-          :required="student.country.trim().toLowerCase() === 'australia'"
-          :optional="student.country.trim().toLowerCase() !== 'australia'"
+          :required="isAustralia(student.country)"
+          :optional="!isAustralia(student.country)"
         />
       </div>
 
@@ -240,7 +242,8 @@ import { computed } from 'vue'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import { PRONOUN_OPTIONS, type StudentDetails } from '@/registration/registration'
+import { isAustralia, PRONOUN_OPTIONS, type StudentDetails } from '@/registration/registration'
+import { useStateOptions } from '@/registration/useStateOptions'
 
 const props = withDefaults(
   defineProps<{
@@ -267,6 +270,8 @@ const emit = defineEmits<{
   'remove-photo': []
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
+// In Australia, its states from the database, for a dropdown.
+const stateOptions = useStateOptions(() => student.value.country)
 
 const showIdentity = computed(() => ['identity', 'full', 'teammate'].includes(props.section))
 const showProfile = computed(() => ['profile', 'full'].includes(props.section))
@@ -332,10 +337,11 @@ const onPhotoChange = (event: Event) => {
   font-weight: 500;
 }
 
+/* As tall as the text boxes beside it (RegistrationTextField). */
 select {
   width: 100%;
-  min-height: 44px;
-  padding: 0.625rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--registration-field-line);
   border-radius: 4px;
   outline: none;

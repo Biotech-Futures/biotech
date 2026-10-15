@@ -1,5 +1,9 @@
 <template>
-  <main class="registration-page" :class="{ 'registration-page--supervisor': isSupervisorMode }">
+  <!-- A supervisor's, in the portal: laid out as its other pages are. -->
+  <main
+    class="registration-page"
+    :class="{ 'registration-page--supervisor content-area': isSupervisorMode }"
+  >
     <header v-if="!isSupervisorMode" class="registration-header">
       <RouterLink to="/login" class="brand-link" aria-label="BIOTech Connect home">
         <img :src="logo" :alt="BRAND_NAME" />
@@ -83,7 +87,9 @@
       class="setup-layout"
       aria-labelledby="role-title"
     >
-      <button type="button" class="setup-back" @click="selectionStage = 'welcome'">← Back</button>
+      <button type="button" class="btn btn-outline btn-sm setup-back" @click="selectionStage = 'welcome'">
+        <i class="fas fa-chevron-left" aria-hidden="true"></i> Back
+      </button>
       <header class="setup-heading">
         <h1 id="role-title">Who are you registering as?</h1>
       </header>
@@ -131,18 +137,22 @@
     <section
       v-else-if="!journey && selectionStage === 'pathway'"
       class="setup-layout"
-      :class="{ 'setup-layout--supervisor': isSupervisorMode }"
       aria-labelledby="pathway-title"
     >
       <button
         v-if="!isSupervisorMode"
         type="button"
-        class="setup-back"
+        class="btn btn-outline btn-sm setup-back"
         @click="backToRoleSelection"
       >
-        ← Back to roles
+        <i class="fas fa-chevron-left" aria-hidden="true"></i> Back to roles
       </button>
-      <header class="setup-heading" :class="{ 'setup-heading--supervisor': isSupervisorMode }">
+      <!-- A supervisor's, in the portal: the platform's own page heading. -->
+      <header v-if="isSupervisorMode" class="page-header">
+        <h1 id="pathway-title" class="page-title">{{ pathwayHeading }}</h1>
+        <p class="page-subtitle">Register students individually, as a group, or from a CSV.</p>
+      </header>
+      <header v-else class="setup-heading">
         <h1 id="pathway-title">{{ pathwayHeading }}</h1>
       </header>
       <div class="pathway-choices">
@@ -157,7 +167,9 @@
             <strong>{{ option.title }}</strong>
             <small>{{ option.description }}</small>
           </span>
-          <span class="pathway-choice__arrow" aria-hidden="true">Continue →</span>
+          <span class="btn btn-outline btn-sm pathway-choice__arrow" aria-hidden="true">
+            Continue <i class="fas fa-chevron-right"></i>
+          </span>
         </button>
       </div>
     </section>
@@ -166,13 +178,18 @@
       <aside class="journey-context">
         <button
           type="button"
-          class="change-journey"
+          class="btn btn-outline btn-sm change-journey"
           :disabled="isCsvEditing"
           @click="changeJourney"
         >
-          ← Change registration type
+          <i class="fas fa-chevron-left" aria-hidden="true"></i> Change registration type
         </button>
-        <h1>{{ selectedJourney?.title }}</h1>
+        <!-- A supervisor's, in the portal: the platform's own page heading. -->
+        <header v-if="isSupervisorMode" class="page-header">
+          <h1 class="page-title">{{ selectedJourney?.title }}</h1>
+          <p class="page-subtitle">{{ selectedJourney?.description }}</p>
+        </header>
+        <h1 v-else>{{ selectedJourney?.title }}</h1>
       </aside>
 
       <section class="form-surface">
@@ -181,7 +198,12 @@
             <li v-for="(step, index) in steps" :key="step.label">
               <button
                 type="button"
-                :class="{ current: currentStep === index, complete: index < currentStep }"
+                class="tab-pill"
+                :class="{
+                  active: currentStep === index,
+                  current: currentStep === index,
+                  complete: index < currentStep,
+                }"
                 :disabled="index > maxReachedStep || isCsvEditing"
                 :aria-current="currentStep === index ? 'step' : undefined"
                 @click="goToStep(index)"
@@ -535,7 +557,6 @@
                 section="full"
                 :errors="errors"
                 allow-guardian-defer
-                require-email-confirm
               />
             </template>
 
@@ -589,7 +610,6 @@
                     section="full"
                     :errors="errors"
                     allow-guardian-defer
-                    require-email-confirm
                   />
                 </div>
               </div>
@@ -791,10 +811,13 @@
                   :error="errors['mentor.country']"
                   required
                 />
+                <!-- In Australia, a dropdown of its states and territories. -->
                 <RegistrationTextField
                   id="mentor-state"
                   v-model="forms.mentor.state"
                   label="State or region"
+                  :options="mentorStateOptions.length ? mentorStateOptions : undefined"
+                  :placeholder="mentorStateOptions.length ? 'Select a state' : undefined"
                   :error="errors['mentor.state']"
                   required
                 />
@@ -1070,6 +1093,7 @@ import RegistrationStudentEditor from '@/components/registration/RegistrationStu
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
+import { useStateOptions } from '@/registration/useStateOptions'
 import {
   buildRegistrationRequest,
   REGISTRATION_GATEWAY_KEY,
@@ -1341,6 +1365,8 @@ const unavailableGateway: RegistrationGateway = {
 }
 const registrationGateway = injectedGateway || unavailableGateway
 const forms = reactive(createRegistrationForms())
+// In Australia, its states from the database, for the mentor's dropdown.
+const mentorStateOptions = useStateOptions(() => forms.mentor.country)
 const journey = ref<RegistrationJourney | null>(null)
 const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 'role')
 const selectedRole = ref<RegistrationRole | null>(isSupervisorMode.value ? 'supervisor' : null)
@@ -1747,8 +1773,9 @@ const validateGuardian = (student: StudentDetails, prefix: string, canDefer = tr
   }
 }
 
+// A supervisor's students: each email given once, with no confirming it.
 const validateStudentFull = (student: StudentDetails, prefix: string) => {
-  validateStudentIdentity(student, prefix, true)
+  validateStudentIdentity(student, prefix)
   validateStudentProfile(student, prefix)
   validateGuardian(student, prefix)
 }
@@ -2422,19 +2449,25 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
+/* .content-area gives its padding and background; its height is put back
+   here over .registration-page's whole screen. */
 .registration-page--supervisor {
-  min-height: auto;
+  min-height: calc(100vh - 60px);
   overflow: visible;
-  background: var(--bg-light, #f8f9fa);
   font-family: inherit;
 }
 
+/* From the page's top left corner, as the portal's other pages are. */
 .registration-page--supervisor .setup-layout,
 .registration-page--supervisor .work-layout {
-  width: min(calc(100% - 64px), 1080px);
-  margin-right: auto;
-  margin-bottom: 32px;
-  margin-left: auto;
+  width: auto;
+  max-width: 1080px;
+  margin: 0;
+}
+
+/* The page heading's own space below it, as on the first page. */
+.registration-page--supervisor .work-layout {
+  gap: 0;
 }
 
 .registration-page--supervisor .pathway-choices,
@@ -2608,23 +2641,6 @@ onBeforeUnmount(() => {
   margin: 42px auto 72px;
 }
 
-.setup-back {
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.setup-back:hover,
-.setup-back:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 .setup-heading {
   margin: 20px 0 24px;
 }
@@ -2635,14 +2651,6 @@ onBeforeUnmount(() => {
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -0.025em;
-}
-
-.setup-layout.setup-layout--supervisor {
-  margin-top: 28px;
-}
-
-.setup-heading.setup-heading--supervisor {
-  margin: 20px 0 24px;
 }
 
 .role-options {
@@ -2715,7 +2723,7 @@ onBeforeUnmount(() => {
 .role-option__arrow {
   color: var(--registration-green);
   font-size: 1.25rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .setup-signin {
@@ -2726,7 +2734,7 @@ onBeforeUnmount(() => {
 
 .setup-signin a {
   color: var(--registration-green-dark);
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .supervisor-guidance {
@@ -2795,11 +2803,16 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
+/* The platform's small outline button (as Group Marking's Next); the whole
+   card is the button, so pointing at the card is pointing at it. */
 .pathway-choice__arrow {
   flex: 0 0 auto;
-  color: var(--registration-green-dark);
-  font-size: 0.86rem;
-  font-weight: 800;
+}
+
+.pathway-choice:hover .pathway-choice__arrow,
+.pathway-choice:focus-visible .pathway-choice__arrow {
+  background-color: var(--light-green);
+  border-color: var(--dark-green);
 }
 
 .work-layout {
@@ -2815,7 +2828,12 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-.work-layout .journey-context h1 {
+/* Room under it, as under the platform's other back buttons. */
+.change-journey {
+  margin-bottom: 1rem;
+}
+
+.work-layout .journey-context h1:not(.page-title) {
   max-width: none;
   margin: 8px 0 0;
   font-size: clamp(1.5rem, 2vw, 1.75rem);
@@ -2832,7 +2850,7 @@ onBeforeUnmount(() => {
 }
 
 .registration-intro h1,
-.journey-context h1,
+.journey-context h1:not(.page-title),
 .success-panel h1 {
   max-width: none;
   margin: 0 0 16px;
@@ -2935,7 +2953,7 @@ onBeforeUnmount(() => {
 .pathway-option__role {
   color: var(--registration-green-dark);
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -2959,30 +2977,8 @@ onBeforeUnmount(() => {
 .pathway-option__action {
   color: var(--registration-green-dark);
   font-size: 0.84rem;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
-}
-
-.change-journey {
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.change-journey:hover,
-.change-journey:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-.change-journey:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
 }
 
 .step-navigation {
@@ -3005,30 +3001,16 @@ onBeforeUnmount(() => {
   display: flex;
 }
 
-.step-navigation button {
-  min-height: 44px;
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--registration-muted);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
+/* The steps are the platform's pill tabs (.tab-pill), each with its number
+   in a circle as tall as the pill's line, so it stays a 34px pill. */
 .step-navigation button > span {
-  width: 25px;
-  height: 25px;
+  width: 1.1rem;
+  height: 1.1rem;
   display: grid;
   place-items: center;
   border: 1px solid #aebdb7;
   border-radius: 50%;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
 }
 
 .step-navigation__label {
@@ -3042,24 +3024,21 @@ onBeforeUnmount(() => {
   font-size: inherit !important;
 }
 
-.step-navigation button.current {
-  background: var(--registration-green);
-  color: #fff;
-}
-
-.step-navigation button.current > span,
 .step-navigation button.complete > span {
   border-color: var(--registration-green);
   background: var(--registration-green);
   color: #fff;
 }
 
-.step-navigation button:focus-visible {
-  outline: 3px solid rgba(8, 116, 90, 0.22);
-  outline-offset: -4px;
+/* On the open step's green, the number in white. */
+.step-navigation button.current > span {
+  border-color: #fff;
+  background: #fff;
+  color: var(--dark-green);
 }
 
 .step-navigation button:disabled {
+  background: transparent;
   cursor: not-allowed;
   opacity: 0.52;
 }
@@ -3094,7 +3073,7 @@ form {
   padding: 0;
   color: var(--registration-ink);
   font-size: 1rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .fieldset-help {
@@ -3308,7 +3287,7 @@ form {
 .csv-upload > span {
   color: var(--registration-ink);
   font-size: 0.94rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .csv-upload small {
@@ -3529,10 +3508,11 @@ tr.is-excluded {
   font-weight: 500;
 }
 
+/* As tall as the text boxes beside it (RegistrationTextField). */
 .select-field select {
   width: 100%;
-  min-height: 44px;
-  padding: 0.625rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--registration-field-line);
   border-radius: 4px;
   outline: none;
@@ -3797,7 +3777,7 @@ dd {
   }
 
   .registration-intro h1,
-  .journey-context h1 {
+  .journey-context h1:not(.page-title) {
     max-width: none;
   }
 
@@ -3824,11 +3804,6 @@ dd {
   .work-layout {
     width: min(100% - 24px, 1220px);
     margin-bottom: 38px;
-  }
-
-  .registration-page--supervisor .setup-layout,
-  .registration-page--supervisor .work-layout {
-    width: calc(100% - 24px);
   }
 
   .welcome-layout {
@@ -3887,7 +3862,7 @@ dd {
   }
 
   .registration-intro h1,
-  .journey-context h1,
+  .journey-context h1:not(.page-title),
   .success-panel h1 {
     font-size: 1.5rem;
   }
@@ -3917,7 +3892,6 @@ dd {
   }
 
   .step-navigation button {
-    min-height: 44px;
     padding-inline: 10px;
   }
 

@@ -183,6 +183,8 @@ export const createGuardian = (): GuardianDetails => ({
   relationshipOther: '',
 })
 
+export const isAustralia = (country: string) => country.trim().toLowerCase() === 'australia'
+
 export const createStudent = (options: { deferGuardian?: boolean } = {}): StudentDetails => ({
   firstName: '',
   lastName: '',
