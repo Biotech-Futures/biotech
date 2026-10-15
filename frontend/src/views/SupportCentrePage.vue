@@ -253,6 +253,14 @@ onMounted(() => {
   --ticket-control-edge: #70827d;
 }
 
+/* The global focus ring is --dark-green, which the dark theme does not
+   redefine: 2.52:1 on the dark card, under the 3:1 a focus indicator needs.
+   Every control on the page takes the designer's dark link colour instead,
+   7.04:1 on the card and 8.44:1 on the page. */
+:root[data-theme='dark'] .support :deep(:focus-visible) {
+  outline-color: #6dbfb1;
+}
+
 .support__hero {
   margin-bottom: 1.25rem;
 }

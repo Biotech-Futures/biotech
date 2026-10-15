@@ -13,7 +13,9 @@
           <p class="ticket__meta">
             {{ categoryLabel(ticket.category) }}
             &middot; Raised {{ formatLongDateAU(ticket.createdAt) }}
-            &middot; Last updated {{ formatLongDateAU(ticket.lastUpdated) }}
+            <!-- With the time of day as well as the date: two updates on the
+                 same day read the same otherwise. -->
+            &middot; Last updated {{ formatLongDateTimeAU(ticket.lastUpdated) }}
           </p>
         </div>
         <div class="ticket__badges">
@@ -49,7 +51,7 @@ import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketTimeline from '@/components/support/TicketTimeline.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { formatLongDateAU } from '@/utils/date'
+import { formatLongDateAU, formatLongDateTimeAU } from '@/utils/date'
 import { categoryLabel, fetchTicket, type TicketDetail } from '@/utils/supportAPI'
 
 const route = useRoute()
@@ -140,6 +142,14 @@ watch(() => route.params.id, load)
   --ticket-wait: #3f3a17;
   --ticket-wait-ink: #fbbf24;
   --ticket-wait-edge: #fbbf24;
+}
+
+/* The global focus ring is --dark-green, which the dark theme does not
+   redefine: 2.52:1 on the dark card, under the 3:1 a focus indicator needs.
+   Every control on the page takes the designer's dark link colour instead,
+   7.04:1 on the card and 8.44:1 on the page. */
+:root[data-theme='dark'] .ticket :deep(:focus-visible) {
+  outline-color: #6dbfb1;
 }
 
 /* A block as wide as its words, so the negative margin moves it: an inline

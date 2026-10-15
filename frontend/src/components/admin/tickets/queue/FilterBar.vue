@@ -22,6 +22,9 @@
       <option v-for="(label, value) in TICKET_STATUS_LABELS" :key="value" :value="value">
         {{ label }}
       </option>
+      <!-- Not a status a ticket is saved with: the one the Overdue badge
+           beside the status marks, and where the Overdue card lands. -->
+      <option :value="OVERDUE">Overdue</option>
     </select>
 
     <select
@@ -98,6 +101,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import '@/components/support/ticketControls.css'
 
 import {
+  OVERDUE,
   TICKET_CATEGORY_OPTIONS,
   TICKET_PRIORITY_LABELS,
   TICKET_STATUS_LABELS,

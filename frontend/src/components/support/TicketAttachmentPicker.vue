@@ -20,12 +20,27 @@
       <span>Attach files</span>
     </label>
     <span class="attach__hint">Drag and drop files here or click to attach. {{ ATTACHMENT_HINT }}</span>
+    <!-- One picker behind every Replace button, for a single file. Out of the
+         tab order and hidden from screen readers: the Replace button is what
+         they reach, and it names the file it replaces. -->
+    <input
+      ref="replaceInput"
+      type="file"
+      :accept="ACCEPT"
+      class="attach__input"
+      tabindex="-1"
+      aria-hidden="true"
+      @change="onReplacePick"
+    />
 
     <ul v-if="modelValue.length" class="attach__list">
       <li v-for="(file, index) in modelValue" :key="`${file.name}-${index}`" class="attach__item">
         <span class="attach__kind"><TicketIcon :name="kindIcon(file)" /></span>
         <span class="attach__name">{{ file.name }}</span>
         <span class="attach__size">{{ readableSize(file.size) }}</span>
+        <button type="button" class="attach__replace" :aria-label="`Replace ${file.name}`" @click="startReplace(index)">
+          Replace
+        </button>
         <button type="button" class="attach__remove" :aria-label="`Remove ${file.name}`" @click="remove(index)">
           <TicketIcon name="x" />
         </button>
@@ -54,6 +69,10 @@ const props = defineProps<{ modelValue: File[] }>()
 const emit = defineEmits<{ 'update:modelValue': [File[]] }>()
 
 const input = ref<HTMLInputElement | null>(null)
+const replaceInput = ref<HTMLInputElement | null>(null)
+// Which file the replacement picker is choosing for. The one input serves
+// every row, so the row is remembered between the click and the change.
+const replacing = ref<number | null>(null)
 const error = ref('')
 const isOver = ref(false)
 
@@ -77,6 +96,14 @@ function readableSize(bytes: number): string {
 // Checked here as well as on the server. The server is the one that decides,
 // but telling someone their 40 MB file is too big before they wait for it to
 // upload is the difference between a hint and a rejection.
+function wrongTypeMessage(file: File) {
+  return `${file.name} is not a PDF, PNG, JPG or DOCX.`
+}
+
+function tooBigMessage(file: File) {
+  return `${file.name} is larger than 10 MB.`
+}
+
 function take(picked: File[]) {
   if (!picked.length) return
   error.value = ''
@@ -85,13 +112,13 @@ function take(picked: File[]) {
   // as too big, which would be two complaints about one mistake.
   const wrongType = picked.find((file) => !hasAllowedExtension(file))
   if (wrongType) {
-    error.value = `${wrongType.name} is not a PDF, PNG, JPG or DOCX.`
+    error.value = wrongTypeMessage(wrongType)
   }
   const rightType = picked.filter(hasAllowedExtension)
 
   const tooBig = rightType.find((file) => file.size > MAX_ATTACHMENT_BYTES)
   if (tooBig) {
-    error.value = `${tooBig.name} is larger than 10 MB.`
+    error.value = tooBigMessage(tooBig)
   }
 
   const accepted = rightType.filter((file) => file.size <= MAX_ATTACHMENT_BYTES)
@@ -120,6 +147,34 @@ function remove(index: number) {
   next.splice(index, 1)
   emit('update:modelValue', next)
   error.value = ''
+}
+
+function startReplace(index: number) {
+  replacing.value = index
+  replaceInput.value?.click()
+}
+
+// The same checks as a new file, one file at a time. A replacement that is
+// refused leaves the file it was meant to replace where it was.
+function onReplacePick(event: Event) {
+  const index = replacing.value
+  replacing.value = null
+  const [picked] = Array.from((event.target as HTMLInputElement).files || [])
+  if (replaceInput.value) replaceInput.value.value = ''
+  if (index === null || !picked || index >= props.modelValue.length) return
+
+  error.value = ''
+  if (!hasAllowedExtension(picked)) {
+    error.value = wrongTypeMessage(picked)
+    return
+  }
+  if (picked.size > MAX_ATTACHMENT_BYTES) {
+    error.value = tooBigMessage(picked)
+    return
+  }
+  const next = [...props.modelValue]
+  next[index] = picked
+  emit('update:modelValue', next)
 }
 </script>
 
@@ -277,6 +332,27 @@ function remove(index: number) {
 
 .attach__remove:hover {
   color: var(--attach-danger);
+}
+
+/* A word, not an icon: no picture says "replace" without a label beside it.
+   The hover green on the file row is #017151 on #f8f9fa, 5.72:1 (dark
+   #6dbfb1 on #0f1715). 24px high, the size WCAG 2.2 asks of a target. */
+.attach__replace {
+  flex: none;
+  min-height: 1.5rem;
+  padding: 0 0.375rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--attach-hover);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.attach__replace:hover {
+  text-decoration: underline;
 }
 
 .attach__error {

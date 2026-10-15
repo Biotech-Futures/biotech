@@ -267,3 +267,34 @@ describe('TicketDetailPage gives the conversation its own column', () => {
     expect(column.text()).toContain('I cannot open my group page.')
   })
 })
+
+describe('TicketDetailPage header', () => {
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('gives the last update to the minute, and the date it was raised', async () => {
+    // Pinned ahead of UTC, as date.spec.ts does: on a machine that runs in
+    // UTC the two calendars agree, and a time read in the wrong zone would
+    // pass. 05:37 UTC on 3 September is 3:37 pm in Sydney.
+    const savedTZ = process.env.TZ
+    process.env.TZ = 'Australia/Sydney'
+    try {
+      reactiveRoute.params.id = '152'
+      fetchMock.mockReset()
+      fetchMock.mockResolvedValueOnce(
+        detail(152, { createdAt: '2026-09-01T00:00:00Z', lastUpdated: '2026-09-03T05:37:00Z' })
+      )
+      const page = open()
+      await flushPromises()
+
+      expect(page.get('.ticket__meta').text().replace(/\s+/g, ' ')).toBe(
+        'Technical issue · Raised 1 September 2026 · Last updated 3 September 2026, 3:37 pm'
+      )
+    } finally {
+      if (savedTZ === undefined) delete process.env.TZ
+      else process.env.TZ = savedTZ
+    }
+  })
+})

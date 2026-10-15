@@ -2450,6 +2450,96 @@ class UnassignedFilterTests(AdminTicketAPITestCase):
         )
 
 
+class OverdueFilterTests(AdminTicketAPITestCase):
+    """The Overdue card was the one number nobody could click through to."""
+
+    def aged(self, hours, priority=TicketPriority.HIGH, subject="Waiting"):
+        """A ticket that has been with support for ``hours``.
+
+        Every clock moves together, as OverdueTests.aged() explains, and so
+        does the activity the queue sorts and snapshots on: a ticket made a
+        moment ago and aged only by its anchor would be outside any snapshot
+        taken before the test began."""
+        ticket = self.make_ticket(priority=priority, subject=subject)
+        started = timezone.now() - timedelta(hours=hours)
+        Ticket.objects.filter(pk=ticket.pk).update(
+            created_at=started,
+            awaiting_support_since=started,
+            support_updated_at=started,
+        )
+        ticket.refresh_from_db()
+        return ticket
+
+    def setUp(self):
+        super().setUp()
+        # High priority allows four hours (OverdueTests).
+        self.late = self.aged(hours=5, subject="Past its deadline")
+        self.early = self.aged(hours=3, subject="Inside its deadline")
+        # As old as the late one, but the ball is with the requester. Without
+        # a row like this the parity check below passes whatever the filter
+        # does, since nothing would tell the card's rule from "old".
+        self.parked = self.aged(hours=5, subject="Waiting on the requester")
+        lifecycle.mark_pending(ticket=self.parked, actor=self.agent)
+
+    def ids_for(self, **params):
+        return {row["id"] for row in self.client.get(QUEUE, params).json()["data"]["items"]}
+
+    def test_the_overdue_bucket_is_selectable(self):
+        self.assertEqual(self.ids_for(status="__overdue__"), {self.late.pk})
+
+    def test_every_row_it_lists_carries_the_overdue_badge(self):
+        rows = self.client.get(QUEUE, {"status": "__overdue__"}).json()["data"]["items"]
+        self.assertEqual([row["overdue"] for row in rows], [True])
+
+    def test_the_count_and_the_filter_agree(self):
+        summary = self.client.get(f"{QUEUE}summary/").json()["data"]
+        self.assertEqual(summary["overdue"], len(self.ids_for(status="__overdue__")))
+
+    def test_it_narrows_with_the_other_filters(self):
+        lifecycle.claim(ticket=self.late, actor=self.agent)
+        nobody = self.aged(hours=30, priority=TicketPriority.NORMAL, subject="Late, nobody has it")
+
+        self.assertEqual(self.ids_for(status="__overdue__"), {self.late.pk, nobody.pk})
+        self.assertEqual(
+            self.ids_for(status="__overdue__", assignee="__unassigned__"), {nobody.pk}
+        )
+        self.assertEqual(
+            self.ids_for(status="__overdue__", priority=TicketPriority.HIGH), {self.late.pk}
+        )
+
+    def test_the_export_takes_the_same_bucket(self):
+        response = self.client.post(f"{QUEUE}export/", {"status": "__overdue__"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = AuditLog.objects.filter(entity_type="ticket_export").latest("created_at")
+        self.assertEqual(row.after_state["ticketNumbers"], [self.late.ticket_number])
+
+    def test_one_walk_reads_the_bucket_at_its_snapshot(self):
+        """Measured at the walk's snapshot, where every other membership rule
+        is decided.
+
+        Page one is read half an hour ago. In that half hour a third ticket
+        crosses its deadline. Page two of the same walk still has to describe
+        the queue as it stood then; measured at the moment of the request
+        instead, the total under the table grows by one partway through.
+        """
+        also_late = self.aged(hours=9, subject="Long past its deadline")
+        crossing = self.aged(hours=4.25, subject="Crosses its deadline mid-walk")
+        then = timezone.now() - timedelta(minutes=30)
+        with patch("django.utils.timezone.now", return_value=then):
+            first = self.client.get(QUEUE, {"status": "__overdue__", "limit": 1}).json()["data"]
+        second = self.client.get(
+            QUEUE,
+            {"status": "__overdue__", "limit": 1, "asOf": first["asOf"], "after": first["after"]},
+        ).json()["data"]
+
+        self.assertEqual((first["total"], second["total"]), (2, 2))
+        self.assertEqual(
+            [row["id"] for row in first["items"] + second["items"]],
+            [self.late.pk, also_late.pk],
+        )
+        self.assertNotIn(crossing.pk, {row["id"] for row in second["items"]})
+
+
 class HandBackToThePoolTests(AdminTicketAPITestCase):
     """Giving a ticket back. The owner control used to be one-way."""
 

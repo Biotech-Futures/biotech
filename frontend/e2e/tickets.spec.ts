@@ -175,7 +175,12 @@ async function raiseEnquiry(
     .getByLabel('Message')
     .fill(options.body ?? 'The group workspace shows an error when I open it.')
   if (options.attachment) {
-    await page.locator('.ticket-form input[type="file"]').setInputFiles(options.attachment)
+    // By its label: the form also holds the one-file picker behind each
+    // Replace button, which is hidden from the accessibility tree.
+    await page
+      .locator('.ticket-form')
+      .getByLabel('Attach files', { exact: true })
+      .setInputFiles(options.attachment)
     await expect(page.locator('.attach__name')).toHaveText(options.attachment.name)
   }
   await page.getByRole('button', { name: 'Submit ticket' }).click()
