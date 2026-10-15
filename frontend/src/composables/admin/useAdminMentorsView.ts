@@ -10,7 +10,7 @@ import {
   setAdminMentorActive
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { isEffectivelyInactive } from '@/utils/mentorFormat'
+import { mentorConcern } from '@/utils/mentorFormat'
 
 export type MentorSortKey =
   | 'name'
@@ -56,14 +56,16 @@ export function useAdminMentorsView() {
     direction: 'asc'
   })
 
-  // Groups whose current mentor is effectively inactive.
+  // Groups needing a new mentor, for either reason: the account is deactivated,
+  // or the mentor has gone quiet. Reads the unfiltered list on purpose, so a
+  // deactivated mentor's group is still offered even though the table hides them.
   const inactiveGroups = computed(() => {
-    const inactiveMentorIds = new Set(
+    const needsReplacing = new Set(
       mentors.value
-        .filter((mentor) => isEffectivelyInactive(mentor, inactiveDays.value))
+        .filter((mentor) => mentorConcern(mentor, inactiveDays.value) !== null)
         .map((mentor) => mentor.mentorId)
     )
-    return matchedGroups.value.filter((group) => inactiveMentorIds.has(group.mentor.mentorId))
+    return matchedGroups.value.filter((group) => needsReplacing.has(group.mentor.mentorId))
   })
 
   // -- Data loading -----------------------------------------------------------
@@ -138,7 +140,11 @@ export function useAdminMentorsView() {
         return (a.lastLogin ?? '').localeCompare(b.lastLogin ?? '')
       }
     }
-    return [...mentors.value].sort((a, b) => comparators[sortState.value.key](a, b) * direction)
+    // Only active accounts are listed: a deactivated mentor is managed from the
+    // Users page. Their groups still surface under "Replace Inactive Mentors",
+    // which reads the unfiltered list below.
+    const visible = mentors.value.filter((mentor) => mentor.isActive)
+    return [...visible].sort((a, b) => comparators[sortState.value.key](a, b) * direction)
   })
 
   const setSort = (key: MentorSortKey) => {

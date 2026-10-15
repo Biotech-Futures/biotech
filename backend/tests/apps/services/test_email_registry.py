@@ -35,6 +35,8 @@ EXPECTED_KEYS = {
     "guardian_details_request",
     "guardian_details_received",
     "guardian_consent_student_notice",
+    "mentor_assigned",
+    "mentor_unassigned",
 }
 
 
