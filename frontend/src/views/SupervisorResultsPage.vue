@@ -2,7 +2,7 @@
   <div class="content-area supervisor-results-page">
     <header class="page-header">
       <h1 class="page-title">Results</h1>
-      <p class="page-subtitle">Your students' marks and certificates, and their groups' mentors' certificates.</p>
+      <p class="page-subtitle">Your groups' marks and certificates.</p>
     </header>
 
     <p v-if="notice" class="results-error" role="alert">{{ notice }}</p>

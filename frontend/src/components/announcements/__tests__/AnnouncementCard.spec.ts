@@ -8,6 +8,12 @@ vi.mock('vue-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('vue-router')>()),
   useRouter: () => ({ push: vi.fn() })
 }))
+// Marking it seen, stood in for.
+const { markSeen } = vi.hoisted(() => ({ markSeen: vi.fn() }))
+vi.mock('@/composables/useAnnouncements', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/composables/useAnnouncements')>()),
+  markAnnouncementSeen: markSeen
+}))
 
 const announcement: Announcement = {
   id: 7,
@@ -23,9 +29,9 @@ const announcement: Announcement = {
   images: []
 }
 
-const mountCard = () =>
+const mountCard = (over: Partial<Announcement> = {}) =>
   mount(AnnouncementCard, {
-    props: { announcement },
+    props: { announcement: { ...announcement, ...over } },
     global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } }
   })
 
@@ -70,5 +76,29 @@ describe('AnnouncementCard', () => {
 
     await chevron.trigger('click')
     expect(wrapper.find('.announcement').classes()).not.toContain('announcement--expanded')
+  })
+
+  it('shows a red New until opened, by expanding it or by its title', async () => {
+    markSeen.mockClear()
+    let wrapper = mountCard({ isNew: true })
+    expect(wrapper.find('.announcement__new').text()).toBe('New')
+
+    measured(wrapper.find('.announcement__content').element, 400, 110)
+    window.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    await wrapper.find('.announcement__expand').trigger('click')
+    expect(wrapper.find('.announcement__new').exists()).toBe(false)
+    expect(markSeen).toHaveBeenCalledWith(7)
+    wrapper.unmount()
+
+    markSeen.mockClear()
+    wrapper = mountCard({ isNew: true })
+    await wrapper.find('.announcement__title-link').trigger('click')
+    expect(wrapper.find('.announcement__new').exists()).toBe(false)
+    expect(markSeen).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows no New once seen', () => {
+    expect(mountCard({ isNew: false }).find('.announcement__new').exists()).toBe(false)
   })
 })

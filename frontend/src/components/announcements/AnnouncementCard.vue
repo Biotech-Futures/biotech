@@ -52,6 +52,8 @@
           </div>
         </div>
         <div class="announcement__header-right">
+          <!-- Not opened yet by whoever's reading it. -->
+          <span v-if="showsNew" class="status-badge status-danger announcement__badge announcement__new">New</span>
           <span
             v-if="announcement.isArchived"
             class="status-badge announcement__badge announcement__badge--archived"
@@ -142,6 +144,7 @@
         <RouterLink
           :to="{ name: 'announcement-detail', params: { id: announcement.id } }"
           class="announcement__title-link"
+          @click="markSeen"
         >
           {{ announcement.title }}
         </RouterLink>
@@ -197,7 +200,7 @@
         :aria-controls="contentId"
         :aria-label="expanded ? 'Show less' : 'Show more'"
         :title="expanded ? 'Show less' : 'Show more'"
-        @click="expanded = !expanded"
+        @click="toggleExpanded"
       >
         <i class="fas" :class="expanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true"></i>
       </button>
@@ -210,6 +213,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
 import {
+  markAnnouncementSeen,
   authorInitial,
   formatPostedAt,
   getAudienceClass,
@@ -282,7 +286,18 @@ const detailRoute = computed(() => ({
   params: { id: props.announcement.id }
 }))
 
+// New until opened: its card, its title, or expanded. Hidden here at once,
+// and recorded so it stays seen.
+const seenNow = ref(false)
+const showsNew = computed(() => Boolean(props.announcement.isNew) && !seenNow.value)
+const markSeen = () => {
+  if (!showsNew.value) return
+  seenNow.value = true
+  void markAnnouncementSeen(props.announcement.id)
+}
+
 const openDetails = () => {
+  markSeen()
   router.push(detailRoute.value)
 }
 
@@ -307,6 +322,12 @@ const onImageError = (url: string) => {
 const contentEl = ref<HTMLElement | null>(null)
 const expanded = ref(false)
 const clipped = ref(false)
+
+// Expanding it opens it, as clicking it does.
+const toggleExpanded = () => {
+  expanded.value = !expanded.value
+  if (expanded.value) markSeen()
+}
 const contentId = computed(() => `announcement-content-${props.announcement.id}`)
 // An Open or External link, which the footer is for.
 const hasLink = computed(() => Boolean(props.announcement.route || props.announcement.link))
@@ -778,6 +799,14 @@ watch(
   gap: 0.5rem;
   margin-left: auto;
   align-items: center;
+}
+
+/* Not opened yet: an outlined red badge, in bold, with no fill; its
+   outline the light red a danger badge is filled with. */
+.announcement__new {
+  border: 1px solid rgba(220, 53, 69, 0.2);
+  background-color: transparent;
+  font-weight: 700;
 }
 
 /* The expand/collapse chevron, in the card's bottom-right corner. */
