@@ -1083,8 +1083,8 @@ describe('the admin view', () => {
     expect(box().attributes('disabled')).toBeDefined()
     const bar = wrapper!.find('[data-testid="admin-bar"]').text()
     expect(bar).toContain('BTF1')
-    expect(bar).toContain('Draft, not submitted')
-    expect(bar).toContain('Can edit until')
+    expect(bar).toContain('Draft')
+    expect(bar).toContain('Open until')
     expect(wrapper!.find('.status-line').exists()).toBe(false)
     expect(buttonNamed(/^Submit$/)).toBeUndefined()
   })
@@ -1337,7 +1337,7 @@ describe('the admin view', () => {
 
     await mountPage(detail)
 
-    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('saved changes not yet submitted')
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('changes not submitted')
   })
 
   it('keeps the bar current while viewing, as the team saves', async () => {
@@ -1356,7 +1356,7 @@ describe('the admin view', () => {
     await new Promise((resolve) => setTimeout(resolve, 2700))
     await flushPromises()
 
-    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Draft, not submitted')
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Draft')
   })
 
   it('asks before leaving for another team with unsaved changes', async () => {
