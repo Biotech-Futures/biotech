@@ -36,6 +36,29 @@ describe('production registration normalization', () => {
     ).toHaveProperty('mentor')
   })
 
+  it('sends a nominated supervisor only when one was given, as it is optional', () => {
+    const forms = createRegistrationForms()
+    for (const journey of ['student_individual', 'student_team'] as const) {
+      expect(
+        buildProductionRegistrationRequest(buildRegistrationRequest(journey, forms)).payload,
+      ).not.toHaveProperty('supervisor')
+    }
+    Object.assign(forms.studentIndividual.supervisor, {
+      firstName: 'Sam',
+      lastName: 'Teacher',
+      email: 'sam@example.com',
+    })
+    const request = buildProductionRegistrationRequest(
+      buildRegistrationRequest('student_individual', forms),
+    )
+    expect(request.payload).toHaveProperty('supervisor', {
+      firstName: 'Sam',
+      lastName: 'Teacher',
+      email: 'sam@example.com',
+    })
+    expect(request.payload).not.toHaveProperty('supervisorMode')
+  })
+
   it('retains only included CSV records, original row numbers and manually chosen group interests', () => {
     const forms = createRegistrationForms()
     forms.supervisorCsv.rows = parseRegistrationCsv(studentCsv()).rows
@@ -101,17 +124,19 @@ describe('production registration normalization', () => {
     ])
     expect(normalized.payload).toHaveProperty('source.rowNumbers', [2])
   })
-  it('does not send declined mentor demographics', () => {
+  it('asks a mentor for no safeguarding, demographic or attestation details', () => {
     const forms = createRegistrationForms()
-    Object.assign(forms.mentor, {
-      languages: 'Private',
-      languagesPreferNot: true,
-      dateOfBirth: '1990-01-01',
-      dateOfBirthPreferNot: true,
-    })
     const request = buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms))
-    expect(request.payload).toHaveProperty('mentor.languages', '')
-    expect(request.payload).toHaveProperty('mentor.dateOfBirth', '')
+    for (const field of [
+      'safeguardingJurisdiction',
+      'indigenousStatus',
+      'languages',
+      'dateOfBirth',
+      'complianceDeclaration',
+      'attestation',
+    ]) {
+      expect(request.payload).not.toHaveProperty(`mentor.${field}`)
+    }
   })
 
   it('does not assign a new grouping preference or replace server validation', () => {

@@ -73,11 +73,12 @@
           :error="fieldError('country')"
           required
         />
-        <!-- In Australia, a dropdown of its states and territories. -->
+        <!-- In Australia, its State (required, a dropdown of its states and
+             territories); elsewhere a Region (optional). -->
         <RegistrationTextField
           :id="fieldId('state')"
           v-model="student.state"
-          label="State or region"
+          :label="stateLabel(student.country)"
           autocomplete="address-level1"
           :options="stateOptions.length ? stateOptions : undefined"
           :placeholder="stateOptions.length ? 'Select a state' : undefined"
@@ -191,11 +192,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import { isAustralia, PRONOUN_OPTIONS, type StudentDetails } from '@/registration/registration'
+import {
+  isAustralia,
+  PRONOUN_OPTIONS,
+  stateLabel,
+  type StudentDetails,
+} from '@/registration/registration'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 
 const props = withDefaults(
@@ -224,9 +230,19 @@ const student = defineModel<StudentDetails>('student', { required: true })
 // The countries, and in Australia its states, from the database, for dropdowns.
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
+// Another country: its state or region starts again (NSW isn't Algeria's).
+// Only for the same student: the form can be handed another (a list's
+// student removed), whose own state stays.
+watch(
+  () => [student.value, student.value.country] as const,
+  ([current, country], [before, beforeCountry]) => {
+    if (current === before && country !== beforeCountry) current.state = ''
+  },
+)
 
 const showIdentity = computed(() => ['identity', 'full', 'teammate'].includes(props.section))
-const showProfile = computed(() => ['profile', 'full'].includes(props.section))
+// A group member (teammate) gives their school, year and location too.
+const showProfile = computed(() => ['profile', 'full', 'teammate'].includes(props.section))
 const showGuardian = computed(
   () =>
     ['guardian', 'full'].includes(props.section) ||

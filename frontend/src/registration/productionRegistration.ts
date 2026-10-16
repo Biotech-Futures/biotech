@@ -3,6 +3,7 @@ import {
   parseRegistrationInterests,
   type StudentDetails,
   type RegistrationIntakeJourney,
+  hasSupervisor,
 } from './registration'
 import type { RegistrationRequest } from './registrationGateway'
 
@@ -53,7 +54,7 @@ export const registrationFormPath = (request: RegistrationRequest, path: string)
     return prefix ? `${prefix}${student[2]}` : path
   }
   if (path === 'group.interests') return `${journeyPrefix[request.journey]}.interests`
-  if (path.startsWith('supervisor.') || path === 'supervisorMode') {
+  if (path.startsWith('supervisor.')) {
     return `${journeyPrefix[request.journey]}.${path}`
   }
   if (path === 'source.rowNumbers') return 'supervisorCsv.file'
@@ -65,14 +66,7 @@ export const buildProductionRegistrationRequest = (
   overrideFlags: Record<string, boolean> = {},
 ) => {
   if (request.journey === 'mentor') {
-    const mentor = {
-      ...request.payload.mentor,
-      languages: request.payload.mentor.languagesPreferNot ? '' : request.payload.mentor.languages,
-      dateOfBirth: request.payload.mentor.dateOfBirthPreferNot
-        ? ''
-        : request.payload.mentor.dateOfBirth,
-    }
-    return { journey: request.journey, payload: { mentor } }
+    return { journey: request.journey, payload: { mentor: request.payload.mentor } }
   }
   const students: SubmittedStudent[] = (() => {
     switch (request.journey) {
@@ -140,7 +134,10 @@ export const buildProductionRegistrationRequest = (
       : { method: request.journey }
   const supervisor =
     request.journey === 'student_individual' || request.journey === 'student_team'
-      ? { supervisor: request.payload.supervisor, supervisorMode: request.payload.supervisorMode }
+      ? // Only a supervisor that was given (it's optional).
+        hasSupervisor(request.payload.supervisor)
+        ? { supervisor: request.payload.supervisor }
+        : {}
       : {}
   const group =
     request.journey === 'student_team' || request.journey === 'supervisor_group'

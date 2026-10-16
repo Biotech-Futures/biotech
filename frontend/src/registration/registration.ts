@@ -84,16 +84,15 @@ export interface StudentDetails {
   guardian: GuardianDetails
 }
 
+/** A student's nominated supervisor (a teacher or school supervisor). */
 export interface SupervisorDetails {
   firstName: string
   lastName: string
   email: string
-  school: string
 }
 
 export interface StudentIndividualForm {
   student: StudentDetails
-  supervisorMode: 'school' | 'parent'
   supervisor: SupervisorDetails
 }
 
@@ -101,7 +100,6 @@ export interface StudentTeamForm {
   creator: StudentDetails
   teammates: StudentDetails[]
   interests: string[]
-  supervisorMode: 'school' | 'parent'
   supervisor: SupervisorDetails
 }
 
@@ -141,7 +139,6 @@ export interface MentorForm {
   firstName: string
   lastName: string
   email: string
-  phone: string
   country: string
   state: string
   affiliation: '' | 'undergraduate' | 'postgraduate' | 'hdr' | 'academic' | 'industry'
@@ -153,16 +150,36 @@ export interface MentorForm {
   capacity: '' | '1' | '2' | '3' | '4' | '5'
   background: string
   motivation: string
-  indigenousStatus: '' | 'Yes' | 'No' | 'Prefer not to say'
-  languages: string
-  languagesPreferNot: boolean
-  dateOfBirth: string
-  dateOfBirthPreferNot: boolean
-  safeguardingJurisdiction: string
-  safeguardingStatus: 'pending-review'
-  complianceDeclaration: boolean
-  attestation: boolean
+  /** How they would mentor BIOTech groups. */
+  mentoringApproach: string
+  /** When they could meet a group each week (optional). */
+  availability: AvailabilitySlot[]
 }
+
+/** One weekly time a mentor is free: ``weekday`` as the admin pages' mentor
+ *  availability counts it (Monday is "0"), times as "HH:MM". */
+export interface AvailabilitySlot {
+  weekday: string
+  start: string
+  end: string
+}
+
+export const WEEKDAY_NAMES = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+]
+
+export const createAvailabilitySlot = (): AvailabilitySlot => ({ weekday: '', start: '', end: '' })
+
+/** The most words a mentor's written answers may have. */
+export const MENTOR_MAX_WORDS = 150
+
+export const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
 
 export interface RegistrationForms {
   studentIndividual: StudentIndividualForm
@@ -188,6 +205,10 @@ export const createGuardian = (): GuardianDetails => ({
 
 export const isAustralia = (country: string) => country.trim().toLowerCase() === 'australia'
 
+/** The location field after Country: Australia's State (required, from the
+ *  database's states), else a Region (optional, typed in). */
+export const stateLabel = (country: string) => (isAustralia(country) ? 'State' : 'Region')
+
 export const createStudent = (options: { deferGuardian?: boolean } = {}): StudentDetails => ({
   firstName: '',
   lastName: '',
@@ -205,17 +226,25 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   guardian: createGuardian(),
 })
 
+/** Whether any of a (optional) nominated supervisor's details were given. */
+export const hasSupervisor = (supervisor: SupervisorDetails) =>
+  Boolean(supervisor.firstName.trim() || supervisor.lastName.trim() || supervisor.email.trim())
+
+/** A nominated supervisor on Review: their name and email, or none. */
+export const supervisorSummary = (supervisor: SupervisorDetails) =>
+  hasSupervisor(supervisor)
+    ? `${supervisor.firstName} ${supervisor.lastName} · ${supervisor.email}`.trim()
+    : ''
+
 export const createSupervisor = (): SupervisorDetails => ({
   firstName: '',
   lastName: '',
   email: '',
-  school: '',
 })
 
-export const createPendingPeer = (): StudentDetails => ({
-  ...createStudent({ deferGuardian: true }),
-  country: '',
-})
+// A group member: their own details as Member 1's (Australia to start),
+// with their guardian's contact optional.
+export const createPendingPeer = (): StudentDetails => createStudent({ deferGuardian: true })
 
 export const parseRegistrationInterests = (value: string): string[] =>
   value
@@ -226,14 +255,12 @@ export const parseRegistrationInterests = (value: string): string[] =>
 export const createRegistrationForms = (): RegistrationForms => ({
   studentIndividual: {
     student: createStudent(),
-    supervisorMode: 'school',
     supervisor: createSupervisor(),
   },
   studentTeam: {
     creator: createStudent(),
     teammates: [createPendingPeer()],
     interests: [],
-    supervisorMode: 'school',
     supervisor: createSupervisor(),
   },
   supervisorIndividual: {
@@ -254,7 +281,6 @@ export const createRegistrationForms = (): RegistrationForms => ({
     firstName: '',
     lastName: '',
     email: '',
-    phone: '',
     country: 'Australia',
     state: '',
     affiliation: '',
@@ -266,15 +292,8 @@ export const createRegistrationForms = (): RegistrationForms => ({
     capacity: '',
     background: '',
     motivation: '',
-    indigenousStatus: 'Prefer not to say',
-    languages: '',
-    languagesPreferNot: false,
-    dateOfBirth: '',
-    dateOfBirthPreferNot: false,
-    safeguardingJurisdiction: '',
-    safeguardingStatus: 'pending-review',
-    complianceDeclaration: false,
-    attestation: false,
+    mentoringApproach: '',
+    availability: [createAvailabilitySlot()],
   },
 })
 

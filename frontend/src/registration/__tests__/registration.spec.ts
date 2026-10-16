@@ -21,14 +21,14 @@ describe('registration form factories', () => {
     expect(parseRegistrationCsv(studentCsv()).rows[0].values.grouping_preference).toBe('')
   })
 
-  it('does not invent hidden profile information for identity-only peers', () => {
+  it('starts every group member as Member 1, with their guardian optional', () => {
     const forms = createRegistrationForms()
     expect(forms.studentTeam.creator.country).toBe('Australia')
     for (const peer of [forms.studentTeam.teammates[0], createPendingPeer()]) {
       expect(peer).toMatchObject({
         school: '',
         yearLevel: '',
-        country: '',
+        country: 'Australia',
         state: '',
         interests: [],
         guardianDeferred: true,
@@ -40,7 +40,6 @@ describe('registration form factories', () => {
 
     expect(forms.studentTeam.teammates).toHaveLength(1)
     expect(forms.supervisorGroup.students).toHaveLength(2)
-    expect(forms.mentor.safeguardingStatus).toBe('pending-review')
   })
 
   it('builds backend-compatible team, group, and included CSV collections', () => {

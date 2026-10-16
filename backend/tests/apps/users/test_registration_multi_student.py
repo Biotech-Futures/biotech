@@ -51,7 +51,7 @@ def batch(journey, count=None, *, offset=0):
     payload = {"students": students, "source": {"method": journey}}
     if journey in {"student_individual", "student_team"}:
         original = request_body()["payload"]
-        payload.update(supervisor=original["supervisor"], supervisorMode="school")
+        payload.update(supervisor=original["supervisor"])
     if grouped:
         payload["group"] = {"interests": ["Biotechnology", "Engineering"]}
     if journey == "supervisor_csv":
@@ -344,21 +344,17 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
                 self.assertEqual(response.status_code, 400, response.data)
         self.assert_not_consumed(invite)
 
-    def test_parent_supervisor_relationship_is_not_fabricated_for_other_teammates(self):
+    def test_a_nominated_supervisor_is_every_members_teacher(self):
         body = batch("student_team")
-        body["payload"]["supervisorMode"] = "parent"
-        guardian = body["payload"]["students"][0]["guardian"]
-        body["payload"]["supervisor"] = {key: guardian[key] for key in ("firstName", "lastName", "email")}
-        parent = User.objects.create_user(
-            email=guardian["email"], first_name=guardian["firstName"], last_name=guardian["lastName"],
+        nominated = body["payload"]["supervisor"]
+        teacher = User.objects.create_user(
+            email=nominated["email"], first_name=nominated["firstName"], last_name=nominated["lastName"],
         )
-        SupervisorProfile.objects.create(user=parent, school_name="")
+        SupervisorProfile.objects.create(user=teacher, school_name="")
         response = self.post_batch(body)
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(
-            list(StudentSupervisor.objects.order_by("student_user__user__email").values_list("relationship_type", flat=True)),
-            ["parent_guardian", "other"],
-        )
+        relationships = set(StudentSupervisor.objects.values_list("relationship_type", flat=True))
+        self.assertEqual(relationships, {StudentSupervisor.RelationshipTypeChoices.TEACHER})
 
 
 class MultiStudentPhotoTests(MultiStudentSetup, TestCase):

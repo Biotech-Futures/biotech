@@ -54,13 +54,8 @@ describe('canonical registration intake', () => {
     document.head.appendChild(style)
     const wrapper = mountPage()
     try {
-      const heading = wrapper.get('.setup-heading h1')
-      const fontSize = getComputedStyle(heading.element).fontSize
-      const size = /^([\d.]+)(px|rem)$/.exec(fontSize)
-      if (!size) throw new Error(`Unexpected rendered heading size: ${fontSize}`)
-      const pixels = Number(size[1]) * (size[2] === 'rem' ? 16 : 1)
-      expect(pixels).toBeLessThanOrEqual(28)
-      expect(pixels).toBeGreaterThan(0)
+      // The platform's own page heading, as on the portal's pages.
+      expect(wrapper.get('#role-title').classes()).toContain('page-title')
       const panel = getComputedStyle(wrapper.get('.role-option').element)
       expect(['', 'none']).toContain(panel.boxShadow)
       expect(panel.backgroundImage).not.toContain('gradient')
@@ -109,7 +104,7 @@ describe('canonical registration intake', () => {
   it.each([
     { mode: 'canonical', journey: 'Register as an individual student', steps: 4 },
     { mode: 'canonical', journey: 'Create a student group', steps: 4 },
-    { mode: 'canonical', journey: 'Register as a mentor', steps: 5 },
+    { mode: 'canonical', journey: 'Register as a mentor', steps: 4 },
     { mode: 'supervisor', journey: 'Register one student', steps: 2 },
     { mode: 'supervisor', journey: 'Register a student group', steps: 3 },
     { mode: 'supervisor', journey: 'Upload students by CSV', steps: 3 },
@@ -188,7 +183,7 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.setup-progress').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Registration setup')
     expect(wrapper.text()).not.toContain('Step 1 of 2')
-    expect(wrapper.find('.setup-heading > p').exists()).toBe(false)
+    expect(wrapper.find('.page-header > p').exists()).toBe(false)
 
     await clickButton(wrapper, 'Student')
     expect(wrapper.text()).toContain('Register as an individual student')
@@ -196,13 +191,15 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.setup-progress').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Registration setup')
     expect(wrapper.text()).not.toContain('Step 2 of 2')
-    expect(wrapper.find('.setup-heading > p').exists()).toBe(false)
+    expect(wrapper.find('.page-header > p').exists()).toBe(false)
   })
 
   it('preserves conditional mentor affiliation fields and pending-review copy', async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
-    expect(wrapper.findAll('.step-navigation li')).toHaveLength(5)
+    // Contact, Affiliation, Mentoring, Review: no Compliance step.
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    expect(wrapper.text()).not.toContain('Compliance')
 
     const setup = wrapper.vm as unknown as {
       currentStep: number
@@ -217,9 +214,11 @@ describe('canonical registration intake', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('Company or organisation')
 
-    setup.currentStep = 4
+    setup.currentStep = 3
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('Pending administrator review')
+    expect(wrapper.text()).toContain('Mentoring')
+    expect(wrapper.text()).not.toContain('Matching access')
+    expect(wrapper.text()).not.toContain('Safeguarding')
     expect(wrapper.text()).not.toContain('Before you submit')
   })
 
@@ -274,8 +273,11 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain(
       'before you can access most features of the program.',
     )
-    expect(wrapper.text()).toContain('it does not send a permission email or record consent.')
-    expect(wrapper.text()).toContain('Teacher / school supervisor')
+    expect(wrapper.text()).toContain('It does not send a permission email or record consent.')
+    // A nominated supervisor is their name and email: no type or school.
+    expect(wrapper.text()).not.toContain('Teacher / school supervisor')
+    expect(wrapper.text()).not.toContain('Nominated parent-supervisor')
+    expect(wrapper.text()).not.toContain('Supervisor school')
     expect(wrapper.text()).not.toContain('Existing school supervisor')
     setup.currentStep = 3
     await wrapper.vm.$nextTick()
@@ -395,6 +397,98 @@ describe('canonical registration intake', () => {
     expect(wrapper.find('.student-entry__heading').exists()).toBe(false)
   })
 
+  it("lets a student leave out their supervisor, but asks for all of one that's started", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Student')
+    await clickButton(wrapper, 'Register as an individual student')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      validateCurrentStep: () => boolean
+      errors: Record<string, string>
+      forms: { studentIndividual: { supervisor: { firstName: string } } }
+    }
+    setup.currentStep = 2
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('If you have a supervisor, fill in their details.')
+    // No * on the supervisor's fields.
+    for (const id of ['first', 'last', 'email']) {
+      expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).not.toContain('*')
+    }
+
+    setup.validateCurrentStep()
+    expect(Object.keys(setup.errors).some((key) => key.includes('.supervisor.'))).toBe(false)
+
+    setup.forms.studentIndividual.supervisor.firstName = 'Sam'
+    setup.validateCurrentStep()
+    expect(setup.errors['studentIndividual.supervisor.lastName']).toBeTruthy()
+    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
+  })
+
+  it("asks every group member for their school, year and location, as Member 1's", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Student')
+    await clickButton(wrapper, 'Create a student group')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      validateCurrentStep: () => boolean
+      errors: Record<string, string>
+    }
+    setup.currentStep = 2
+    await wrapper.vm.$nextTick()
+    for (const field of ['school', 'yearLevel', 'country', 'state']) {
+      expect(wrapper.find(`#studentTeam-teammates-0-${field}`).exists()).toBe(true)
+    }
+    // The group's interests are shared: none of a member's own.
+    expect(wrapper.find('#studentTeam-teammates-0-interests').exists()).toBe(false)
+
+    setup.validateCurrentStep()
+    expect(setup.errors['studentTeam.teammates.0.school']).toBeTruthy()
+    expect(setup.errors['studentTeam.teammates.0.yearLevel']).toBeTruthy()
+  })
+
+  it("limits a mentor's answers to 150 words and checks their weekly times", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      validateCurrentStep: () => boolean
+      errors: Record<string, string>
+      forms: {
+        mentor: {
+          interests: string[]
+          capacity: string
+          background: string
+          motivation: string
+          mentoringApproach: string
+          availability: { weekday: string; start: string; end: string }[]
+        }
+      }
+    }
+    setup.currentStep = 2
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('How would you mentor BIOTech groups?')
+    expect(wrapper.text()).toContain('Weekly availability')
+    expect(wrapper.text()).toContain('0 / 150 words')
+
+    Object.assign(setup.forms.mentor, {
+      interests: ['Biomedical Innovations'],
+      capacity: '2',
+      background: 'word '.repeat(151),
+      motivation: 'To help.',
+      mentoringApproach: 'Weekly check-ins.',
+    })
+    setup.forms.mentor.availability[0] = { weekday: '0', start: '10:00', end: '09:00' }
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('151 / 150 words')
+    setup.validateCurrentStep()
+    expect(setup.errors['mentor.background']).toBe('Keep this to 150 words or fewer.')
+    expect(setup.errors['mentor.availability.0']).toBe('End after it starts.')
+
+    setup.forms.mentor.background = 'Ten years in biotech.'
+    setup.forms.mentor.availability[0] = { weekday: '0', start: '09:00', end: '11:00' }
+    expect(setup.validateCurrentStep()).toBe(true)
+  })
+
   it('offers a supervisor no CSV upload for now', () => {
     const wrapper = mountPage('supervisor')
     expect(wrapper.text()).toContain('Register one student')
@@ -427,6 +521,7 @@ describe('canonical registration intake', () => {
     ).toEqual(countries)
     expect((country().element as HTMLSelectElement).value).toBe('Australia')
     expect(state().element.tagName).toBe('SELECT')
+    expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State *')
     expect(
       state()
         .findAll('option')
@@ -438,6 +533,9 @@ describe('canonical registration intake', () => {
 
     await country().setValue('New Zealand')
     expect(state().element.tagName).toBe('INPUT')
+    // Elsewhere a Region, optional; the Australian state isn't kept.
+    expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('Region (Optional)')
+    expect((state().element as HTMLInputElement).value).toBe('')
   })
 
   it("shows a supervisor's saved registration as the steps' last page, with what Review showed", async () => {
@@ -452,11 +550,11 @@ describe('canonical registration intake', () => {
     }
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.find('.success-panel').exists()).toBe(false)
+    expect(wrapper.find('.success-body .form-footer').exists()).toBe(true)
     expect(wrapper.get('.page-title').text()).toBe('Register one student')
     expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(2)
     const body = wrapper.get('.success-body')
-    expect(body.get('h3').text()).toBe('Registration complete')
+    expect(body.get('h3').text()).toBe('Registration Complete')
     expect(body.text()).not.toContain('REG-1')
     // What Review showed (the student), then when it was registered.
     expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual(['Student'])
@@ -536,20 +634,6 @@ describe('canonical registration intake', () => {
         new Set([expectedName]),
       )
     }
-
-    const individual = mountPage()
-    await clickButton(individual, 'Student')
-    await clickButton(individual, 'Register as an individual student')
-    ;(individual.vm as unknown as { currentStep: number }).currentStep = 2
-    await individual.vm.$nextTick()
-    assertRadioGroup(individual, 'student-individual-supervisor-mode')
-
-    const team = mountPage()
-    await clickButton(team, 'Student')
-    await clickButton(team, 'Create a student group')
-    ;(team.vm as unknown as { currentStep: number }).currentStep = 1
-    await team.vm.$nextTick()
-    assertRadioGroup(team, 'student-team-supervisor-mode')
 
     const mentor = mountPage()
     await clickButton(mentor, 'Mentor')

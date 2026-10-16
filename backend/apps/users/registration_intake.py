@@ -153,10 +153,12 @@ class StudentInput(StrictInput):
 
 
 class SupervisorInput(StrictInput):
+    """A student's nominated supervisor (a teacher or school supervisor): their
+    name and email."""
+
     firstName = serializers.CharField(max_length=255)
     lastName = serializers.CharField(max_length=255)
     email = serializers.EmailField(max_length=254)
-    school = serializers.CharField(max_length=255, allow_blank=True, default="")
 
 
 class SourceInput(StrictInput):
@@ -178,7 +180,6 @@ class PayloadInput(StrictInput):
         child=serializers.DictField(), min_length=1, max_length=MAX_CSV_ROWS,
     )
     source = SourceInput()
-    supervisorMode = serializers.ChoiceField(choices=["school", "parent"], default="school")
     supervisor = SupervisorInput(required=False)
     group = GroupInput(required=False)
 
@@ -210,13 +211,9 @@ class IntakeInput(StrictInput):
                 errors["payload.source.rowNumbers"] = "Provide the filename and one unique ordered CSV row number per student."
         elif set(source) - {"method"}:
             errors["payload.source"] = "CSV metadata is only accepted for CSV intake."
-        if journey in SUPERVISOR_JOURNEYS:
-            if "supervisor" in payload or payload["supervisorMode"] != "school":
-                errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
-        elif "supervisor" not in payload:
-            errors["payload.supervisor"] = "Nominate a supervisor."
-        elif payload["supervisorMode"] == "school" and not payload["supervisor"]["school"] and not self.context.get("legacy"):
-            errors["payload.supervisor.school"] = "Enter the supervisor's school."
+        # A student registering themselves may nominate a supervisor (optional).
+        if journey in SUPERVISOR_JOURNEYS and "supervisor" in payload:
+            errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
         students = []
         emails = {}
         for index, raw in enumerate(payload["students"]):
@@ -330,11 +327,12 @@ def legacy_request(body):
                 },
                 "overrides": {key: body[key] for key in REGISTRATION_OVERRIDES if key in body},
             }],
-            "source": {"method": JOURNEY}, "supervisorMode": "school",
-            "supervisor": {
+            "source": {"method": JOURNEY},
+            # A supervisor only when one was given (it's optional).
+            **({"supervisor": {
                 "email": body.get("SupervisorEmail", ""), "firstName": body.get("SupervisorFirstName", ""),
-                "lastName": body.get("SupervisorSurname", ""), "school": body.get("SchoolName", ""),
-            },
+                "lastName": body.get("SupervisorSurname", ""),
+            }} if any(body.get(key) for key in ("SupervisorEmail", "SupervisorFirstName", "SupervisorSurname")) else {}),
         },
     }
 
@@ -402,7 +400,7 @@ def resolve_location(student):
     return country, state
 
 
-def save_student(student, supervisor, mode, now, *, registered_by):
+def save_student(student, supervisor, now, *, registered_by):
     country, state = resolve_location(student) if student["country"] else (None, None)
     user = User.objects.create_user(
         email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
@@ -415,7 +413,10 @@ def save_student(student, supervisor, mode, now, *, registered_by):
     )
     # Nomination is not a supervisor invitation or a role grant. Only link an
     # already-provisioned profile; preserve all existing account details.
-    sup = SupervisorProfile.objects.filter(user__email__iexact=supervisor["email"]).first()
+    sup = (
+        SupervisorProfile.objects.filter(user__email__iexact=supervisor["email"]).first()
+        if supervisor["email"] else None
+    )
     guardian = student["guardian"]
     has_guardian = all(guardian.get(field) for field in ("firstName", "lastName", "email"))
     profile = StudentProfile.objects.create(
@@ -426,16 +427,10 @@ def save_student(student, supervisor, mode, now, *, registered_by):
         registered_by=registered_by,
     )
     if sup:
-        relationship = StudentSupervisor.RelationshipTypeChoices.TEACHER
-        if mode == "parent":
-            relationship = (
-                StudentSupervisor.RelationshipTypeChoices.PARENT_GUARDIAN
-                if supervisor["email"].casefold() == guardian.get("email", "").casefold()
-                else StudentSupervisor.RelationshipTypeChoices.OTHER
-            )
+        # A nominated supervisor is the student's teacher or school supervisor.
         StudentSupervisor.objects.create(
             student_user=profile, supervisor_user=sup,
-            relationship_type=relationship,
+            relationship_type=StudentSupervisor.RelationshipTypeChoices.TEACHER,
         )
     for description in dict.fromkeys(student["interests"]):
         interest, _ = AreasOfInterest.objects.get_or_create(
@@ -522,7 +517,11 @@ def register(request):
     payload = parser.validated_data["payload"]
     journey = parser.validated_data["journey"]
     students = payload["students"]
-    supervisor = authenticated_supervisor(request) if journey in SUPERVISOR_JOURNEYS else payload["supervisor"]
+    # None nominated: blank details, as the supervisor is optional.
+    supervisor = (
+        authenticated_supervisor(request) if journey in SUPERVISOR_JOURNEYS
+        else payload.get("supervisor") or {"firstName": "", "lastName": "", "email": ""}
+    )
     raw_token = request.headers.get("X-Registration-Invitation", "")
     key_value = request.headers.get("Idempotency-Key")
     try:
@@ -612,20 +611,13 @@ def register(request):
                 } for warning in registration_warnings(validator.validated_data)])
             if errors:
                 raise serializers.ValidationError(errors)
-            student = students[0]
-            if payload["supervisorMode"] == "parent" and (
-                supervisor["email"].casefold() != student["guardian"]["email"].casefold()
-                or supervisor["firstName"].casefold() != student["guardian"]["firstName"].casefold()
-                or supervisor["lastName"].casefold() != student["guardian"]["lastName"].casefold()
-            ):
-                raise serializers.ValidationError({"supervisor": ["A parent supervisor must be the nominated guardian."]})
             if warnings:
                 raise RegistrationWarnings(warnings)
             from .views import _registered_by
             if legacy:
                 provenance[0] = _registered_by(raw["body"].get("RegisteredBy"))
             users = [
-                save_student(item, supervisor, payload["supervisorMode"], now, registered_by=registered_by)
+                save_student(item, supervisor, now, registered_by=registered_by)
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None
@@ -634,7 +626,7 @@ def register(request):
                 idempotency_key=key, request_digest=digest, window=window, student=users[0],
                 student_count=len(users), journey=journey, group=group,
                 invitation=invitation, created_by=actor_user,
-                supervisor_details=supervisor, supervisor_mode=payload["supervisorMode"],
+                supervisor_details=supervisor if any(supervisor.values()) else {},
                 source=payload["source"], **participant_details(students[0]),
             )
             RegistrationStudent.objects.bulk_create([

@@ -20,7 +20,7 @@ from apps.common.storage import get_profile_image_storage, reset_managed_storage
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import (
     AdminScope, KnownUniversity, RegistrationInvitation, RegistrationSubmission,
-    RegistrationWindow, StudentProfile, SupervisorProfile, User,
+    RegistrationWindow, StudentProfile, StudentSupervisor, SupervisorProfile, User,
 )
 from apps.users.registration_intake import invitation_token, save_student, token_hash
 from apps.users.serializers import UserRegisterBodySerializer, UserSerializer
@@ -45,10 +45,8 @@ def request_body():
                 },
                 "overrides": {},
             }],
-            "supervisorMode": "school",
             "supervisor": {
                 "firstName": "Sam", "lastName": "Teacher", "email": "teacher@example.com",
-                "school": "Example High",
             },
             "source": {"method": "student_individual"},
         },
@@ -575,8 +573,8 @@ class SharedValidationTests(RegistrationSetup, TestCase):
     def test_supervisor_student_identity_conflict_is_hard(self):
         invite = self.mint()
         for supervisor in (
-            {"firstName": "Jordan", "lastName": "Lee", "email": "teacher@example.com", "school": "Example High"},
-            {"firstName": "Sam", "lastName": "Teacher", "email": "jordan.lee@example.com", "school": "Example High"},
+            {"firstName": "Jordan", "lastName": "Lee", "email": "teacher@example.com"},
+            {"firstName": "Sam", "lastName": "Teacher", "email": "jordan.lee@example.com"},
         ):
             body = copy.deepcopy(self.body)
             body["payload"]["supervisor"] = supervisor
@@ -599,21 +597,28 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         self.assertNotIn("warnings", response.data)
         self.assert_not_consumed(invite)
 
-    def test_parent_mode_requires_matching_guardian_and_grants_no_role(self):
-        body = self.warning_body()
-        body["payload"]["supervisorMode"] = "parent"
-        response = self.submit(body=body)
-        self.assertEqual(response.status_code, 400)
-        self.assertNotIn("warnings", response.data)
+    def test_a_student_may_register_without_a_supervisor(self):
+        del self.body["payload"]["supervisor"]
+        response = self.submit()
+        self.assertEqual(response.status_code, 201, response.data)
+        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
+        self.assertEqual(row.supervisor_details, {})
+        self.assertFalse(StudentSupervisor.objects.exists())
+
+    def test_a_nominated_supervisor_is_only_their_name_and_email(self):
+        # No supervisor type or school any more: either is refused.
+        for change in ({"supervisorMode": "school"}, {"supervisorMode": "parent"}):
+            body = copy.deepcopy(self.body)
+            body["payload"].update(change)
+            self.assertEqual(self.submit(body=body).status_code, 400)
         body = copy.deepcopy(self.body)
-        body["payload"]["supervisorMode"] = "parent"
-        body["payload"]["supervisor"] = {
-            "firstName": "Taylor", "lastName": "Lee", "email": "guardian@example.com", "school": "",
-        }
-        self.assertEqual(self.submit(body=body).status_code, 201)
-        self.assertFalse(User.objects.filter(email="guardian@example.com").exists())
-        self.assertFalse(StudentProfile.objects.get().has_join_permission)
-        self.assertEqual(RoleAssignmentHistory.objects.count(), 1)
+        body["payload"]["supervisor"]["school"] = "Example High"
+        self.assertEqual(self.submit(body=body).status_code, 400)
+
+        self.assertEqual(self.submit().status_code, 201)
+        self.assertEqual(RegistrationSubmission.objects.get().supervisor_details, {
+            "firstName": "Sam", "lastName": "Teacher", "email": "teacher@example.com",
+        })
 
     def test_shared_serializer_retains_represented_guardian_rules(self):
         from apps.users.registration_intake import validation_body
