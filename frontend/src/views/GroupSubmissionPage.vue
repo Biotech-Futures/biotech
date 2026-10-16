@@ -164,7 +164,7 @@
           <div class="submission-stretch">
             <input
               id="project-title"
-              :value="projectTitle"
+              v-model="projectTitle"
               class="form-control"
               type="text"
               :maxlength="PROJECT_TITLE_MAX_LENGTH"
@@ -207,7 +207,7 @@
           <div class="submission-stretch">
             <textarea
               :id="question.key"
-              :value="answers[question.key]"
+              v-model="answers[question.key]"
               class="form-control submission-textarea"
               :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
@@ -966,9 +966,6 @@ function shareTyping(field: string, event: Event) {
     shareCursor(field, true)
     return
   }
-  // The boxes are bound by value, so what is typed is taken into the page's copy here.
-  if (field === TITLE_FIELD) projectTitle.value = input.value
-  else answers[field] = input.value
   if (adminAccess.value) return
   live.sendTyping(field)
   live.sendText(field, input.value, input.selectionStart ?? input.value.length)

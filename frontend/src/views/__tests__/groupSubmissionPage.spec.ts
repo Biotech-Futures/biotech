@@ -1216,6 +1216,19 @@ describe('co-editing', () => {
     expect(submitEntry).toHaveBeenCalled()
   })
 
+  it('leaves a box alone while a word is being composed, whatever else changes on the page', async () => {
+    await mountPage(coedited())
+    await connect()
+    const element = box().element as HTMLTextAreaElement
+
+    await box().trigger('compositionstart')
+    element.value = 'Live text.日本'
+    receive({ type: 'typing', user: { id: 9, name: 'Ben' }, field: 'inspiration', typing: true })
+    await flushPromises()
+
+    expect(element.value).toBe('Live text.日本')
+  })
+
   async function submitWithFailedSave() {
     const flush = sentOfType('doc-flush')[0]!
     receive({ type: 'doc-flushed', id: flush.id, ok: false })
