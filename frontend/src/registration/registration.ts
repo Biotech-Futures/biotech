@@ -99,8 +99,15 @@ export interface StudentIndividualForm {
 export interface StudentTeamForm {
   creator: StudentDetails
   teammates: StudentDetails[]
-  interests: string[]
   supervisor: SupervisorDetails
+  /** The group's code (6 digits, apart from its name), held for it while registering, and the
+   *  token the group takes it by. Empty until held (or if it couldn't be). */
+  groupCode: string
+  groupCodeToken: string
+  /** When its hold ends (ISO): a new code is held after that. */
+  groupCodeExpiresAt: string
+  /** A registered group's code, to join it instead of creating one. */
+  joinCode: string
 }
 
 export interface SupervisorIndividualForm {
@@ -226,6 +233,24 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   guardian: createGuardian(),
 })
 
+/** A group member left empty (their country aside, which starts filled in):
+ *  not asked for, nor registered. Any of it given, all of it is asked for. */
+export const isBlankStudent = (student: StudentDetails) =>
+  ![
+    student.firstName,
+    student.lastName,
+    student.email,
+    student.school,
+    student.yearLevel,
+    student.state,
+    student.pronouns,
+    student.guardian.firstName,
+    student.guardian.lastName,
+    student.guardian.email,
+  ].some((value) => value.trim()) &&
+  !student.interests.length &&
+  !student.profilePhoto
+
 /** Whether any of a (optional) nominated supervisor's details were given. */
 export const hasSupervisor = (supervisor: SupervisorDetails) =>
   Boolean(supervisor.firstName.trim() || supervisor.lastName.trim() || supervisor.email.trim())
@@ -260,8 +285,11 @@ export const createRegistrationForms = (): RegistrationForms => ({
   studentTeam: {
     creator: createStudent(),
     teammates: [createPendingPeer()],
-    interests: [],
     supervisor: createSupervisor(),
+    groupCode: '',
+    groupCodeToken: '',
+    groupCodeExpiresAt: '',
+    joinCode: '',
   },
   supervisorIndividual: {
     student: createStudent({ deferGuardian: true }),

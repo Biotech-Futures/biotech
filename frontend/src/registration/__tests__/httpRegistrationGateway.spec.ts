@@ -136,11 +136,11 @@ describe('HTTP registration gateway', () => {
       ensureCsrf,
     })
 
+    // A group of two: Member 2 given (one left empty isn't registered).
+    const forms = createRegistrationForms()
+    forms.studentTeam.teammates[0]!.firstName = 'Jamie'
     const result = await gateway.submit(
-      buildRegistrationRequest(
-        'data' in body ? 'student_team' : 'mentor',
-        createRegistrationForms(),
-      ),
+      buildRegistrationRequest('data' in body ? 'student_team' : 'mentor', forms),
     )
 
     expect(result.ok).toBe(true)

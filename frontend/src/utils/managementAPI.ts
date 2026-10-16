@@ -259,17 +259,26 @@ export interface ReleaseStatus {
   submissions_open?: boolean
 }
 
-// GET /api/v1/management/supervisor-pages/ — whether supervisors see Home,
-// Groups, Events, Announcements and Resources (off by default).
-export function fetchSupervisorPages(): Promise<{ shown: boolean }> {
-  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/')
+/** Management > Supervisor Visibility: whether supervisors see Home, Groups,
+ *  Events, Announcements and Resources (``shown``, off by default), and their
+ *  Registration page (``registration_shown``, on by default). */
+export interface SupervisorPagesState {
+  shown: boolean
+  registration_shown: boolean
 }
 
-// PUT /api/v1/management/supervisor-pages/ — admins turn it on or off.
-export function saveSupervisorPages(shown: boolean): Promise<{ shown: boolean }> {
-  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/', {
+// GET /api/v1/management/supervisor-pages/ — the switches.
+export function fetchSupervisorPages(): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/')
+}
+
+// PUT /api/v1/management/supervisor-pages/ — admins turn either on or off.
+export function saveSupervisorPages(
+  change: Partial<SupervisorPagesState>
+): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/', {
     method: 'PUT',
-    body: JSON.stringify({ shown })
+    body: JSON.stringify(change)
   })
 }
 

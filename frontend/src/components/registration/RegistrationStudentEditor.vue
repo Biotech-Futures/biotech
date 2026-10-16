@@ -7,7 +7,7 @@
         label="First name"
         autocomplete="given-name"
         :error="fieldError('firstName')"
-        required
+        :required="markRequired"
       />
       <RegistrationTextField
         :id="fieldId('lastName')"
@@ -15,7 +15,7 @@
         label="Last name"
         autocomplete="family-name"
         :error="fieldError('lastName')"
-        required
+        :required="markRequired"
       />
       <RegistrationTextField
         :id="fieldId('email')"
@@ -24,7 +24,7 @@
         type="email"
         autocomplete="email"
         :error="fieldError('email')"
-        required
+        :required="markRequired"
         wide
       />
     </div>
@@ -37,10 +37,10 @@
           label="School"
           autocomplete="organization"
           :error="fieldError('school')"
-          required
+          :required="markRequired"
         />
         <label class="select-field">
-          <span>Year level <span class="required-mark" aria-hidden="true">*</span></span>
+          <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
           <select
             :id="fieldId('yearLevel')"
             v-model="student.yearLevel"
@@ -48,7 +48,7 @@
             :aria-describedby="
               fieldError('yearLevel') ? `${fieldId('yearLevel')}-error` : undefined
             "
-            required
+            :required="markRequired"
           >
             <option value="" disabled>Select a year</option>
             <option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">
@@ -71,7 +71,7 @@
           :options="countryOptions.length ? countryOptions : undefined"
           :placeholder="countryOptions.length ? 'Select a country' : undefined"
           :error="fieldError('country')"
-          required
+          :required="markRequired"
         />
         <!-- In Australia, its State (required, a dropdown of its states and
              territories); elsewhere a Region (optional). -->
@@ -83,7 +83,7 @@
           :options="stateOptions.length ? stateOptions : undefined"
           :placeholder="stateOptions.length ? 'Select a state' : undefined"
           :error="fieldError('state')"
-          :required="isAustralia(student.country)"
+          :required="markRequired && isAustralia(student.country)"
           :optional="!isAustralia(student.country)"
         />
       </div>
@@ -168,14 +168,14 @@
           v-model="student.guardian.firstName"
           label="Guardian first name"
           :error="fieldError('guardian.firstName')"
-          required
+          :required="markRequired"
         />
         <RegistrationTextField
           :id="fieldId('guardian.lastName')"
           v-model="student.guardian.lastName"
           label="Guardian last name"
           :error="fieldError('guardian.lastName')"
-          required
+          :required="markRequired"
         />
         <RegistrationTextField
           :id="fieldId('guardian.email')"
@@ -183,7 +183,7 @@
           label="Guardian email"
           type="email"
           :error="fieldError('guardian.email')"
-          required
+          :required="markRequired"
           wide
         />
       </div>
@@ -241,6 +241,9 @@ watch(
 )
 
 const showIdentity = computed(() => ['identity', 'full', 'teammate'].includes(props.section))
+// A group member (teammate) is asked for only once any of their details are
+// given, so their fields carry no *.
+const markRequired = computed(() => props.section !== 'teammate')
 // A group member (teammate) gives their school, year and location too.
 const showProfile = computed(() => ['profile', 'full', 'teammate'].includes(props.section))
 const showGuardian = computed(

@@ -71,8 +71,15 @@ const router = createRouter({
 
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
-import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
-import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
+import {
+  isSupervisorHiddenPath,
+  loadSupervisorPages,
+  loadSupervisorRegistration,
+} from '../composables/useSupervisorPages'
+import {
+  isSupervisorRegistrationRoute,
+  resolveSupervisorRegistrationRouteAccess,
+} from './registrationAccess'
 
 router.beforeEach((to, from, next) => {
 
@@ -119,6 +126,9 @@ router.beforeEach((to, from, next) => {
   } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
     // Hidden from supervisors until Management > Supervisor Visibility shows them.
     void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
+  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorRegistrationRoute(to)) {
+    // Their Registration page, unless Management > Supervisor Visibility hides it.
+    void loadSupervisorRegistration().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

@@ -466,7 +466,8 @@ type MainNavEntry =
       collapsed: boolean
     }
 
-const { shown: supervisorPagesShown } = useSupervisorPages()
+const { shown: supervisorPagesShown, registrationShown: supervisorRegistrationShown } =
+  useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
@@ -516,7 +517,10 @@ const sidebarSections = computed(() => {
       active: false,
       links: [
         { label: 'My Profile', to: '/profile', active: path === '/profile' },
-        { label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' },
+        // Unless Management > Supervisor Visibility hides it (admins always see it).
+        ...(auth.isAdmin || supervisorRegistrationShown.value
+          ? [{ label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' }]
+          : []),
         { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
         { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
         ...(supervisorResultsShown.value

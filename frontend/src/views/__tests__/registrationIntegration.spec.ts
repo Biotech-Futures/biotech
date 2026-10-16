@@ -176,6 +176,8 @@ const successfulGateway = (journey: 'student_individual' | 'mentor'): Registrati
 })
 
 beforeEach(() => {
+  // No registration progress kept from another test.
+  sessionStorage.clear()
   vi.stubGlobal('scrollTo', vi.fn())
   resetCsrfToken()
 })
@@ -269,7 +271,6 @@ describe('registration gateway UI integration', () => {
       guardian: createRegistrationForms().studentTeam.creator.guardian,
     }
     setup.forms.studentTeam.supervisor = { ...setup.forms.studentIndividual.supervisor }
-    setup.forms.studentTeam.interests = ['Water & Energy Tech']
     Object.assign(setup.forms.studentTeam.teammates[0]!, {
       firstName: 'Jamie',
       lastName: 'Student',
@@ -293,7 +294,7 @@ describe('registration gateway UI integration', () => {
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(send.mock.calls[0]![0]).toMatchObject({
       journey: 'student_team',
-      payload: { interests: ['Water & Energy Tech'], teammates: [{ guardianDeferred: true }] },
+      payload: { teammates: [{ guardianDeferred: true }] },
     })
     expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
     wrapper.unmount()

@@ -83,9 +83,12 @@ def template_upload_to(instance, filename):
 
 class SupervisorPagesSetting(SingletonModel):
     """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Supervisor Visibility)."""
+    Resources; off until an admin turns it on (Management > Supervisor Visibility).
+    And whether they see their Registration page (and can register students);
+    on until an admin hides it."""
 
     shown = models.BooleanField(default=False)
+    registration_shown = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",

@@ -43,10 +43,28 @@
             >
               <h3>{{ section.title }}</h3>
               <dl>
-                <div v-for="item in section.items" :key="item.label">
+                <div
+                  v-for="item in section.items"
+                  :key="item.label"
+                  :class="{ 'review-row--joined': item.joinNext }"
+                >
                   <dt>{{ item.label }}</dt>
                   <dd v-if="item.parts" class="review-parts">
                     <span v-for="(part, index) in item.parts" :key="index">{{ part }}</span>
+                  </dd>
+                  <dd v-else-if="item.copy" class="review-copy">
+                    <span>{{ item.value }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      @click="copyGroupCode(item.copy)"
+                    >
+                      <i
+                        :class="groupCodeCopied ? 'fas fa-check' : 'fas fa-copy'"
+                        aria-hidden="true"
+                      ></i>
+                      {{ groupCodeCopied ? 'Copied' : 'Copy' }}
+                    </button>
                   </dd>
                   <dd v-else>{{ item.value || 'Not provided' }}</dd>
                 </div>
@@ -143,7 +161,7 @@
         class="btn btn-outline back-button setup-back"
         @click="backToRoleSelection"
       >
-        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to roles
+        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Roles
       </button>
       <!-- The platform's own page heading (a supervisor's with its subtext). -->
       <header class="page-header">
@@ -152,7 +170,39 @@
           Register students individually, as a group or from a CSV.
         </p>
       </header>
-      <div class="pathway-choices">
+      <!-- A student: whether they have a group, as cards like the roles'. -->
+      <div v-if="isStudentPathway" class="role-options">
+        <button
+          v-for="option in studentPathwayOptions"
+          :key="option.value"
+          type="button"
+          class="role-option"
+          @click="selectJourney(option.value)"
+        >
+          <span class="role-option__icon" aria-hidden="true">
+            <svg v-if="option.value === 'student_team'" viewBox="0 0 32 32">
+              <circle cx="16" cy="9" r="4" />
+              <path d="M9 25c.6-5 3-7.5 7-7.5s6.4 2.5 7 7.5" />
+              <circle cx="7" cy="12" r="3" />
+              <path d="M2.5 24c.4-3.5 2-5.5 4.5-5.5 1.2 0 2.2.4 3 1.2" />
+              <circle cx="25" cy="12" r="3" />
+              <path d="M29.5 24c-.4-3.5-2-5.5-4.5-5.5-1.2 0-2.2.4-3 1.2" />
+            </svg>
+            <svg v-else viewBox="0 0 32 32">
+              <circle cx="16" cy="10" r="5" />
+              <path d="M7 27c.7-6 3.8-9 9-9s8.3 3 9 9" />
+            </svg>
+          </span>
+          <span class="role-option__copy">
+            <strong>{{ option.title }}</strong>
+            <small>{{ option.description }}</small>
+          </span>
+          <span class="btn btn-outline btn-sm role-option__arrow" aria-hidden="true">
+            Continue <i class="fas fa-chevron-right"></i>
+          </span>
+        </button>
+      </div>
+      <div v-else class="pathway-choices">
         <button
           v-for="option in roleJourneyOptions"
           :key="option.value"
@@ -179,7 +229,7 @@
           :disabled="isCsvEditing"
           @click="changeJourney"
         >
-          <i class="fas fa-arrow-left" aria-hidden="true"></i> Change registration type
+          <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
         </button>
         <!-- The platform's own page heading; a supervisor's with the option's
              description under it. -->
@@ -344,71 +394,139 @@
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
-                <RegistrationInterestSelector
-                  id="student-team-interests"
-                  v-model="forms.studentTeam.interests"
-                  label="Mutual Areas of Interest"
-                  description="Choose the areas your group wants to explore together."
-                  :error="errors['studentTeam.interests']"
-                />
-                <div class="section-divider section-divider--with-action">
-                  <div>
-                    <h3>Group members</h3>
-                    <p>There may be between 2 and 5 students per group.</p>
+                <!-- Join a registered group by the code its creator shared, or
+                     create one (all below). -->
+                <div class="group-join" aria-live="polite">
+                  <span class="group-code__label">Join a group</span>
+                  <p>Got a code from your group? Enter it to join them.</p>
+                  <div class="field-grid">
+                    <RegistrationTextField
+                      id="student-team-join-code"
+                      v-model="forms.studentTeam.joinCode"
+                      label="Group code"
+                      placeholder="6-digit code"
+                      autocomplete="off"
+                      :hint="joinHint"
+                      :error="joinError"
+                    />
                   </div>
-                  <button
-                    type="button"
-                    class="small-action"
-                    :disabled="forms.studentTeam.teammates.length >= 4"
-                    @click="addStudentTeammate"
-                  >
-                    Add member
-                  </button>
-                </div>
-                <div class="student-entry creator-summary">
-                  <div class="student-entry__heading">
-                    <h3>Member 1 (you)</h3>
-                    <button type="button" class="btn btn-outline btn-sm" @click="goToStep(0)">
-                      <i class="fas fa-pen" aria-hidden="true"></i> Edit your details
-                    </button>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Name</dt>
-                      <dd>{{ studentName(forms.studentTeam.creator) }}</dd>
-                    </div>
-                    <div>
-                      <dt>Email</dt>
-                      <dd>{{ forms.studentTeam.creator.email }}</dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div
-                  v-for="(_, index) in forms.studentTeam.teammates"
-                  :key="`teammate-${index}`"
-                  class="student-entry"
-                >
-                  <div class="student-entry__heading">
-                    <h3>Member {{ index + 2 }}</h3>
+                  <div class="group-join__actions">
                     <button
-                      v-if="forms.studentTeam.teammates.length > 1"
                       type="button"
-                      class="btn btn-outline-danger btn-sm"
-                      @click="removeStudentTeammate(index)"
+                      class="primary-action"
+                      :disabled="isSubmitting"
+                      @click="continueJoining"
                     >
-                      <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
+                      Continue
                     </button>
                   </div>
-                  <RegistrationStudentEditor
-                    v-model:student="forms.studentTeam.teammates[index]"
-                    :prefix="`studentTeam.teammates.${index}`"
-                    section="teammate"
-                    :errors="errors"
-                    :show-interests="false"
-                    allow-guardian-defer
-                  />
                 </div>
+                <template v-if="!joiningGroup">
+                  <div class="or-divider" role="separator">or</div>
+                  <!-- The group's code, held for it while registering, to save and share. -->
+                  <div class="group-code" aria-live="polite">
+                    <span class="group-code__label">Group code</span>
+                    <template v-if="forms.studentTeam.groupCode">
+                      <p>Save this code for future reference and share it with your teammates.</p>
+                      <div class="group-code__row">
+                        <span class="group-code__value">{{ forms.studentTeam.groupCode }}</span>
+                        <button
+                          type="button"
+                          class="btn btn-outline btn-sm"
+                          @click="copyGroupCode()"
+                        >
+                          <i
+                            :class="groupCodeCopied ? 'fas fa-check' : 'fas fa-copy'"
+                            aria-hidden="true"
+                          ></i>
+                          {{ groupCodeCopied ? 'Copied' : 'Copy' }}
+                        </button>
+                      </div>
+                      <p>It's held for you for 24 hours until you register.</p>
+                    </template>
+                    <p v-else>
+                      {{
+                        groupCodeLoading
+                          ? 'Getting your group code…'
+                          : 'Your group code will be shown once you register.'
+                      }}
+                    </p>
+                  </div>
+                  <!-- The group's supervisor, on a line below its code. -->
+                  <div class="section-divider">
+                    <h3>Supervisor</h3>
+                    <p>If you have a supervisor, fill in their details.</p>
+                  </div>
+                  <div class="field-grid">
+                    <RegistrationTextField
+                      id="student-team-supervisor-first"
+                      v-model="forms.studentTeam.supervisor.firstName"
+                      label="Supervisor first name"
+                      :error="errors['studentTeam.supervisor.firstName']"
+                    />
+                    <RegistrationTextField
+                      id="student-team-supervisor-last"
+                      v-model="forms.studentTeam.supervisor.lastName"
+                      label="Supervisor last name"
+                      :error="errors['studentTeam.supervisor.lastName']"
+                    />
+                    <RegistrationTextField
+                      id="student-team-supervisor-email"
+                      v-model="forms.studentTeam.supervisor.email"
+                      label="Supervisor email"
+                      type="email"
+                      :error="errors['studentTeam.supervisor.email']"
+                      wide
+                    />
+                  </div>
+                  <!-- Its members: Member 1 (the student), then the others. -->
+                  <div class="section-divider">
+                    <h3>Group members</h3>
+                    <p>There may be up to 5 students per group.</p>
+                  </div>
+                  <div class="student-entry student-entry--first creator-summary">
+                    <div class="student-entry__heading">
+                      <h3>Member 1 (You)</h3>
+                      <button type="button" class="btn btn-outline btn-sm" @click="goToStep(0)">
+                        <i class="fas fa-pen" aria-hidden="true"></i> Edit your details
+                      </button>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Name</dt>
+                        <dd>{{ studentName(forms.studentTeam.creator) }}</dd>
+                      </div>
+                      <div>
+                        <dt>Email</dt>
+                        <dd>{{ forms.studentTeam.creator.email }}</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div
+                    v-for="(_, index) in forms.studentTeam.teammates"
+                    :key="`teammate-${index}`"
+                    class="student-entry"
+                  >
+                    <div class="student-entry__heading">
+                      <h3>Member {{ index + 2 }}</h3>
+                      <button
+                        type="button"
+                        class="btn btn-outline-danger btn-sm"
+                        @click="removeStudentTeammate(index)"
+                      >
+                        <i class="fas fa-trash-can" aria-hidden="true"></i> Remove
+                      </button>
+                    </div>
+                    <RegistrationStudentEditor
+                      v-model:student="forms.studentTeam.teammates[index]"
+                      :prefix="`studentTeam.teammates.${index}`"
+                      section="teammate"
+                      :errors="errors"
+                      allow-guardian-defer
+                    />
+                  </div>
+                </template>
               </div>
 
               <div v-else-if="currentStep === 1" class="step-stack">
@@ -417,7 +535,6 @@
                   prefix="studentTeam.creator"
                   section="profile"
                   :errors="errors"
-                  :show-interests="false"
                   show-optional-profile
                   :preview-url="photoPreviews['studentTeam.creator']"
                   @photo-selected="
@@ -425,32 +542,6 @@
                   "
                   @remove-photo="removePhoto(forms.studentTeam.creator, 'studentTeam.creator')"
                 />
-                <div class="section-divider">
-                  <h3>Supervisor</h3>
-                  <p>If you have a supervisor, fill in their details.</p>
-                </div>
-                <div class="field-grid">
-                  <RegistrationTextField
-                    id="student-team-supervisor-first"
-                    v-model="forms.studentTeam.supervisor.firstName"
-                    label="Supervisor first name"
-                    :error="errors['studentTeam.supervisor.firstName']"
-                  />
-                  <RegistrationTextField
-                    id="student-team-supervisor-last"
-                    v-model="forms.studentTeam.supervisor.lastName"
-                    label="Supervisor last name"
-                    :error="errors['studentTeam.supervisor.lastName']"
-                  />
-                  <RegistrationTextField
-                    id="student-team-supervisor-email"
-                    v-model="forms.studentTeam.supervisor.email"
-                    label="Supervisor email"
-                    type="email"
-                    :error="errors['studentTeam.supervisor.email']"
-                    wide
-                  />
-                </div>
                 <div class="section-divider">
                   <h3>Guardian contact</h3>
                   <p>{{ guardianContactExplanation }}</p>
@@ -914,10 +1005,28 @@
               <div v-for="section in reviewSections" :key="section.title" class="review-section">
                 <h3>{{ section.title }}</h3>
                 <dl>
-                  <div v-for="item in section.items" :key="item.label">
+                  <div
+                    v-for="item in section.items"
+                    :key="item.label"
+                    :class="{ 'review-row--joined': item.joinNext }"
+                  >
                     <dt>{{ item.label }}</dt>
                     <dd v-if="item.parts" class="review-parts">
                       <span v-for="(part, index) in item.parts" :key="index">{{ part }}</span>
+                    </dd>
+                    <dd v-else-if="item.copy" class="review-copy">
+                      <span>{{ item.value }}</span>
+                      <button
+                        type="button"
+                        class="btn btn-outline btn-sm"
+                        @click="copyGroupCode(item.copy)"
+                      >
+                        <i
+                          :class="groupCodeCopied ? 'fas fa-check' : 'fas fa-copy'"
+                          aria-hidden="true"
+                        ></i>
+                        {{ groupCodeCopied ? 'Copied' : 'Copy' }}
+                      </button>
                     </dd>
                     <dd v-else>{{ item.value || 'Not provided' }}</dd>
                   </div>
@@ -926,8 +1035,8 @@
             </div>
           </section>
 
-          <!-- On the right; the steps above go back, and Change registration
-               type back to the start. A group's students are added here. -->
+          <!-- On the right; the steps above go back, and Back to the
+               options. A group's students are added here. -->
           <footer class="form-footer">
             <!-- On Register one student: the student and another, in one group. -->
             <p v-if="journey === 'supervisor_individual' && currentStep === 0" class="form-footer-note">
@@ -952,6 +1061,17 @@
               Add student
             </button>
             <button
+              v-if="journey === 'student_team' && currentStep === 2 && !joiningGroup"
+              type="button"
+              class="secondary-action"
+              :disabled="isSubmitting || forms.studentTeam.teammates.length >= 4"
+              @click="addStudentTeammate"
+            >
+              Add member
+            </button>
+            <!-- Joining a group, its own Continue (by its code) is the step's. -->
+            <button
+              v-if="!(journey === 'student_team' && currentStep === 2 && joiningGroup)"
               type="submit"
               class="primary-action"
               :disabled="isSubmitting || isCsvEditing"
@@ -984,6 +1104,13 @@ import RegistrationStudentEditor from '@/components/registration/RegistrationStu
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
+import {
+  checkGroupCode,
+  GROUP_CODE_PATTERN,
+  holdGroupCode,
+  type GroupCodeCheck,
+} from '@/registration/groupCode'
+import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 import { formatDayMonthTime } from '@/utils/date'
 import {
@@ -1002,6 +1129,7 @@ import {
   findCrossRoleEmailConflicts,
   hasSupervisor,
   isAustralia,
+  isBlankStudent,
   isValidRegistrationEmail,
   parseRegistrationCsv,
   registrationCsvTemplate,
@@ -1048,7 +1176,31 @@ interface RoleOption {
 interface ReviewSection {
   title: string
   // ``parts``, when given, are shown in columns that line up row to row.
-  items: Array<{ label: string; value: string; parts?: string[] }>
+  // ``joinNext``: the next row is about the same person, with no line between.
+  // ``copy``: text its Copy button copies (a group's code).
+  items: Array<{
+    label: string
+    value: string
+    parts?: string[]
+    joinNext?: boolean
+    copy?: string
+  }>
+}
+
+// A group member's rows on Review: their name and email, then their
+// guardian's (when given), as one.
+const memberRows = (label: string, student: StudentDetails, guardianOf = label) => {
+  const member = {
+    label,
+    value: `${studentName(student)} · ${student.email}`,
+    parts: [studentName(student), student.email],
+  }
+  if (student.guardianDeferred) return [member]
+  const guardian = [guardianName(student.guardian), student.guardian.email]
+  return [
+    { ...member, joinNext: true },
+    { label: `${guardianOf} (Guardian)`, value: guardian.join(' · '), parts: guardian },
+  ]
 }
 
 // A member's row on Review: their name, email and guardian, in columns.
@@ -1091,7 +1243,7 @@ const journeyOptions: JourneyOption[] = [
     value: 'student_individual',
     role: 'Student',
     title: 'Register as an individual student',
-    description: 'Enter your own details, supervisor, and required guardian contact.',
+    description: 'Enter your own details.',
     steps: [
       {
         label: 'About you',
@@ -1119,22 +1271,22 @@ const journeyOptions: JourneyOption[] = [
     value: 'student_team',
     role: 'Student',
     title: 'Create a student group',
-    description: 'Register a group of 2–5 students, including yourself.',
+    description: 'Register a group of 2-5 students, including yourself.',
     steps: [
       {
-        label: 'Creator',
+        label: 'Your details',
         title: 'Start with your details',
         description: 'You will be Member 1 of this group.',
       },
       {
         label: 'Your profile',
         title: 'Complete your own details first',
-        description: 'Add your school, profile, supervisor, and required guardian contact.',
+        description: 'Add your school, location, interests, profile and guardian contact.',
       },
       {
         label: 'Group',
         title: 'Build your group',
-        description: 'Add 1–4 other members and choose your group interests.',
+        description: 'Add 1–4 other members, your supervisor and your group interests.',
       },
       {
         label: 'Review',
@@ -1277,6 +1429,15 @@ const unavailableGateway: RegistrationGateway = {
 }
 const registrationGateway = injectedGateway || unavailableGateway
 const forms = reactive(createRegistrationForms())
+// The public registration's progress, kept in this tab (registrationDraft.ts):
+// what was typed back first, its role, option and step once they're declared.
+const draft = isSupervisorMode.value ? null : readDraft(invitationToken.value)
+if (draft) {
+  const blank = createRegistrationForms()
+  forms.studentIndividual = { ...blank.studentIndividual, ...draft.forms.studentIndividual }
+  forms.studentTeam = { ...blank.studentTeam, ...draft.forms.studentTeam }
+  forms.mentor = { ...blank.mentor, ...draft.forms.mentor }
+}
 // The countries, and in Australia its states, from the database, for the
 // mentor's dropdowns.
 const mentorCountryOptions = useCountryOptions()
@@ -1292,6 +1453,13 @@ const selectionStage = ref<SelectionStage>(isSupervisorMode.value ? 'pathway' : 
 const selectedRole = ref<RegistrationRole | null>(isSupervisorMode.value ? 'supervisor' : null)
 const currentStep = ref(0)
 const maxReachedStep = ref(0)
+if (draft) {
+  journey.value = draft.journey
+  selectionStage.value = draft.selectionStage as SelectionStage
+  selectedRole.value = draft.selectedRole as RegistrationRole | null
+  currentStep.value = draft.currentStep
+  maxReachedStep.value = draft.maxReachedStep
+}
 const clientErrors = reactive<Record<string, string>>({})
 const serverFieldErrors = reactive<Record<string, string>>({})
 const errors = computed<Record<string, string>>(() => ({
@@ -1312,6 +1480,92 @@ const warningOverrides = ref<Record<string, boolean>>({})
 const warningSummaryRef = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 const success = ref<RegistrationReceipt | null>(null)
+
+// Create a student group, or join one by the code its creator shared:
+// checked as it's typed. Joining, the group's own details aren't asked for.
+const joiningGroup = computed(() => forms.studentTeam.joinCode.trim() !== '')
+const JOIN_CODE_MISSING = 'No group has this code. Check it with your group.'
+const JOIN_CODE_FULL = 'This group already has 5 members.'
+const joinCheck = ref<{ code: string; result: GroupCodeCheck | null }>({ code: '', result: null })
+let joinCheckTimer: number | undefined
+watch(
+  () => forms.studentTeam.joinCode.trim(),
+  (code) => {
+    window.clearTimeout(joinCheckTimer)
+    joinCheck.value = { code, result: null }
+    // A new code: what was said of the last one goes.
+    delete clientErrors['studentTeam.joinCode']
+    delete serverFieldErrors['studentTeam.joinCode']
+    if (!GROUP_CODE_PATTERN.test(code)) return
+    joinCheckTimer = window.setTimeout(async () => {
+      const result = await checkGroupCode(code)
+      if (forms.studentTeam.joinCode.trim() === code) joinCheck.value = { code, result }
+    }, 300)
+  },
+  { immediate: true },
+)
+const joinCheckResult = computed(() =>
+  joinCheck.value.code === forms.studentTeam.joinCode.trim() ? joinCheck.value.result : null,
+)
+const joinHint = computed(() => {
+  if (!GROUP_CODE_PATTERN.test(forms.studentTeam.joinCode.trim())) return undefined
+  const result = joinCheckResult.value
+  if (!result) return 'Checking the code…'
+  return result.state === 'found'
+    ? `You will join this group when you register. It has ${result.members} of 5 members.`
+    : undefined
+})
+const joinError = computed(
+  () =>
+    errors.value['studentTeam.joinCode'] ||
+    (joinCheckResult.value?.state === 'missing'
+      ? JOIN_CODE_MISSING
+      : joinCheckResult.value?.state === 'full'
+        ? JOIN_CODE_FULL
+        : undefined),
+)
+
+// Create a student group: its code held when its Group step opens (once per
+// registration), to show and copy there.
+const groupCodeLoading = ref(false)
+const groupCodeCopied = ref(false)
+watch(
+  () => journey.value === 'student_team' && currentStep.value === 2 && !joiningGroup.value,
+  async (onGroupStep) => {
+    if (!onGroupStep || groupCodeLoading.value) return
+    // A code still held (a restored one too) is kept; one whose hold has run
+    // out is let go for a new one.
+    const team = forms.studentTeam
+    const stillHeld =
+      team.groupCodeToken && Date.parse(team.groupCodeExpiresAt) > Date.now()
+    if (stillHeld) return
+    team.groupCode = ''
+    team.groupCodeToken = ''
+    team.groupCodeExpiresAt = ''
+    groupCodeLoading.value = true
+    const held = await holdGroupCode()
+    groupCodeLoading.value = false
+    if (held) {
+      team.groupCode = held.code
+      team.groupCodeToken = held.token
+      team.groupCodeExpiresAt = held.expiresAt
+    }
+  },
+  { immediate: true },
+)
+
+// The group's code (on the Group step), or the one given on Review.
+const copyGroupCode = async (code = forms.studentTeam.groupCode) => {
+  try {
+    await navigator.clipboard.writeText(code)
+    groupCodeCopied.value = true
+    window.setTimeout(() => {
+      groupCodeCopied.value = false
+    }, 2000)
+  } catch {
+    groupCodeCopied.value = false
+  }
+}
 const stepHeadingRef = ref<HTMLElement | null>(null)
 const errorSummaryRef = ref<HTMLElement | null>(null)
 
@@ -1355,12 +1609,31 @@ const roleJourneyOptions = computed(() => {
   }
   return journeyOptions.filter((option) => option.value === 'mentor')
 })
+// A student registering themselves (not by a link, which is for one student
+// only): whether they have a group.
+const isStudentPathway = computed(
+  () => !isSupervisorMode.value && !invitationToken.value && selectedRole.value === 'student',
+)
+const studentPathwayOptions: { value: RegistrationJourney; title: string; description: string }[] = [
+  {
+    value: 'student_team',
+    title: 'I have a group',
+    description: 'Make a group of 2-5 students or join one.',
+  },
+  {
+    value: 'student_individual',
+    title: "I don't have a group",
+    description: 'Register on your own.',
+  },
+]
 const pathwayHeading = computed(() =>
   isSupervisorMode.value
     ? 'Register students'
-    : selectedRole.value === 'student'
-      ? 'How would you like to register?'
-      : 'How are you registering students?',
+    : isStudentPathway.value
+      ? 'Do you have a group?'
+      : selectedRole.value === 'student'
+        ? 'How would you like to register?'
+        : 'How are you registering students?',
 )
 const currentStepDefinition = computed(
   () =>
@@ -1392,7 +1665,7 @@ const warningSubject = (warning: RegistrationWarning) => {
     return `Student 1 - ${field}`
   const teammate = /^studentTeam\.teammates\.(\d+)\./.exec(warning.field)
   if (teammate) return `Member ${Number(teammate[1]) + 2} - ${field}`
-  return warning.field.startsWith('studentTeam.creator.') ? `Member 1 (you) - ${field}` : field
+  return warning.field.startsWith('studentTeam.creator.') ? `Member 1 (You) - ${field}` : field
 }
 const editingCsvRow = computed(() =>
   forms.supervisorCsv.rows.find((row) => row.rowNumber === editingCsvRowNumber.value),
@@ -1461,6 +1734,10 @@ const availabilitySummary = (slots: AvailabilitySlot[]) =>
     )
     .join(' · ')
 
+// A student group's teammates as registered: those left empty aren't.
+const filledTeammates = computed(() =>
+  forms.studentTeam.teammates.filter((student) => !isBlankStudent(student)),
+)
 const reviewSections = computed<ReviewSection[]>(() => {
   switch (journey.value) {
     case 'student_individual': {
@@ -1497,37 +1774,67 @@ const reviewSections = computed<ReviewSection[]>(() => {
       ]
     }
     case 'student_team':
+      // Joining a group: its code, and the student.
+      if (joiningGroup.value)
+        return [
+          {
+            title: 'Group',
+            items: [
+              {
+                label: success.value ? 'Joined group' : 'Joining group',
+                value: success.value?.groupCode || forms.studentTeam.joinCode.trim(),
+              },
+            ],
+          },
+          {
+            title: 'People',
+            items: [
+              {
+                label: 'You',
+                value: `${studentName(forms.studentTeam.creator)} · ${forms.studentTeam.creator.email}`,
+                parts: [studentName(forms.studentTeam.creator), forms.studentTeam.creator.email],
+              },
+              { label: 'Guardian', value: guardianName(forms.studentTeam.creator.guardian) },
+            ],
+          },
+        ]
       return [
         {
           title: 'Group',
           items: [
-            { label: 'Total students', value: String(forms.studentTeam.teammates.length + 1) },
-            { label: 'Interests', value: interestSummary(forms.studentTeam.interests) },
+            {
+              label: 'Group code',
+              // Held 24 hours while registering; once registered, for 4 months.
+              value: success.value
+                ? `${success.value.groupCode || forms.studentTeam.groupCode} (held for 4 months)`
+                : forms.studentTeam.groupCode
+                  ? `${forms.studentTeam.groupCode} (held for 24 hours until you register)`
+                  : 'Given once you register',
+              // To copy, once there is one.
+              copy: success.value?.groupCode || forms.studentTeam.groupCode || undefined,
+            },
+          ],
+        },
+        // As on the Group step: its supervisor (optional) after its code.
+        {
+          title: 'Supervisor',
+          items: [
+            {
+              label: 'Name',
+              value: `${forms.studentTeam.supervisor.firstName} ${forms.studentTeam.supervisor.lastName}`.trim(),
+            },
+            { label: 'Email', value: forms.studentTeam.supervisor.email.trim() },
           ],
         },
         {
           title: 'People',
+          // Each member, then their guardian (when given), with a line
+          // between members only.
           items: [
-            {
-              label: 'Member 1 (you)',
-              value: `${studentName(forms.studentTeam.creator)} · ${forms.studentTeam.creator.email}`,
-              parts: [studentName(forms.studentTeam.creator), forms.studentTeam.creator.email],
-            },
-            ...forms.studentTeam.teammates.map((student, index) => ({
-              label: `Member ${index + 2}`,
-              value: memberParts(student).join(' · '),
-              parts: memberParts(student),
-            })),
-            {
-              label: 'Creator guardian',
-              value: forms.studentTeam.creator.guardianDeferred
-                ? 'Deferred'
-                : guardianName(forms.studentTeam.creator.guardian),
-            },
-            {
-              label: 'Creator supervisor',
-              value: supervisorSummary(forms.studentTeam.supervisor),
-            },
+            ...memberRows('Member 1 (You)', forms.studentTeam.creator, 'Member 1'),
+            ...filledTeammates.value.flatMap((student, index) =>
+              memberRows(`Member ${index + 2}`, student),
+            ),
           ],
         },
       ]
@@ -1739,17 +2046,25 @@ const validateCurrentStep = () => {
     if (step === 0) validateStudentIdentity(forms.studentTeam.creator, 'studentTeam.creator')
     if (step === 1) {
       validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator')
-      validateSupervisor(forms.studentTeam.supervisor, 'studentTeam.supervisor')
       validateGuardian(forms.studentTeam.creator, 'studentTeam.creator', false)
     }
-    if (step === 2) {
-      if (!forms.studentTeam.interests.length)
-        clientErrors['studentTeam.interests'] = 'Choose at least one group interest.'
-      if (forms.studentTeam.teammates.length < 1 || forms.studentTeam.teammates.length > 4) {
-        clientErrors['studentTeam.size'] = 'A group must include 2–5 students, including you.'
+    if (step === 2 && joiningGroup.value) {
+      // Joining: a 6-digit code of a group with room.
+      const result = joinCheckResult.value
+      if (!GROUP_CODE_PATTERN.test(forms.studentTeam.joinCode.trim()))
+        clientErrors['studentTeam.joinCode'] = 'Enter the 6-digit group code.'
+      else if (result?.state === 'missing') clientErrors['studentTeam.joinCode'] = JOIN_CODE_MISSING
+      else if (result?.state === 'full') clientErrors['studentTeam.joinCode'] = JOIN_CODE_FULL
+    } else if (step === 2) {
+      validateSupervisor(forms.studentTeam.supervisor, 'studentTeam.supervisor')
+      // Up to 5 with them: teammates may also join later by the code.
+      if (forms.studentTeam.teammates.length > 4) {
+        clientErrors['studentTeam.size'] = 'A group can have up to 5 students, including you.'
       }
-      // Every member's school, year and location, as Member 1's.
+      // Every member's school, year and location, as Member 1's. A member
+      // left empty isn't asked for (nor registered).
       forms.studentTeam.teammates.forEach((student, index) => {
+        if (isBlankStudent(student)) return
         validateStudentIdentity(student, `studentTeam.teammates.${index}`)
         validateStudentProfile(student, `studentTeam.teammates.${index}`)
         validateGuardian(student, `studentTeam.teammates.${index}`)
@@ -1879,10 +2194,26 @@ const focusStep = async () => {
   stepHeadingRef.value?.focus({ preventScroll: true })
 }
 
+// How far the steps already filled in reach (from earlier in this session):
+// each step whose details pass, in turn, opens the next. Checked quietly.
+const furthestFilledStep = () => {
+  const at = currentStep.value
+  let reached = 0
+  for (let index = 0; index < steps.value.length - 1; index += 1) {
+    currentStep.value = index
+    if (!validateCurrentStep()) break
+    reached = index + 1
+  }
+  currentStep.value = at
+  clearErrors()
+  return reached
+}
+
 const selectJourney = (value: RegistrationJourney) => {
   journey.value = value
   currentStep.value = 0
-  maxReachedStep.value = 0
+  // Steps already filled in (kept from earlier) can be gone to straight away.
+  maxReachedStep.value = furthestFilledStep()
   clearErrors()
   clearServerErrors()
   serverError.value = ''
@@ -1972,6 +2303,15 @@ const handlePrimaryAction = () => {
   continueJourney()
 }
 
+// Continue by a group's code (the join's own Continue): one is needed.
+const continueJoining = () => {
+  if (!joiningGroup.value) {
+    clientErrors['studentTeam.joinCode'] = 'Enter the 6-digit group code.'
+    return
+  }
+  handlePrimaryAction()
+}
+
 const addStudentTeammate = () => {
   if (forms.studentTeam.teammates.length < 4) {
     forms.studentTeam.teammates.push(createPendingPeer())
@@ -1979,7 +2319,7 @@ const addStudentTeammate = () => {
 }
 
 const removeStudentTeammate = (index: number) => {
-  if (forms.studentTeam.teammates.length > 1) {
+  if (forms.studentTeam.teammates.length > 0) {
     forms.studentTeam.teammates.splice(index, 1)
     reindexStudentErrors('studentTeam.teammates', index)
   }
@@ -2347,6 +2687,44 @@ const startAnotherRegistration = () => {
 }
 
 watch(invitationToken, resetRegistration)
+
+// A restored registration: its steps open as far as they were reached, or
+// as far as what's filled in reaches.
+if (draft && journey.value) {
+  maxReachedStep.value = Math.max(maxReachedStep.value, furthestFilledStep())
+}
+
+// Keep the public registration's progress as it's made (a moment after each
+// change), and let it go once registered.
+let draftTimer: ReturnType<typeof setTimeout> | undefined
+if (!isSupervisorMode.value) {
+  watch(
+    [forms, journey, selectionStage, selectedRole, currentStep, maxReachedStep, success],
+    () => {
+      clearTimeout(draftTimer)
+      if (success.value) {
+        clearDraft()
+        return
+      }
+      draftTimer = setTimeout(() => {
+        saveDraft({
+          invitationToken: invitationToken.value,
+          journey: journey.value,
+          selectionStage: selectionStage.value,
+          selectedRole: selectedRole.value,
+          currentStep: currentStep.value,
+          maxReachedStep: maxReachedStep.value,
+          forms: {
+            studentIndividual: forms.studentIndividual,
+            studentTeam: forms.studentTeam,
+            mentor: forms.mentor,
+          },
+        })
+      }, 250)
+    },
+    { deep: true },
+  )
+}
 watch(
   forms,
   () => {
@@ -2540,14 +2918,28 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
-/* Continue, as on the other option cards: the whole card is the button. */
+/* Continue, as on the other option cards: the whole card is the button.
+   Pointing at the card fills it with light green, left to right. */
+.role-option__arrow,
+.pathway-choice__arrow {
+  background-color: transparent;
+  background-image: linear-gradient(var(--light-green), var(--light-green));
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: 0% 100%;
+  transition:
+    background-size 0.3s ease,
+    border-color 0.3s ease;
+}
+
 .role-option__arrow {
   justify-self: start;
 }
 
 .role-option:hover .role-option__arrow,
 .role-option:focus-visible .role-option__arrow {
-  background-color: var(--light-green);
+  background-color: transparent;
+  background-size: 100% 100%;
   border-color: var(--dark-green);
 }
 
@@ -2627,14 +3019,16 @@ onBeforeUnmount(() => {
 }
 
 /* The platform's small outline button (as Group Marking's Next); the whole
-   card is the button, so pointing at the card is pointing at it. */
+   card is the button, so pointing at the card is pointing at it (it fills
+   as the role cards' Continue does). */
 .pathway-choice__arrow {
   flex: 0 0 auto;
 }
 
 .pathway-choice:hover .pathway-choice__arrow,
 .pathway-choice:focus-visible .pathway-choice__arrow {
-  background-color: var(--light-green);
+  background-color: transparent;
+  background-size: 100% 100%;
   border-color: var(--dark-green);
 }
 
@@ -2983,6 +3377,65 @@ form,
   outline-offset: 3px;
 }
 
+/* A student group's code, to save and share: its label as a field's, the
+   code large, Copy beside it. */
+.group-code,
+.group-join {
+  display: grid;
+  gap: 8px;
+}
+
+/* "OR" between the group code and its members, on a line either side. */
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--registration-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.or-divider::before,
+.or-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--registration-line);
+}
+
+/* As big as the step's section headings (e.g. Group members). */
+.group-code__label {
+  color: var(--registration-ink);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.group-code__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.group-code__value {
+  color: var(--dark-green);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.group-join__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.group-code p,
+.group-join p {
+  margin: 0;
+  color: var(--registration-muted);
+  font-size: 0.86rem;
+}
+
 .section-divider {
   padding-top: 28px;
   border-top: 1px solid var(--registration-line);
@@ -3055,7 +3508,8 @@ form,
   border-top: 1px solid var(--registration-line);
 }
 
-/* Register one student's Student 1, headed once students are added. */
+/* Register one student's Student 1, headed once students are added, and a
+   student group's Member 1, right under Group members: no line above. */
 .student-entry--first {
   padding-top: 0;
   border-top: 0;
@@ -3362,6 +3816,12 @@ tr.is-excluded {
   border-bottom: 0;
 }
 
+/* A row followed by more about the same person (a member's guardian): no
+   line between them. */
+.review-section dl > div.review-row--joined {
+  border-bottom: 0;
+}
+
 dt {
   color: var(--registration-muted);
   font-size: 0.8rem;
@@ -3391,6 +3851,19 @@ dd {
 
 .review-parts span {
   overflow-wrap: anywhere;
+}
+
+/* A group's code with its Copy button beside it. */
+.review-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Its label level with it, as the button makes the row taller. */
+.review-section dl > div:has(.review-copy) {
+  align-items: center;
 }
 
 /* Too narrow for columns: one under another. */

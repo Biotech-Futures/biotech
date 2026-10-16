@@ -17,13 +17,17 @@ from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import APIException, PermissionDenied, Throttled
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from apps.audit.services import log_audit_event
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR, get_role_by_name
 from apps.common.storage import get_profile_image_storage
-from apps.groups.models import Countries, CountryStates, GroupAutoNameUnavailable, GroupInterest, GroupMembership, Groups
+from apps.groups.models import (
+    Countries, CountryStates, GroupAutoNameUnavailable, GroupCodeReservation, GroupCodeUnavailable,
+    GroupInterest, GroupMembership, Groups,
+)
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.resources.models import RoleAssignmentHistory
 from .models import (
@@ -42,6 +46,9 @@ GROUP_JOURNEYS = {"student_team", "supervisor_group"}
 SUPERVISOR_JOURNEYS = {"supervisor_individual", "supervisor_group", "supervisor_csv"}
 STUDENT_JOURNEYS = [JOURNEY, "student_team", *sorted(SUPERVISOR_JOURNEYS)]
 MAX_CSV_ROWS = 500
+# A group's most students: a student group may start with one (its creator),
+# the rest joining by its code.
+GROUP_MAX_STUDENTS = 5
 LEGACY_FIELDS = {
     "Title": "students.0.email", "FirstName": "students.0.firstName",
     "Surname": "students.0.lastName", "Country": "students.0.country",
@@ -124,10 +131,8 @@ class StudentInput(StrictInput):
             for field in ("school", "yearLevel", "country"):
                 if not data[field]:
                     errors[field] = "This field is required."
-        # A student's own interests are optional; a group's members have none
-        # of their own (the group's are shared).
-        if self.context.get("group") and data["interests"]:
-            errors["interests"] = "Choose shared interests on the group, not individual members."
+        # A student's own interests are optional, a group member's too (apart
+        # from the group's shared ones).
         optional_guardian = self.context.get("guardian_optional", False)
         if data["guardianDeferred"] and not optional_guardian:
             errors["guardianDeferred"] = "A student registering themselves must provide guardian contact."
@@ -170,9 +175,14 @@ class SourceInput(StrictInput):
 
 
 class GroupInput(StrictInput):
+    # The group's shared interests (none when joining one: it has its own).
     interests = serializers.ListField(
-        child=serializers.CharField(max_length=255), allow_empty=False, max_length=100,
+        child=serializers.CharField(max_length=255), max_length=100, default=list,
     )
+    # A student group's held code (RegistrationGroupCodeView), for the group to take.
+    codeToken = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    # The code of a registered group a student is joining instead of creating one.
+    joinCode = serializers.CharField(max_length=12, required=False, allow_blank=True)
 
 
 class PayloadInput(StrictInput):
@@ -193,9 +203,21 @@ class IntakeInput(StrictInput):
         errors = {}
         count = len(payload["students"])
         if journey in GROUP_JOURNEYS:
-            if not 2 <= count <= 5:
-                errors["payload.students"] = "A group must contain two to five students."
-            if "group" not in payload:
+            group = payload.get("group") or {}
+            joining = bool(group.get("joinCode"))
+            if joining and journey != "student_team":
+                errors["payload.group.joinCode"] = "Only a student can join a group by its code."
+            elif joining:
+                if count != 1:
+                    errors["payload.students"] = "Joining a group registers only you."
+            # A student's group may start with just them; a supervisor's has two or more.
+            elif not (1 if journey == "student_team" else 2) <= count <= GROUP_MAX_STUDENTS:
+                errors["payload.students"] = (
+                    "A group can have up to five students." if journey == "student_team"
+                    else "A group must contain two to five students."
+                )
+            # A student group has no shared interests (each member has their own).
+            if journey == "supervisor_group" and not group.get("interests"):
                 errors["payload.group.interests"] = "Choose shared group interests."
         else:
             if "group" in payload:
@@ -289,6 +311,8 @@ def receipt(submission):
     return {
         "reference_code": str(submission.reference), "journey": submission.journey,
         "student_count": submission.student_count, "created_at": submission.created_at.isoformat(),
+        # A student group's code, to save and share.
+        **({"group_code": submission.group.code} if submission.group_id and submission.group.code else {}),
     }
 
 
@@ -447,6 +471,12 @@ def authenticated_supervisor(request):
         or not (user_has_role(user, ROLE_SUPERVISOR) or is_admin(user) or user.is_staff or user.is_superuser)
     ):
         raise PermissionDenied("An authenticated current supervisor is required.")
+    # Hidden by Management > Supervisor Visibility: supervisors can't register
+    # students (admins still can).
+    from apps.management.models import SupervisorPagesSetting
+
+    if not is_admin(user) and not SupervisorPagesSetting.load().registration_shown:
+        raise PermissionDenied("Registering students is closed for supervisors. Contact BIOTech Support.")
     profile = SupervisorProfile.objects.filter(user=user).first()
     if profile is None:
         raise PermissionDenied("An existing supervisor profile is required.")
@@ -469,17 +499,53 @@ def participant_details(student):
     }
 
 
-def save_group(users, payload, actor):
+def joinable_group(code, joining):
+    """The registered group with this code, locked, if it has room for
+    ``joining`` more students."""
+    group = Groups.objects.select_for_update().filter(code=code, deleted_at__isnull=True).first()
+    if group is None:
+        raise serializers.ValidationError({"group.joinCode": ["No group has this code. Check it with your group."]})
+    if student_count(group) + joining > GROUP_MAX_STUDENTS:
+        raise serializers.ValidationError({"group.joinCode": ["This group already has 5 members."]})
+    return group
+
+
+def student_count(group):
+    return GroupMembership.objects.filter(
+        group=group, left_at__isnull=True, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+    ).count()
+
+
+def save_group(users, payload, actor, *, joining=None):
+    # A student joining a group (``joining``, from joinable_group) is a member
+    # of it at once.
+    if joining is not None:
+        GroupMembership.objects.bulk_create([
+            GroupMembership(
+                group=joining, user=user, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            ) for user in users
+        ])
+        sync_supervisor_memberships_for_student(users[0].pk)
+        log_audit_event(
+            actor=actor, entity_type="group", entity_id=joining.pk, action="registration_join",
+            after_state={"group_name": joining.group_name, "student_ids": [user.pk for user in users]},
+        )
+        return joining
+    # A student group gets a code (the one held for it while registering, if
+    # any) to share with its teammates.
     try:
-        group = Groups.create_auto_named()
-    except GroupAutoNameUnavailable as exc:
+        if payload["source"]["method"] == "student_team":
+            group = Groups.create_with_code(payload.get("group", {}).get("codeToken", ""))
+        else:
+            group = Groups.create_auto_named()
+    except (GroupAutoNameUnavailable, GroupCodeUnavailable) as exc:
         raise RegistrationConflict(str(exc)) from exc
     GroupMembership.objects.bulk_create([
         GroupMembership(
             group=group, user=user, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
         ) for user in users
     ])
-    for description in dict.fromkeys(payload["group"]["interests"]):
+    for description in dict.fromkeys(payload.get("group", {}).get("interests", [])):
         interest, _ = AreasOfInterest.objects.get_or_create(
             interest_desc__iexact=description, defaults={"interest_desc": description},
         )
@@ -582,6 +648,9 @@ def register(request):
             invitation = valid_invitation(raw_token, window, now, journey=journey)
             if not window.is_open(now) and invitation is None:
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
+            # A student joining a group by its code: checked before anything's saved.
+            join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
+            joining = joinable_group(join_code, len(students)) if join_code else None
             errors, warnings, provenance = {}, [], []
             for index, student in enumerate(students):
                 registered_by = (
@@ -621,7 +690,9 @@ def register(request):
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None
-            group = save_group(users, payload, actor_user) if journey in GROUP_JOURNEYS else None
+            group = (
+                save_group(users, payload, actor_user, joining=joining) if journey in GROUP_JOURNEYS else None
+            )
             submission = RegistrationSubmission.objects.create(
                 idempotency_key=key, request_digest=digest, window=window, student=users[0],
                 student_count=len(users), journey=journey, group=group,
@@ -680,6 +751,55 @@ class RegistrationIntakeView(APIView):
 
     def post(self, request):
         return register(request)
+
+
+class GroupCodeThrottle(AnonRateThrottle):
+    scope = "registration_group_code"
+    rate = "30/hour"
+
+
+class RegistrationGroupCodeView(APIView):
+    """POST: hold a new group code (numbers only) for a student creating a
+    group, to show (and share) while they register; the group takes it when
+    it's registered. Open to anyone, as registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [GroupCodeThrottle]
+
+    def post(self, request):
+        try:
+            held = GroupCodeReservation.hold_new()
+        except GroupCodeUnavailable as exc:
+            raise RegistrationConflict(str(exc)) from exc
+        return Response(
+            {"code": held.code, "token": held.token, "expires_at": held.expires_at.isoformat()},
+            status=201,
+        )
+
+
+class GroupJoinThrottle(AnonRateThrottle):
+    scope = "registration_group_join"
+    rate = "60/hour"
+
+
+class RegistrationGroupJoinView(APIView):
+    """GET: whether a student can join the registered group with this code
+    (it has room) and how many students it has, for the Group step to check
+    the code as it's typed. Open to anyone, as registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [GroupJoinThrottle]
+
+    def get(self, request, code):
+        group = (
+            Groups.objects.filter(code=code, deleted_at__isnull=True).first() if code.isdigit() else None
+        )
+        if group is None:
+            return Response({"detail": "No group has this code."}, status=404)
+        members = student_count(group)
+        return Response({"code": group.code, "members": members, "full": members >= GROUP_MAX_STUDENTS})
 
 
 class RegistrationCountriesView(APIView):
