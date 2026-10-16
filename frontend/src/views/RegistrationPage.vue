@@ -1624,10 +1624,9 @@ const roleJourneyOptions = computed(() => {
     )
   }
   if (selectedRole.value === 'supervisor') {
-    // Upload students by CSV (supervisor_csv) is hidden for now; its flow is
-    // kept, to offer again by adding it back here.
+    // One student, a group, or a CSV upload of many.
     return journeyOptions.filter((option) =>
-      ['supervisor_individual', 'supervisor_group'].includes(option.value),
+      ['supervisor_individual', 'supervisor_group', 'supervisor_csv'].includes(option.value),
     )
   }
   return journeyOptions.filter((option) => option.value === 'mentor')
@@ -2848,10 +2847,6 @@ onBeforeUnmount(() => {
   padding: 18px 22px;
 }
 
-.registration-page--supervisor .pathway-choice:hover,
-.registration-page--supervisor .pathway-choice:focus-visible {
-  background: var(--light-green, #e9f5ef);
-}
 
 .work-layout {
   position: relative;
@@ -3015,10 +3010,10 @@ onBeforeUnmount(() => {
   border-bottom: 0;
 }
 
+/* As the sign-up page's cards: the row stays as it is, its Continue fills. */
 .pathway-choice:hover,
 .pathway-choice:focus-visible {
   outline: none;
-  background: #edf5f0;
 }
 
 .pathway-choice:focus-visible {

@@ -28,10 +28,9 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
   await button!.trigger('click')
 }
 
-// Upload students by CSV is hidden from the options for now; its flow,
-// opened directly.
+// Upload students by CSV, chosen as a supervisor would.
 const openCsvUpload = async (wrapper: VueWrapper) => {
-  ;(wrapper.vm as unknown as { selectJourney: (journey: string) => void }).selectJourney('supervisor_csv')
+  await clickButton(wrapper, 'Upload students by CSV')
   await wrapper.vm.$nextTick()
 }
 
@@ -747,11 +746,11 @@ describe('canonical registration intake', () => {
     expect(disabled).toEqual([false, false, false, true])
   })
 
-  it('offers a supervisor no CSV upload for now', () => {
+  it('offers a supervisor all three ways to register students', () => {
     const wrapper = mountPage('supervisor')
     expect(wrapper.text()).toContain('Register one student')
     expect(wrapper.text()).toContain('Register a student group')
-    expect(wrapper.text()).not.toContain('Upload students by CSV')
+    expect(wrapper.text()).toContain('Upload students by CSV')
   })
 
   it("offers the database's countries, and Australia's states, as dropdowns", async () => {
