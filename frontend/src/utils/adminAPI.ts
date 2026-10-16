@@ -554,6 +554,9 @@ export interface AdminGroupDetail {
   mutualInterests?: MutualInterestItem[]
   createdAt: string
   updatedAt: string
+  /** Who formed it: its members (while registering), a supervisor or an admin
+   *  (``kind``, "" when not recorded), and the supervisor's or admin's name. */
+  formedBy?: { kind: 'members' | 'supervisor' | 'admin' | ''; name: string }
 }
 
 export interface AdminGroupListData {

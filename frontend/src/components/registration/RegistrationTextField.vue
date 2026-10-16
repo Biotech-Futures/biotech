@@ -51,12 +51,22 @@
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
     <span v-if="hint" :id="`${id}-hint`" class="registration-field__hint">{{ hint }}</span>
+    <span
+      v-if="maxWords"
+      :id="`${id}-count`"
+      class="registration-field__count"
+      :class="{ 'registration-field__count--over': wordCount > maxWords }"
+    >
+      {{ wordCount }} / {{ maxWords }} words
+    </span>
     <span v-if="error" :id="`${id}-error`" class="registration-field__error">{{ error }}</span>
   </label>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+
+import { countWords } from '@/registration/registration'
 
 const props = withDefaults(
   defineProps<{
@@ -76,6 +86,8 @@ const props = withDefaults(
     disabled?: boolean
     readonly?: boolean
     options?: { value: string; label: string }[]
+    /** A word limit, counted as it's typed. */
+    maxWords?: number
   }>(),
   {
     type: 'text',
@@ -91,6 +103,7 @@ const props = withDefaults(
     disabled: false,
     readonly: false,
     options: undefined,
+    maxWords: undefined,
   },
 )
 
@@ -98,10 +111,16 @@ defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const describedBy = computed(
   () =>
-    [props.hint ? `${props.id}-hint` : '', props.error ? `${props.id}-error` : '']
+    [
+      props.hint ? `${props.id}-hint` : '',
+      props.maxWords ? `${props.id}-count` : '',
+      props.error ? `${props.id}-error` : '',
+    ]
       .filter(Boolean)
       .join(' ') || undefined,
 )
+
+const wordCount = computed(() => countWords(props.modelValue))
 </script>
 
 <style scoped>
@@ -197,6 +216,17 @@ input:read-only:not(:disabled) {
   color: var(--registration-muted);
   font-size: 0.8rem;
   line-height: 1.4;
+}
+
+/* Under the box, red once past the limit. */
+.registration-field__count {
+  color: var(--registration-muted);
+  font-size: 0.8rem;
+}
+
+.registration-field__count--over {
+  color: #982c27;
+  font-weight: 600;
 }
 
 .registration-field__error {

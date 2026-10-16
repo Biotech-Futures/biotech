@@ -65,11 +65,13 @@ const normalizeReceipt = (
     return null
   }
 
+  const groupCode = source.group_code ?? source.groupCode
   return {
     referenceCode,
     journey: journey as RegistrationIntakeJourney,
     studentCount,
     submittedAt,
+    ...(typeof groupCode === 'string' && groupCode ? { groupCode } : {}),
   }
 }
 

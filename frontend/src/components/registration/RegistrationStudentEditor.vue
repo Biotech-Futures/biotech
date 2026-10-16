@@ -7,7 +7,7 @@
         label="First name"
         autocomplete="given-name"
         :error="fieldError('firstName')"
-        required
+        :required="markRequired"
       />
       <RegistrationTextField
         :id="fieldId('lastName')"
@@ -15,7 +15,7 @@
         label="Last name"
         autocomplete="family-name"
         :error="fieldError('lastName')"
-        required
+        :required="markRequired"
       />
       <RegistrationTextField
         :id="fieldId('email')"
@@ -24,18 +24,8 @@
         type="email"
         autocomplete="email"
         :error="fieldError('email')"
-        required
-        :wide="!requireEmailConfirm"
-      />
-      <RegistrationTextField
-        v-if="requireEmailConfirm"
-        :id="fieldId('emailConfirm')"
-        v-model="student.emailConfirm"
-        label="Confirm student email"
-        type="email"
-        autocomplete="email"
-        :error="fieldError('emailConfirm')"
-        required
+        :required="markRequired"
+        wide
       />
     </div>
 
@@ -47,10 +37,10 @@
           label="School"
           autocomplete="organization"
           :error="fieldError('school')"
-          required
+          :required="markRequired"
         />
         <label class="select-field">
-          <span>Year level <span class="required-mark" aria-hidden="true">*</span></span>
+          <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
           <select
             :id="fieldId('yearLevel')"
             v-model="student.yearLevel"
@@ -58,7 +48,7 @@
             :aria-describedby="
               fieldError('yearLevel') ? `${fieldId('yearLevel')}-error` : undefined
             "
-            required
+            :required="markRequired"
           >
             <option value="" disabled>Select a year</option>
             <option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">
@@ -81,18 +71,19 @@
           :options="countryOptions.length ? countryOptions : undefined"
           :placeholder="countryOptions.length ? 'Select a country' : undefined"
           :error="fieldError('country')"
-          required
+          :required="markRequired"
         />
-        <!-- In Australia, a dropdown of its states and territories. -->
+        <!-- In Australia, its State (required, a dropdown of its states and
+             territories); elsewhere a Region (optional). -->
         <RegistrationTextField
           :id="fieldId('state')"
           v-model="student.state"
-          label="State or region"
+          :label="stateLabel(student.country)"
           autocomplete="address-level1"
           :options="stateOptions.length ? stateOptions : undefined"
           :placeholder="stateOptions.length ? 'Select a state' : undefined"
           :error="fieldError('state')"
-          :required="isAustralia(student.country)"
+          :required="markRequired && isAustralia(student.country)"
           :optional="!isAustralia(student.country)"
         />
       </div>
@@ -177,14 +168,14 @@
           v-model="student.guardian.firstName"
           label="Guardian first name"
           :error="fieldError('guardian.firstName')"
-          required
+          :required="markRequired"
         />
         <RegistrationTextField
           :id="fieldId('guardian.lastName')"
           v-model="student.guardian.lastName"
           label="Guardian last name"
           :error="fieldError('guardian.lastName')"
-          required
+          :required="markRequired"
         />
         <RegistrationTextField
           :id="fieldId('guardian.email')"
@@ -192,7 +183,7 @@
           label="Guardian email"
           type="email"
           :error="fieldError('guardian.email')"
-          required
+          :required="markRequired"
           wide
         />
       </div>
@@ -201,11 +192,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import { isAustralia, PRONOUN_OPTIONS, type StudentDetails } from '@/registration/registration'
+import {
+  isAustralia,
+  PRONOUN_OPTIONS,
+  stateLabel,
+  type StudentDetails,
+} from '@/registration/registration'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 
 const props = withDefaults(
@@ -213,14 +209,12 @@ const props = withDefaults(
     prefix: string
     section: 'identity' | 'profile' | 'guardian' | 'full' | 'teammate'
     errors: Record<string, string>
-    requireEmailConfirm?: boolean
     allowGuardianDefer?: boolean
     showOptionalProfile?: boolean
     showInterests?: boolean
     previewUrl?: string
   }>(),
   {
-    requireEmailConfirm: false,
     allowGuardianDefer: false,
     showOptionalProfile: false,
     showInterests: true,
@@ -236,9 +230,22 @@ const student = defineModel<StudentDetails>('student', { required: true })
 // The countries, and in Australia its states, from the database, for dropdowns.
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
+// Another country: its state or region starts again (NSW isn't Algeria's).
+// Only for the same student: the form can be handed another (a list's
+// student removed), whose own state stays.
+watch(
+  () => [student.value, student.value.country] as const,
+  ([current, country], [before, beforeCountry]) => {
+    if (current === before && country !== beforeCountry) current.state = ''
+  },
+)
 
 const showIdentity = computed(() => ['identity', 'full', 'teammate'].includes(props.section))
-const showProfile = computed(() => ['profile', 'full'].includes(props.section))
+// A group member (teammate) is asked for only once any of their details are
+// given, so their fields carry no *.
+const markRequired = computed(() => props.section !== 'teammate')
+// A group member (teammate) gives their school, year and location too.
+const showProfile = computed(() => ['profile', 'full', 'teammate'].includes(props.section))
 const showGuardian = computed(
   () =>
     ['guardian', 'full'].includes(props.section) ||

@@ -104,7 +104,7 @@ describe('App sidebar admin section', () => {
     expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
-  it('keeps Admin collapsed by default and expands it on request', async () => {
+  it('keeps Admin expanded and Analytics collapsed by default, and folds Admin on request', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)
     await mountApp({ viewport: 'desktop' })
@@ -115,27 +115,29 @@ describe('App sidebar admin section', () => {
     let links = wrapper!.findAll('a')
     for (const sub of adminSubLinks) {
       const found = links.some((a) => a.attributes('href') === `#${sub}`)
-      expect(found, `expected sub-link ${sub} to be hidden initially`).toBe(false)
+      expect(found, `expected sub-link ${sub} to be shown initially`).toBe(true)
     }
 
     const sidebarLinks = wrapper!.findAll('.sidebar-list a')
+    const analyticsLinks = sidebarLinks.filter((a) => a.attributes('href') === '#/analytics')
+    expect(analyticsLinks).toHaveLength(1)
+    // Analytics comes after Admin's own entries, folded.
     const adminIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/admin')
     const analyticsIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/analytics')
-    expect(analyticsIndex).toBe(adminIndex + 1)
-    expect(sidebarLinks.filter((a) => a.attributes('href') === '#/analytics')).toHaveLength(1)
+    expect(analyticsIndex).toBeGreaterThan(adminIndex)
     for (const sub of analyticsSubLinks) {
-      expect(sidebarLinks.some((a) => a.attributes('href') === `#${sub}`)).toBe(true)
+      expect(sidebarLinks.some((a) => a.attributes('href') === `#${sub}`)).toBe(false)
     }
 
     const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
-    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
     await toggle.trigger('click')
 
     links = wrapper!.findAll('a')
     for (const sub of adminSubLinks) {
-      expect(links.some((a) => a.attributes('href') === `#${sub}`)).toBe(true)
+      expect(links.some((a) => a.attributes('href') === `#${sub}`)).toBe(false)
     }
-    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
 
     const adminItem = wrapper!.find('a[href="#/admin"]').element.closest('.sidebar-item')
     expect(adminItem?.textContent).not.toContain('Analytics')
@@ -168,13 +170,13 @@ describe('App sidebar admin section', () => {
     await mountApp({ viewport: 'desktop' })
 
     const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
-    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
 
     await toggle.trigger('click')
-    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
     await router.push('/analytics')
     await flushPromises()
-    expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(true)
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
   })
 })

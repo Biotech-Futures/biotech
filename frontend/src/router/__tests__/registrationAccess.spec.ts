@@ -150,7 +150,13 @@ describe('supervisor registration access', () => {
       mode: 'canonical',
       invitationToken: null,
     })
-    expect(publicRegistrationRoute.meta).toEqual({ public: true, shellFree: true })
+    // With the site's top bar and its Sign in, as other public pages.
+    expect(publicRegistrationRoute.meta).toEqual({
+      public: true,
+      shellFree: true,
+      siteHeader: true,
+      siteHeaderSignIn: true,
+    })
   })
 
   it('passes only a single invitation token without granting supervisor access', async () => {

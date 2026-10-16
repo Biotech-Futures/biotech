@@ -36,6 +36,54 @@ describe('production registration normalization', () => {
     ).toHaveProperty('mentor')
   })
 
+  it("sends a student group's held code token, for the group to take", () => {
+    const forms = createRegistrationForms()
+    expect(
+      buildProductionRegistrationRequest(buildRegistrationRequest('student_team', forms)).payload,
+    ).not.toHaveProperty('group.codeToken')
+    forms.studentTeam.groupCode = '482915'
+    forms.studentTeam.groupCodeToken = 'held-token'
+    const request = buildProductionRegistrationRequest(buildRegistrationRequest('student_team', forms))
+    expect(request.payload).toHaveProperty('group.codeToken', 'held-token')
+    expect(JSON.stringify(request)).not.toContain('482915')
+  })
+
+  it('joins a group by its code with only the student, and none of its own details', () => {
+    const forms = createRegistrationForms()
+    Object.assign(forms.studentTeam, {
+      joinCode: ' 482915 ',
+      groupCodeToken: 'held-token',
+      supervisor: { firstName: 'Sam', lastName: 'Teacher', email: 'sam@example.com' },
+    })
+    const request = buildProductionRegistrationRequest(buildRegistrationRequest('student_team', forms))
+    expect(request.payload).toHaveProperty('group', { joinCode: '482915' })
+    expect(request.payload).toHaveProperty('students.length', 1)
+    expect(request.payload).not.toHaveProperty('supervisor')
+  })
+
+  it('sends a nominated supervisor only when one was given, as it is optional', () => {
+    const forms = createRegistrationForms()
+    for (const journey of ['student_individual', 'student_team'] as const) {
+      expect(
+        buildProductionRegistrationRequest(buildRegistrationRequest(journey, forms)).payload,
+      ).not.toHaveProperty('supervisor')
+    }
+    Object.assign(forms.studentIndividual.supervisor, {
+      firstName: 'Sam',
+      lastName: 'Teacher',
+      email: 'sam@example.com',
+    })
+    const request = buildProductionRegistrationRequest(
+      buildRegistrationRequest('student_individual', forms),
+    )
+    expect(request.payload).toHaveProperty('supervisor', {
+      firstName: 'Sam',
+      lastName: 'Teacher',
+      email: 'sam@example.com',
+    })
+    expect(request.payload).not.toHaveProperty('supervisorMode')
+  })
+
   it('retains only included CSV records, original row numbers and manually chosen group interests', () => {
     const forms = createRegistrationForms()
     forms.supervisorCsv.rows = parseRegistrationCsv(studentCsv()).rows
@@ -46,14 +94,20 @@ describe('production registration normalization', () => {
     expect(csv.payload).toHaveProperty('source.rowNumbers.0', 12)
     expect(JSON.stringify(csv)).not.toContain('category')
     expect(JSON.stringify(csv)).not.toContain('issues')
-    forms.studentTeam.interests = ['Water & Energy Tech']
+    // A student group has no shared interests.
     expect(
       buildProductionRegistrationRequest(buildRegistrationRequest('student_team', forms)).payload,
-    ).toHaveProperty('group.interests', ['Water & Energy Tech'])
+    ).not.toHaveProperty('group.interests')
   })
 
   it('keeps incomplete peers incomplete and sets only allowlisted explicit overrides', () => {
-    const request = buildRegistrationRequest('student_team', createRegistrationForms())
+    const forms = createRegistrationForms()
+    // Left empty, Member 2 isn't registered; given a name, they are.
+    expect(
+      buildProductionRegistrationRequest(buildRegistrationRequest('student_team', forms)).payload,
+    ).toHaveProperty('students.length', 1)
+    Object.assign(forms.studentTeam.teammates[0]!, { firstName: 'Jamie', email: 'jamie@example.test' })
+    const request = buildRegistrationRequest('student_team', forms)
     const normalized = buildProductionRegistrationRequest(request, {
       'students.1.overrides.ConfirmNameEmailOverride': true,
     })
@@ -65,10 +119,9 @@ describe('production registration normalization', () => {
     ).toThrow()
   })
 
-  it('sends group-only interests for the creator and optional guardian details only when enabled', () => {
+  it("sends Member 1's own interests, and guardian details only when enabled", () => {
     const forms = createRegistrationForms()
     forms.studentTeam.creator.interests = ['Biomedical Innovations']
-    forms.studentTeam.interests = ['Water & Energy Tech']
     const peer = forms.studentTeam.teammates[0]!
     Object.assign(peer.guardian, {
       firstName: 'Casey',
@@ -79,8 +132,7 @@ describe('production registration normalization', () => {
     let normalized = buildProductionRegistrationRequest(
       buildRegistrationRequest('student_team', forms),
     )
-    expect(normalized.payload).toHaveProperty('students.0.interests', [])
-    expect(normalized.payload).toHaveProperty('group.interests', ['Water & Energy Tech'])
+    expect(normalized.payload).toHaveProperty('students.0.interests', ['Biomedical Innovations'])
     expect(normalized.payload).toHaveProperty('students.1.guardian.email', '')
     peer.guardianDeferred = false
     normalized = buildProductionRegistrationRequest(buildRegistrationRequest('student_team', forms))
@@ -101,17 +153,19 @@ describe('production registration normalization', () => {
     ])
     expect(normalized.payload).toHaveProperty('source.rowNumbers', [2])
   })
-  it('does not send declined mentor demographics', () => {
+  it('asks a mentor for no safeguarding, demographic or attestation details', () => {
     const forms = createRegistrationForms()
-    Object.assign(forms.mentor, {
-      languages: 'Private',
-      languagesPreferNot: true,
-      dateOfBirth: '1990-01-01',
-      dateOfBirthPreferNot: true,
-    })
     const request = buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms))
-    expect(request.payload).toHaveProperty('mentor.languages', '')
-    expect(request.payload).toHaveProperty('mentor.dateOfBirth', '')
+    for (const field of [
+      'safeguardingJurisdiction',
+      'indigenousStatus',
+      'languages',
+      'dateOfBirth',
+      'complianceDeclaration',
+      'attestation',
+    ]) {
+      expect(request.payload).not.toHaveProperty(`mentor.${field}`)
+    }
   })
 
   it('does not assign a new grouping preference or replace server validation', () => {

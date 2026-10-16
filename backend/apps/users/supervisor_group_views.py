@@ -145,6 +145,9 @@ class SupervisedGroupsView(APIView):
             group = Groups.create_auto_named()
         except GroupAutoNameUnavailable as exc:
             raise ValidationError({"group_name": [str(exc)]}) from exc
+        group.mark_formed(
+            Groups.FormedBy.ADMIN if is_admin(request.user) else Groups.FormedBy.SUPERVISOR, request.user,
+        )
         _keep_supervisor_on_group(group, request.user)
         if "interests" in request.data:
             _sync_group_interests(group, serializer.validated_data.get("interests") or [])

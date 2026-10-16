@@ -67,6 +67,8 @@ export interface RegistrationReceipt {
   journey: RegistrationIntakeJourney
   studentCount: number
   submittedAt: string
+  /** A student group's code (6 digits), when one was registered. */
+  groupCode?: string
 }
 
 export interface RegistrationWarning {

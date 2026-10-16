@@ -327,7 +327,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -345,7 +345,7 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -380,7 +380,7 @@ class GroupListView(APIView):
     """POST /api/v1/group - Create a new group"""
 
     def post(self, request):
-        result = create_group(name=request.data.get("name"))
+        result = create_group(name=request.data.get("name"), created_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -562,7 +562,7 @@ class MatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_student_assignments(request.data)
+        result = confirm_student_assignments(request.data, created_by=request.user)
         return Response({"msg": "Assignments confirmed successfully", "data": result})
 
 

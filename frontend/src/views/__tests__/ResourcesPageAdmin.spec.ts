@@ -115,7 +115,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
 
       // Header button
-      expect(wrapper.text()).not.toContain('Upload Resource')
+      expect(wrapper.text()).not.toContain('Add Resource')
 
       // No action columns or tick boxes
       expect(wrapper.find('.data-table-actions-col').exists()).toBe(false)
@@ -151,8 +151,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
     })
 
-    it('renders elevated admin controls (Upload Resource button, action buttons, Checkboxes)', () => {
-      expect(wrapper?.text()).toContain('Upload Resource')
+    it('renders elevated admin controls (Add Resource button, action buttons, Checkboxes)', () => {
+      expect(wrapper?.text()).toContain('Add Resource')
       expect(wrapper?.text()).not.toContain('Batch Mode')
       expect(wrapper?.find('th.data-table-actions-col').exists()).toBe(true)
       expect(wrapper?.find('th.data-table-check-col').exists()).toBe(true)
@@ -162,8 +162,8 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       expect(rowButton(1, 'Edit')).toBeDefined()
     })
 
-    it('opens Upload Resource side panel when clicking Upload Resource button', async () => {
-      const uploadBtn = wrapper?.findAll('button').find((b) => b.text().includes('Upload Resource'))
+    it('opens Add Resource side panel when clicking Add Resource button', async () => {
+      const uploadBtn = wrapper?.findAll('button').find((b) => b.text().includes('Add Resource'))
       expect(uploadBtn).toBeDefined()
 
       await uploadBtn?.trigger('click')
@@ -272,7 +272,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       })
       await flushPromises()
 
-      expect(sheetWrapper.text()).toContain('Upload Resource')
+      expect(sheetWrapper.text()).toContain('Add Resource')
       expect(sheetWrapper.find('#res-kind').exists()).toBe(true)
       expect(sheetWrapper.find('#res-name').exists()).toBe(true)
       expect(sheetWrapper.find('#res-desc').exists()).toBe(true)

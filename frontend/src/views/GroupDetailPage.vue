@@ -215,17 +215,6 @@
             <h3 class="card-title subheading">Tasks</h3>
             <div class="task-header-actions">
               <button
-                type="button"
-                class="task-mode-toggle"
-                :class="{ 'is-active': taskSelectionMode }"
-                :title="taskSelectionMode ? 'Exit select mode' : 'Select tasks for bulk actions'"
-                :aria-pressed="taskSelectionMode"
-                @click="toggleTaskSelectionMode"
-              >
-                <i class="fas fa-check-square"></i>
-                {{ taskSelectionMode ? 'Done selecting' : 'Select' }}
-              </button>
-              <button
                 v-if="canCreateGroupTasks"
                 type="button"
                 class="btn btn-primary btn-sm"
@@ -285,6 +274,19 @@
                       role="dialog"
                       aria-label="Filters"
                     >
+                      <!-- The tasks' order, first; Clear leaves it as it is. -->
+                      <label class="task-filter-row">
+                        <span>Sort by</span>
+                        <select v-model="taskFilters.ordering">
+                          <option
+                            v-for="option in TASK_ORDERING_OPTIONS"
+                            :key="option.value"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
                       <label class="task-filter-row">
                         <span>Type</span>
                         <select v-model="taskFilters.taskType">
@@ -378,18 +380,6 @@
                     </div>
                   </Teleport>
                 </div>
-                <label class="task-toolbar-sort">
-                  <span class="visually-hidden">Sort by</span>
-                  <select v-model="taskFilters.ordering">
-                    <option
-                      v-for="option in TASK_ORDERING_OPTIONS"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      Sort: {{ option.label }}
-                    </option>
-                  </select>
-                </label>
                 <button
                   type="button"
                   class="task-toolbar-icon-btn"
@@ -940,15 +930,15 @@
                   <i class="fas fa-at"></i>
                   <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
                 </button>
+                <!-- Only while loading or offline (with Reconnect): nothing when live. -->
                 <span
+                  v-if="isLoadingMessages || wsConnectionState !== 'connected'"
                   class="chat-status"
-                  :class="`chat-status--${isLoadingMessages ? 'loading' : (wsConnectionState === 'connected' ? 'connected' : 'offline')}`"
+                  :class="`chat-status--${isLoadingMessages ? 'loading' : 'offline'}`"
                   :title="
                     isLoadingMessages
                       ? 'Fetching latest messages'
-                      : (wsConnectionState === 'connected'
-                          ? 'Realtime updates active'
-                          : 'Realtime updates unavailable - click Reconnect to retry')
+                      : 'Realtime updates unavailable - click Reconnect to retry'
                   "
                 >
                   <i
@@ -960,7 +950,6 @@
                     aria-hidden="true"
                   ></i>
                   <template v-if="isLoadingMessages">Loading…</template>
-                  <template v-else-if="wsConnectionState === 'connected'">Live</template>
                   <template v-else>Offline</template>
                   <button
                     v-if="!isLoadingMessages && wsConnectionState !== 'connected'"
@@ -6510,33 +6499,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  height: 32px;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background: #fff;
-  color: #50616c;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.task-mode-toggle:hover {
-  background: #f4f7f9;
-  border-color: var(--air-force-blue);
-  color: var(--teal);
-}
-.task-mode-toggle.is-active {
-  background: var(--air-force-blue, #26697d);
-  border-color: var(--air-force-blue, #26697d);
-  color: #fff;
-}
-
 /* ---------- Toolbar (search + filter popover + sort) ---------- */
 
 .task-toolbar {
@@ -6590,8 +6552,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-toolbar-btn,
-.task-toolbar-sort select {
+.task-toolbar-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -6607,8 +6568,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
 }
-.task-toolbar-btn:hover,
-.task-toolbar-sort select:hover {
+.task-toolbar-btn:hover {
   border-color: var(--air-force-blue);
   background: #f4f7f9;
   color: var(--teal);
@@ -7874,16 +7834,6 @@ onBeforeUnmount(() => {
 .chat-status-dot {
   font-size: 0.55rem;
   line-height: 1;
-}
-
-.chat-status--connected {
-  color: #1f7a3f;
-  background: rgba(31, 122, 63, 0.08);
-  border-color: rgba(31, 122, 63, 0.22);
-}
-
-.chat-status--connected .chat-status-dot {
-  color: #2ea44f;
 }
 
 .chat-status--offline {
@@ -10659,10 +10609,8 @@ onBeforeUnmount(() => {
 /* Dark theme: the task and chat boxes take the grey other pages give their
    inputs, rather than staying white. Light mode is unchanged. */
 :root[data-theme='dark'] .gd-meta-row span,
-:root[data-theme='dark'] .task-mode-toggle:not(.is-active),
 :root[data-theme='dark'] .task-search-input,
 :root[data-theme='dark'] .task-toolbar-btn:not(.has-active),
-:root[data-theme='dark'] .task-toolbar-sort select,
 :root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
 :root[data-theme='dark'] .task-filter-panel,
 :root[data-theme='dark'] .task-filter-row select,

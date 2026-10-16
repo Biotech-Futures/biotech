@@ -27,10 +27,13 @@ from .views import (
     SupervisedStudentDetailView,
     SupervisedStudentEmailView,
     SupervisedStudentOptionsView,
+    SupervisedStudentSignaturesView,
     SupervisedStudentsView,
 )
 from .registration_intake import (
     RegistrationCountriesView,
+    RegistrationGroupCodeView,
+    RegistrationGroupJoinView,
     RegistrationIntakeView,
     RegistrationManagementView,
     RegistrationStatesView,
@@ -46,6 +49,7 @@ urlpatterns = [
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/email/", SupervisedStudentEmailView.as_view(), name="supervised-students-email"),
     path("users/supervised-students/options/", SupervisedStudentOptionsView.as_view(), name="supervised-students-options"),
+    path("users/supervised-students/signatures/", SupervisedStudentSignaturesView.as_view(), name="supervised-students-signatures"),
     path(
         "users/supervised-students/consent-links/",
         SupervisedStudentConsentLinksView.as_view(),
@@ -75,6 +79,8 @@ urlpatterns = [
     path("registration/", RegistrationIntakeView.as_view(), name="registration-slash"),
     path("registration-intake/", RegistrationIntakeView.as_view(), name="registration-intake"),
     path("registration/countries/", RegistrationCountriesView.as_view(), name="registration-countries"),
+    path("registration/group-code/", RegistrationGroupCodeView.as_view(), name="registration-group-code"),
+    path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
     path("registration-management/", RegistrationManagementView.as_view(), name="registration-management"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),

@@ -90,9 +90,10 @@ class UserRegisterBodySerializer(serializers.Serializer):
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
     Region = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    SupervisorEmail = serializers.EmailField(max_length=254)
-    SupervisorFirstName = serializers.CharField(max_length=255)
-    SupervisorSurname = serializers.CharField(max_length=255)
+    # A nominated supervisor is optional (a supervisor registering is one).
+    SupervisorEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
+    SupervisorFirstName = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    SupervisorSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     # Required unless a peer or supervisor is registering the student; see validate().
     GuardianEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
@@ -129,6 +130,8 @@ class UserRegisterBodySerializer(serializers.Serializer):
         # A nominated supervisor is either new or already a supervisor. Any
         # other existing account is refused, so the form can't hand someone
         # else's account the supervisor role.
+        if not value:
+            return value
         existing = User.objects.filter(email__iexact=value).first()
         if existing is None:
             return value
@@ -185,9 +188,11 @@ class UserRegisterBodySerializer(serializers.Serializer):
                 {"GuardianEmail": message} if self.context.get("canonical_registration_fields") else message
             )
 
-        # Supervisor can't be the same person as the student
-        if student_email == supervisor_email or (
-            student_first == supervisor_first and student_last == supervisor_last
+        # Supervisor can't be the same person as the student. Blank supervisor
+        # details (none nominated) match no one.
+        if (supervisor_email and student_email == supervisor_email) or (
+            supervisor_first and supervisor_last
+            and student_first == supervisor_first and student_last == supervisor_last
         ):
             message = "The supervisor cannot be the same person as the student."
             raise serializers.ValidationError(
@@ -659,7 +664,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     has_join_permission = serializers.BooleanField()
     joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
     joinperm_granted_at = serializers.DateTimeField(allow_null=True)
-    signature = serializers.CharField(allow_blank=True, allow_null=True)
+    # No signature: fetched when a consent form is opened (SupervisedStudentSignaturesView).
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
 

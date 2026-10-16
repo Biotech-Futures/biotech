@@ -421,6 +421,19 @@ h5 {
   border-color: var(--dark-green);
 }
 
+/* A page's way back ("Back to resources"): an outline button with a left
+   arrow, above the page's heading. */
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  /* A button's, so a link (e.g. to the login page) is as tall as a button. */
+  line-height: normal;
+  /* White on the page's grey; light green on hover, as .btn-outline. */
+  background-color: var(--white);
+}
+
 /* An outline button that removes or deletes something: red text and icon,
    with a red outline on hover. */
 .btn-outline-danger {

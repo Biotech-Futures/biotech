@@ -1,8 +1,10 @@
 import {
   createStudent,
+  isBlankStudent,
   parseRegistrationInterests,
   type StudentDetails,
   type RegistrationIntakeJourney,
+  hasSupervisor,
 } from './registration'
 import type { RegistrationRequest } from './registrationGateway'
 
@@ -24,7 +26,7 @@ export const studentRequestPrefixes = (request: RegistrationRequest): string[] =
     case 'student_team':
       return [
         'studentTeam.creator',
-        ...request.payload.teammates.map((_, index) => `studentTeam.teammates.${index}`),
+        ...registeredTeammates(request).map((index) => `studentTeam.teammates.${index}`),
       ]
     case 'supervisor_individual':
       return ['supervisorIndividual.student']
@@ -36,6 +38,19 @@ export const studentRequestPrefixes = (request: RegistrationRequest): string[] =
       return []
   }
 }
+
+/** A student joining a registered group by its code, instead of creating one. */
+const joiningGroup = (request: RegistrationRequest) =>
+  request.journey === 'student_team' && Boolean(request.payload.joinCode?.trim())
+
+/** The teammates registered with a student group (their places in it): none
+ *  when joining one, and none left empty. */
+const registeredTeammates = (request: RegistrationRequest) =>
+  request.journey !== 'student_team' || joiningGroup(request)
+    ? []
+    : request.payload.teammates.flatMap((student, index) =>
+        isBlankStudent({ ...student, emailConfirm: '' }) ? [] : [index],
+      )
 
 const journeyPrefix: Record<RegistrationIntakeJourney, string> = {
   student_individual: 'studentIndividual',
@@ -53,7 +68,8 @@ export const registrationFormPath = (request: RegistrationRequest, path: string)
     return prefix ? `${prefix}${student[2]}` : path
   }
   if (path === 'group.interests') return `${journeyPrefix[request.journey]}.interests`
-  if (path.startsWith('supervisor.') || path === 'supervisorMode') {
+  if (path === 'group.joinCode') return 'studentTeam.joinCode'
+  if (path.startsWith('supervisor.')) {
     return `${journeyPrefix[request.journey]}.${path}`
   }
   if (path === 'source.rowNumbers') return 'supervisorCsv.file'
@@ -65,21 +81,19 @@ export const buildProductionRegistrationRequest = (
   overrideFlags: Record<string, boolean> = {},
 ) => {
   if (request.journey === 'mentor') {
-    const mentor = {
-      ...request.payload.mentor,
-      languages: request.payload.mentor.languagesPreferNot ? '' : request.payload.mentor.languages,
-      dateOfBirth: request.payload.mentor.dateOfBirthPreferNot
-        ? ''
-        : request.payload.mentor.dateOfBirth,
-    }
-    return { journey: request.journey, payload: { mentor } }
+    return { journey: request.journey, payload: { mentor: request.payload.mentor } }
   }
   const students: SubmittedStudent[] = (() => {
     switch (request.journey) {
       case 'student_individual':
         return [request.payload.student]
       case 'student_team':
-        return [{ ...request.payload.creator, interests: [] }, ...request.payload.teammates]
+        // Member 1's own Areas of Interest go with them; the group's are its own.
+        // Joining a group registers only them; teammates left empty aren't.
+        return [
+          request.payload.creator,
+          ...registeredTeammates(request).map((index) => request.payload.teammates[index]!),
+        ]
       case 'supervisor_individual':
         return [
           { ...request.payload.student, groupingPreference: request.payload.groupingPreference },
@@ -140,11 +154,25 @@ export const buildProductionRegistrationRequest = (
       : { method: request.journey }
   const supervisor =
     request.journey === 'student_individual' || request.journey === 'student_team'
-      ? { supervisor: request.payload.supervisor, supervisorMode: request.payload.supervisorMode }
+      ? // Only a supervisor that was given (it's optional), and none when
+        // joining a group (it has its own).
+        hasSupervisor(request.payload.supervisor) && !joiningGroup(request)
+        ? { supervisor: request.payload.supervisor }
+        : {}
+      : {}
+  // A student group takes the code held for it (groupCode.ts), when it has one.
+  const codeToken =
+    request.journey === 'student_team' && request.payload.groupCodeToken
+      ? { codeToken: request.payload.groupCodeToken }
       : {}
   const group =
-    request.journey === 'student_team' || request.journey === 'supervisor_group'
-      ? { group: { interests: request.payload.interests } }
-      : {}
+    request.journey === 'student_team' && joiningGroup(request)
+      ? { group: { joinCode: request.payload.joinCode.trim() } }
+      : request.journey === 'student_team'
+        ? // No shared interests: each member's own go with them.
+          { group: { ...codeToken } }
+        : request.journey === 'supervisor_group'
+          ? { group: { interests: request.payload.interests } }
+          : {}
   return { journey: request.journey, payload: { students, source, ...supervisor, ...group } }
 }

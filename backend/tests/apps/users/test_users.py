@@ -721,13 +721,14 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["pg_email"], "")
         self.assertEqual(row["joinperm_response_id"], "")
         self.assertIsNone(row["joinperm_granted_at"])
-        self.assertIsNone(row["signature"])
+        # Signatures are fetched when a consent form is opened, not listed.
+        self.assertNotIn("signature", row)
         self.assertEqual(row["country_name"], "")
         self.assertEqual(row["state_name"], "")
         self.assertEqual(row["account_status"], "Active")
         self.assertIsNone(row["media_consent"])
 
-    def test_roster_includes_drawn_consent_signature(self):
+    def test_drawn_consent_signature_is_fetched_on_its_own(self):
         import io
 
         from PIL import Image, ImageDraw
@@ -751,8 +752,18 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.client.force_login(self.supervisor)
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
-        self.assertTrue(row["signature"].startswith("data:image/png;base64,"))
+        self.assertNotIn("signature", row)
         self.assertTrue(row["media_consent"])
+
+        url = "/api/v1/users/supervised-students/signatures/"
+        response = self.client.get(url, {"ids": str(self.student.id)})
+        self.assertEqual(response.status_code, 200)
+        signature = response.json()["signatures"][str(self.student.id)]
+        self.assertTrue(signature.startswith("data:image/png;base64,"))
+
+        # Only students on the user's roster.
+        self.assertEqual(self.client.get(url, {"ids": str(self.outsider.id)}).status_code, 403)
+        self.assertEqual(self.client.get(url, {"ids": "nope"}).status_code, 400)
 
     def test_roster_shows_withdrawn_media_consent_as_no(self):
         from django.utils import timezone

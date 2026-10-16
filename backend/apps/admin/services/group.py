@@ -63,12 +63,17 @@ class GroupDict(TypedDict):
     mutualInterests: Optional[List[MutualInterestDict]]
     createdAt: str
     updatedAt: str
+    # Who formed it: ``kind`` (members, supervisor, admin, or "" when not
+    # recorded) and the supervisor's or admin's name.
+    formedBy: dict
 
 
 class GroupBaseRow(TypedDict):
     id: int
     name: str
     created_at: datetime
+    formed_by: str
+    created_by_name: str
 
 
 class PaginatedResponse(TypedDict):
@@ -92,6 +97,11 @@ def _get_member_role(user) -> Optional[str]:
     if getattr(user, "studentprofile", None) is not None:
         return "student"
     return None
+
+
+def _person_name(first: Optional[str], last: Optional[str], email: Optional[str]) -> str:
+    """Someone's name, or their email without one; "" for no one."""
+    return f"{first or ''} {last or ''}".strip() or (email or "")
 
 
 def compute_mutual_interests(members: List[dict]) -> List[MutualInterestDict]:
@@ -200,6 +210,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "mutualInterests": mutual_interests,
             "createdAt": row["created_at"].isoformat(),
             "updatedAt": row["created_at"].isoformat(),
+            "formedBy": {"kind": row["formed_by"], "name": row["created_by_name"]},
         })
     
     return result
@@ -270,14 +281,19 @@ def _fetch_group_base_by_id(group_id: int) -> Optional[GroupBaseRow]:
         GroupBaseRow if found, None otherwise
     """
     try:
-        group = Groups.objects.get(
+        group = Groups.objects.select_related("created_by").get(
             id=group_id,
             deleted_at__isnull=True
         )
+        creator = group.created_by
         return {
             "id": group.id,
             "name": group.group_name,
             "created_at": group.created_at,
+            "formed_by": group.formed_by,
+            "created_by_name": _person_name(
+                creator.first_name, creator.last_name, creator.email,
+            ) if creator else "",
         }
     except Groups.DoesNotExist:
         return None
@@ -351,7 +367,10 @@ def query_groups(
             ),
         )
         .order_by(*order_by)
-        .values("id", "group_name", "created_at")[offset:offset + limit]
+        .values(
+            "id", "group_name", "created_at", "formed_by",
+            "created_by__first_name", "created_by__last_name", "created_by__email",
+        )[offset:offset + limit]
     )
 
     # Convert to GroupBaseRow format
@@ -360,6 +379,10 @@ def query_groups(
             "id": row["id"],
             "name": row["group_name"],
             "created_at": row["created_at"],
+            "formed_by": row["formed_by"],
+            "created_by_name": _person_name(
+                row["created_by__first_name"], row["created_by__last_name"], row["created_by__email"],
+            ),
         }
         for row in base_rows
     ]
@@ -556,7 +579,7 @@ def query_next_group_name() -> dict:
 
 
 @transaction.atomic
-def create_group(name: Optional[str] = None) -> dict:
+def create_group(name: Optional[str] = None, created_by=None) -> dict:
     """
     Create a new (empty) group.
 
@@ -589,6 +612,8 @@ def create_group(name: Optional[str] = None) -> dict:
         except GroupNameTaken as exc:
             return {"msg": str(exc), "data": None}
 
+    # Formed by an admin: the one creating it.
+    group.mark_formed(Groups.FormedBy.ADMIN, created_by)
     base_row = _fetch_group_base_by_id(group.id)
     groups = _build_groups([base_row]) if base_row else []
     return {
