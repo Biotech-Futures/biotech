@@ -2,6 +2,7 @@ import secrets
 from contextlib import contextmanager
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CharField, F, Max, Q, Value, When
 from django.db.models.functions import Concat, Length, Lower, LPad, Substr, Trim
@@ -167,6 +168,14 @@ class GroupManager(models.Manager.from_queryset(GroupQuerySet)):
 
 
 class Groups(models.Model):
+    class FormedBy(models.TextChoices):
+        """Who formed a group: its members while registering (Create a student
+        group), a supervisor (on their Registration page or My Groups), or an
+        admin. Blank when it wasn't recorded."""
+        MEMBERS = "members", "Its members"
+        SUPERVISOR = "supervisor", "A supervisor"
+        ADMIN = "admin", "An admin"
+
     objects = GroupManager()
 
     group_name = models.CharField(max_length=255)
@@ -177,6 +186,12 @@ class Groups(models.Model):
     # from its name, held while registering (GroupCodeReservation). None for
     # other groups.
     code = models.CharField(max_length=12, unique=True, null=True, blank=True)
+    # Who formed it (FormedBy), and the person: the student who created it, or
+    # the supervisor or admin.
+    formed_by = models.CharField(max_length=16, choices=FormedBy.choices, blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
 
     class Meta:
         db_table = 'groups'
@@ -207,6 +222,12 @@ class Groups(models.Model):
 
     def __str__(self):
         return self.group_name
+
+    def mark_formed(self, by, user=None):
+        """Record who formed it (``FormedBy``) and the person, if signed in."""
+        self.formed_by = by
+        self.created_by = user if getattr(user, "pk", None) else None
+        self.save(update_fields=["formed_by", "created_by"])
 
     @classmethod
     def create_with_code(cls, token: str = "") -> "Groups":

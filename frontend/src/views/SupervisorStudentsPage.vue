@@ -11,7 +11,6 @@
       </p>
     </header>
 
-    <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
     <p v-if="error" class="supervisor-error">{{ error }}</p>
 
     <nav class="tab-bar" role="tablist" aria-label="Student registration">
@@ -35,6 +34,8 @@
       class="supervisor-section"
     >
       <h2 class="subheading">{{ section.title }}</h2>
+      <!-- What was just done (e.g. Consent link copied.), under the table's heading. -->
+      <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
       <!-- Loading shows inside the table, under its headings, as on Users. -->
       <AppDataTable
         :columns="section.columns"

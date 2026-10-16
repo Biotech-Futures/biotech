@@ -170,3 +170,35 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         response = self.post_batch(body)
         self.assertEqual(response.status_code, 400)
         self.assertIn("group.interests", response.data["fields"])
+
+
+class FormedByTests(MultiStudentSetup, TestCase):
+    """Who formed each group: its members, a supervisor or an admin, and the person."""
+
+    def test_its_members_or_a_supervisor_by_registering(self):
+        body = batch("student_team")
+        response = self.post_batch(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        group = Groups.objects.get(code=response.data["group_code"])
+        self.assertEqual(group.formed_by, Groups.FormedBy.MEMBERS)
+        self.assertEqual(group.created_by.email, body["payload"]["students"][0]["email"])
+
+        response = self.post_batch(batch("supervisor_group", offset=10))
+        self.assertEqual(response.status_code, 201, response.data)
+        group = Groups.objects.get(code=None)
+        self.assertEqual(group.formed_by, Groups.FormedBy.SUPERVISOR)
+        self.assertEqual(group.created_by, self.supervisor)
+
+    def test_admins_see_who_formed_each_group(self):
+        from apps.admin.services.group import create_group, query_groups
+
+        self.post_batch(batch("student_team"))
+        self.post_batch(batch("supervisor_group", offset=10))
+        admin = User.objects.create_user(email="admin-groups@example.test", first_name="Ada", last_name="Admin")
+        create_group("Made by Ada", created_by=admin)
+        formed = sorted(
+            (group["formedBy"]["kind"], group["formedBy"]["name"]) for group in query_groups()["data"]["items"]
+        )
+        self.assertEqual(formed[0], ("admin", "Ada Admin"))
+        self.assertEqual(formed[1][0], "members")
+        self.assertEqual(formed[2], ("supervisor", "Current Supervisor"))

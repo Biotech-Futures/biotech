@@ -536,8 +536,11 @@ def save_group(users, payload, actor, *, joining=None):
     try:
         if payload["source"]["method"] == "student_team":
             group = Groups.create_with_code(payload.get("group", {}).get("codeToken", ""))
+            # Formed by its members, while registering: the student creating it.
+            group.mark_formed(Groups.FormedBy.MEMBERS, users[0])
         else:
             group = Groups.create_auto_named()
+            group.mark_formed(Groups.FormedBy.SUPERVISOR, actor)
     except (GroupAutoNameUnavailable, GroupCodeUnavailable) as exc:
         raise RegistrationConflict(str(exc)) from exc
     GroupMembership.objects.bulk_create([

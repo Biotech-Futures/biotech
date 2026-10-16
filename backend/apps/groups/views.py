@@ -160,6 +160,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 raise ValidationError({"group_name": [str(exc)]}) from exc
             # Point the serializer at the real row so the response carries the auto name.
             serializer.instance = group
+        group.mark_formed(Groups.FormedBy.ADMIN, self.request.user)
         log_audit_event(
             actor=self.request.user,
             entity_type="group",
@@ -255,6 +256,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     group = Groups.create_auto_named()
                 except GroupAutoNameUnavailable as exc:
                     raise ValidationError({"group_name": [str(exc)]}) from exc
+            group.mark_formed(Groups.FormedBy.ADMIN, request.user)
             member_users = group_payload.get("member_user_ids") or []
             for member_user in member_users:
                 GroupMembership.objects.get_or_create(

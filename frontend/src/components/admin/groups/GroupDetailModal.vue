@@ -11,6 +11,12 @@
       <!-- Group Information view: mentor + members. Messages live behind a
            dedicated view so they don't pile up here and don't load until asked. -->
       <template v-if="view === 'info'">
+        <!-- Who formed it: its members while registering, a supervisor or an admin. -->
+        <section class="group-detail__section">
+          <h3>Formed by</h3>
+          <p class="group-detail__muted">{{ formedByLabel }}</p>
+        </section>
+
         <section class="group-detail__section">
           <h3>Mentor</h3>
           <p v-if="group.mentor" class="group-detail__mentor">{{ group.mentor.name }}</p>
@@ -198,6 +204,15 @@ const onDismiss = () => emit('update:modelValue', false)
 // a separate view reached via "View Messages" (see below) and loaded only then.
 // "Add students" swaps in the ungrouped-student picker the same way.
 const view = ref<'info' | 'messages' | 'add'>('info')
+
+// Who formed the group: "Members", "Supervisor (name)" or "Admin (name)".
+const formedByLabel = computed(() => {
+  const formed = props.group?.formedBy
+  if (formed?.kind === 'members') return 'Members'
+  const role = formed?.kind === 'supervisor' ? 'Supervisor' : formed?.kind === 'admin' ? 'Admin' : ''
+  if (!role) return 'Not recorded'
+  return formed?.name ? `${role} (${formed.name})` : role
+})
 
 // --- Members -------------------------------------------------------------
 

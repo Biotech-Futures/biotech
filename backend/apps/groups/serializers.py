@@ -107,8 +107,8 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at']
-    read_only_fields = ['id', 'year', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at', 'formed_by']
+    read_only_fields = ['id', 'year', 'created_at', 'deleted_at', 'formed_by']
     validators = []
     extra_kwargs = {
       'group_name': {'validators': [], 'required': False, 'allow_blank': True},

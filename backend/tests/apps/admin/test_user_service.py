@@ -300,7 +300,7 @@ class AdminUserBulkCreateViewTests(TestCase):
         response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "")
+        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
 
     @patch("apps.admin.views.bulk_create_users")
     def test_accepts_wrapped_users_payload_for_compatibility(self, mock_bulk_create_users):
@@ -316,7 +316,7 @@ class AdminUserBulkCreateViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "")
+        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
 
     @patch("apps.admin.views.bulk_create_users")
     def test_rejects_non_array_payload(self, mock_bulk_create_users):
