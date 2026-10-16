@@ -157,6 +157,21 @@
             </button>
           </div>
 
+          <div class="group-members-dialog-interests">
+            <h4>Mutual Interests</h4>
+            <div v-if="groupMutualInterests.length" class="group-detail__interests">
+              <span
+                v-for="item in groupMutualInterests"
+                :key="item.name"
+                class="group-detail__interest-tag"
+              >
+                {{ item.name }}
+                <span class="group-detail__interest-count">({{ item.count }})</span>
+              </span>
+            </div>
+            <p v-else class="group-members-interests-empty">No mutual areas of interest identified yet.</p>
+          </div>
+
           <div class="group-members-list">
             <div v-for="member in visibleGroupMembers" :key="member.key" class="group-member-row">
               <div class="group-member-avatar">{{ getInitials(member.name).slice(0, 2) }}</div>
@@ -667,7 +682,14 @@
                 </li>
 
                 <li v-if="!section.rows.length" class="task-empty-state">
-                  <i :class="section.icon" aria-hidden="true"></i>
+                  <!-- Its icon in rings, as on Events when there are none. -->
+                  <span class="task-empty-illustration" aria-hidden="true">
+                    <span class="task-empty-ring task-empty-ring--outer"></span>
+                    <span class="task-empty-ring task-empty-ring--mid"></span>
+                    <span class="task-empty-ring task-empty-ring--inner">
+                      <i :class="section.icon"></i>
+                    </span>
+                  </span>
                   <span>No {{ section.title.toLowerCase() }} yet.</span>
                   <button
                     v-if="(section.key === 'group' && canCreateGroupTasks) || (section.key === 'individual' && canCreateIndividualTasks)"
@@ -1835,6 +1857,7 @@ import {
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
 import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -2262,6 +2285,11 @@ const visibleGroupMembers = computed(() =>
     }),
 )
 
+const groupMutualInterests = computed(() => {
+  const active = groupMemberships.value.filter((item) => !item.leftAt)
+  return computeMutualInterests(active)
+})
+
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
@@ -2381,6 +2409,7 @@ const normalizeMembership = (item) => ({
   // Tri-state: null means the caller isn't staff, or the backend predates the
   // field. Defaulting to false would tell a mentor everyone is missing.
   hasLoggedIn: (item?.has_logged_in ?? item?.hasLoggedIn) ?? null,
+  interests: Array.isArray(item?.interests) ? item.interests : [],
 })
 
 const getCurrentUserMentionName = () => {
@@ -6292,6 +6321,48 @@ onBeforeUnmount(() => {
   background: #f1f5f7;
 }
 
+.group-members-dialog-interests {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  background-color: #fafbfc;
+}
+
+.group-members-dialog-interests h4 {
+  margin: 0 0 0.5rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.group-detail__interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.group-detail__interest-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.group-detail__interest-count {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.group-members-interests-empty {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #6c757d;
+}
+
 .group-members-list {
   overflow-y: auto;
   padding: 0.45rem;
@@ -7217,6 +7288,44 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
 }
 .task-empty-state i { font-size: 1.4rem; color: #c5cdd3; }
+
+/* The Events page's empty icon: green rings round a dark green circle. */
+.task-empty-illustration {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 0.35rem;
+}
+
+.task-empty-ring {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.task-empty-ring--outer {
+  background: rgba(186, 215, 187, 0.44);
+  opacity: 0.45;
+}
+
+.task-empty-ring--mid {
+  inset: 14px;
+  background: #bad7bb;
+  opacity: 0.7;
+}
+
+.task-empty-ring--inner {
+  inset: 28px;
+  background: var(--dark-green);
+}
+
+.task-empty-state .task-empty-ring--inner i {
+  font-size: 1.1rem;
+  color: #fff;
+}
 .task-empty-cta {
   display: inline-flex;
   align-items: center;
@@ -8699,6 +8808,7 @@ onBeforeUnmount(() => {
 .message-date {
   color: #6c757d;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 /* The sender's name at 14px, with the date and time beside it at 12px. */
@@ -9695,9 +9805,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.message-header {
-  padding-right: 2.2rem;
-}
+/* No room kept on the right: the floating toolbar it was for is gone, so the
+   reply, smile and menu buttons sit at the bubble's right edge. */
 
 /* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
 .message:not(.own) .message-content {

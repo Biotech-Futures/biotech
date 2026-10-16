@@ -84,6 +84,8 @@
         </div>
 
         <div class="legacy-links">
+          <!-- Register now is hidden for now; to offer it again:
+          <RouterLink class="legacy-website-button" to="/register">Register now</RouterLink> -->
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -1427,8 +1429,13 @@ onBeforeUnmount(() => {
   margin-top: 0.35rem;
 }
 
+/* Register now and Visit Website side by side, apart; one under the other
+   when there isn't room. */
 .legacy-links {
   margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .legacy-website-button {

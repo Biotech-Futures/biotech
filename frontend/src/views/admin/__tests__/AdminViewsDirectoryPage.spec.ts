@@ -277,22 +277,23 @@ describe('AdminViewsDirectoryPage', () => {
     expect(rowButtonByText(wrapper, 0, 'Export')).toBeDefined()
   })
 
-  it('navigates to the executed view when View is clicked', async () => {
+  it('offers no View button, as clicking a row opens the view', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await rowButtonByText(wrapper, 1, 'View')!.trigger('click')
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
+    expect(rowButtonByText(wrapper, 0, 'View')).toBeUndefined()
+    expect(rowButtonByText(wrapper, 1, 'View')).toBeUndefined()
   })
 
-  it('navigates to the executed view when clicking anywhere on the view row', async () => {
+  it('navigates to the executed view when clicking its name, not elsewhere on the row', async () => {
     wrapper = mountPage()
     await flushPromises()
 
     const rows = wrapper.findAll('.data-table-row')
     await rows[1].trigger('click')
+    expect(mockPush).not.toHaveBeenCalled()
 
+    await rows[1].find('.data-table-cell--primary').trigger('click')
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
   })
 
@@ -529,11 +530,11 @@ describe('AdminViewsDirectoryPage', () => {
     expect(headers).not.toContain('Filter Summary / Roles')
   })
 
-  it('navigates to the executed view when View is clicked on a default view', async () => {
+  it('navigates to the executed view when a default view name is clicked', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await rowButtonByText(wrapper, 0, 'View')!.trigger('click')
+    await wrapper.findAll('.data-table-row')[0]!.find('.data-table-cell--primary').trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 1 } })
   })

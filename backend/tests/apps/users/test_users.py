@@ -648,12 +648,12 @@ class RegistrationGeographyTests(TestCase):
         self.assertEqual(user.state.state_name, "NSW")
         self.assertEqual(user.state.country_id, user.country_id)
 
-    def test_supervisor_inherits_the_students_geography(self):
+    def test_supervisor_nomination_does_not_create_a_privileged_account(self):
         self._register("Australia", region="NSW")
-        sup = User.objects.get(email="sup@example.com")
-        student = User.objects.get(email="kid@example.com")
-        self.assertEqual(sup.country_id, student.country_id)
-        self.assertEqual(sup.state_id, student.state_id)
+        from apps.users.models import RegistrationSubmission
+        self.assertFalse(User.objects.filter(email="sup@example.com").exists())
+        submission = RegistrationSubmission.objects.get(student__email="kid@example.com")
+        self.assertEqual(submission.supervisor_details["email"], "sup@example.com")
 
     def test_country_casing_variant_reuses_the_existing_country(self):
         Countries.objects.create(country_name="Australia")
@@ -836,6 +836,40 @@ class SupervisedStudentsViewTests(TestCase):
         self.client.force_login(self.supervisor)
         emails = [row["email"] for row in self.client.get("/api/v1/users/supervised-students/").json()]
         self.assertEqual(emails, ["student@test.com"])
+
+    def test_supervisor_can_change_a_students_country_and_region(self):
+        from apps.groups.models import Countries, CountryStates
+
+        australia = Countries.objects.create(country_name="Australia")
+        nsw = CountryStates.objects.create(country=australia, state_name="NSW")
+        nz = Countries.objects.create(country_name="New Zealand")
+        self.client.force_login(self.supervisor)
+        url = f"/api/v1/users/supervised-students/{self.student.id}/"
+        base = {"first_name": "Alex", "last_name": "Student", "school_name": "Test High", "year_lvl": "11"}
+
+        response = self.client.patch(url, {**base, "country_id": australia.id, "state_id": nsw.id}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((response.json()["country_name"], response.json()["state_name"]), ("Australia", "NSW"))
+
+        mismatch = self.client.patch(url, {**base, "country_id": nz.id, "state_id": nsw.id}, format="json")
+        self.assertEqual(mismatch.status_code, 400)
+
+        options = self.client.get("/api/v1/users/supervised-students/options/").json()
+        self.assertIn({"id": australia.id, "country_name": "Australia"}, options["countries"])
+
+    def test_supervisor_can_change_only_their_own_name(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            "/api/v1/users/me/", {"first_name": " Samantha ", "last_name": "Super"}, format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.supervisor.refresh_from_db()
+        self.assertEqual((self.supervisor.first_name, self.supervisor.last_name), ("Samantha", "Super"))
+
+        blank = self.client.patch("/api/v1/users/me/", {"first_name": ""}, format="json")
+        self.assertEqual(blank.status_code, 400)
+        school = self.client.patch("/api/v1/users/me/", {"school_name": "Elsewhere"}, format="json")
+        self.assertEqual(school.status_code, 400)
 
     def test_supervisor_can_record_guardian_details(self):
         self.client.force_login(self.supervisor)

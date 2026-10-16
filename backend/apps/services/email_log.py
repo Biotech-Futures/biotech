@@ -15,6 +15,7 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .email_registry import EMAIL_TYPES
+from .email_metrics import record_email_delivery
 from .models import SystemEmailLog, SystemEmailSettings
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,17 @@ def reason_for(exc: Exception) -> str:
     return failure_reason(exc)
 
 
-def note_send(key: str, *, missed=None, by=None) -> None:
+def note_send(
+    key: str,
+    *,
+    missed=None,
+    by=None,
+    attempted: int | None = None,
+    delivered: int | None = None,
+    failed: int | None = None,
+    source_mailbox: str | None = None,
+    started_at=None,
+) -> None:
     """Note a send of ``key`` now: ``missed`` ({address: reason}) for those it
     didn't reach, ``by`` the signed-in person who sent it, if anyone."""
     by_id = by.pk if getattr(by, "is_authenticated", False) else None
@@ -56,6 +67,17 @@ def note_send(key: str, *, missed=None, by=None) -> None:
             log.save()
     except Exception:  # noqa: BLE001
         logger.exception("email_log.note_failed key=%s", key)
+
+    if attempted is not None:
+        record_email_delivery(
+            key,
+            source_mailbox=source_mailbox,
+            attempted=attempted,
+            delivered=delivered or 0,
+            failed=failed or 0,
+            initiated_by=by,
+            started_at=started_at,
+        )
 
 
 def unseen_failures() -> int:

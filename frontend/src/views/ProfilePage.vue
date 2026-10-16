@@ -49,7 +49,26 @@
 
       <div class="profile-content">
         <div class="profile-section">
-          <h3 class="profile-section-title">Personal Information</h3>
+          <div class="profile-section-heading">
+            <h3 class="profile-section-title">Personal Information</h3>
+            <!-- A supervisor can change their own name, and nothing else here. -->
+            <button
+              v-if="auth.isSupervisor && !nameEditing"
+              class="btn btn-outline profile-edit-button"
+              type="button"
+              @click="startNameEdit"
+            >
+              Edit name
+            </button>
+          </div>
+          <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
+            <label>First name<input v-model.trim="nameDraft.first_name" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="nameDraft.last_name" required maxlength="255" /></label>
+            <div class="student-edit-actions">
+              <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
+              <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save name' }}</button>
+            </div>
+          </form>
           <div class="profile-field">
             <span class="profile-field-label">Email:</span>
             <span class="profile-field-value">{{ user.email }}</span>
@@ -621,6 +640,41 @@ const startStudentEdit = async () => {
   }
   error.value = ''
   studentEditing.value = true
+}
+
+// A supervisor's own name, the one thing of theirs they can change here.
+const nameEditing = ref(false)
+const nameSaving = ref(false)
+const nameDraft = ref({ first_name: '', last_name: '' })
+
+const startNameEdit = () => {
+  nameDraft.value = { first_name: auth.user?.first_name || '', last_name: auth.user?.last_name || '' }
+  error.value = ''
+  nameEditing.value = true
+}
+
+const saveName = async () => {
+  nameSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(nameDraft.value),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    nameEditing.value = false
+    showTemporaryStatus('Your name has been updated.')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your name could not be updated.'
+  } finally {
+    nameSaving.value = false
+  }
 }
 
 const cancelStudentEdit = () => {

@@ -37,7 +37,7 @@
           <input
             v-model="q"
             type="text"
-            placeholder="Search by title, body, or audience"
+            placeholder="Search by title, body or audience"
             aria-label="Search announcements"
           />
           <button
@@ -472,7 +472,9 @@ function onNotifyAnnouncement(item: Announcement) {
   confirmDialog.onConfirm = async () => {
     try {
       const res = await notifyAdminAnnouncement(item.id)
-      if (res.status === 'success') {
+      if (res.status === 'queued') {
+        setFeedback(res.msg || 'The email is queued and sends shortly.', 'success')
+      } else if (res.status === 'success') {
         setFeedback(`Email notification sent successfully (${res.succeeded} delivered).`, 'success')
       } else if (res.status === 'partial') {
         setFeedback(`Email partially sent (${res.succeeded}/${res.attempted} delivered).`, 'warning')
@@ -623,11 +625,15 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+/* Wide enough for all of "Search by title, body or audience": a set width,
+   so the controls beside the heading grow to fit it (a percentage of a box
+   that's only as wide as its contents wouldn't), but never past the space. */
 .announcements__search {
   position: relative;
   display: flex;
   align-items: center;
-  width: min(360px, 100%);
+  width: 330px;
+  max-width: 100%;
   background: var(--white);
   border: 1px solid rgba(14, 31, 25, 0.1);
   border-radius: 999px;
@@ -700,7 +706,11 @@ onBeforeUnmount(() => {
 .announcements__group-select {
   appearance: none;
   -webkit-appearance: none;
-  padding: 0.45rem 2rem 0.45rem 0.85rem;
+  /* As tall as the tab pills (e.g. a group's Tasks and Chat): their 2.125rem,
+     so it grows with the browser's text size as theirs does. */
+  box-sizing: border-box;
+  height: 2.125rem;
+  padding: 0 2rem 0 0.85rem;
   border-radius: 999px;
   border: 1px solid var(--border-light, #e0e0e0);
   background: var(--white, #ffffff);
@@ -726,7 +736,13 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(14, 31, 25, 0.12);
   background: var(--white);
   color: var(--teal);
-  padding: 0.45rem 0.95rem;
+  /* As tall as the tab pills (e.g. a group's Tasks and Chat): their 2.125rem,
+     so it grows with the browser's text size as theirs does. */
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 2.125rem;
+  padding: 0 0.95rem;
   border-radius: 999px;
   font-size: 0.88rem;
   font-weight: 500;

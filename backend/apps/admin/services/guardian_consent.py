@@ -17,7 +17,7 @@ from django.utils import timezone
 from apps.admin.services.user import fetch_user_by_id
 from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, note_send
-from apps.services.system_email import FAILED, SKIPPED, send_system_email
+from apps.services.system_email import FAILED, SKIPPED, send_system_email, sender_for
 from apps.users import guardian_consent as consent
 from apps.users.consent_pdf import render_consent_pdf
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
@@ -136,7 +136,16 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
 
     if outcome == FAILED:
         # The Log's note of it went with the rollback, so it's made again here.
-        note_send(EMAIL_KEY, missed={guardian.email: NOT_SENT}, by=initiated_by)
+        sender = sender_for(EMAIL_KEY)
+        note_send(
+            EMAIL_KEY,
+            missed={guardian.email: NOT_SENT},
+            by=initiated_by,
+            attempted=1,
+            delivered=0,
+            failed=1,
+            source_mailbox=sender.address,
+        )
         return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
 
     # The student's copy is an FYI: if it's switched off or doesn't go, the

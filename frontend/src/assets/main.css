@@ -10,6 +10,7 @@
   --dark-green: #017151;
   --light-green: #c3ecca;
   --teal: #174243;
+  --dark-cyan: #234142;
 
   /* Secondary Colors */
   --air-force-blue: #26697d;
@@ -420,6 +421,19 @@ h5 {
   border-color: var(--dark-green);
 }
 
+/* An outline button that removes or deletes something: red text and icon,
+   with a red outline on hover. */
+.btn-outline-danger {
+  background-color: transparent;
+  color: var(--danger);
+  border: 1px solid var(--border-light);
+}
+
+.btn-outline-danger:hover:not(:disabled) {
+  background-color: rgba(220, 53, 69, 0.08);
+  border-color: var(--danger);
+}
+
 /* Disabled buttons: dimmed, no hover feedback, not-allowed cursor. */
 .btn:disabled {
   opacity: 0.55;
@@ -446,6 +460,11 @@ h5 {
 }
 
 /* Forms */
+/* A required field's * (and the * in "Fields marked * are required."). */
+.required-mark {
+  color: var(--danger);
+}
+
 .form-control {
   width: 100%;
   padding: 0.625rem;

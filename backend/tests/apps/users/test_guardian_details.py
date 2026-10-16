@@ -149,8 +149,14 @@ class GuardianDetailsTriggerTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(EMAIL_JOBS_TOKEN="secret")
-    def test_right_token_runs_the_emails(self):
+    def test_right_token_queues_the_emails(self):
+        from apps.management.models import EmailSendRun
+
         response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="secret")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, {"sent": 0, "failed": 0})
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data, {"status": "queued"})
+        # Run in its turn: at once under test settings.
+        run = EmailSendRun.objects.get(key="guardian_details_request")
+        self.assertEqual((run.emailed, run.failed), (0, 0))
+        self.assertIsNotNone(run.finished_at)
