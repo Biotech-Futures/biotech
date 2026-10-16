@@ -523,7 +523,7 @@ class SupervisedStudentsView(APIView):
                     withdrawn_at__isnull=True,
                 )
                 .order_by("student_id", "-signed_at")
-                .only("student_id", "signature_png", "signed_at", "media_consent", "media_withdrawn_at")
+                .only("student_id", "signed_at", "media_consent", "media_withdrawn_at")
             ):
                 latest_consent_by_student.setdefault(consent.student_id, consent)
 
@@ -549,7 +549,6 @@ class SupervisedStudentsView(APIView):
                 "has_join_permission": profile.has_join_permission,
                 "joinperm_response_id": profile.joinperm_responseID or "",
                 "joinperm_granted_at": profile.joinperm_granted_at,
-                "signature": latest_signature_data_url(profile, consent),
                 "group_id": None if group is None or group.deleted_at else group.id,
                 "group_name": None if group is None or group.deleted_at else group.group_name,
             })
@@ -619,6 +618,40 @@ def _supervised_profiles(scope, student_ids):
     if any(student_id not in found_ids for student_id in student_ids):
         raise PermissionDenied("One or more students are not on your roster.")
     return profiles
+
+
+class SupervisedStudentSignaturesView(APIView):
+    """GET ?ids=1,2: those students' guardians' drawn signatures, each the
+    newest still standing as a PNG data URL (or None), for their consent forms
+    when one's opened or downloaded. The roster leaves them out, as they're
+    large. Only students the user may see (as the roster)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    def get(self, request):
+        try:
+            student_ids = sorted({
+                int(part) for part in request.query_params.get("ids", "").split(",") if part.strip()
+            })
+        except ValueError:
+            return Response({"detail": "ids must be student ids."}, status=status.HTTP_400_BAD_REQUEST)
+        profiles = _supervised_profiles(_student_scope(request.user), student_ids)
+        latest = {}
+        for consent in (
+            GuardianConsent.objects.filter(
+                student_id__in=[profile.pk for profile in profiles], withdrawn_at__isnull=True,
+            )
+            .order_by("student_id", "-signed_at")
+            .only("student_id", "signature_png", "signed_at")
+        ):
+            latest.setdefault(consent.student_id, consent)
+        return Response({
+            "signatures": {
+                str(profile.user_id): latest_signature_data_url(profile, latest.get(profile.pk))
+                for profile in profiles
+            },
+        })
 
 
 class SupervisedStudentEmailView(APIView):
@@ -847,7 +880,6 @@ def _supervised_student_row(profile):
         "has_join_permission": profile.has_join_permission,
         "joinperm_response_id": profile.joinperm_responseID or "",
         "joinperm_granted_at": profile.joinperm_granted_at,
-        "signature": latest_signature_data_url(profile, consent),
         "group_id": None if group is None or group.deleted_at else group.id,
         "group_name": None if group is None or group.deleted_at else group.group_name,
     }

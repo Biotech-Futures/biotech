@@ -659,7 +659,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     has_join_permission = serializers.BooleanField()
     joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
     joinperm_granted_at = serializers.DateTimeField(allow_null=True)
-    signature = serializers.CharField(allow_blank=True, allow_null=True)
+    # No signature: fetched when a consent form is opened (SupervisedStudentSignaturesView).
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
 

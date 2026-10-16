@@ -27,6 +27,7 @@ from .views import (
     SupervisedStudentDetailView,
     SupervisedStudentEmailView,
     SupervisedStudentOptionsView,
+    SupervisedStudentSignaturesView,
     SupervisedStudentsView,
 )
 from .registration_intake import (
@@ -46,6 +47,7 @@ urlpatterns = [
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/email/", SupervisedStudentEmailView.as_view(), name="supervised-students-email"),
     path("users/supervised-students/options/", SupervisedStudentOptionsView.as_view(), name="supervised-students-options"),
+    path("users/supervised-students/signatures/", SupervisedStudentSignaturesView.as_view(), name="supervised-students-signatures"),
     path(
         "users/supervised-students/consent-links/",
         SupervisedStudentConsentLinksView.as_view(),

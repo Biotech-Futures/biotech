@@ -35,11 +35,11 @@
       class="supervisor-section"
     >
       <h2 class="subheading">{{ section.title }}</h2>
-      <!-- Under the section's heading, above its table. -->
-      <p v-if="loading && !error" class="supervisor-muted supervisor-loading">Loading students...</p>
+      <!-- Loading shows inside the table, under its headings, as on Users. -->
       <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
+        :loading="loading"
         :action-columns="section.actionHeading ? 1 : section.rowActions.length"
         :action-headings="section.actionHeading ? [section.actionHeading] : []"
         :default-sort="section.defaultSort"
@@ -201,6 +201,7 @@ import {
   fetchDetailsLinks,
   fetchSupervisedStudents,
   saveGuardianDetails,
+  withConsentSignatures,
   sendSupervisedEmails,
   toStudentRow,
   type SupervisedEmailKind,
@@ -541,8 +542,9 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     else openGuardianModal(rows)
     return
   }
+  // Consent forms: their signatures fetched now, as the roster leaves them out.
   if (value === 'open-consent') {
-    viewConsentDocuments(rows).catch(() => {
+    viewConsentDocuments(withConsentSignatures(rows)).catch(() => {
       notice.value = ''
       error.value = 'Consent PDF could not be generated.'
     })
@@ -556,7 +558,8 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
       flashNotice('No consent records are available to download.')
       return
     }
-    downloadConsentDocuments(source)
+    withConsentSignatures(source)
+      .then(downloadConsentDocuments)
       .then(() => {
         error.value = ''
         flashNotice(
@@ -605,16 +608,10 @@ onMounted(loadStudents)
   cursor: pointer;
 }
 
-.supervisor-muted,
 .supervisor-error,
 .supervisor-notice {
   margin: 0 0 1.5rem;
   color: #6c757d;
-}
-
-/* Between the section's heading and its table. */
-.supervisor-loading {
-  margin-bottom: 0.75rem;
 }
 
 .supervisor-error {
