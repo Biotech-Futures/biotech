@@ -57,6 +57,10 @@ const fetchMockFor = (opts: {
   deleteError?: string
   /** Ungrouped students returned by GET /user/ for the add-students picker. */
   ungrouped?: unknown[]
+  /** Detailed student returned by GET /user/:id/ */
+  studentUser?: unknown
+  /** When set, GET /user/:id/ fails with this error */
+  studentError?: string
 } = {}) => {
   // Message deletes are tracked so a later GET reflects them, mirroring the
   // real backend (the component re-fetches the page after a removal).
@@ -97,6 +101,48 @@ const fetchMockFor = (opts: {
           JSON.stringify({
             msg: 'ok',
             data: { items, total, page, limit: 50, has_more: page === 1 && total > 50 }
+          }),
+          { status: 200 }
+        )
+      )
+    }
+    const singleUserMatch = u.match(/\/user\/(\d+)\/?$/)
+    if (method === 'GET' && singleUserMatch) {
+      if (opts.studentError) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: opts.studentError, code: 'not_found' }), { status: 404 })
+        )
+      }
+      const userId = Number(singleUserMatch[1])
+      const user = opts.studentUser ?? {
+        id: userId,
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: 'student',
+        country: 'Australia',
+        state: 'NSW',
+        isActive: true,
+        hasLoggedIn: true,
+        lastLogin: '2026-01-02T10:00:00Z',
+        lastEditedBy: null,
+        lastEditedAt: null,
+        schoolName: 'Science High',
+        yearLevel: 11,
+        interests: ['Genetics', 'Bioinformatics'],
+        groupName: 'BTF1',
+        guardianFirstName: 'Lord',
+        guardianLastName: 'Byron',
+        guardianEmail: 'byron@example.com',
+        joinPermissionReceived: true,
+        joinpermResponseId: 'BTF-10',
+        mediaConsent: true
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            msg: 'ok',
+            data: user
           }),
           { status: 200 }
         )
@@ -636,5 +682,62 @@ describe('GroupDetailModal', () => {
     await flushPromises()
 
     expect(dialog()!.textContent).toContain('No mutual areas of interest identified yet.')
+  })
+
+  it('clicking on a student opens their details matching AdminUserDetailSheet and back returns to group info', async () => {
+    const fetchMock = fetchMockFor()
+    await mountModal(fetchMock)
+
+    // Find and click the button for Ada Lovelace
+    const studentBtn = Array.from(dialog()!.querySelectorAll('.group-detail__member-btn')).find(
+      (b) => b.textContent?.includes('Ada Lovelace')
+    ) as HTMLButtonElement
+    expect(studentBtn).toBeTruthy()
+    studentBtn.click()
+    await flushPromises()
+
+    // Title and description update to student details
+    expect(dialog()!.querySelector('.admin-sheet__title')?.textContent).toBe('Ada Lovelace')
+    expect(dialog()!.querySelector('.admin-sheet__description')?.textContent).toBe('Account details')
+
+    // Renders the student details sections matching AdminUserDetailSheet
+    expect(dialog()!.textContent).toContain('Account')
+    expect(dialog()!.textContent).toContain('ada@example.com')
+    expect(dialog()!.textContent).toContain('Student Profile')
+    expect(dialog()!.textContent).toContain('Science High')
+    expect(dialog()!.textContent).toContain('Guardian & Consent')
+    expect(dialog()!.textContent).toContain('Lord Byron')
+    expect(dialog()!.textContent).toContain('byron@example.com')
+
+    // Click "Back to group information"
+    clickButton(dialog()!, 'Back to group information')
+    await flushPromises()
+
+    // Title and description revert to group information
+    expect(dialog()!.querySelector('.admin-sheet__title')?.textContent).toBe('BTF1')
+    expect(dialog()!.querySelector('.admin-sheet__description')?.textContent).toBe('Members and message history for this group.')
+
+    // Shows group info sections again
+    expect(dialog()!.textContent).toContain('Mentor')
+    expect(dialog()!.textContent).toContain('Marie Curie')
+    expect(dialog()!.textContent).toContain('Members (2)')
+  })
+
+  it('shows an error message when loading student details fails', async () => {
+    const fetchMock = fetchMockFor({ studentError: 'Failed to fetch student record' })
+    await mountModal(fetchMock)
+
+    const studentBtn = Array.from(dialog()!.querySelectorAll('.group-detail__member-btn')).find(
+      (b) => b.textContent?.includes('Ada Lovelace')
+    ) as HTMLButtonElement
+    studentBtn.click()
+    await flushPromises()
+
+    expect(dialog()!.textContent).toContain('Failed to fetch student record')
+
+    // Can still go back to group info
+    clickButton(dialog()!, 'Back to group information')
+    await flushPromises()
+    expect(dialog()!.textContent).toContain('Members (2)')
   })
 })
