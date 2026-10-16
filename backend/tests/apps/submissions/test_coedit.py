@@ -67,6 +67,7 @@ class CoeditTestCase(ChecklistTestCase):
         self.addCleanup(coedit.store().clear)
         coedit._copies.clear()
         self.addCleanup(coedit._copies.clear)
+        coedit.forget_fields()
         consumers._waiting_saves.clear()
         self.addCleanup(consumers._waiting_saves.clear)
         self.key = self.questions[0].key

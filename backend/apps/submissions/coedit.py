@@ -17,6 +17,7 @@ from collections import OrderedDict
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models.signals import post_delete, post_save
 from pycrdt import Doc, Map, Text
 
 from .models import Submission, SubmissionQuestion
@@ -54,8 +55,32 @@ def answer_field(key: str) -> str:
     return f"{ANSWER_PREFIX}{key}"
 
 
-def _fields() -> list[str]:
-    return [TITLE_FIELD] + [answer_field(q.key) for q in SubmissionQuestion.active()]
+# The questions rarely change, so each worker remembers their fields briefly rather than querying
+# the database on every edit; a change made in this worker is seen at once, elsewhere within this.
+FIELDS_TTL_SECONDS = 30.0
+_known_fields: tuple[float, tuple[str, ...]] | None = None
+_fields_lock = threading.Lock()
+
+
+def _fields() -> tuple[str, ...]:
+    global _known_fields
+    with _fields_lock:
+        if _known_fields is not None and time.monotonic() - _known_fields[0] < FIELDS_TTL_SECONDS:
+            return _known_fields[1]
+    fields = (TITLE_FIELD, *(answer_field(q.key) for q in SubmissionQuestion.active()))
+    with _fields_lock:
+        _known_fields = (time.monotonic(), fields)
+    return fields
+
+
+def forget_fields(**_signal) -> None:
+    global _known_fields
+    with _fields_lock:
+        _known_fields = None
+
+
+post_save.connect(forget_fields, sender=SubmissionQuestion, dispatch_uid="coedit.forget_fields_on_save")
+post_delete.connect(forget_fields, sender=SubmissionQuestion, dispatch_uid="coedit.forget_fields_on_delete")
 
 
 # ---- Storage -------------------------------------------------------------------------------

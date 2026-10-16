@@ -15,7 +15,7 @@ from pycrdt import Doc, Map, Text
 from apps.live.consumers import _save_after_pause
 from apps.submissions import coedit
 from apps.submissions.autosubmit import auto_submit_due
-from apps.submissions.models import Submission
+from apps.submissions.models import Submission, SubmissionQuestion
 
 from .seed_data import CONFIRMED_CHECKLIST
 from .test_coedit import Client, CoeditTestCase, _b64, _consumer, unreachable
@@ -400,6 +400,24 @@ class WorkerCopyTests(CoeditTestCase):
         self._entry_with("")
         Client(self.room)
         _claims_in_turn(self, coedit.store(), self.room)
+
+    def test_an_edit_asks_the_database_nothing(self):
+        self._entry_with("")
+        page = Client(self.room)
+        coedit.apply(self.student, self.room, page.type(self.field, 0, "a"), checked=True)
+
+        with self.assertNumQueries(0):
+            coedit.apply(self.student, self.room, page.type(self.field, 1, "b"), checked=True)
+
+    def test_a_new_question_can_be_typed_into_at_once(self):
+        self._entry_with("")
+        page = Client(self.room)
+        coedit.apply(self.student, self.room, page.type(self.field, 0, "a"), checked=True)
+        question = SubmissionQuestion.objects.create(key="late_question", prompt="Added late?", order=99, is_active=True)
+
+        typed = page.type(coedit.answer_field(question.key), 0, "New.")
+
+        self.assertTrue(coedit.apply(self.student, self.room, typed, checked=True))
 
     def test_an_edit_reads_only_what_is_new(self):
         self._entry_with("")
