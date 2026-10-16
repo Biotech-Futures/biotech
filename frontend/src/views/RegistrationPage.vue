@@ -4,13 +4,6 @@
     class="registration-page"
     :class="{ 'registration-page--supervisor content-area': isSupervisorMode }"
   >
-    <header v-if="!isSupervisorMode" class="registration-header">
-      <RouterLink to="/login" class="brand-link" aria-label="BIOTech Connect home">
-        <img :src="logo" :alt="BRAND_NAME" />
-        <span>{{ BRAND_CONNECT }}</span>
-      </RouterLink>
-      <RouterLink to="/login" class="sign-in-link">Already registered? Sign in</RouterLink>
-    </header>
 
     <!-- A supervisor's, in the portal: as the steps before it, every step
          done, with Complete and what was saved. -->
@@ -120,44 +113,14 @@
     </section>
 
     <section
-      v-else-if="!journey && selectionStage === 'welcome'"
-      class="welcome-layout"
-      aria-labelledby="welcome-title"
-    >
-      <div class="welcome-copy">
-        <h1 id="welcome-title">Join BIOTech Connect</h1>
-        <div class="welcome-actions">
-          <button type="button" class="primary-action welcome-primary" @click="beginRegistration">
-            Register now
-          </button>
-          <RouterLink to="/login" class="secondary-action">Sign in</RouterLink>
-        </div>
-      </div>
-
-      <aside class="welcome-aside" aria-label="Registration overview">
-        <div class="welcome-aside__mark" aria-hidden="true">
-          <svg viewBox="0 0 48 48">
-            <path d="M16 25.5 22 31l11-14" />
-            <circle cx="24" cy="24" r="18" />
-          </svg>
-        </div>
-        <h2>One clear registration</h2>
-        <ul>
-          <li>Choose how you would like to register.</li>
-          <li>Complete a guided form with clear progress.</li>
-          <li>Review everything before you submit.</li>
-        </ul>
-      </aside>
-    </section>
-
-    <section
       v-else-if="!journey && selectionStage === 'role'"
       class="setup-layout"
       aria-labelledby="role-title"
     >
-      <button type="button" class="btn btn-outline btn-sm setup-back" @click="selectionStage = 'welcome'">
-        <i class="fas fa-chevron-left" aria-hidden="true"></i> Back
-      </button>
+      <!-- Back to the login page, where Register now comes from. -->
+      <RouterLink to="/login" class="btn btn-outline back-button setup-back">
+        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+      </RouterLink>
       <header class="setup-heading">
         <h1 id="role-title">Who are you registering as?</h1>
       </header>
@@ -188,17 +151,17 @@
             <strong>{{ role.title }}</strong>
             <small>{{ role.description }}</small>
           </span>
-          <span class="role-option__arrow" aria-hidden="true">→</span>
+          <span class="btn btn-outline btn-sm role-option__arrow" aria-hidden="true">
+            Continue <i class="fas fa-chevron-right"></i>
+          </span>
         </button>
       </div>
       <p class="setup-signin">
         Already have an account? <RouterLink to="/login">Sign in</RouterLink>
       </p>
       <p v-if="!invitationToken" class="supervisor-guidance">
-        Supervisors:
-        <RouterLink to="/supervisor/registration">Sign in to register students</RouterLink>. First
-        time supervising? <a :href="`mailto:${SUPPORT_EMAIL}`">Contact BIOTech for an invitation</a>
-        before registering students.
+        If you are a supervisor, please
+        contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
       </p>
     </section>
 
@@ -210,10 +173,10 @@
       <button
         v-if="!isSupervisorMode"
         type="button"
-        class="btn btn-outline btn-sm setup-back"
+        class="btn btn-outline back-button setup-back"
         @click="backToRoleSelection"
       >
-        <i class="fas fa-chevron-left" aria-hidden="true"></i> Back to roles
+        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to roles
       </button>
       <!-- A supervisor's, in the portal: the platform's own page heading. -->
       <header v-if="isSupervisorMode" class="page-header">
@@ -246,11 +209,11 @@
       <aside class="journey-context">
         <button
           type="button"
-          class="btn btn-outline btn-sm change-journey"
+          class="btn btn-outline back-button change-journey"
           :disabled="isCsvEditing"
           @click="changeJourney"
         >
-          <i class="fas fa-chevron-left" aria-hidden="true"></i> Change registration type
+          <i class="fas fa-arrow-left" aria-hidden="true"></i> Change registration type
         </button>
         <!-- A supervisor's, in the portal: the platform's own page heading. -->
         <header v-if="isSupervisorMode" class="page-header">
@@ -344,7 +307,6 @@
                 prefix="studentIndividual.student"
                 section="identity"
                 :errors="errors"
-                require-email-confirm
               />
 
               <RegistrationStudentEditor
@@ -458,7 +420,6 @@
                 prefix="studentTeam.creator"
                 section="identity"
                 :errors="errors"
-                require-email-confirm
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -523,7 +484,6 @@
                     :prefix="`studentTeam.teammates.${index}`"
                     section="teammate"
                     :errors="errors"
-                    require-email-confirm
                     allow-guardian-defer
                   />
                 </div>
@@ -1215,12 +1175,11 @@
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import logo from '@/assets/btf-logo.png'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
+import { SUPPORT_EMAIL } from '@/constants/brand'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 import { formatDayMonthTime } from '@/utils/date'
@@ -1267,7 +1226,7 @@ interface JourneyOption {
 }
 
 type RegistrationRole = 'student' | 'supervisor' | 'mentor'
-type SelectionStage = 'welcome' | 'role' | 'pathway'
+type SelectionStage = 'role' | 'pathway'
 
 interface RoleOption {
   value: RegistrationRole
@@ -1302,7 +1261,7 @@ const roleOptions: RoleOption[] = [
   {
     value: 'student',
     title: 'Student',
-    description: 'Register yourself or create a group with classmates.',
+    description: 'Register yourself or create a group with teammates.',
   },
   {
     value: 'supervisor',
@@ -1883,19 +1842,11 @@ const validateSupervisor = (
     requireValue(`${prefix}.school`, supervisor.school, 'Enter the supervisor school.')
 }
 
-const validateStudentIdentity = (student: StudentDetails, prefix: string, confirmEmail = false) => {
+// Each student's email is given once (no confirming it), as on a supervisor's.
+const validateStudentIdentity = (student: StudentDetails, prefix: string) => {
   requireValue(`${prefix}.firstName`, student.firstName, 'Enter the student first name.')
   requireValue(`${prefix}.lastName`, student.lastName, 'Enter the student last name.')
   validateEmail(`${prefix}.email`, student.email, 'Student email')
-  if (confirmEmail) {
-    validateEmail(`${prefix}.emailConfirm`, student.emailConfirm, 'Confirmation email')
-    if (
-      student.emailConfirm.trim() &&
-      student.email.trim().toLowerCase() !== student.emailConfirm.trim().toLowerCase()
-    ) {
-      clientErrors[`${prefix}.emailConfirm`] = 'The student email addresses do not match.'
-    }
-  }
 }
 
 // A student's Areas of Interest are optional.
@@ -1919,7 +1870,7 @@ const validateGuardian = (student: StudentDetails, prefix: string, canDefer = tr
   validateEmail(`${prefix}.guardian.email`, guardian.email, 'Guardian email')
 }
 
-// A supervisor's students: each email given once, with no confirming it.
+// A supervisor's students: all of each one's details on one step.
 const validateStudentFull = (student: StudentDetails, prefix: string) => {
   validateStudentIdentity(student, prefix)
   validateStudentProfile(student, prefix)
@@ -1941,7 +1892,7 @@ const validateCurrentStep = () => {
 
   if (journey.value === 'student_individual') {
     if (step === 0)
-      validateStudentIdentity(forms.studentIndividual.student, 'studentIndividual.student', true)
+      validateStudentIdentity(forms.studentIndividual.student, 'studentIndividual.student')
     if (step === 1)
       validateStudentProfile(forms.studentIndividual.student, 'studentIndividual.student')
     if (step === 2) {
@@ -1953,7 +1904,7 @@ const validateCurrentStep = () => {
       validateGuardian(forms.studentIndividual.student, 'studentIndividual.student', false)
     }
   } else if (journey.value === 'student_team') {
-    if (step === 0) validateStudentIdentity(forms.studentTeam.creator, 'studentTeam.creator', true)
+    if (step === 0) validateStudentIdentity(forms.studentTeam.creator, 'studentTeam.creator')
     if (step === 1) {
       validateStudentProfile(forms.studentTeam.creator, 'studentTeam.creator')
       validateSupervisor(
@@ -1970,7 +1921,7 @@ const validateCurrentStep = () => {
         clientErrors['studentTeam.size'] = 'A group must include 2–5 students, including you.'
       }
       forms.studentTeam.teammates.forEach((student, index) => {
-        validateStudentIdentity(student, `studentTeam.teammates.${index}`, true)
+        validateStudentIdentity(student, `studentTeam.teammates.${index}`)
         validateGuardian(student, `studentTeam.teammates.${index}`)
       })
     }
@@ -2104,12 +2055,6 @@ const selectJourney = (value: RegistrationJourney) => {
   focusStep()
 }
 
-const beginRegistration = () => {
-  selectionStage.value = 'role'
-  selectedRole.value = null
-  scrollToTop()
-}
-
 const selectRole = (role: RegistrationRole) => {
   selectedRole.value = role
   if (role === 'mentor') {
@@ -2139,9 +2084,7 @@ const changeJourney = () => {
     selectedRole.value === 'student' ||
     selectedRole.value === 'supervisor'
       ? 'pathway'
-      : selectedRole.value === 'mentor'
-        ? 'role'
-        : 'welcome'
+      : 'role'
   scrollToTop()
 }
 
@@ -2631,8 +2574,9 @@ onBeforeUnmount(() => {
   --registration-line: var(--border-light);
   --registration-field-line: var(--border-light);
   position: relative;
-  min-height: 100vh;
-  min-height: 100dvh;
+  /* The screen below the site's top bar. */
+  min-height: calc(100vh - 4.375rem);
+  min-height: calc(100dvh - 4.375rem);
   overflow: hidden;
   background: var(--bg-light);
   color: var(--registration-ink);
@@ -2684,53 +2628,6 @@ onBeforeUnmount(() => {
   background: var(--light-green, #e9f5ef);
 }
 
-.registration-header {
-  position: relative;
-  z-index: 2;
-  width: 100%;
-  padding: 14px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  background: var(--dark-green);
-}
-
-.brand-link,
-.sign-in-link {
-  color: #fff;
-  text-decoration: none;
-}
-
-.brand-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 1.25rem;
-  font-weight: 600;
-}
-
-.brand-link img {
-  width: 42px;
-  height: 42px;
-  object-fit: contain;
-  padding: 4px;
-  border-radius: 50%;
-  background: #fff;
-}
-
-.sign-in-link {
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.sign-in-link:hover,
-.sign-in-link:focus-visible {
-  color: #fff;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 .work-layout {
   position: relative;
   z-index: 1;
@@ -2740,94 +2637,6 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(250px, 0.68fr) minmax(0, 1.55fr);
   align-items: start;
   gap: clamp(42px, 6vw, 86px);
-}
-
-.welcome-layout {
-  position: relative;
-  z-index: 1;
-  width: min(1120px, calc(100% - 40px));
-  min-height: calc(100vh - 116px);
-  margin: 12px auto 52px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(340px, 0.72fr);
-  align-items: center;
-  gap: clamp(54px, 8vw, 110px);
-}
-
-.welcome-copy h1 {
-  margin: 0 0 16px;
-  color: var(--registration-ink);
-  font-size: 1.75rem;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: -0.025em;
-}
-
-.welcome-actions {
-  margin-top: 34px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.welcome-primary {
-  min-width: 170px;
-}
-
-.welcome-aside {
-  padding: clamp(30px, 5vw, 48px);
-  border: 1px solid rgba(20, 63, 57, 0.13);
-  border-radius: 8px;
-  background: var(--white);
-}
-
-.welcome-aside__mark {
-  width: 58px;
-  height: 58px;
-  margin-bottom: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #deefe7;
-  color: var(--registration-green);
-}
-
-.welcome-aside__mark svg {
-  width: 36px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-}
-
-.welcome-aside h2 {
-  margin: 0;
-  font-size: 1.65rem;
-  letter-spacing: -0.025em;
-}
-
-.welcome-aside ul {
-  margin: 22px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 15px;
-  list-style: none;
-}
-
-.welcome-aside li {
-  position: relative;
-  padding-left: 25px;
-  color: var(--registration-muted);
-  line-height: 1.5;
-}
-
-.welcome-aside li::before {
-  content: '✓';
-  position: absolute;
-  left: 0;
-  color: var(--registration-green);
-  font-weight: 900;
 }
 
 .setup-layout {
@@ -2841,6 +2650,11 @@ onBeforeUnmount(() => {
   margin: 20px 0 24px;
 }
 
+/* Under a back button, its 1rem below is the space (as on other pages). */
+.setup-back + .setup-heading {
+  margin-top: 0;
+}
+
 .setup-heading h1 {
   margin: 0;
   font-size: 1.75rem;
@@ -2849,9 +2663,10 @@ onBeforeUnmount(() => {
   letter-spacing: -0.025em;
 }
 
+/* However many roles there are, they fill the row. */
 .role-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
 }
 
@@ -2916,16 +2731,21 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 
+/* Continue, as on the other option cards: the whole card is the button. */
 .role-option__arrow {
-  color: var(--registration-green);
-  font-size: 1.25rem;
-  font-weight: 700;
+  justify-self: start;
 }
 
+.role-option:hover .role-option__arrow,
+.role-option:focus-visible .role-option__arrow {
+  background-color: var(--light-green);
+  border-color: var(--dark-green);
+}
+
+/* Lined up under the cards, as the rest of the page is. */
 .setup-signin {
   margin: 30px 0 0;
   color: var(--registration-muted);
-  text-align: center;
 }
 
 .setup-signin a {
@@ -2934,10 +2754,8 @@ onBeforeUnmount(() => {
 }
 
 .supervisor-guidance {
-  max-width: 68ch;
-  margin: 16px auto 0;
+  margin: 12px 0 0;
   color: var(--registration-muted);
-  text-align: center;
   font-size: 0.9rem;
 }
 
@@ -3024,10 +2842,6 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-/* Room under it, as under the platform's other back buttons. */
-.change-journey {
-  margin-bottom: 1rem;
-}
 
 .work-layout .journey-context h1:not(.page-title) {
   max-width: none;
@@ -4013,17 +3827,6 @@ dd {
     margin-top: 12px;
   }
 
-  .welcome-layout {
-    min-height: auto;
-    grid-template-columns: 1fr;
-    gap: 42px;
-    margin-top: 42px;
-  }
-
-  .welcome-copy h1 {
-    max-width: none;
-  }
-
   .registration-intro,
   .journey-context {
     position: static;
@@ -4041,45 +3844,10 @@ dd {
 }
 
 @media (max-width: 700px) {
-  .registration-header {
-    padding: 14px;
-  }
-
-  .brand-link span {
-    display: none;
-  }
-
-  .sign-in-link {
-    font-size: 0.82rem;
-  }
-
-  .welcome-layout,
   .setup-layout,
   .work-layout {
     width: min(100% - 24px, 1220px);
     margin-bottom: 38px;
-  }
-
-  .welcome-layout {
-    margin-top: 28px;
-  }
-
-  .welcome-copy h1 {
-    font-size: 1.5rem;
-  }
-
-  .welcome-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .welcome-actions .primary-action,
-  .welcome-actions .secondary-action {
-    width: 100%;
-  }
-
-  .welcome-aside {
-    padding: 28px 24px;
   }
 
   .setup-layout {

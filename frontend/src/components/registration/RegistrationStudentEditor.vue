@@ -25,17 +25,7 @@
         autocomplete="email"
         :error="fieldError('email')"
         required
-        :wide="!requireEmailConfirm"
-      />
-      <RegistrationTextField
-        v-if="requireEmailConfirm"
-        :id="fieldId('emailConfirm')"
-        v-model="student.emailConfirm"
-        label="Confirm student email"
-        type="email"
-        autocomplete="email"
-        :error="fieldError('emailConfirm')"
-        required
+        wide
       />
     </div>
 
@@ -213,14 +203,12 @@ const props = withDefaults(
     prefix: string
     section: 'identity' | 'profile' | 'guardian' | 'full' | 'teammate'
     errors: Record<string, string>
-    requireEmailConfirm?: boolean
     allowGuardianDefer?: boolean
     showOptionalProfile?: boolean
     showInterests?: boolean
     previewUrl?: string
   }>(),
   {
-    requireEmailConfirm: false,
     allowGuardianDefer: false,
     showOptionalProfile: false,
     showInterests: true,

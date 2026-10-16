@@ -332,14 +332,23 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).not.toContain('Automatic BTF name')
   })
 
-  it("confirms the email of students registering themselves, not of a supervisor's students", async () => {
+  it('asks every student for their email once, with no confirming it', async () => {
     const team = mountPage()
     await clickButton(team, 'Student')
     await clickButton(team, 'Create a student group')
     const teamSetup = team.vm as unknown as { currentStep: number }
     teamSetup.currentStep = 2
     await team.vm.$nextTick()
-    expect(team.findAll('input[type="email"]').length).toBe(2)
+    expect(team.text()).not.toContain('Confirm student email')
+
+    const individual = mountPage()
+    await clickButton(individual, 'Student')
+    await clickButton(individual, 'Register as an individual student')
+    expect(individual.text()).not.toContain('Confirm student email')
+    expect(
+      individual.get('#studentIndividual-student-email').element.closest('.registration-field')
+        ?.classList.contains('registration-field--wide'),
+    ).toBe(true)
 
     const supervisor = mountPage('supervisor')
     await clickButton(supervisor, 'Register one student')
@@ -510,12 +519,12 @@ describe('canonical registration intake', () => {
 
   it('provides first-time supervisor guidance without granting public supervisor access', () => {
     const wrapper = mountPage()
-    expect(wrapper.get('.supervisor-guidance').text()).toContain(
-      'Contact BIOTech for an invitation',
+    expect(wrapper.get('.supervisor-guidance').text()).toBe(
+      'If you are a supervisor, please contact BIOTech Support for an invitation.',
     )
-    expect(wrapper.get('.supervisor-guidance a').attributes('href')).toBe(
-      '/supervisor/registration',
-    )
+    // Only the invitation contact: no sign-in link for supervisors here.
+    expect(wrapper.text()).not.toContain('Sign in to register students')
+    expect(wrapper.get('.supervisor-guidance a').attributes('href')).toMatch(/^mailto:/)
     expect(wrapper.findAll('.role-option')).toHaveLength(2)
   })
 

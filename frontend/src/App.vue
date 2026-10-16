@@ -66,7 +66,8 @@
       </button>
     </header>
     <!-- A public page in the site (meta.siteHeader): the same top bar, with
-         just the logo, as its visitor isn't signed in. -->
+         just the logo, as its visitor isn't signed in; Registration's
+         (meta.siteHeaderSignIn) has Sign in on the right. -->
     <header v-else-if="isLoginPage && route.meta.siteHeader === true" class="header">
       <div class="header-content">
         <div class="logo-section">
@@ -76,6 +77,10 @@
             </span>
             <span class="logo-text">{{ BRAND_CONNECT }}</span>
           </span>
+        </div>
+        <div v-if="route.meta.siteHeaderSignIn === true" class="header-nav">
+          <span class="header-note">Already registered?</span>
+          <RouterLink to="/login" class="header-sign-in">Sign in</RouterLink>
         </div>
       </div>
     </header>
@@ -1000,6 +1005,34 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  /* As tall as the signed-in bar's search box, so every top bar (a public
+     page's too) is the same height. */
+  min-height: 2.875rem;
+}
+
+/* A public page's way to sign in: a white button on the bar, as the
+   signed-in bar's search box is white, with a note before it. */
+.header-note {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+}
+
+.header-sign-in {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--dark-green);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.18s ease;
+}
+
+.header-sign-in:hover,
+.header-sign-in:focus-visible {
+  background: var(--light-green);
 }
 
 .logo-section {

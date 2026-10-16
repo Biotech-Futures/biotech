@@ -10,5 +10,6 @@ export const publicRegistrationRoute: RouteRecordRaw = {
     mode: 'canonical',
     invitationToken: typeof route.query.invite === 'string' ? route.query.invite : null,
   }),
-  meta: { public: true, shellFree: true },
+  // The site's top bar (as other public pages), with Sign in on the right.
+  meta: { public: true, shellFree: true, siteHeader: true, siteHeaderSignIn: true },
 }
