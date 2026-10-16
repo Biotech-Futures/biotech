@@ -9,8 +9,8 @@ const activeGroup = {
   countryName: 'Australia',
   studentCount: 2,
   students: [
-    { name: 'Ada Lovelace', hasLoggedIn: true, interests: ['Genomics'] },
-    { name: 'Grace Hopper', hasLoggedIn: false, interests: [] }
+    { id: 10, name: 'Ada Lovelace', hasLoggedIn: true, interests: ['Genomics'] },
+    { id: 11, name: 'Grace Hopper', hasLoggedIn: false, interests: [] }
   ],
   mentor: { mentorId: 20, name: 'Marie Curie', isActive: true, countryName: 'Australia', institution: 'USYD' }
 }
@@ -33,7 +33,13 @@ const mentorPool = [
 
 const fetchMockFor = (
   groups: unknown[],
-  opts: { replaceStatus?: number; replaceBody?: unknown; failGroupsRefetch?: boolean } = {}
+  opts: {
+    replaceStatus?: number
+    replaceBody?: unknown
+    failGroupsRefetch?: boolean
+    studentUser?: unknown
+    studentError?: string
+  } = {}
 ) => {
   let matchedGroupsGets = 0
   return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -71,6 +77,61 @@ const fetchMockFor = (
               suggestions: [
                 { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
               ]
+            }
+          }),
+          { status: 200 }
+        )
+      )
+    }
+    const singleUserMatch = u.match(/\/user\/(\d+)\/?$/)
+    if (method === 'GET' && singleUserMatch) {
+      if (opts.studentError) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: opts.studentError, code: 'not_found' }), { status: 404 })
+        )
+      }
+      const userId = Number(singleUserMatch[1])
+      const user = opts.studentUser ?? {
+        id: userId,
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: 'student',
+        country: 'Australia',
+        state: 'NSW',
+        isActive: true,
+        hasLoggedIn: true,
+        lastLogin: '2026-01-02T10:00:00Z',
+        lastEditedBy: null,
+        lastEditedAt: null,
+        schoolName: 'Science High',
+        yearLevel: 11,
+        interests: ['Genetics', 'Genomics'],
+        groupName: 'BTF1',
+        guardianFirstName: 'Lord',
+        guardianLastName: 'Byron',
+        guardianEmail: 'byron@example.com',
+        joinPermissionReceived: true,
+        joinpermResponseId: 'BTF-10',
+        mediaConsent: true
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'ok', data: user }), { status: 200 })
+      )
+    }
+    if (method === 'GET' && u.includes('/user/')) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            msg: 'ok',
+            data: {
+              items: [
+                { id: 10, firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', role: 'student' }
+              ],
+              total: 1,
+              page: 1,
+              limit: 10,
+              hasMore: false
             }
           }),
           { status: 200 }
@@ -295,5 +356,67 @@ describe('MatchedGroupsPanel', () => {
       assignments: [{ groupId: 2, mentorUserId: 23 }]
     })
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('clicking on a student opens their details sheet matching AdminUserDetailSheet and close returns to matched groups', async () => {
+    const fetchMock = fetchMockFor([activeGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    // Expand the row
+    await wrapper.find('tbody tr').trigger('click')
+
+    // Find and click Ada Lovelace student button
+    const studentBtn = wrapper.findAll('.matched-groups__student-btn').find(
+      (b) => b.text().includes('Ada Lovelace')
+    )
+    expect(studentBtn).toBeDefined()
+    await studentBtn!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+
+    // Title and description update to student details
+    expect(dialog.querySelector('.admin-sheet__title')?.textContent).toBe('Ada Lovelace')
+    expect(dialog.querySelector('.admin-sheet__description')?.textContent).toBe('Account details')
+
+    // Contains Account, Student Profile, and Guardian & Consent details
+    expect(dialog.textContent).toContain('Account')
+    expect(dialog.textContent).toContain('ada@example.com')
+    expect(dialog.textContent).toContain('Student Profile')
+    expect(dialog.textContent).toContain('Science High')
+    expect(dialog.textContent).toContain('Guardian & Consent')
+    expect(dialog.textContent).toContain('Lord Byron')
+    expect(dialog.textContent).toContain('byron@example.com')
+
+    // Close the sheet
+    const closeBtn = Array.from(dialog.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Close'
+    ) as HTMLButtonElement
+    expect(closeBtn).toBeTruthy()
+    closeBtn.click()
+    await flushPromises()
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    // The matched groups table is still expanded and visible
+    expect(wrapper.text()).toContain('Students (2)')
+  })
+
+  it('shows an error message in the sheet when loading student details fails', async () => {
+    const fetchMock = fetchMockFor([activeGroup], { studentError: 'Student not found in database' })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.find('tbody tr').trigger('click')
+    const studentBtn = wrapper.find('.matched-groups__student-btn')
+    await studentBtn.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+    expect(dialog.textContent).toContain('Student not found in database')
   })
 })

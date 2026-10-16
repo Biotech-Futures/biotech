@@ -1355,6 +1355,7 @@ export interface MatchedGroupMentor {
 }
 
 export interface MatchedGroupStudent {
+  id?: number
   name: string
   hasLoggedIn: boolean
   interests: string[]
