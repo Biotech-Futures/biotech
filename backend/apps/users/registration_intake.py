@@ -648,6 +648,12 @@ def register(request):
             invitation = valid_invitation(raw_token, window, now, journey=journey)
             if not window.is_open(now) and invitation is None:
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
+            # Closed to the public (Management > Registration): students can't
+            # register themselves, but a late link still can.
+            from apps.management.models import PublicRegistrationSetting
+
+            if journey not in SUPERVISOR_JOURNEYS and invitation is None and not PublicRegistrationSetting.load().open:
+                raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
             # A student joining a group by its code: checked before anything's saved.
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
             joining = joinable_group(join_code, len(students)) if join_code else None

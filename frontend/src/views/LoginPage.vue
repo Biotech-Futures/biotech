@@ -84,7 +84,10 @@
         </div>
 
         <div class="legacy-links">
-          <RouterLink class="legacy-website-button" to="/register">Register now</RouterLink>
+          <!-- Unless Management > Registration has closed it. -->
+          <RouterLink v-if="registrationOpen" class="legacy-website-button" to="/register">
+            Register now
+          </RouterLink>
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -449,6 +452,7 @@ import {
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 import { LOGIN_MESSAGES } from '@/data/login_language'
+import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 
 /*
   Page-level instances.
@@ -1240,7 +1244,10 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
 /*
   Lifecycle: initial focus.
 */
+const { open: registrationOpen } = useRegistrationOpen()
+
 onMounted(async () => {
+  void loadRegistrationOpen(true)
   // Magic-link rejections land here as a redirect from the callback view.
   const linkError = Array.isArray(route.query.error) ? route.query.error[0] : route.query.error
 

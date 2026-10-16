@@ -429,10 +429,11 @@ const programSearchQuery = ref('')
 // expanded on large ones, matching the layout the user sees. Keeps in sync
 // with viewport changes (e.g. loading at desktop width then resizing down).
 type SidebarSectionKey = 'analytics' | 'supervisor' | 'admin'
+// On large screens Admin starts open and Analytics folded.
 const collapsedSidebarSections = ref<Record<SidebarSectionKey, boolean>>({
-  analytics: false,
+  analytics: true,
   supervisor: false,
-  admin: true,
+  admin: false,
 })
 let adminSubnavMediaQuery: MediaQueryList | null = null
 

@@ -6,6 +6,7 @@ import RegistrationPage from '@/views/RegistrationPage.vue'
 import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
+import { setRegistrationOpen } from '@/composables/useRegistrationOpen'
 
 const mountPage = (mode: 'canonical' | 'supervisor' = 'canonical') =>
   mount(RegistrationPage, {
@@ -254,6 +255,29 @@ describe('canonical registration intake', () => {
       window.history.replaceState({}, '', previous)
     }
   })
+  it('says registration is closed while Management > Registration has closed it', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        new Response(JSON.stringify(String(url).includes('/registration-open/') ? { open: false } : {})),
+      ),
+    )
+    const wrapper = mountPage()
+    try {
+      await flushPromises()
+      expect(wrapper.get('.page-title').text()).toBe('Registration is closed')
+      expect(wrapper.find('.role-options').exists()).toBe(false)
+      // A supervisor still registers their students.
+      const supervisor = mountPage('supervisor')
+      await flushPromises()
+      expect(supervisor.text()).not.toContain('Registration is closed')
+      supervisor.unmount()
+    } finally {
+      wrapper.unmount()
+      setRegistrationOpen(true)
+    }
+  })
+
   it('limits public role selection to student and mentor', async () => {
     const wrapper = mountPage()
 

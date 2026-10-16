@@ -184,7 +184,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
       { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
-      { path: 'supervisor-visibility', name: 'management-supervisor-visibility', component: () => import('@/views/management/SupervisorPagesPage.vue') }
+      // Registration Visibility: Registration and Supervisor Visibility as one.
+      { path: 'registration-visibility', name: 'management-registration-visibility', component: () => import('@/views/management/RegistrationVisibilityPage.vue') },
+      { path: 'supervisor-visibility', redirect: '/management/registration-visibility' }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

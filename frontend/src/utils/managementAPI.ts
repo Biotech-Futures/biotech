@@ -259,6 +259,20 @@ export interface ReleaseStatus {
   submissions_open?: boolean
 }
 
+// GET /api/v1/management/registration-open/ — whether registration is open to
+// the public (open by default). Anyone can read it, signed in or not.
+export function fetchRegistrationOpen(): Promise<{ open: boolean }> {
+  return requestJson<{ open: boolean }>('/api/v1/management/registration-open/')
+}
+
+// PUT /api/v1/management/registration-open/ — admins open or close it.
+export function saveRegistrationOpen(open: boolean): Promise<{ open: boolean }> {
+  return requestJson<{ open: boolean }>('/api/v1/management/registration-open/', {
+    method: 'PUT',
+    body: JSON.stringify({ open })
+  })
+}
+
 /** Management > Supervisor Visibility: whether supervisors see Home, Groups,
  *  Events, Announcements and Resources (``shown``, off by default), and their
  *  Registration page (``registration_shown``, on by default). */

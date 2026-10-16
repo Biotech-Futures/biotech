@@ -97,6 +97,21 @@
       </section>
     </div>
 
+    <!-- Closed to the public (Management > Registration): a late link, or a
+         supervisor, still registers. -->
+    <section v-else-if="registrationClosed" class="setup-layout" aria-labelledby="closed-title">
+      <RouterLink to="/login" class="btn btn-outline back-button setup-back">
+        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+      </RouterLink>
+      <header class="page-header">
+        <h1 id="closed-title" class="page-title">Registration is closed</h1>
+      </header>
+      <p class="supervisor-guidance">
+        Registration isn't open at the moment. If you have a late link, use it to register, or
+        contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
+      </p>
+    </section>
+
     <section
       v-else-if="!journey && selectionStage === 'role'"
       class="setup-layout"
@@ -1103,6 +1118,7 @@ import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvR
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
+import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
   checkGroupCode,
@@ -1415,6 +1431,10 @@ const props = withDefaults(
   { mode: 'canonical' },
 )
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
+// Management > Registration: closed, the public can't register themselves
+// (a late link still can, and supervisors register their students as ever).
+const { open: publicRegistrationOpen } = useRegistrationOpen()
+if (props.mode !== 'supervisor') void loadRegistrationOpen(true)
 const invitationToken = computed(() =>
   props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
 )
@@ -1571,6 +1591,9 @@ const errorSummaryRef = ref<HTMLElement | null>(null)
 
 const selectedJourney = computed(() =>
   journey.value ? journeyOptions.find((option) => option.value === journey.value) : undefined,
+)
+const registrationClosed = computed(
+  () => !isSupervisorMode.value && !invitationToken.value && !publicRegistrationOpen.value,
 )
 const visibleRoleOptions = computed(() =>
   roleOptions.filter(

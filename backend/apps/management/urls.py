@@ -7,6 +7,7 @@ from .views import (
     FinalistEmailSettingsView,
     FinalistNotifyAllView,
     GradingSettingsView,
+    RegistrationOpenView,
     SupervisorPagesView,
     SupervisorResultsCertificatesZipView,
     SupervisorResultsCertificateView,
@@ -61,6 +62,7 @@ urlpatterns = [
     path("certificates-release/", CertificatesReleaseView.as_view(), name="certificates-release"),
     path("settings/", GradingSettingsView.as_view(), name="settings"),
     path("supervisor-pages/", SupervisorPagesView.as_view(), name="supervisor-pages"),
+    path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
     # Which placeholders the active template actually contains.
     path(
         "settings/template-scan/<str:kind>/",
