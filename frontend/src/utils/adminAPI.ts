@@ -35,6 +35,7 @@ import type {
   SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
+import type { MutualInterestItem } from './mutualInterests'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -540,13 +541,17 @@ export interface AdminGroupMember {
   /** "student" | "mentor" */
   role: string
   membershipId: number | null
+  interests?: string[]
 }
+
+export type { MutualInterestItem }
 
 export interface AdminGroupDetail {
   id: number
   name: string
   members: AdminGroupMember[]
   mentor: AdminGroupMember | null
+  mutualInterests?: MutualInterestItem[]
   createdAt: string
   updatedAt: string
 }
@@ -1377,6 +1382,7 @@ export interface MatchedGroupMentor {
 }
 
 export interface MatchedGroupStudent {
+  id: number
   name: string
   hasLoggedIn: boolean
   interests: string[]

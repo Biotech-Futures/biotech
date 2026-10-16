@@ -157,6 +157,21 @@
             </button>
           </div>
 
+          <div class="group-members-dialog-interests">
+            <h4>Mutual Interests</h4>
+            <div v-if="groupMutualInterests.length" class="group-detail__interests">
+              <span
+                v-for="item in groupMutualInterests"
+                :key="item.name"
+                class="group-detail__interest-tag"
+              >
+                {{ item.name }}
+                <span class="group-detail__interest-count">({{ item.count }})</span>
+              </span>
+            </div>
+            <p v-else class="group-members-interests-empty">No mutual areas of interest identified yet.</p>
+          </div>
+
           <div class="group-members-list">
             <div v-for="member in visibleGroupMembers" :key="member.key" class="group-member-row">
               <div class="group-member-avatar">{{ getInitials(member.name).slice(0, 2) }}</div>
@@ -1842,6 +1857,7 @@ import {
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
 import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -2269,6 +2285,11 @@ const visibleGroupMembers = computed(() =>
     }),
 )
 
+const groupMutualInterests = computed(() => {
+  const active = groupMemberships.value.filter((item) => !item.leftAt)
+  return computeMutualInterests(active)
+})
+
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
@@ -2388,6 +2409,7 @@ const normalizeMembership = (item) => ({
   // Tri-state: null means the caller isn't staff, or the backend predates the
   // field. Defaulting to false would tell a mentor everyone is missing.
   hasLoggedIn: (item?.has_logged_in ?? item?.hasLoggedIn) ?? null,
+  interests: Array.isArray(item?.interests) ? item.interests : [],
 })
 
 const getCurrentUserMentionName = () => {
@@ -6297,6 +6319,48 @@ onBeforeUnmount(() => {
   border-color: var(--air-force-blue);
   color: var(--air-force-blue);
   background: #f1f5f7;
+}
+
+.group-members-dialog-interests {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  background-color: #fafbfc;
+}
+
+.group-members-dialog-interests h4 {
+  margin: 0 0 0.5rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.group-detail__interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.group-detail__interest-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.group-detail__interest-count {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.group-members-interests-empty {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #6c757d;
 }
 
 .group-members-list {
