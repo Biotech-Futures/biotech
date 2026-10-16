@@ -13,6 +13,7 @@ from apps.admin.permissions import IsAdminScoped
 
 logger = logging.getLogger(__name__)
 from apps.admin.serializers import (
+    AdminTaskListQuerySerializer,
     AdminTaskToggleSerializer,
     BulkUserRowSerializer,
     SystemEmailPreviewSerializer,
@@ -1273,13 +1274,13 @@ class AdminTaskListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        page = int(request.query_params.get("page", 1))
-        limit = int(request.query_params.get("limit", 10))
+        query = AdminTaskListQuerySerializer(data=request.query_params.dict())
+        query.is_valid(raise_exception=True)
         task_type = request.query_params.get("task_type") or None
         result = list_admin_tasks(
             request.user,
-            page=page,
-            limit=limit,
+            page=query.validated_data["page"],
+            limit=query.validated_data["limit"],
             task_type=task_type,
             sort_by=request.query_params.get("sortBy", "createdAt"),
             sort_order=request.query_params.get("sortOrder", "desc"),
