@@ -20,17 +20,23 @@ from apps.groups.models import (
 )
 from apps.groups.models.groups import default_group_year
 from apps.chat.models import Messages
-from apps.users.models import User, StudentProfile
+from apps.users.models import User, StudentProfile, UserInterest
 from apps.audit.services import log_audit_event
 
 
 # Type definitions
+class MutualInterestDict(TypedDict):
+    name: str
+    count: int
+
+
 class GroupMemberDict(TypedDict):
     id: str
     name: str
     email: str
     role: str  # "student" or "mentor"
     membershipId: Optional[int]
+    interests: Optional[List[str]]
 
 
 class GroupSenderDict(TypedDict):
@@ -54,6 +60,7 @@ class GroupDict(TypedDict):
     name: str
     members: List[GroupMemberDict]
     mentor: Optional[GroupMemberDict]
+    mutualInterests: Optional[List[MutualInterestDict]]
     createdAt: str
     updatedAt: str
     # Who formed it: ``kind`` (members, supervisor, admin, or "" when not
@@ -97,6 +104,22 @@ def _person_name(first: Optional[str], last: Optional[str], email: Optional[str]
     return f"{first or ''} {last or ''}".strip() or (email or "")
 
 
+def compute_mutual_interests(members: List[dict]) -> List[MutualInterestDict]:
+    """Compute overlapping interests shared by 2 or more members."""
+    interest_counts = {}
+    for m in members:
+        for interest in set(m.get("interests") or []):
+            interest_counts[interest] = interest_counts.get(interest, 0) + 1
+
+    mutual = [
+        {"name": interest, "count": count}
+        for interest, count in interest_counts.items()
+        if count >= 2
+    ]
+    mutual.sort(key=lambda x: (-x["count"], x["name"].lower()))
+    return mutual
+
+
 def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     """
     Build complete group objects with members and mentor information.
@@ -113,7 +136,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     group_ids = [row["id"] for row in base_rows]
     
     # Fetch all active members for these groups
-    members_qs = (
+    members_qs = list(
         GroupMembership.objects
         .filter(
             group_id__in=group_ids,
@@ -122,6 +145,21 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
         .select_related("user", "user__mentorprofile", "user__studentprofile")
         .order_by("group_id", "id")
     )
+    
+    # Fetch interests for all users in these groups
+    user_ids = [m.user_id for m in members_qs]
+    interests_by_user = {}
+    if user_ids:
+        user_interests = (
+            UserInterest.objects
+            .filter(user_id__in=user_ids)
+            .select_related("interest")
+        )
+        for ui in user_interests:
+            if getattr(ui, "interest", None) and ui.interest.interest_desc:
+                desc = ui.interest.interest_desc.strip()
+                if desc:
+                    interests_by_user.setdefault(ui.user_id, []).append(desc)
     
     # Organize members by group and role
     members_by_group_id = {}
@@ -134,12 +172,14 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
         if not role:
             continue
         
+        user_ints = sorted(list(dict.fromkeys(interests_by_user.get(user.id, []))), key=str.lower)
         member = {
             "id": str(user.id),
             "name": f"{user.first_name} {user.last_name}".strip(),
             "email": user.email,
             "role": role,
             "membershipId": membership.id,
+            "interests": user_ints,
         }
         
         if role == "mentor":
@@ -153,11 +193,21 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     result = []
     for row in base_rows:
         group_id = row["id"]
+        group_members = members_by_group_id.get(group_id, [])
+        mentor = mentor_by_group_id.get(group_id, None)
+
+        all_group_members = list(group_members)
+        if mentor:
+            all_group_members.append(mentor)
+
+        mutual_interests = compute_mutual_interests(all_group_members)
+
         result.append({
             "id": str(group_id),
             "name": row["name"],
-            "members": members_by_group_id.get(group_id, []),
-            "mentor": mentor_by_group_id.get(group_id, None),
+            "members": group_members,
+            "mentor": mentor,
+            "mutualInterests": mutual_interests,
             "createdAt": row["created_at"].isoformat(),
             "updatedAt": row["created_at"].isoformat(),
             "formedBy": {"kind": row["formed_by"], "name": row["created_by_name"]},

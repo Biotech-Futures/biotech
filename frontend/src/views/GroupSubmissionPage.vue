@@ -1620,12 +1620,12 @@ const adminEntry = computed(() => {
   switch (stage.value) {
     case 'submitted':
       return `${submission?.auto_submitted ? 'Auto-submitted' : 'Submitted'} ${when}${
-        hasUnsubmittedChanges() ? ', with saved changes not yet submitted' : ''
+        hasUnsubmittedChanges() ? ' · changes not submitted' : ''
       }`
     case 'revising':
-      return `Reopened, last submitted ${when}`
+      return 'Reopened'
     case 'in_progress':
-      return 'Draft, not submitted'
+      return 'Draft'
     default:
       return 'Not started'
   }
@@ -1652,9 +1652,9 @@ function hasUnsubmittedChanges(): boolean {
 /** Whether the team can still edit; past the deadline but open means a grace period or extension. */
 const studentsNote = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
-  if (!closesAt) return 'No deadline set'
+  if (!closesAt) return 'No deadline'
   if (!isOpen.value) return 'Closed'
-  return now.value < new Date(closesAt).getTime() ? `Can edit until ${deadlineDate.value}` : 'Can edit (grace period)'
+  return now.value < new Date(closesAt).getTime() ? `Open until ${deadlineDate.value}` : 'Grace period'
 })
 
 const adminDirty = computed(

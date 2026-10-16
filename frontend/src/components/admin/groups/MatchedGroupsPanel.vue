@@ -118,7 +118,13 @@
               <p v-if="!groupOf(row).students.length" class="matched-groups__muted">No student data available.</p>
               <ul v-else class="matched-groups__student-list">
                 <li v-for="(s, i) in groupOf(row).students" :key="`${s.name}-${i}`">
-                  <span class="matched-groups__student-name">{{ s.name }}</span>
+                  <button
+                    type="button"
+                    class="matched-groups__student-btn"
+                    @click="openStudentDetail(s)"
+                  >
+                    <span class="matched-groups__student-name">{{ s.name }}</span>
+                  </button>
                   <span v-if="!s.hasLoggedIn" class="matched-groups__login-badge" title="This student has never signed in">
                     Never signed in
                   </span>
@@ -154,6 +160,17 @@
       :mentors="mentors"
       @confirmed="onBulkConfirmed"
     />
+
+    <AdminUserDetailSheet
+      :open="studentSheetOpen"
+      :user="selectedStudent"
+      :loading="studentDetailLoading"
+      :error="studentDetailError"
+      :fallback-name="selectedStudentFallbackName"
+      :show-edit="false"
+      @close="closeStudentDetail"
+      @updated="onStudentUpdated"
+    />
   </div>
 </template>
 
@@ -161,12 +178,16 @@
 import { computed, onMounted, ref } from 'vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import MentorReplaceDialog from '@/components/admin/MentorReplaceDialog.vue'
+import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import {
+  fetchAdminUser,
   fetchMatchedGroups,
   fetchMentorMatchMentorList,
   replaceMentor,
   unassignMentors,
+  type AdminUser,
   type MatchedGroup,
+  type MatchedGroupStudent,
   type MentorListItem
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
@@ -178,6 +199,44 @@ const groups = ref<MatchedGroup[]>([])
 const mentors = ref<MentorListItem[]>([])
 const loading = ref(false)
 const error = ref('')
+
+// --- Student Detail Sheet -----------------------------------------------
+const studentSheetOpen = ref(false)
+const selectedStudent = ref<AdminUser | null>(null)
+const selectedStudentFallbackName = ref('')
+const studentDetailLoading = ref(false)
+const studentDetailError = ref('')
+
+const openStudentDetail = async (student: MatchedGroupStudent) => {
+  studentSheetOpen.value = true
+  selectedStudent.value = null
+  selectedStudentFallbackName.value = student.name
+  studentDetailLoading.value = true
+  studentDetailError.value = ''
+  try {
+    if (!student.id) {
+      studentDetailError.value = 'Could not find details for this student.'
+      return
+    }
+    selectedStudent.value = await fetchAdminUser(student.id)
+  } catch (err) {
+    studentDetailError.value = err instanceof Error ? err.message : 'Could not load student details.'
+  } finally {
+    studentDetailLoading.value = false
+  }
+}
+
+const closeStudentDetail = () => {
+  studentSheetOpen.value = false
+  selectedStudent.value = null
+  selectedStudentFallbackName.value = ''
+  studentDetailError.value = ''
+  studentDetailLoading.value = false
+}
+
+const onStudentUpdated = (updatedUser: AdminUser) => {
+  selectedStudent.value = updatedUser
+}
 
 // Fetches into state; throws on failure so callers can decide how to report it.
 const fetchData = async () => {
@@ -514,6 +573,21 @@ const onBulkConfirmed = () => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   font-size: 0.8rem;
+}
+
+.matched-groups__student-btn {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.matched-groups__student-btn:hover .matched-groups__student-name {
+  text-decoration: underline;
 }
 
 .matched-groups__student-name {

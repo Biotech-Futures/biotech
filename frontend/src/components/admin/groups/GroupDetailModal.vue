@@ -1,8 +1,8 @@
 <template>
   <FormSheet
     :model-value="modelValue"
-    :title="group ? group.name : 'Group details'"
-    description="Members and message history for this group."
+    :title="sheetTitle"
+    :description="sheetDescription"
     width="min(100vw, 640px)"
     @update:model-value="onDismiss"
     @close="onDismiss"
@@ -24,6 +24,21 @@
         </section>
 
         <section class="group-detail__section">
+          <h3>Mutual Areas of Interest</h3>
+          <div v-if="mutualInterests.length" class="group-detail__interests">
+            <span
+              v-for="item in mutualInterests"
+              :key="item.name"
+              class="group-detail__interest-tag"
+            >
+              {{ item.name }}
+              <span class="group-detail__interest-count">({{ item.count }})</span>
+            </span>
+          </div>
+          <p v-else class="group-detail__muted">No mutual areas of interest identified yet.</p>
+        </section>
+
+        <section class="group-detail__section">
           <div class="group-detail__members-head">
             <h3>Members ({{ members.length }})</h3>
             <button
@@ -39,10 +54,16 @@
           <p v-if="!members.length" class="group-detail__muted">No students in this group yet.</p>
           <ul v-else class="group-detail__members">
             <li v-for="member in members" :key="member.id" class="group-detail__member">
-              <div class="group-detail__member-info">
-                <span class="group-detail__member-name">{{ member.name }}</span>
-                <span class="group-detail__member-email">{{ member.email }}</span>
-              </div>
+              <button
+                type="button"
+                class="group-detail__member-btn"
+                @click="openStudentDetail(member)"
+              >
+                <div class="group-detail__member-info">
+                  <span class="group-detail__member-name">{{ member.name }}</span>
+                  <span class="group-detail__member-email">{{ member.email }}</span>
+                </div>
+              </button>
               <button
                 type="button"
                 class="btn btn-sm btn-outline"
@@ -74,8 +95,24 @@
         />
       </template>
 
+      <!-- Student details view -->
+      <template v-else-if="view === 'student'">
+        <button type="button" class="group-detail__back" @click="backToInfo">
+          <i class="fas fa-arrow-left" aria-hidden="true"></i>
+          Back to group information
+        </button>
+
+        <p v-if="loadingStudent" class="group-detail__muted">Loading student details...</p>
+        <p v-else-if="studentError" class="group-detail__error" role="alert">{{ studentError }}</p>
+        <AdminUserDetailContent
+          v-else-if="selectedStudent"
+          :user="selectedStudent"
+          @updated="onStudentUpdated"
+        />
+      </template>
+
       <!-- Messages view -->
-      <template v-else>
+      <template v-else-if="view === 'messages'">
         <button type="button" class="group-detail__back" @click="backToInfo">
           <i class="fas fa-arrow-left" aria-hidden="true"></i>
           Back to group information
@@ -176,17 +213,22 @@ import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import GroupAddStudents from '@/components/admin/groups/GroupAddStudents.vue'
+import AdminUserDetailContent from '@/components/admin/users/AdminUserDetailContent.vue'
 import {
+  fetchAdminUser,
   fetchGroupMessages,
   removeGroupMember,
   removeGroupMessage,
   type AdminGroupDetail,
   type AdminGroupMember,
   type AdminGroupMessage,
-  type AdminUser
+  type AdminUser,
+  type MutualInterestItem
 } from '@/utils/adminAPI'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_MAX_SIZE } from '@/utils/groupCapacity'
+import { userName } from '@/utils/userFormat'
 
 const props = defineProps<{
   modelValue: boolean
@@ -203,7 +245,49 @@ const onDismiss = () => emit('update:modelValue', false)
 // The panel opens on the group-information view (mentor + members); messages are
 // a separate view reached via "View Messages" (see below) and loaded only then.
 // "Add students" swaps in the ungrouped-student picker the same way.
-const view = ref<'info' | 'messages' | 'add'>('info')
+const view = ref<'info' | 'messages' | 'add' | 'student'>('info')
+
+const sheetTitle = computed(() => {
+  if (view.value === 'student') {
+    if (selectedStudent.value) return userName(selectedStudent.value)
+    if (selectedStudentMember.value) return selectedStudentMember.value.name || 'Student details'
+    return 'Student details'
+  }
+  return props.group ? props.group.name : 'Group details'
+})
+
+const sheetDescription = computed(() => {
+  if (view.value === 'student') {
+    return 'Account details'
+  }
+  return 'Members and message history for this group.'
+})
+
+// --- Student Detail ------------------------------------------------------
+
+const selectedStudent = ref<AdminUser | null>(null)
+const selectedStudentMember = ref<AdminGroupMember | null>(null)
+const loadingStudent = ref(false)
+const studentError = ref('')
+
+const openStudentDetail = async (member: AdminGroupMember) => {
+  view.value = 'student'
+  selectedStudentMember.value = member
+  selectedStudent.value = null
+  studentError.value = ''
+  loadingStudent.value = true
+  try {
+    selectedStudent.value = await fetchAdminUser(member.id)
+  } catch (err) {
+    studentError.value = err instanceof Error ? err.message : 'Could not load student details.'
+  } finally {
+    loadingStudent.value = false
+  }
+}
+
+const onStudentUpdated = (updatedUser: AdminUser) => {
+  selectedStudent.value = updatedUser
+}
 
 // Who formed the group: "Members", "Supervisor (name)" or "Admin (name)".
 const formedByLabel = computed(() => {
@@ -271,6 +355,16 @@ const confirmRemoveMember = async () => {
   }
 }
 
+// --- Mutual areas of interest ----------------------------------------------
+
+const mutualInterests = computed<MutualInterestItem[]>(() => {
+  const allMembers: AdminGroupMember[] = [
+    ...members.value,
+    ...(props.group?.mentor ? [props.group.mentor] : [])
+  ]
+  return computeMutualInterests(allMembers)
+})
+
 // --- Add students ----------------------------------------------------------
 
 // Seats are derived from the local list so they stay correct after an add or
@@ -292,7 +386,8 @@ const onStudentsAdded = (added: AdminUser[]) => {
       name: [student.firstName, student.lastName].filter(Boolean).join(' '),
       email: student.email ?? '',
       role: 'student',
-      membershipId: null
+      membershipId: null,
+      interests: student.interests ? [...student.interests] : []
     }))
   ]
   emit('changed', props.group.id)
@@ -344,6 +439,10 @@ const showMessages = () => {
 
 const backToInfo = () => {
   view.value = 'info'
+  selectedStudent.value = null
+  selectedStudentMember.value = null
+  studentError.value = ''
+  loadingStudent.value = false
 }
 
 // Opening the panel (or switching group) resets to the info view and clears the
@@ -359,6 +458,10 @@ watch(
       messagesHasMore.value = false
       messagesError.value = ''
       messagesLoaded.value = false
+      selectedStudent.value = null
+      selectedStudentMember.value = null
+      studentError.value = ''
+      loadingStudent.value = false
     }
   }
 )
@@ -457,6 +560,23 @@ const confirmRemoveMessage = async () => {
   padding: 0.6rem 0.75rem;
   background-color: var(--bg-light);
   border-radius: 8px;
+}
+
+.group-detail__member-btn {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+}
+
+.group-detail__member-btn:hover .group-detail__member-name {
+  text-decoration: underline;
 }
 
 .group-detail__member-info {
@@ -581,5 +701,28 @@ const confirmRemoveMessage = async () => {
 
 .group-detail__back:hover {
   text-decoration: underline;
+}
+
+.group-detail__interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.group-detail__interest-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.group-detail__interest-count {
+  font-weight: 500;
+  opacity: 0.85;
 }
 </style>
