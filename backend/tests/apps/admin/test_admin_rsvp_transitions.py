@@ -160,3 +160,23 @@ class AdminRsvpTransitionTests(APITestCase):
         rsvp = EventRsvp.objects.get(event=self.event, user=self.extra)
         self.assertEqual(rsvp.rsvp_status, "pending")
         self.assertIsNone(rsvp.responded_at)
+
+    def test_bulk_waitlisting_preserves_targets_and_promotes_only_other_users(self):
+        self.event.max_attendees = 2
+        self.event.save(update_fields=["max_attendees"])
+        EventRsvp.objects.create(
+            event=self.event, user=self.extra, rsvp_status="accepted", responded_at=timezone.now(),
+        )
+        outside = get_user_model().objects.create_user(email="outside-waitlist@example.com", password="pw")
+        EventRsvp.objects.create(
+            event=self.event, user=outside, rsvp_status="waitlisted", responded_at=timezone.now(),
+        )
+        targets = [self.attendee.pk, self.oldest.pk, self.extra.pk, self.newest.pk]
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(f"/api/v1/events/{self.event.pk}/rsvp/bulk/", {
+                "user_ids": targets, "rsvp_status": "waitlisted",
+            }, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(EventRsvp.objects.filter(event=self.event, user_id__in=targets, rsvp_status="waitlisted").count(), 4)
+        self.assertEqual(EventRsvp.objects.get(event=self.event, user=outside).rsvp_status, "accepted")
+        self.assertEqual([message.to for message in mail.outbox], [[outside.email]])

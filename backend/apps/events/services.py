@@ -324,7 +324,7 @@ def set_user_rsvp(user, event_id, rsvp_status):
     return set_event_rsvp(user.id, event.id, rsvp_status)
 
 
-def set_event_rsvp(user_id, event_id, rsvp_status):
+def set_event_rsvp(user_id, event_id, rsvp_status, *, exclude_from_promotion=()):
     """Apply a validated RSVP with shared capacity, timestamp and promotion rules."""
     promoted_user_id = None
     with transaction.atomic():
@@ -365,7 +365,9 @@ def set_event_rsvp(user_id, event_id, rsvp_status):
             prior_status == EventRsvp.RsvpStatus.ACCEPTED
             and effective_status != EventRsvp.RsvpStatus.ACCEPTED
         ):
-            promoted_user_id = _promote_oldest_waitlisted(event, exclude_user_id=user_id)
+            promoted_user_id = _promote_oldest_waitlisted(
+                event, exclude_user_ids=(user_id, *exclude_from_promotion),
+            )
 
         if promoted_user_id is not None:
             from .promotion_email import notify_waitlist_promoted
@@ -404,7 +406,7 @@ def _apply_capacity(event, *, requested_status, prior_status):
     return EventRsvp.RsvpStatus.ACCEPTED
 
 
-def _promote_oldest_waitlisted(event, *, exclude_user_id):
+def _promote_oldest_waitlisted(event, *, exclude_user_ids):
     """Promote the oldest WAITLISTED row to ACCEPTED. Returns user id or None.
 
     Caller must hold ``select_for_update`` on the event row so the
@@ -423,7 +425,7 @@ def _promote_oldest_waitlisted(event, *, exclude_user_id):
     promoted = (
         EventRsvp.objects.select_for_update()
         .filter(event=event, rsvp_status=EventRsvp.RsvpStatus.WAITLISTED)
-        .exclude(user_id=exclude_user_id)
+        .exclude(user_id__in=exclude_user_ids)
         .order_by("responded_at", "id")
         .first()
     )

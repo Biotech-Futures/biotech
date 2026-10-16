@@ -428,7 +428,9 @@ class EventBulkInviteView(APIView):
 
         with transaction.atomic():
             for uid in valid_user_ids:
-                _, _, created = set_event_rsvp(uid, event.id, rsvp_status)
+                _, _, created = set_event_rsvp(
+                    uid, event.id, rsvp_status, exclude_from_promotion=valid_user_ids,
+                )
                 if created:
                     created_ids.append(uid)
                 else:
