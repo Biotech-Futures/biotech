@@ -1229,6 +1229,107 @@ describe('co-editing', () => {
     expect(element.value).toBe('Live text.日本')
   })
 
+  describe('without the live connection', () => {
+    const note = () => wrapper!.find('[data-testid="coedit-note"]')
+
+    /** The page opens but the live connection never gets through, and ten seconds pass. */
+    async function blocked(detail = coedited()) {
+      vi.useFakeTimers()
+      saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+      await mountPage(detail)
+      expect(box().attributes('disabled')).toBeDefined()
+      vi.advanceTimersByTime(10_000)
+      await flushPromises()
+      return detail
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('lets the student type after ten seconds, saving as without co-editing', async () => {
+      await blocked()
+
+      expect(box().attributes('disabled')).toBeUndefined()
+      expect(note().text()).toContain("Live editing isn't available on this connection.")
+      await box().setValue('Typed offline.')
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+
+      expect(saveDraft).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({ answers: { inspiration: 'Typed offline.' }, live_unavailable: true })
+      )
+    })
+
+    it('saves an answer over its word limit as typed, as live editing does', async () => {
+      await blocked()
+      const long = Array.from({ length: 151 }, () => 'word').join(' ')
+
+      await box().setValue(long)
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+
+      expect(saveDraft).toHaveBeenCalledWith('1', expect.objectContaining({ answers: { inspiration: long }, live_unavailable: true }))
+    })
+
+    it("brings in the team's saved changes every ten seconds, leaving the box being edited alone", async () => {
+      const detail = await blocked()
+      fetchSubmission.mockResolvedValue({
+        ...detail,
+        submission: {
+          ...detail.submission!,
+          answers: { ...detail.submission!.answers, inspiration: 'From Ben.', solution_purpose: 'Theirs.' }
+        }
+      })
+      vi.advanceTimersByTime(9_000)
+      // Typed a moment before the refresh, so not yet saved.
+      await wrapper!.find('#solution_purpose').setValue('Mine, not saved yet.')
+
+      vi.advanceTimersByTime(1_000)
+      await flushPromises()
+
+      expect((box().element as HTMLTextAreaElement).value).toBe('From Ben.')
+      expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('Mine, not saved yet.')
+    })
+
+    it('saves what was typed, then goes back to live editing once the connection is made', async () => {
+      await blocked()
+      await box().setValue('Typed offline.')
+
+      await connect()
+      await flushPromises()
+
+      // The returning shared copy never replaces what is on screen before it is saved.
+      expect((box().element as HTMLTextAreaElement).value).toBe('Typed offline.')
+
+      expect(saveDraft).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({ answers: { inspiration: 'Typed offline.' }, live_unavailable: true })
+      )
+      expect(socket().sent.at(-1)).toMatchObject({ type: 'doc-sync' })
+      expect(note().exists() && note().text()).not.toContain("Live editing isn't available")
+    })
+
+    it('submits without offering the last saved answers, since its typing is saved directly', async () => {
+      const detail = await blocked()
+      submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+      await goToLastStep()
+
+      await buttonNamed(/^Submit$/)!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper!.find('[data-testid="confirm-dialog"]').exists()).toBe(false)
+      expect(submitEntry).toHaveBeenCalled()
+    })
+
+    it('never switches an admin, who saves privately anyway', async () => {
+      await blocked({ ...coedited(), admin_access: true })
+
+      expect(note().exists() && note().text()).not.toContain("Live editing isn't available")
+    })
+  })
+
   async function submitWithFailedSave() {
     const flush = sentOfType('doc-flush')[0]!
     receive({ type: 'doc-flushed', id: flush.id, ok: false })

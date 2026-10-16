@@ -12,7 +12,7 @@ from apps.live import consumers
 from apps.live.consumers import LiveRoomConsumer
 from apps.submissions import coedit
 from apps.submissions.autosubmit import auto_submit_due
-from apps.submissions.models import Submission
+from apps.submissions.models import Submission, SubmissionQuestion
 from apps.users.models import AdminScope, User
 
 from .seed_data import CONFIRMED_CHECKLIST
@@ -219,6 +219,93 @@ class EndpointTests(CoeditTestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.data["code"], "coediting_active")
+
+    def _save_without_live(self, answers=None, **extra):
+        body = {"answers": answers or {self.key: "Typed offline."}, "live_unavailable": True, **extra}
+        return self._client(self.student).put(self._url("group-submission"), body, format="json")
+
+    def test_a_page_without_the_live_connection_saves_into_the_document(self):
+        self._entry_with("Draft")
+        other = self.questions[1].key
+        Client(self.room)
+
+        with patch.object(coedit, "broadcast_update") as broadcast:
+            response = self._save_without_live({self.key: "Typed offline."})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["submission"]["answers"][self.key], "Typed offline.")
+        broadcast.assert_called_once()
+        self.assertEqual(Client(self.room).text(self.field), "Typed offline.")
+        self.assertEqual(Client(self.room).text(coedit.answer_field(other)), "Draft")
+        self.assertEqual(self._entry().answers[self.key], "Typed offline.")
+
+    def test_a_teammates_live_save_afterwards_keeps_it_and_rebuilds_nothing(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        self._save_without_live({self.key: "Typed offline."})
+        other = coedit.answer_field(self.questions[1].key)
+        page.doc.apply_update(coedit.state_since(self.room, page.doc.get_state())[0])
+        coedit.apply(self.student, self.room, page.type(other, 5, " and more"))
+
+        with patch.object(coedit, "broadcast_reset") as reset:
+            self.assertTrue(coedit.save(self.room))
+
+        reset.assert_not_called()
+        self.assertEqual(self._entry().answers[self.key], "Typed offline.")
+        self.assertEqual(self._entry().answers[self.questions[1].key], "Draft and more")
+
+    def test_an_over_limit_answer_is_saved_as_typed_without_the_live_connection_too(self):
+        self._entry_with("Draft")
+        SubmissionQuestion.objects.filter(key=self.key).update(max_words=3)
+
+        response = self._save_without_live({self.key: "one two three four five"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._entry().answers[self.key], "one two three four five")
+
+    def test_the_marker_cannot_lift_the_limit_when_co_editing_is_off(self):
+        self._entry_with("Draft")
+        SubmissionQuestion.objects.filter(key=self.key).update(max_words=3)
+
+        with override_settings(SUBMISSION_COEDITING_ENABLED=False):
+            response = self._save_without_live({self.key: "one two three four five"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self._entry().answers[self.key], "Draft")
+
+    def test_the_title_saves_the_same_way(self):
+        self._entry_with("Draft")
+
+        self._client(self.student).put(
+            self._url("group-submission"), {"project_title": "Offline title", "live_unavailable": True}, format="json"
+        )
+
+        self.assertEqual(Client(self.room).text(coedit.TITLE_FIELD), "Offline title")
+        self.assertEqual(self._entry().project_title, "Offline title")
+
+    def test_the_text_still_saves_when_the_document_is_out_of_reach(self):
+        self._entry_with("Draft")
+        Client(self.room)
+
+        with patch.object(coedit.store(), "read", side_effect=ConnectionError), self.assertLogs("apps.submissions.coedit", "ERROR"):
+            response = self._save_without_live({self.key: "Typed offline."})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._entry().answers[self.key], "Typed offline.")
+        # Once the document can be read again, the next save finds the entry newer and takes it.
+        with patch.object(coedit, "broadcast_reset"), self.captureOnCommitCallbacks(execute=True):
+            coedit.save(self.room)
+        self.assertEqual(Client(self.room).text(self.field), "Typed offline.")
+
+    def test_a_submitted_entry_refuses_a_save_without_the_live_connection_too(self):
+        self._entry_with("Draft")
+        Submission.objects.filter(group=self.group).update(submitted_at=timezone.now())
+
+        response = self._save_without_live()
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "submission_locked")
+        self.assertEqual(self._entry().answers[self.key], "Draft")
 
     def test_a_team_still_saves_the_link_and_ticks_as_before(self):
         response = self._client(self.student).put(

@@ -94,6 +94,8 @@ class SubmissionDraftSerializer(serializers.Serializer):
     )
 
     poster_checklist = serializers.DictField(child=serializers.BooleanField(), required=False)
+    # Sent with answers and title by a page that cannot hold the live connection while co-editing is on.
+    live_unavailable = serializers.BooleanField(required=False)
 
     def validate_poster_checklist(self, value):
         unknown = sorted(set(value) - set(CHECKLIST_ITEMS))
@@ -109,20 +111,24 @@ class SubmissionDraftSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 f"Unknown question{'s' if len(unknown) > 1 else ''}: {', '.join(unknown)}."
             )
+        return value
 
+    def validate(self, attrs):
+        # While co-editing, a page without the live connection saves answers as typed, as the shared
+        # document does; the limit is checked when the entry is submitted.
+        if self.context.get("saves_as_typed") and attrs.get("live_unavailable"):
+            return attrs
+        questions = {q.key: q for q in SubmissionQuestion.active()}
         too_long = []
-        for key, answer in value.items():
+        for key, answer in attrs.get("answers", {}).items():
             question = questions[key]
             limit = question.max_words
             if limit and SubmissionQuestion.count_words(answer) > limit:
                 words = SubmissionQuestion.count_words(answer)
                 too_long.append(f'"{question.prompt}" ({words} words, limit {limit})')
         if too_long:
-            raise serializers.ValidationError(
-                f"Answer too long for {', '.join(too_long)}."
-            )
-
-        return value
+            raise serializers.ValidationError({"answers": [f"Answer too long for {', '.join(too_long)}."]})
+        return attrs
 
 
 def over_limit_answers(submission) -> list[str]:

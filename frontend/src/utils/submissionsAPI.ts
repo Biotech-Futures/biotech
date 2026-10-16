@@ -94,6 +94,8 @@ export interface SaveDraftPayload {
   answers?: Record<string, string>
   prototype_url?: string
   poster_checklist?: Record<string, boolean>
+  /** Answers and title sent by a page that cannot hold the live connection while co-editing is on. */
+  live_unavailable?: boolean
 }
 
 export async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {

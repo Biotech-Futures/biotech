@@ -726,12 +726,15 @@ function draftFields(answers: Record<string, string>): {
   project_title?: string
   prototype_url?: string
   poster_checklist?: Record<string, boolean>
+  live_unavailable?: boolean
 } {
   const link = linkProblem() ? savedLink : normalisedLink()
   const ticks = checklistChanges()
   return {
-    // A team's co-edited text is saved by the server, never sent from here.
-    ...(typingShared.value ? {} : { answers, ...titleIfChanged() }),
+    // A team's co-edited text is saved by the server, never sent from here, unless the live connection is out of reach.
+    ...(typingShared.value
+      ? {}
+      : { answers, ...titleIfChanged(), ...(savingWithoutLive.value ? { live_unavailable: true } : {}) }),
     ...(link === savedLink ? {} : { prototype_url: link }),
     ...(Object.keys(ticks).length ? { poster_checklist: ticks } : {})
   }
@@ -748,12 +751,13 @@ function titleIfChanged(): { project_title?: string } {
   return projectTitle.value === savedTitle ? {} : { project_title: projectTitle.value }
 }
 
-/** Changed answers that are within their word limit. */
+/** Changed answers within their word limit, or all of them while saving without the live connection. */
 function changedAnswers(): Record<string, string> {
   const overLimit = new Set(overLimitQuestions().map((q) => q.key))
   const changed: Record<string, string> = {}
   Object.keys(answers).forEach((key) => {
-    if (overLimit.has(key)) return
+    // Without the live connection, answers are saved as typed, as the shared document saves them.
+    if (overLimit.has(key) && !savingWithoutLive.value) return
     // Compared against '' so a cleared answer is still sent; omitted keys are left unchanged.
     if (answers[key] !== (savedAnswers[key] ?? '')) changed[key] = answers[key]
   })
@@ -820,13 +824,20 @@ const shared = useSharedDoc(live, coediting)
 const TYPED_HERE = {}
 const sharedFields = new Map<string, SharedTextField>()
 /** Teams type into the shared document; an admin edits privately, as without co-editing. */
-const typingShared = computed(() => coediting.value && !adminAccess.value)
+const teamCoediting = computed(() => coediting.value && !adminAccess.value)
+/** The live connection could not be made, so this person types and saves as without co-editing. */
+const liveUnavailable = ref(false)
+const typingShared = computed(() => teamCoediting.value && !liveUnavailable.value)
+const savingWithoutLive = computed(() => teamCoediting.value && liveUnavailable.value)
 /** Read-only until the shared document has arrived and the server allows editing it. */
 const textEditable = computed(
   () => isEditable.value && (!typingShared.value || (shared.synced.value && shared.editable.value))
 )
 const coeditNote = computed(() => {
-  if (!typingShared.value || !isEditable.value) return ''
+  if (!teamCoediting.value || !isEditable.value) return ''
+  if (liveUnavailable.value) {
+    return "Live editing isn't available on this connection. Your changes are still saved, and your team's appear every few seconds."
+  }
   if (!shared.synced.value) return "Connecting to your team's live answers…"
   return shared.editable.value ? '' : "Your team's answers can't be edited right now."
 })
@@ -838,7 +849,8 @@ function sharedName(field: string): string {
 function bindSharedFields() {
   sharedFields.forEach((field) => field.destroy())
   sharedFields.clear()
-  if (!coediting.value) return
+  // Without the live connection the boxes are the page's own, so a returning shared copy cannot overwrite them.
+  if (!coediting.value || liveUnavailable.value) return
   for (const field of [TITLE_FIELD, ...questions.value.map((q) => q.key)]) {
     const source = cursorSource(field)
     const bound = new SharedTextField(
@@ -918,8 +930,9 @@ onBeforeUnmount(() => cursorScope.stop())
 
 /** The shared text is what the server saves, so it counts as saved here. */
 function showShared(field: string, value: string) {
-  // The submitted copy, an admin's private edits, or a half-arrived document are not overwritten.
-  if (showsSubmittedCopy.value || adminEditing.value || !shared.synced.value) return
+  // The submitted copy, an admin's private edits, a half-arrived document, or typing saved without
+  // the live connection are not overwritten.
+  if (showsSubmittedCopy.value || adminEditing.value || !shared.synced.value || liveUnavailable.value) return
   if (field === TITLE_FIELD) {
     projectTitle.value = value
     savedTitle = value
@@ -941,6 +954,69 @@ watch(
     if (synced) showAllShared()
   }
 )
+/** How long the live connection may take before typing carries on without it. */
+const LIVE_FALLBACK_MS = 10_000
+/** How often a page saving without the live connection brings in the team's saved changes. */
+const FALLBACK_CATCH_UP_MS = 10_000
+let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+let fallbackCatchUp: ReturnType<typeof setInterval> | null = null
+let leavingFallback = false
+
+/** Waits for the live connection while the boxes are read-only, and switches back once it is made. */
+function checkLiveConnection() {
+  const waiting =
+    typingShared.value && isEditable.value && !shared.synced.value && document.visibilityState === 'visible'
+  if (!waiting && fallbackTimer) {
+    clearTimeout(fallbackTimer)
+    fallbackTimer = null
+  }
+  if (waiting && !fallbackTimer) fallbackTimer = setTimeout(startSavingWithoutLive, LIVE_FALLBACK_MS)
+  if (savingWithoutLive.value && shared.synced.value) void stopSavingWithoutLive()
+}
+
+function startSavingWithoutLive() {
+  fallbackTimer = null
+  const wasSaved = currentSnapshot() === savedSnapshot.value
+  liveUnavailable.value = true
+  bindSharedFields()
+  // The boxes become the page's own copy, as without co-editing, starting out saved.
+  if (wasSaved) savedSnapshot.value = currentSnapshot()
+  void catchUp()
+}
+
+/** Back on the live connection: typing done meanwhile is saved first, then the shared copy takes over. */
+async function stopSavingWithoutLive() {
+  if (leavingFallback) return
+  leavingFallback = true
+  try {
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer)
+      autosaveTimer = null
+    }
+    await persistDraft()
+    // A failed save, or typing that landed meanwhile, keeps this page as it is until the next try.
+    if (currentSnapshot() !== savedSnapshot.value || !shared.synced.value) return
+    liveUnavailable.value = false
+    shared.restart()
+  } finally {
+    leavingFallback = false
+  }
+}
+
+watch([typingShared, isEditable, () => shared.synced.value], checkLiveConnection, { immediate: true })
+document.addEventListener('visibilitychange', checkLiveConnection)
+watch(savingWithoutLive, (on) => {
+  if (fallbackCatchUp) clearInterval(fallbackCatchUp)
+  fallbackCatchUp = on
+    ? setInterval(() => void (shared.synced.value ? stopSavingWithoutLive() : catchUp()), FALLBACK_CATCH_UP_MS)
+    : null
+})
+onBeforeUnmount(() => {
+  if (fallbackTimer) clearTimeout(fallbackTimer)
+  if (fallbackCatchUp) clearInterval(fallbackCatchUp)
+  document.removeEventListener('visibilitychange', checkLiveConnection)
+})
+
 // Submitting, reopening or the deadline change what may be edited, so the server is asked again.
 watch([() => isLocked.value, () => isOpen.value], () => {
   if (typingShared.value) shared.resync()
@@ -1035,7 +1111,7 @@ function syncUntouchedFields() {
   if (!saved || showsSubmittedCopy.value) return
   const wasSaved = currentSnapshot() === savedSnapshot.value
   // While co-editing, answers and title come from the shared document, which is newer than the saved copy.
-  if (!coediting.value) {
+  if (!coediting.value || savingWithoutLive.value) {
     questions.value.forEach(({ key }) => {
       if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
       answers[key] = saved.answers?.[key] ?? ''
@@ -1559,7 +1635,7 @@ async function persistDraft() {
     if (fields.poster_checklist) Object.assign(savedChecklist, fields.poster_checklist)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
-    saveState.value = overLimit.length || linkProblem() ? 'unsaved' : 'idle'
+    saveState.value = (overLimit.length && !savingWithoutLive.value) || linkProblem() ? 'unsaved' : 'idle'
   } catch (error) {
     saveState.value = 'error'
     setMessage(handleWriteError(error), true)

@@ -393,22 +393,48 @@ def release_save(room: int) -> None:
     store().release_save(room)
 
 
-def write_fields(room: int, texts: dict[str, str]) -> None:
-    """Puts an admin's saved text into the document, after it has been written to the entry."""
-    if not enabled() or not texts:
-        return
+def _replace_fields(room: int, texts: dict[str, str]) -> None:
+    """Each field given becomes the text given, in the document and on every open page."""
     doc, _ = _load(room)
     before = doc.get_state()
+    changed = False
     with doc.transaction():
         for field, value in texts.items():
             text = doc.get(field, type=Text)
             if str(text) != value:
                 del text[:]
                 text.insert(0, value)
+                changed = True
+    if not changed:
+        return
     update = doc.get_update(before)
     store().append(room, update)
-    store().mark_saved(room, _digest(_db_texts(Submission.objects.filter(group_id=room).first())))
     broadcast_update(room, update)
+
+
+def write_fields(room: int, texts: dict[str, str]) -> None:
+    """Puts an admin's saved text into the document, after it has been written to the entry."""
+    if not enabled() or not texts:
+        return
+    _replace_fields(room, texts)
+    store().mark_saved(room, _digest(_db_texts(Submission.objects.filter(group_id=room).first())))
+
+
+def take_typing(room: int, texts: dict[str, str]) -> bool:
+    """Saves typing from a page that cannot hold the live connection, whole answer by whole answer.
+
+    It goes into the document and is saved from there, so teammates see it live and the document
+    stays the one writer. False when the document is out of reach or was rebuilt meanwhile; the
+    caller then writes the text to the entry itself.
+    """
+    if not enabled() or not texts:
+        return True
+    try:
+        _replace_fields(room, texts)
+        return save(room)
+    except Exception:  # noqa: BLE001 - the caller saves the text to the entry instead
+        logger.exception("coedit.take_typing_failed room=%s", room)
+        return False
 
 
 # ---- Telling the room ----------------------------------------------------------------------

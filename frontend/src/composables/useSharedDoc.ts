@@ -238,5 +238,5 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
     if (channel.isConnected.value) sync()
   }
 
-  return { doc, synced, editable, text, flush, onReplaced, resync }
+  return { doc, synced, editable, text, flush, onReplaced, resync, restart }
 }
