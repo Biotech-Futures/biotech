@@ -1,0 +1,31 @@
+{% extends "emails/base.html" %}
+{# Sent to the BIOTech Futures inbox when the QuickEmailVerification balance  #}
+{# drops below an alert level (apps.users.email_credit_alerts).             #}
+
+{% block title %}{{ BRAND_NAME }}: Email verification credits are running low{% endblock %}
+
+{% block preheader %}{{ REMAINING }} QuickEmailVerification credits left. Please add more soon.{% endblock %}
+
+{% block footer_reason %}alerts about the {{ BRAND_NAME }} platform{% endblock %}
+
+{% block content %}
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Email verification credits are running low.
+              </h1>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                The QuickEmailVerification account has <strong>{{ REMAINING }}</strong> credits left, below the alert level of {{ THRESHOLD }}. Each new email address checked at registration uses one credit.
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Please add more credits to the QuickEmailVerification account soon.
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                If the credits run out, registrations still go through, but new email addresses won't be checked until more credits are added.
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                This alert is sent once for each level. It's sent again only after the account is topped up and drops below that level again.
+              </p>
+{% endblock %}

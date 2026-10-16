@@ -399,6 +399,24 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
+    EmailType(
+        key="email_credits_low",
+        name="Email verification credits low",
+        description=(
+            "Sent to QEV_ALERT_EMAIL (info@ by default) when the QuickEmailVerification account "
+            "drops below 500, then 100, credits. Once per level, until it's topped up."
+        ),
+        default_subject="{{ brand_name }}: Email verification credits low ({{ remaining }} left)",
+        default_template="emails/email_credits_low.html",
+        # Running out of credits stops new addresses being checked, so this
+        # alert can't be switched off.
+        locked=True,
+        merge_tags=(
+            MergeTag("remaining", "Credits left", "450", "REMAINING"),
+            MergeTag("threshold", "Alert level dropped below", "500", "THRESHOLD"),
+            *_BRAND_TAGS,
+        ),
+    ),
 )
 
 EMAIL_REGISTRY = {email_type.key: email_type for email_type in EMAIL_TYPES}
