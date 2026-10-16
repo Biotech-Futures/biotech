@@ -1120,9 +1120,38 @@ describe('co-editing', () => {
     expect(saveDraft).not.toHaveBeenCalled()
   })
 
-  it("shows a teammate's typing in the box", async () => {
+  it("types a teammate's text out in a box this person is not in", async () => {
+    const frames: FrameRequestCallback[] = []
+    let now = 0
+    const realFrame = window.requestAnimationFrame
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => frames.push(callback)
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    try {
+      await mountPage(coedited())
+      const truth = await connect()
+      const before = Y.encodeStateVector(truth)
+      truth.getText('answer:inspiration').insert(10, ' From Ben.')
+
+      receive({ type: 'doc-update', update: toBase64(Y.encodeStateAsUpdate(truth, before)) })
+      await flushPromises()
+      expect((box().element as HTMLTextAreaElement).value).toBe('Live text.')
+      while (frames.length) {
+        now += 16
+        frames.splice(0).forEach((callback) => callback(now))
+      }
+      await flushPromises()
+
+      expect((box().element as HTMLTextAreaElement).value).toBe('Live text. From Ben.')
+    } finally {
+      window.requestAnimationFrame = realFrame
+      clock.mockRestore()
+    }
+  })
+
+  it("shows a teammate's typing at once in the box this person is in", async () => {
     await mountPage(coedited())
     const truth = await connect()
+    ;(box().element as HTMLTextAreaElement).focus()
     const before = Y.encodeStateVector(truth)
     truth.getText('answer:inspiration').insert(10, ' From Ben.')
 
@@ -1130,6 +1159,25 @@ describe('co-editing', () => {
     await flushPromises()
 
     expect((box().element as HTMLTextAreaElement).value).toBe('Live text. From Ben.')
+  })
+
+  it("shares where this person's cursor is, and clears it on leaving the box", async () => {
+    await mountPage(coedited())
+    await connect()
+    const cursors = () => socket().sent as Array<{ type: string; field?: string; at?: string | null; typed?: boolean }>
+
+    ;(box().element as HTMLTextAreaElement).focus()
+    await flushPromises()
+    const shared = cursors().filter((m) => m.type === 'cursor')
+    expect(shared).toHaveLength(1)
+    expect(shared[0]).toMatchObject({ field: 'inspiration', typed: false })
+    expect(typeof shared[0]!.at).toBe('string')
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    ;(box().element as HTMLTextAreaElement).blur()
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(cursors().filter((m) => m.type === 'cursor').at(-1)).toMatchObject({ field: 'inspiration', at: null })
   })
 
   it('never locks a box while a teammate types in it', async () => {

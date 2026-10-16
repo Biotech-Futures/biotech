@@ -1,6 +1,30 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
-import { SharedTextField, diffAt, moveThrough } from '@/utils/sharedText'
+import { EASE_MS, SharedTextField, diffAt, moveThrough } from '@/utils/sharedText'
+
+let now = 0
+let frames: FrameRequestCallback[] = []
+
+/** Runs animation frames up to `ms` from now. */
+function advance(ms: number) {
+  const end = now + ms
+  while (now < end) {
+    now = Math.min(end, now + 16)
+    const due = frames
+    frames = []
+    due.forEach((callback) => callback(now))
+  }
+}
+
+beforeEach(() => {
+  now = 0
+  frames = []
+  vi.spyOn(performance, 'now').mockImplementation(() => now)
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback))
+  vi.stubGlobal('cancelAnimationFrame', () => {
+    frames = []
+  })
+})
 
 describe('diffAt', () => {
   it('finds an insertion, a deletion and a replacement', () => {
@@ -49,10 +73,17 @@ function bind(doc: Y.Doc) {
   document.body.appendChild(box)
   boxes.push(box)
   const shown: string[] = []
-  const field = new SharedTextField(doc.getText('t'), {}, () => box, (value) => shown.push(value))
+  const displayed: string[] = []
+  const field = new SharedTextField(
+    doc.getText('t'),
+    {},
+    () => box,
+    (value) => shown.push(value),
+    (value) => displayed.push(value)
+  )
   fields.push(field)
   box.value = field.value
-  return { box, field, shown }
+  return { box, field, shown, displayed }
 }
 
 function type(box: HTMLTextAreaElement, field: SharedTextField, at: number, text: string) {
@@ -65,6 +96,8 @@ function type(box: HTMLTextAreaElement, field: SharedTextField, at: number, text
 afterEach(() => {
   fields.splice(0).forEach((field) => field.destroy())
   boxes.splice(0).forEach((box) => box.remove())
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('SharedTextField', () => {
@@ -88,6 +121,7 @@ describe('SharedTextField', () => {
     ada.box.setSelectionRange(5, 5)
 
     b.getText('t').insert(0, 'hello ')
+    advance(EASE_MS)
 
     expect(ada.box.value).toBe('hello world')
     expect(ada.box.selectionStart).toBe(11)
@@ -133,5 +167,91 @@ describe('SharedTextField', () => {
     b.getText('t').insert(1, 'y')
 
     expect(ada.shown.at(-1)).toBe('xy')
+  })
+
+  it("types a teammate's text out in a box nobody here is typing in, and saves it once shown", () => {
+    const { a, b } = pair('Our ')
+    const ada = bind(a)
+    bind(b)
+
+    b.getText('t').insert(4, 'idea is')
+    expect(ada.box.value).toBe('Our ')
+    advance(EASE_MS / 2)
+    expect(ada.box.value.length).toBeGreaterThan('Our '.length)
+    expect(ada.box.value.length).toBeLessThan('Our idea is'.length)
+    expect(ada.shown).not.toContain('Our idea is')
+    advance(EASE_MS)
+
+    expect(ada.box.value).toBe('Our idea is')
+    expect(ada.shown.at(-1)).toBe('Our idea is')
+    expect(ada.displayed.length).toBeGreaterThan(2)
+  })
+
+  it('never eases text into the box being typed in', () => {
+    const { a, b } = pair('Our ')
+    const ada = bind(a)
+    ada.box.focus()
+
+    b.getText('t').insert(4, 'idea is')
+
+    expect(ada.box.value).toBe('Our idea is')
+  })
+
+  it('shows all of the text at once when the box gains focus mid-way', () => {
+    const { a, b } = pair('Our ')
+    const ada = bind(a)
+    b.getText('t').insert(4, 'idea is')
+    advance(EASE_MS / 2)
+
+    ada.field.settle()
+
+    expect(ada.box.value).toBe('Our idea is')
+    expect(ada.shown.at(-1)).toBe('Our idea is')
+    advance(EASE_MS)
+    expect(ada.box.value).toBe('Our idea is')
+  })
+
+  it("keeps a teammate's cursor in place as text is typed before it", () => {
+    const { a, b } = pair('hello world')
+    const ada = bind(a)
+    const ben = bind(b)
+    ben.box.focus()
+    ben.box.setSelectionRange(6, 6)
+    const at = ben.field.cursorAt()!
+
+    a.getText('t').insert(0, 'Oh, ')
+    advance(EASE_MS)
+
+    expect(ada.field.positionOf(at)).toBe(10)
+  })
+
+  it('places a cursor among text still easing in where it shows', () => {
+    const { a, b } = pair('ab')
+    const ada = bind(a)
+    const ben = bind(b)
+
+    b.getText('t').insert(2, 'cdef')
+    ben.field.settle()
+    ben.box.focus()
+    ben.box.setSelectionRange(6, 6)
+    const atEnd = ben.field.cursorAt()!
+    advance(EASE_MS / 2)
+
+    expect(ada.field.positionOf(atEnd)).toBe(ada.box.value.length)
+  })
+
+  it('has no cursor to share outside the box, and ignores one from another text', () => {
+    const { a, b } = pair('hello')
+    const ada = bind(a)
+    bind(b)
+    const encode = (text: Y.Text, index: number) =>
+      btoa(String.fromCharCode(...Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(text, index))))
+    const other = new Y.Doc()
+    other.getText('t').insert(0, 'xy')
+
+    expect(ada.field.cursorAt()).toBeNull()
+    expect(ada.field.positionOf(encode(a.getText('answer:q2'), 0))).toBeNull()
+    expect(ada.field.positionOf(encode(other.getText('t'), 1))).toBeNull()
+    expect(ada.field.positionOf('%%%')).toBeNull()
   })
 })

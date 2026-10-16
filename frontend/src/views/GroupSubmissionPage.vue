@@ -161,26 +161,33 @@
             Project title
             <span class="submission-required" title="Required" aria-label="required">*</span>
           </label>
-          <input
-            id="project-title"
-            v-model="projectTitle"
-            class="form-control"
-            type="text"
-            :maxlength="PROJECT_TITLE_MAX_LENGTH"
-            v-show="!live.isLocked(TITLE_FIELD)"
-            :disabled="!textEditable || live.isLocked(TITLE_FIELD)"
-            @input="shareTyping(TITLE_FIELD, $event)"
-            @compositionstart="startComposing(TITLE_FIELD, $event)"
-            @compositionend="endComposing(TITLE_FIELD, $event)"
-            @keydown="onFieldKeydown(TITLE_FIELD, $event)"
-          />
-          <LiveTextPanel
-            v-if="live.isLocked(TITLE_FIELD)"
-            class="form-control"
-            :text="projectTitle"
-            :caret="live.caretIn(TITLE_FIELD)"
-            :rows="1"
-          />
+          <div class="submission-stretch">
+            <input
+              id="project-title"
+              :value="projectTitle"
+              class="form-control"
+              type="text"
+              :maxlength="PROJECT_TITLE_MAX_LENGTH"
+              v-show="!live.isLocked(TITLE_FIELD)"
+              :disabled="!textEditable || live.isLocked(TITLE_FIELD)"
+              @input="shareTyping(TITLE_FIELD, $event)"
+              @compositionstart="startComposing(TITLE_FIELD, $event)"
+              @compositionend="endComposing(TITLE_FIELD, $event)"
+              @keydown="onFieldKeydown(TITLE_FIELD, $event)"
+              @keyup="shareCursor(TITLE_FIELD)"
+              @mouseup="shareCursor(TITLE_FIELD)"
+              @focus="enterField(TITLE_FIELD)"
+              @blur="leaveField(TITLE_FIELD)"
+            />
+            <LiveTextPanel
+              v-if="live.isLocked(TITLE_FIELD)"
+              class="form-control"
+              :text="projectTitle"
+              :caret="live.caretIn(TITLE_FIELD)"
+              :rows="1"
+            />
+            <SharedCursors v-if="typingShared" :source="cursorSource(TITLE_FIELD)" />
+          </div>
           <div class="submission-field-meta">
             <TypingIndicator :names="live.typingIn(TITLE_FIELD)" />
           </div>
@@ -200,7 +207,7 @@
           <div class="submission-stretch">
             <textarea
               :id="question.key"
-              v-model="answers[question.key]"
+              :value="answers[question.key]"
               class="form-control submission-textarea"
               :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
@@ -210,6 +217,10 @@
               @compositionstart="startComposing(question.key, $event)"
               @compositionend="endComposing(question.key, $event)"
               @keydown="onFieldKeydown(question.key, $event)"
+              @keyup="shareCursor(question.key)"
+              @mouseup="shareCursor(question.key)"
+              @focus="enterField(question.key)"
+              @blur="leaveField(question.key)"
             ></textarea>
             <LiveTextPanel
               v-if="live.isLocked(question.key)"
@@ -219,6 +230,7 @@
               :rows="ANSWER_ROWS"
               :height="boxHeights[question.key] ?? null"
             />
+            <SharedCursors v-if="typingShared" :source="cursorSource(question.key)" />
             <StretchHandle
               :height="boxHeights[question.key] ?? null"
               @update:height="boxHeights[question.key] = $event"
@@ -599,10 +611,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, effectScope, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Ref } from 'vue'
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
 import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
+import SharedCursors, { type CursorSource, type PlacedCursor } from '@/components/live/SharedCursors.vue'
 import PosterChecklist from '@/components/submission/PosterChecklist.vue'
 import AdminSubmissionBar from '@/components/submission/AdminSubmissionBar.vue'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
@@ -827,10 +840,81 @@ function bindSharedFields() {
   sharedFields.clear()
   if (!coediting.value) return
   for (const field of [TITLE_FIELD, ...questions.value.map((q) => q.key)]) {
-    const box = () => document.getElementById(field) as HTMLInputElement | HTMLTextAreaElement | null
-    sharedFields.set(field, new SharedTextField(shared.text(sharedName(field)), TYPED_HERE, box, (value) => showShared(field, value)))
+    const source = cursorSource(field)
+    const bound = new SharedTextField(
+      shared.text(sharedName(field)),
+      TYPED_HERE,
+      source.target,
+      (value) => showShared(field, value),
+      (value) => (source.text.value = value)
+    )
+    sharedFields.set(field, bound)
+    source.text.value = bound.value
   }
+  boundFields.value += 1
+  // A new copy of the document: this person's cursor is placed in it afresh.
+  if (cursorField) shareCursor(cursorField)
 }
+
+/** Bumped as boxes are bound to a new copy of the document, so cursors are placed in it. */
+const boundFields = ref(0)
+/** The box this person's cursor was last shared in, so leaving it can clear it for teammates. */
+let cursorField: string | null = null
+const cursorScope = effectScope()
+const cursorSources = new Map<string, CursorSource>()
+
+/** What a box shows and where teammates' cursors fall in it, for the cursors drawn over it. */
+function cursorSource(field: string): CursorSource {
+  const existing = cursorSources.get(field)
+  if (existing) return existing
+  const text: Ref<string> = ref('')
+  const cursors = cursorScope.run(() =>
+    computed<PlacedCursor[]>(() => {
+      void text.value
+      void boundFields.value
+      const bound = sharedFields.get(field)
+      if (!bound || !typingShared.value) return []
+      return live.cursorsIn(field).flatMap((cursor) => {
+        const index = bound.positionOf(cursor.at)
+        return index === null ? [] : [{ id: cursor.id, name: cursor.name, index, startedAt: cursor.startedAt }]
+      })
+    })
+  )!
+  const source: CursorSource = {
+    target: () => document.getElementById(field) as HTMLInputElement | HTMLTextAreaElement | null,
+    text,
+    cursors
+  }
+  cursorSources.set(field, source)
+  return source
+}
+
+/** Shares where this person's cursor is in `field`; `typed` when typing moved it. */
+function shareCursor(field: string, typed = false) {
+  if (!typingShared.value || !textEditable.value) return
+  const at = sharedFields.get(field)?.cursorAt()
+  if (!at) return
+  cursorField = field
+  live.sendCursor(field, at, typed)
+}
+
+function enterField(field: string) {
+  // Text still easing in is shown in full first, so typing starts from all of it.
+  sharedFields.get(field)?.settle()
+  shareCursor(field)
+}
+
+function leaveField(field: string) {
+  if (cursorField !== field) return
+  cursorField = null
+  live.sendCursor(field, null)
+}
+
+// Submitting or the deadline makes the boxes read-only, so the cursor goes too.
+watch(textEditable, (editable) => {
+  if (!editable && cursorField) leaveField(cursorField)
+})
+onBeforeUnmount(() => cursorScope.stop())
 
 /** The shared text is what the server saves, so it counts as saved here. */
 function showShared(field: string, value: string) {
@@ -875,13 +959,17 @@ function onFieldKeydown(field: string, event: KeyboardEvent) {
 }
 
 function shareTyping(field: string, event: Event) {
-  if (adminAccess.value) return
+  const input = event.target as HTMLInputElement | HTMLTextAreaElement
   if (typingShared.value) {
-    sharedFields.get(field)?.input(event.target as HTMLInputElement | HTMLTextAreaElement)
+    sharedFields.get(field)?.input(input)
     live.sendTyping(field)
+    shareCursor(field, true)
     return
   }
-  const input = event.target as HTMLInputElement | HTMLTextAreaElement
+  // The boxes are bound by value, so what is typed is taken into the page's copy here.
+  if (field === TITLE_FIELD) projectTitle.value = input.value
+  else answers[field] = input.value
+  if (adminAccess.value) return
   live.sendTyping(field)
   live.sendText(field, input.value, input.selectionStart ?? input.value.length)
 }

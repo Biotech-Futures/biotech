@@ -474,6 +474,7 @@ class TeamSaveTests(CoeditTestCase):
         self._entry_with("Draft")
         consumer = _consumer(self.student, self.room)
         consumer._text_sends, consumer._pending_text, consumer._open = {}, {}, set()
+        consumer._cursor_sends, consumer._cursors = {}, set()
         update = Client(self.room).type(self.field, 5, "!")
 
         with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.05):
