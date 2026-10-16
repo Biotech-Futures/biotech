@@ -947,7 +947,9 @@ function showAllShared() {
 }
 
 shared.onReplaced(() => bindSharedFields())
-watch([coediting, questions], () => bindSharedFields())
+// Bound again only when the questions themselves change, not on every refresh, so undo history and
+// text easing in survive a teammate's tick or upload.
+watch([coediting, () => questions.value.map((q) => q.key).join('|')], () => bindSharedFields())
 watch(
   () => shared.synced.value,
   (synced) => {

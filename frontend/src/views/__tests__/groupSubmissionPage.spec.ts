@@ -1216,6 +1216,23 @@ describe('co-editing', () => {
     expect(submitEntry).toHaveBeenCalled()
   })
 
+  it("keeps this person's undo history when a teammate's change makes the page refresh", async () => {
+    await mountPage(coedited())
+    await connect()
+    const element = box().element as HTMLTextAreaElement
+    element.focus()
+    element.setSelectionRange(10, 10)
+    await box().setValue('Live text. Mine.')
+    // A fresh copy from the server, as every refresh brings.
+    fetchSubmission.mockResolvedValue(structuredClone(coedited()))
+
+    receive({ type: 'changed', item: 'checklist', user: { id: 9, name: 'Ben' } })
+    await flushPromises()
+    await box().trigger('keydown', { key: 'z', ctrlKey: true })
+
+    expect(element.value).toBe('Live text.')
+  })
+
   it('leaves a box alone while a word is being composed, whatever else changes on the page', async () => {
     await mountPage(coedited())
     await connect()
