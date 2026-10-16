@@ -419,6 +419,21 @@ class WorkerCopyTests(CoeditTestCase):
 
         self.assertTrue(coedit.apply(self.student, self.room, typed, checked=True))
 
+    def test_a_question_retired_mid_round_leaves_the_other_answers_editable(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        SubmissionQuestion.objects.filter(key=self.questions[1].key).update(is_active=False)
+        coedit.forget_fields()
+
+        self.assertTrue(coedit.apply(self.student, self.room, page.type(self.field, 5, "!"), checked=True))
+        self.assertEqual(Client(self.room).text(self.field), "Draft!")
+
+    def test_an_edit_still_cannot_add_a_field_of_its_own(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+
+        self.assertFalse(coedit.apply(self.student, self.room, page.type("answer:made_up", 0, "x"), checked=True))
+
     def test_an_edit_reads_only_what_is_new(self):
         self._entry_with("")
         page = Client(self.room)

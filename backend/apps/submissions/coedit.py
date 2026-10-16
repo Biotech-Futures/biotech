@@ -390,9 +390,13 @@ def _load(room: int) -> tuple[Doc, str | None]:
         return doc, saved
 
 
-def _within_limits(doc: Doc) -> bool:
+def _within_limits(doc: Doc, roots_before: set[str]) -> bool:
+    """No field the questions do not have is added, and no field grows past its limit.
+
+    Fields already there are left alone, so a question retired mid-round keeps the rest editable.
+    """
     allowed = set(_fields())
-    if any(name not in allowed | {GENERATION_ROOT} for name in doc.keys()):
+    if any(name not in allowed for name in set(doc.keys()) - roots_before):
         return False
     return all(len(str(doc.get(field, type=Text))) <= MAX_FIELD_CHARS for field in allowed)
 
@@ -452,13 +456,14 @@ def _apply(room: int, update: bytes, generation: str | None, claim_seconds: floa
         current = _generation(doc)
         if generation is not None and generation != current:
             return False, False
+        roots_before = set(doc.keys())
         try:
             doc.apply_update(update)
         except Exception:  # noqa: BLE001 - a malformed update is refused, not raised
             _forget(room)
             return False, False
         # A refused update has already reached this copy, so the copy is dropped with it.
-        if not _within_limits(doc) or _generation(doc) != current:
+        if not _within_limits(doc, roots_before) or _generation(doc) != current:
             _forget(room)
             return False, False
         try:
