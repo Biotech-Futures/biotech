@@ -11,8 +11,8 @@
           type="button"
           @click="openCreateResource"
         >
-          <i class="fas fa-upload"></i>
-          <span>Upload Resource</span>
+          <i class="fas fa-plus"></i>
+          <span>Add Resource</span>
         </button>
       </div>
     </div>
@@ -90,17 +90,6 @@
               {{ formatTypeName(type.type_name) }}
             </option>
           </select>
-        </label>
-
-        <label class="resource-filter">
-          <span class="resource-filter-label">Kind</span>
-          <select v-model="selectedKind" aria-label="Filter by kind">
-            <option value="">All kinds</option>
-            <option v-for="kind in RESOURCE_KINDS" :key="kind" :value="kind">
-              {{ getResourceKindLabel(kind) }}
-            </option>
-          </select>
-          <span v-if="getFieldError('kind')" class="field-error">{{ getFieldError('kind') }}</span>
         </label>
 
       </template>
@@ -253,9 +242,6 @@ const fieldErrors = ref<Record<string, string[]>>({})
 const searchQuery = ref('')
 const selectedType = ref('')
 const selectedLabelId = ref('')
-const selectedKind = ref('')
-// The kinds a resource can be, as the server has them.
-const RESOURCE_KINDS: ResourceKind[] = ['file', 'page', 'attachment']
 let loadSequence = 0
 
 const getFieldError = (field: string): string => fieldErrors.value[field]?.[0] || ''
@@ -275,7 +261,6 @@ const loadResources = async (): Promise<void> => {
       search: searchQuery.value.trim() || undefined,
       type: selectedType.value || undefined,
       label_id: selectedLabelId.value ? Number(selectedLabelId.value) : undefined,
-      kind: selectedKind.value || undefined,
       page: 1,
       page_size: 100
     })
@@ -401,7 +386,7 @@ const formatFileSize = (value?: number | null): string => {
 }
 
 let searchTimer: any
-watch([searchQuery, selectedType, selectedLabelId, selectedKind], () => {
+watch([searchQuery, selectedType, selectedLabelId], () => {
   window.clearTimeout(searchTimer)
   searchTimer = window.setTimeout(() => {
     loadResources()

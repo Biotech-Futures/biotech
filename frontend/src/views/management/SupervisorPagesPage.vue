@@ -45,8 +45,8 @@
           <i :class="registrationShown ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
           {{
             registrationShown
-              ? 'Supervisors can see the Registration page'
-              : 'The Registration page is hidden from supervisors'
+              ? 'Supervisors can register students'
+              : "Supervisors can't register students"
           }}
         </p>
 

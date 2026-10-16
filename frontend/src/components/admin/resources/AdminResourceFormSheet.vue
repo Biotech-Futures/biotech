@@ -1,7 +1,7 @@
 <template>
   <FormSheet
     v-model="open"
-    :title="isEditing ? 'Edit Resource' : 'Upload Resource'"
+    :title="isEditing ? 'Edit Resource' : 'Add Resource'"
     :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file or page to the resource library.'"
     width="min(100vw, 760px)"
   >
@@ -243,7 +243,7 @@
             :disabled="saving || busy || loadingDetail || (form.kind !== 'page' ? needsOversizeAck : pageNeedsOversizeAck)"
           >
             <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
-            {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
+            {{ isEditing ? 'Save Changes' : 'Add Resource' }}
           </button>
         </div>
       </div>
