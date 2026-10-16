@@ -54,6 +54,7 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
   let recoverTimer: ReturnType<typeof setTimeout> | null = null
   let recoverAttempts = 0
   let flushCount = 0
+  let fillingGaps = false
   let detach = attach(doc.value)
 
   function attach(target: Y.Doc) {
@@ -89,6 +90,21 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
     if (!enabled.value) return
     synced.value = false
     channel.sendDoc({
+      type: 'doc-sync',
+      vector: toBase64(Y.encodeStateVector(doc.value)),
+      update: '',
+      generation: generation()
+    })
+  }
+
+  /**
+   * An update that cannot be applied yet builds on one that never arrived, e.g. lost in a blip on the
+   * way. What is missing is asked for, while typing carries on.
+   */
+  function fillGaps() {
+    const { pendingStructs, pendingDs } = doc.value.store
+    if (fillingGaps || (!pendingStructs && !pendingDs)) return
+    fillingGaps = channel.sendDoc({
       type: 'doc-sync',
       vector: toBase64(Y.encodeStateVector(doc.value)),
       update: '',
@@ -135,6 +151,7 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
   }
 
   function onState(message: Record<string, unknown>) {
+    fillingGaps = false
     const update = fromBase64(message.update)
     const serverVector = fromBase64(message.vector)
     if (!update || !serverVector) {
@@ -173,8 +190,12 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
         break
       case 'doc-update': {
         const update = fromBase64(message.update)
-        if (update) Y.applyUpdate(doc.value, update, FROM_SERVER)
-        else restart()
+        if (!update) {
+          restart()
+          break
+        }
+        Y.applyUpdate(doc.value, update, FROM_SERVER)
+        if (synced.value) fillGaps()
         break
       }
       case 'doc-reject':
@@ -193,6 +214,7 @@ export function useSharedDoc(channel: DocChannel, enabled: Ref<boolean>) {
 
   channel.onClose(() => {
     synced.value = false
+    fillingGaps = false
     // A reconnect syncs from scratch, offering anything the server lacks.
     if (recoverTimer) clearTimeout(recoverTimer)
     recoverTimer = null

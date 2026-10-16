@@ -395,6 +395,24 @@ describe('faults', () => {
     expect(room.sent.at(-1)!.generation).toBe('build-2')
   })
 
+  it('asks again for what it missed when an update goes missing on the way, without pausing typing', () => {
+    const { room, truth } = ready()
+    truth.doc.getText('answer:q1').insert(6, ' A')
+    // That update never arrives; the next one builds on it.
+    const afterA = Y.encodeStateVector(truth.doc)
+    truth.doc.getText('answer:q1').insert(8, ' B')
+
+    room.receive({ type: 'doc-update', update: toBase64(Y.encodeStateAsUpdate(truth.doc, afterA)) })
+    expect(shared.text('answer:q1').toString()).toBe('Saved.')
+    expect(shared.synced.value).toBe(true)
+    const ask = room.sent.at(-1)!
+    expect(ask.type).toBe('doc-sync')
+    room.receive(truth.stateFor(ask.vector))
+
+    expect(shared.text('answer:q1').toString()).toBe('Saved. A B')
+    expect(room.sent.filter((m) => m.type === 'doc-sync')).toHaveLength(1)
+  })
+
   it('fails a save-now at once while recovering, so Submit can offer the last saved answers', async () => {
     const { room } = ready()
 
