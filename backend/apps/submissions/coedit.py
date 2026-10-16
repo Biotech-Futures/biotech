@@ -13,6 +13,7 @@ import logging
 import threading
 import time
 import uuid
+from collections import OrderedDict
 
 from django.conf import settings
 from django.db import transaction
@@ -35,6 +36,8 @@ MAX_UPDATE_BYTES = 64 * 1024
 MAX_FIELD_CHARS = 20_000
 # Merged into one base once this many updates have piled up.
 COMPACT_AFTER = 200
+# Rooms whose documents a worker keeps in memory, most recently used first.
+CACHED_ROOMS = 256
 # Refreshed on every write; the database is the record, so an expired document is simply rebuilt.
 STATE_TTL_SECONDS = 14 * 24 * 3600
 # A stuck Redis fails a call within this, well inside the page's wait for a save before submitting.
@@ -56,6 +59,12 @@ def _fields() -> list[str]:
 
 
 # ---- Storage -------------------------------------------------------------------------------
+# Besides its base and updates, a room keeps an epoch: a fresh token whenever the base is rebuilt
+# or merged, so a worker's own copy knows whether reading on from where it stopped is still valid.
+
+
+def _new_epoch() -> str:
+    return uuid.uuid4().hex
 
 
 class _MemoryStore:
@@ -66,21 +75,33 @@ class _MemoryStore:
         self._data: dict[int, dict] = {}
         self._claims: dict[int, float] = {}
 
-    def read(self, room: int):
+    def snapshot(self, room: int):
         with self._lock:
             entry = self._data.get(room)
             if entry is None:
-                return None, [], None
-            return entry["base"], list(entry["updates"]), entry["saved"]
+                return None, [], None, None
+            return entry["base"], list(entry["updates"]), entry["saved"], entry["epoch"]
+
+    def read(self, room: int):
+        return self.snapshot(room)[:3]
+
+    def read_since(self, room: int, epoch: str | None, start: int):
+        with self._lock:
+            entry = self._data.get(room)
+            if entry is None or entry["epoch"] != epoch:
+                return None, None
+            return entry["saved"], entry["updates"][start:]
 
     def create(self, room: int, base: bytes, saved: str) -> None:
         with self._lock:
-            self._data.setdefault(room, {"base": base, "updates": [], "saved": saved})
+            self._data.setdefault(room, {"base": base, "updates": [], "saved": saved, "epoch": _new_epoch()})
 
-    def append(self, room: int, update: bytes) -> None:
+    def append(self, room: int, update: bytes) -> int:
         with self._lock:
-            if room in self._data:
-                self._data[room]["updates"].append(update)
+            if room not in self._data:
+                return 0
+            self._data[room]["updates"].append(update)
+            return len(self._data[room]["updates"])
 
     def compact(self, room: int, merged: list[bytes], base: bytes) -> None:
         with self._lock:
@@ -89,6 +110,7 @@ class _MemoryStore:
             if entry is not None and entry["updates"][: len(merged)] == merged:
                 entry["base"] = base
                 del entry["updates"][: len(merged)]
+                entry["epoch"] = _new_epoch()
 
     def mark_saved(self, room: int, saved: str) -> None:
         with self._lock:
@@ -97,7 +119,7 @@ class _MemoryStore:
 
     def replace(self, room: int, base: bytes, saved: str) -> None:
         with self._lock:
-            self._data[room] = {"base": base, "updates": [], "saved": saved}
+            self._data[room] = {"base": base, "updates": [], "saved": saved, "epoch": _new_epoch()}
 
     def exists(self, room: int) -> bool:
         with self._lock:
@@ -139,26 +161,46 @@ class _RedisStore:
         tag = f"coedit:{{{room}}}"
         return f"{tag}:base", f"{tag}:updates", f"{tag}:saved"
 
-    def read(self, room: int):
+    @staticmethod
+    def _epoch_key(room: int) -> str:
+        return f"coedit:{{{room}}}:epoch"
+
+    def snapshot(self, room: int):
         base_key, updates_key, saved_key = self._keys(room)
-        pipe = self._redis.pipeline(transaction=False)
-        pipe.get(base_key).lrange(updates_key, 0, -1).get(saved_key)
-        base, updates, saved = pipe.execute()
-        return base, list(updates), saved.decode() if saved else None
+        # One transaction, so a merge landing between the reads cannot pair an old base with a trimmed list.
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.get(base_key).lrange(updates_key, 0, -1).get(saved_key).get(self._epoch_key(room))
+        base, updates, saved, epoch = pipe.execute()
+        return base, list(updates), saved.decode() if saved else None, epoch.decode() if epoch else None
+
+    def read(self, room: int):
+        return self.snapshot(room)[:3]
+
+    def read_since(self, room: int, epoch: str | None, start: int):
+        _, updates_key, saved_key = self._keys(room)
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.get(self._epoch_key(room)).get(saved_key).lrange(updates_key, start, -1)
+        current, saved, newer = pipe.execute()
+        if current is None or epoch is None or current.decode() != epoch:
+            return None, None
+        return saved.decode() if saved else None, list(newer)
 
     def create(self, room: int, base: bytes, saved: str) -> None:
         base_key, _, saved_key = self._keys(room)
         # Only the first worker to build the document stores it, so its text is never added twice.
         if self._redis.set(base_key, base, nx=True, ex=STATE_TTL_SECONDS):
-            self._redis.set(saved_key, saved, ex=STATE_TTL_SECONDS)
+            pipe = self._redis.pipeline(transaction=True)
+            pipe.set(saved_key, saved, ex=STATE_TTL_SECONDS)
+            pipe.set(self._epoch_key(room), _new_epoch(), ex=STATE_TTL_SECONDS)
+            pipe.execute()
 
-    def append(self, room: int, update: bytes) -> None:
+    def append(self, room: int, update: bytes) -> int:
         base_key, updates_key, saved_key = self._keys(room)
         pipe = self._redis.pipeline(transaction=True)
         pipe.rpush(updates_key, update)
-        for key in (base_key, updates_key, saved_key):
+        for key in (base_key, updates_key, saved_key, self._epoch_key(room)):
             pipe.expire(key, STATE_TTL_SECONDS)
-        pipe.execute()
+        return pipe.execute()[0]
 
     def compact(self, room: int, merged: list[bytes], base: bytes) -> None:
         import redis
@@ -174,6 +216,7 @@ class _RedisStore:
                 pipe.multi()
                 pipe.set(base_key, base, ex=STATE_TTL_SECONDS)
                 pipe.ltrim(updates_key, len(merged), -1)
+                pipe.set(self._epoch_key(room), _new_epoch(), ex=STATE_TTL_SECONDS)
                 pipe.execute()
             except redis.WatchError:
                 # Someone wrote meanwhile; compacting is only tidying, so it waits for the next time.
@@ -189,6 +232,7 @@ class _RedisStore:
         pipe.set(base_key, base, ex=STATE_TTL_SECONDS)
         pipe.delete(updates_key)
         pipe.set(saved_key, saved, ex=STATE_TTL_SECONDS)
+        pipe.set(self._epoch_key(room), _new_epoch(), ex=STATE_TTL_SECONDS)
         pipe.execute()
 
     def exists(self, room: int) -> bool:
@@ -251,14 +295,14 @@ def _texts(doc: Doc) -> dict[str, str]:
     return {field: str(doc.get(field, type=Text)) for field in _fields()}
 
 
-def _read(room: int) -> tuple[bytes, list[bytes], str | None]:
-    """The room's stored base and updates, built from the saved entry the first time they are needed."""
-    base, updates, saved = store().read(room)
+def _read(room: int) -> tuple[bytes, list[bytes], str | None, str | None]:
+    """The room's stored base, updates, saved digest and epoch, built from the entry the first time."""
+    base, updates, saved, epoch = store().snapshot(room)
     if base is None:
         texts = _db_texts(Submission.objects.filter(group_id=room).first())
         store().create(room, _build(texts), _digest(texts))
-        base, updates, saved = store().read(room)
-    return base, updates, saved
+        base, updates, saved, epoch = store().snapshot(room)
+    return base, updates, saved, epoch
 
 
 def _doc_from(base: bytes, updates: list[bytes]) -> Doc:
@@ -269,9 +313,45 @@ def _doc_from(base: bytes, updates: list[bytes]) -> Doc:
     return doc
 
 
+class _Copy:
+    __slots__ = ("doc", "epoch", "seen")
+
+    def __init__(self, doc: Doc, epoch: str | None, seen: int):
+        self.doc, self.epoch, self.seen = doc, epoch, seen
+
+
+# Each worker keeps the documents it serves, reading only the updates added since, so an edit costs
+# one short Redis read rather than rebuilding the whole document. Held while a copy is used; a
+# worker runs its document work on one thread anyway.
+_copies: OrderedDict[int, _Copy] = OrderedDict()
+_copies_lock = threading.RLock()
+
+
+def _forget(room: int) -> None:
+    """Drops this worker's copy, e.g. after a change to it was refused; the next read rebuilds it."""
+    with _copies_lock:
+        _copies.pop(room, None)
+
+
 def _load(room: int) -> tuple[Doc, str | None]:
-    base, updates, saved = _read(room)
-    return _doc_from(base, updates), saved
+    """The room's document, up to date with every worker's updates; use it while holding _copies_lock."""
+    with _copies_lock:
+        copy = _copies.get(room)
+        if copy is not None:
+            saved, newer = store().read_since(room, copy.epoch, copy.seen)
+            if newer is not None:
+                for update in newer:
+                    copy.doc.apply_update(update)
+                copy.seen += len(newer)
+                _copies.move_to_end(room)
+                return copy.doc, saved
+        base, updates, saved, epoch = _read(room)
+        doc = _doc_from(base, updates)
+        _copies[room] = _Copy(doc, epoch, len(updates))
+        _copies.move_to_end(room)
+        while len(_copies) > CACHED_ROOMS:
+            _copies.popitem(last=False)
+        return doc, saved
 
 
 def _within_limits(doc: Doc) -> bool:
@@ -298,14 +378,16 @@ def can_edit(user, room: int) -> bool:
 
 def generation(room: int) -> str | None:
     """The label of the room's current build; a page holding another must start again from it."""
-    return _generation(_load(room)[0])
+    with _copies_lock:
+        return _generation(_load(room)[0])
 
 
 def state_since(room: int, state_vector: bytes | None) -> tuple[bytes, bytes]:
     """What a page is missing, and the server's state vector, so the page can send what the server lacks."""
-    doc, _ = _load(room)
-    missing = doc.get_update(state_vector) if state_vector else doc.get_update()
-    return missing, doc.get_state()
+    with _copies_lock:
+        doc, _ = _load(room)
+        missing = doc.get_update(state_vector) if state_vector else doc.get_update()
+        return missing, doc.get_state()
 
 
 def apply(user, room: int, update: bytes, checked: bool = False, generation: str | None = None) -> bool:
@@ -316,22 +398,36 @@ def apply(user, room: int, update: bytes, checked: bool = False, generation: str
     """
     if not update or len(update) > MAX_UPDATE_BYTES or not (checked or can_edit(user, room)):
         return False
-    base, updates, _ = _read(room)
-    doc = _doc_from(base, updates)
-    current = _generation(doc)
-    if generation is not None and generation != current:
-        return False
-    try:
-        doc.apply_update(update)
-    except Exception:  # noqa: BLE001 - a malformed update is refused, not raised
-        return False
-    if not _within_limits(doc) or _generation(doc) != current:
-        return False
-    store().append(room, update)
-    if len(updates) + 1 >= COMPACT_AFTER:
-        # Only the updates read above are merged, and only dropped if nothing else changed meanwhile.
-        store().compact(room, updates, _doc_from(base, updates).get_update())
+    with _copies_lock:
+        doc, _ = _load(room)
+        current = _generation(doc)
+        if generation is not None and generation != current:
+            return False
+        try:
+            doc.apply_update(update)
+        except Exception:  # noqa: BLE001 - a malformed update is refused, not raised
+            _forget(room)
+            return False
+        # A refused update has already reached this copy, so the copy is dropped with it.
+        if not _within_limits(doc) or _generation(doc) != current:
+            _forget(room)
+            return False
+        try:
+            stored = store().append(room, update)
+        except Exception:
+            _forget(room)
+            raise
+    if stored >= COMPACT_AFTER:
+        _compact(room)
     return True
+
+
+def _compact(room: int) -> None:
+    """Merges the room's updates into its base, so a document read from scratch stays short."""
+    base, updates, _ = store().read(room)
+    if base is not None and len(updates) >= COMPACT_AFTER:
+        # Only the updates read here are merged, and only dropped if nothing else changed meanwhile.
+        store().compact(room, updates, _doc_from(base, updates).get_update())
 
 
 def save(room: int) -> bool:
@@ -348,10 +444,12 @@ def save(room: int) -> bool:
         if submission.is_locked:
             return False
         # Read under the row lock, so a save that finished meanwhile is not taken for an outside change.
-        doc, saved = _load(room)
-        texts = _texts(doc)
+        with _copies_lock:
+            doc, saved = _load(room)
+            texts = _texts(doc)
         current = _db_texts(submission)
         if saved is not None and _digest(current) != saved:
+            _forget(room)
             store().replace(room, _build(current), _digest(current))
             transaction.on_commit(lambda: broadcast_reset(room))
             return False
@@ -395,20 +493,25 @@ def release_save(room: int) -> None:
 
 def _replace_fields(room: int, texts: dict[str, str]) -> None:
     """Each field given becomes the text given, in the document and on every open page."""
-    doc, _ = _load(room)
-    before = doc.get_state()
-    changed = False
-    with doc.transaction():
-        for field, value in texts.items():
-            text = doc.get(field, type=Text)
-            if str(text) != value:
-                del text[:]
-                text.insert(0, value)
-                changed = True
-    if not changed:
-        return
-    update = doc.get_update(before)
-    store().append(room, update)
+    with _copies_lock:
+        doc, _ = _load(room)
+        before = doc.get_state()
+        changed = False
+        with doc.transaction():
+            for field, value in texts.items():
+                text = doc.get(field, type=Text)
+                if str(text) != value:
+                    del text[:]
+                    text.insert(0, value)
+                    changed = True
+        if not changed:
+            return
+        update = doc.get_update(before)
+        try:
+            store().append(room, update)
+        except Exception:
+            _forget(room)
+            raise
     broadcast_update(room, update)
 
 

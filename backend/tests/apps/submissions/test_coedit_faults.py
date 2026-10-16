@@ -18,7 +18,7 @@ from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.models import Submission
 
 from .seed_data import CONFIRMED_CHECKLIST
-from .test_coedit import Client, CoeditTestCase, _b64, _consumer
+from .test_coedit import Client, CoeditTestCase, _b64, _consumer, unreachable
 from .test_poster_checklist import _poster
 
 
@@ -60,7 +60,7 @@ class StoreFaultTests(CoeditTestCase):
         self._entry_with()
         consumer = _consumer(self.student, self.room)
 
-        with patch.object(coedit.store(), "read", side_effect=Broken):
+        with unreachable(Broken):
             async_to_sync(consumer.receive_json)({"type": "doc-sync", "vector": "", "update": ""})
 
         consumer.send_json.assert_awaited_with({"type": "doc-reject"})
@@ -72,7 +72,7 @@ class StoreFaultTests(CoeditTestCase):
 
         with (
             patch("apps.live.consumers.DOC_SAVE_DELAY", 0),
-            patch.object(coedit.store(), "read", side_effect=Broken),
+            unreachable(Broken),
             self.assertLogs("apps.live.consumers", "ERROR"),
         ):
             async_to_sync(_save_after_pause)(coedit, self.room, consumer.room)
@@ -85,7 +85,7 @@ class StoreFaultTests(CoeditTestCase):
         self._entry_with()
         Client(self.room)
 
-        with patch.object(coedit.store(), "read", side_effect=Broken), self.assertLogs("apps.submissions.coedit", "ERROR"):
+        with unreachable(Broken), self.assertLogs("apps.submissions.coedit", "ERROR"):
             self.assertFalse(coedit.flush(self.room))
 
     def test_a_flush_request_answers_not_ok_when_saving_fails(self):
@@ -93,7 +93,7 @@ class StoreFaultTests(CoeditTestCase):
         Client(self.room)
         consumer = _consumer(self.student, self.room)
 
-        with patch.object(coedit.store(), "read", side_effect=Broken), self.assertLogs("apps.submissions.coedit", "ERROR"):
+        with unreachable(Broken), self.assertLogs("apps.submissions.coedit", "ERROR"):
             async_to_sync(consumer.receive_json)({"type": "doc-flush", "id": 3})
 
         consumer.send_json.assert_awaited_with({"type": "doc-flushed", "id": 3, "ok": False})
@@ -107,7 +107,7 @@ class StoreFaultTests(CoeditTestCase):
         self._ready_to_submit()
         Client(self.room)
 
-        with patch.object(coedit.store(), "read", side_effect=Broken), self.assertLogs("apps.submissions.coedit", "ERROR"):
+        with unreachable(Broken), self.assertLogs("apps.submissions.coedit", "ERROR"):
             response = self._client(self.student).post(self._url("group-submission-submit"), {}, format="json")
 
         self.assertEqual(response.status_code, 200)
@@ -121,7 +121,7 @@ class StoreFaultTests(CoeditTestCase):
         self.deadline.save()
 
         with (
-            patch.object(coedit.store(), "read", side_effect=Broken),
+            unreachable(Broken),
             patch("apps.submissions.autosubmit.current_cohort", return_value=2026),
             self.assertLogs("apps.submissions.coedit", "ERROR"),
         ):
@@ -383,6 +383,48 @@ class RaceTests(CoeditTestCase):
         self.assertEqual(self._entry().answers[self.key], "Draft one two")
 
 
+class WorkerCopyTests(CoeditTestCase):
+    """Each worker keeps its own copy of a room's document and reads on only from where it stopped."""
+
+    def test_an_edit_reads_only_what_is_new(self):
+        self._entry_with("")
+        page = Client(self.room)
+
+        with patch.object(coedit.store(), "snapshot", wraps=coedit.store().snapshot) as from_scratch:
+            for i in range(5):
+                coedit.apply(self.student, self.room, page.type(self.field, i, "x"))
+
+        from_scratch.assert_not_called()
+        self.assertEqual(Client(self.room).text(self.field), "xxxxx")
+
+    def test_a_copy_takes_in_what_other_workers_added(self):
+        self._entry_with("Draft")
+        page = Client(self.room)
+        coedit.apply(self.student, self.room, page.type(self.field, 5, " one"))
+
+        # Another worker's edit reaches Redis without passing through this worker.
+        coedit.store().append(self.room, page.type(self.field, 9, " two"))
+        coedit.apply(self.student, self.room, page.type(self.field, 13, " three"))
+
+        self.assertEqual(Client(self.room).text(self.field), "Draft one two three")
+        coedit.save(self.room)
+        self.assertEqual(self._entry().answers[self.key], "Draft one two three")
+
+    def test_a_merge_by_another_worker_makes_copies_start_again_and_keeps_every_edit(self):
+        self._entry_with("")
+        page = Client(self.room)
+        with patch.object(coedit, "COMPACT_AFTER", 3):
+            for i in range(10):
+                coedit.apply(self.student, self.room, page.type(self.field, i, str(i)))
+                if i == 4:
+                    # Another worker merges meanwhile, so this worker's place in the list no longer holds.
+                    base, updates, _ = coedit.store().read(self.room)
+                    coedit.store().compact(self.room, updates, coedit._doc_from(base, updates).get_update())
+
+        self.assertEqual(Client(self.room).text(self.field), "0123456789")
+        self.assertLess(len(coedit.store().read(self.room)[1]), 3)
+
+
 REDIS_URL = os.environ.get("COEDIT_TEST_REDIS_URL", "")
 
 
@@ -394,8 +436,9 @@ class RedisRaceTests(unittest.TestCase):
 
     def setUp(self):
         self.stores = [coedit._RedisStore(REDIS_URL) for _ in range(8)]
-        self.stores[0]._redis.delete(*self.stores[0]._keys(self.room))
-        self.addCleanup(lambda: self.stores[0]._redis.delete(*self.stores[0]._keys(self.room)))
+        keys = [*self.stores[0]._keys(self.room), self.stores[0]._epoch_key(self.room)]
+        self.stores[0]._redis.delete(*keys)
+        self.addCleanup(lambda: self.stores[0]._redis.delete(*keys))
 
     def _text(self):
         base, updates, _ = self.stores[0].read(self.room)
@@ -417,6 +460,24 @@ class RedisRaceTests(unittest.TestCase):
         [thread.join() for thread in threads]
 
         self.assertEqual(self._text(), "Saved.")
+
+    def test_reading_on_holds_only_until_the_base_is_rebuilt_or_merged(self):
+        store = self.stores[0]
+        store.create(self.room, coedit._build({"answer:q1": ""}), "digest")
+        _, updates, _, epoch = store.snapshot(self.room)
+        page = Doc()
+        page.apply_update(store.read(self.room)[0])
+        before = page.get_state()
+        page.get("answer:q1", type=Text).insert(0, "a")
+        store.append(self.room, page.get_update(before))
+
+        self.assertEqual(len(store.read_since(self.room, epoch, len(updates))[1]), 1)
+        base, merged, _ = store.read(self.room)
+        store.compact(self.room, merged, coedit._doc_from(base, merged).get_update())
+        self.assertIsNone(store.read_since(self.room, epoch, len(updates))[1])
+        _, _, _, merged_epoch = store.snapshot(self.room)
+        store.replace(self.room, coedit._build({"answer:q1": "b"}), "digest")
+        self.assertIsNone(store.read_since(self.room, merged_epoch, 0)[1])
 
     def test_workers_appending_and_compacting_at_once_keep_every_edit(self):
         self.stores[0].create(self.room, coedit._build({"answer:q1": ""}), "digest")

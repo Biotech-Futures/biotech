@@ -1,5 +1,6 @@
 """Tests for co-editing: the shared document behind a team's answers and title."""
 import base64
+from contextlib import contextmanager
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -47,12 +48,25 @@ class Client:
         return self.doc.get_update(before)
 
 
+@contextmanager
+def unreachable(error=None):
+    """Every read of the shared documents fails, as when Redis cannot be reached."""
+    error = error or ConnectionError
+    store = coedit.store()
+    with patch.object(store, "read", side_effect=error), patch.object(store, "snapshot", side_effect=error), patch.object(
+        store, "read_since", side_effect=error
+    ):
+        yield
+
+
 @override_settings(SUBMISSION_COEDITING_ENABLED=True)
 class CoeditTestCase(ChecklistTestCase):
     def setUp(self):
         super().setUp()
         coedit.store().clear()
         self.addCleanup(coedit.store().clear)
+        coedit._copies.clear()
+        self.addCleanup(coedit._copies.clear)
         consumers._waiting_saves.clear()
         self.addCleanup(consumers._waiting_saves.clear)
         self.key = self.questions[0].key
@@ -287,7 +301,7 @@ class EndpointTests(CoeditTestCase):
         self._entry_with("Draft")
         Client(self.room)
 
-        with patch.object(coedit.store(), "read", side_effect=ConnectionError), self.assertLogs("apps.submissions.coedit", "ERROR"):
+        with unreachable(), self.assertLogs("apps.submissions.coedit", "ERROR"):
             response = self._save_without_live({self.key: "Typed offline."})
 
         self.assertEqual(response.status_code, 200)
