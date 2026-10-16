@@ -219,6 +219,7 @@ import {
   type AdminUser,
   type MutualInterestItem
 } from '@/utils/adminAPI'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_MAX_SIZE } from '@/utils/groupCapacity'
 import { userName } from '@/utils/userFormat'
@@ -346,30 +347,7 @@ const mutualInterests = computed<MutualInterestItem[]>(() => {
     ...members.value,
     ...(props.group?.mentor ? [props.group.mentor] : [])
   ]
-  const countMap = new Map<string, number>()
-  for (const m of allMembers) {
-    const ints = new Set(m.interests || [])
-    for (const interest of ints) {
-      countMap.set(interest, (countMap.get(interest) || 0) + 1)
-    }
-  }
-  const computedList: MutualInterestItem[] = []
-  for (const [name, count] of countMap.entries()) {
-    if (count >= 2) {
-      computedList.push({ name, count })
-    }
-  }
-  computedList.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-
-  if (computedList.length > 0) {
-    return computedList
-  }
-
-  if (props.group?.mutualInterests && props.group.mutualInterests.length > 0) {
-    return props.group.mutualInterests
-  }
-
-  return []
+  return computeMutualInterests(allMembers)
 })
 
 // --- Add students ----------------------------------------------------------

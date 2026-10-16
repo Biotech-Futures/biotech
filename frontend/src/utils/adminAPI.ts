@@ -35,6 +35,7 @@ import type {
   SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
+import type { MutualInterestItem } from './mutualInterests'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -543,10 +544,7 @@ export interface AdminGroupMember {
   interests?: string[]
 }
 
-export interface MutualInterestItem {
-  name: string
-  count: number
-}
+export type { MutualInterestItem }
 
 export interface AdminGroupDetail {
   id: number

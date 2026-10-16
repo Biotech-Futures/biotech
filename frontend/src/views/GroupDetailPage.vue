@@ -1850,6 +1850,7 @@ import {
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
 import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -2279,31 +2280,7 @@ const visibleGroupMembers = computed(() =>
 
 const groupMutualInterests = computed(() => {
   const active = groupMemberships.value.filter((item) => !item.leftAt)
-  const countMap = new Map()
-  for (const member of active) {
-    const ints = new Set(member.interests || [])
-    for (const interest of ints) {
-      countMap.set(interest, (countMap.get(interest) || 0) + 1)
-    }
-  }
-  const result = []
-  for (const [name, count] of countMap.entries()) {
-    if (count >= 2) {
-      result.push({ name, count })
-    }
-  }
-  result.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-
-  if (result.length > 0) {
-    return result
-  }
-
-  const fallback = group.value?.mutualInterests || group.value?.mutual_interests || []
-  if (Array.isArray(fallback) && fallback.length > 0) {
-    return fallback
-  }
-
-  return []
+  return computeMutualInterests(active)
 })
 
 const extractCollectionItems = (data) => {
