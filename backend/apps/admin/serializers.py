@@ -10,6 +10,10 @@ from apps.services.email_registry import (
 from apps.services.system_email import clean_email_body, senders
 
 
+class AdminTaskToggleSerializer(serializers.Serializer):
+    completed = serializers.BooleanField()
+
+
 class BulkUserRowSerializer(serializers.Serializer):
     """Shape-only guard for one row of the bulk user import.
 

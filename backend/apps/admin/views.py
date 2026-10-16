@@ -13,6 +13,7 @@ from apps.admin.permissions import IsAdminScoped
 
 logger = logging.getLogger(__name__)
 from apps.admin.serializers import (
+    AdminTaskToggleSerializer,
     BulkUserRowSerializer,
     SystemEmailPreviewSerializer,
     SystemEmailTestSendSerializer,
@@ -1333,13 +1334,10 @@ class AdminTaskToggleView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request, task_id):
-        completed = request.data.get("completed")
-        if completed is None:
-            return Response(
-                {"msg": "completed field is required", "data": None},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        result = toggle_admin_task(request.user, task_id, bool(completed))
+        data = request.data.dict() if hasattr(request.data, "dict") else request.data
+        payload = AdminTaskToggleSerializer(data=data)
+        payload.is_valid(raise_exception=True)
+        result = toggle_admin_task(request.user, task_id, payload.validated_data["completed"])
         if result.get("msg") == "Task not found":
             return Response(result, status=status.HTTP_404_NOT_FOUND)
         return Response(result)
