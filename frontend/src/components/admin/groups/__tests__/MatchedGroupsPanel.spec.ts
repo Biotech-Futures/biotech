@@ -419,4 +419,30 @@ describe('MatchedGroupsPanel', () => {
     expect(dialog).toBeTruthy()
     expect(dialog.textContent).toContain('Student not found in database')
   })
+
+  it('shows an error and does not search or fall back to unrelated users when student id is missing', async () => {
+    const groupWithStudentWithoutId = {
+      ...activeGroup,
+      students: [
+        { name: 'Unknown Student', hasLoggedIn: false, interests: [] } as unknown as { id: number; name: string; hasLoggedIn: boolean; interests: string[] }
+      ]
+    }
+    const fetchMock = fetchMockFor([groupWithStudentWithoutId])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.find('tbody tr').trigger('click')
+    const studentBtn = wrapper.find('.matched-groups__student-btn')
+    await studentBtn.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+    expect(dialog.textContent).toContain('Could not find details for this student.')
+    // Verify no user list search endpoint was called to search by name or fall back to res.items[0]
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).includes('/user/?') || String(u).includes('/user?'))
+    ).toBe(false)
+  })
 })

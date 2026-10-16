@@ -181,7 +181,6 @@ import MentorReplaceDialog from '@/components/admin/MentorReplaceDialog.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import {
   fetchAdminUser,
-  fetchAdminUsers,
   fetchMatchedGroups,
   fetchMentorMatchMentorList,
   replaceMentor,
@@ -215,20 +214,11 @@ const openStudentDetail = async (student: MatchedGroupStudent) => {
   studentDetailLoading.value = true
   studentDetailError.value = ''
   try {
-    if (student.id) {
-      selectedStudent.value = await fetchAdminUser(student.id)
-    } else {
-      const res = await fetchAdminUsers({ search: student.name, limit: 5 })
-      const match =
-        res.items.find(
-          (u) => `${u.firstName} ${u.lastName}`.trim().toLowerCase() === student.name.trim().toLowerCase()
-        ) || res.items[0]
-      if (match) {
-        selectedStudent.value = await fetchAdminUser(match.id)
-      } else {
-        studentDetailError.value = 'Could not find details for this student.'
-      }
+    if (!student.id) {
+      studentDetailError.value = 'Could not find details for this student.'
+      return
     }
+    selectedStudent.value = await fetchAdminUser(student.id)
   } catch (err) {
     studentDetailError.value = err instanceof Error ? err.message : 'Could not load student details.'
   } finally {
