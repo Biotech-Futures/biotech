@@ -25,16 +25,7 @@ def _consumer(user_id=1, name="Amy"):
     consumer = LiveRoomConsumer()
     consumer.room = "live.submission.7"
     consumer.user = {"id": user_id, "name": name}
-    consumer._last_frame = 0.0
-    consumer._last_typing = {}
-    consumer._last_text = {}
-    consumer._pending_text = {}
-    consumer._text_sends = {}
-    consumer._open = set()
-    consumer._last_cursor = {}
-    consumer._pending_cursor = {}
-    consumer._cursor_sends = {}
-    consumer._cursors = set()
+    consumer._start_relays()
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test-channel"
     consumer.send_json = AsyncMock()

@@ -9,7 +9,7 @@ from django.test import override_settings
 from django.utils import timezone
 from pycrdt import Doc, Map, Text
 
-from apps.live import consumers
+from apps.live import shared_documents
 from apps.live.consumers import LiveRoomConsumer
 from apps.submissions import coedit
 from apps.submissions.autosubmit import auto_submit_due
@@ -68,8 +68,8 @@ class CoeditTestCase(ChecklistTestCase):
         coedit._copies.clear()
         self.addCleanup(coedit._copies.clear)
         coedit.forget_fields()
-        consumers._waiting_saves.clear()
-        self.addCleanup(consumers._waiting_saves.clear)
+        shared_documents._waiting_saves.clear()
+        self.addCleanup(shared_documents._waiting_saves.clear)
         self.key = self.questions[0].key
         self.field = coedit.answer_field(self.key)
         self.admin = User.objects.create_user(email="admin@test.local", password="x", first_name="Ada")
@@ -414,11 +414,10 @@ def _consumer(user, room, channel="ada-channel"):
     consumer = LiveRoomConsumer()
     consumer.room = f"live.submission.{room}"
     consumer.room_id = room
-    consumer.document = coedit
     consumer.scope = {"user": user}
     consumer.user = {"id": user.id, "name": user.first_name}
-    consumer._doc_window = (0.0, 0)
-    consumer._may_edit = (float("-inf"), False)
+    consumer._start_relays()
+    consumer._start_document(coedit)
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = channel
     consumer.send_json = AsyncMock()
@@ -449,10 +448,10 @@ class LiveMessageTests(CoeditTestCase):
         consumer = _consumer(self.student, self.room)
         update = Client(self.room).type(self.field, 5, "!")
 
-        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0):
+        with patch("apps.live.shared_documents.DOC_SAVE_DELAY", 0):
             async def run():
                 await consumer.receive_json({"type": "doc-update", "update": _b64(update)})
-                await consumers._waiting_saves[consumer.room]
+                await shared_documents._waiting_saves[consumer.room]
 
             async_to_sync(run)()
 
@@ -532,11 +531,11 @@ class TeamSaveTests(CoeditTestCase):
         ada, ben = _consumer(self.student, self.room, "ada"), _consumer(self.student, self.room, "ben")
         page = Client(self.room)
 
-        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.2), patch.object(coedit, "save", wraps=coedit.save) as save:
+        with patch("apps.live.shared_documents.DOC_SAVE_DELAY", 0.2), patch.object(coedit, "save", wraps=coedit.save) as save:
             async def run():
                 await self._update(ada, page.type(self.field, 5, " one"))
                 await self._update(ben, page.type(self.field, 9, " two"))
-                await consumers._waiting_saves[ada.room]
+                await shared_documents._waiting_saves[ada.room]
 
             async_to_sync(run)()
 
@@ -550,7 +549,7 @@ class TeamSaveTests(CoeditTestCase):
 
         async_to_sync(self._update)(consumer, Client(self.room).type(self.field, 5, "!"))
 
-        self.assertNotIn(consumer.room, consumers._waiting_saves)
+        self.assertNotIn(consumer.room, shared_documents._waiting_saves)
         self.assertEqual(Client(self.room).text(self.field), "Draft!")
 
     def test_typing_after_a_save_begins_gets_a_save_of_its_own(self):
@@ -558,13 +557,13 @@ class TeamSaveTests(CoeditTestCase):
         consumer = _consumer(self.student, self.room)
         page = Client(self.room)
 
-        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.05):
+        with patch("apps.live.shared_documents.DOC_SAVE_DELAY", 0.05):
             async def run():
                 await self._update(consumer, page.type(self.field, 5, " one"))
-                first = consumers._waiting_saves[consumer.room]
+                first = shared_documents._waiting_saves[consumer.room]
                 await first
                 await self._update(consumer, page.type(self.field, 9, " two"))
-                second = consumers._waiting_saves[consumer.room]
+                second = shared_documents._waiting_saves[consumer.room]
                 self.assertIsNot(first, second)
                 await second
 
@@ -575,15 +574,13 @@ class TeamSaveTests(CoeditTestCase):
     def test_the_save_still_runs_after_the_typist_leaves(self):
         self._entry_with("Draft")
         consumer = _consumer(self.student, self.room)
-        consumer._text_sends, consumer._pending_text, consumer._open = {}, {}, set()
-        consumer._cursor_sends, consumer._cursors = {}, set()
         update = Client(self.room).type(self.field, 5, "!")
 
-        with patch("apps.live.consumers.DOC_SAVE_DELAY", 0.05):
+        with patch("apps.live.shared_documents.DOC_SAVE_DELAY", 0.05):
             async def run():
                 await self._update(consumer, update)
                 await consumer.disconnect(1000)
-                await consumers._waiting_saves[consumer.room]
+                await shared_documents._waiting_saves[consumer.room]
 
             async_to_sync(run)()
 
@@ -616,7 +613,7 @@ class RememberedPermissionTests(CoeditTestCase):
 
         # Within the few seconds, the remembered answer still stands.
         async_to_sync(consumer.receive_json)({"type": "doc-update", "update": _b64(page.type(self.field, 9, " two"))})
-        with patch("apps.live.consumers.DOC_PERMISSION_SECONDS", 0):
+        with patch("apps.live.shared_documents.DOC_PERMISSION_SECONDS", 0):
             async_to_sync(consumer.receive_json)({"type": "doc-update", "update": _b64(page.type(self.field, 13, " three"))})
 
         consumer.send_json.assert_awaited_with({"type": "doc-reject"})

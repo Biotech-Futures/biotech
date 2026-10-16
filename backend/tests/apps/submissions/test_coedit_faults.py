@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync
 from django.utils import timezone
 from pycrdt import Doc, Map, Text
 
-from apps.live.consumers import _save_after_pause
+from apps.live.shared_documents import _save_after_pause
 from apps.submissions import coedit
 from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.models import Submission, SubmissionQuestion
@@ -71,9 +71,9 @@ class StoreFaultTests(CoeditTestCase):
         consumer = _consumer(self.student, self.room)
 
         with (
-            patch("apps.live.consumers.DOC_SAVE_DELAY", 0),
+            patch("apps.live.shared_documents.DOC_SAVE_DELAY", 0),
             unreachable(Broken),
-            self.assertLogs("apps.live.consumers", "ERROR"),
+            self.assertLogs("apps.live.shared_documents", "ERROR"),
         ):
             async_to_sync(_save_after_pause)(coedit, self.room, consumer.room)
         self.assertEqual(self._entry().answers[self.key], "Draft")
