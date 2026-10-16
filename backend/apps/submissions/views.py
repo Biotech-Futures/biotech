@@ -180,6 +180,13 @@ class GroupSubmissionView(APIView):
                 }
             submission.save()
 
+            if staff and coedit.enabled():
+                # Under the row lock, so a team's save cannot fall between the entry and the document and rebuild it.
+                written = {coedit.answer_field(key): value for key, value in data.get("answers", {}).items()}
+                if "project_title" in data:
+                    written[coedit.TITLE_FIELD] = data["project_title"]
+                coedit.write_fields(group.id, written)
+
         if without_live:
             typed = {coedit.answer_field(key): value for key, value in data.get("answers", {}).items()}
             if "project_title" in data:
@@ -191,12 +198,6 @@ class GroupSubmissionView(APIView):
                     _apply_text(submission, data)
                     submission.save()
             submission.refresh_from_db()
-
-        if staff and coedit.enabled():
-            written = {coedit.answer_field(key): value for key, value in data.get("answers", {}).items()}
-            if "project_title" in data:
-                written[coedit.TITLE_FIELD] = data["project_title"]
-            coedit.write_fields(group.id, written)
 
         # Open pages catch up on what live text does not carry: an admin's save, ticks and the link.
         if staff:

@@ -5,6 +5,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
+from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
 from pycrdt import Doc, Map, Text
@@ -342,6 +343,37 @@ class EndpointTests(CoeditTestCase):
         self.assertEqual(Client(self.room).text(self.field), "Fixed by the programme.")
         self.assertTrue(coedit.save(self.room))
         self.assertEqual(self._entry().answers[self.key], "Fixed by the programme.")
+
+    def test_an_admins_save_reaches_the_document_before_the_row_is_released(self):
+        self._entry_with("Draft")
+        Client(self.room)
+        real_replace, depths = coedit._replace_fields, []
+        # Tests run inside transactions of their own; the save's is the one opened on top of them.
+        outside = len(transaction.get_connection().atomic_blocks)
+
+        def note_the_depth(room, texts):
+            depths.append(len(transaction.get_connection().atomic_blocks))
+            return real_replace(room, texts)
+
+        with patch.object(coedit, "_replace_fields", side_effect=note_the_depth):
+            self._client(self.admin).put(self._url("group-submission"), {"answers": {self.key: "Fixed."}}, format="json")
+
+        self.assertEqual(depths, [outside + 1])
+        with patch.object(coedit, "broadcast_reset") as reset:
+            self.assertTrue(coedit.save(self.room))
+        reset.assert_not_called()
+
+    def test_an_admins_save_still_goes_in_when_the_document_is_out_of_reach(self):
+        self._entry_with("Draft")
+        Client(self.room)
+
+        with unreachable(), self.assertLogs("apps.submissions.coedit", "ERROR"):
+            response = self._client(self.admin).put(
+                self._url("group-submission"), {"answers": {self.key: "Fixed."}}, format="json"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._entry().answers[self.key], "Fixed.")
 
     def test_submit_takes_the_documents_latest_text(self):
         self._upload(self.student, _poster())

@@ -564,8 +564,11 @@ def write_fields(room: int, texts: dict[str, str]) -> None:
     """Puts an admin's saved text into the document, after it has been written to the entry."""
     if not enabled() or not texts:
         return
-    _replace_fields(room, texts)
-    store().mark_saved(room, _digest(_db_texts(Submission.objects.filter(group_id=room).first())))
+    try:
+        _replace_fields(room, texts)
+        store().mark_saved(room, _digest(_db_texts(Submission.objects.filter(group_id=room).first())))
+    except Exception:  # noqa: BLE001 - the entry is the record; the next save finds it newer and rebuilds from it
+        logger.exception("coedit.write_fields_failed room=%s", room)
 
 
 def take_typing(room: int, texts: dict[str, str]) -> bool:
