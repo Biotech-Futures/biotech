@@ -10,7 +10,8 @@ Public surface:
   by that worker. Blank and repeated addresses are dropped, a malformed one is
   invalid without a lookup, and a recent valid or invalid answer on file is
   reused instead of paid for again. Each answer from QEV is stored
-  (``EmailVerification``); that row is what later flags an address.
+  (``EmailVerification``); that row is what later flags an address. Each
+  real answer also updates the credit balance (``email_credits``).
 
 Nothing here blocks anything: it only reports. Only ``invalid`` is a failed
 check; ``unknown`` (QEV's unknown, or a domain that accepts every address) and
@@ -39,6 +40,7 @@ from django.utils import timezone
 
 from apps.common.pii import email_log_tag
 
+from .email_credits import record_remaining
 from .models import EmailVerification, EmailVerificationCredits
 
 logger = logging.getLogger(__name__)
@@ -125,6 +127,9 @@ def _lookup(email: str) -> tuple[VerificationResult, Optional[dict]]:
     except Exception as exc:  # noqa: BLE001 - an outage must never stop a registration
         return _failed(email, "request_failed", exc), None
 
+    if not _sandbox():
+        # Every real answer, error statuses included, may say how many credits are left.
+        record_remaining(response.headers)
     if response.status_code != 200:
         return _failed(email, f"http_{response.status_code}"), None
     try:
