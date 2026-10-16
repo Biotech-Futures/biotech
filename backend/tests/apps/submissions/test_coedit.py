@@ -545,7 +545,7 @@ class TeamSaveTests(CoeditTestCase):
     def test_no_save_is_scheduled_while_another_worker_holds_the_teams_save(self):
         self._entry_with("Draft")
         consumer = _consumer(self.student, self.room)
-        coedit.claim_save(self.room, 10)
+        coedit.store().claim_save(self.room, 10)
 
         async_to_sync(self._update)(consumer, Client(self.room).type(self.field, 5, "!"))
 

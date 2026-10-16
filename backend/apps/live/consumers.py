@@ -299,11 +299,9 @@ class LiveRoomConsumer(AsyncJsonWebsocketConsumer):
 
     def _apply_and_claim(self, document, user, update: bytes, generation, claim: bool) -> tuple[bool, bool]:
         # One trip to the worker thread for the permission, the edit and the room's next save.
-        if not self._may_edit_now(user) or not document.apply(
-            user, self.room_id, update, checked=True, generation=generation
-        ):
+        if not self._may_edit_now(user):
             return False, False
-        return True, claim and document.claim_save(self.room_id, DOC_SAVE_CLAIM_SECONDS)
+        return document.apply_and_claim(self.room_id, update, generation, DOC_SAVE_CLAIM_SECONDS if claim else None)
 
     def _may_edit_now(self, user, fresh: bool = False) -> bool:
         checked_at, allowed = self._may_edit

@@ -383,8 +383,23 @@ class RaceTests(CoeditTestCase):
         self.assertEqual(self._entry().answers[self.key], "Draft one two")
 
 
+
+def _claims_in_turn(test, store, room):
+    """The first edit claims the room's save, later ones do not, and after a release the next one does."""
+    claims = [store.append(room, b"\x00\x00", 10)[1] for _ in range(3)]
+    store.release_save(room)
+    claims.append(store.append(room, b"\x00\x00", 10)[1])
+    claims.append(store.append(room, b"\x00\x00")[1])
+    test.assertEqual(claims, [True, False, False, True, False])
+
+
 class WorkerCopyTests(CoeditTestCase):
     """Each worker keeps its own copy of a room's document and reads on only from where it stopped."""
+
+    def test_an_edit_claims_the_rooms_save_in_the_same_trip(self):
+        self._entry_with("")
+        Client(self.room)
+        _claims_in_turn(self, coedit.store(), self.room)
 
     def test_an_edit_reads_only_what_is_new(self):
         self._entry_with("")
@@ -460,6 +475,12 @@ class RedisRaceTests(unittest.TestCase):
         [thread.join() for thread in threads]
 
         self.assertEqual(self._text(), "Saved.")
+
+    def test_an_edit_claims_the_rooms_save_in_the_same_trip(self):
+        self.stores[0].create(self.room, coedit._build({"answer:q1": ""}), "digest")
+        self.stores[0].release_save(self.room)
+        self.addCleanup(lambda: self.stores[0].release_save(self.room))
+        _claims_in_turn(self, self.stores[0], self.room)
 
     def test_reading_on_holds_only_until_the_base_is_rebuilt_or_merged(self):
         store = self.stores[0]

@@ -96,12 +96,12 @@ class _MemoryStore:
         with self._lock:
             self._data.setdefault(room, {"base": base, "updates": [], "saved": saved, "epoch": _new_epoch()})
 
-    def append(self, room: int, update: bytes) -> int:
+    def append(self, room: int, update: bytes, claim_seconds: float | None = None) -> tuple[int, bool]:
         with self._lock:
             if room not in self._data:
-                return 0
+                return 0, False
             self._data[room]["updates"].append(update)
-            return len(self._data[room]["updates"])
+            return len(self._data[room]["updates"]), claim_seconds is not None and self._claim(room, claim_seconds)
 
     def compact(self, room: int, merged: list[bytes], base: bytes) -> None:
         with self._lock:
@@ -126,12 +126,15 @@ class _MemoryStore:
             return room in self._data
 
     def claim_save(self, room: int, seconds: float) -> bool:
-        now = time.monotonic()
         with self._lock:
-            if self._claims.get(room, 0.0) > now:
-                return False
-            self._claims[room] = now + seconds
-            return True
+            return self._claim(room, seconds)
+
+    def _claim(self, room: int, seconds: float) -> bool:
+        now = time.monotonic()
+        if self._claims.get(room, 0.0) > now:
+            return False
+        self._claims[room] = now + seconds
+        return True
 
     def release_save(self, room: int) -> None:
         with self._lock:
@@ -194,13 +197,17 @@ class _RedisStore:
             pipe.set(self._epoch_key(room), _new_epoch(), ex=STATE_TTL_SECONDS)
             pipe.execute()
 
-    def append(self, room: int, update: bytes) -> int:
+    def append(self, room: int, update: bytes, claim_seconds: float | None = None) -> tuple[int, bool]:
         base_key, updates_key, saved_key = self._keys(room)
         pipe = self._redis.pipeline(transaction=True)
         pipe.rpush(updates_key, update)
         for key in (base_key, updates_key, saved_key, self._epoch_key(room)):
             pipe.expire(key, STATE_TTL_SECONDS)
-        return pipe.execute()[0]
+        if claim_seconds is not None:
+            # In the same trip, so a typist's edit costs two round trips to Redis rather than three.
+            pipe.set(self._claim_key(room), 1, nx=True, px=int(claim_seconds * 1000))
+        results = pipe.execute()
+        return results[0], claim_seconds is not None and bool(results[-1])
 
     def compact(self, room: int, merged: list[bytes], base: bytes) -> None:
         import redis
@@ -238,11 +245,15 @@ class _RedisStore:
     def exists(self, room: int) -> bool:
         return bool(self._redis.exists(self._keys(room)[0]))
 
+    @staticmethod
+    def _claim_key(room: int) -> str:
+        return f"coedit:{{{room}}}:saving"
+
     def claim_save(self, room: int, seconds: float) -> bool:
-        return bool(self._redis.set(f"coedit:{{{room}}}:saving", 1, nx=True, px=int(seconds * 1000)))
+        return bool(self._redis.set(self._claim_key(room), 1, nx=True, px=int(seconds * 1000)))
 
     def release_save(self, room: int) -> None:
-        self._redis.delete(f"coedit:{{{room}}}:saving")
+        self._redis.delete(self._claim_key(room))
 
     def clear(self) -> None:
         for key in self._redis.scan_iter(match="coedit:*"):
@@ -396,30 +407,43 @@ def apply(user, room: int, update: bytes, checked: bool = False, generation: str
     checked: the caller asked can_edit for this user moments ago, so it is not asked again.
     generation: the build the page's copy came from; an update from another build is refused.
     """
-    if not update or len(update) > MAX_UPDATE_BYTES or not (checked or can_edit(user, room)):
+    if not (checked or can_edit(user, room)):
         return False
+    return _apply(room, update, generation, None)[0]
+
+
+def apply_and_claim(room: int, update: bytes, generation: str | None, claim_seconds: float | None) -> tuple[bool, bool]:
+    """apply() for a live room that has checked can_edit itself; with claim_seconds, also claims the
+    room's next save in the same trip to Redis. Returns (accepted, claimed).
+    """
+    return _apply(room, update, generation, claim_seconds)
+
+
+def _apply(room: int, update: bytes, generation: str | None, claim_seconds: float | None) -> tuple[bool, bool]:
+    if not update or len(update) > MAX_UPDATE_BYTES:
+        return False, False
     with _copies_lock:
         doc, _ = _load(room)
         current = _generation(doc)
         if generation is not None and generation != current:
-            return False
+            return False, False
         try:
             doc.apply_update(update)
         except Exception:  # noqa: BLE001 - a malformed update is refused, not raised
             _forget(room)
-            return False
+            return False, False
         # A refused update has already reached this copy, so the copy is dropped with it.
         if not _within_limits(doc) or _generation(doc) != current:
             _forget(room)
-            return False
+            return False, False
         try:
-            stored = store().append(room, update)
+            stored, claimed = store().append(room, update, claim_seconds)
         except Exception:
             _forget(room)
             raise
     if stored >= COMPACT_AFTER:
         _compact(room)
-    return True
+    return True, claimed
 
 
 def _compact(room: int) -> None:
@@ -482,12 +506,8 @@ def flush(room: int) -> bool:
         return False
 
 
-def claim_save(room: int, seconds: float) -> bool:
-    """True for the one caller that should save the team's text next; the rest's edits are in that save."""
-    return store().claim_save(room, seconds)
-
-
 def release_save(room: int) -> None:
+    """Frees the room's save claim, taken by apply_and_claim, so an edit landing meanwhile claims the next."""
     store().release_save(room)
 
 
