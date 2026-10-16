@@ -280,10 +280,74 @@ def _screening_review(ticket):
     except ObjectDoesNotExist:
         return None
     reviewer = getattr(screening, "reviewed_by", None)
+    sender = getattr(screening, "sender_user", None)
+
+    # Give support enough of the surrounding conversation to judge tone and
+    # meaning without sending them back to the live group page. The message
+    # under review is inserted from the immutable screening snapshot, so it
+    # remains available after a moderator deletes the live message.
+    from apps.chat.models import Messages
+
+    target = screening.message
+    neighbours = (
+        Messages.objects.filter(group_id=screening.group_id, deleted_at__isnull=True)
+        .exclude(pk=target.pk)
+        .select_related("sender_user")
+    )
+    earlier = list(
+        neighbours.filter(
+            Q(sent_at__lt=target.sent_at)
+            | Q(sent_at=target.sent_at, pk__lt=target.pk)
+        ).order_by("-sent_at", "-pk")[:10]
+    )
+    later = list(
+        neighbours.filter(
+            Q(sent_at__gt=target.sent_at)
+            | Q(sent_at=target.sent_at, pk__gt=target.pk)
+        ).order_by("sent_at", "pk")[:10]
+    )
+
+    def context_message(message, *, is_target=False):
+        author = sender if is_target else message.sender_user
+        text = screening.message_snapshot if is_target else message.message_text
+        if not text:
+            text = f"[{message.get_message_type_display()}]"
+        return {
+            "id": message.pk,
+            "author": _person(author) if author else None,
+            "messageText": text,
+            "sentAt": message.sent_at,
+            "edited": bool(message.edited_at),
+            "suppressed": bool(message.is_suppressed),
+            "isTarget": is_target,
+        }
+
+    conversation_context = [
+        *(context_message(message) for message in reversed(earlier)),
+        context_message(target, is_target=True),
+        *(context_message(message) for message in later),
+    ]
     return {
         "status": screening.status,
         "messageId": screening.message_id,
+        # Review the exact text the model classified, not a later edit of the
+        # live message. This snapshot remains available after a delete.
+        "messageText": screening.message_snapshot,
         "suppressed": bool(screening.message.is_suppressed),
+        # These are the facts an agent needs to make the decision in the
+        # ticket. Keeping them structured means the UI no longer has to
+        # duplicate the internal evidence note or send the agent back to the
+        # group conversation to understand what was detected.
+        "sender": _person(sender) if sender else None,
+        "group": {
+            "id": screening.group_id,
+            "name": screening.group.group_name,
+        },
+        "provider": screening.provider,
+        "category": screening.category,
+        "reason": screening.reason,
+        "screenedAt": screening.screened_at,
+        "conversationContext": conversation_context,
         "reviewedAt": screening.reviewed_at,
         "reviewedBy": _person(reviewer) if reviewer else None,
     }
@@ -345,7 +409,14 @@ def _queue_tickets(filters, as_of):
 def _get_ticket_or_none(ticket_id):
     return (
         live_tickets()
-        .select_related("created_by", "assignee")
+        .select_related(
+            "created_by",
+            "assignee",
+            "message_screening__message",
+            "message_screening__group",
+            "message_screening__sender_user",
+            "message_screening__reviewed_by",
+        )
         .filter(pk=ticket_id)
         .first()
     )
@@ -674,7 +745,7 @@ class TicketScreeningReviewView(APIView):
         with transaction.atomic():
             ticket = (
                 live_tickets()
-                .select_for_update()
+                .select_for_update(of=("self",))
                 .filter(pk=ticket_id, channel=TicketChannel.AI_SCREENING)
                 .first()
             )
@@ -682,7 +753,12 @@ class TicketScreeningReviewView(APIView):
                 return _not_found()
             screening = (
                 MessageScreening.objects
-                .select_for_update()
+                # ``reviewed_by`` is nullable, so select_related() adds a
+                # LEFT OUTER JOIN. PostgreSQL refuses an unrestricted FOR
+                # UPDATE across the nullable side of that join. Lock only the
+                # two rows this decision mutates; SQLite ignores ``of`` and
+                # therefore never exposed this production-shaped failure.
+                .select_for_update(of=("self", "message"))
                 .select_related("message", "reviewed_by")
                 .filter(ticket=ticket)
                 .first()

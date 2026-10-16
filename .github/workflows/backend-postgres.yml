@@ -82,4 +82,8 @@ jobs:
       # Runs the ticket suite where the lock and ordering tests actually
       # execute instead of skipping.
       - name: Ticket suite, locks and all
-        run: python manage.py test tests.apps.tickets --noinput
+        run: >-
+          python manage.py test
+          tests.apps.tickets
+          tests.apps.chat.test_screening_suppression_review
+          --noinput

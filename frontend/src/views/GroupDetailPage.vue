@@ -1189,8 +1189,34 @@
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
-                      <span v-if="message.isSuppressed" class="message-suppressed-label">
-                        Hidden pending review
+                      <span
+                        v-if="message.isSuppressed"
+                        class="message-suppressed-label"
+                        :title="
+                          message.isDeleted && message.deletedByIsAdmin
+                            ? 'This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
+                            : 'This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
+                        "
+                        :aria-label="
+                          message.isDeleted && message.deletedByIsAdmin
+                            ? 'Removed after review. This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
+                            : 'Hidden pending review. This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
+                        "
+                      >
+                        <i
+                          :class="[
+                            'fas',
+                            message.isDeleted && message.deletedByIsAdmin
+                              ? 'fa-ban'
+                              : 'fa-eye-slash',
+                          ]"
+                          aria-hidden="true"
+                        ></i>
+                        {{
+                          message.isDeleted && message.deletedByIsAdmin
+                            ? 'Removed after review'
+                            : 'Hidden pending review'
+                        }}
                       </span>
                       <span class="message-date">{{ formatDate(message.date) }}</span>
                       <span class="message-time">{{ message.time }}</span>
@@ -1800,6 +1826,7 @@ import GroupSubmissionSection from '@/components/submission/GroupSubmissionSecti
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'
+import { hideModerationDeletionFromViewer } from '@/utils/chatModeration'
 import {
   applyCursorToMessage,
   getReceiptAriaLabel as receiptAriaLabel,
@@ -4990,6 +5017,15 @@ const handleSocketPayload = async (payload) => {
 
   if (eventName === 'message.deleted') {
     if (!socketMessageId) return
+    if (hideModerationDeletionFromViewer(socketMessage, payload, auth.user?.id)) {
+      messages.value = messages.value.filter(
+        (message) => String(message.id) !== String(socketMessageId),
+      )
+      mentionItems.value = mentionItems.value.filter(
+        (mention) => String(mention.message_id) !== String(socketMessageId),
+      )
+      return
+    }
     if (socketMessage) {
       upsertMessage(socketMessage)
     } else {
@@ -8668,9 +8704,13 @@ onBeforeUnmount(() => {
 }
 
 .message-suppressed-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.76rem;
   font-weight: 500;
   color: #5f6b70;
+  cursor: help;
 }
 
 .message-attachments {
@@ -9634,10 +9674,23 @@ onBeforeUnmount(() => {
 
 .message.suppressed .message-content,
 .message.own.suppressed .message-content {
-  background: #eef1f2;
-  border-color: #c8d0d3;
+  background: #f4f5f5;
+  border-color: #b9c2c5;
+  border-style: dashed;
   color: #59656a;
   box-shadow: none;
+  opacity: 0.58;
+  filter: saturate(0.25);
+}
+
+.message.suppressed .message-avatar {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.message.suppressed:hover .message-content,
+.message.suppressed:focus-within .message-content {
+  opacity: 0.72;
 }
 
 .pane--discussion .message.own.suppressed .message-text,

@@ -127,20 +127,20 @@ class ScreeningHandoffTests(ScreeningFixture):
         FRONTEND_BASE_URL="https://portal.example.org",
         ADMIN_FRONTEND_BASE_URL="https://admin.example.org",
     )
-    def test_the_evidence_note_links_back_to_this_ticket_and_points_at_the_group(self):
+    def test_the_evidence_note_links_back_to_this_ticket_and_keeps_review_in_the_queue(self):
         ticket = self.raise_ticket()
         body = ticket.messages.get().body
         # The portal's queue, through its hash router, with the deep link the
         # queue page opens the detail panel from.
         self.assertIn(
-            f"1. This ticket: https://portal.example.org/#/admin/tickets?ticket={ticket.pk}\n",
+            f"https://portal.example.org/#/admin/tickets?ticket={ticket.pk}\n",
             body,
         )
         # Not the admin app, whose host goes when that app does.
         self.assertNotIn("admin.example.org", body)
-        # The group conversation is a modal with no address of its own, so
-        # this half is directions rather than a link.
-        self.assertIn("Admin → Groups → Team Photosynthesis (group id 7) → Messages", body)
+        self.assertIn("Use Approve to restore", body)
+        self.assertIn("Delete to remove", body)
+        self.assertNotIn("Admin → Groups", body)
 
     def test_raising_a_screening_ticket_writes_an_audit_row(self):
         """A machine judging a minor's message has to leave a trail.

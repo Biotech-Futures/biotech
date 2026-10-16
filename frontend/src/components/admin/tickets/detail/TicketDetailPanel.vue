@@ -91,12 +91,52 @@
               class="ticket-panel__screening-review"
               aria-labelledby="screening-review-title"
             >
-              <h3 id="screening-review-title">Automated message review</h3>
+              <h3 id="screening-review-title">Flagged Message Review</h3>
+              <div
+                ref="screeningConversation"
+                class="ticket-panel__screening-conversation"
+                tabindex="0"
+                aria-label="Read-only conversation context"
+              >
+                <article
+                  v-for="message in ticket.screeningReview.conversationContext"
+                  :key="message.id"
+                  class="ticket-panel__context-message"
+                  :class="{ 'ticket-panel__context-message--target': message.isTarget }"
+                  :data-screening-target="message.isTarget ? 'true' : undefined"
+                >
+                  <header>
+                    <strong>{{ message.author?.name ?? 'Account no longer available' }}</strong>
+                    <span v-if="message.edited">edited</span>
+                    <time :datetime="message.sentAt">{{ when(message.sentAt) }}</time>
+                  </header>
+                  <p>{{ message.messageText }}</p>
+                  <span v-if="message.isTarget" class="ticket-panel__context-target-label">
+                    Message under review
+                  </span>
+                </article>
+              </div>
+              <dl class="ticket-panel__screening-facts">
+                <div>
+                  <dt>Sender</dt>
+                  <dd>{{ ticket.screeningReview.sender?.name ?? 'Sender no longer available' }}</dd>
+                </div>
+                <div>
+                  <dt>Group</dt>
+                  <dd>{{ ticket.screeningReview.group.name }} (ID {{ ticket.screeningReview.group.id }})</dd>
+                </div>
+                <div>
+                  <dt>Category</dt>
+                  <dd>{{ screeningCategoryLabel(ticket.screeningReview.category) }}</dd>
+                </div>
+                <div class="ticket-panel__screening-fact--wide">
+                  <dt>Reason</dt>
+                  <dd>
+                    {{ ticket.screeningReview.reason || 'No additional reason was recorded.' }}
+                  </dd>
+                </div>
+              </dl>
               <template v-if="ticket.screeningReview.status === 'flagged'">
-                <p>
-                  This message is hidden from everyone except its sender while you review it.
-                  Make the decision here rather than in the group conversation.
-                </p>
                 <div class="ticket-panel__screening-actions">
                   <button
                     type="button"
@@ -104,7 +144,7 @@
                     :disabled="screeningDecisionBusy !== null"
                     @click="decideScreening('approve')"
                   >
-                    {{ screeningDecisionBusy === 'approve' ? 'Approving…' : 'Approve and show' }}
+                    {{ screeningDecisionBusy === 'approve' ? 'Approving…' : 'Approve' }}
                   </button>
                   <button
                     type="button"
@@ -112,12 +152,15 @@
                     :disabled="screeningDecisionBusy !== null"
                     @click="decideScreening('delete')"
                   >
-                    {{ screeningDecisionBusy === 'delete' ? 'Deleting…' : 'Delete message' }}
+                    {{ screeningDecisionBusy === 'delete' ? 'Deleting…' : 'Delete' }}
                   </button>
                 </div>
               </template>
               <p v-else class="ticket-panel__screening-complete">
-                Message {{ ticket.screeningReview.status === 'approved' ? 'approved and restored' : 'deleted' }}
+                Message
+                {{
+                  ticket.screeningReview.status === 'approved' ? 'approved and restored' : 'deleted'
+                }}
                 <template v-if="ticket.screeningReview.reviewedBy">
                   by {{ ticket.screeningReview.reviewedBy.name }}</template
                 >.
@@ -127,7 +170,16 @@
               </p>
             </section>
 
-            <div class="ticket-panel__tabs" role="tablist" aria-label="Ticket sections">
+            <section v-if="ticket.screeningReview" class="ticket-panel__screening-history">
+              <TicketHistoryList :entries="history" :state="historyState" @retry="retryHistory" />
+            </section>
+
+            <div
+              v-if="!ticket.screeningReview"
+              class="ticket-panel__tabs"
+              role="tablist"
+              aria-label="Ticket sections"
+            >
               <button
                 v-for="item in TABS"
                 :id="`${idBase}-tab-${item.key}`"
@@ -151,6 +203,7 @@
                  boxes when Details was opened, and a half-written reply and
                  note went with them without a word. -->
             <div
+              v-if="!ticket.screeningReview"
               v-show="tab === 'conversation'"
               :id="`${idBase}-panel-conversation`"
               role="tabpanel"
@@ -171,6 +224,7 @@
             </div>
 
             <div
+              v-if="!ticket.screeningReview"
               v-show="tab === 'details'"
               :id="`${idBase}-panel-details`"
               role="tabpanel"
@@ -252,7 +306,7 @@ import TicketMessageTimeline from './TicketMessageTimeline.vue'
 import TicketNoteComposer from './TicketNoteComposer.vue'
 import TicketReplyComposer from './TicketReplyComposer.vue'
 import TicketTriageControls from './TicketTriageControls.vue'
-import { changeNotSavedMessage, deleteRefusedMessage } from './ticketDetailText'
+import { changeNotSavedMessage, deleteRefusedMessage, when } from './ticketDetailText'
 
 // The contract with the queue page (fixed by the scaffold's placeholder):
 //
@@ -294,6 +348,7 @@ const titleId = `${idBase}-title`
 
 const sheet = ref<HTMLElement | null>(null)
 const deleteButton = ref<HTMLButtonElement | null>(null)
+const screeningConversation = ref<HTMLElement | null>(null)
 const tabButtons: Partial<Record<Tab, HTMLButtonElement | null>> = {}
 
 // --- The ticket -----------------------------------------------------------------
@@ -319,6 +374,10 @@ async function loadTicket(id: number, { quiet = false } = {}) {
     if (token !== loadToken || id !== props.ticketId) return
     ticket.value = result
     loadState.value = 'ready'
+    if (result.screeningReview) {
+      void loadHistory(id)
+      void nextTick(centerScreeningMessage)
+    }
   } catch (error) {
     if (token !== loadToken || id !== props.ticketId) return
     logApiError('ticket detail', error)
@@ -496,7 +555,7 @@ async function write(id: number, run: () => Promise<TicketDetail>): Promise<Tick
     writesInFlight -= 1
     if (!unmounted && writesInFlight === 0 && burstSucceeded > 0 && id === props.ticketId) {
       if (burstSucceeded > 1) await loadTicket(id, { quiet: true })
-      if (tab.value === 'details') void loadHistory(id)
+      if (tab.value === 'details' || ticket.value?.screeningReview) void loadHistory(id)
     }
   }
 }
@@ -515,12 +574,6 @@ async function applyPatch(patch: TicketPatch): Promise<void> {
 
 async function decideScreening(decision: 'approve' | 'delete'): Promise<void> {
   if (screeningDecisionBusy.value) return
-  if (
-    decision === 'delete' &&
-    !window.confirm('Delete this message? It will remain recorded in the ticket audit history.')
-  ) {
-    return
-  }
   const id = props.ticketId
   screeningDecisionBusy.value = decision
   screeningDecisionError.value = null
@@ -587,6 +640,19 @@ async function confirmDelete() {
 }
 
 const confirmTitle = computed(() => (ticket.value ? `Delete ${ticket.value.ticketNumber}?` : ''))
+
+function screeningCategoryLabel(category: string): string {
+  if (!category) return 'Not categorised'
+  const words = category.replaceAll('_', ' ').replaceAll('/', ' / ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+function centerScreeningMessage() {
+  const container = screeningConversation.value
+  const target = container?.querySelector<HTMLElement>('[data-screening-target="true"]')
+  if (!container || !target) return
+  container.scrollTop = target.offsetTop - container.clientHeight / 2 + target.clientHeight / 2
+}
 
 /** The confirmation's "Keep it" button. ConfirmDialog teleports to body and
  *  exposes no ref, so it is found by the title this panel gave it and the
@@ -891,6 +957,105 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
+.ticket-panel__screening-conversation {
+  position: relative;
+  margin-top: 1rem;
+  max-height: 19rem;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--panel-rule);
+  border-radius: 8px;
+  background: var(--panel-ground);
+  scroll-behavior: smooth;
+}
+
+.ticket-panel__context-message {
+  position: relative;
+  margin: 0 0 0.65rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--panel-rule);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-ground) 92%, #eef3f1);
+}
+
+.ticket-panel__context-message:last-child {
+  margin-bottom: 0;
+}
+
+.ticket-panel__context-message header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.6rem;
+  color: var(--panel-muted);
+  font-size: 0.76rem;
+}
+
+.ticket-panel__context-message header strong {
+  color: var(--charcoal);
+  font-size: 0.82rem;
+}
+
+.ticket-panel__context-message time {
+  margin-left: auto;
+}
+
+.ticket-panel__context-message p {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ticket-panel__context-message--target {
+  border: 2px solid var(--panel-danger);
+  background: var(--panel-danger-ground);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--panel-danger) 14%, transparent);
+}
+
+.ticket-panel__context-target-label {
+  display: inline-block;
+  margin-top: 0.55rem;
+  color: var(--panel-danger);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ticket-panel__screening-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1rem;
+  margin: 1rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--panel-rule);
+}
+
+.ticket-panel__screening-facts > div {
+  min-width: 0;
+}
+
+.ticket-panel__screening-facts dt {
+  margin: 0 0 0.2rem;
+  color: var(--panel-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+}
+
+.ticket-panel__screening-facts dd {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ticket-panel__screening-fact--wide {
+  grid-column: 1 / -1;
+}
+
+.ticket-panel__screening-history {
+  margin-top: 0.15rem;
+}
+
 .ticket-panel__screening-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1038,6 +1203,16 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .ticket-panel__sheet {
     animation: none;
+  }
+}
+
+@media (max-width: 34rem) {
+  .ticket-panel__screening-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-panel__screening-fact--wide {
+    grid-column: auto;
   }
 }
 </style>

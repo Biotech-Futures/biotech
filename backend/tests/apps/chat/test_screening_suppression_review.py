@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
@@ -61,6 +62,35 @@ class ScreeningSuppressionReviewTests(APITestCase):
 
     @override_settings(OPENAI_API_KEY="test-key")
     @patch("apps.chat.services.screening.requests.post")
+    def test_ticket_includes_read_only_conversation_context_around_flagged_message(self, post):
+        before = Messages.objects.create(
+            sender_user=self.peer,
+            group=self.group,
+            message_text="What time should we meet?",
+            sent_at=self.message.sent_at - timedelta(minutes=1),
+        )
+        after = Messages.objects.create(
+            sender_user=self.peer,
+            group=self.group,
+            message_text="Can you explain what you mean?",
+            sent_at=self.message.sent_at + timedelta(minutes=1),
+        )
+        screening = dispatch_message_screening(self.message)
+        post.return_value = self._flagged_response()
+        screening = screen_suspicious_message(screening.pk)
+        self.client.force_login(self.agent)
+
+        response = self.client.get(f"/api/v1/admin/tickets/{screening.ticket_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        context = response.data["data"]["screeningReview"]["conversationContext"]
+        self.assertEqual([row["id"] for row in context], [before.pk, self.message.pk, after.pk])
+        self.assertEqual([row["isTarget"] for row in context], [False, True, False])
+        self.assertEqual(context[1]["messageText"], "A message requiring review")
+        self.assertTrue(context[1]["suppressed"])
+
+    @override_settings(OPENAI_API_KEY="test-key")
+    @patch("apps.chat.services.screening.requests.post")
     def test_support_can_approve_and_restore_the_message_from_the_ticket(self, post):
         screening = dispatch_message_screening(self.message)
         post.return_value = self._flagged_response()
@@ -75,6 +105,28 @@ class ScreeningSuppressionReviewTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["data"]["screeningReview"]["status"], "approved")
+        self.assertEqual(
+            response.data["data"]["screeningReview"]["messageText"],
+            "A message requiring review",
+        )
+        self.assertEqual(
+            response.data["data"]["screeningReview"]["sender"],
+            {"id": self.sender.pk, "name": "sender@example.com"},
+        )
+        self.assertEqual(
+            response.data["data"]["screeningReview"]["group"],
+            {"id": self.group.pk, "name": "Moderation group"},
+        )
+        self.assertEqual(
+            response.data["data"]["screeningReview"]["provider"],
+            "omni-moderation-latest",
+        )
+        self.assertEqual(response.data["data"]["screeningReview"]["category"], "violence")
+        self.assertEqual(
+            response.data["data"]["screeningReview"]["reason"],
+            "OpenAI moderation flagged: violence",
+        )
+        self.assertIsNotNone(response.data["data"]["screeningReview"]["screenedAt"])
         self.assertFalse(response.data["data"]["screeningReview"]["suppressed"])
         screening.refresh_from_db()
         self.message.refresh_from_db()
@@ -111,6 +163,15 @@ class ScreeningSuppressionReviewTests(APITestCase):
         self.assertEqual(screening.reviewed_by_id, self.agent.pk)
         self.assertIsNotNone(self.message.deleted_at)
         self.assertEqual(self.message.deleted_by_id, self.agent.pk)
+
+        self.client.force_login(self.sender)
+        sender_items = self.client.get(self._messages_url()).data["items"]
+        self.assertEqual([row["id"] for row in sender_items], [self.message.pk])
+        self.assertTrue(sender_items[0]["is_deleted"])
+
+        self.client.force_login(self.peer)
+        peer_items = self.client.get(self._messages_url()).data["items"]
+        self.assertEqual(peer_items, [])
 
     @override_settings(OPENAI_API_KEY="test-key")
     @patch("apps.chat.services.screening.requests.post")

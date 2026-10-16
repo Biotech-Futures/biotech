@@ -172,7 +172,28 @@ export const ticketDetailSchema = z.object({
     .object({
       status: z.enum(['flagged', 'approved', 'rejected']),
       messageId: z.number(),
+      messageText: z.string(),
       suppressed: z.boolean(),
+      sender: personSchema.nullable(),
+      group: z.object({
+        id: z.number(),
+        name: z.string()
+      }),
+      provider: z.string(),
+      category: z.string(),
+      reason: z.string(),
+      screenedAt: z.string().nullable(),
+      conversationContext: z.array(
+        z.object({
+          id: z.number(),
+          author: personSchema.nullable(),
+          messageText: z.string(),
+          sentAt: z.string(),
+          edited: z.boolean(),
+          suppressed: z.boolean(),
+          isTarget: z.boolean()
+        })
+      ),
       reviewedAt: z.string().nullable(),
       reviewedBy: personSchema.nullable()
     })

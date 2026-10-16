@@ -228,10 +228,76 @@ describe('AI screening review', () => {
   const pendingReview = {
     status: 'flagged' as const,
     messageId: 42,
+    messageText: 'I am going to hurt you.',
     suppressed: true,
+    sender: { id: 9, name: 'Ava Nguyen' },
+    group: { id: 41, name: 'Team Biosensor' },
+    provider: 'omni-moderation-latest',
+    category: 'violence',
+    reason: 'OpenAI moderation flagged: harassment, violence',
+    screenedAt: '2026-10-15T01:55:00Z',
+    conversationContext: [
+      {
+        id: 41,
+        author: { id: 8, name: 'Sam Reid' },
+        messageText: 'Can we meet tomorrow?',
+        sentAt: '2026-10-15T01:50:00Z',
+        edited: false,
+        suppressed: false,
+        isTarget: false
+      },
+      {
+        id: 42,
+        author: { id: 9, name: 'Ava Nguyen' },
+        messageText: 'I am going to hurt you.',
+        sentAt: '2026-10-15T01:55:00Z',
+        edited: false,
+        suppressed: true,
+        isTarget: true
+      },
+      {
+        id: 43,
+        author: { id: 8, name: 'Sam Reid' },
+        messageText: 'What do you mean?',
+        sentAt: '2026-10-15T01:56:00Z',
+        edited: false,
+        suppressed: false,
+        isTarget: false
+      }
+    ],
     reviewedAt: null,
     reviewedBy: null
   }
+
+  it('merges review evidence and history into one page without conversation tabs', async () => {
+    api.fetchTicketHistory.mockResolvedValue([historyEntry({ action: 'create', actor: null })])
+    const panel = await openPanel(
+      ticketWith({ channel: 'ai_screening', screeningReview: pendingReview })
+    )
+
+    expect(panel.page.get('[data-screening-target="true"] p').text()).toBe(
+      'I am going to hurt you.'
+    )
+    expect(panel.page.findAll('.ticket-panel__context-message').map((row) => row.get('p').text())).toEqual([
+      'Can we meet tomorrow?',
+      'I am going to hurt you.',
+      'What do you mean?'
+    ])
+    expect(fact(panel, 'Sender')).toBe('Ava Nguyen')
+    expect(fact(panel, 'Group')).toBe('Team Biosensor (ID 41)')
+    expect(fact(panel, 'Category')).toBe('Violence')
+    expect(fact(panel, 'Reason')).toBe('OpenAI moderation flagged: harassment, violence')
+    expect(panel.page.text()).not.toContain('Detected by')
+    expect(panel.page.text()).not.toContain('Raised')
+    expect(panel.page.text()).not.toContain('Screened')
+    expect(panel.page.get('.ticket-panel__screening-approve').text()).toBe('Approve')
+    expect(panel.page.get('.ticket-panel__screening-delete').text()).toBe('Delete')
+    expect(panel.page.find('[role="tablist"]').exists()).toBe(false)
+    expect(panel.page.find(REPLY).exists()).toBe(false)
+    expect(panel.page.find(NOTE).exists()).toBe(false)
+    expect(panel.page.get('.ticket-history').text()).toContain('Created')
+    expect(api.fetchTicketHistory).toHaveBeenCalledWith(7)
+  })
 
   it('approves and restores a suppressed message from its ticket', async () => {
     const reviewed = ticketWith({
@@ -259,8 +325,19 @@ describe('AI screening review', () => {
     expect(panel.wrapper.emitted('changed')).toHaveLength(1)
   })
 
-  it('requires confirmation before deleting a suppressed message', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('deletes a suppressed message immediately without a browser confirmation', async () => {
+    const reviewed = ticketWith({
+      status: 'resolved',
+      screeningReview: {
+        ...pendingReview,
+        status: 'rejected',
+        suppressed: false,
+        reviewedAt: '2026-10-15T02:00:00Z',
+        reviewedBy: { id: 1, name: 'Sam Reid' }
+      }
+    })
+    api.reviewScreeningMessage.mockResolvedValue(reviewed)
+    const confirm = vi.spyOn(window, 'confirm')
     const panel = await openPanel(
       ticketWith({ channel: 'ai_screening', screeningReview: pendingReview })
     )
@@ -268,8 +345,12 @@ describe('AI screening review', () => {
     await panel.page.get('.ticket-panel__screening-delete').trigger('click')
     await flushPromises()
 
-    expect(confirm).toHaveBeenCalledOnce()
-    expect(api.reviewScreeningMessage).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(api.reviewScreeningMessage).toHaveBeenCalledWith(7, 'delete')
+    expect(panel.page.get('.ticket-panel__screening-complete').text().replace(/\s+/g, ' ')).toBe(
+      'Message deleted by Sam Reid.'
+    )
+    expect(panel.wrapper.emitted('changed')).toHaveLength(1)
   })
 })
 

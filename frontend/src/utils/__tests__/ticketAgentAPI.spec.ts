@@ -500,17 +500,37 @@ describe('one ticket', () => {
   })
 
   it('records an AI screening decision through the ticket endpoint', async () => {
-    answer(ok({
-      ...DETAIL,
-      status: 'resolved',
-      screeningReview: {
-        status: 'approved',
-        messageId: 91,
-        suppressed: false,
-        reviewedAt: '2026-10-15T02:00:00Z',
-        reviewedBy: { id: 7, name: 'Sam Reid' }
-      }
-    }))
+    answer(
+      ok({
+        ...DETAIL,
+        status: 'resolved',
+        screeningReview: {
+          status: 'approved',
+          messageId: 91,
+          messageText: 'The message as it was screened.',
+          suppressed: false,
+          sender: { id: 12, name: 'Ava Nguyen' },
+          group: { id: 41, name: 'Team Biosensor' },
+          provider: 'omni-moderation-latest',
+          category: 'violence',
+          reason: 'OpenAI moderation flagged: violence',
+          screenedAt: '2026-10-15T01:55:00Z',
+          conversationContext: [
+            {
+              id: 91,
+              author: { id: 12, name: 'Ava Nguyen' },
+              messageText: 'The message as it was screened.',
+              sentAt: '2026-10-15T01:54:00Z',
+              edited: false,
+              suppressed: false,
+              isTarget: true
+            }
+          ],
+          reviewedAt: '2026-10-15T02:00:00Z',
+          reviewedBy: { id: 7, name: 'Sam Reid' }
+        }
+      })
+    )
 
     const ticket = await reviewScreeningMessage(42, 'approve')
 

@@ -99,17 +99,15 @@ def _evidence_body(ticket, *, message, verdict, text_snapshot, group, sender) ->
         "Message as it read when it was flagged:",
         text_snapshot or "",
         "",
-        "Review it here:",
+        "Review it in this ticket:",
         # The queue page opens the detail as a slide-over panel rather than
         # its own route, so this link only works if that panel honours
         # ?ticket=<id>. Hash routing, like every other portal link we send
         # (emails._ticket_url): without the "#" the portal's router never
         # sees the path and sends the agent to its login page instead.
-        f"1. This ticket: {portal_base}/#/admin/tickets?ticket={ticket.pk}",
-        # Group messages are a modal inside the admin groups list and have no
-        # address of their own, so this half is directions rather than a link.
-        f"2. The conversation: Admin → Groups → {group_name} "
-        f"(group id {group_id}) → Messages",
+        f"{portal_base}/#/admin/tickets?ticket={ticket.pk}",
+        "Use Approve to restore the message, or Delete to remove it. "
+        "Do not make the moderation decision from the group conversation.",
     ]
     return "\n".join(lines)
 
