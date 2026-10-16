@@ -13,7 +13,7 @@ from django.conf import settings
 from apps.services.system_email import FAILED, send_system_email
 from apps.users.models import User
 
-from .models import Events
+from .models import EventRsvp, Events
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,10 @@ def notify_waitlist_promoted(*, event_id, user_id):
     Failures are logged and swallowed — a missed email is annoying but
     must not roll back the promotion, which has already happened.
     """
+    if not EventRsvp.objects.filter(
+        event_id=event_id, user_id=user_id, rsvp_status=EventRsvp.RsvpStatus.ACCEPTED
+    ).exists():
+        return
     event = Events.objects.filter(pk=event_id, deleted_at__isnull=True).first()
     user = User.objects.filter(pk=user_id).first()
     if event is None or user is None:
