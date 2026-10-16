@@ -19,24 +19,6 @@
 </template>
 
 <script lang="ts">
-import type { Ref } from 'vue'
-
-/** A teammate's cursor, by where it falls in the box's shown text. */
-export interface PlacedCursor {
-  id: number
-  name: string
-  index: number
-  /** When their current run of typing began. */
-  startedAt: number | null
-}
-
-/** One box's teammates' cursors, and what the box shows. */
-export interface CursorSource {
-  target: () => HTMLInputElement | HTMLTextAreaElement | null
-  text: Ref<string>
-  cursors: Ref<PlacedCursor[]>
-}
-
 /** A teammate's name shows beside their cursor this long after they start typing, then goes even if they carry on. */
 export const LABEL_MS = 2000
 </script>
@@ -47,6 +29,7 @@ export const LABEL_MS = 2000
  * invisible copy of the box's text, laid out exactly as the box lays it out, tells where each falls.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
+import type { CursorSource } from '@/composables/useCoeditedFields'
 
 const props = defineProps<{ source: CursorSource }>()
 

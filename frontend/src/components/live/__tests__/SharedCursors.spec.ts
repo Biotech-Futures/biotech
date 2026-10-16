@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
-import SharedCursors, { LABEL_MS, type PlacedCursor } from '@/components/live/SharedCursors.vue'
+import SharedCursors, { LABEL_MS } from '@/components/live/SharedCursors.vue'
+import type { PlacedCursor } from '@/composables/useCoeditedFields'
 
 /** The test browser lays nothing out, so each element reports a size; markers sit at `top` by cursor id. */
 const tops: Record<string, number> = {}

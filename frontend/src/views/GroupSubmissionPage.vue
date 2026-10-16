@@ -611,18 +611,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, effectScope, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
 import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
-import SharedCursors, { type CursorSource, type PlacedCursor } from '@/components/live/SharedCursors.vue'
+import SharedCursors from '@/components/live/SharedCursors.vue'
 import PosterChecklist from '@/components/submission/PosterChecklist.vue'
 import AdminSubmissionBar from '@/components/submission/AdminSubmissionBar.vue'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
 import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
-import { useSharedDoc } from '@/composables/useSharedDoc'
-import { SharedTextField } from '@/utils/sharedText'
+import { useCoeditedFields } from '@/composables/useCoeditedFields'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatDayMonthTime } from '@/utils/date'
@@ -819,204 +818,55 @@ const ANSWER_ROWS = 7
 /** Heights people have stretched answer boxes to, by question. */
 const boxHeights = reactive<Record<string, number>>({})
 
-const shared = useSharedDoc(live, coediting)
-/** Marks edits typed on this page, so undo covers this person's typing only. */
-const TYPED_HERE = {}
-const sharedFields = new Map<string, SharedTextField>()
-/** Teams type into the shared document; an admin edits privately, as without co-editing. */
-const teamCoediting = computed(() => coediting.value && !adminAccess.value)
-/** The live connection could not be made, so this person types and saves as without co-editing. */
-const liveUnavailable = ref(false)
-const typingShared = computed(() => teamCoediting.value && !liveUnavailable.value)
-const savingWithoutLive = computed(() => teamCoediting.value && liveUnavailable.value)
-/** Read-only until the shared document has arrived and the server allows editing it. */
-const textEditable = computed(
-  () => isEditable.value && (!typingShared.value || (shared.synced.value && shared.editable.value))
-)
-const coeditNote = computed(() => {
-  if (!teamCoediting.value || !isEditable.value) return ''
-  if (liveUnavailable.value) {
-    return "Live editing isn't available on this connection. Your changes are still saved, and your team's appear every few seconds."
-  }
-  if (!shared.synced.value) return "Connecting to your team's live answers…"
-  return shared.editable.value ? '' : "Your team's answers can't be edited right now."
-})
-
-function sharedName(field: string): string {
-  return field === TITLE_FIELD ? 'title' : `answer:${field}`
-}
-
-function bindSharedFields() {
-  sharedFields.forEach((field) => field.destroy())
-  sharedFields.clear()
-  // Without the live connection the boxes are the page's own, so a returning shared copy cannot overwrite them.
-  if (!coediting.value || liveUnavailable.value) return
-  for (const field of [TITLE_FIELD, ...questions.value.map((q) => q.key)]) {
-    const source = cursorSource(field)
-    const bound = new SharedTextField(
-      shared.text(sharedName(field)),
-      TYPED_HERE,
-      source.target,
-      (value) => showShared(field, value),
-      (value) => (source.text.value = value)
-    )
-    sharedFields.set(field, bound)
-    source.text.value = bound.value
-  }
-  boundFields.value += 1
-  // A new copy of the document: this person's cursor is placed in it afresh.
-  if (cursorField) shareCursor(cursorField)
-}
-
-/** Bumped as boxes are bound to a new copy of the document, so cursors are placed in it. */
-const boundFields = ref(0)
-/** The box this person's cursor was last shared in, so leaving it can clear it for teammates. */
-let cursorField: string | null = null
-const cursorScope = effectScope()
-const cursorSources = new Map<string, CursorSource>()
-
-/** What a box shows and where teammates' cursors fall in it, for the cursors drawn over it. */
-function cursorSource(field: string): CursorSource {
-  const existing = cursorSources.get(field)
-  if (existing) return existing
-  const text: Ref<string> = ref('')
-  const cursors = cursorScope.run(() =>
-    computed<PlacedCursor[]>(() => {
-      void text.value
-      void boundFields.value
-      const bound = sharedFields.get(field)
-      if (!bound || !typingShared.value) return []
-      return live.cursorsIn(field).flatMap((cursor) => {
-        const index = bound.positionOf(cursor.at)
-        return index === null ? [] : [{ id: cursor.id, name: cursor.name, index, startedAt: cursor.startedAt }]
-      })
-    })
-  )!
-  const source: CursorSource = {
-    target: () => document.getElementById(field) as HTMLInputElement | HTMLTextAreaElement | null,
-    text,
-    cursors
-  }
-  cursorSources.set(field, source)
-  return source
-}
-
-/** Shares where this person's cursor is in `field`; `typed` when typing moved it. */
-function shareCursor(field: string, typed = false) {
-  if (!typingShared.value || !textEditable.value) return
-  const at = sharedFields.get(field)?.cursorAt()
-  if (!at) return
-  cursorField = field
-  live.sendCursor(field, at, typed)
-}
-
-function enterField(field: string) {
-  // Text still easing in is shown in full first, so typing starts from all of it.
-  sharedFields.get(field)?.settle()
-  shareCursor(field)
-}
-
-function leaveField(field: string) {
-  if (cursorField !== field) return
-  cursorField = null
-  live.sendCursor(field, null)
-}
-
-// Submitting or the deadline makes the boxes read-only, so the cursor goes too.
-watch(textEditable, (editable) => {
-  if (!editable && cursorField) leaveField(cursorField)
-})
-onBeforeUnmount(() => cursorScope.stop())
-
-/** The shared text is what the server saves, so it counts as saved here. */
-function showShared(field: string, value: string) {
-  // The submitted copy, an admin's private edits, a half-arrived document, or typing saved without
-  // the live connection are not overwritten.
-  if (showsSubmittedCopy.value || adminEditing.value || !shared.synced.value || liveUnavailable.value) return
-  if (field === TITLE_FIELD) {
-    projectTitle.value = value
-    savedTitle = value
-  } else {
-    answers[field] = value
-    savedAnswers[field] = value
-  }
-}
-
-function showAllShared() {
-  sharedFields.forEach((field, name) => showShared(name, field.value))
-}
-
-shared.onReplaced(() => bindSharedFields())
-// Bound again only when the questions themselves change, not on every refresh, so undo history and
-// text easing in survive a teammate's tick or upload.
-watch([coediting, () => questions.value.map((q) => q.key).join('|')], () => bindSharedFields())
-watch(
-  () => shared.synced.value,
-  (synced) => {
-    if (synced) showAllShared()
-  }
-)
-/** How long the live connection may take before typing carries on without it. */
-const LIVE_FALLBACK_MS = 10_000
-/** How often a page saving without the live connection brings in the team's saved changes. */
-const FALLBACK_CATCH_UP_MS = 10_000
-let fallbackTimer: ReturnType<typeof setTimeout> | null = null
-let fallbackCatchUp: ReturnType<typeof setInterval> | null = null
-let leavingFallback = false
-
-/** Waits for the live connection while the boxes are read-only, and switches back once it is made. */
-function checkLiveConnection() {
-  const waiting =
-    typingShared.value && isEditable.value && !shared.synced.value && document.visibilityState === 'visible'
-  if (!waiting && fallbackTimer) {
-    clearTimeout(fallbackTimer)
-    fallbackTimer = null
-  }
-  if (waiting && !fallbackTimer) fallbackTimer = setTimeout(startSavingWithoutLive, LIVE_FALLBACK_MS)
-  if (savingWithoutLive.value && shared.synced.value) void stopSavingWithoutLive()
-}
-
-function startSavingWithoutLive() {
-  fallbackTimer = null
-  const wasSaved = currentSnapshot() === savedSnapshot.value
-  liveUnavailable.value = true
-  bindSharedFields()
-  // The boxes become the page's own copy, as without co-editing, starting out saved.
-  if (wasSaved) savedSnapshot.value = currentSnapshot()
-  void catchUp()
-}
-
-/** Back on the live connection: typing done meanwhile is saved first, then the shared copy takes over. */
-async function stopSavingWithoutLive() {
-  if (leavingFallback) return
-  leavingFallback = true
-  try {
-    if (autosaveTimer) {
-      clearTimeout(autosaveTimer)
-      autosaveTimer = null
+const {
+  shared,
+  typingShared,
+  savingWithoutLive,
+  textEditable,
+  note: coeditNote,
+  showAll: showAllShared,
+  cursorSource,
+  shareCursor,
+  enterField,
+  leaveField,
+  input: typeIntoShared,
+  startComposing,
+  endComposing,
+  onFieldKeydown
+} = useCoeditedFields({
+  live,
+  coediting,
+  adminAccess,
+  isEditable,
+  boxes: computed(() => [TITLE_FIELD, ...questions.value.map((q) => q.key)]),
+  sharedName: (box) => (box === TITLE_FIELD ? 'title' : `answer:${box}`),
+  // The submitted copy, or an admin's private edits, are not overwritten.
+  mayShow: () => !showsSubmittedCopy.value && !adminEditing.value,
+  showSaved: (box, value) => {
+    if (box === TITLE_FIELD) {
+      projectTitle.value = value
+      savedTitle = value
+    } else {
+      answers[box] = value
+      savedAnswers[box] = value
     }
-    await persistDraft()
-    // A failed save, or typing that landed meanwhile, keeps this page as it is until the next try.
-    if (currentSnapshot() !== savedSnapshot.value || !shared.synced.value) return
-    liveUnavailable.value = false
-    shared.restart()
-  } finally {
-    leavingFallback = false
+  },
+  fallback: {
+    keepSaved: (change) => {
+      const wasSaved = currentSnapshot() === savedSnapshot.value
+      change()
+      if (wasSaved) savedSnapshot.value = currentSnapshot()
+    },
+    saveTyping: async () => {
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer)
+        autosaveTimer = null
+      }
+      await persistDraft()
+      return currentSnapshot() === savedSnapshot.value
+    },
+    catchUp: () => catchUp()
   }
-}
-
-watch([typingShared, isEditable, () => shared.synced.value], checkLiveConnection, { immediate: true })
-document.addEventListener('visibilitychange', checkLiveConnection)
-watch(savingWithoutLive, (on) => {
-  if (fallbackCatchUp) clearInterval(fallbackCatchUp)
-  fallbackCatchUp = on
-    ? setInterval(() => void (shared.synced.value ? stopSavingWithoutLive() : catchUp()), FALLBACK_CATCH_UP_MS)
-    : null
-})
-onBeforeUnmount(() => {
-  if (fallbackTimer) clearTimeout(fallbackTimer)
-  if (fallbackCatchUp) clearInterval(fallbackCatchUp)
-  document.removeEventListener('visibilitychange', checkLiveConnection)
 })
 
 // Submitting, reopening or the deadline change what may be edited, so the server is asked again.
@@ -1024,27 +874,10 @@ watch([() => isLocked.value, () => isOpen.value], () => {
   if (typingShared.value) shared.resync()
 })
 
-function startComposing(field: string, event: CompositionEvent) {
-  if (typingShared.value) sharedFields.get(field)?.startComposition(event.target as HTMLTextAreaElement)
-}
-
-function endComposing(field: string, event: CompositionEvent) {
-  if (typingShared.value) sharedFields.get(field)?.endComposition(event.target as HTMLTextAreaElement)
-}
-
-function onFieldKeydown(field: string, event: KeyboardEvent) {
-  if (typingShared.value) sharedFields.get(field)?.keydown(event)
-}
-
 function shareTyping(field: string, event: Event) {
-  const input = event.target as HTMLInputElement | HTMLTextAreaElement
-  if (typingShared.value) {
-    sharedFields.get(field)?.input(input)
-    live.sendTyping(field)
-    shareCursor(field, true)
-    return
-  }
+  if (typeIntoShared(field, event)) return
   if (adminAccess.value) return
+  const input = event.target as HTMLInputElement | HTMLTextAreaElement
   live.sendTyping(field)
   live.sendText(field, input.value, input.selectionStart ?? input.value.length)
 }
@@ -2218,7 +2051,6 @@ window.addEventListener('focus', onPageVisible)
 document.addEventListener('visibilitychange', onPageVisible)
 
 onBeforeUnmount(() => {
-  sharedFields.forEach((field) => field.destroy())
   removeLeaveGuard()
   window.removeEventListener('beforeunload', warnBeforeUnload)
   clearPending()
