@@ -13,6 +13,8 @@ from .views import (
     GradingSettingsView,
     BounceCheckTriggerView,
     RegistrationOpenView,
+    RegistrationSupervisorsView,
+    RegistrationSupervisorView,
     SupervisorPagesView,
     SupervisorResultsCertificatesZipView,
     SupervisorResultsCertificateView,
@@ -68,6 +70,13 @@ urlpatterns = [
     path("settings/", GradingSettingsView.as_view(), name="settings"),
     path("supervisor-pages/", SupervisorPagesView.as_view(), name="supervisor-pages"),
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
+    # Registration Visibility > Supervisors After Close.
+    path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
+    path(
+        "registration-supervisors/<int:user_id>/",
+        RegistrationSupervisorView.as_view(),
+        name="registration-supervisor",
+    ),
     path("bounce-check/", BounceCheckTriggerView.as_view(), name="bounce-check"),
     # Which placeholders the active template actually contains.
     path(

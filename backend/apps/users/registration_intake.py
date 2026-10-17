@@ -295,11 +295,20 @@ def invitation_token(invitation):
     return invitation_signer().sign(value)
 
 
+def _registered_email(invitation) -> str:
+    """The email of the student who registered with a late link; "" until used."""
+    try:
+        return invitation.registrationsubmission.student.email
+    except RegistrationSubmission.DoesNotExist:
+        return ""
+
+
 def invitation_payload(invitation, now):
     token = invitation_token(invitation)
     recoverable = hmac.compare_digest(token_hash(token), invitation.token_hash)
     return {
         "id": invitation.pk, "journey": invitation.journey,
+        "email": _registered_email(invitation),
         "created_at": invitation.created_at, "expires_at": invitation.expires_at,
         "revoked_at": invitation.revoked_at, "used_at": invitation.used_at,
         "status": invitation.status_at(now) if recoverable else "signing_key_changed",
@@ -391,6 +400,17 @@ def current_window(*, lock=False):
     return window
 
 
+def registers_after_close(user) -> bool:
+    """Whether ``user`` can register students while registration is closed by
+    its dates: an admin, or a supervisor an admin has let (Management >
+    Registration Visibility > Supervisors After Close)."""
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if is_admin(user):
+        return True
+    return SupervisorProfile.objects.filter(user=user, register_after_close=True).exists()
+
+
 def valid_invitation(token, window, now, *, journey=JOURNEY):
     if not token:
         return None
@@ -472,12 +492,6 @@ def authenticated_supervisor(request):
         or not (user_has_role(user, ROLE_SUPERVISOR) or is_admin(user) or user.is_staff or user.is_superuser)
     ):
         raise PermissionDenied("An authenticated current supervisor is required.")
-    # Hidden by Management > Supervisor Visibility: supervisors can't register
-    # students (admins still can).
-    from apps.management.models import SupervisorPagesSetting
-
-    if not is_admin(user) and not SupervisorPagesSetting.load().registration_shown:
-        raise PermissionDenied("Registering students is closed for supervisors. Contact BIOTech Support.")
     profile = SupervisorProfile.objects.filter(user=user).first()
     if profile is None:
         raise PermissionDenied("An existing supervisor profile is required.")
@@ -650,13 +664,10 @@ def register(request):
                 return Response(receipt(previous))
             now = timezone.now()
             invitation = valid_invitation(raw_token, window, now, journey=journey)
-            if not window.is_open(now) and invitation is None:
-                raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
-            # Closed to the public (Management > Registration): students can't
-            # register themselves, but a late link still can.
-            from apps.management.models import PublicRegistrationSetting
-
-            if journey not in SUPERVISOR_JOURNEYS and invitation is None and not PublicRegistrationSetting.load().open:
+            # Closed by its dates: but for a late link, or a supervisor let
+            # register their students after it closes.
+            after_close = journey in SUPERVISOR_JOURNEYS and registers_after_close(request.user)
+            if not window.is_open(now) and invitation is None and not after_close:
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
             # A student joining a group by its code: checked before anything's saved.
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
@@ -872,7 +883,11 @@ class RegistrationManagementView(APIView):
             page = serializers.IntegerField(min_value=1).run_validation(request.query_params.get("page", 1))
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"page": exc.detail})
-        invitations = RegistrationInvitation.objects.filter(window=window).order_by("-created_at", "-id")
+        invitations = (
+            RegistrationInvitation.objects.filter(window=window)
+            .select_related("registrationsubmission__student")
+            .order_by("-created_at", "-id")
+        )
         now = timezone.now()
         return Response({
             "window": WindowInput(window).data,

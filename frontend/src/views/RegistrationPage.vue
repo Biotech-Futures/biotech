@@ -113,16 +113,21 @@
       </section>
     </div>
 
-    <!-- Closed to the public (Management > Registration): a late link, or a
-         supervisor, still registers. -->
+    <!-- Closed by its dates (Management > Registration Visibility): to the
+         public, but for a late link; to a supervisor, unless let register
+         after them. -->
     <section v-else-if="registrationClosed" class="setup-layout" aria-labelledby="closed-title">
-      <RouterLink to="/login" class="btn btn-outline back-button setup-back">
+      <RouterLink v-if="!isSupervisorMode" to="/login" class="btn btn-outline back-button setup-back">
         <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
       </RouterLink>
       <header class="page-header">
         <h1 id="closed-title" class="page-title">Registration is closed</h1>
       </header>
-      <p class="supervisor-guidance">
+      <p v-if="isSupervisorMode" class="supervisor-guidance">
+        Registration has closed, so students can't be registered here. If you need to register
+        more students, contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
+      </p>
+      <p v-else class="supervisor-guidance">
         Registration isn't open at the moment. If you have a late link, use it to register, or
         contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
       </p>
@@ -1466,10 +1471,11 @@ const props = withDefaults(
   { mode: 'canonical' },
 )
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
-// Management > Registration: closed, the public can't register themselves
-// (a late link still can, and supervisors register their students as ever).
-const { open: publicRegistrationOpen } = useRegistrationOpen()
-if (props.mode !== 'supervisor') void loadRegistrationOpen(true)
+// Management > Registration Visibility: closed by the year's dates, the public
+// can't register themselves (a late link still can), nor supervisors register
+// their students, unless let register after them.
+const { openNow: publicRegistrationOpen, canRegisterStudents } = useRegistrationOpen()
+void loadRegistrationOpen(true)
 const invitationToken = computed(() =>
   props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
 )
@@ -1631,7 +1637,9 @@ const selectedJourney = computed(() =>
   journey.value ? journeyOptions.find((option) => option.value === journey.value) : undefined,
 )
 const registrationClosed = computed(
-  () => !isSupervisorMode.value && !invitationToken.value && !publicRegistrationOpen.value,
+  () =>
+    !invitationToken.value &&
+    (isSupervisorMode.value ? !canRegisterStudents.value : !publicRegistrationOpen.value),
 )
 const visibleRoleOptions = computed(() =>
   roleOptions.filter(

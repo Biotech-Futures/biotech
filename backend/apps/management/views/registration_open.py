@@ -1,34 +1,43 @@
-"""Management's Registration switch: whether registration is open to the
-public. Open until an admin closes it; while closed, the sign-in page has no
-Register now and students can't register themselves (a late link still can)."""
+"""Whether registration is open, by the year's dates (Management >
+Registration Visibility > Registration Dates): for the sign-in page's Register
+now and the registration page. While closed, students can't register
+themselves (a late link still can), nor supervisors register students, but
+for those let register after it closes (Supervisors After Close)."""
 from __future__ import annotations
 
-from rest_framework import permissions, status
+from django.utils import timezone
+from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.rbac import is_admin
+from apps.users.models import SupervisorProfile
+from apps.users.registration_intake import current_window, registers_after_close
 
-from ..models import PublicRegistrationSetting
+
+def registration_state(user) -> dict:
+    """Whether the public can register now (``open_now``), the dates, and, for
+    a supervisor or an admin, whether they can register students now
+    (``can_register_students``)."""
+    window = current_window()
+    within_dates = window.is_open(timezone.now())
+    state = {
+        "open_now": within_dates,
+        "opens_at": window.opens_at,
+        "closes_at": window.closes_at,
+    }
+    if getattr(user, "is_authenticated", False) and (
+        is_admin(user) or SupervisorProfile.objects.filter(user=user).exists()
+    ):
+        state["can_register_students"] = within_dates or registers_after_close(user)
+    return state
 
 
 class RegistrationOpenView(APIView):
-    """GET ``{"open": bool}`` for anyone, signed in or not, so the sign-in and
-    registration pages can follow it; PUT ``{"open": bool}`` for admins only."""
+    """GET ``registration_state`` for anyone, signed in or not, so the sign-in
+    and registration pages can follow it."""
 
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        return Response({"open": PublicRegistrationSetting.load().open})
-
-    def put(self, request):
-        if not is_admin(request.user):
-            return Response({"detail": "Admin access is required."}, status=status.HTTP_403_FORBIDDEN)
-        value = request.data.get("open")
-        if not isinstance(value, bool):
-            return Response({"detail": "open must be true or false."}, status=status.HTTP_400_BAD_REQUEST)
-        setting = PublicRegistrationSetting.load()
-        setting.open = value
-        setting.updated_by = request.user
-        setting.save()
-        return Response({"open": setting.open})
+        return Response(registration_state(request.user))

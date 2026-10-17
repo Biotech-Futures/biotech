@@ -57,7 +57,7 @@
               <!-- Only Group and the marks, or every column again. -->
               <button
                 type="button"
-                class="btn btn-outline"
+                class="btn btn-outline btn-sm"
                 :aria-pressed="marksOnly"
                 data-test="marks-only"
                 @click="marksOnly = !marksOnly"
@@ -66,7 +66,7 @@
               </button>
               <button
                 type="button"
-                class="btn btn-primary"
+                class="btn btn-primary btn-sm"
                 :disabled="!results.groups.length || downloading === SHEET"
                 @click="downloadSheet"
               >
@@ -97,7 +97,7 @@
           <template #search-side>
             <button
               type="button"
-              class="btn btn-primary"
+              class="btn btn-primary btn-sm"
               :disabled="!downloadable || downloading === ALL"
               @click="downloadAll"
             >

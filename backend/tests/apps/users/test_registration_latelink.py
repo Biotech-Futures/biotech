@@ -207,6 +207,9 @@ class ManagementTests(RegistrationSetup, TestCase):
             items = {item["id"]: item for item in self.staff_client.get(MANAGEMENT).data["invitations"]}
         self.assertEqual(items[used["id"]]["status"], "used")
         self.assertEqual(items[expired["id"]]["status"], "expired")
+        # Who registered with each: the used link's student, none yet for the other.
+        registered = RegistrationSubmission.objects.get(invitation_id=used["id"]).student.email
+        self.assertEqual((items[used["id"]]["email"], items[expired["id"]]["email"]), (registered, ""))
 
     def test_invalid_or_wrong_year_revoke_ids_are_rejected(self):
         for value in (None, "", 0, [], "abc"):

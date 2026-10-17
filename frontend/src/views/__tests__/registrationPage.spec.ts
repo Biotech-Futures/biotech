@@ -6,7 +6,10 @@ import RegistrationPage from '@/views/RegistrationPage.vue'
 import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
-import { setRegistrationOpen } from '@/composables/useRegistrationOpen'
+import { setRegistrationState } from '@/composables/useRegistrationOpen'
+
+// Registration as it is by default: open, with no dates.
+const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
 
 const mountPage = (mode: 'canonical' | 'supervisor' = 'canonical') =>
   mount(RegistrationPage, {
@@ -255,11 +258,11 @@ describe('canonical registration intake', () => {
       window.history.replaceState({}, '', previous)
     }
   })
-  it('says registration is closed while Management > Registration has closed it', async () => {
+  it('says registration is closed while its dates have closed it', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
-        new Response(JSON.stringify(String(url).includes('/registration-open/') ? { open: false } : {})),
+        new Response(JSON.stringify(String(url).includes('/registration-open/') ? { open_now: false } : {})),
       ),
     )
     const wrapper = mountPage()
@@ -274,7 +277,35 @@ describe('canonical registration intake', () => {
       supervisor.unmount()
     } finally {
       wrapper.unmount()
-      setRegistrationOpen(true)
+      setRegistrationState(OPEN)
+    }
+  })
+
+  it("closes a supervisor's registration once its dates have, unless they're let register after", async () => {
+    const closed = { open_now: false, opens_at: null, closes_at: '2026-10-01T00:00:00Z' }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        new Response(
+          JSON.stringify(
+            String(url).includes('/registration-open/') ? { ...closed, can_register_students: false } : {},
+          ),
+        ),
+      ),
+    )
+    const supervisor = mountPage('supervisor')
+    try {
+      await flushPromises()
+      expect(supervisor.get('.page-title').text()).toBe('Registration is closed')
+      expect(supervisor.text()).toContain("students can't be registered here")
+      // No Back to the sign-in page from the portal.
+      expect(supervisor.find('.setup-back').exists()).toBe(false)
+      setRegistrationState({ ...closed, can_register_students: true })
+      await flushPromises()
+      expect(supervisor.text()).not.toContain('Registration is closed')
+    } finally {
+      supervisor.unmount()
+      setRegistrationState(OPEN)
     }
   })
 

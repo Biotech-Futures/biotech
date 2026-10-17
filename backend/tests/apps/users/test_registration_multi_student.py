@@ -426,22 +426,3 @@ class MultiStudentPhotoTests(MultiStudentSetup, TestCase):
         self.assertFalse(StudentProfile.objects.exists())
         self.assertFalse(Groups.objects.exists())
 
-
-class SupervisorRegistrationHiddenTests(MultiStudentSetup, TestCase):
-    """Management > Supervisor Visibility can hide supervisors' Registration
-    page: while hidden, they can't register students."""
-
-    def test_a_supervisor_cant_register_while_it_is_hidden(self):
-        from apps.management.models import SupervisorPagesSetting
-
-        setting = SupervisorPagesSetting.load()
-        setting.registration_shown = False
-        setting.save()
-        response = self.post_batch(batch("supervisor_individual"))
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(StudentProfile.objects.exists())
-
-        setting.registration_shown = True
-        setting.save()
-        response = self.post_batch(batch("supervisor_individual"))
-        self.assertEqual(response.status_code, 201, response.data)
