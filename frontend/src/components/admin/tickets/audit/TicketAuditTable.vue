@@ -122,7 +122,7 @@ withDefaults(
   --audit-muted: var(--text-muted);
   --audit-link: var(--mint-green);
   --audit-head: var(--light-green);
-  --audit-head-ink: var(--charcoal);
+  --audit-head-ink: var(--teal);
   --audit-rule: var(--border-light);
 
   border-color: var(--border-light);

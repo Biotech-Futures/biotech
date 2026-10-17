@@ -165,7 +165,7 @@ async function backToPresets() {
   border: 1px solid var(--page-size-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
 }

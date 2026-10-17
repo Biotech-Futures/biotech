@@ -37,7 +37,7 @@ def hours(n):
 
 class AnalyticsTestCase(TestCase):
     def setUp(self):
-        self.australia = Countries.objects.create(country_name="Australia")
+        self.australia = Countries.objects.get_or_create(country_name="Australia")[0]
         self.student_role = Roles.objects.create(role_name="Student")
 
         self.requester = User.objects.create_user(

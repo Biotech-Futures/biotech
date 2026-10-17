@@ -130,7 +130,7 @@ const tabs = [
 /* Hover sets background AND colour so no global rule can combine into
    green-on-green. */
 .tickets-section__switch:hover:not(.active) {
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--accent-green-soft);
 }
 

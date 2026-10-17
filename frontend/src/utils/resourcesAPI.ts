@@ -145,6 +145,10 @@ export interface Resource {
   download_url?: string | null
   storage_status?: 'unavailable' | 'external_url' | 'managed_key' | string
   labels?: ResourceLabel[]
+  has_slides?: boolean
+  slides_mime_type?: string | null
+  slides_file_size?: number | null
+  slides_download_url?: string | null
   visible_roles?: Array<{
     id: number
     role_name: string
@@ -165,6 +169,10 @@ export interface ResourceAccess {
   file_size: number | null
   body_html?: string | null
   detail: string | null
+  has_slides?: boolean
+  slides_mime_type?: string | null
+  slides_file_size?: number | null
+  slides_download_url?: string | null
 }
 
 export async function fetchResources(params?: {
@@ -173,6 +181,7 @@ export async function fetchResources(params?: {
   uploader_id?: number
   type?: string
   label_id?: number
+  kind?: string
   since?: string
   until?: string
   order?: 'newest' | 'oldest' | 'name'
@@ -186,6 +195,7 @@ export async function fetchResources(params?: {
   if (params?.uploader_id) queryParams.append('uploader_id', params.uploader_id.toString())
   if (params?.type) queryParams.append('type', params.type)
   if (params?.label_id) queryParams.append('label_id', params.label_id.toString())
+  if (params?.kind) queryParams.append('kind', params.kind)
   if (params?.since) queryParams.append('since', params.since)
   if (params?.until) queryParams.append('until', params.until)
   if (params?.order) queryParams.append('order', params.order)
@@ -201,8 +211,12 @@ export async function fetchResource(resourceId: number): Promise<Resource> {
   return apiRequest<Resource>(`/resources/resource-files/${resourceId}/`)
 }
 
-export async function fetchResourceAccess(resourceId: number): Promise<ResourceAccess> {
-  return apiRequest<ResourceAccess>(`/resources/resource-files/${resourceId}/access/`)
+export async function fetchResourceAccess(
+  resourceId: number,
+  field?: string
+): Promise<ResourceAccess> {
+  const query = field ? `?field=${encodeURIComponent(field)}` : ''
+  return apiRequest<ResourceAccess>(`/resources/resource-files/${resourceId}/access/${query}`)
 }
 
 function unpackList<T>(data: T[] | { results?: T[] }): T[] {

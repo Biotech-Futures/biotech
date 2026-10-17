@@ -248,7 +248,7 @@ describe('support agents page colours', () => {
         expect({ name, value }).toEqual({
           name,
           value: expect.stringMatching(
-            /^var\(--(roster-muted|roster-danger|roster-warn|roster-head|roster-placeholder|charcoal)\)$/
+            /^var\(--(roster-muted|roster-danger|roster-warn|roster-head|roster-placeholder|teal)\)$/
           )
         })
       }

@@ -113,7 +113,7 @@ async function send() {
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.95rem;
   resize: vertical;
@@ -155,7 +155,7 @@ async function send() {
 }
 
 /* White in both themes, and a hover ground that stays dark: var(--white) and
-   var(--charcoal) swap places in dark, which would put dark text on the
+   var(--teal) swap places in dark, which would put dark text on the
    green, then white text on a pale hover. */
 .reply__send {
   min-height: 2.5rem;

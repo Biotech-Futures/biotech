@@ -247,7 +247,7 @@ function go(target: number, atEdge: boolean) {
 
 .audit-pager__size-label {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -264,7 +264,7 @@ function go(target: number, atEdge: boolean) {
   border: 1px solid var(--audit-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
 }
@@ -298,7 +298,7 @@ function go(target: number, atEdge: boolean) {
   border: 1px solid var(--audit-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
@@ -313,7 +313,7 @@ function go(target: number, atEdge: boolean) {
    green-on-green. */
 .audit-pager__btn:hover:not([aria-disabled='true']):not([aria-current='page']) {
   background: var(--accent-green-soft);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 /* Literal #fff, not var(--white): --white is a surface colour and turns dark
@@ -332,7 +332,7 @@ function go(target: number, atEdge: boolean) {
 
 .audit-pager__ellipsis {
   padding: 0 0.25rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 

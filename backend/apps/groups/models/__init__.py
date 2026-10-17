@@ -1,5 +1,7 @@
 from .groups import (
     GroupAutoNameState,
+    GroupCodeReservation,
+    GroupCodeUnavailable,
     GroupAutoNameUnavailable,
     GroupNameTaken,
     Groups,
@@ -18,6 +20,8 @@ from .country_states import CountryStates
 
 __all__ = [
     'GroupAutoNameState',
+    'GroupCodeReservation',
+    'GroupCodeUnavailable',
     'GroupAutoNameUnavailable',
     'GroupNameTaken',
     'Groups',

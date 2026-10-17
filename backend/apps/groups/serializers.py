@@ -13,15 +13,58 @@ class CountrySerializer(serializers.ModelSerializer):
 class GroupMembershipSerializer(serializers.ModelSerializer):
   user_name = serializers.SerializerMethodField()
   has_logged_in = serializers.SerializerMethodField()
+  student_details = serializers.SerializerMethodField()
+  interests = serializers.SerializerMethodField()
 
   class Meta:
     model = GroupMembership
     fields = [
       'id', 'group', 'user', 'user_name', 'membership_role',
       'joined_at', 'left_at', 'has_logged_in',
+      'student_details', 'interests',
     ]
-    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in']
+    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in', 'interests']
     validators = []
+
+  def get_interests(self, obj) -> list[str]:
+    user = getattr(obj, 'user', None)
+    if user is None:
+      return []
+    if hasattr(user, 'userinterest_set'):
+      return sorted(
+        {
+          ui.interest.interest_desc.strip()
+          for ui in user.userinterest_set.all()
+          if getattr(ui, 'interest', None) and ui.interest.interest_desc
+        },
+        key=str.lower,
+      )
+    from apps.users.models import UserInterest
+    return sorted(
+      {
+        desc.strip()
+        for desc in UserInterest.objects.filter(user_id=obj.user_id)
+        .select_related('interest')
+        .values_list('interest__interest_desc', flat=True)
+        if desc and desc.strip()
+      },
+      key=str.lower,
+    )
+
+  def get_student_details(self, obj):
+    from apps.users.models import StudentProfile
+    try:
+      profile = obj.user.studentprofile
+    except StudentProfile.DoesNotExist:
+      return None
+    supervisor = profile.supervisor.user if profile.supervisor_id else None
+    return {
+      'first_name': obj.user.first_name,
+      'last_name': obj.user.last_name,
+      'year_level': profile.year_lvl,
+      'school': profile.school_name,
+      'supervisor': f'{supervisor.first_name} {supervisor.last_name}'.strip() if supervisor else None,
+    }
 
   def get_has_logged_in(self, obj) -> bool | None:
     # A boolean, never the raw last_login: staff need "have they started?",
@@ -90,8 +133,8 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at']
-    read_only_fields = ['id', 'year', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at', 'formed_by']
+    read_only_fields = ['id', 'year', 'created_at', 'deleted_at', 'formed_by']
     validators = []
     extra_kwargs = {
       'group_name': {'validators': [], 'required': False, 'allow_blank': True},

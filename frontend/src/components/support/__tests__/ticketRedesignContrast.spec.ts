@@ -195,7 +195,7 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     root: '.timeline',
     pairs: [
       ['--timeline-mine-ink', '--timeline-mine', TEXT],
-      ['--charcoal', '--timeline-theirs', TEXT],
+      ['--teal', '--timeline-theirs', TEXT],
       ['--timeline-file', '--white', TEXT],
       ['--timeline-file-edge', '--white', NON_TEXT],
       ['--timeline-file-edge', '--bg-light', NON_TEXT]
@@ -291,7 +291,7 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     root: '.bulk-actions-bar.bulk-assign',
     pairs: [
       ['--bulk-edge', '--white', NON_TEXT],
-      ['--bulk-edge', '--light-green over --bg-light', NON_TEXT]
+      ['--bulk-edge', '--bulk-wash over --bg-light', NON_TEXT]
     ]
   },
   {

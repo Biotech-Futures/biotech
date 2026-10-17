@@ -556,12 +556,15 @@ describe('the focus ring on the queue page', () => {
     const open = wrapper.get('button[aria-label="Open SUP-2026-00002"]').element
     const { colour, around } = ring(open)
 
-    expect(colour).toEqual(parse('#5ea99e'))
+    // The theme's mint, read rather than written out: main retuned it on
+    // 11 October 2026 (#5ea99e to #3ead9f) and the rings follow it.
+    const mint = parse(resolveVars(open, 'var(--mint-green)'))
+    expect(colour).toEqual(mint)
     expect(contrast(parse(resolveVars(open, 'var(--dark-green)')), around)).toBeLessThan(
       AA_NON_TEXT
     )
     for (const element of focusables()) {
-      expect(ring(element).colour).toEqual(parse('#5ea99e'))
+      expect(ring(element).colour).toEqual(mint)
     }
   })
 

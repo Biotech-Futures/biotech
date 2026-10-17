@@ -40,7 +40,7 @@
 import { RouterLink } from 'vue-router'
 import TicketIcon from '@/components/support/TicketIcon.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
-import { formatDateAU } from '@/utils/date'
+import { formatDateAU } from '@/utils/ticketDates'
 import { categoryLabel, priorityLabel, type TicketRow } from '@/utils/supportAPI'
 
 defineProps<{ tickets: TicketRow[] }>()
@@ -171,7 +171,7 @@ defineProps<{ tickets: TicketRow[] }>()
 
 .my-tickets__empty p {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .my-tickets__empty-icon {

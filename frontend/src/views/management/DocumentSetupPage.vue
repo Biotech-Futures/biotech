@@ -28,7 +28,7 @@
               <button type="button" class="grading-settings__file-btn" @click="sig1Input?.click()">
                 Browse…
               </button>
-              <span class="grading-settings__file-name">{{ sig1?.name || baseName(settings.director_1_signature) || 'No file selected.' }}</span>
+              <span class="grading-settings__file-name">{{ sig1?.name || settings.director_1_signature || 'No file selected.' }}</span>
             </div>
             <p
               v-if="director1Changed"
@@ -52,7 +52,7 @@
               <button type="button" class="grading-settings__file-btn" @click="sig2Input?.click()">
                 Browse…
               </button>
-              <span class="grading-settings__file-name">{{ sig2?.name || baseName(settings.director_2_signature) || 'No file selected.' }}</span>
+              <span class="grading-settings__file-name">{{ sig2?.name || settings.director_2_signature || 'No file selected.' }}</span>
             </div>
             <p
               v-if="director2Changed"
@@ -912,7 +912,7 @@ const save = async () => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   max-width: 14rem;
 }
 
@@ -958,7 +958,7 @@ const save = async () => {
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .grading-settings__field input[type='text']:focus {

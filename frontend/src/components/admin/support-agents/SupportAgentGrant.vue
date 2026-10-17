@@ -235,7 +235,7 @@ async function grant(person: AdminUser, pressed?: HTMLButtonElement) {
   border: 1px solid var(--roster-edge);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.95rem;
 }
@@ -286,7 +286,7 @@ async function grant(person: AdminUser, pressed?: HTMLButtonElement) {
   min-height: 2.75rem;
   padding: 0 0.45rem 0 0.7rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .support-grant__candidate + .support-grant__candidate {

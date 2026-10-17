@@ -2,6 +2,7 @@
 from django.test import SimpleTestCase
 
 from apps.submissions.poster_checks import (
+    A2_SIZE,
     A_SERIES_MM,
     A_SERIES_SIZE,
     POINTS_PER_MM,
@@ -147,25 +148,32 @@ class PosterShapeTests(SimpleTestCase):
             with self.subTest(size=name):
                 self.assertNotIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(*dims))).warnings))
 
-    def test_non_metric_sizes_are_accepted_with_a_warning(self):
+    def test_sizes_outside_the_a_series_are_refused(self):
         for size in (US_LETTER, POSTER_18_BY_24, INSTRUCTION_DECK, _mm(190.5, 275.1)):
             with self.subTest(size=size):
-                result = _check(_build_pdf(*size))
-                self.assertEqual(result.blocking, [])
-                self.assertIn(A_SERIES_SIZE, _codes(result.warnings))
+                self.assertIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*size)).blocking))
 
-    def test_a_size_a_few_millimetres_out_passes_the_size_check(self):
-        self.assertNotIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(420, 592))).warnings))
+    def test_a_size_within_ten_millimetres_is_accepted(self):
+        result = _check(_build_pdf(*_mm(420, 586)))
 
-    def test_a_size_beyond_the_tolerance_is_warned_about(self):
-        result = _check(_build_pdf(*_mm(420, 588)))
+        self.assertEqual(result.blocking, [])
+        self.assertNotIn(A2_SIZE, _codes(result.warnings))
 
-        self.assertIn(A_SERIES_SIZE, _codes(result.warnings))
+    def test_a_size_beyond_the_tolerance_is_refused(self):
+        self.assertIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(420, 580))).blocking))
 
-    def test_the_size_warning_states_the_size_in_millimetres(self):
-        (check,) = [c for c in _check(_build_pdf(*US_LETTER)).warnings if c.code == A_SERIES_SIZE]
+    def test_the_refusal_states_the_size_in_millimetres(self):
+        (check,) = [c for c in _check(_build_pdf(*US_LETTER)).blocking if c.code == A_SERIES_SIZE]
 
         self.assertIn("216 × 279 mm", check.message)
+
+    def test_another_a_series_size_is_accepted_silently(self):
+        result = _check(_build_pdf(*_mm(594, 841)))
+        (check,) = [c for c in result.content if c.code == A2_SIZE]
+
+        self.assertEqual(result.blocking, [])
+        self.assertFalse(check.passed)
+        self.assertEqual(check.message, "")
 
     def test_landscape_a2_is_refused_for_orientation_not_size(self):
         result = _check(_build_pdf(A2[1], A2[0]))

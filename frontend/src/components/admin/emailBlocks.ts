@@ -1,4 +1,5 @@
 import { Node } from '@tiptap/core'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 
 /**
  * Box and button blocks for the System Emails editor.
@@ -24,16 +25,6 @@ declare module '@tiptap/core' {
     }
   }
 }
-
-// Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py,
-// which also keeps border-collapse, for tables (boxes and buttons don't need it).
-const STYLE_PROPERTIES = new Set([
-  'background-color', 'border', 'border-radius', 'color', 'display',
-  'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height',
-  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'text-align', 'text-decoration'
-])
 
 export interface EmailLook {
   id: string
@@ -82,9 +73,20 @@ export const BUTTON_LOOKS: readonly EmailLook[] = [
 /** Used when a box or button's own style can't be read. */
 export const BOX_STYLE = BOX_LOOKS[1].style
 export const BUTTON_STYLE = BUTTON_LOOKS[2].style
+/** The space around a button unless the gap tool sets another. */
+export const BUTTON_SPACE = 'margin:20px 0'
+
+/** Just the margins of a style: "margin:20px 0; margin-bottom:0". */
+export const marginsOf = (style: string) =>
+  cleanEmailStyle(
+    style
+      .split(';')
+      .filter((declaration) => /^\s*margin(-top|-bottom|-left|-right)?\s*:/i.test(declaration))
+      .join(';')
+  )
 
 /** "#017151" and "rgb(1, 113, 81)" both become "1,113,81". */
-function colourKey(value: string): string {
+export function colourKey(value: string): string {
   const colour = value.trim().toLowerCase()
   const hex = colour.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/)
   if (hex) {
@@ -117,31 +119,8 @@ export const swatchOf = (look: EmailLook) =>
     .filter((part) => /^\s*(background-color|border)\s*:/.test(part))
     .join(';')
 
-const PLAIN_COLOUR = /^(#[0-9a-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\))$/i
-
-/**
- * Merge inline styles, later ones winning, keeping only the properties the
- * server allows. Templates write `background:#hex`, kept as `background-color`
- * when it is a plain colour.
- */
-export function cleanEmailStyle(...styles: (string | null | undefined)[]): string {
-  const kept = new Map<string, string>()
-  for (const style of styles) {
-    for (const declaration of (style ?? '').split(';')) {
-      const colon = declaration.indexOf(':')
-      if (colon < 0) continue
-      let property = declaration.slice(0, colon).trim().toLowerCase()
-      const value = declaration.slice(colon + 1).trim()
-      if (!value) continue
-      if (property === 'background') {
-        if (!PLAIN_COLOUR.test(value)) continue
-        property = 'background-color'
-      }
-      if (STYLE_PROPERTIES.has(property)) kept.set(property, value)
-    }
-  }
-  return [...kept].map(([property, value]) => `${property}:${value}`).join('; ')
-}
+// Now in utils/inlineStyle.ts, which pages showing rich text use too.
+export { cleanEmailStyle }
 
 const styleOf = (element: Element | null | undefined) => element?.getAttribute('style') ?? ''
 
@@ -159,6 +138,17 @@ function templateButtonLink(wrapper: HTMLElement): HTMLAnchorElement | null {
   const links = wrapper.querySelectorAll<HTMLAnchorElement>('a.cta-link')
   if (links.length !== 1) return null
   return clean(wrapper.textContent) === clean(links[0].textContent) ? links[0] : null
+}
+
+/** Whether the editor keeps a `<div>` as a box or a button (any other div's
+ *  layout is lost, its text read as plain paragraphs). */
+export function keptAsBlock(div: HTMLElement): boolean {
+  return (
+    div.classList.contains('email-box') ||
+    div.classList.contains('email-button') ||
+    drawsBox(styleOf(div)) ||
+    !!templateButtonLink(div)
+  )
 }
 
 function buttonAttributes(wrapper: HTMLElement, link: HTMLAnchorElement | null) {
@@ -219,7 +209,12 @@ export const EmailBox = Node.create({
         contentElement: (table) => cardCell(table as HTMLElement) as HTMLElement,
         getAttrs: (element) => {
           const cell = cardCell(element as HTMLElement)
-          return cell ? { style: cleanEmailStyle(styleOf(element as HTMLElement), styleOf(cell)) } : false
+          // A box needs the card's look, not the table's layout.
+          const look = cleanEmailStyle(styleOf(element as HTMLElement), styleOf(cell))
+            .split('; ')
+            .filter((declaration) => !/^(border-collapse|width|vertical-align):/.test(declaration))
+            .join('; ')
+          return cell ? { style: look } : false
         }
       }
     ]
@@ -256,7 +251,9 @@ export const EmailButton = Node.create({
     return {
       href: { default: '', ...ruleOnly },
       style: { default: BUTTON_STYLE, ...ruleOnly },
-      align: { default: 'left', ...ruleOnly }
+      align: { default: 'left', ...ruleOnly },
+      // The space around the button (its wrapper's margins), set by the gap tool.
+      wrapperStyle: { default: BUTTON_SPACE, ...ruleOnly }
     }
   },
 
@@ -266,8 +263,11 @@ export const EmailButton = Node.create({
         tag: 'div.email-button',
         priority: 110,
         contentElement: 'a',
-        getAttrs: (element) =>
-          buttonAttributes(element as HTMLElement, (element as HTMLElement).querySelector('a'))
+        getAttrs: (element) => {
+          const wrapper = element as HTMLElement
+          const attributes = buttonAttributes(wrapper, wrapper.querySelector('a'))
+          return attributes && { ...attributes, wrapperStyle: marginsOf(styleOf(wrapper)) || BUTTON_SPACE }
+        }
       },
       ...(['table', 'div'] as const).map((tag) => ({
         tag,
@@ -279,9 +279,10 @@ export const EmailButton = Node.create({
   },
 
   renderHTML({ node }) {
+    const space = node.attrs.wrapperStyle || BUTTON_SPACE
     return [
       'div',
-      { class: 'email-button', style: `margin:20px 0; text-align:${node.attrs.align === 'center' ? 'center' : 'left'}` },
+      { class: 'email-button', style: `${space}; text-align:${node.attrs.align === 'center' ? 'center' : 'left'}` },
       ['a', { class: 'cta-link', href: node.attrs.href, style: node.attrs.style || BUTTON_STYLE }, 0]
     ]
   },

@@ -128,6 +128,8 @@ describe('support queue section switcher focus ring', () => {
   })
 
   it('dark: the ring is the mint the audit, analytics and detail rings use', () => {
-    expect(switcherRing('dark')).toBe('#5ea99e')
+    // Read from main.css, not written out: main retuned the mint on
+    // 11 October 2026 (#5ea99e to #3ead9f) and the ring follows it.
+    expect(switcherRing('dark')).toBe(token('--mint-green', 'dark'))
   })
 })

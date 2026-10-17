@@ -1,6 +1,8 @@
 import { ref } from 'vue'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, ApiError } from '@/utils/apiError'
+import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 import { useGroupsStore } from '@/stores/groups'
 
 export interface AnnouncementImage {
@@ -27,6 +29,8 @@ export interface Announcement {
   route?: string | null
   archivedAt?: string | null
   isArchived?: boolean
+  /** Not opened yet by the person reading it (see ``markAnnouncementSeen``). */
+  isNew?: boolean
 }
 
 export interface LoadFailure {
@@ -63,6 +67,7 @@ interface AnnouncementApiItem {
   link?: string | null
   route?: string | null
   audiences?: AnnouncementAudience[]
+  is_new?: boolean
   [key: string]: unknown
 }
 
@@ -170,10 +175,13 @@ export const sanitizeRichText = (value?: string | null) => {
       el.replaceWith(...Array.from(el.childNodes))
       return
     }
+    // The editor's colours, sizes and gaps stay; any other style goes.
+    const style = cleanEmailStyle(el.getAttribute('style'))
     for (const attr of Array.from(el.attributes)) {
       const allowed = ALLOWED_ATTRS[el.tagName]?.has(attr.name.toLowerCase()) || false
       if (!allowed) el.removeAttribute(attr.name)
     }
+    if (style) el.setAttribute('style', style)
     if (el.tagName === 'A') {
       const href = normalizeRichTextUrl(el.getAttribute('href'))
       if (href) {
@@ -291,6 +299,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
       scope === 'public' ||
       (audienceRoles.length === 0 && groupIds.length === 0),
     groupIds,
+    isNew: Boolean(a?.is_new),
     images: extractImages(a),
     link: normalizeRichTextUrl(a?.link),
     route: typeof a?.route === 'string' ? a.route : null,
@@ -371,6 +380,20 @@ export function useAnnouncements() {
   }
 
   return { announcements, isLoading, error, load }
+}
+
+/** It's been opened (its card, its title, or expanded), so it isn't New to
+ *  this person any more. Best effort: a failure only leaves it New. */
+export async function markAnnouncementSeen(id: number | string): Promise<void> {
+  try {
+    await fetch(`${DETAIL_ENDPOINT(id)}seen/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true })
+    })
+  } catch (e) {
+    console.warn('Failed to mark the announcement seen:', e)
+  }
 }
 
 export function useAnnouncementDetail() {
@@ -505,38 +528,12 @@ export function formatRelativeDate(iso: string): string {
     const d = Math.floor(diffMs / day)
     return `${d} day${d === 1 ? '' : 's'} ago`
   }
-  return new Date(iso).toLocaleDateString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
-  })
+  return formatDayMonth(iso)
 }
 
-export function formatFullDate(iso: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-AU', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-export function formatOverviewDateTime(iso: string): string {
-  if (!iso) return 'Recently posted'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return 'Recently posted'
-  return d.toLocaleString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+/** When it was posted, "9 Oct, 4:12 pm" in the set time. */
+export function formatPostedAt(iso: string): string {
+  return formatDayMonthTime(iso)
 }
 
 export function authorInitial(author: string): string {

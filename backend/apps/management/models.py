@@ -81,14 +81,57 @@ def template_upload_to(instance, filename):
     return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
 
 
+class PublicRegistrationSetting(SingletonModel):
+    """Whether registration is open to the public (Management > Registration):
+    open until an admin closes it. While closed, the sign-in page has no
+    Register now and students can't register themselves (a late link still
+    can)."""
+
+    open = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "public_registration_setting"
+
+    def __str__(self):
+        return "PublicRegistrationSetting"
+
+
+class SupervisorPagesSetting(SingletonModel):
+    """Whether supervisors see Home, Groups, Events, Announcements and
+    Resources; off until an admin turns it on (Management > Supervisor Visibility).
+    And whether they see their Registration page (and can register students);
+    on until an admin hides it."""
+
+    shown = models.BooleanField(default=False)
+    registration_shown = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "supervisor_pages_setting"
+
+    def __str__(self):
+        return "SupervisorPagesSetting"
+
+
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
     director_1_position = models.CharField(max_length=255, blank=True)
-    director_1_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    # Each signature image is kept here, with the name it was uploaded as
+    # (shown on Document Setup); certificates and marks sheets embed it.
+    director_1_signature_image = models.BinaryField(blank=True, null=True)
+    director_1_signature_name = models.CharField(max_length=255, blank=True, default="")
     director_2_name = models.CharField(max_length=255, blank=True)
     director_2_position = models.CharField(max_length=255, blank=True)
-    director_2_signature = models.FileField(upload_to="grading/signatures/", blank=True, null=True)
+    director_2_signature_image = models.BinaryField(blank=True, null=True)
+    director_2_signature_name = models.CharField(max_length=255, blank=True, default="")
     marks_summary_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)
     mentor_certificate_template = models.FileField(upload_to=template_upload_to, blank=True, null=True)

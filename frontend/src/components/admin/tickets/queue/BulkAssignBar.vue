@@ -122,18 +122,23 @@ function assign() {
 </script>
 
 <style scoped>
-/* The first redesign round (October 2026) keeps the peach bar and frames it
-   in brand green all round, with the same 40px control as the filters.
-   Written here over BulkActionsBar.vue's rules, not in that file, which is
-   Team 1's: the bar is this component's root, so it carries this
-   component's scope id, and the extra class outranks their selector.
+/* The first redesign round (October 2026) frames the bar in brand green all
+   round, with the same 40px control as the filters; the second paints it the
+   pale green of the selected rows, #e8f5ee, instead of the shared bar's
+   peach (C-20). Written here over BulkActionsBar.vue's rules, not in that
+   file, which is Team 1's: the bar is this component's root, so it carries
+   this component's scope id, and the extra class outranks their selector.
+   Dark keeps the shared bar's translucent green.
 
    The select's edge is a shade darker than the filters' #84938f, which is
-   2.80:1 on this peach wash, under the 3:1 a control's boundary needs.
-   Measured: #7a8884 3.23:1 on the wash and 3.70:1 on the select's own white;
-   dark #70827d 3.90:1 on the dark wash, 4.15:1 on the dark select. */
+   2.86:1 on this wash, under the 3:1 a control's boundary needs. Measured:
+   #7a8884 3.30:1 on the wash and 3.70:1 on the select's own white; dark
+   #70827d 3.90:1 on the dark wash, 4.15:1 on the dark select. */
 .bulk-actions-bar.bulk-assign {
   --bulk-edge: #7a8884;
+  --bulk-wash: #e8f5ee;
+
+  background-color: var(--bulk-wash);
 
   gap: 0.5rem 1rem;
   padding: 0.5rem 1rem;
@@ -143,6 +148,7 @@ function assign() {
 
 :root[data-theme='dark'] .bulk-actions-bar.bulk-assign {
   --bulk-edge: #70827d;
+  --bulk-wash: var(--light-green);
 }
 
 .bulk-assign :deep(.bulk-actions-bar__summary) {
@@ -170,7 +176,7 @@ function assign() {
   background-repeat: no-repeat;
   background-position: right 0.9rem center;
   appearance: none;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
 }
@@ -191,8 +197,8 @@ function assign() {
   font-weight: 700;
 }
 
-/* On the bar's --light-green wash: #a71d2a is 6.43:1 there in light mode;
-   dark takes the theme's --danger, 5.72:1 on that wash over the dark page. */
+/* On the bar's wash: #a71d2a is 6.57:1 there in light mode; dark takes the
+   theme's --danger, 5.72:1 on that wash over the dark page. */
 .bulk-assign__limit {
   flex-basis: 100%;
   margin: 0;

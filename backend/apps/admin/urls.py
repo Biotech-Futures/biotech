@@ -1,9 +1,15 @@
 from django.urls import path
 from . import views
+from . import analytics_views
 
 app_name = 'admin_api'
 
 urlpatterns = [
+    path('analytics/group-activity/', analytics_views.GroupActivityAnalyticsView.as_view(), name='group-activity-analytics'),
+    path('analytics/login-activity/', analytics_views.LoginActivityAnalyticsView.as_view(), name='login-activity-analytics'),
+    path('analytics/resources/', analytics_views.ResourceAnalyticsView.as_view(), name='resource-analytics'),
+    path('analytics/email/', analytics_views.EmailDeliveryAnalyticsView.as_view(), name='email-delivery-analytics'),
+    path('analytics/reports/export/', analytics_views.ReportExportView.as_view(), name='analytics-report-export'),
     # ========================================================================
     # USER ROUTES
     # ========================================================================
@@ -17,6 +23,10 @@ urlpatterns = [
     path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
+    path('user/<str:user_id>/guardian-consent-request/', views.UserGuardianConsentRequestView.as_view(), name='user-guardian-consent-request'),
+    path('user/<str:user_id>/guardian-consents/', views.UserGuardianConsentsView.as_view(), name='user-guardian-consents'),
+    path('user/<str:user_id>/guardian-consents/<int:consent_id>/record/', views.UserGuardianConsentRecordView.as_view(), name='user-guardian-consent-record'),
+    path('user/<str:user_id>/guardian-consent-withdrawal/', views.UserGuardianConsentWithdrawView.as_view(), name='user-guardian-consent-withdrawal'),
     
     # ========================================================================
     # GROUP ROUTES
@@ -73,6 +83,7 @@ urlpatterns = [
     path('announcement/<int:announcement_id>/notify/', views.AnnouncementNotifyView.as_view(), name='announcement-notify'),
     path('announcement/groups/', views.AnnouncementGroupsListView.as_view(), name='announcement-groups-list'),
     path('announcement/roles/', views.AnnouncementRolesListView.as_view(), name='announcement-roles-list'),
+    path('announcement/merge-tags/', views.AnnouncementMergeTagsView.as_view(), name='announcement-merge-tags'),
     
     # ========================================================================
     # MENTOR ROUTES
@@ -114,7 +125,19 @@ urlpatterns = [
     # Literal sub-paths precede <str:key> so they are never swallowed as a key.
     path('email-template/<str:key>/preview/', views.SystemEmailTemplatePreviewView.as_view(), name='email-template-preview'),
     path('email-template/<str:key>/test-send/', views.SystemEmailTemplateTestSendView.as_view(), name='email-template-test-send'),
+    path('email-template/<str:key>/test-recipients/', views.SystemEmailTemplateTestRecipientsView.as_view(), name='email-template-test-recipients'),
     path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
     path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
+    path('email-log/', views.SystemEmailLogView.as_view(), name='email-log'),
+    path('email-log/unseen/', views.SystemEmailUnseenFailuresView.as_view(), name='email-log-unseen'),
+
+    # ========================================================================
+    # USER VIEW ROUTES
+    # ========================================================================
+    path('view/', views.AdminViewListCreateView.as_view(), name='view-list-create'),
+    path('view/bulk-delete/', views.AdminViewBulkDeleteView.as_view(), name='view-bulk-delete'),
+    path('view/<int:view_id>/', views.AdminViewDetailView.as_view(), name='view-detail'),
+    path('view/<int:view_id>/run/', views.AdminViewRunView.as_view(), name='view-run'),
+    path('view/<int:view_id>/export-csv/', views.AdminViewExportCsvView.as_view(), name='view-export-csv'),
 ]

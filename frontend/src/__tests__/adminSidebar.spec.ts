@@ -57,10 +57,22 @@ const adminSubLinks = [
   '/admin/tasks',
 ]
 
+const analyticsSubLinks = [
+  '/analytics/users',
+  '/analytics/registration',
+  '/analytics/groups',
+  '/analytics/mentors',
+  '/analytics/activity',
+  '/analytics/messages',
+  '/analytics/resources',
+  '/analytics/email',
+]
+
 let wrapper: VueWrapper | null = null
 let pinia: ReturnType<typeof createPinia>
 
 const mountApp = async (options: { viewport?: 'mobile' | 'desktop' } = {}) => {
+  vi.stubGlobal('scrollTo', vi.fn())
   globalThis.fetch = vi
     .fn()
     .mockImplementation(() => Promise.resolve(new Response('[]', { status: 200 })))
@@ -117,9 +129,10 @@ describe('App sidebar admin section', () => {
 
     expect(wrapper!.find('a[href="#/admin"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
+    expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
-  it('renders the Admin nav and all expected sub-links for admins', async () => {
+  it('keeps Admin expanded and Analytics collapsed by default, and folds Admin on request', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)
     await mountApp({ viewport: 'desktop' })
@@ -127,11 +140,35 @@ describe('App sidebar admin section', () => {
     const text = wrapper!.text()
     expect(text).toContain('Admin')
 
-    const links = wrapper!.findAll('a')
+    let links = wrapper!.findAll('a')
     for (const sub of adminSubLinks) {
       const found = links.some((a) => a.attributes('href') === `#${sub}`)
-      expect(found, `expected a sidebar link to ${sub}`).toBe(true)
+      expect(found, `expected sub-link ${sub} to be shown initially`).toBe(true)
     }
+
+    const sidebarLinks = wrapper!.findAll('.sidebar-list a')
+    const analyticsLinks = sidebarLinks.filter((a) => a.attributes('href') === '#/analytics')
+    expect(analyticsLinks).toHaveLength(1)
+    // Analytics comes after Admin's own entries, folded.
+    const adminIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/admin')
+    const analyticsIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/analytics')
+    expect(analyticsIndex).toBeGreaterThan(adminIndex)
+    for (const sub of analyticsSubLinks) {
+      expect(sidebarLinks.some((a) => a.attributes('href') === `#${sub}`)).toBe(false)
+    }
+
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await toggle.trigger('click')
+
+    links = wrapper!.findAll('a')
+    for (const sub of adminSubLinks) {
+      expect(links.some((a) => a.attributes('href') === `#${sub}`)).toBe(false)
+    }
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+
+    const adminItem = wrapper!.find('a[href="#/admin"]').element.closest('.sidebar-item')
+    expect(adminItem?.textContent).not.toContain('Analytics')
   })
 
   it('collapses the Admin submenu by default on small screens', async () => {
@@ -148,11 +185,27 @@ describe('App sidebar admin section', () => {
       expect(found, `expected sub-link ${sub} to be hidden on mobile`).toBe(false)
     }
 
-    const toggle = wrapper!.find('button.sidebar-subnav-toggle')
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
     expect(toggle.exists()).toBe(true)
     expect(toggle.attributes('aria-expanded')).toBe('false')
 
     expect(mediaQuery.addEventListener).toHaveBeenCalled()
+  })
+
+  it('keeps the Admin submenu in the state selected by the user while navigating', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(adminUser)
+    await mountApp({ viewport: 'desktop' })
+
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    await router.push('/analytics')
+    await flushPromises()
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
   })
 })
 

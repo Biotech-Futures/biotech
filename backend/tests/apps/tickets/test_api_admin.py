@@ -58,8 +58,8 @@ class AdminTicketAPITestCase(APITestCase):
         # recycles user ids. Clear it so test order cannot make one of these
         # fail. Safe here only because settings_test pins CACHES to locmem.
         cache.clear()
-        self.australia = Countries.objects.create(country_name="Australia")
-        self.brazil = Countries.objects.create(country_name="Brazil")
+        self.australia = Countries.objects.get_or_create(country_name="Australia")[0]
+        self.brazil = Countries.objects.get_or_create(country_name="Brazil")[0]
 
         self.requester = User.objects.create_user(
             email="mia@example.com", password="pass1234",

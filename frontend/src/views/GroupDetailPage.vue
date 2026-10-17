@@ -157,6 +157,21 @@
             </button>
           </div>
 
+          <div class="group-members-dialog-interests">
+            <h4>Mutual Interests</h4>
+            <div v-if="groupMutualInterests.length" class="group-detail__interests">
+              <span
+                v-for="item in groupMutualInterests"
+                :key="item.name"
+                class="group-detail__interest-tag"
+              >
+                {{ item.name }}
+                <span class="group-detail__interest-count">({{ item.count }})</span>
+              </span>
+            </div>
+            <p v-else class="group-members-interests-empty">No mutual areas of interest identified yet.</p>
+          </div>
+
           <div class="group-members-list">
             <div v-for="member in visibleGroupMembers" :key="member.key" class="group-member-row">
               <div class="group-member-avatar">{{ getInitials(member.name).slice(0, 2) }}</div>
@@ -197,19 +212,8 @@
         <!-- Left column: Tasks -->
         <section class="pane pane--tasks card">
           <div class="card-header">
-            <h3 class="card-title">Tasks</h3>
+            <h3 class="card-title subheading">Tasks</h3>
             <div class="task-header-actions">
-              <button
-                type="button"
-                class="task-mode-toggle"
-                :class="{ 'is-active': taskSelectionMode }"
-                :title="taskSelectionMode ? 'Exit select mode' : 'Select tasks for bulk actions'"
-                :aria-pressed="taskSelectionMode"
-                @click="toggleTaskSelectionMode"
-              >
-                <i class="fas fa-check-square"></i>
-                {{ taskSelectionMode ? 'Done selecting' : 'Select' }}
-              </button>
               <button
                 v-if="canCreateGroupTasks"
                 type="button"
@@ -270,6 +274,19 @@
                       role="dialog"
                       aria-label="Filters"
                     >
+                      <!-- The tasks' order, first; Clear leaves it as it is. -->
+                      <label class="task-filter-row">
+                        <span>Sort by</span>
+                        <select v-model="taskFilters.ordering">
+                          <option
+                            v-for="option in TASK_ORDERING_OPTIONS"
+                            :key="option.value"
+                            :value="option.value"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                      </label>
                       <label class="task-filter-row">
                         <span>Type</span>
                         <select v-model="taskFilters.taskType">
@@ -363,18 +380,6 @@
                     </div>
                   </Teleport>
                 </div>
-                <label class="task-toolbar-sort">
-                  <span class="visually-hidden">Sort by</span>
-                  <select v-model="taskFilters.ordering">
-                    <option
-                      v-for="option in TASK_ORDERING_OPTIONS"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      Sort: {{ option.label }}
-                    </option>
-                  </select>
-                </label>
                 <button
                   type="button"
                   class="task-toolbar-icon-btn"
@@ -482,7 +487,13 @@
                   >
                     <i class="fas fa-chevron-down" aria-hidden="true"></i>
                   </button>
-                  <span v-else class="task-collapse-spacer" aria-hidden="true"></span>
+                  <!-- Lines a row up with its neighbours' expand arrows; with no
+                       arrows in the list, the status sits right at the left. -->
+                  <span
+                    v-else-if="section.rows.some((sectionRow) => sectionRow.hasChildren)"
+                    class="task-collapse-spacer"
+                    aria-hidden="true"
+                  ></span>
 
                   <button
                     v-if="taskSelectionMode"
@@ -566,6 +577,23 @@
                         <i class="fas fa-trash" aria-hidden="true"></i>
                         Deleted
                       </span>
+                      <!-- In the title row, on the right, so the description and details
+                           below run the full width. -->
+                      <button
+                        v-if="row.task.taskType === 'individual' && getAssigneeDisplay(row.task)"
+                        type="button"
+                        class="task-assignee"
+                        :class="{
+                          'is-self': getAssigneeDisplay(row.task).isSelf,
+                          'is-active': String(taskFilters.assignedUser) === String(row.task.assignedUser),
+                        }"
+                        :title="`Filter tasks by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                        :aria-label="`Filter by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
+                        @click="toggleAssigneeQuickFilter(row.task.assignedUser)"
+                      >
+                        <i :class="getAssigneeDisplay(row.task).isSelf ? 'fas fa-circle-user' : 'fas fa-user'" aria-hidden="true"></i>
+                        <span>{{ getAssigneeDisplay(row.task).label }}</span>
+                      </button>
                     </div>
                     <div v-if="row.task.description" class="task-description">
                       {{ row.task.description }}
@@ -577,7 +605,9 @@
                         :class="{ 'is-overdue': isTaskOverdue(row.task) }"
                       >
                         <i class="fas fa-calendar" aria-hidden="true"></i>
-                        {{ formatDate(row.task.dueDate) }}
+                        <!-- A due date is a picked day, saved as that day's
+                             UTC midnight, so it shows as that day. -->
+                        {{ formatDayMonth(row.task.dueDate, 'UTC') }}
                       </span>
                       <span
                         v-if="row.task.createdBy && row.task.createdBy.name"
@@ -589,22 +619,6 @@
                       </span>
                     </div>
                   </div>
-
-                  <button
-                    v-if="row.task.taskType === 'individual' && getAssigneeDisplay(row.task)"
-                    type="button"
-                    class="task-assignee"
-                    :class="{
-                      'is-self': getAssigneeDisplay(row.task).isSelf,
-                      'is-active': String(taskFilters.assignedUser) === String(row.task.assignedUser),
-                    }"
-                    :title="`Filter tasks by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
-                    :aria-label="`Filter by ${getAssigneeDisplay(row.task).isSelf ? 'you' : getAssigneeDisplay(row.task).label}`"
-                    @click="toggleAssigneeQuickFilter(row.task.assignedUser)"
-                  >
-                    <i :class="getAssigneeDisplay(row.task).isSelf ? 'fas fa-circle-user' : 'fas fa-user'" aria-hidden="true"></i>
-                    <span>{{ getAssigneeDisplay(row.task).label }}</span>
-                  </button>
 
                   <div class="task-row-actions">
                     <button
@@ -658,7 +672,14 @@
                 </li>
 
                 <li v-if="!section.rows.length" class="task-empty-state">
-                  <i :class="section.icon" aria-hidden="true"></i>
+                  <!-- Its icon in rings, as on Events when there are none. -->
+                  <span class="task-empty-illustration" aria-hidden="true">
+                    <span class="task-empty-ring task-empty-ring--outer"></span>
+                    <span class="task-empty-ring task-empty-ring--mid"></span>
+                    <span class="task-empty-ring task-empty-ring--inner">
+                      <i :class="section.icon"></i>
+                    </span>
+                  </span>
                   <span>No {{ section.title.toLowerCase() }} yet.</span>
                   <button
                     v-if="(section.key === 'group' && canCreateGroupTasks) || (section.key === 'individual' && canCreateIndividualTasks)"
@@ -888,7 +909,7 @@
           <div class="chat-container">
             <!-- Discussion header -->
             <div class="chat-header">
-              <h3 style="margin: 0">Discussion Board</h3>
+              <h3 class="subheading" style="margin: 0">Discussion Board</h3>
               <div class="chat-header-actions">
                 <button
                   type="button"
@@ -909,15 +930,15 @@
                   <i class="fas fa-at"></i>
                   <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
                 </button>
+                <!-- Only while loading or offline (with Reconnect): nothing when live. -->
                 <span
+                  v-if="isLoadingMessages || wsConnectionState !== 'connected'"
                   class="chat-status"
-                  :class="`chat-status--${isLoadingMessages ? 'loading' : (wsConnectionState === 'connected' ? 'connected' : 'offline')}`"
+                  :class="`chat-status--${isLoadingMessages ? 'loading' : 'offline'}`"
                   :title="
                     isLoadingMessages
                       ? 'Fetching latest messages'
-                      : (wsConnectionState === 'connected'
-                          ? 'Realtime updates active'
-                          : 'Realtime updates unavailable - click Reconnect to retry')
+                      : 'Realtime updates unavailable - click Reconnect to retry'
                   "
                 >
                   <i
@@ -929,7 +950,6 @@
                     aria-hidden="true"
                   ></i>
                   <template v-if="isLoadingMessages">Loading…</template>
-                  <template v-else-if="wsConnectionState === 'connected'">Live</template>
                   <template v-else>Offline</template>
                   <button
                     v-if="!isLoadingMessages && wsConnectionState !== 'connected'"
@@ -1005,7 +1025,16 @@
               </div>
               <div v-if="messageSearchError" class="chat-panel-status">{{ messageSearchError }}</div>
               <div v-if="isSearchingMessages" class="chat-panel-status">Searching messages...</div>
-              <div v-else class="message-search-list">
+              <!-- Only when it has something to show: empty, it would still take the
+                   panel's gap and leave extra space under the search box. -->
+              <div
+                v-else-if="
+                  messageSearchResults.length ||
+                  messageSearchNextBefore ||
+                  (messageSearchQuery && !messageSearchError && hasSearchedMessages)
+                "
+                class="message-search-list"
+              >
                 <button
                   v-for="result in messageSearchResults"
                   :key="`search-${result.id}`"
@@ -1015,7 +1044,7 @@
                 >
                   <span class="message-search-row-head">
                     <strong>{{ result.author }}</strong>
-                    <small>{{ formatDate(result.date) }} {{ result.time }}</small>
+                    <small>{{ formatDayMonthTime(result.date) }}</small>
                   </span>
                   <span class="message-search-text">
                     <template v-if="result.text">
@@ -1106,7 +1135,7 @@
                     </template>
                     <template v-if="!mention.message_text">Message was deleted.</template>
                   </strong>
-                  <small>{{ formatDate(mention.sent_at) }} {{ formatTime(mention.sent_at) }}</small>
+                  <small>{{ formatDayMonthTime(mention.sent_at) }}</small>
                 </button>
                 <div v-if="!mentionItems.length && !mentionInboxError" class="chat-panel-status">
                   No mentions yet.
@@ -1158,7 +1187,7 @@
                 Load older messages
               </button>
               <div
-                v-for="message in messages"
+                v-for="(message, index) in messages"
                 :key="message.id"
                 class="message-thread-item"
               >
@@ -1178,18 +1207,31 @@
                     {
                       own: message.isOwn,
                       pending: message.isLocalOnly,
+                      'message--same-sender': followsSameSender(index),
                       'search-hit': String(highlightedSearchMessageId) === String(message.id),
                     },
                   ]"
                 >
-                <div class="message-avatar">{{ getInitials(message.author) }}</div>
+                <!-- Your own messages show the same photo or initials as the top bar,
+                     not the "You" label's first letter. -->
+                <div
+                  class="message-avatar"
+                  :class="{ 'message-avatar--repeat': followsSameSender(index) }"
+                >
+                  <img
+                    v-if="message.isOwn && auth.user?.profile_image_url"
+                    class="message-avatar-image"
+                    :src="auth.user.profile_image_url"
+                    alt=""
+                  />
+                  <template v-else>{{ message.isOwn ? auth.initials : getInitials(message.author) }}</template>
+                </div>
                 <div class="message-content">
                   <div class="message-header">
                     <span class="message-author">{{ message.author }}</span>
                     <span class="message-meta">
                       <span v-if="message.editedAt" class="message-edited">edited</span>
-                      <span class="message-date">{{ formatDate(message.date) }}</span>
-                      <span class="message-time">{{ message.time }}</span>
+                      <span class="message-date">{{ formatDayMonthTime(message.date) }}</span>
                       <!-- Inline action cluster: always-visible reply + smile,
                            and a kebab menu (Edit/Delete) shown only while the
                            10-min self-action window is open or the caller is
@@ -1803,6 +1845,8 @@ import {
 } from '@/utils/receipts'
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
+import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -2125,27 +2169,6 @@ const getInitials = (name) =>
     .join('')
     .toUpperCase()
 
-// Module-level cache: Intl.DateTimeFormat is expensive to construct;
-// reuse per (locale, options) shape across renders.
-const _dateFmt = new Intl.DateTimeFormat('en-AU', {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-})
-const _timeFmt = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
-
-const formatDate = (d) => {
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return d
-  return _dateFmt.format(date)
-}
-
-const formatTime = (value) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return _timeFmt.format(date)
-}
-
 const resolveMessageSentAt = (raw) => {
   const candidates = [
     raw?.sent_at,
@@ -2181,7 +2204,7 @@ const groupInitials = computed(() => {
 
 // The member count shows on the Members button beside it.
 const groupSubtitle = computed(() => {
-  const createdLabel = group.value?.createdAt ? formatDate(group.value.createdAt) : 'unknown date'
+  const createdLabel = group.value?.createdAt ? formatDayMonth(group.value.createdAt) : 'unknown date'
   return `Group since ${createdLabel}`
 })
 
@@ -2250,6 +2273,11 @@ const visibleGroupMembers = computed(() =>
       return roleRank(a.role) - roleRank(b.role) || a.name.localeCompare(b.name)
     }),
 )
+
+const groupMutualInterests = computed(() => {
+  const active = groupMemberships.value.filter((item) => !item.leftAt)
+  return computeMutualInterests(active)
+})
 
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
@@ -2370,6 +2398,7 @@ const normalizeMembership = (item) => ({
   // Tri-state: null means the caller isn't staff, or the backend predates the
   // field. Defaulting to false would tell a mentor everyone is missing.
   hasLoggedIn: (item?.has_logged_in ?? item?.hasLoggedIn) ?? null,
+  interests: Array.isArray(item?.interests) ? item.interests : [],
 })
 
 const getCurrentUserMentionName = () => {
@@ -3285,7 +3314,6 @@ const normalizeMessage = (item) => {
     senderId,
     author,
     text: messageText,
-    time: formatTime(sentAt),
     date: sentAt,
     isOwn: isOwnMessage,
     messageType,
@@ -4176,6 +4204,23 @@ const clearMissedMessageAnchor = () => {
   missedMessageAnchorId.value = null
   missedMessageCount.value = 0
   isMissedMessageJumpDismissed.value = false
+}
+
+// Who sent a message. The chat list doesn't carry the sender's id (senderId
+// is 0 then), so others are told apart by name.
+const senderKey = (message) => {
+  if (message.isOwn) return 'own'
+  return Number(message.senderId) > 0 ? `id:${message.senderId}` : `name:${message.author}`
+}
+
+// A message straight after another from the same person sits closer to it,
+// unless the new-messages divider comes between them.
+const followsSameSender = (index) => {
+  const previous = messages.value[index - 1]
+  const message = messages.value[index]
+  return Boolean(previous) &&
+    senderKey(previous) === senderKey(message) &&
+    !isMissedMessageAnchor(message.id)
 }
 
 const isMissedMessageAnchor = (messageId) =>
@@ -5503,7 +5548,6 @@ const sendMessage = async () => {
     id: pendingId,
     author: 'You',
     text,
-    time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     date: now.toISOString(),
     isOwn: true,
     message_type: 'text',
@@ -5612,7 +5656,7 @@ const formatRelativeTime = (iso) => {
   if (hours < 24) return `${hours}h ago`
   const days = Math.round(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+  return formatDayMonth(iso)
 }
 
 const openMessageReceipts = async (messageId, event) => {
@@ -6130,7 +6174,7 @@ onBeforeUnmount(() => {
 }
 .gd-title {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .gd-subtitle {
   color: #6c757d;
@@ -6239,7 +6283,7 @@ onBeforeUnmount(() => {
 
 .group-members-dialog-header h3 {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.05rem;
 }
 
@@ -6264,6 +6308,48 @@ onBeforeUnmount(() => {
   border-color: var(--air-force-blue);
   color: var(--air-force-blue);
   background: #f1f5f7;
+}
+
+.group-members-dialog-interests {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  background-color: #fafbfc;
+}
+
+.group-members-dialog-interests h4 {
+  margin: 0 0 0.5rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.group-detail__interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.group-detail__interest-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.group-detail__interest-count {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.group-members-interests-empty {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #6c757d;
 }
 
 .group-members-list {
@@ -6304,7 +6390,7 @@ onBeforeUnmount(() => {
 }
 
 .group-member-copy strong {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
 }
 
@@ -6332,7 +6418,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: none;
   padding: 0.5rem 0.25rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 500;
   border-bottom: 3px solid transparent;
   cursor: pointer;
@@ -6413,33 +6499,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  height: 32px;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background: #fff;
-  color: #50616c;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.task-mode-toggle:hover {
-  background: #f4f7f9;
-  border-color: var(--air-force-blue);
-  color: var(--charcoal);
-}
-.task-mode-toggle.is-active {
-  background: var(--air-force-blue, #39687b);
-  border-color: var(--air-force-blue, #39687b);
-  color: #fff;
-}
-
 /* ---------- Toolbar (search + filter popover + sort) ---------- */
 
 .task-toolbar {
@@ -6477,13 +6536,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 .task-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
 }
 
 .task-toolbar-controls {
@@ -6493,8 +6552,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-toolbar-btn,
-.task-toolbar-sort select {
+.task-toolbar-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -6510,16 +6568,15 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
 }
-.task-toolbar-btn:hover,
-.task-toolbar-sort select:hover {
+.task-toolbar-btn:hover {
   border-color: var(--air-force-blue);
   background: #f4f7f9;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-toolbar-btn.has-active {
   border-color: var(--air-force-blue);
-  background: rgba(57, 104, 123, 0.08);
-  color: var(--charcoal);
+  background: rgba(38, 105, 125, 0.08);
+  color: var(--teal);
 }
 
 .task-filter-popover { position: relative; }
@@ -6531,7 +6588,7 @@ onBeforeUnmount(() => {
   height: 18px;
   padding: 0 0.35rem;
   border-radius: 999px;
-  background: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
   color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
@@ -6559,7 +6616,7 @@ onBeforeUnmount(() => {
 .task-filter-row input[type='date'],
 .task-filter-row .app-date-picker-wrapper {
   width: 100%;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 .task-filter-row {
@@ -6577,7 +6634,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 .task-filter-row--checkbox {
@@ -6586,7 +6643,7 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
   font-size: 0.82rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-filter-panel-footer {
   display: flex;
@@ -6612,7 +6669,7 @@ onBeforeUnmount(() => {
 .task-filter-close:hover {
   border-color: var(--air-force-blue);
   background: #f4f7f9;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-filter-clear:disabled {
   cursor: not-allowed;
@@ -6681,7 +6738,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -6742,9 +6799,11 @@ onBeforeUnmount(() => {
 }
 
 .task-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.7rem;
+  /* Top row: expand arrow, status, title, buttons. The description and details
+     run underneath from the left edge, under the arrow and status too. */
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: start;
   padding: 0.6rem 0.85rem 0.6rem calc(0.85rem + var(--task-depth, 0) * 1.1rem);
   border-bottom: 1px solid var(--task-depth-border, var(--border-light));
   background: var(--task-depth-bg, #fff);
@@ -6752,12 +6811,46 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, box-shadow 120ms ease;
   position: relative;
 }
+/* Where each part of a task sits in its grid. Spacing is margins rather than
+   column gaps, so a missing arrow leaves no gap before the status. */
+.task-collapse,
+.task-collapse-spacer {
+  grid-column: 1;
+  grid-row: 1;
+  margin-right: 0.7rem;
+}
+.task-select-box,
+.task-state-wrap {
+  grid-column: 2;
+  grid-row: 1;
+  margin-right: 0.7rem;
+}
+.task-body {
+  display: contents;
+}
+.task-headline {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+}
+/* Under the status and title, lined up with the status pill's circle (its
+   border and left padding in), whether or not the row has an arrow. */
+.task-description,
+.task-meta {
+  grid-column: 2 / 4;
+  padding-left: calc(0.55rem + 1px);
+}
+.task-row-actions {
+  grid-column: 4;
+  grid-row: 1 / span 3;
+  margin-left: 0.7rem;
+}
 .task-item:first-child { border-top-left-radius: 11px; border-top-right-radius: 11px; }
 .task-item:last-child { border-bottom: 0; border-bottom-left-radius: 11px; border-bottom-right-radius: 11px; }
 .task-item:hover { background: rgba(0, 0, 0, 0.02); background: color-mix(in srgb, var(--task-depth-bg, #fff) 92%, #000); }
 .task-item.is-selected {
-  background: rgba(57, 104, 123, 0.08);
-  box-shadow: inset 3px 0 0 var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.08);
+  box-shadow: inset 3px 0 0 var(--air-force-blue, #26697d);
 }
 .task-item.is-complete .task-label {
   color: #94a3a8;
@@ -6811,10 +6904,10 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, color 120ms ease, transform 160ms ease;
 }
 .task-collapse i { font-size: 0.78rem; transition: transform 160ms ease; }
-.task-collapse:hover { background: rgba(0, 0, 0, 0.05); color: var(--charcoal); }
+.task-collapse:hover { background: rgba(0, 0, 0, 0.05); color: var(--teal); }
 .task-collapse:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-collapse.is-collapsed i { transform: rotate(-90deg); }
 
@@ -6850,9 +6943,9 @@ onBeforeUnmount(() => {
 .task-state:hover:not(:disabled) { filter: brightness(0.96); }
 .task-state:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
-.task-state.is-open { box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.18); }
+.task-state.is-open { box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.18); }
 
 .task-state.is-disabled,
 .task-state:disabled {
@@ -6904,8 +6997,8 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 .task-state-menu-item:hover { background: #f4f7f9; }
-.task-state-menu-item.is-current { background: rgba(57, 104, 123, 0.08); }
-.task-state-menu-check { margin-left: auto; color: var(--air-force-blue, #39687b); }
+.task-state-menu-item.is-current { background: rgba(38, 105, 125, 0.08); }
+.task-state-menu-check { margin-left: auto; color: var(--air-force-blue, #26697d); }
 
 /* Selection box (only shown in select mode) */
 .task-select-box {
@@ -6926,16 +7019,16 @@ onBeforeUnmount(() => {
 }
 .task-select-box i { font-size: 0.7rem; }
 .task-select-box:hover:not(:disabled) {
-  border-color: var(--air-force-blue, #39687b);
-  background: rgba(57, 104, 123, 0.08);
+  border-color: var(--air-force-blue, #26697d);
+  background: rgba(38, 105, 125, 0.08);
 }
 .task-select-box.is-selected {
-  border-color: var(--air-force-blue, #39687b);
-  background: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #26697d);
+  background: var(--air-force-blue, #26697d);
 }
 .task-select-box:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-select-box:disabled {
   cursor: not-allowed;
@@ -6945,10 +7038,6 @@ onBeforeUnmount(() => {
 
 /* Body */
 
-.task-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 .task-headline {
   display: flex;
   align-items: center;
@@ -6956,7 +7045,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .task-label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.92rem;
   font-weight: 600;
   line-height: 1.3;
@@ -6993,8 +7082,8 @@ onBeforeUnmount(() => {
   color: #8c1f1f;
 }
 .task-chip--assignee {
-  background: rgba(57, 104, 123, 0.1);
-  color: var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.1);
+  color: var(--air-force-blue, #26697d);
 }
 .task-chip--assignee.is-self {
   background: rgba(77, 116, 94, 0.18);
@@ -7014,8 +7103,8 @@ onBeforeUnmount(() => {
   padding: 0.2rem 0.6rem;
   border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(57, 104, 123, 0.1);
-  color: var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.1);
+  color: var(--air-force-blue, #26697d);
   font: inherit;
   font-size: 0.74rem;
   font-weight: 700;
@@ -7024,6 +7113,10 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
+/* At the right end of the title row; a long title wraps before it. */
+.task-headline .task-assignee {
+  margin-left: auto;
+}
 .task-assignee i { font-size: 0.72rem; flex-shrink: 0; }
 .task-assignee span {
   overflow: hidden;
@@ -7031,12 +7124,12 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .task-assignee:hover {
-  background: rgba(57, 104, 123, 0.18);
+  background: rgba(38, 105, 125, 0.18);
   transform: translateY(-1px);
 }
 .task-assignee:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-assignee.is-self {
   background: rgba(77, 116, 94, 0.18);
@@ -7046,8 +7139,8 @@ onBeforeUnmount(() => {
   background: rgba(77, 116, 94, 0.3);
 }
 .task-assignee.is-active {
-  border-color: var(--air-force-blue, #39687b);
-  background: rgba(57, 104, 123, 0.22);
+  border-color: var(--air-force-blue, #26697d);
+  background: rgba(38, 105, 125, 0.22);
 }
 .task-assignee.is-self.is-active {
   border-color: var(--dark-green, #4d745e);
@@ -7071,6 +7164,10 @@ onBeforeUnmount(() => {
 /* "Assigned by Name" -- subtle text inline with the date chip */
 .task-assigned-by {
   display: inline-flex;
+  /* In a narrow column the name drops under "Assigned by" whole, rather than
+     each squeezing beside the other and breaking word by word. */
+  flex-wrap: wrap;
+  white-space: nowrap;
   align-items: center;
   gap: 0.3rem;
   font-size: 0.74rem;
@@ -7080,20 +7177,25 @@ onBeforeUnmount(() => {
 .task-assigned-by strong {
   color: #50616c;
   font-weight: 700;
+  /* A name too long for even a line of its own still wraps. */
+  white-space: normal;
 }
 
 /* Row actions -- hidden until hover/focus */
 
 .task-row-actions {
   display: flex;
+  /* Stacked one above another, so they take one button's width beside the
+     task rather than three. */
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 0.25rem;
   flex-shrink: 0;
-  /* 3 icon buttons (30px) + 2 gaps (4px) -- reserved even when only the
+  /* One icon button (30px) wide -- reserved even when only the
      always-rendered + button is present, so the assignee column lines up
      across all rows regardless of edit/delete permission. */
-  min-width: 98px;
+  min-width: 30px;
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -7116,11 +7218,11 @@ onBeforeUnmount(() => {
 .task-icon-btn:hover:not(:disabled) {
   background: #f1f3f5;
   border-color: var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-icon-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-icon-btn--danger:hover:not(:disabled) {
   background: #fdecec;
@@ -7146,16 +7248,54 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
 }
 .task-empty-state i { font-size: 1.4rem; color: #c5cdd3; }
+
+/* The Events page's empty icon: green rings round a dark green circle. */
+.task-empty-illustration {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 0.35rem;
+}
+
+.task-empty-ring {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.task-empty-ring--outer {
+  background: rgba(186, 215, 187, 0.44);
+  opacity: 0.45;
+}
+
+.task-empty-ring--mid {
+  inset: 14px;
+  background: #bad7bb;
+  opacity: 0.7;
+}
+
+.task-empty-ring--inner {
+  inset: 28px;
+  background: var(--dark-green);
+}
+
+.task-empty-state .task-empty-ring--inner i {
+  font-size: 1.1rem;
+  color: #fff;
+}
 .task-empty-cta {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   margin-top: 0.4rem;
   padding: 0.45rem 0.85rem;
-  border: 1px dashed var(--air-force-blue, #39687b);
+  border: 1px dashed var(--air-force-blue, #26697d);
   border-radius: 999px;
   background: transparent;
-  color: var(--air-force-blue, #39687b);
+  color: var(--air-force-blue, #26697d);
   font: inherit;
   font-size: 0.82rem;
   font-weight: 700;
@@ -7163,7 +7303,7 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, color 120ms ease;
 }
 .task-empty-cta:hover {
-  background: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
   color: #fff;
 }
 
@@ -7318,7 +7458,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-dialog-title i {
   width: 28px;
@@ -7326,8 +7466,8 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(57, 104, 123, 0.1);
-  color: var(--air-force-blue, #39687b);
+  background: rgba(38, 105, 125, 0.1);
+  color: var(--air-force-blue, #26697d);
   border-radius: 8px;
   font-size: 0.82rem;
 }
@@ -7351,11 +7491,11 @@ onBeforeUnmount(() => {
 }
 .task-dialog-close:hover {
   background: #f4f7f9;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-dialog-close:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 
 .task-dialog-body {
@@ -7376,12 +7516,12 @@ onBeforeUnmount(() => {
   background: transparent;
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
   outline: none;
   transition: border-color 120ms ease;
 }
 .task-dialog-title-input::placeholder { color: #a3adb3; font-weight: 600; }
-.task-dialog-title-input:focus { border-bottom-color: var(--air-force-blue, #39687b); }
+.task-dialog-title-input:focus { border-bottom-color: var(--air-force-blue, #26697d); }
 
 .task-dialog-description-input {
   width: 100%;
@@ -7389,7 +7529,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fafbfc;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.88rem;
   resize: vertical;
@@ -7399,9 +7539,9 @@ onBeforeUnmount(() => {
 .task-dialog-description-input::placeholder { color: #a3adb3; }
 .task-dialog-description-input:focus {
   outline: none;
-  border-color: var(--air-force-blue, #39687b);
+  border-color: var(--air-force-blue, #26697d);
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
 }
 
 .task-dialog-field {
@@ -7433,15 +7573,15 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.88rem;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .task-dialog-input:focus {
   outline: none;
-  border-color: var(--air-force-blue, #39687b);
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.12);
+  border-color: var(--air-force-blue, #26697d);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
 }
 .task-dialog-readonly {
   padding: 0.4rem 0.65rem;
@@ -7481,15 +7621,15 @@ onBeforeUnmount(() => {
 .task-segmented-option i { font-size: 0.78rem; opacity: 0.7; }
 .task-segmented-option:hover:not(:disabled):not(.is-active) {
   background: rgba(255, 255, 255, 0.6);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 .task-segmented-option:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-segmented-option.is-active {
   background: #fff;
-  color: var(--charcoal);
+  color: var(--teal);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 .task-segmented-option.is-active i { opacity: 1; }
@@ -7550,16 +7690,16 @@ onBeforeUnmount(() => {
 }
 .task-dialog-btn:hover:not(:disabled) {
   background: #f4f7f9;
-  border-color: var(--air-force-blue, #39687b);
-  color: var(--charcoal);
+  border-color: var(--air-force-blue, #26697d);
+  color: var(--teal);
 }
 .task-dialog-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-dialog-btn--primary {
-  background: var(--air-force-blue, #39687b);
-  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
+  border-color: var(--air-force-blue, #26697d);
   color: #fff;
 }
 .task-dialog-btn--primary:hover:not(:disabled) {
@@ -7611,7 +7751,7 @@ onBeforeUnmount(() => {
   height: 16px;
   padding: 0 0.25rem;
   border-radius: 999px;
-  background: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
   color: #fff;
   font-size: 0.65rem;
   font-weight: 700;
@@ -7619,12 +7759,12 @@ onBeforeUnmount(() => {
 }
 .task-toolbar-icon-btn:hover {
   background: #f4f7f9;
-  border-color: var(--air-force-blue, #39687b);
-  color: var(--charcoal);
+  border-color: var(--air-force-blue, #26697d);
+  color: var(--teal);
 }
 .task-toolbar-icon-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 .task-toolbar-icon-btn.is-active {
   background: rgba(77, 116, 94, 0.15);
@@ -7653,7 +7793,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: #fff;
-  color: var(--air-force-blue, #39687b);
+  color: var(--air-force-blue, #26697d);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
@@ -7661,13 +7801,13 @@ onBeforeUnmount(() => {
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .task-list-more:hover {
-  background: var(--air-force-blue, #39687b);
-  border-color: var(--air-force-blue, #39687b);
+  background: var(--air-force-blue, #26697d);
+  border-color: var(--air-force-blue, #26697d);
   color: #fff;
 }
 .task-list-more:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.25);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.25);
 }
 
 /* Flat (tint off) depth-class fallback */
@@ -7694,16 +7834,6 @@ onBeforeUnmount(() => {
 .chat-status-dot {
   font-size: 0.55rem;
   line-height: 1;
-}
-
-.chat-status--connected {
-  color: #1f7a3f;
-  background: rgba(31, 122, 63, 0.08);
-  border-color: rgba(31, 122, 63, 0.22);
-}
-
-.chat-status--connected .chat-status-dot {
-  color: #2ea44f;
 }
 
 .chat-status--offline {
@@ -7887,7 +8017,7 @@ onBeforeUnmount(() => {
   gap: 0.42rem;
   max-width: calc(100% - 2rem);
   min-height: 2.2rem;
-  border: 1px solid rgba(57, 104, 123, 0.28);
+  border: 1px solid rgba(38, 105, 125, 0.28);
   border-radius: 999px;
   background: #eef7f9;
   color: var(--air-force-blue);
@@ -7960,12 +8090,12 @@ onBeforeUnmount(() => {
   content: '';
   flex: 1 1 auto;
   height: 1px;
-  background: rgba(57, 104, 123, 0.28);
+  background: rgba(38, 105, 125, 0.28);
 }
 
 .missed-message-divider span {
   flex: 0 0 auto;
-  border: 1px solid rgba(57, 104, 123, 0.24);
+  border: 1px solid rgba(38, 105, 125, 0.24);
   border-radius: 999px;
   background: #eef7f9;
   padding: 0.22rem 0.6rem;
@@ -7973,7 +8103,7 @@ onBeforeUnmount(() => {
 
 .missed-message-divider button {
   flex: 0 0 auto;
-  border: 1px solid rgba(57, 104, 123, 0.28);
+  border: 1px solid rgba(38, 105, 125, 0.28);
   border-radius: 999px;
   background: var(--white);
   color: var(--air-force-blue);
@@ -8011,7 +8141,7 @@ onBeforeUnmount(() => {
 .message-reply,
 .reply-composer {
   border-left: 3px solid var(--air-force-blue);
-  background: rgba(57, 104, 123, 0.08);
+  background: rgba(38, 105, 125, 0.08);
 }
 
 .message-reply {
@@ -8037,17 +8167,17 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-reply {
-  border-left-color: var(--white);
-  background: rgba(255, 255, 255, 0.18);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  border-left-color: var(--dark-green);
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(1, 113, 81, 0.12);
 }
 
 .message.own .message-reply span {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
 }
 
 .message.own .message-reply strong {
-  color: var(--white);
+  color: var(--teal);
 }
 
 .message-edit-form {
@@ -8071,7 +8201,7 @@ onBeforeUnmount(() => {
 .message-edit-actions .message-edit-cancel {
   background: var(--white);
   border-color: #b9c4ca;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .message-edit-actions .message-edit-cancel:hover {
@@ -8093,26 +8223,26 @@ onBeforeUnmount(() => {
 
 .message.own .message-edit-actions .message-edit-cancel {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.72);
-  color: var(--white);
+  border-color: var(--dark-green);
+  color: var(--dark-green);
 }
 
 .message.own .message-edit-actions .message-edit-cancel:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: var(--white);
-  color: var(--white);
+  background: rgba(1, 113, 81, 0.08);
+  border-color: var(--dark-green);
+  color: var(--dark-green);
 }
 
 .message.own .message-edit-actions .message-edit-save {
-  background: var(--white);
-  border-color: var(--white);
-  color: var(--dark-green);
+  background: var(--dark-green);
+  border-color: var(--dark-green);
+  color: #fff;
 }
 
 .message.own .message-edit-actions .message-edit-save:hover {
-  background: #eef7f3;
-  border-color: #eef7f3;
-  color: var(--dark-green);
+  background: #015940;
+  border-color: #015940;
+  color: #fff;
 }
 
 .message-actions {
@@ -8222,7 +8352,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.55rem 0.7rem;
   text-align: left;
@@ -8267,7 +8397,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 999px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   padding: 0.55rem 1rem;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
@@ -8276,7 +8406,7 @@ onBeforeUnmount(() => {
 .message-search-input:focus {
   outline: none;
   border-color: var(--air-force-blue);
-  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
+  box-shadow: 0 0 0 4px rgba(38, 105, 125, 0.10);
 }
 
 .message-search-list {
@@ -8293,7 +8423,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.62rem 0.75rem;
   text-align: left;
@@ -8325,7 +8455,7 @@ onBeforeUnmount(() => {
 
 .message-search-text {
   overflow: hidden;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.86rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -8333,17 +8463,17 @@ onBeforeUnmount(() => {
 
 .message.search-hit .message-content {
   animation: message-search-pulse 2.2s ease;
-  box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.22);
+  box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.22);
 }
 
 @keyframes message-search-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(57, 104, 123, 0);
+    box-shadow: 0 0 0 0 rgba(38, 105, 125, 0);
   }
   20%,
   70% {
-    box-shadow: 0 0 0 3px rgba(57, 104, 123, 0.24);
+    box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.24);
   }
 }
 
@@ -8418,7 +8548,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.55rem 0.7rem;
   text-align: left;
@@ -8469,7 +8599,7 @@ onBeforeUnmount(() => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   padding: 0.45rem 0.55rem;
   text-align: left;
@@ -8504,11 +8634,6 @@ onBeforeUnmount(() => {
   font-weight: 700;
   padding: 0.05rem 0.4rem;
   text-decoration: none;
-}
-
-.message.own .mention-token {
-  background: rgba(255, 255, 255, 0.22);
-  color: #cfe8ff;
 }
 
 .chat-panel-search-input {
@@ -8551,8 +8676,27 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   background-color: var(--white) !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   border-bottom: 1px solid var(--border-light);
+}
+
+/* The Tasks and Discussion Board headers are the same height, 64px: the title
+   and buttons centred, 14px clear above and below the tallest of them. The
+   Tasks card's own top padding moves into its header so the two lines under
+   them sit level. */
+.pane--tasks.card {
+  padding-top: 0;
+}
+
+.pane--tasks .card-header,
+.pane--discussion .chat-header {
+  min-height: 4rem;
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+
+.pane--tasks .card-header .card-title {
+  margin: 0;
 }
 
 /* Fill available chat space */
@@ -8574,6 +8718,29 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
 }
 
+/* 14px above the first message and between people's messages, 16px after
+   the last; 4px between one person's messages in a row. 20px at the sides. */
+.pane--discussion .chat-messages {
+  padding: 0 1.25rem 1rem;
+}
+
+.pane--discussion .chat-messages .message {
+  margin-top: 0.875rem;
+  margin-bottom: 0;
+  /* 6px between the picture and the card. */
+  gap: 0.375rem;
+}
+
+.pane--discussion .chat-messages .message.message--same-sender {
+  margin-top: 0.25rem;
+}
+
+/* With no padding at the top of the list, these keep the same 16px. */
+.pane--discussion .chat-messages > .load-older-messages,
+.pane--discussion .chat-messages > .load-older-status {
+  margin-top: 1rem;
+}
+
 /* Let the browser skip rendering work for messages outside the viewport.
    contain-intrinsic-size keeps the scrollbar honest while the browser
    learns each message's real height. */
@@ -8591,22 +8758,34 @@ onBeforeUnmount(() => {
 .message-date {
   color: #6c757d;
   font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The sender's name at 14px, with the date and time beside it at 12px. */
+.pane--discussion .message-author {
+  font-size: 0.875rem;
+}
+
+.pane--discussion .message-date {
+  font-size: 0.75rem;
 }
 
 /* Own-message date contrast */
 .pane--discussion .message.own .message-date {
-  color: #fff !important;
-  opacity: 0.95;
+  color: var(--teal) !important;
+  opacity: 0.85;
 }
 
 /* Message text color for own messages */
 .pane--discussion .message.own .message-text {
-  color: #fff !important;
+  color: var(--teal) !important;
 }
 
 /* Preserve typed line breaks (Shift+Enter) — HTML collapses them otherwise. */
 .message-text {
   white-space: pre-wrap;
+  font-weight: 400;
+  font-size: 0.875rem;
 }
 
 .message-link {
@@ -8625,7 +8804,7 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-text--deleted {
-  color: rgba(255, 255, 255, 0.82) !important;
+  color: var(--text-muted) !important;
 }
 
 .message-edited {
@@ -8802,17 +8981,7 @@ onBeforeUnmount(() => {
 .message-receipt:hover,
 .message-receipt.is-open {
   color: var(--air-force-blue);
-  background: rgba(57, 104, 123, 0.10);
-}
-
-.message.own .message-receipt {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.message.own .message-receipt:hover,
-.message.own .message-receipt.is-open {
-  color: var(--white);
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(38, 105, 125, 0.10);
 }
 
 /* Tick colours.
@@ -8828,17 +8997,8 @@ onBeforeUnmount(() => {
   color: rgba(0, 0, 0, 0.42);
 }
 
-.message.own .message-receipt--delivered .tick-icon,
-.message.own .message-receipt--partial .tick-icon {
-  color: rgba(255, 255, 255, 0.7);
-}
-
 .message-receipt--read .tick-icon {
   color: #2196f3;
-}
-
-.message.own .message-receipt--read .tick-icon {
-  color: #6ad1ff;
 }
 
 .receipt-count {
@@ -9112,6 +9272,7 @@ onBeforeUnmount(() => {
 
 .pane--discussion .chat-header h3 {
   color: var(--text-primary);
+  font-size: 1.25rem;
 }
 
 .pane--discussion .chat-messages {
@@ -9198,9 +9359,9 @@ onBeforeUnmount(() => {
   padding: 1rem 1.5rem 1.5rem;
   display: flex;
   flex-direction: column;
-  color: var(--charcoal);
+  color: var(--teal);
   background: var(--bg-light);
-  --text-primary: var(--charcoal);
+  --text-primary: var(--teal);
   --text-secondary: #6c757d;
   --text-muted: #8a949e;
   --surface-base: var(--white);
@@ -9259,7 +9420,7 @@ onBeforeUnmount(() => {
 
 .gd-title {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.45rem;
   font-weight: 600;
 }
@@ -9379,7 +9540,7 @@ onBeforeUnmount(() => {
 }
 
 .tab-btn {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .tab-btn.active {
@@ -9407,7 +9568,7 @@ onBeforeUnmount(() => {
 .card-header,
 .pane--discussion .chat-header {
   background: var(--white) !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -9415,12 +9576,11 @@ onBeforeUnmount(() => {
 .pane--discussion .chat-header h3,
 .task-section-title,
 .task-label {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
 }
 
 .chat-status,
 .message-date,
-.message-time,
 .typing-indicator,
 .chat-panel-status {
   color: #6c757d !important;
@@ -9445,12 +9605,15 @@ onBeforeUnmount(() => {
 .pane--discussion .chat-input {
   background: var(--white);
   border-color: var(--border-light);
+  /* 8px above and below the message box. */
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
 }
 
 .chat-input-field,
 .chat-panel-search-input {
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   border: 1px solid var(--border-light);
   border-radius: 22px;
   padding: 0.7rem 1rem;
@@ -9469,7 +9632,7 @@ onBeforeUnmount(() => {
   outline: none;
   border-color: var(--air-force-blue);
   background: var(--white);
-  box-shadow: 0 0 0 4px rgba(57, 104, 123, 0.10);
+  box-shadow: 0 0 0 4px rgba(38, 105, 125, 0.10);
 }
 
 .chat-input-field {
@@ -9538,6 +9701,19 @@ onBeforeUnmount(() => {
 
 .message-avatar {
   background: #8a949e;
+  overflow: hidden;
+}
+
+.message-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* One picture per run of a person's messages: the later ones keep its space,
+   so their cards still line up, but don't show it again. */
+.message-avatar--repeat {
+  visibility: hidden;
 }
 
 .message-content,
@@ -9547,7 +9723,7 @@ onBeforeUnmount(() => {
 .reaction-summary-btn {
   border: 1px solid var(--border-light);
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
@@ -9579,25 +9755,25 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.message-header {
-  padding-right: 2.2rem;
-}
+/* No room kept on the right: the floating toolbar it was for is gone, so the
+   reply, smile and menu buttons sit at the bubble's right edge. */
 
 /* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
 .message:not(.own) .message-content {
   border-bottom-left-radius: 6px;
 }
 
+/* Your own messages: Light Green with the page's dark text. */
 .message.own .message-content {
-  background: var(--dark-green);
-  color: var(--white);
-  border-color: var(--dark-green);
+  background: var(--light-green);
+  color: var(--teal);
+  border-color: var(--light-green);
   border-bottom-right-radius: 6px;
-  box-shadow: 0 2px 8px rgba(31, 122, 63, 0.18);
+  box-shadow: 0 2px 8px rgba(31, 122, 63, 0.1);
 }
 
 .message.own:hover .message-content {
-  box-shadow: 0 4px 14px rgba(31, 122, 63, 0.26);
+  box-shadow: 0 4px 14px rgba(31, 122, 63, 0.16);
 }
 
 /* Resource chip + open/download popover */
@@ -9654,7 +9830,7 @@ onBeforeUnmount(() => {
 }
 
 .resource-choice-btn:hover:not(:disabled) {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
   border-color: var(--air-force-blue);
   transform: translateY(-1px);
 }
@@ -9695,11 +9871,7 @@ onBeforeUnmount(() => {
 }
 
 .message-action-btn:hover:not(:disabled) {
-  background: rgba(57, 104, 123, 0.10);
-}
-
-.message.own .message-action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(38, 105, 125, 0.10);
 }
 
 /* Inline action cluster inside the message header (sits after the time).
@@ -9731,18 +9903,8 @@ onBeforeUnmount(() => {
 
 .inline-action-btn:hover:not(:disabled),
 .inline-action-btn.active {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
   color: var(--air-force-blue);
-}
-
-.message.own .inline-action-btn {
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.message.own .inline-action-btn:hover:not(:disabled),
-.message.own .inline-action-btn.active {
-  background: rgba(255, 255, 255, 0.20);
-  color: var(--white);
 }
 
 .inline-kebab-wrap {
@@ -9799,7 +9961,7 @@ onBeforeUnmount(() => {
 }
 
 .inline-kebab-item:hover:not(:disabled) {
-  background: rgba(57, 104, 123, 0.10);
+  background: rgba(38, 105, 125, 0.10);
 }
 
 .inline-kebab-item--danger {
@@ -9974,7 +10136,7 @@ onBeforeUnmount(() => {
   margin: 0.25rem 0.9rem 0.4rem;
   width: fit-content;
   border-radius: 999px;
-  background: rgba(57, 104, 123, 0.08);
+  background: rgba(38, 105, 125, 0.08);
   color: var(--air-force-blue);
   font-size: 0.78rem;
   font-weight: 600;
@@ -10023,11 +10185,10 @@ onBeforeUnmount(() => {
 }
 
 .message.own .message-author,
-.message.own .message-time,
 .message.own .message-date,
 .pane--discussion .message.own .message-text,
 .message.own .message-action-btn {
-  color: var(--white) !important;
+  color: var(--teal) !important;
 }
 
 .message-edited {
@@ -10112,18 +10273,6 @@ onBeforeUnmount(() => {
 .reaction-picker-toggle.active {
   border-color: var(--air-force-blue);
   background: #f1f5f7;
-}
-
-.message.own .reaction-picker-toggle {
-  border-color: rgba(255, 255, 255, 0.56);
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--white);
-}
-
-.message.own .reaction-picker-toggle:hover,
-.message.own .reaction-picker-toggle.active {
-  border-color: var(--white);
-  background: rgba(255, 255, 255, 0.24);
 }
 
 /* Click-only picker. Renders only when ``activeReactionPickerMessageId``
@@ -10460,10 +10609,8 @@ onBeforeUnmount(() => {
 /* Dark theme: the task and chat boxes take the grey other pages give their
    inputs, rather than staying white. Light mode is unchanged. */
 :root[data-theme='dark'] .gd-meta-row span,
-:root[data-theme='dark'] .task-mode-toggle:not(.is-active),
 :root[data-theme='dark'] .task-search-input,
 :root[data-theme='dark'] .task-toolbar-btn:not(.has-active),
-:root[data-theme='dark'] .task-toolbar-sort select,
 :root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
 :root[data-theme='dark'] .task-filter-panel,
 :root[data-theme='dark'] .task-filter-row select,
@@ -10473,11 +10620,24 @@ onBeforeUnmount(() => {
 :root[data-theme='dark'] .task-list,
 :root[data-theme='dark'] .pane--discussion .chat-messages {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
+}
+
+/* Other people's chat messages and the message box on black in the dark
+   theme; your own messages keep their green tint. */
+:root[data-theme='dark'] .message:not(.own) .message-content,
+:root[data-theme='dark'] .chat-input-field {
+  background: #000;
+}
+
+/* A reply quote inside another person's message takes the chat area's grey,
+   so it stands out from the black message. */
+:root[data-theme='dark'] .message:not(.own) .message-reply {
+  background: var(--surface-elevated);
 }
 
 :root[data-theme='dark'] .task-state-menu-item {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .task-state-menu-item:hover {

@@ -1,24 +1,5 @@
 <template>
-  <div class="admin-users">
-    <!-- Top actions: supervisor search only (add / CSV import move to the People tabs line) -->
-    <AdminUsersToolbar
-      v-if="isSupervisorMode"
-      :is-supervisor-mode="isSupervisorMode"
-      v-model:search="searchInput"
-    />
-
-    <!-- Users tab filters: search / role / country / state / in-group / status -->
-    <AdminUsersFilters
-      v-if="!isSupervisorMode"
-      :filters="filters"
-      v-model:search="searchInput"
-      :is-student-mode="isStudentMode"
-      :is-role-fixed="isRoleFixed"
-      :filter-countries="filterCountries"
-      :states="states"
-      @patch="applyFilterPatch"
-    />
-
+  <div id="admin-users-table" class="admin-users">
     <p v-if="error" class="admin-users__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
       <span>{{ error }}</span>
@@ -85,9 +66,8 @@
       :total-count="totalCount"
       :empty-message="emptyMessage"
       :is-student-mode="isStudentMode"
-      :page-size-options="PAGE_SIZE_OPTIONS"
-      pager-label="Users pagination"
-      :select-all-label="`Select all ${pluralNoun} on this page`"
+      v-model:search="searchInput"
+      :search-placeholder="isSupervisorMode ? 'Search supervisors...' : 'Name or email'"
       @view="openView"
       @edit="openEdit"
       @group-action="onGroupAction"
@@ -97,7 +77,19 @@
       @page-change="onPageChange"
       @page-size-change="onPageSizeChange"
       @row-click="onRowClick"
-    />
+    >
+      <!-- Role / country / state / in-group / status, beside Search. Supervisors have Search only. -->
+      <template v-if="!isSupervisorMode" #filters>
+        <AdminUsersFilters
+          :filters="filters"
+          :is-student-mode="isStudentMode"
+          :is-role-fixed="isRoleFixed"
+          :filter-countries="filterCountries"
+          :states="states"
+          @patch="applyFilterPatch"
+        />
+      </template>
+    </AdminUsersTable>
 
     <!-- Bulk status confirm -->
     <ConfirmDialog
@@ -239,6 +231,7 @@
       :user="detailUser"
       @close="onViewClose"
       @edit="openEditFromView"
+      @updated="onDetailUpdated"
     />
 
     <AdminStudentImportSheet
@@ -250,12 +243,11 @@
 </template>
 
 <script setup lang="ts">
-import { inject, onMounted, ref, toRef } from 'vue'
-import { routeLocationKey } from 'vue-router'
+import { onMounted, ref, toRef } from 'vue'
+import { useRoute } from 'vue-router'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
-import AdminUsersToolbar from '@/components/admin/users/AdminUsersToolbar.vue'
 import AdminUsersFilters from '@/components/admin/users/AdminUsersFilters.vue'
 import AdminUsersTable from '@/components/admin/users/AdminUsersTable.vue'
 import AdminUsersBulkBar from '@/components/admin/users/AdminUsersBulkBar.vue'
@@ -264,7 +256,7 @@ import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 import ForceDeleteNotice from '@/components/admin/users/ForceDeleteNotice.vue'
 import type { AdminUser } from '@/utils/adminAPI'
-import { PAGE_SIZE_OPTIONS, USER_ROLES } from '@/utils/userOptions'
+import { USER_ROLES } from '@/utils/userOptions'
 import { useAdminUsersView } from '@/composables/admin/useAdminUsersView'
 
 const props = withDefaults(
@@ -278,6 +270,8 @@ const props = withDefaults(
     roleFilter: ''
   }
 )
+
+const route = useRoute()
 
 const {
   loading,
@@ -293,6 +287,7 @@ const {
   states,
   supervisors,
   searchInput,
+  setSearchImmediately,
   filters,
   columns,
   emptyMessage,
@@ -395,6 +390,11 @@ const onFormSaved = () => {
   void load()
 }
 
+const onDetailUpdated = (user: AdminUser) => {
+  detailUser.value = user
+  void load()
+}
+
 // Deleting from the editor shares the single-delete confirm; the editor is
 // closed first so a deletion doesn't leave a dangling (now-nonexistent) user.
 const confirmEditorDelete = () => {
@@ -422,13 +422,9 @@ const onSingleDeleteConfirmed = () => {
 // usual (changes are not written back to the address). Only a role this
 // list offers is taken, so a stray value cannot put the page in a state its
 // own controls could not produce, and only on the Users tab: the other tabs
-// fix their role. inject with a null default rather than useRoute(): this
-// view is also mounted without a router (its component specs), and there is
-// nothing to read then.
-const route = inject(routeLocationKey, null)
-
+// fix their role. Read next to main's ?search=, ?status= and ?inGroup=.
 onMounted(() => {
-  const requestedRole = route?.query.role
+  const requestedRole = route.query.role
   if (
     !props.roleFilter &&
     typeof requestedRole === 'string' &&
@@ -436,6 +432,22 @@ onMounted(() => {
   ) {
     filters.value = { ...filters.value, role: requestedRole as (typeof USER_ROLES)[number] }
   }
+
+  const search = route.query.search
+  if (typeof search === 'string') {
+    setSearchImmediately(search)
+  }
+
+  const status = route.query.status
+  if (status === 'active' || status === 'inactive') {
+    filters.value.status = status
+  }
+
+  const inGroup = route.query.inGroup
+  if (isStudentMode.value && (inGroup === 'yes' || inGroup === 'no')) {
+    filters.value.inGroup = inGroup
+  }
+
   void init()
 })
 
@@ -473,7 +485,7 @@ defineExpose({
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 8px;
   background-color: rgba(1, 113, 81, 0.06);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -498,7 +510,7 @@ defineExpose({
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users__force-toggle input {
@@ -542,7 +554,7 @@ defineExpose({
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 </style>

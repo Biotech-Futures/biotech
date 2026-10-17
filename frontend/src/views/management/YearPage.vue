@@ -21,16 +21,12 @@
       <ul class="year__facts">
         <li>
           <span class="year__fact-label">Submission deadline</span>
-          <span v-if="deadline">{{
-            `${new Date(deadline.closes_at).toLocaleDateString('en-GB')} ${new Date(deadline.closes_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-          }}</span>
+          <span v-if="deadline">{{ formatStatementTime(deadline.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
           <span class="year__fact-label">Last extension</span>
-          <span v-if="lastExtension">{{
-            `${new Date(lastExtension).toLocaleDateString('en-GB')} ${new Date(lastExtension).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-          }}</span>
+          <span v-if="lastExtension">{{ formatStatementTime(lastExtension) }}</span>
           <span v-else class="year__muted">none granted</span>
         </li>
         <li>
@@ -68,10 +64,7 @@
         <li>Resets marks and certificates from their tabs.</li>
         <li>Clears all per-group deadline extensions.</li>
         <li>Ends all group memberships - students, mentors and supervisors.</li>
-        <li>
-          Deactivates student accounts and signs them out; mentor and supervisor accounts
-          stay active.
-        </li>
+        <li>Deactivates student, mentor and supervisor accounts and signs them out.</li>
         <li>Unpublishes last year's announcements so the new cohort starts clean.</li>
       </ol>
       <p class="year__hint">
@@ -87,6 +80,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists, type FinalistRow } from '@/utils/gradingAPI'
 import {
   fetchCertificatesRelease,
@@ -192,7 +186,7 @@ onMounted(async () => {
 .year__fact-label {
   display: inline-block;
   min-width: 11rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -209,7 +203,7 @@ onMounted(async () => {
   margin: 0 0 1rem;
   padding-left: 1.2rem;
   font-size: 0.92rem;
-  color: var(--charcoal);
+  color: var(--teal);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;

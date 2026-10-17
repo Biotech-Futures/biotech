@@ -199,7 +199,7 @@ async function download(file: TicketAttachment) {
 
 .agent-timeline__row {
   display: flex;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .agent-timeline__row--support {
@@ -306,7 +306,7 @@ async function download(file: TicketAttachment) {
 
 .agent-timeline__author {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .agent-timeline__wall {

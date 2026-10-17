@@ -1,6 +1,7 @@
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.audit.services import log_audit_event
@@ -8,7 +9,7 @@ from apps.resources.models import RoleAssignmentHistory
 
 from apps.groups.models import GroupMembership
 
-from .models import Announcement
+from .models import Announcement, AnnouncementSeen
 from .serializers import AnnouncementListSerializer, AnnouncementSerializer
 
 
@@ -44,6 +45,11 @@ class AnnouncementViewSet(
         if not user or not user.is_authenticated:
             return Announcement.objects.none()
 
+        # Whether this user has opened each one, for its New (see ``seen``).
+        queryset = queryset.annotate(
+            seen_by_me=Exists(AnnouncementSeen.objects.filter(announcement=OuterRef("pk"), user=user)),
+        )
+
         if user.is_staff or user.is_superuser:
             return queryset.order_by("-published_at")
 
@@ -78,6 +84,13 @@ class AnnouncementViewSet(
         audience_filter |= Q(audiences__user=user)
 
         return queryset.filter(Q(archived_at__isnull=True), audience_filter).distinct().order_by("-published_at")
+
+    @action(detail=True, methods=["post"])
+    def seen(self, request, pk=None):
+        """POST {id}/seen/ — the user opened it (its card, its title, or
+        expanded it), so it isn't New to them any more. Only one they can see."""
+        AnnouncementSeen.objects.get_or_create(announcement=self.get_object(), user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_create(self, serializer):
         announcement = serializer.save(author_user=self.request.user)

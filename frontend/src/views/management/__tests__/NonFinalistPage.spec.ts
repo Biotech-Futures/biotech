@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import NonFinalistPage from '@/views/management/NonFinalistPage.vue'
 import {
-  fetchOutcomeAnnouncement,
   fetchSymposiumEmail,
   fetchTestEmailRecipients,
   previewSymposiumEmail,
@@ -16,21 +15,7 @@ vi.mock('@/utils/managementAPI', () => ({
   sendTestEmail: vi.fn(),
   fetchSymposiumEmail: vi.fn(),
   previewSymposiumEmail: vi.fn(),
-  startSymposiumEmail: vi.fn(),
-  fetchOutcomeAnnouncement: vi.fn(async (kind: string) => ({
-    title: `${kind} news`,
-    body: '<p>News.</p>',
-    preview: { title: `${kind} news`, body: '<p>News.</p>' },
-    merge_tags: [],
-    edited: false,
-    edited_by: null,
-    edited_at: null,
-    recipients: 1,
-    noun: 'group',
-    blocked: '',
-    posted_at: null,
-    posted_by: null
-  }))
+  startSymposiumEmail: vi.fn()
 }))
 const statusMock = vi.mocked(fetchSymposiumEmail)
 const previewMock = vi.mocked(previewSymposiumEmail)
@@ -357,19 +342,10 @@ describe('Notify Nonfinalist', () => {
     vi.mocked(fetchTestEmailRecipients).mockImplementation(async () => ({ recipients: [] }))
   })
 
-  it('each card has Preview, Edit and Post Announcement for its own email, under its buttons', async () => {
+  it('has no announcement to post with either email', async () => {
     const wrapper = await mountPage()
-    for (const [card, kind] of [[NONFINALISTS, 'nonfinalists'], [NONSUBMISSIONS, 'nonsubmissions']] as const) {
-      const row = wrapper.find(`${card} .outcome-announcement__actions`)
-      expect(row.findAll('button').map((b) => b.text())).toEqual([
-        'Preview Announcement',
-        'Edit Announcement',
-        'Post Announcement'
-      ])
-      expect(vi.mocked(fetchOutcomeAnnouncement)).toHaveBeenCalledWith(kind)
-    }
-    await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Announcement$/).trigger('click')
-    expect(wrapper.find('[aria-label="Announcement preview"]').text()).toContain('nonsubmissions news')
+    expect(wrapper.find('.outcome-announcement').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Post Announcement')
   })
 
   it("previews each card's own email", async () => {

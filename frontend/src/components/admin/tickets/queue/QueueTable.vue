@@ -256,7 +256,7 @@ function formatWhen(value: string) {
   --queue-danger: var(--danger);
   --queue-link: var(--mint-green);
   --queue-head: var(--light-green);
-  --queue-head-ink: var(--charcoal);
+  --queue-head-ink: var(--teal);
   --queue-rule: var(--border-light);
   --queue-frame: var(--border-light);
   --queue-shadow: none;
@@ -292,7 +292,7 @@ function formatWhen(value: string) {
 
 .queue-table__state--empty p {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 
@@ -338,7 +338,7 @@ function formatWhen(value: string) {
 
 .queue-table__table td {
   padding: 0.45rem 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 400;
   vertical-align: middle;
   border-bottom: 1px solid var(--queue-rule);

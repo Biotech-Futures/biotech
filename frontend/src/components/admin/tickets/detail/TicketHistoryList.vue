@@ -102,7 +102,7 @@ async function retry(event: MouseEvent) {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .ticket-history__list {
@@ -146,7 +146,7 @@ async function retry(event: MouseEvent) {
 
 .ticket-history__action {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .ticket-history__quiet {
@@ -173,7 +173,7 @@ async function retry(event: MouseEvent) {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.82rem;
   cursor: pointer;

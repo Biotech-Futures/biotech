@@ -174,9 +174,9 @@ function markFor(row: Record<string, unknown>) {
 }
 
 /* Neutral, not green: taking access away is not the page's main action.
-   Its edge is measured against the row around it, which turns peach under
-   the pointer. #84938f is 2.80:1 there, so this takes --roster-row-edge,
-   #7a8884 (3.23:1 on the peach, 3.70:1 on white). The extra classes outrank
+   Its edge is measured against the row around it, which turns the brand
+   light green under the pointer. #84938f is under 3:1 there, so this takes
+   --roster-row-edge, #74827e (3.09:1 on that green, 4.01:1 on white). The extra classes outrank
    the page's dark rule that turns every outline button mint, which this one
    should not be. */
 .support-roster__revoke {
@@ -185,12 +185,12 @@ function markFor(row: Record<string, unknown>) {
   border: 1px solid var(--roster-row-edge);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
   font-weight: 700;
 }
 
 :root[data-theme='dark'] .support-roster .admin-table__cell .support-roster__revoke {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

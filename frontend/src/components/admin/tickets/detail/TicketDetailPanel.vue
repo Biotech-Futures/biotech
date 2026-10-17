@@ -716,7 +716,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   width: min(100vw, 42rem);
   background-color: var(--panel-ground);
-  color: var(--charcoal);
+  color: var(--teal);
   box-shadow: -24px 0 60px rgba(7, 17, 15, 0.18);
   animation: ticket-panel-in 0.22s ease;
 }
@@ -778,7 +778,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--panel-edge);
   border-radius: 8px;
   background-color: var(--panel-ground);
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -817,7 +817,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--panel-edge);
   border-radius: 8px;
   background: var(--panel-ground);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.82rem;
   cursor: pointer;
@@ -845,7 +845,7 @@ onBeforeUnmount(() => {
 
 .ticket-panel__tab--active {
   border-bottom-color: var(--panel-accent);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .ticket-panel__tabpanel {
@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
   line-height: 1.5;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .ticket-panel__delete-button {

@@ -25,25 +25,27 @@ const mountPage = () =>
   })
 
 describe('the management shell', () => {
-  it('offers only the seven live sections as tabs', () => {
+  it('offers every section as a tab', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs.map((t) => t.text())).toEqual([
+      'Registration Visibility',
       'Submission Deadline',
       'Extend Deadline',
       'Notify Finalists',
       'Notify Nonfinalist',
       'Finalist Presentation',
       'Release Results',
-      'Document Setup'
+      'Document Setup',
+      'New Year'
     ])
-    expect(tabs[2]!.attributes('href')).toBe('/management/notify-finalists')
-    expect(tabs[3]!.attributes('href')).toBe('/management/email-nonfinalist')
-    expect(tabs[4]!.attributes('href')).toBe('/management/finalist-presentation')
-    expect(tabs[5]!.attributes('href')).toBe('/management/release-results')
-    expect(tabs[6]!.attributes('href')).toBe('/management/document-setup')
-    // The parked section stays routed but must not be offered.
-    expect(wrapper.text()).not.toContain('New Year')
+    expect(tabs[0]!.attributes('href')).toBe('/management/registration-visibility')
+    expect(tabs[3]!.attributes('href')).toBe('/management/notify-finalists')
+    expect(tabs[4]!.attributes('href')).toBe('/management/email-nonfinalist')
+    expect(tabs[5]!.attributes('href')).toBe('/management/finalist-presentation')
+    expect(tabs[6]!.attributes('href')).toBe('/management/release-results')
+    expect(tabs[7]!.attributes('href')).toBe('/management/document-setup')
+    expect(tabs[8]!.attributes('href')).toBe('/management/new-year')
   })
 
   it('marks the tab for the current route as selected', () => {
@@ -51,8 +53,8 @@ describe('the management shell', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs[0]!.attributes('aria-selected')).toBe('false')
-    expect(tabs[1]!.attributes('aria-selected')).toBe('true')
-    expect(tabs[1]!.classes()).toContain('active')
+    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
+    expect(tabs[2]!.classes()).toContain('active')
   })
 
   it('renders the section content through the nested router view', () => {

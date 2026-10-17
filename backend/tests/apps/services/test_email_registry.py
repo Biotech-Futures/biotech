@@ -30,6 +30,12 @@ EXPECTED_KEYS = {
     "nonsubmission_notice",
     "results_team",
     "results_supervisor",
+    "guardian_consent_request",
+    "guardian_consent_received",
+    "guardian_details_request",
+    "guardian_details_received",
+    "guardian_consent_student_notice",
+    "email_credits_low",
 }
 
 
@@ -44,7 +50,7 @@ class RegistryShapeTests(SimpleTestCase):
 
     def test_account_security_and_signin_emails_are_locked(self):
         locked = {t.key for t in EMAIL_TYPES if t.locked}
-        self.assertEqual(locked, {"login_code", "password_reset", "password_changed"})
+        self.assertEqual(locked, {"login_code", "password_reset", "password_changed", "email_credits_low"})
 
     def test_every_type_has_name_description_subject_and_template(self):
         for email_type in EMAIL_TYPES:
@@ -91,6 +97,16 @@ class MergeTagTests(SimpleTestCase):
         login = get_email_type("login_code")
         self.assertEqual(login.tag("otp_code").context_key, "OTP_CODE")
         self.assertIsNone(login.tag("group_name"))
+
+    def test_announcement_offers_the_full_body_as_trusted_html(self):
+        # The announcement email carries the whole announcement, so the tag
+        # that embeds it must be inserted as HTML (not escaped) and read from
+        # the ``body`` context key the send path builds.
+        announcement = get_email_type("announcement")
+        body_tag = announcement.tag("body")
+        self.assertIsNotNone(body_tag)
+        self.assertEqual(body_tag.context_key, "body")
+        self.assertTrue(body_tag.html)
 
 
 class HelperTests(SimpleTestCase):

@@ -106,7 +106,7 @@ const TEXT: { file: string; selector: string; ink: string[]; grounds: string[] }
     grounds: ['<panel>', '--note-ground']
   },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--timeline-file'], grounds: ['--white'] },
-  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--charcoal'], grounds: ['--timeline-theirs'] },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--teal'], grounds: ['--timeline-theirs'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--timeline-ours-ink'], grounds: ['--timeline-ours'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--note-ink'], grounds: ['--note-ground'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--note-on-label'], grounds: ['--note-label'] },

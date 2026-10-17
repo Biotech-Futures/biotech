@@ -4,6 +4,9 @@ from django.db import models
 class SupervisorProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     school_name = models.CharField(max_length=255, null=True, blank=True)
+    # The supervisor's own order for their groups on My Groups, as group ids.
+    # Groups not in it follow, by name.
+    group_order = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = 'supervisor_profile'

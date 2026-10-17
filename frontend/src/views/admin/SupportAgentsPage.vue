@@ -324,8 +324,9 @@ watch(revokeOpen, async (isOpen) => {
    ticket screens' placeholder, #6c757d. The rest are not text. The search
    box's edge is #84938f: 3.04:1 on the page and 3.21:1 on its white field;
    dark #70827d is 4.49:1 and 4.15:1. Revoke sits on a table row that turns
-   peach under the pointer, where #84938f falls to 2.80:1, so it takes
-   #7a8884, the bulk bar's edge on the same peach (3.23:1). In dark it keeps
+   the brand light green under the pointer (#c3ecca since main's 7dcee3c1),
+   where #84938f falls under 3:1, so it takes #74827e (3.09:1 there, 4.01:1
+   on white). In dark it keeps
    #70827d, 3.59:1 on a hovered row. Then come the results card's frame,
    rules and shadow, and the green edge on Grant and on the search box when
    it has focus. The designer drew this page in light only; dark keeps its
@@ -337,7 +338,7 @@ watch(revokeOpen, async (isOpen) => {
   --roster-head: #24524a;
   --roster-placeholder: #6c757d;
   --roster-edge: #84938f;
-  --roster-row-edge: #7a8884;
+  --roster-row-edge: #74827e;
   --roster-frame: #e3e7e5;
   --roster-rule: #e6eae8;
   --roster-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);

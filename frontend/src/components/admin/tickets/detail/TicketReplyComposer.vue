@@ -173,7 +173,7 @@ async function onSubmit() {
   border: 1px solid var(--reply-frame);
   border-radius: 12px;
   background: var(--reply-ground);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .reply-box {
@@ -198,7 +198,7 @@ async function onSubmit() {
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.95rem;
   line-height: 1.45;
@@ -255,7 +255,7 @@ async function onSubmit() {
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
   background: var(--white) var(--ticket-paperclip) no-repeat 0.7rem center;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-weight: 700;
   cursor: pointer;

@@ -196,7 +196,7 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
   border: 1px solid var(--queue-filter-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.9rem;
 }

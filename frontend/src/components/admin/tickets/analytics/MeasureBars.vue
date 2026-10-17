@@ -183,7 +183,7 @@ function shown(value: number): string {
 
 .measure-bars__label {
   grid-column: 1;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -205,7 +205,7 @@ function shown(value: number): string {
 
 .measure-bars__value {
   grid-column: 3;
-  color: var(--charcoal);
+  color: var(--teal);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
@@ -257,7 +257,7 @@ function shown(value: number): string {
 }
 
 .measure-bars__toggle:hover {
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: underline;
 }
 
@@ -281,7 +281,7 @@ function shown(value: number): string {
 .measure-bars__table td {
   padding: 0.25rem 0;
   border-bottom: 1px solid var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .measure-bars__table tr:last-child th,

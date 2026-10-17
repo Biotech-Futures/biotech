@@ -224,7 +224,7 @@ async function submit() {
 .ticket-form__label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .ticket-form__control {
@@ -233,7 +233,7 @@ async function submit() {
   border: 1px solid var(--form-control-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.95rem;
 }
@@ -266,7 +266,7 @@ async function submit() {
 }
 
 .ticket-form__select option {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .ticket-form__control--area {
@@ -314,7 +314,7 @@ async function submit() {
 
 /* White in both themes. var(--white) is the dark page colour in dark, which
    put dark text on the green at 2.79:1. The hover ground is fixed for the same
-   reason: var(--charcoal) turns pale in dark, under white text. */
+   reason: var(--teal) turns pale in dark, under white text. */
 .ticket-form__submit {
   align-self: flex-start;
   min-height: 2.75rem;

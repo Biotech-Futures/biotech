@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
-import { formatLongDateTimeAU } from '@/utils/date'
+import { formatLongDateTimeAU } from '@/utils/ticketDates'
 import {
   attachmentErrorMessage,
   downloadTicketAttachment,
@@ -258,7 +258,7 @@ function rowClass(message: TicketMessage) {
 
 .timeline__author {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .timeline__body {

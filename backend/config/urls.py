@@ -134,7 +134,6 @@ if settings.DEBUG:
             {"document_root": settings.MEDIA_ROOT},
         ),
     ]
-    
     # Local managed storage returns /media/... URLs. Development servers must
     # expose those files so event banners and other uploaded media can render.
     # Local development stores uploaded event banners under MEDIA_ROOT instead

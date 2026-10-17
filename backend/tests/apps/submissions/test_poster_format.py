@@ -14,7 +14,7 @@ from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.submissions.poster_checks import A_SERIES_SIZE, SUPERVISOR_EMAIL, TEAM_CODE
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import confirm_checklist, install_question_set
 from .test_poster_checks import A2, A4, US_LETTER, _build_pdf
 
 
@@ -72,18 +72,16 @@ class PosterFormatUploadTests(TestCase):
         self.assertEqual(response.data["code"], "poster_format_rejected")
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
 
-    def test_a_landscape_poster_is_told_plainly_that_it_is_landscape(self):
+    def test_a_landscape_poster_is_asked_for_portrait(self):
         problems = " ".join(self._upload(_upload_file(A2[1], A2[0])).data["problems"])
 
-        self.assertIn("portrait", problems.lower())
-        self.assertIn("landscape", problems.lower())
+        self.assertEqual(problems, "Your poster must be in portrait orientation.")
 
-    def test_a_non_metric_page_is_accepted_but_flagged(self):
+    def test_a_page_outside_the_a_series_is_refused(self):
         response = self._upload(_upload_file(*US_LETTER, text="BTF7 a@b.edu.au"))
 
-        self.assertEqual(response.status_code, 200)
-        codes = {w["code"] for w in self._submission().poster_checks["warnings"]}
-        self.assertEqual(codes, {A_SERIES_SIZE})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("isn't a standard A size", response.data["problems"][0])
 
     def test_only_the_first_problem_is_named(self):
         # Two pages and landscape at once.
@@ -91,7 +89,7 @@ class PosterFormatUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
-            response.data["problems"], ["The poster should be a single page. This file has 2."]
+            response.data["problems"], ["Your poster must be a single page. This file has 2 pages."]
         )
 
     def test_a_multi_page_pdf_is_refused(self):
@@ -168,6 +166,7 @@ class PosterFormatUploadTests(TestCase):
             },
             format="json",
         )
+        confirm_checklist(self.group)
 
         self.assertEqual(
             self.client.post(self.submit_url, {}, format="json").status_code, 200

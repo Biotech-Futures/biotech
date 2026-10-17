@@ -299,7 +299,7 @@ onMounted(async () => {
   background-repeat: no-repeat;
   background-position: right 0.9rem center;
   appearance: none;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.9rem;
 }

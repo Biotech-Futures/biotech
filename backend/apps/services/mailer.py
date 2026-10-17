@@ -24,9 +24,10 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="auth-mail")
 def send_async(msg, *, kind: str, on_failure=None) -> None:
     """Hand an already-built message to the pool. Never raises to the caller.
 
-    The message must be fully rendered by the caller — the worker does no ORM
-    work of its own, so it never opens a second DB connection that could not
-    see the uncommitted row that triggered it.
+    The message must be fully rendered by the caller — the worker reads
+    nothing from the database, as it could not see the uncommitted row that
+    triggered it. The only database work on the worker is a system email
+    noting its send in the Log on System Emails, and ``on_failure`` below.
 
     ``on_failure`` is optional and off by default; leaving it out is exactly
     the behaviour this function has always had. When given, it is called with
@@ -34,9 +35,8 @@ def send_async(msg, *, kind: str, on_failure=None) -> None:
     exists for the one case where "we tried to tell them" has to be visible
     to a human afterwards rather than only in the logs.
 
-    A callback that touches the ORM will open a connection on the worker
-    thread, which is why the async path closes them on the way out — nothing
-    else ever will.
+    Either of those opens a connection on the worker thread, which is why the
+    async path closes them on the way out — nothing else ever will.
     """
     if getattr(settings, "AUTH_EMAIL_DISPATCH_SYNC", False):
         # Inline: the caller's request already owns this thread's connection,
@@ -45,19 +45,19 @@ def send_async(msg, *, kind: str, on_failure=None) -> None:
         return
 
     try:
-        _EXECUTOR.submit(_send_on_worker, msg, kind, on_failure)
+        _EXECUTOR.submit(_send_in_pool, msg, kind, on_failure)
     except RuntimeError:
         # submit() raises once the interpreter is shutting down (worker recycling).
         # Losing one email beats 500-ing a login request that already succeeded.
         logger.warning("auth_email.dispatch_unavailable kind=%s", kind)
 
 
-def _send_on_worker(msg, kind: str, on_failure=None) -> None:
+def _send_in_pool(msg, kind: str, on_failure=None) -> None:
     try:
         _send(msg, kind, on_failure)
     finally:
-        # Thread-local, so this only touches connections this worker opened.
-        # A no-op unless a callback actually used the ORM.
+        # Thread-local, so this only touches connections this worker opened:
+        # the Log's note, or a callback that used the ORM.
         connections.close_all()
 
 

@@ -243,7 +243,7 @@ function onReplacePick(event: Event) {
   border: 1px solid var(--attach-edge);
   border-radius: 8px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.88rem;
   cursor: pointer;
 }

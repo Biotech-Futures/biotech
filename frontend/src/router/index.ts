@@ -55,11 +55,32 @@ normalizeDirectAuthRedirect()
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: routes
+  routes: routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (to.hash) {
+      return { el: to.hash, top: 80, behavior: 'smooth' }
+    }
+
+    if (to.path.startsWith('/analytics') && to.path !== from.path && !to.hash) {
+      return { left: 0, top: 0 }
+    }
+
+    return savedPosition ?? undefined
+  },
 })
 
 import { useAuthStore } from '../stores/auth'
 import { landingPath, SUPPORT_ACCESS_PATH } from '@/utils/landing'
+import { rememberReturnTo } from '../utils/postLoginRedirect'
+import {
+  isSupervisorHiddenPath,
+  loadSupervisorPages,
+  loadSupervisorRegistration,
+} from '../composables/useSupervisorPages'
+import {
+  isSupervisorRegistrationRoute,
+  resolveSupervisorRegistrationRouteAccess,
+} from './registrationAccess'
 
 // Pages a support-only account may open besides the ticket routes: its own
 // profile (the timezone prompt after sign-in sends people there) and the page
@@ -68,7 +89,7 @@ const SUPPORT_ONLY_EXTRA_PATHS = ['/profile', SUPPORT_ACCESS_PATH]
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
+  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password', '/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
@@ -77,8 +98,13 @@ router.beforeEach((to, from, next) => {
   // meta.requiresSupport sits on the /admin/tickets parent and Vue Router
   // merges it into every child's meta, so this covers the whole section.
   const isTicketRoute = to.meta.requiresSupport === true
+  const supervisorRegistrationAccess = resolveSupervisorRegistrationRouteAccess(to, auth)
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (to.meta.public === true) {
+    // Open to anyone, signed in or not, and never redirected away.
+    next()
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {
@@ -88,6 +114,8 @@ router.beforeEach((to, from, next) => {
     next(landingPath(auth))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
+    // Signing in brings them back here, e.g. to the page an email linked to.
+    rememberReturnTo(to.fullPath)
     next('/login')
 
   } else if (isTicketRoute && !auth.canWorkTickets) {
@@ -116,9 +144,18 @@ router.beforeEach((to, from, next) => {
     // start page (members home, a support agent to the queue).
     next(landingPath(auth))
 
+  } else if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
+
   } else if (to.path === '/login' && auth.isAuthenticated) {
     // landingPath() answers the set-password case first, as this branch did.
     next(landingPath(auth))
+  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from supervisors until Management > Supervisor Visibility shows them.
+    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
+  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorRegistrationRoute(to)) {
+    // Their Registration page, unless Management > Supervisor Visibility hides it.
+    void loadSupervisorRegistration().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

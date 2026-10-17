@@ -51,7 +51,7 @@ import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketTimeline from '@/components/support/TicketTimeline.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { formatLongDateAU, formatLongDateTimeAU } from '@/utils/date'
+import { formatLongDateAU, formatLongDateTimeAU } from '@/utils/ticketDates'
 import { categoryLabel, fetchTicket, type TicketDetail } from '@/utils/supportAPI'
 
 const route = useRoute()

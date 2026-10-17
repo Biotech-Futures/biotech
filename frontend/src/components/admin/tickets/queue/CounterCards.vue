@@ -179,16 +179,16 @@ const CARDS: {
 }
 
 /* Colour and background both set, so no global hover rule can combine into
-   an unreadable pair. --charcoal on --white is 11.07:1 light, 14.37:1 dark. */
+   an unreadable pair. --teal on --white is 11.07:1 light, 14.37:1 dark. */
 .queue-card__label--button:hover {
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: underline;
 }
 
 .queue-card__value {
   margin: 0.15rem 0 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.75rem;
   font-weight: 600;
   line-height: 1.2;

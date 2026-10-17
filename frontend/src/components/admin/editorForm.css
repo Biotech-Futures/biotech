@@ -51,7 +51,7 @@
 
 :root[data-theme='dark'] .editor__title {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-color: var(--border-light);
 }
 

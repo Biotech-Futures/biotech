@@ -143,7 +143,7 @@ function go(target: number, atEdge: boolean) {
   border: 1px solid var(--pager-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
@@ -155,7 +155,7 @@ function go(target: number, atEdge: boolean) {
    green-on-green. */
 .queue-pager__btn:hover:not([aria-disabled='true']) {
   background: var(--accent-green-soft);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .queue-pager__btn[aria-disabled='true'] {

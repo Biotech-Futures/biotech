@@ -98,7 +98,7 @@ describe('the extensions table', () => {
     expect(text).toContain('BTF-1')
     expect(text).toContain('+6h')
     expect(text).toContain('Ada Admin')
-    expect(wrapper.find('.extensions__reason-row').text()).toContain('School flood.')
+    expect(wrapper.find('.data-table-detail-row .extensions__reason').text()).toContain('School flood.')
   })
 
   it('labels rows Active, In grace, Expired or Revoked by their own clock', async () => {
@@ -117,7 +117,7 @@ describe('the extensions table', () => {
     // which instead of offering the button.
     const actions = wrapper.findAll('tbody td:nth-child(8)').map((c) => c.text())
     expect(actions).toEqual(['Revoke', 'Revoke', 'Expired', 'Revoked'])
-    const rows = wrapper.findAll('tbody tr').filter((r) => !r.classes('extensions__reason-row'))
+    const rows = wrapper.findAll('tbody tr').filter((r) => !r.classes('data-table-detail-row'))
     expect(rows.map((r) => r.find('button').exists())).toEqual([true, true, false, false])
   })
 
@@ -130,13 +130,13 @@ describe('the extensions table', () => {
     expect(headers.slice(0, 4)).toEqual(['Group', 'Extension', 'Added', 'Grace'])
     expect(wrapper.findAll('tbody td:nth-child(3)').map((c) => c.text())).toEqual(['1d 18h', '—'])
     // The reason row still spans every column.
-    expect(wrapper.find('.extensions__reason-row td').attributes('colspan')).toBe('8')
+    expect(wrapper.find('.data-table-detail-row td').attributes('colspan')).toBe('8')
   })
 
   it('says so when nothing has been granted', async () => {
     listMock.mockResolvedValue({ extensions: [] })
     const wrapper = await mountPage()
-    expect(wrapper.find('.extensions__empty').text()).toBe('No extensions granted.')
+    expect(wrapper.find('.data-table-empty').text()).toBe('No extensions granted.')
   })
 
   it('offers a retry when the list fails to load', async () => {

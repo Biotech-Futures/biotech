@@ -410,7 +410,7 @@ const resolvedShare = computed(() => {
 }
 
 .ticket-analytics__label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -424,7 +424,7 @@ const resolvedShare = computed(() => {
   border: 1px solid var(--analytics-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.9rem;
 }

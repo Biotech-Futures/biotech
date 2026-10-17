@@ -10,7 +10,9 @@ from django.utils.html import format_html, format_html_join
 
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
+from apps.services.email_log import UNREACHABLE, note_send, reason_for
 from apps.services.mailer import send_async
+from apps.services.retry import reset, send_with_retry
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -20,6 +22,7 @@ from apps.services.system_email import (
 )
 
 from .models import Submission, SubmissionQuestion
+from .serializers import submitted_by_label
 from .services import current_cohort, deadline_for_group
 
 
@@ -147,25 +150,42 @@ def group_message(rendered, group, addresses, *, sender):
 
 def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
     """Send each message over one connection, signed in as ``sender``'s
-    mailbox; one failing doesn't stop the rest. Returns (sent, failed)."""
+    mailbox; one failing is tried once more at once (see ``retry``), and
+    doesn't stop the rest. Returns (sent, failed). Noted in the Log on System
+    Emails as a send of ``kind``."""
     if not messages:
         return 0, 0
 
     sent = failed = 0
+    delivered_recipients = 0
+    failed_recipients = 0
+    missed = {}
     connection = sender_connection(sender)
     try:
         connection.open()
     except Exception:
         logger.error("submission_email.connection_failed kind=%s", kind)
+        recipients = [address for message in messages for address in message.recipients()]
+        note_send(
+            kind,
+            missed={address: UNREACHABLE for address in recipients},
+            attempted=len(recipients),
+            delivered=0,
+            failed=len(recipients),
+            source_mailbox=sender.address,
+        )
         return 0, len(messages)
 
     try:
         for message in messages:
             message.connection = connection
             try:
-                message.send()
+                send_with_retry(message)
             except Exception as exc:
                 failed += 1
+                failed_recipients += len(message.recipients())
+                missed.update(dict.fromkeys(message.recipients(), reason_for(exc)))
+                reset(connection)
                 # Not logger.exception, which would log the recipient address.
                 logger.error(
                     "submission_email.recipient_failed kind=%s error=%s",
@@ -173,11 +193,20 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
                 )
             else:
                 sent += 1
+                delivered_recipients += len(message.recipients())
     finally:
         try:
             connection.close()
         except Exception:
             pass
+    note_send(
+        kind,
+        missed=missed,
+        attempted=delivered_recipients + failed_recipients,
+        delivered=delivered_recipients,
+        failed=failed_recipients,
+        source_mailbox=sender.address,
+    )
     return sent, failed
 
 
@@ -221,7 +250,7 @@ def send_submission_confirmation(submission: Submission) -> int:
             "OPTIONAL_COMPONENTS_LIST": components_list_html(optional),
             "INCOMPLETE": any(not item["submitted"] for item in required),
             "DEADLINE": _format_deadline(deadline.closes_at),
-            "SUBMITTED_BY": submission.submitted_by,
+            "SUBMITTED_BY": submitted_by_label(submission),
             # Blank when no frontend URL is configured; the template then omits the button.
             "SUBMISSION_URL": (
                 f"{settings.FRONTEND_BASE_URL}/#/submission/{group.id}"

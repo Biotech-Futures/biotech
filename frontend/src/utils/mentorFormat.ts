@@ -18,16 +18,22 @@ export const isEffectivelyInactive = (mentor: AdminMentorDetail, inactiveDaysVal
 
 export const lastMessageDays = (dateStr: string): number => daysSince(dateStr) ?? 0
 
+/** "Today", "1 day ago", "12 days ago", counted like the inactive highlight. */
 export const relativeDays = (dateStr: string): string => {
-  const days = daysSince(dateStr) ?? 0
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Yesterday'
-  return `${days} days ago`
+  const days = daysSince(dateStr)
+  if (days === null || Number.isNaN(days)) return ''
+  if (days <= 0) return 'Today'
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`
 }
 
-export const formatLogin = (dateStr: string): string => new Date(dateStr).toLocaleString()
-
-export const loginDate = (dateStr: string): string => new Date(dateStr).toLocaleDateString()
+/** A calendar date with no time ("2026-10-09") as "09/10/26", so it never
+ *  moves a day with the timezone. */
+export const formatCalendarDate = (isoDate: string | null | undefined): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate ?? '')
+  if (!match) return isoDate ?? ''
+  const [, year = '', month, day] = match
+  return `${day}/${month}/${year.slice(-2)}`
+}
 
 export const sortedAvailability = (availability: AdminMentorAvailability[]) =>
   [...availability].sort((a, b) => a.weekday - b.weekday)
