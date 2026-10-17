@@ -1,0 +1,87 @@
+{% extends "emails/base.html" %}
+{# The client's "Supervisor Daily Digest" (sent from Power Automate), in the #}
+{# shared layout. Sent daily to a supervisor with a student whose permission #}
+{# form isn't signed yet (apps.users.supervisor_status). The old portal's    #}
+{# "I'm a teacher, then View current students" is their My Students now.    #}
+
+{% block title %}{{ BRAND_NAME }}: Student Registration Status{% endblock %}
+
+{% block preheader %}Some of your students still need to complete their {{ BRAND_NAME }} registration.{% endblock %}
+
+{% block footer_reason %}emails about your students' registration{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 24px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ First_Name|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Some of your students still need to complete their <span style="color:#307054;">{{ BRAND_NAME }}</span> registration.
+              </h1>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                You are receiving this email because one or more students who have listed you as their supervisor are yet to have their permission form signed off.
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Students whose permission forms have not been signed by the challenge start date{% if CHALLENGE_START %} of {{ CHALLENGE_START }}{% endif %} will not be able to access the portal until this has been actioned. Once the form is signed, account activation may take up to 24 hours.
+              </p>
+
+              <h2 style="margin:28px 0 12px 0; color:#1a2e23; font-size:18px; line-height:1.3; font-weight:700;">
+                Your students' registration summary
+              </h2>
+
+              <!-- The three counts, one under the other. -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
+                    <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ COMPLETE_COUNT }}</p>
+                    <p style="margin:4px 0 0 0; color:#1a2e23; font-size:15px; font-weight:700;">Complete</p>
+                    <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">No further action is required.</p>
+                  </td>
+                </tr>
+                <tr><td style="height:10px; line-height:10px; font-size:0;">&nbsp;</td></tr>
+                <tr>
+                  <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
+                    <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ PENDING_SIGNATURE_COUNT }}</p>
+                    <p style="margin:4px 0 0 0; color:#1a2e23; font-size:15px; font-weight:700;">Pending Signature</p>
+                    <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">The student has provided their guardian's details, but the permission form has not been signed. The guardian receives a daily email from {{ SENDER_EMAIL }} prompting them to sign the form.</p>
+                  </td>
+                </tr>
+                <tr><td style="height:10px; line-height:10px; font-size:0;">&nbsp;</td></tr>
+                <tr>
+                  <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
+                    <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ PENDING_CONTACT_COUNT }}</p>
+                    <p style="margin:4px 0 0 0; color:#1a2e23; font-size:15px; font-weight:700;">Pending Contact</p>
+                    <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">The student has not provided their guardian's details. The student receives a daily email from {{ SENDER_EMAIL }} prompting them to provide the details. If you know the guardian's contact details, you can add them with Upload Guardian Details on My Students, or reply to this email and our team can add them.</p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                As a supervisor, you can view each student's registration status in detail on My Students in {{ BRAND_CONNECT }}.
+              </p>
+
+              <!-- CTA: bulletproof button -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td align="center" style="padding:24px 0 24px 0;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ STUDENTS_URL }}" style="height:48px;v-text-anchor:middle;width:300px;" arcsize="12%" strokecolor="#007253" fillcolor="#C3EBCA">
+                      <w:anchorlock/>
+                      <center style="color:#007253;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;">View Current Students</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-- -->
+                    <a class="cta-link" href="{{ STUDENTS_URL }}" style="background:#C3EBCA; border:1px solid #007253; border-radius:6px; color:#007253; display:inline-block; font-size:16px; font-weight:700; line-height:1.2; padding:14px 28px; text-align:center; text-decoration:none; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      View Current Students
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                If you have any questions or can provide missing guardian contact details, please reply to this email or contact us at <a href="mailto:{{ SENDER_EMAIL }}" style="color:#307054; text-decoration:underline;">{{ SENDER_EMAIL }}</a>.
+              </p>
+{% endblock %}

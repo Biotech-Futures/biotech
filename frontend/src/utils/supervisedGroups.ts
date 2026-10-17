@@ -18,6 +18,13 @@ export type SupervisedGroup = {
   group_name: string
   members: GroupPerson[]
   interests: string[]
+  /** Formed while registering: by the supervisor, or by its students; "" (or
+   *  none) for groups made later. My Groups' Waiting Area keeps its students'
+   *  places, a line each, even once it's made a BIOTech group (placed). */
+  registered_by?: '' | 'supervisor' | 'members'
+  /** Made a BIOTech group from the Waiting Area (Create all groups): on the
+   *  Groups board since. */
+  placed?: boolean
 }
 
 // The program's official areas of interest. Keep in step with the backend's
@@ -146,6 +153,21 @@ export async function saveSupervisedGroupOrder(groupIds: number[]): Promise<void
     body: JSON.stringify({ group_ids: groupIds }),
   })
   if (!response.ok) throw await apiErrorFromResponse(response)
+}
+
+// My Groups' Waiting Area: Create all groups. Every group of that kind
+// waiting there becomes a BIOTech group; answers with them.
+export async function createAllWaitingGroups(
+  registeredBy: 'supervisor' | 'members',
+): Promise<SupervisedGroup[]> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-groups/place/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: await headers(true),
+    body: JSON.stringify({ registered_by: registeredBy }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
+  return response.json()
 }
 
 export async function deleteSupervisedGroup(groupId: number): Promise<void> {

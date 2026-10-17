@@ -19,6 +19,18 @@ class SendGuardianDetailsRemindersView(APIView):
         return email_jobs.refused(request) or email_jobs.queued(guardian_details.EMAIL_KEY)
 
 
+class SendSupervisorRegistrationStatusView(APIView):
+    """POST with the email jobs' token: email today's supervisors whose
+    students aren't all complete (apps.users.supervisor_status)."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        return email_jobs.refused(request) or email_jobs.queued("supervisor_registration_status")
+
+
 class SendGuardianConsentRemindersView(APIView):
     """POST with the email jobs' token: email the consent form to today's
     guardians who haven't signed."""

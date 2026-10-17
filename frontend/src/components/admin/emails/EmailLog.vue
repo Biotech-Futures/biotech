@@ -12,16 +12,31 @@
     <template v-else-if="email">
       <p class="email-log__line" data-test="log-last-emailed">{{ lastEmailed(email) }}</p>
       <p class="email-log__note">{{ deliveryNote(email.sentFrom, email.toGroups) }}</p>
-      <div v-if="email.missed.length" class="email-log__missed" data-test="log-missed">
+      <div v-if="email.missed.length || bouncedOf(email).length" class="email-log__missed" data-test="log-missed">
         <p class="email-log__missed-title">Couldn't be emailed:</p>
-        <div v-for="send in email.missed" :key="send.at" class="email-log__send">
-          <p class="email-log__when">{{ formatWhen(send.at) }}</p>
-          <ul>
-            <li v-for="(person, i) in send.people" :key="i">
-              <MissedPerson :who="person.who" /><span v-if="person.reason" class="email-log__reason"> · {{ person.reason }}</span>
-            </li>
-          </ul>
-        </div>
+        <!-- Bounced back after the mail server took it, by when each was found. -->
+        <template v-if="bouncedOf(email).length">
+          <p class="email-log__subtitle" data-test="log-bounced">Bounced emails:</p>
+          <div v-for="found in bouncedOf(email)" :key="`bounced-${found.at}`" class="email-log__send">
+            <p class="email-log__when">{{ formatWhen(found.at) }}</p>
+            <ul>
+              <li v-for="(person, i) in found.people" :key="i">
+                <MissedPerson :who="person.who" /><span v-if="person.reason" class="email-log__reason"> · {{ person.reason }}</span>
+              </li>
+            </ul>
+          </div>
+        </template>
+        <template v-if="email.missed.length">
+          <p class="email-log__subtitle" data-test="log-failed">Failed emails:</p>
+          <div v-for="send in email.missed" :key="send.at" class="email-log__send">
+            <p class="email-log__when">{{ formatWhen(send.at) }}</p>
+            <ul>
+              <li v-for="(person, i) in send.people" :key="i">
+                <MissedPerson :who="person.who" /><span v-if="person.reason" class="email-log__reason"> · {{ person.reason }}</span>
+              </li>
+            </ul>
+          </div>
+        </template>
       </div>
     </template>
 
@@ -40,17 +55,36 @@
         <h3 class="email-log__name">
           {{ nameParts(item.name).title }}
           <span v-if="nameParts(item.name).to" class="email-log__to">{{ nameParts(item.name).to }}</span>
-          <!-- One send: its time beside the name, else above each send. -->
-          <span v-if="item.missed.length === 1" class="email-log__when">{{ formatWhen(item.missed[0].at) }}</span>
+          <!-- When it was sent. -->
+          <span v-if="sentAt(item)" class="email-log__when">{{ formatWhen(sentAt(item)!) }}</span>
         </h3>
-        <div v-for="send in item.missed" :key="send.at" class="email-log__send">
-          <p v-if="item.missed.length > 1" class="email-log__when">{{ formatWhen(send.at) }}</p>
-          <ul>
-            <li v-for="(person, i) in send.people" :key="i">
-              <MissedPerson :who="person.who" /><span v-if="person.reason" class="email-log__reason"> · {{ person.reason }}</span>
-            </li>
-          </ul>
-        </div>
+        <!-- Bounced back after the mail server took it, by when each was found. -->
+        <template v-if="bouncedOf(item).length">
+          <p class="email-log__subtitle" data-test="log-bounced">Bounced emails:</p>
+          <div v-for="found in bouncedOf(item)" :key="`bounced-${found.at}`" class="email-log__send">
+            <p class="email-log__when">{{ formatWhen(found.at) }}</p>
+            <ul>
+              <li v-for="(person, i) in found.people" :key="i">
+                <MissedPerson :who="person.who" /><span v-if="person.reason" class="email-log__reason"> · {{ person.reason }}</span>
+              </li>
+            </ul>
+          </div>
+        </template>
+        <!-- Its sends that couldn't reach someone: a send's time above it,
+             unless it's the one beside the name. -->
+        <template v-if="item.missed.length">
+          <p class="email-log__subtitle" data-test="log-failed">Failed emails:</p>
+          <div v-for="send in item.missed" :key="send.at" class="email-log__send">
+            <p v-if="send.at !== sentAt(item) || item.missed.length > 1" class="email-log__when">
+              {{ formatWhen(send.at) }}
+            </p>
+            <ul>
+              <li v-for="(person, i) in send.people" :key="i">
+                <MissedPerson :who="person.who" /><span v-if="person.reason" class="email-log__reason"> · {{ person.reason }}</span>
+              </li>
+            </ul>
+          </div>
+        </template>
       </div>
     </template>
   </section>
@@ -73,7 +107,15 @@ const props = defineProps<{
 
 const email = computed(() => props.emails.find((item) => item.key === props.selectedKey) ?? null)
 
-const withMissed = computed(() => props.emails.filter((item) => item.missed.length))
+// Its bounces, grouped by when they were found (none from an older server).
+const bouncedOf = (item: SystemEmailLogEntry) => item.bounced ?? []
+
+const withMissed = computed(() =>
+  props.emails.filter((item) => item.missed.length || bouncedOf(item).length),
+)
+
+// When it was sent: its last send, else its latest that missed someone.
+const sentAt = (item: SystemEmailLogEntry) => item.lastSentAt ?? item.missed[0]?.at ?? null
 
 /** Each send's time: "29/09/26 23:58". */
 const formatWhen = (iso: string) => formatShortDateTime(iso)
@@ -121,6 +163,13 @@ const lastEmailed = (item: SystemEmailLogEntry) => {
 .email-log__missed-title {
   font-weight: 600;
   color: var(--danger);
+}
+
+/* "Bounced emails:", "Failed emails:": under the email's name, in italics. */
+.email-log__subtitle {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-primary);
 }
 
 .email-log__email {
