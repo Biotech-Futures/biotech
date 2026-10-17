@@ -132,6 +132,21 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="registration_group",
+        name="Group registration confirmation (to students)",
+        description=(
+            "Sent to each student who registers as a team, each with their own copy, and to a "
+            "student who joins a group by its code."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_group.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="guardian_details_request",
         name="Guardian details needed",
         description=(

@@ -441,6 +441,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "password_reset": _EVERYONE,
     "password_changed": _EVERYONE,
     "registration_student": Recipients(_students, _registration_context),
+    "registration_group": Recipients(_students, _registration_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,
