@@ -1,6 +1,10 @@
 from django.urls import path
 
 from .views import (
+    AllResultsCertificatesZipView,
+    AllResultsCertificateView,
+    AllResultsSheetView,
+    AllResultsView,
     AnnouncementCategoriesView,
     CertificatesReleaseView,
     FinalistEmailPreviewView,
@@ -190,6 +194,16 @@ urlpatterns = [
         "supervisor-results/certificates/<int:group_id>/<int:user_id>/",
         SupervisorResultsCertificateView.as_view(),
         name="supervisor-results-certificate",
+    ),
+
+    # Management's Results tab: every group's marks and certificates, for admins.
+    path("all-results/", AllResultsView.as_view(), name="all-results"),
+    path("all-results/marks-sheet/", AllResultsSheetView.as_view(), name="all-results-sheet"),
+    path("all-results/certificates/", AllResultsCertificatesZipView.as_view(), name="all-results-certificates"),
+    path(
+        "all-results/certificates/<int:group_id>/<int:user_id>/",
+        AllResultsCertificateView.as_view(),
+        name="all-results-certificate",
     ),
 
     # Results emails to teams and supervisors, from the Release Results tab.

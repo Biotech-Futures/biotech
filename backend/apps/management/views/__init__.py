@@ -28,6 +28,10 @@ from .bounce_check import BounceCheckTriggerView
 from .registration_open import RegistrationOpenView
 from .supervisor_pages import SupervisorPagesView
 from .supervisor_results import (
+    AllResultsCertificatesZipView,
+    AllResultsCertificateView,
+    AllResultsSheetView,
+    AllResultsView,
     SupervisorResultsCertificatesZipView,
     SupervisorResultsCertificateView,
     SupervisorResultsSheetView,
@@ -60,6 +64,10 @@ __all__ = [
     "BounceCheckTriggerView",
     "RegistrationOpenView",
     "SupervisorPagesView",
+    "AllResultsCertificatesZipView",
+    "AllResultsCertificateView",
+    "AllResultsSheetView",
+    "AllResultsView",
     "SupervisorResultsCertificatesZipView",
     "SupervisorResultsCertificateView",
     "SupervisorResultsSheetView",

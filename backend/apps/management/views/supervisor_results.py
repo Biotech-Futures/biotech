@@ -8,6 +8,10 @@ certificates are released separately (at the Symposium).
 The same people and documents as the supervisor email (``results_notify``),
 except that a finalist group still shows, its marks too: only its
 certificates wait.
+
+Admins see the same for every group that made a submission, on Management's
+Results tab (the ``AllResults`` views): released or not, and nothing held
+back, so they can check them before releasing.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.filenames import safe_name
+from apps.common.rbac import IsStaffOrAdmin
 from apps.grading.models import FinalistFlag
 from apps.grading.services.marks import grades_payload
 from apps.grading.services.text import natural_key
@@ -62,29 +67,32 @@ def release_state() -> dict:
 
 class _Scope:
     """A supervisor's results this year: their students on groups that made
-    a submission, those groups, by name, and each group's mentors."""
+    a submission, those groups, by name, and each group's mentors. With no
+    supervisor, every group that made a submission and all its students and
+    mentors, for admins."""
 
-    def __init__(self, supervisor, year: int, exclude_finalists: bool):
+    def __init__(self, year: int, exclude_finalists: bool, supervisor=None):
         self.year = year
-        own = StudentProfile.objects.filter(supervisor_id=supervisor.id).values("user_id")
-        memberships = (
-            GroupMembership.objects.filter(
-                group__in=results_notify._submitted_teams(year),
-                user_id__in=own,
-                left_at__isnull=True,
-                membership_role=_ROLES.STUDENT,
+        teams = results_notify._submitted_teams(year)
+        memberships = GroupMembership.objects.filter(
+            group__in=teams,
+            left_at__isnull=True,
+            membership_role=_ROLES.STUDENT,
+        ).select_related("user", "group")
+        if supervisor is not None:
+            memberships = memberships.filter(
+                user_id__in=StudentProfile.objects.filter(supervisor_id=supervisor.id).values("user_id")
             )
-            .select_related("user", "group")
-        )
         # (student, group), by group, then name.
         self.students = sorted(
             ((m.user, m.group) for m in memberships if m.user and m.user.is_active),
             key=lambda pair: (natural_key(pair[1].group_name), person_name(pair[0]).lower()),
         )
-        self.groups = sorted(
-            {group.id: group for _, group in self.students}.values(),
-            key=lambda group: natural_key(group.group_name),
-        )
+        groups = {group.id: group for _, group in self.students}
+        if supervisor is None:
+            # Every group that made a submission, even one with no student now.
+            groups.update({group.id: group for group in teams})
+        self.groups = sorted(groups.values(), key=lambda group: natural_key(group.group_name))
         self.mentors = results_notify.team_members(self.groups, _ROLES.MENTOR)
         # Finalists' certificates come separately while certificates go out without them.
         self.withheld = (
@@ -103,7 +111,12 @@ class _Scope:
 
 
 def _scope(request) -> _Scope:
-    return _Scope(request.user, current_cohort(), CertificatesRelease.load().exclude_finalists)
+    return _Scope(current_cohort(), CertificatesRelease.load().exclude_finalists, request.user)
+
+
+def _all_scope() -> _Scope:
+    """Every group's results, for admins: no certificates held back."""
+    return _Scope(current_cohort(), exclude_finalists=False)
 
 
 def _certificate_name(year: int, kind: str, person) -> str:
@@ -158,6 +171,16 @@ def _zip_name(year: int, supervisor) -> str:
     return results_notify.file_name(year, "Certificates", person_name(supervisor), "zip")
 
 
+def _all_sheet_name(year: int) -> str:
+    """"2026_BTF_Student_Marks_All_Groups.xlsx": every group's, on Management."""
+    return results_notify.file_name(year, "Student_Marks", "All_Groups", "xlsx")
+
+
+def _all_zip_name(year: int) -> str:
+    """"2026_BTF_Certificates_All_Groups.zip"."""
+    return results_notify.file_name(year, "Certificates", "All_Groups", "zip")
+
+
 # The spreadsheet's mark columns: each named after its rubric criterion on hover.
 _CRITERION_NAMES = {
     **{f"PM{i}": f"PosterRubric{i}" for i in range(1, 11)},
@@ -198,6 +221,85 @@ class SupervisorResultsStateView(APIView):
         })
 
 
+def _mark_rows(scope: _Scope) -> list[dict]:
+    """A row per group, as the spreadsheet orders them: highest total first,
+    a group not marked at all last, and groups on the same total by team code."""
+    rows = []
+    for group in scope.groups:
+        fields = marks_release_fields(marks_summary_context(group, scope.year, grades_payload(group, scope.year)))
+        rows.append({**results_notify._sheet_row(fields), "group_id": group.id})
+    rows.sort(key=lambda row: (
+        row.get("MTotal") in (None, ""),
+        -Decimal(row.get("MTotal") or 0),
+        natural_key(row.get("TeamCode", "")),
+    ))
+    return rows
+
+
+def _results(scope: _Scope, *, marks: bool, certificates: bool, sheet_file_name: str, zip_file_name: str) -> dict:
+    """What a Results page shows: the marks when ``marks``, the certificates
+    when ``certificates``."""
+    state = release_state()
+    rows = _mark_rows(scope) if marks else []
+    people = [
+        {
+            "user_id": person.id,
+            "name": person_name(person),
+            "kind": kind,
+            "group_id": group.id,
+            "group_name": group.group_name,
+            "withheld": group.id in scope.withheld,
+            "file_name": _certificate_name(scope.year, kind, person),
+        }
+        for kind, person, group in (scope.holders() if certificates else [])
+    ]
+    return {
+        "year": scope.year,
+        "marks_released": state["marks_released"],
+        "certificates_released": state["certificates_released"],
+        "columns": _columns(rows) if marks else [],
+        "groups": [
+            {key: row.get(key) for key in ("group_id", *results_notify.MARKS_SHEET_COLUMNS)} for row in rows
+        ],
+        "sheet_file_name": sheet_file_name if marks else "",
+        "people": people,
+        "zip_file_name": zip_file_name if certificates else "",
+    }
+
+
+def _certificate_response(scope: _Scope, group_id: int, user_id: int):
+    """One person's certificate for one group in ``scope``."""
+    holder = next(
+        ((kind, person, group) for kind, person, group in scope.holders()
+         if person.id == user_id and group.id == group_id),
+        None,
+    )
+    if holder is None:
+        return Response({"detail": "No certificate for that person here."}, status=status.HTTP_404_NOT_FOUND)
+    kind, person, group = holder
+    if group.id in scope.withheld:
+        return Response({"detail": RELEASED_SEPARATELY}, status=status.HTTP_403_FORBIDDEN)
+    try:
+        payload = _certificate(results_notify.Documents(scope.year), kind, person, group)
+    except TemplateNotConfigured:
+        return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
+    return _file(payload, _certificate_name(scope.year, kind, person), results_notify.DOCX)
+
+
+def _zip_response(scope: _Scope, filename: str):
+    """Every certificate in ``scope`` in one zip, a folder per group, but
+    those held back."""
+    files = _certificate_files(scope, results_notify.Documents(scope.year))
+    buffer = io.BytesIO()
+    try:
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file in files:
+                archive.writestr(file.name, file.make())
+    except TemplateNotConfigured:
+        return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
+    return _file(buffer.getvalue(), filename, "application/zip")
+
+
 class SupervisorResultsView(APIView):
     """GET /api/v1/management/supervisor-results/ — what the supervisor's
     Results page shows.
@@ -221,50 +323,13 @@ class SupervisorResultsView(APIView):
             return refused
         state = release_state()
         scope = _scope(request)
-        year = scope.year
-
-        rows: list[dict] = []
-        if state["marks_released"]:
-            for group in scope.groups:
-                fields = marks_release_fields(marks_summary_context(group, year, grades_payload(group, year)))
-                rows.append({**results_notify._sheet_row(fields), "group_id": group.id})
-            # As the spreadsheet orders them: highest total first, a group not
-            # marked at all last, and groups on the same total by team code.
-            rows.sort(key=lambda row: (
-                row.get("MTotal") in (None, ""),
-                -Decimal(row.get("MTotal") or 0),
-                natural_key(row.get("TeamCode", "")),
-            ))
-
-        people = []
-        if state["certificates_released"]:
-            people = [
-                {
-                    "user_id": person.id,
-                    "name": person_name(person),
-                    "kind": kind,
-                    "group_id": group.id,
-                    "group_name": group.group_name,
-                    "withheld": group.id in scope.withheld,
-                    "file_name": _certificate_name(year, kind, person),
-                }
-                for kind, person, group in scope.holders()
-            ]
-
-        return Response({
-            "year": year,
-            "marks_released": state["marks_released"],
-            "certificates_released": state["certificates_released"],
-            "columns": _columns(rows) if state["marks_released"] else [],
-            "groups": [
-                {key: row.get(key) for key in ("group_id", *results_notify.MARKS_SHEET_COLUMNS)} for row in rows
-            ],
-            "sheet_file_name": (
-                results_notify.supervisor_sheet_name(year, request.user) if state["marks_released"] else ""
-            ),
-            "people": people,
-            "zip_file_name": _zip_name(year, request.user) if state["certificates_released"] else "",
-        })
+        return Response(_results(
+            scope,
+            marks=state["marks_released"],
+            certificates=state["certificates_released"],
+            sheet_file_name=results_notify.supervisor_sheet_name(scope.year, request.user),
+            zip_file_name=_zip_name(scope.year, request.user),
+        ))
 
 
 class SupervisorResultsSheetView(APIView):
@@ -297,22 +362,7 @@ class SupervisorResultsCertificateView(APIView):
             return refused
         if not release_state()["certificates_released"]:
             return Response({"detail": CERTIFICATES_NOT_RELEASED}, status=status.HTTP_403_FORBIDDEN)
-        scope = _scope(request)
-        holder = next(
-            ((kind, person, group) for kind, person, group in scope.holders()
-             if person.id == user_id and group.id == group_id),
-            None,
-        )
-        if holder is None:
-            return Response({"detail": "No certificate for that person here."}, status=status.HTTP_404_NOT_FOUND)
-        kind, person, group = holder
-        if group.id in scope.withheld:
-            return Response({"detail": RELEASED_SEPARATELY}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            payload = _certificate(results_notify.Documents(scope.year), kind, person, group)
-        except TemplateNotConfigured:
-            return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-        return _file(payload, _certificate_name(scope.year, kind, person), results_notify.DOCX)
+        return _certificate_response(_scope(request), group_id, user_id)
 
 
 class SupervisorResultsCertificatesZipView(APIView):
@@ -329,12 +379,59 @@ class SupervisorResultsCertificatesZipView(APIView):
         if not release_state()["certificates_released"]:
             return Response({"detail": CERTIFICATES_NOT_RELEASED}, status=status.HTTP_403_FORBIDDEN)
         scope = _scope(request)
-        files = _certificate_files(scope, results_notify.Documents(scope.year))
-        buffer = io.BytesIO()
-        try:
-            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-                for file in files:
-                    archive.writestr(file.name, file.make())
-        except TemplateNotConfigured:
-            return Response({"detail": NOT_SET_UP}, status=status.HTTP_404_NOT_FOUND)
-        return _file(buffer.getvalue(), _zip_name(scope.year, request.user), "application/zip")
+        return _zip_response(scope, _zip_name(scope.year, request.user))
+
+
+# --- Management's Results tab: every group's, for admins ----------------------
+
+
+class AllResultsView(APIView):
+    """GET /api/v1/management/all-results/ — Management's Results tab: every
+    group that made a submission, its marks, and its students' and mentors'
+    certificates, released or not. Shaped as ``SupervisorResultsView``, with
+    nothing held back (``withheld`` is always false)."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        scope = _all_scope()
+        return Response(_results(
+            scope,
+            marks=True,
+            certificates=True,
+            sheet_file_name=_all_sheet_name(scope.year),
+            zip_file_name=_all_zip_name(scope.year),
+        ))
+
+
+class AllResultsSheetView(APIView):
+    """GET /api/v1/management/all-results/marks-sheet/ — every group's marks
+    in one spreadsheet, laid out as a supervisor's is."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        scope = _all_scope()
+        payload = results_notify.Documents(scope.year).marks_sheet(scope.groups)
+        return _file(payload, _all_sheet_name(scope.year), results_notify.XLSX)
+
+
+class AllResultsCertificateView(APIView):
+    """GET /api/v1/management/all-results/certificates/<group_id>/<user_id>/
+    — one student's or mentor's certificate for a group."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request, group_id: int, user_id: int):
+        return _certificate_response(_all_scope(), group_id, user_id)
+
+
+class AllResultsCertificatesZipView(APIView):
+    """GET /api/v1/management/all-results/certificates/ — every group's
+    certificates in one zip, a folder per group ("2026_BTF01/")."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        scope = _all_scope()
+        return _zip_response(scope, _all_zip_name(scope.year))

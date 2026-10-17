@@ -35,6 +35,7 @@ describe('the management shell', () => {
       'Notify Finalists',
       'Notify Nonfinalist',
       'Finalist Presentation',
+      'Results',
       'Release Results',
       'Document Setup',
       'New Year'
@@ -43,9 +44,10 @@ describe('the management shell', () => {
     expect(tabs[3]!.attributes('href')).toBe('/management/notify-finalists')
     expect(tabs[4]!.attributes('href')).toBe('/management/email-nonfinalist')
     expect(tabs[5]!.attributes('href')).toBe('/management/finalist-presentation')
-    expect(tabs[6]!.attributes('href')).toBe('/management/release-results')
-    expect(tabs[7]!.attributes('href')).toBe('/management/document-setup')
-    expect(tabs[8]!.attributes('href')).toBe('/management/new-year')
+    expect(tabs[6]!.attributes('href')).toBe('/management/results')
+    expect(tabs[7]!.attributes('href')).toBe('/management/release-results')
+    expect(tabs[8]!.attributes('href')).toBe('/management/document-setup')
+    expect(tabs[9]!.attributes('href')).toBe('/management/new-year')
   })
 
   it('marks the tab for the current route as selected', () => {

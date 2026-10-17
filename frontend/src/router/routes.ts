@@ -179,6 +179,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
       { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SetDeadlinePage.vue') },
       { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/management/DeadlineExtensionPage.vue') },
+      // Every group's marks and certificates, released or not: the supervisor Results page's.
+      { path: 'results', name: 'management-results', component: () => import('@/views/SupervisorResultsPage.vue'), props: { admin: true } },
       { path: 'release-results', name: 'management-release-results', component: () => import('@/views/management/ReleaseResultsPage.vue') },
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },

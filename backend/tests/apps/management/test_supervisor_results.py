@@ -52,7 +52,7 @@ def _release(model, **fields):
     row.save()
 
 
-class SupervisorResultsTests(_GradingFixture):
+class _ResultsFixture(_GradingFixture):
     def setUp(self):
         _seed_doc_templates()
         self.sam = _user("sam.lee@example.com", "Sam", "Lee")
@@ -85,6 +85,8 @@ class SupervisorResultsTests(_GradingFixture):
     def _get(self, name, *args, user=None):
         return self._client(user).get(reverse(f"management:{name}", args=args))
 
+
+class SupervisorResultsTests(_ResultsFixture):
     def _results(self):
         response = self._get("supervisor-results")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -205,3 +207,77 @@ class SupervisorResultsTests(_GradingFixture):
             self._get("supervisor-results-certificate", self.finalist.id, self.fin.id).status_code,
             status.HTTP_200_OK,
         )
+
+
+class AllResultsTests(_ResultsFixture):
+    """Management's Results tab: every group that made a submission, for
+    admins, released or not, and nothing held back."""
+
+    def _all(self):
+        response = self._get("all-results", user=self.staff)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
+    def test_only_admins_see_it(self):
+        for user in (self.sam, self.amy):
+            for name in ("all-results", "all-results-sheet", "all-results-certificates"):
+                with self.subTest(user=user.email, name=name):
+                    self.assertEqual(self._get(name, user=user).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self._get("all-results-certificate", self.group.id, self.amy.id, user=self.sam).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_every_submitted_groups_marks_and_certificates_before_release(self):
+        body = self._all()
+        self.assertEqual((body["marks_released"], body["certificates_released"]), (False, False))
+        # Every group that submitted, whoever supervises it; not one that didn't.
+        self.assertEqual(
+            sorted(row["TeamCode"] for row in body["groups"]),
+            sorted([self.group.group_name, "Finalist Team", "Other Team"]),
+        )
+        from apps.management.services.results_notify import MARKS_SHEET_COLUMNS
+
+        self.assertEqual([c["key"] for c in body["columns"]], MARKS_SHEET_COLUMNS)
+        people = {(p["name"], p["kind"], p["group_name"], p["withheld"]) for p in body["people"]}
+        self.assertEqual(people, {
+            ("Amy Chen", "student", self.group.group_name, False),
+            ("Ben Ng", "student", self.group.group_name, False),
+            ("Mo Mentor", "mentor", self.group.group_name, False),
+            ("Fin Al", "student", "Finalist Team", False),
+            ("Olly Other", "student", "Other Team", False),
+            ("Oz Mentor", "mentor", "Other Team", False),
+        })
+        self.assertEqual(body["sheet_file_name"], f"{self.year}_BTF_Student_Marks_All_Groups.xlsx")
+        self.assertEqual(body["zip_file_name"], f"{self.year}_BTF_Certificates_All_Groups.zip")
+
+        sheet = self._get("all-results-sheet", user=self.staff)
+        self.assertEqual(sheet.status_code, status.HTTP_200_OK)
+        rows = list(load_workbook(io.BytesIO(sheet.content)).active.iter_rows(values_only=True))
+        self.assertEqual(len(rows), 1 + 3)
+
+    def test_certificates_download_for_anyone_finalists_too(self):
+        # Finalists' certificates held back from everyone else still download here.
+        _release(CertificatesRelease, exclude_finalists=True)
+        for group, holder in ((self.finalist, self.fin), (self.other_team, self.olly), (self.other_team, self.other_mentor)):
+            with self.subTest(holder.email):
+                response = self._get("all-results-certificate", group.id, holder.id, user=self.staff)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertTrue(zipfile.is_zipfile(io.BytesIO(response.content)))
+        self.assertEqual(
+            self._get("all-results-certificate", self.other_team.id, self.amy.id, user=self.staff).status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        bundle = self._get("all-results-certificates", user=self.staff)
+        self.assertEqual(bundle.status_code, status.HTTP_200_OK)
+        names = zipfile.ZipFile(io.BytesIO(bundle.content)).namelist()
+        year = self.year
+        self.assertEqual(names, [
+            f"{year}_{self.group.group_name}/{year}_BTF_Student_Certificate_Amy_Chen.docx",
+            f"{year}_{self.group.group_name}/{year}_BTF_Student_Certificate_Ben_Ng.docx",
+            f"{year}_{self.group.group_name}/{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
+            f"{year}_Finalist_Team/{year}_BTF_Student_Certificate_Fin_Al.docx",
+            f"{year}_Other_Team/{year}_BTF_Student_Certificate_Olly_Other.docx",
+            f"{year}_Other_Team/{year}_BTF_Mentor_Certificate_Oz_Mentor.docx",
+        ])

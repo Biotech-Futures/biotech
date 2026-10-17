@@ -37,6 +37,7 @@ const tabs = [
   { label: 'Notify Finalists', to: '/management/notify-finalists' },
   { label: 'Notify Nonfinalist', to: '/management/email-nonfinalist' },
   { label: 'Finalist Presentation', to: '/management/finalist-presentation' },
+  { label: 'Results', to: '/management/results' },
   { label: 'Release Results', to: '/management/release-results' },
   { label: 'Document Setup', to: '/management/document-setup' },
   { label: 'New Year', to: '/management/new-year' }

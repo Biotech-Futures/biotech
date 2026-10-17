@@ -158,6 +158,34 @@ export async function downloadSupervisorResultsCertificates(fallbackName: string
   triggerBlobDownload(blob, filename ?? fallbackName)
 }
 
+// Management's Results tab: the same for every group that made a submission,
+// released or not, with nothing held back.
+
+// GET /api/v1/management/all-results/
+export function fetchAllResults(): Promise<SupervisorResults> {
+  return requestJson<SupervisorResults>('/api/v1/management/all-results/')
+}
+
+// GET /api/v1/management/all-results/marks-sheet/ — every group's marks.
+export async function downloadAllResultsSheet(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/all-results/marks-sheet/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/all-results/certificates/{groupId}/{userId}/ — one certificate.
+export async function downloadAllResultsCertificate(person: SupervisorResultsPerson): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/all-results/certificates/${person.group_id}/${person.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? person.file_name)
+}
+
+// GET /api/v1/management/all-results/certificates/ — every group's certificates, zipped.
+export async function downloadAllResultsCertificates(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/all-results/certificates/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
 // ---------------------------------------------------------------------------
 // The submission deadline and per-team extensions
 
