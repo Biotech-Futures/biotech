@@ -204,7 +204,7 @@ class FinalistTests(TestCase):
 
         body = self._emailed()[0].body
 
-        self.assertIn("on Friday, 23 October 2026", body)
+        self.assertIn("All times are on the symposium day, Friday, 23 October 2026, in Sydney time.", body)
         self.assertIn("are due on Friday, 16 October 2026", body)
 
     def test_resubmitting_sends_the_email_again(self):

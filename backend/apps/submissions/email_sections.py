@@ -67,5 +67,5 @@ def presentation_section(components: list[dict]) -> str:
 def times_section(times: list[str], day: str) -> str:
     """The times the team selected, or nothing before it has selected any."""
     rows = [{"label": label, "status": "Available", "colour": GREEN} for label in times]
-    on = f" on {day}" if day else ""
-    return section_html("Times you selected", rows, f"The times your team said it can present{on}, Sydney time.")
+    note = f"All times are on the symposium day, {day}, in Sydney time." if day else "All times are in Sydney time."
+    return section_html("Times you selected", rows, note)
