@@ -1,11 +1,11 @@
 <template>
-  <!-- Registration Visibility: late links and the supervisors who register
-       after registration closes (its dates are on Registration); then what
-       supervisors see. -->
-  <div class="registration-visibility">
+  <!-- Late Registration: late links, what supervisors see, and the
+       supervisors who register after registration closes (its dates are on
+       Registration). -->
+  <div class="late-registration">
     <LateLinksPage />
-    <SupervisorsAfterClosePage />
     <SupervisorPagesPage />
+    <SupervisorsAfterClosePage />
   </div>
 </template>
 
@@ -16,7 +16,7 @@ import SupervisorsAfterClosePage from './SupervisorsAfterClosePage.vue'
 </script>
 
 <style scoped>
-.registration-visibility {
+.late-registration {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;

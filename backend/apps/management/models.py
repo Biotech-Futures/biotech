@@ -83,8 +83,8 @@ def template_upload_to(instance, filename):
 
 class SupervisorPagesSetting(SingletonModel):
     """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Registration
-    Visibility > Supervisor Pages Visibility)."""
+    Resources; off until an admin turns it on (Management > Late
+    Registration > Supervisor Pages Visibility)."""
 
     shown = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)

@@ -66,7 +66,7 @@ const rows = computed(() =>
 )
 const toSupervisor = (row: Record<string, unknown>) => row.supervisor as RegistrationSupervisor
 
-// Saved straight away, as Registration Visibility's other switches are.
+// Saved straight away, as Late Registration's other switches are.
 const switchSupervisor = async (supervisor: RegistrationSupervisor, wanted: boolean) => {
   savingId.value = supervisor.user_id
   error.value = ''
@@ -92,7 +92,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* Laid out as Registration Visibility's other cards. */
+/* Laid out as Late Registration's other cards. */
 .after-close {
   display: flex;
   flex-direction: column;

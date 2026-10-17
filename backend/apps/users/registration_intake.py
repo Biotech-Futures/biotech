@@ -274,9 +274,18 @@ class IntakeInput(StrictInput):
 
 
 class WindowInput(serializers.ModelSerializer):
+    # Who last saved the dates, and when: "Set by Sam Lee on ...".
+    set_by = serializers.SerializerMethodField()
+
     class Meta:
         model = RegistrationWindow
-        fields = ["year", "opens_at", "closes_at"]
+        fields = ["year", "opens_at", "closes_at", "updated_at", "set_by"]
+        read_only_fields = ["updated_at"]
+
+    def get_set_by(self, window):
+        from apps.management.services.send_guard import person_name
+
+        return person_name(window.updated_by) if window.updated_by else ""
 
     def validate(self, data):
         if data.get("year", self.instance.year) != self.instance.year:
@@ -409,7 +418,7 @@ def current_window(*, lock=False):
 def registers_after_close(user) -> bool:
     """Whether ``user`` can register students while registration is closed by
     its dates: an admin, or a supervisor an admin has let (Management >
-    Registration Visibility > Supervisors After Close)."""
+    Late Registration > Supervisors After Close)."""
     if not getattr(user, "is_authenticated", False):
         return False
     if is_admin(user):
@@ -957,7 +966,7 @@ class RegistrationManagementView(APIView):
             if action == "window":
                 serializer = WindowInput(window, data=request.data, partial=True)
                 serializer.is_valid(raise_exception=True)
-                serializer.save()
+                serializer.save(updated_by=request.user, updated_at=timezone.now())
                 return Response({"window": serializer.data})
             if action == "invite":
                 try:

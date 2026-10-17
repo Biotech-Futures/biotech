@@ -52,7 +52,15 @@ beforeEach(() => {
 describe('Registration Dates', () => {
   it('shows where the dates leave registration, and saves or clears them', async () => {
     vi.mocked(fetchRegistrationManagement).mockResolvedValue(
-      management({ window: { year: 2026, opens_at: null, closes_at: '2000-01-01T00:00:00Z' } }),
+      management({
+        window: {
+          year: 2026,
+          opens_at: null,
+          closes_at: '2000-01-01T00:00:00Z',
+          set_by: 'Test Admin',
+          updated_at: '2026-10-04T01:25:00Z',
+        },
+      }),
     )
     vi.mocked(saveRegistrationWindow).mockResolvedValue({
       window: { year: 2026, opens_at: null, closes_at: null },
@@ -61,6 +69,7 @@ describe('Registration Dates', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="registration-dates-state"]').text()).toContain('Registration has closed')
+    expect(wrapper.get('[data-test="registration-dates-set-by"]').text()).toMatch(/^Set by Test Admin on /)
     expect((wrapper.get('[data-test="registration-closes"]').element as HTMLInputElement).value).not.toBe('')
 
     await wrapper.findAll('button').find((button) => button.text() === 'Clear Dates')!.trigger('click')

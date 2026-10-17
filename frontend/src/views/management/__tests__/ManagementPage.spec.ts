@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ManagementPage from '@/views/management/ManagementPage.vue'
 
-const routePath = { value: '/management/extend-deadline' }
+const routePath = { value: '/management/submission-deadline' }
 vi.mock('vue-router', () => ({
   useRoute: () => ({
     get path() {
@@ -30,11 +30,9 @@ describe('the management shell', () => {
     const tabs = wrapper.findAll('[role="tab"]')
     const paths = [
       ['Registration', 'registration'],
-      ['Registration Visibility', 'registration-visibility'],
+      ['Late Registration', 'late-registration'],
       ['Submission Deadline', 'submission-deadline'],
-      ['Extend Deadline', 'extend-deadline'],
       ['Notify Finalists', 'notify-finalists'],
-      ['Notify Nonfinalist', 'email-nonfinalist'],
       ['Finalist Presentation', 'finalist-presentation'],
       ['Results', 'results'],
       ['Release Results', 'release-results'],
@@ -45,8 +43,8 @@ describe('the management shell', () => {
     expect(tabs.map((t) => t.attributes('href'))).toEqual(paths.map(([, path]) => `/management/${path}`))
   })
 
-  it("doesn't mark Registration open on Registration Visibility", () => {
-    routePath.value = '/management/registration-visibility'
+  it('marks only the open tab, Late Registration, as selected', () => {
+    routePath.value = '/management/late-registration'
     const tabs = mountPage().findAll('[role="tab"]')
     expect(tabs.map((tab) => tab.attributes('aria-selected'))).toEqual(
       tabs.map((_, index) => String(index === 1)),
@@ -54,12 +52,12 @@ describe('the management shell', () => {
   })
 
   it('marks the tab for the current route as selected', () => {
-    routePath.value = '/management/extend-deadline'
+    routePath.value = '/management/submission-deadline'
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs[0]!.attributes('aria-selected')).toBe('false')
-    expect(tabs[3]!.attributes('aria-selected')).toBe('true')
-    expect(tabs[3]!.classes()).toContain('active')
+    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
+    expect(tabs[2]!.classes()).toContain('active')
   })
 
   it('renders the section content through the nested router view', () => {

@@ -1,98 +1,87 @@
 <template>
   <!-- Late links: one student registers on their own with each, once, for 3
-       days, while registration is closed. Made in one card, listed in the
-       next, as Extend Deadline and its Current Extensions are. -->
-  <div class="late-links__cards">
-    <section class="card late-links">
-      <h3 class="late-links__title">Late Registration Links</h3>
-      <p class="late-links__hint">
-        A late link lets one student register on their own while registration is closed. Each link
-        works once, for 3 days.
-      </p>
+       days, while registration is closed. Made and listed in one card, as
+       Presentation Times are. -->
+  <section class="card late-links">
+    <!-- Headed as a Management page's first card is (Late Registration's). -->
+    <div class="card-header">
+      <h3 class="card-title">Late Registration Links</h3>
+    </div>
+    <p class="late-links__hint">
+      A late link lets one student register on their own while registration is closed. Each link
+      works once, for 3 days.
+    </p>
 
-      <form class="late-links__form" @submit.prevent="create">
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isCreating">
-          {{ isCreating ? 'Creating…' : 'Create Late Link' }}
-        </button>
-      </form>
+    <form class="late-links__form" @submit.prevent="create">
+      <button type="submit" class="btn btn-primary btn-sm" :disabled="isCreating">
+        {{ isCreating ? 'Creating…' : 'Create Late Link' }}
+      </button>
+    </form>
 
-      <!-- The new link, to copy and send. -->
-      <div v-if="created?.url" class="late-links__created" data-test="late-link-created">
-        <span class="late-links__url">{{ created.url }}</span>
-        <button type="button" class="btn btn-outline btn-sm" @click="copy(created.url, created.id)">
-          <i
-            :class="copiedId === created.id ? 'fas fa-check' : 'fas fa-copy'"
-            aria-hidden="true"
-          ></i>
-          {{ copiedId === created.id ? 'Copied' : 'Copy' }}
-        </button>
-      </div>
+    <!-- The new link, to copy and send. -->
+    <div v-if="created?.url" class="late-links__created" data-test="late-link-created">
+      <span class="late-links__url">{{ created.url }}</span>
+      <button type="button" class="btn btn-outline btn-sm" @click="copy(created.url, created.id)">
+        <i
+          :class="copiedId === created.id ? 'fas fa-check' : 'fas fa-copy'"
+          aria-hidden="true"
+        ></i>
+        {{ copiedId === created.id ? 'Copied' : 'Copy' }}
+      </button>
+    </div>
 
-      <p v-if="error" class="late-links__error" role="alert">{{ error }}</p>
-    </section>
+    <p v-if="error" class="late-links__error" role="alert">{{ error }}</p>
 
-    <section class="card">
-      <h3 class="late-links__section-title">Current Late Registration Links</h3>
-      <p v-if="isLoading" class="late-links__hint">Loading…</p>
-      <!-- As Current Extensions: every link at once, in the server's order
-         (newest first), sorting nothing. -->
-      <AppDataTable
-        v-else
-        :columns="columns"
-        :rows="rows"
-        row-key="id"
-        :selectable="false"
-        :page-size="DATA_TABLE_ALL"
-        :sort="NO_SORT"
-        :action-columns="1"
-        search-placeholder="Email"
-        empty-message="No late links yet."
-      >
-        <template #cell-status="{ row }">
-          <span class="late-links__status" :class="`late-links__status--${toLink(row).status}`">
-            {{ row.status }}
-          </span>
-        </template>
-        <!-- While it can be used: Copy, and Revoke. After, nothing to do. -->
-        <template #actions="{ row }">
-          <div v-if="toLink(row).status === 'active'" class="late-links__actions">
-            <button
-              v-if="toLink(row).url"
-              type="button"
-              class="btn btn-outline btn-sm"
-              @click="copy(toLink(row).url!, toLink(row).id)"
-            >
-              <i
-                :class="copiedId === toLink(row).id ? 'fas fa-check' : 'fas fa-copy'"
-                aria-hidden="true"
-              ></i>
-              {{ copiedId === toLink(row).id ? 'Copied' : 'Copy' }}
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="revokingId === toLink(row).id"
-              @click="revoke(toLink(row))"
-            >
-              Revoke
-            </button>
-          </div>
-          <span v-else class="late-links__muted">{{ row.status }}</span>
-        </template>
-      </AppDataTable>
-    </section>
-  </div>
+    <p v-if="isLoading" class="late-links__hint">Loading…</p>
+    <!-- As Presentation Times: every link at once, newest first, with no
+       search or pages. -->
+    <AppSimpleTable
+      v-else
+      :columns="columns"
+      :rows="rows"
+      row-key="id"
+      empty-message="No late links yet."
+    >
+      <template #cell-status="{ row }">
+        <span class="late-links__status" :class="`late-links__status--${toLink(row).status}`">
+          {{ row.status }}
+        </span>
+      </template>
+      <!-- While it can be used: Copy, and Revoke. After, nothing to do. -->
+      <template #actions="{ row }">
+        <div v-if="toLink(row).status === 'active'" class="late-links__actions">
+          <button
+            v-if="toLink(row).url"
+            type="button"
+            class="btn btn-outline btn-sm"
+            @click="copy(toLink(row).url!, toLink(row).id)"
+          >
+            <i
+              :class="copiedId === toLink(row).id ? 'fas fa-check' : 'fas fa-copy'"
+              aria-hidden="true"
+            ></i>
+            {{ copiedId === toLink(row).id ? 'Copied' : 'Copy' }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="revokingId === toLink(row).id"
+            @click="revoke(toLink(row))"
+          >
+            Revoke
+          </button>
+        </div>
+        <span v-else class="late-links__muted">{{ row.status }}</span>
+      </template>
+    </AppSimpleTable>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-import AppDataTable, {
-  type DataTableColumn,
-  type DataTableSort,
-} from '@/components/AppDataTable.vue'
+import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { formatShortDateTime } from '@/utils/date'
 import {
   createLateLink,
@@ -109,15 +98,13 @@ const STATUS_LABELS: Record<LateLink['status'], string> = {
   signing_key_changed: 'Unavailable',
 }
 
-const columns: DataTableColumn[] = [
-  { key: 'created', label: 'Created', sortable: false },
-  { key: 'expires', label: 'Expires', sortable: false },
-  { key: 'status', label: 'Status', sortable: false },
+const columns: SimpleTableColumn[] = [
+  { key: 'created', label: 'Created' },
+  { key: 'expires', label: 'Expires' },
+  { key: 'status', label: 'Status' },
   // Who registered with it, once it's used.
-  { key: 'email', label: 'Email', sortable: false },
+  { key: 'email', label: 'Email' },
 ]
-// Given, so the table keeps the server's order: newest first.
-const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
 
 const links = ref<LateLink[]>([])
 const isLoading = ref(true)
@@ -197,24 +184,11 @@ onMounted(load)
 </script>
 
 <style scoped>
-/* Its two cards, as far apart as Registration Visibility's others. */
-.late-links__cards {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* Laid out as Registration Visibility's other cards. */
+/* Laid out as Late Registration's other cards. */
 .late-links {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.late-links__title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0;
 }
 
 .late-links__hint {
@@ -248,13 +222,6 @@ onMounted(load)
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
-}
-
-/* Headed as Current Extensions is. */
-.late-links__section-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0 0 0.75rem;
 }
 
 .late-links__actions {

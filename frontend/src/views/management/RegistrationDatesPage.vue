@@ -1,7 +1,10 @@
 <template>
   <!-- When registration opens and closes this year. -->
   <section class="card registration-dates">
-    <h3 class="registration-dates__title">Registration Dates</h3>
+    <!-- Headed as a Management page's first card is (Registration's). -->
+    <div class="card-header">
+      <h3 class="card-title">Registration Dates</h3>
+    </div>
     <p class="registration-dates__hint">
       When registration opens and closes this year. Times are in your local timezone
       ({{ localTimeZone }}). Leave one empty for no limit. While it's closed, the sign-in page has
@@ -28,6 +31,11 @@
         <p>
           Closes:
           <strong>{{ saved.closes_at ? formatStatementTime(saved.closes_at) : 'Not set' }}</strong>
+        </p>
+        <!-- As Submission Deadline's: who last saved them, and when. -->
+        <p v-if="saved.set_by" class="registration-dates__muted" data-test="registration-dates-set-by">
+          Set by {{ saved.set_by }}
+          <template v-if="saved.updated_at">on {{ formatStatementTime(saved.updated_at) }}</template>
         </p>
       </div>
 
@@ -64,7 +72,6 @@
       </form>
 
       <p v-if="error" class="registration-dates__error" role="alert">{{ error }}</p>
-      <p v-else-if="notice" class="registration-dates__notice" role="status">{{ notice }}</p>
     </template>
   </section>
 </template>
@@ -85,9 +92,9 @@ const localTimeZone = describeBrowserTimeZone()
 const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
-const notice = ref('')
 // As the server has them, and as the form has them (local, timezone-less).
-const saved = ref<Pick<RegistrationWindow, 'opens_at' | 'closes_at'>>({ opens_at: null, closes_at: null })
+type SavedDates = Pick<RegistrationWindow, 'opens_at' | 'closes_at' | 'set_by' | 'updated_at'>
+const saved = ref<SavedDates>({ opens_at: null, closes_at: null })
 const opensLocal = ref('')
 const closesLocal = ref('')
 
@@ -109,8 +116,13 @@ const withDefaultTime = (before: string, picked: string) =>
 // toISOString() gives the instant the server keeps.
 const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null)
 
-const show = (window: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>) => {
-  saved.value = { opens_at: window.opens_at, closes_at: window.closes_at }
+const show = (window: SavedDates) => {
+  saved.value = {
+    opens_at: window.opens_at,
+    closes_at: window.closes_at,
+    set_by: window.set_by,
+    updated_at: window.updated_at,
+  }
   opensLocal.value = toLocalInput(window.opens_at)
   closesLocal.value = toLocalInput(window.closes_at)
 }
@@ -125,13 +137,12 @@ const state = computed(() => {
   return { open: true, text: 'No dates set: registration is open' }
 })
 
-const write = async (dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>, done: string) => {
+// Saved, the dates above (and Set by) show it: no message of its own.
+const write = async (dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>) => {
   isSaving.value = true
   error.value = ''
-  notice.value = ''
   try {
     show((await saveRegistrationWindow(dates)).window)
-    notice.value = done
     // The sign-in page's Register now follows.
     void loadRegistrationOpen(true)
   } catch (err) {
@@ -142,9 +153,9 @@ const write = async (dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>, 
 }
 
 const save = () =>
-  write({ opens_at: fromLocalInput(opensLocal.value), closes_at: fromLocalInput(closesLocal.value) }, 'Dates saved.')
+  write({ opens_at: fromLocalInput(opensLocal.value), closes_at: fromLocalInput(closesLocal.value) })
 
-const clearDates = () => write({ opens_at: null, closes_at: null }, 'Dates cleared.')
+const clearDates = () => write({ opens_at: null, closes_at: null })
 
 onMounted(async () => {
   try {
@@ -158,17 +169,11 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* Laid out as Registration Visibility's other cards. */
+/* Laid out as Late Registration's cards. */
 .registration-dates {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.registration-dates__title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0;
 }
 
 .registration-dates__hint {
@@ -193,6 +198,10 @@ onMounted(async () => {
 
 .registration-dates__dates p {
   margin: 0;
+}
+
+.registration-dates__muted {
+  color: var(--text-muted);
 }
 
 .registration-dates__state--ok {
@@ -246,11 +255,5 @@ onMounted(async () => {
   margin: 0;
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
-}
-
-.registration-dates__notice {
-  color: var(--dark-green);
-  font-size: 0.9rem;
-  margin: 0;
 }
 </style>

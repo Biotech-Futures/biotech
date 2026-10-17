@@ -4,7 +4,10 @@
        supervisor of their own, have none). -->
   <div class="management-registration">
     <RegistrationDatesPage />
-    <RegistrationPage mode="supervisor" embedded />
+    <!-- In a card of its own, headed as the cards below a page's first. -->
+    <section class="card">
+      <RegistrationPage mode="supervisor" embedded />
+    </section>
   </div>
 </template>
 
@@ -14,7 +17,7 @@ import RegistrationDatesPage from './RegistrationDatesPage.vue'
 </script>
 
 <style scoped>
-/* As far apart as Registration Visibility's cards. */
+/* As far apart as Late Registration's cards. */
 .management-registration {
   display: flex;
   flex-direction: column;

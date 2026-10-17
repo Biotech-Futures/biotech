@@ -902,3 +902,18 @@ class PostgreSQLRaceTests(RegistrationSetup, TransactionTestCase):
         self.assertIn((revoked.status_code, redeemed.status_code), ((200, 400), (409, 201)))
         self.assertNotEqual(item.revoked_at is None, item.used_at is None)
         self.assertEqual(StudentProfile.objects.count(), int(item.used_at is not None))
+
+
+class RegistrationDatesSetByTests(RegistrationSetup, TestCase):
+    """Management > Registration > Registration Dates: who last saved them."""
+
+    def test_saving_the_dates_records_who_set_them_and_when(self):
+        self.assertEqual(self.staff_client.get(MANAGEMENT).data["window"]["set_by"], "")
+        response = self.staff_client.post(MANAGEMENT, {
+            "action": "window", "closes_at": (timezone.now() + timedelta(days=3)).isoformat(),
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["window"]["set_by"], "Staff Member")
+        window = self.staff_client.get(MANAGEMENT).data["window"]
+        self.assertEqual(window["set_by"], "Staff Member")
+        self.assertIsNotNone(window["updated_at"])

@@ -1,4 +1,4 @@
-"""Management > Registration Visibility > Supervisors After Close: every
+"""Management > Late Registration > Supervisors After Close: every
 supervisor, and whether they can still register students while registration
 is closed by its dates (``SupervisorProfile.register_after_close``)."""
 from __future__ import annotations

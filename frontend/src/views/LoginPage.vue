@@ -1244,7 +1244,7 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
 /*
   Lifecycle: initial focus.
 */
-// Within the year's registration dates (Management > Registration Visibility).
+// Within the year's registration dates (Management > Registration).
 const { openNow: registrationOpen } = useRegistrationOpen()
 
 onMounted(async () => {

@@ -1,9 +1,9 @@
 <template>
   <div class="extensions">
+    <!-- Headed as Management's other cards below a page's first (and as
+         Current Extensions): a plain title, no line under it. -->
     <section class="card">
-      <div class="card-header">
-        <h3 class="card-title">Extend Deadline</h3>
-      </div>
+      <h3 class="extensions__section-title">Extend Deadline</h3>
       <p class="extensions__hint">
         Search by the group's name to extend their deadline. Times are in your local
         timezone ({{ localTimeZone }}). Students see the closing time; the server quietly

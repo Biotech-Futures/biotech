@@ -309,6 +309,9 @@ export interface RegistrationWindow {
   year: number
   opens_at: string | null
   closes_at: string | null
+  /** Who last saved the dates, and when; "" and none until someone has. */
+  set_by?: string
+  updated_at?: string | null
 }
 
 /** A late link: one student registers on their own with it, once, after

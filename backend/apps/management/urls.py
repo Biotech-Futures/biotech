@@ -70,7 +70,7 @@ urlpatterns = [
     path("settings/", GradingSettingsView.as_view(), name="settings"),
     path("supervisor-pages/", SupervisorPagesView.as_view(), name="supervisor-pages"),
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
-    # Registration Visibility > Supervisors After Close.
+    # Late Registration > Supervisors After Close.
     path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
     path(
         "registration-supervisors/<int:user_id>/",

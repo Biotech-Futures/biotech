@@ -1,5 +1,5 @@
 """Whether registration is open, by the year's dates (Management >
-Registration Visibility > Registration Dates): for the sign-in page's Register
+Registration > Registration Dates): for the sign-in page's Register
 now and the registration page. While closed, students can't register
 themselves (a late link still can), nor supervisors register students, but
 for those let register after it closes (Supervisors After Close)."""

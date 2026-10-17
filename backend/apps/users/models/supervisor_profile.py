@@ -8,7 +8,7 @@ class SupervisorProfile(models.Model):
     # Groups not in it follow, by name.
     group_order = models.JSONField(default=list, blank=True)
     # Still registers students while registration is closed by its dates
-    # (Management > Registration Visibility > Supervisors After Close).
+    # (Management > Late Registration > Supervisors After Close).
     register_after_close = models.BooleanField(default=False)
 
     class Meta:

@@ -1,6 +1,6 @@
 /**
- * Whether registration is open, by the year's dates (Management > Registration
- * Visibility > Registration Dates), shared by the sign-in page (its Register
+ * Whether registration is open, by the year's dates (Management > Registration >
+ * Registration Dates), shared by the sign-in page (its Register
  * now) and the registration page: whether the public can register now
  * (``openNow``), and for a supervisor whether they can register students now
  * (``canRegisterStudents``). Taken as open until it's known to be closed, as

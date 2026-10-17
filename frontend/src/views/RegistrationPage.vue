@@ -118,7 +118,7 @@
       </section>
     </div>
 
-    <!-- Closed by its dates (Management > Registration Visibility): to the
+    <!-- Closed by its dates (Management > Registration): to the
          public, but for a late link; to a supervisor, unless let register
          after them. -->
     <section v-else-if="registrationClosed" class="setup-layout" aria-labelledby="closed-title">
@@ -1518,7 +1518,7 @@ const chosenSupervisor = computed(() => {
   const email = forms.adminSupervisorEmail.trim().toLowerCase()
   return email ? registrationSupervisors.value.find((item) => item.email.toLowerCase() === email) : undefined
 })
-// Management > Registration Visibility: closed by the year's dates, the public
+// Management > Registration: closed by the year's dates, the public
 // can't register themselves (a late link still can), nor supervisors register
 // their students, unless let register after them.
 const { openNow: publicRegistrationOpen, canRegisterStudents } = useRegistrationOpen()
@@ -3003,10 +3003,32 @@ onBeforeUnmount(() => {
   font-family: inherit;
 }
 
-/* Within Management > Registration: on its page, as tall as it needs. */
+/* Within Management > Registration: in its card, as tall as it needs. */
 .registration-page--embedded {
   min-height: 0;
   background: transparent;
+}
+
+/* Headed as Management's cards below a page's first: a plain title with its
+   hint under it, not a page's. */
+.registration-page--embedded .page-header {
+  margin-bottom: 1rem;
+}
+
+.registration-page--embedded .page-title {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.registration-page--embedded .page-subtitle {
+  font-size: 0.9rem;
+}
+
+/* Not held at the top of the screen, inside a card. */
+.registration-page--embedded .journey-context {
+  position: static;
+  padding-top: 0;
 }
 
 /* From the page's top left corner and its full width, as the portal's
