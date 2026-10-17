@@ -224,6 +224,17 @@
           Active (displays in the list immediately)
         </label>
       </div>
+      <div class="form-field form-field--full">
+        <label class="form-label" for="f-admin-notes">Admin notes (visible only to admins)</label>
+        <textarea
+          id="f-admin-notes"
+          v-model="form.adminNotes"
+          class="form-input admin-users-form__textarea"
+          rows="3"
+          placeholder="Add private context or notes about this user..."
+          data-test="form-admin-notes"
+        ></textarea>
+      </div>
 
       <div class="admin-users-form__footer">
         <button
@@ -289,6 +300,7 @@ interface UserForm {
   mediaGiven: boolean
   pendingConsentGiven: boolean
   active: boolean
+  adminNotes: string
 }
 
 type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail'>
@@ -352,7 +364,8 @@ const defaultForm = (): UserForm => ({
   consentGiven: false,
   mediaGiven: false,
   pendingConsentGiven: false,
-  active: true
+  active: true,
+  adminNotes: ''
 })
 
 const blankGuardian = (): GuardianFields => ({
@@ -447,7 +460,8 @@ const initForm = (editingUser: AdminUser | null) => {
     consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
     mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
     pendingConsentGiven: false,
-    active: editingUser.isActive
+    active: editingUser.isActive,
+    adminNotes: editingUser.adminNotes || ''
   })
 }
 
@@ -577,7 +591,8 @@ const submitForm = async () => {
         lastName: form.lastName,
         role,
         countryId: role === 'admin' ? null : form.countryId,
-        stateId: role === 'admin' ? null : form.stateId
+        stateId: role === 'admin' ? null : form.stateId,
+        adminNotes: form.adminNotes.trim()
       }
       if (!props.isSupervisorMode && form.email.trim().toLowerCase() !== (props.user.email || '').trim().toLowerCase()) {
         payload.email = form.email.trim().toLowerCase()
@@ -613,7 +628,8 @@ const submitForm = async () => {
         firstName: form.firstName,
         lastName: form.lastName,
         role,
-        active: form.active
+        active: form.active,
+        adminNotes: form.adminNotes.trim()
       }
       const countryName = resolveCountryName(form.countryId)
       const stateName = role === 'admin' ? undefined : resolveStateName(form.stateId)
@@ -822,6 +838,12 @@ const submitForm = async () => {
   .admin-users-form__spinner {
     animation: none;
   }
+}
+
+.admin-users-form__textarea {
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
 }
 
 @media (max-width: 640px) {

@@ -52,6 +52,16 @@
       </dl>
     </section>
 
+    <section v-if="user" class="admin-users-detail__section" data-test="admin-notes-section">
+      <h3>Admin Notes</h3>
+      <div v-if="user.adminNotes" class="admin-users-detail__notes-box" data-test="admin-notes-display">
+        <p class="admin-users-detail__notes-text">{{ user.adminNotes }}</p>
+      </div>
+      <p v-else class="admin-users-detail__notes-empty" data-test="admin-notes-empty">
+        No private notes recorded.
+      </p>
+    </section>
+
     <section v-if="user?.role === 'student'" class="admin-users-detail__section">
       <h3>Student Profile</h3>
       <dl class="admin-users-detail__list">
@@ -551,5 +561,37 @@ const sendConsentRequest = async () => {
 
 .admin-users-detail__supervisees {
   text-align: right;
+}
+
+.admin-users-detail__section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.admin-users-detail__section-head h3 {
+  margin: 0;
+}
+
+.admin-users-detail__notes-box {
+  padding: 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--bg-light);
+  font-size: 0.85rem;
+  color: var(--teal);
+}
+
+.admin-users-detail__notes-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.admin-users-detail__notes-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 </style>
