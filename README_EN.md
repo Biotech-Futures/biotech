@@ -40,8 +40,9 @@ API docs (DEBUG only): `/api/docs/` (Swagger) and `/api/redoc/`.
 
 Students without a linked supervisor can edit their name, school, year, country,
 region and interests from their profile. Guardian editing uses the separate
-Guardian Details section: after consent, the current guardian stays on file
-until the new guardian signs the platform's consent form.
+Guardian Details section, which warns first: a new guardian replaces the old one
+straight away, and clears the permission already given (media consent too) until
+the new guardian signs the platform's consent form, which is emailed to them.
 
 The resend button uses the same `guardian_consent_request` email service as the
 admin page, including its ten-minute cooldown and single-use consent link.

@@ -893,10 +893,13 @@ def _log_edit(actor, user_id: int, action: str, changes: dict) -> None:
 class MeGuardianView(APIView):
     """A student updates the parent/guardian on their own profile.
 
-    Before consent is received the change applies straight away — there is no
-    consent to protect. Afterwards the consenting guardian stays on file and
-    the new details are held as pending until the new guardian consents (see
-    ``ReceiveJoinPermissionView``). DELETE withdraws a pending change.
+    A change replaces the guardian on file straight away, and the new guardian
+    is emailed the consent form. If consent was already given, the student's
+    permission is cleared (media consent too): the new guardian has to sign
+    before the student can take part again. The old guardian's signed consent
+    stays on record. Saving the same details changes nothing. DELETE withdraws
+    a change still held as pending from before this rule (see
+    ``StudentProfile.promote_pending_guardian``).
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -923,26 +926,32 @@ class MeGuardianView(APIView):
 
         with transaction.atomic():
             profile = self._profile(request)
-            if not profile.has_join_permission:
+            unchanged = (
+                first_name == profile.pg_first_name
+                and last_name == profile.pg_last_name
+                and email == (profile.pg_email or "").strip().lower()
+            )
+            cleared = False
+            profile.clear_pending_guardian()
+            if not unchanged:
                 profile.pg_first_name = first_name
                 profile.pg_last_name = last_name
                 profile.pg_email = email
                 profile.parent_guardian_flag = True
-                profile.clear_pending_guardian()
-            elif (
-                first_name == profile.pg_first_name
-                and last_name == profile.pg_last_name
-                and email == (profile.pg_email or "").strip().lower()
-            ):
-                # Back to the guardian who already consented — nothing pending.
-                profile.clear_pending_guardian()
-            else:
-                profile.pending_pg_first_name = first_name
-                profile.pending_pg_last_name = last_name
-                profile.pending_pg_email = email
-                profile.pending_pg_requested_at = timezone.now()
+                # Changing the guardian clears permission: the new one has to sign.
+                cleared = profile.has_join_permission
+                profile.has_join_permission = False
+                profile.joinperm_responseID = None
+                profile.joinperm_granted_at = None
+                profile.media_consent = None
+                # Reminders start over, for the new guardian.
+                profile.guardian_reminder_sent_at = None
+                profile.guardian_reminder_due_at = None
             profile.save()
-            _log_edit(request.user, request.user.id, "guardian_update", {"guardianEmail": email})
+            _log_edit(
+                request.user, request.user.id, "guardian_update",
+                {"guardianEmail": email, "permissionCleared": cleared},
+            )
 
         # Once the details are saved, the guardian just named gets the consent
         # form straight away rather than at the next daily run.

@@ -218,11 +218,22 @@
               class="btn btn-outline"
               type="button"
               data-test="guardian-edit"
-              @click="startGuardianEdit"
+              @click="guardianWarningOpen = true"
             >
               Edit guardian
             </button>
           </div>
+
+          <!-- A warning before editing: a new guardian clears permission given. -->
+          <ConfirmDialog
+            v-model="guardianWarningOpen"
+            title="Change your guardian's details?"
+            :message="guardianWarning"
+            confirm-label="Continue"
+            variant="warning"
+            data-test="guardian-warning"
+            @confirm="startGuardianEdit"
+          />
 
           <form
             v-if="guardianEditing"
@@ -232,7 +243,7 @@
             @submit.prevent="saveGuardian"
           >
             <p v-if="user.guardian.consentReceived" class="consent-hint guardian-form-hint">
-              {{ user.guardian.consentingName }} has already given consent and stays on file
+              Saving a new guardian clears the permission {{ user.guardian.consentingName }} gave,
               until your new guardian completes the consent form.
             </p>
             <div class="profile-field guardian-form-field">
@@ -419,6 +430,7 @@ import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
   formatDayMonth,
   formatDayMonthTime,
@@ -938,6 +950,16 @@ const reminderLine = computed(() => {
   return `${last} They'll be emailed again ${when}.`
 })
 
+// The warning before editing the guardian: what changing them does.
+const guardianWarningOpen = ref(false)
+const guardianWarning = computed(() =>
+  user.value.guardian.consentReceived
+    ? `Changing your guardian's details clears the permission ${user.value.guardian.consentingName} gave. ` +
+      "Your new guardian will be emailed the consent form, and until they complete it you won't be able to " +
+      'take part in most of the program.'
+    : 'Your new guardian will be emailed the consent form to complete.',
+)
+
 const startGuardianEdit = () => {
   const { guardian } = user.value
   // Editing a pending change picks up where the student left off.
@@ -980,8 +1002,8 @@ const saveGuardian = async () => {
   try {
     await auth.updateGuardian({ ...guardianForm.value })
     guardianEditing.value = false
-    noteGuardian(true, hadConsent && user.value.guardian.pending
-      ? 'Saved. Your new guardian needs to complete the consent form.'
+    noteGuardian(true, hadConsent && !user.value.guardian.consentReceived
+      ? 'Saved. Your guardian permission is cleared until your new guardian completes the consent form.'
       : 'Your guardian details have been updated.')
   } catch (saveError) {
     const fields = saveError?.fields || {}

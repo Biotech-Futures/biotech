@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ProfilePage from '../ProfilePage.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import { formatDayMonthTime } from '@/utils/date'
 
@@ -108,12 +109,38 @@ describe('ProfilePage guardian consent', () => {
     expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(false)
   })
 
+  // Edit guardian, then Continue on its warning.
+  const openGuardianForm = async (wrapper: Awaited<ReturnType<typeof mountAs>>) => {
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+  }
+
+  it('warns before editing a guardian that changing them clears permission given', async () => {
+    const wrapper = await mountAs({
+      ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: true,
+    })
+    const warning = wrapper.findComponent(ConfirmDialog)
+    expect(warning.props('modelValue')).toBe(false)
+
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    expect(warning.props('modelValue')).toBe(true)
+    expect(warning.props('title')).toBe("Change your guardian's details?")
+    expect(warning.props('message')).toContain("clears the permission Pat Fischer gave")
+    // Not editing until they continue.
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(false)
+
+    warning.vm.$emit('confirm')
+    await flushPromises()
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(true)
+  })
+
   it('saves edited guardian details', async () => {
     const wrapper = await mountAs({ ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: false })
     const auth = useAuthStore()
     const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
 
-    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await openGuardianForm(wrapper)
     await wrapper.find('#guardian-first-name').setValue('Robin')
     await wrapper.find('#guardian-email').setValue('robin@example.com')
     await wrapper.find('[data-test="guardian-form"]').trigger('submit')
@@ -128,7 +155,7 @@ describe('ProfilePage guardian consent', () => {
     const auth = useAuthStore()
     const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
 
-    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await openGuardianForm(wrapper)
     await wrapper.find('#guardian-first-name').setValue('Robin')
     await wrapper.find('#guardian-last-name').setValue('Carer')
     await wrapper.find('#guardian-email').setValue('Student@example.com')
