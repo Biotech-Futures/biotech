@@ -16,12 +16,17 @@ from django.utils import timezone
 
 from .email_registry import EMAIL_TYPES
 from .email_metrics import record_email_delivery
-from .models import SystemEmailLog, SystemEmailSettings
+from .models import EmailBounce, SystemEmailLog, SystemEmailSettings
 
 logger = logging.getLogger(__name__)
 
 # How many of an email's sends that missed someone the Log keeps.
 MISSED_KEPT = 20
+# How many of an email's checks that found bounces the Log lists, newest first.
+BOUNCES_KEPT = 20
+# A bounce a Management page lists among who its send missed: the Log lists it
+# under Bounced emails instead (see ``check_bounced_emails``).
+BOUNCED = "bounced: "
 
 # Why someone was missed when there's nothing more specific to say.
 NOT_SENT = "couldn't be sent"
@@ -94,7 +99,17 @@ def unseen_failures() -> int:
     runs = EmailSendRun.objects.filter(started_at__isnull=False).exclude(missed=[])
     if seen is not None:
         runs = runs.filter(started_at__gt=seen)
-    return count + sum(len(run.missed) for run in runs)
+    count += sum(1 for run in runs for entry in run.missed if not _bounced(entry))
+    # Bounces by when each was found, whenever the email they bounced went.
+    bounces = EmailBounce.objects.all()
+    if seen is not None:
+        bounces = bounces.filter(detected_at__gt=seen)
+    return count + bounces.count()
+
+
+def _bounced(entry) -> bool:
+    """A Management send's missed entry that's a bounce."""
+    return isinstance(entry, dict) and str(entry.get("reason", "")).startswith(BOUNCED)
 
 
 def mark_failures_seen() -> int:
@@ -160,8 +175,10 @@ def _person(user) -> str:
 def email_log() -> list[dict]:
     """Every system email, in the order System Emails lists them: when it
     last went out and who sent it, where mail it couldn't deliver comes back
-    to, and who its latest sends couldn't reach, newest first, as
-    ``{"at", "people": [{"who", "reason"}]}``."""
+    to, who its latest sends couldn't reach, newest first, as
+    ``{"at", "people": [{"who", "reason"}]}``, and who it bounced back from
+    (``check_bounced_emails``), grouped by when they were found, newest first,
+    in the same shape."""
     from apps.management.models import EmailSendRun
     from apps.management.services.send_guard import _missed_entry, _with_addresses
 
@@ -175,6 +192,16 @@ def email_log() -> list[dict]:
     labels = _labels({
         missed["address"] for log in logs.values() for entry in log.missed for missed in entry["missed"]
     })
+    # Each email's bounces, grouped by when they were found, newest first.
+    bounced: dict[str, list[dict]] = {}
+    for bounce in EmailBounce.objects.order_by("-detected_at", "id"):
+        found = bounced.setdefault(bounce.key, [])
+        at = bounce.detected_at.isoformat()
+        if not found or found[-1]["at"] != at:
+            if len(found) == BOUNCES_KEPT:
+                continue
+            found.append({"at": at, "people": []})
+        found[-1]["people"].append({"who": bounce.who, "reason": bounce.reason})
 
     emails = []
     for email_type in EMAIL_TYPES:
@@ -183,7 +210,8 @@ def email_log() -> list[dict]:
         if run:
             # A Management bulk email: its last run, and who that still missed.
             last_at, last_by = run.started_at, _person(run.started_by)
-            people = _with_addresses([_missed_entry(entry) for entry in run.missed])
+            # Its bounces are listed apart, under Bounced emails.
+            people = _with_addresses([_missed_entry(entry) for entry in run.missed if not _bounced(entry)])
             missed = [{"at": run.started_at.isoformat(), "people": people}] if people else []
         elif log:
             last_at, last_by = log.last_sent_at, _person(log.last_sent_by)
@@ -209,5 +237,6 @@ def email_log() -> list[dict]:
             # One email per group, so the rest of a group still gets it.
             "toGroups": bool(email_type.delivery),
             "missed": missed,
+            "bounced": bounced.get(key, []),
         })
     return emails

@@ -59,6 +59,16 @@ then record a next reminder due date. The command only processes due reminders
 for active students who still need permission or have a pending guardian change; it doesn't send an initial email
 to every existing student. No scheduler is created by these code changes.
 
+Bounced emails are noted by `python manage.py check_bounced_emails`. It reads the
+sending mailboxes through Hostinger's Mail API (read-only, nothing in a mailbox is
+changed), opens only bounce notices, and notes who each one says didn't get our
+email: on the Management page it came from (listed as missed, so Resend Email To
+Missed Individuals emails them again), or on the System Emails Log for other
+emails. Set `HOSTINGER_MAIL_API_KEY` (hPanel > Emails > the domain > Agentic Mail >
+API access; never commit it) and schedule the command about every 10 minutes.
+Without the key it does nothing. `BOUNCE_LOOKBACK_DAYS` (default 90, about 3 months)
+limits how far back its first run, or one after a gap, reads.
+
 ### Frontend
 
 ```bash

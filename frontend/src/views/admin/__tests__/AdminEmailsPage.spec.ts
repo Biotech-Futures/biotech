@@ -297,6 +297,7 @@ describe('AdminEmailsPage', () => {
       sentFrom: 'info@biotechfutures.org',
       toGroups: false,
       missed: [],
+      bounced: [],
       ...overrides
     })
     const unreachable = "couldn't reach the mail server"
@@ -375,15 +376,61 @@ describe('AdminEmailsPage', () => {
       const emails = wrapper.findAll('[data-test="log-email"]')
       // Login code missed nobody, so isn't listed.
       expect(emails).toHaveLength(2)
-      // Two sends: each its own time. One send: its time beside the name.
-      expect(emails[0].find('h3').text()).toBe('Password reset')
+      // When it was sent beside the name; two failed sends: each its own time.
+      expect(emails[0].find('h3').text()).toBe(`Password reset ${at('2026-09-29T13:58:00Z')}`)
       expect(emails[0].findAll('p.email-log__when').map((when) => when.text())).toEqual([
         at('2026-09-29T13:58:00Z'),
         at('2026-09-28T09:00:00Z')
       ])
       expect(emails[0].text()).toContain(`jin@seed.test (BTF06, Jin Fischer) · ${unreachable}`)
+      // One failed send, the one beside the name: its time isn't repeated.
       expect(emails[1].find('h3').text()).toBe(`Finalist notification ${at('2026-09-29T13:58:00Z')}`)
+      expect(emails[1].findAll('p.email-log__when')).toHaveLength(0)
       expect(emails[1].findAll('li')).toHaveLength(2)
+      // Nothing bounced, so no Bounced emails.
+      expect(wrapper.find('[data-test="log-bounced"]').exists()).toBe(false)
+    })
+
+    it('lists bounces apart, by when each was found, above the failed sends', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'finalist_notification',
+          name: 'Finalist notification',
+          lastSentAt: '2026-09-29T13:58:00Z',
+          toGroups: true,
+          bounced: [
+            { at: '2026-10-02T00:10:00Z', people: [{ who: 'seed.mentor.btf06@seed.biotech.test (BTF06, Jin Fischer)', reason: 'no such mailbox' }] },
+            { at: '2026-10-01T04:20:00Z', people: [{ who: 'amy@seed.test (BTF06, Amy Chen)', reason: 'mailbox full' }] }
+          ],
+          missed: [
+            { at: '2026-09-29T13:58:00Z', people: [{ who: 'nadia@seed.test (BTF06, Nadia Kowalski)', reason: unreachable }] }
+          ]
+        }),
+        // Only bounces: still listed.
+        logEntry({
+          key: 'login_code',
+          name: 'Login code',
+          lastSentAt: '2026-09-30T01:00:00Z',
+          bounced: [{ at: '2026-09-30T01:10:00Z', people: [{ who: 'pat@school.test', reason: 'no such mailbox' }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      const [finalist, login] = wrapper.findAll('[data-test="log-email"]')
+      expect(finalist.find('h3').text()).toBe(`Finalist notification ${at('2026-09-29T13:58:00Z')}`)
+      const lines = finalist.findAll('p').map((line) => line.text())
+      expect(lines).toEqual([
+        'Bounced emails:',
+        at('2026-10-02T00:10:00Z'),
+        at('2026-10-01T04:20:00Z'),
+        'Failed emails:'
+      ])
+      expect(finalist.findAll('li').map((item) => item.text())).toEqual([
+        'seed.mentor.btf06@seed.biotech.test (BTF06, Jin Fischer) · no such mailbox',
+        'amy@seed.test (BTF06, Amy Chen) · mailbox full',
+        `nadia@seed.test (BTF06, Nadia Kowalski) · ${unreachable}`
+      ])
+      expect(login.find('[data-test="log-bounced"]').exists()).toBe(true)
+      expect(login.find('[data-test="log-failed"]').exists()).toBe(false)
     })
 
     it('shows one email as Notify Finalists does', async () => {

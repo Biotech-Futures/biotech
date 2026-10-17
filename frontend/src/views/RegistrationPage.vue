@@ -3030,7 +3030,6 @@ onBeforeUnmount(() => {
 }
 
 .pathway-choice__copy small {
-  max-width: 62ch;
   color: var(--registration-muted);
   font-size: 0.88rem;
   line-height: 1.5;

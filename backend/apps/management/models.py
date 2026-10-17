@@ -370,6 +370,45 @@ class EmailDelivery(models.Model):
         return f"{self.email}: {self.group_id} {self.address}"
 
 
+class BounceNotice(models.Model):
+    """A bounce notice ``check_bounced_emails`` has read from a sending
+    mailbox, so it's never counted twice (the mailbox itself is never
+    changed). Only our mailbox and the notice's Message-ID are kept, not who
+    it was about."""
+
+    mailbox = models.EmailField()
+    # The notice's Message-ID, or "uid:<n>" without one.
+    message_key = models.CharField(max_length=255)
+    read_at = models.DateTimeField(auto_now_add=True)
+    # How many of the bounces it reported matched one of our emails.
+    matched = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "bounce_notice"
+        constraints = [
+            models.UniqueConstraint(fields=["mailbox", "message_key"], name="uniq_bounce_notice"),
+        ]
+
+    def __str__(self):
+        return f"BounceNotice({self.mailbox})"
+
+
+class BounceCheckpoint(models.Model):
+    """How far ``check_bounced_emails`` has read a sending mailbox: the
+    newest message it has seen (its UID), so the next run reads only newer
+    ones."""
+
+    mailbox = models.EmailField(unique=True)
+    last_uid = models.PositiveBigIntegerField(default=0)
+    checked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "bounce_checkpoint"
+
+    def __str__(self):
+        return f"BounceCheckpoint({self.mailbox})"
+
+
 class EmailSendRun(models.Model):
     """One bulk email's send (Notify Finalists, Notify Nonfinalist, Release
     Results): the run going now, or the last one. Pressing Send queues a run on
