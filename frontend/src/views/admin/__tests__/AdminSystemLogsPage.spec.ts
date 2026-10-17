@@ -55,9 +55,12 @@ const setField = async (selector: string, value: string) => {
 
 const button = (text: string) => wrapper!.findAll('button').find((item) => item.text().includes(text))!
 
+const fullExport = { truncated: false, rowLimit: 100_000 }
+
 beforeEach(() => {
   registerProfileTimeZone(() => 'Australia/Sydney')
   listMock.mockResolvedValue(page([buildRow()]))
+  downloadMock.mockResolvedValue(fullExport)
 })
 
 afterEach(() => {
@@ -217,19 +220,45 @@ describe('AdminSystemLogsPage', () => {
     )
   })
 
-  it('ignores a date while its year is still being typed', async () => {
+  it('says when a date’s year is out of range, without asking the server', async () => {
     await mountPage()
     const calls = listMock.mock.calls.length
 
-    // What a date box reports after each year digit.
+    // What a date box can pass on while 2026 is typed into its year.
     for (const partial of ['0002-10-15', '0020-10-15', '0202-10-15']) {
       await setField('#log-from-filter', partial)
+      expect(wrapper!.find('[role="alert"]').text()).toContain('The "From" date must be in a year from 1900 to 9998.')
+      expect(wrapper!.find('.data-table-empty').text()).toBe('Choose dates in a year from 1900 to 9998.')
+      expect(button('Export CSV').attributes('disabled')).toBeDefined()
     }
     expect(listMock.mock.calls.length).toBe(calls)
 
     await setField('#log-from-filter', '2026-10-15')
     expect(listMock.mock.calls.length).toBe(calls + 1)
     expect(lastListCall().from).toBe('2026-10-15T00:00:00.000+11:00')
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+    expect(button('Export CSV').attributes('disabled')).toBeUndefined()
+  })
+
+  it('names the "To" date when its year is past 9998', async () => {
+    await mountPage()
+    const calls = listMock.mock.calls.length
+
+    await setField('#log-to-filter', '10000-01-01')
+
+    expect(listMock.mock.calls.length).toBe(calls)
+    expect(wrapper!.find('[role="alert"]').text()).toContain('The "To" date must be in a year from 1900 to 9998.')
+  })
+
+  it('accepts the first and last years the server does', async () => {
+    await mountPage()
+
+    await setField('#log-from-filter', '1900-01-01')
+    await setField('#log-to-filter', '9998-12-31')
+
+    expect(lastListCall().from).toMatch(/^1900-01-01T00:00:00\.000/)
+    expect(lastListCall().to).toMatch(/^9998-12-31T23:59:59\.999/)
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
   })
 
   it('shows only the newest results when replies arrive out of order', async () => {
@@ -355,8 +384,8 @@ describe('AdminSystemLogsPage', () => {
   })
 
   it('exports the current filters, showing that it is busy until the file is ready', async () => {
-    let finish!: () => void
-    downloadMock.mockReturnValue(new Promise<void>((done) => (finish = done)))
+    let finish!: (result: typeof fullExport) => void
+    downloadMock.mockReturnValue(new Promise((done) => (finish = done)))
     await mountPage()
     await setField('#log-level-filter', 'ERROR')
 
@@ -367,9 +396,54 @@ describe('AdminSystemLogsPage', () => {
     expect(button('Exporting...').attributes('aria-busy')).toBe('true')
     expect(button('Export JSON').attributes('disabled')).toBeDefined()
 
-    finish()
+    finish(fullExport)
     await flushPromises()
     expect(button('Export CSV').attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('warns before exporting when the filters match more rows than an export holds', async () => {
+    listMock.mockResolvedValue(page([buildRow()], 123_456))
+    await mountPage()
+
+    expect(wrapper!.find('[role="status"]').text()).toBe(
+      'These filters match 123,456 logs. An export holds only the newest 100,000; narrow the filters to export the rest.'
+    )
+  })
+
+  it('says nothing when every matching row fits in an export', async () => {
+    listMock.mockResolvedValue(page([buildRow()], 100_000))
+    await mountPage()
+
+    expect(wrapper!.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('says when the export the server sent stopped at the row limit', async () => {
+    // The table counted fewer, but more were logged before the export ran.
+    listMock.mockResolvedValue(page([buildRow()], 99_999))
+    downloadMock.mockResolvedValue({ truncated: true, rowLimit: 100_000 })
+    await mountPage()
+    expect(wrapper!.find('[role="status"]').exists()).toBe(false)
+
+    await button('Export CSV').trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[role="status"]').text()).toBe(
+      'The export stopped at the newest 100,000 logs; more match these filters. Narrow the filters to export the rest.'
+    )
+  })
+
+  it('drops the note about the last export once the filters change', async () => {
+    listMock.mockResolvedValue(page([buildRow()], 10))
+    downloadMock.mockResolvedValue({ truncated: true, rowLimit: 100_000 })
+    await mountPage()
+    await button('Export JSON').trigger('click')
+    await flushPromises()
+    expect(wrapper!.find('[role="status"]').exists()).toBe(true)
+
+    await setField('#log-level-filter', 'ERROR')
+
+    expect(wrapper!.find('[role="status"]').exists()).toBe(false)
   })
 
   it('exports JSON and shows an export that failed', async () => {

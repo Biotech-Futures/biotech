@@ -1774,6 +1774,17 @@ export interface SystemLogListParams extends SystemLogFilterParams {
 
 export type SystemLogExportType = 'csv' | 'json'
 
+/** The most rows one export holds: EXPORT_MAX_ROWS in
+ *  backend/apps/system_logs/export.py. */
+export const SYSTEM_LOG_EXPORT_MAX_ROWS = 100_000
+
+/** What an export's response headers say about the file. */
+export interface SystemLogExportResult {
+  /** More rows matched than the file holds; it has the newest ``rowLimit``. */
+  truncated: boolean
+  rowLimit: number
+}
+
 export const fetchSystemLogs = (params: SystemLogListParams = {}) =>
   adminGet<PaginatedResult<SystemLogRow>>(`/system-logs/${buildAdminQuery(params)}`)
 
@@ -1781,11 +1792,12 @@ export const fetchSystemLog = (id: number | string) =>
   adminGet<SystemLogDetail>(`/system-logs/${id}/`)
 
 /** Download every log row the filters match as CSV (times in UTC) or JSON
- *  lines, sent with the admin's session like any admin call. */
+ *  lines, sent with the admin's session like any admin call. Resolves with
+ *  whether the file stopped at the row limit. */
 export const downloadSystemLogs = async (
   params: SystemLogFilterParams = {},
   type: SystemLogExportType = 'csv'
-) => {
+): Promise<SystemLogExportResult> => {
   const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: '*/*' } })
   const token = localStorage.getItem('access_token')
   if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -1808,4 +1820,10 @@ export const downloadSystemLogs = async (
   a.click()
   document.body.removeChild(a)
   window.URL.revokeObjectURL(blobUrl)
+
+  const rowLimit = Number(res.headers.get('X-Export-Row-Limit'))
+  return {
+    truncated: res.headers.get('X-Export-Truncated') === 'true',
+    rowLimit: Number.isFinite(rowLimit) && rowLimit > 0 ? rowLimit : SYSTEM_LOG_EXPORT_MAX_ROWS
+  }
 }

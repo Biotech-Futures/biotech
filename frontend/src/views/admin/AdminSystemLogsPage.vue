@@ -21,6 +21,10 @@
         <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
         <span>{{ exportError }}</span>
       </p>
+      <p v-if="exportLimitNotice" class="system-logs__notice" role="status">
+        <i class="fas fa-circle-info" aria-hidden="true"></i>
+        <span>{{ exportLimitNotice }}</span>
+      </p>
 
       <AppDataTable
         :columns="columns"
@@ -145,6 +149,7 @@ const {
   error,
   exporting,
   exportError,
+  exportLimitNotice,
   searchInput,
   filters,
   hasActiveFilters,
@@ -193,6 +198,18 @@ onMounted(load)
   border-radius: 6px;
   background-color: rgba(220, 53, 69, 0.08);
   color: var(--danger);
+}
+
+.system-logs__notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--info);
+  border-radius: 6px;
+  background-color: rgba(23, 162, 184, 0.08);
+  color: inherit;
 }
 
 .system-logs__export {

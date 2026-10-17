@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   downloadSystemLogs,
   fetchSystemLogs,
+  SYSTEM_LOG_EXPORT_MAX_ROWS,
   type SystemLogExportType,
   type SystemLogFilterParams,
   type SystemLogRow
@@ -22,6 +23,22 @@ export interface SystemLogFilters {
 }
 
 export type SystemLogFilterField = keyof SystemLogFilters
+
+// The years the backend accepts: MIN_YEAR and MAX_YEAR in
+// backend/apps/system_logs/filters.py. Keep the two in step.
+export const MIN_FILTER_YEAR = 1900
+export const MAX_FILTER_YEAR = 9998
+
+// Picked days come straight from the date boxes, which fire @change only once
+// they hold a complete date. A year still being typed can make one, though:
+// with the day and month filled in, Chrome passes on 0002, 0020 and 0202 on
+// the way to 2026. A year out of range shows an error and sends no request.
+const isYearInRange = (day: string) => {
+  const year = Number(day.slice(0, day.indexOf('-')))
+  return year >= MIN_FILTER_YEAR && year <= MAX_FILTER_YEAR
+}
+
+const formatCount = (count: number) => count.toLocaleString('en-AU')
 
 export const defaultSystemLogFilters = (): SystemLogFilters => ({
   fromDate: '',
@@ -61,6 +78,9 @@ export function useAdminSystemLogs() {
   const error = ref('')
   const exporting = ref<SystemLogExportType | null>(null)
   const exportError = ref('')
+  // Said after an export that stopped at the row limit, from its response
+  // header, which also catches rows logged since the table loaded.
+  const exportNotice = ref('')
 
   // -- Search (debounced, as on the users page) --------------------------------
   const searchInput = ref('')
@@ -90,16 +110,30 @@ export function useAdminSystemLogs() {
 
   const query = computed(() => systemLogQuery(filters.value, appliedSearch.value))
 
+  // A note about the last export no longer fits once the filters change.
+  watch(query, () => {
+    exportNotice.value = ''
+  })
+
   const hasActiveFilters = computed(
     () => Object.values(filters.value).some((value) => value.trim()) || Boolean(appliedSearch.value)
   )
 
-  // "YYYY-MM-DD" strings compare in date order.
-  const dateRangeError = computed(() =>
+  const dateYearError = computed(() => {
+    const { fromDate, toDate } = filters.value
+    const label = fromDate && !isYearInRange(fromDate) ? 'From' : toDate && !isYearInRange(toDate) ? 'To' : ''
+    return label ? `The "${label}" date must be in a year from ${MIN_FILTER_YEAR} to ${MAX_FILTER_YEAR}.` : ''
+  })
+
+  // With both years in range, "YYYY-MM-DD" strings compare in date order.
+  const dateOrderError = computed(() =>
     filters.value.fromDate && filters.value.toDate && filters.value.fromDate > filters.value.toDate
       ? 'The "From" date is after the "To" date.'
       : ''
   )
+
+  // Either stops the table loading and the export, and is shown above them.
+  const dateRangeError = computed(() => dateYearError.value || dateOrderError.value)
 
   // The zone times are shown in, and picked days are read in.
   const timeZoneLabel = computed(() => formatTimeZoneLabel(getSetTimeZone()))
@@ -173,12 +207,28 @@ export function useAdminSystemLogs() {
   }
 
   // -- Export ------------------------------------------------------------------
+  // Said before exporting, from the count the table already has.
+  const exportLimitNotice = computed(() => {
+    if (exportNotice.value) return exportNotice.value
+    if (totalCount.value <= SYSTEM_LOG_EXPORT_MAX_ROWS) return ''
+    return (
+      `These filters match ${formatCount(totalCount.value)} logs. An export holds only the newest ` +
+      `${formatCount(SYSTEM_LOG_EXPORT_MAX_ROWS)}; narrow the filters to export the rest.`
+    )
+  })
+
   const exportLogs = async (type: SystemLogExportType) => {
     if (exporting.value || dateRangeError.value) return
     exporting.value = type
     exportError.value = ''
+    exportNotice.value = ''
     try {
-      await downloadSystemLogs(query.value, type)
+      const { truncated, rowLimit } = await downloadSystemLogs(query.value, type)
+      if (truncated) {
+        exportNotice.value =
+          `The export stopped at the newest ${formatCount(rowLimit)} logs; more match these filters. ` +
+          'Narrow the filters to export the rest.'
+      }
     } catch (downloadError) {
       logApiError('admin.systemLogs.export', downloadError)
       exportError.value =
@@ -189,7 +239,8 @@ export function useAdminSystemLogs() {
   }
 
   const emptyMessage = computed(() => {
-    if (dateRangeError.value) return 'Choose a "From" date on or before the "To" date.'
+    if (dateYearError.value) return `Choose dates in a year from ${MIN_FILTER_YEAR} to ${MAX_FILTER_YEAR}.`
+    if (dateOrderError.value) return 'Choose a "From" date on or before the "To" date.'
     return hasActiveFilters.value ? 'No logs match these filters.' : 'No logs have been recorded yet.'
   })
 
@@ -202,6 +253,7 @@ export function useAdminSystemLogs() {
     error,
     exporting,
     exportError,
+    exportLimitNotice,
     searchInput,
     filters,
     hasActiveFilters,

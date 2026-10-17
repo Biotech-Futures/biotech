@@ -110,6 +110,29 @@ describe('downloadSystemLogs', () => {
     expect(savedAs).toBe('system-logs.jsonl')
   })
 
+  it('reports an export that stopped at the row limit, from its headers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('{}\n', {
+          status: 200,
+          headers: { 'X-Export-Truncated': 'true', 'X-Export-Row-Limit': '100000' }
+        })
+      )
+    )
+
+    await expect(downloadSystemLogs({}, 'json')).resolves.toEqual({ truncated: true, rowLimit: 100_000 })
+  })
+
+  it('reports a complete export, and the usual limit when the server names none', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('Time (UTC)\n', { status: 200, headers: { 'X-Export-Truncated': 'false' } }))
+    )
+
+    await expect(downloadSystemLogs({}, 'csv')).resolves.toEqual({ truncated: false, rowLimit: 100_000 })
+  })
+
   it('throws the server error and saves nothing when the export fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ error: 'Use csv or json.' }, 400)))
 
