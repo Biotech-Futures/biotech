@@ -76,6 +76,8 @@ class User(AbstractUser):
     # only when serializing the authenticated user's profile.
     profile_image_key = models.CharField(max_length=512, blank=True, default="")
     profile_image_content_type = models.CharField(max_length=64, blank=True, default="")
+    # Private notes recorded by administrators, never exposed to non-admin users.
+    admin_notes = models.TextField(blank=True, default="")
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]
