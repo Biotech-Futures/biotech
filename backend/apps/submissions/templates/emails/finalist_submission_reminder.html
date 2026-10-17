@@ -1,0 +1,51 @@
+{% extends "emails/base.html" %}
+{# Keep the wording in step with finalist_submission_reminder.txt. #}
+
+{% block title %}{{ BRAND_NAME }}: Presentation reminder for {{ GROUP_NAME }}{% endblock %}
+
+{% block preheader %}Your {{ BRAND_NAME }} {{ YEAR }} presentation is not submitted yet. Here is what we have so far.{% endblock %}
+
+{% block footer_reason %}submission reminders{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi Group {{ GROUP_NAME }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                This is a reminder to submit your team&rsquo;s presentation for {{ BRAND_NAME }} {{ YEAR }}.
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Our records currently show the following:
+              </p>
+
+              {# Built in apps/submissions/finalist_reminders.py, so the editor shows it as sent. #}
+              {{ COMPONENTS_SECTION }}
+
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Slides are due on <strong style="color:#1a2e23;">{{ SLIDES_DUE }}</strong>. Please submit by then.
+              </p>
+
+              {% if FINALIST_URL %}
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:26px 0 0 0;">
+                <tr>
+                  <td align="center" style="border-radius:8px; background:#307054;">
+                    <a class="cta-link" href="{{ FINALIST_URL }}" style="display:inline-block; padding:13px 30px; color:#ffffff; font-size:15px; font-weight:700; text-decoration:none; border-radius:8px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      Open your finalist page
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              {% endif %}
+
+              <p style="margin:26px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Thank you for all the work your team has put into the {{ BRAND_NAME }} Challenge.
+                We are looking forward to your presentation!
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Kind regards,<br>
+                <strong style="color:#1a2e23;">The {{ BRAND_NAME }} Team</strong>
+              </p>
+{% endblock %}

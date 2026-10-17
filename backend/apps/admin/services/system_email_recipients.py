@@ -352,6 +352,23 @@ def _finalist_confirmation_context(value: str) -> dict:
     return finalist_confirmation_context(entry)
 
 
+def _finalist_reminder_teams() -> list[dict]:
+    # Reminders go to this year's notified finalists until they submit.
+    return _groups(
+        _this_years_teams()
+        .filter(finalist_flag__notified=True)
+        .exclude(finalist_entry__submitted_at__isnull=False)
+    )
+
+
+def _finalist_reminder_context(value: str) -> dict:
+    from apps.submissions.finalist_reminders import reminder_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    return reminder_context(group, FinalistEntry.objects.filter(group=group).first())
+
+
 def _finalist_teams() -> list[dict]:
     return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_flag__isnull=False))
 
@@ -459,6 +476,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
     "finalist_submission_confirmation": Recipients(_finalist_submitted_teams, _finalist_confirmation_context),
+    "finalist_submission_reminder": Recipients(_finalist_reminder_teams, _finalist_reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
     "nonfinalist_invitation": Recipients(*_symposium("NONFINALIST")),
     "nonsubmission_notice": Recipients(*_symposium("NONSUBMISSION")),

@@ -172,6 +172,24 @@ class SubmissionReminder(models.Model):
         return f"{self.group} last reminded {self.last_sent_on}"
 
 
+class FinalistReminder(models.Model):
+    """The last day a finalist team was reminded about its presentation, so a rerun never emails twice."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="finalist_reminder",
+    )
+    last_sent_on = models.DateField()
+
+    class Meta:
+        db_table = "finalist_reminder"
+        verbose_name = "Finalist reminder"
+
+    def __str__(self):
+        return f"{self.group} last reminded {self.last_sent_on}"
+
+
 class Submission(models.Model):
     """One team's entry. Resubmitting updates this row rather than adding one."""
 
