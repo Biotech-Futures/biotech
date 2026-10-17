@@ -430,10 +430,17 @@ class Recipients:
 
 _EVERYONE = Recipients(_everyone, _first_name)
 
+def _registration_context(value: str) -> dict:
+    from apps.users.registration_emails import registration_context
+
+    return registration_context(_user(value))
+
+
 RECIPIENTS: dict[str, Recipients] = {
     "login_code": _EVERYONE,
     "password_reset": _EVERYONE,
     "password_changed": _EVERYONE,
+    "registration_student": Recipients(_students, _registration_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,

@@ -19,6 +19,7 @@ EXPECTED_KEYS = {
     "login_code",
     "password_reset",
     "password_changed",
+    "registration_student",
     "unread_messages",
     "rsvp_reminder",
     "event_promotion",

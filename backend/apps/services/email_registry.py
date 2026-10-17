@@ -116,6 +116,21 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
+    # Registration: sent once someone registers (apps.users.registration_emails).
+    EmailType(
+        key="registration_student",
+        name="Registration confirmation (to student)",
+        description=(
+            "Sent to a student when they register on their own, including with a late link."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_student.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
     EmailType(
         key="guardian_details_request",
         name="Guardian details needed",

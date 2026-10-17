@@ -789,6 +789,10 @@ def register(request):
             for user, photo in zip(users, photos):
                 if photo:
                     created_files.append(save_profile_image(user=user, uploaded_file=photo))
+            # Its registration emails, once it's saved (System Emails > Registration).
+            from .registration_emails import send_registration_emails
+
+            transaction.on_commit(lambda: send_registration_emails(journey, users))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:
