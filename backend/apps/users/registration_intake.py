@@ -216,9 +216,10 @@ class IntakeInput(StrictInput):
                     "A group can have up to five students." if journey == "student_team"
                     else "A group must contain two to five students."
                 )
-            # A student group has no shared interests (each member has their own).
-            if journey == "supervisor_group" and not group.get("interests"):
-                errors["payload.group.interests"] = "Choose shared group interests."
+            # Shared interests are optional here: a student group has none
+            # (each member has their own), and nor may Register one student's
+            # group (students added). Register a student group asks for them
+            # on its page.
         else:
             if "group" in payload:
                 errors["payload.group"] = "This journey does not create a group."

@@ -160,16 +160,15 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         self.assertEqual(APIClient().get(f"{URL}999999/").status_code, 404)
         self.assertEqual(APIClient().get(f"{URL}abc/").status_code, 404)
 
-    def test_a_student_group_needs_no_shared_interests(self):
-        body = batch("student_team")
-        body["payload"]["group"] = {}
-        response = self.post_batch(body)
-        self.assertEqual(response.status_code, 201, response.data)
-        body = batch("supervisor_group")
-        body["payload"]["group"] = {}
-        response = self.post_batch(body)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("group.interests", response.data["fields"])
+    def test_no_group_needs_shared_interests(self):
+        # A student's group, and a supervisor's from Register one student with
+        # students added, whose students chose none.
+        for offset, journey in enumerate(("student_team", "supervisor_group")):
+            with self.subTest(journey):
+                body = batch(journey, offset=offset * 10)
+                body["payload"]["group"] = {}
+                response = self.post_batch(body)
+                self.assertEqual(response.status_code, 201, response.data)
 
 
 class FormedByTests(MultiStudentSetup, TestCase):

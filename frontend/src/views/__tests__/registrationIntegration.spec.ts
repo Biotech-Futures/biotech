@@ -140,7 +140,7 @@ const prepareMentor = async (wrapper: VueWrapper) => {
 const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
   const setup = setupOf(wrapper)
   setup.journey = 'supervisor_individual'
-  setup.currentStep = 1
+  setup.currentStep = 0
   Object.assign(setup.forms.supervisorIndividual.student, {
     firstName: 'Alex',
     lastName: 'Morgan',
@@ -639,6 +639,8 @@ describe('registration gateway UI integration', () => {
       emailConfirm: 'sam@example.com',
       interests: ['Water & Energy Tech'],
     })
+    // Students added: registered from Review, as before.
+    setupOf(wrapper).currentStep = 1
     await wrapper.vm.$nextTick()
     await submit(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
@@ -652,11 +654,13 @@ describe('registration gateway UI integration', () => {
     // The group's interests are theirs; the members have none of their own.
     expect(request.payload.interests).toEqual(['Biomedical Innovations', 'Water & Energy Tech'])
     expect(request.payload.students.every((student) => !student.interests.length)).toBe(true)
+    // Then the saved registration's page, as before.
     await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
+    expect(wrapper.find('[data-test="registered-note"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('opens a fresh individual student form directly after supervisor registration', async () => {
+  it('stays on an empty Register one student form after registering, saying who was registered', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,
       receipt: {
@@ -669,11 +673,12 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountSupervisorWithGateway({ submit: send })
     await prepareSupervisorStudent(wrapper)
     await submit(wrapper)
-    await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Register another student')!
-      .trigger('click')
+    // No confirmation page: the note under the description, the form empty again.
+    await vi.waitFor(() =>
+      expect(wrapper.get('.journey-context [data-test="registered-note"]').text()).toBe(
+        'Registration successful: Alex Morgan (alex@example.com) is registered.',
+      ),
+    )
     expect(setupOf(wrapper).journey).toBe('supervisor_individual')
     expect(setupOf(wrapper).currentStep).toBe(0)
     expect(wrapper.get('#supervisorIndividual-student-email').element).toHaveProperty('value', '')

@@ -187,7 +187,8 @@ describe('canonical registration intake', () => {
     { mode: 'canonical', journey: 'Register as an individual student', choice: "I don't have a group", steps: 4 },
     { mode: 'canonical', journey: 'Create a student group', choice: 'I have a group', steps: 4 },
     { mode: 'canonical', journey: 'Register as a mentor', choice: '', steps: 4 },
-    { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 2 },
+    // Its one step has no tabs.
+    { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 0 },
     { mode: 'supervisor', journey: 'Register a student group', choice: 'Register a student group', steps: 3 },
     { mode: 'supervisor', journey: 'Upload students by CSV', choice: '', steps: 3 },
   ] as const)(
@@ -209,7 +210,7 @@ describe('canonical registration intake', () => {
         expect(tabs.map((tab) => tab.find('span').text())).toEqual(
           Array.from({ length: steps }, (_, index) => String(index + 1)),
         )
-        expect(tabs[0]!.attributes('aria-current')).toBe('step')
+        if (steps) expect(tabs[0]!.attributes('aria-current')).toBe('step')
         expect(wrapper.get('.journey-context h1').text()).toBe(journey)
         expect(wrapper.find('.journey-context > p').exists()).toBe(false)
         expect(wrapper.find('.step-header').exists()).toBe(false)
@@ -400,15 +401,13 @@ describe('canonical registration intake', () => {
     // The platform's own page heading, as on the portal's other pages.
     expect(wrapper.find('#pathway-title').classes()).toContain('page-title')
     await clickButton(wrapper, 'Register one student')
-    expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
-      'Student',
-      'Review',
-    ])
+    // One step, no Review: no steps to show, and it registers from here.
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
+    expect(wrapper.find('.review-step').exists()).toBe(false)
+    expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
     expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Confirm the signed-in account')
     expect(wrapper.find('.form-progress').exists()).toBe(false)
-    expect(wrapper.find('.step-navigation').attributes('aria-label')).toBe('Registration progress')
-    expect(wrapper.findAll('.step-navigation li')).toHaveLength(2)
     expect(wrapper.text()).not.toContain('School-only grouping')
     expect(wrapper.text()).not.toContain('Cross-school grouping')
 
@@ -481,14 +480,19 @@ describe('canonical registration intake', () => {
     expect(csv.text()).not.toContain('Confirm student email')
   })
 
-  it('adds students to Register one student on the same page, its heading and steps unchanged', async () => {
+  it('adds students to Register one student on the same page, then a Review step until they go again', async () => {
     const wrapper = mountPage('supervisor')
     await clickButton(wrapper, 'Register one student')
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
     const add = wrapper.findAll('.form-footer button').find((button) => button.text() === 'Add student')!
     await add.trigger('click')
 
     expect(wrapper.get('.page-title').text()).toBe('Register one student')
-    expect(wrapper.findAll('.step-navigation button')).toHaveLength(2)
+    expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
+      'Student',
+      'Review',
+    ])
+    expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Continue')
     expect(wrapper.findAll('.student-entry__heading h3').map((heading) => heading.text())).toEqual([
       'Student 1',
       'Student 2',
@@ -501,6 +505,9 @@ describe('canonical registration intake', () => {
     expect(removes).toHaveLength(1)
     await removes[0]!.trigger('click')
     expect(wrapper.find('.student-entry__heading').exists()).toBe(false)
+    // On its own again: no Review.
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
+    expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
   })
 
   it("lets a student leave out their supervisor, but asks for all of one that's started", async () => {
@@ -797,29 +804,55 @@ describe('canonical registration intake', () => {
 
   it("shows a supervisor's saved registration as the steps' last page, with what Review showed", async () => {
     const wrapper = mountPage('supervisor')
-    await clickButton(wrapper, 'Register one student')
+    await clickButton(wrapper, 'Register a student group')
     const setup = wrapper.vm as unknown as { success: unknown }
     setup.success = {
       referenceCode: 'REG-1',
-      journey: 'supervisor_individual',
+      journey: 'supervisor_group',
       studentCount: 1,
       submittedAt: '2026-10-16T00:08:00Z',
     }
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('.success-body .form-footer').exists()).toBe(true)
-    expect(wrapper.get('.page-title').text()).toBe('Register one student')
-    expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(2)
+    expect(wrapper.get('.page-title').text()).toBe('Register a student group')
+    expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(3)
     const body = wrapper.get('.success-body')
     expect(body.get('h3').text()).toBe('Registration Complete')
     expect(body.text()).not.toContain('REG-1')
-    // What Review showed (the student), then when it was registered.
-    expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual(['Student'])
+    // What Review showed (the group's students), then when it was registered.
+    expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual([
+      'Group members',
+    ])
     // The last section's last row.
     const completed = body.findAll('.review-section dl > div').at(-1)!
     expect(completed.get('dt').text()).toBe('Registration completed')
     expect(completed.get('dd').text()).toMatch(/16 Oct|15 Oct/)
-    expect(body.get('.form-footer').text()).toContain('Register another student')
+    // Back on top to the options; one button for another group.
+    expect(body.get('.form-footer').text()).toBe('Register Another Group')
+    expect(wrapper.get('.journey-context .back-button').text()).toBe('Back')
+
+    await body.get('.form-footer button').trigger('click')
+    expect(wrapper.find('.success-body').exists()).toBe(false)
+    expect(wrapper.get('.page-title').text()).toBe('Register a student group')
+    expect(wrapper.get('.step-navigation .tab-pill').attributes('aria-current')).toBe('step')
+  })
+
+  it("goes back to the options from a supervisor's saved registration", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register a student group')
+    const setup = wrapper.vm as unknown as { success: unknown }
+    setup.success = {
+      referenceCode: 'REG-1',
+      journey: 'supervisor_group',
+      studentCount: 1,
+      submittedAt: '2026-10-16T00:08:00Z',
+    }
+    await wrapper.vm.$nextTick()
+
+    await wrapper.get('.journey-context .back-button').trigger('click')
+    expect(wrapper.find('.success-body').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Register students')
   })
 
   it("gives a supervisor's student one full width email, and Areas of Interest with no *", async () => {

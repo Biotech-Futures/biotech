@@ -9,6 +9,15 @@
          saved (public or a supervisor's alike). -->
     <div v-if="success" class="work-layout">
       <aside class="journey-context">
+        <!-- A supervisor's: back to the options, as on the steps. -->
+        <button
+          v-if="isSupervisorMode"
+          type="button"
+          class="btn btn-outline back-button change-journey"
+          @click="resetRegistration"
+        >
+          <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+        </button>
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
           <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
@@ -32,7 +41,11 @@
         <!-- What Review showed, then when it was registered. -->
         <div class="success-body">
           <div class="success-intro">
-            <h3>{{ successHeading }}</h3>
+            <!-- Registration Complete, or a mentor's Application received, ticked. -->
+            <h3>
+              {{ successHeading }}
+              <i class="fas fa-circle-check success-check" aria-hidden="true"></i>
+            </h3>
             <p class="success-note">{{ successNote }}</p>
           </div>
           <div class="review-step">
@@ -77,15 +90,18 @@
             </div>
           </div>
 
-          <!-- A supervisor's: back to the dashboard, or another registration.
-               Someone registering themselves: what happens next, and sign in. -->
+          <!-- A supervisor's: another of the same (Back above goes to the
+               options). Someone registering themselves: what happens next,
+               and sign in. -->
           <footer class="form-footer">
-            <template v-if="isSupervisorMode">
-              <RouterLink to="/dashboard" class="secondary-action">Return to dashboard</RouterLink>
-              <button type="button" class="primary-action" @click="startAnotherRegistration">
-                {{ journey === 'supervisor_individual' ? 'Register another student' : 'Start another journey' }}
-              </button>
-            </template>
+            <button
+              v-if="isSupervisorMode"
+              type="button"
+              class="primary-action"
+              @click="startAnotherRegistration"
+            >
+              {{ anotherLabel }}
+            </button>
             <template v-else>
               <p class="form-footer-note">
                 We will contact you after we set up and activate your account
@@ -251,13 +267,20 @@
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
           <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
+          <!-- Register one student: who was just registered, the form empty
+               again for the next. -->
+          <p v-if="registeredNote" class="registered-note" role="status" data-test="registered-note">
+            <i class="fas fa-circle-check" aria-hidden="true"></i>
+            {{ registeredNote }}
+          </p>
         </header>
       </aside>
 
       <section class="form-surface">
         <!-- The steps, with what * means at the right. -->
         <div class="step-bar">
-          <nav class="step-navigation" aria-label="Registration progress">
+          <!-- Register one student on its own has a single step: nothing to show. -->
+          <nav v-if="steps.length > 1" class="step-navigation" aria-label="Registration progress">
             <ol>
               <li v-for="(step, index) in steps" :key="step.label">
                 <button
@@ -279,7 +302,7 @@
             </ol>
           </nav>
           <!-- Not on Review, which has no fields. -->
-          <p v-if="steps[currentStep]?.label !== 'Review'" class="form-required-note">
+          <p v-if="!isReviewStep" class="form-required-note">
             Fields marked <span class="required-mark">*</span> are required.
           </p>
         </div>
@@ -1016,7 +1039,7 @@
 
             </template>
 
-            <div v-if="currentStep === steps.length - 1" class="review-step">
+            <div v-if="isReviewStep" class="review-step">
               <div v-for="section in reviewSections" :key="section.title" class="review-section">
                 <h3>{{ section.title }}</h3>
                 <dl>
@@ -1053,8 +1076,15 @@
           <!-- On the right; the steps above go back, and Back to the
                options. A group's students are added here. -->
           <footer class="form-footer">
-            <!-- On Register one student: the student and another, in one group. -->
-            <p v-if="journey === 'supervisor_individual' && currentStep === 0" class="form-footer-note">
+            <!-- Before Add student: on Register one student, and on Register a
+                 student group's Students step. -->
+            <p
+              v-if="
+                (journey === 'supervisor_individual' && currentStep === 0) ||
+                (journey === 'supervisor_group' && currentStep === 1)
+              "
+              class="form-footer-note"
+            >
               Adding a student will put them in the same group
             </p>
             <button
@@ -1316,16 +1346,14 @@ const journeyOptions: JourneyOption[] = [
     role: 'Supervisor / teacher',
     title: 'Register one student',
     description: 'Add one student and review their registration details.',
+    // Registered straight from the one step: no Review, and no confirmation
+    // page (see registeredNote). With students added, Review and the
+    // confirmation page as a group's (see steps).
     steps: [
       {
         label: 'Student',
         title: 'Add the student',
         description: 'Guardian contact may be supplied now or deferred.',
-      },
-      {
-        label: 'Review',
-        title: 'Review the student registration',
-        description: 'Check the record before saving.',
       },
     ],
   },
@@ -1500,6 +1528,9 @@ const warningOverrides = ref<Record<string, boolean>>({})
 const warningSummaryRef = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 const success = ref<RegistrationReceipt | null>(null)
+// Register one student, once registered: "Registration successful: Amy Chen
+// (amy@example.com) is registered." Gone when they leave it.
+const registeredNote = ref('')
 
 // Create a student group, or join one by the code its creator shared:
 // checked as it's typed. Joining, the group's own details aren't asked for.
@@ -1613,7 +1644,22 @@ const successNote = computed(() =>
     ? 'Your application is pending administrator review.'
     : 'Guardian consent is still required before full registration.',
 )
-const steps = computed(() => selectedJourney.value?.steps || [])
+// Register one student with students added: reviewed, then confirmed on
+// the saved registration's page, until they're removed again.
+const ADDED_STUDENTS_REVIEW = {
+  label: 'Review',
+  title: 'Review the student registration',
+  description: 'Check the record before saving.',
+}
+const steps = computed(() => {
+  const own = selectedJourney.value?.steps || []
+  return journey.value === 'supervisor_individual' && forms.supervisorIndividual.extraStudents.length
+    ? [...own, ADDED_STUDENTS_REVIEW]
+    : own
+})
+// Every journey's last step is Review, but Register one student's on its own.
+const isReviewStepIndex = (index: number) => steps.value[index]?.label === 'Review'
+const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
 const roleJourneyOptions = computed(() => {
   if (selectedRole.value === 'student') {
     return journeyOptions.filter((option) =>
@@ -2260,6 +2306,7 @@ const backToRoleSelection = () => {
 
 const changeJourney = () => {
   if (blockCsvEditorAction()) return
+  registeredNote.value = ''
   journey.value = null
   currentStep.value = 0
   maxReachedStep.value = 0
@@ -2303,8 +2350,10 @@ const continueJourney = async () => {
 }
 
 const validateJourneyBeforeSubmit = async () => {
-  const reviewStep = steps.value.length - 1
-  for (let index = 0; index < reviewStep; index += 1) {
+  const lastStep = steps.value.length - 1
+  // Every step with fields: all but Review, or all of them with no Review.
+  const fieldSteps = isReviewStepIndex(lastStep) ? lastStep : lastStep + 1
+  for (let index = 0; index < fieldSteps; index += 1) {
     currentStep.value = index
     if (!validateCurrentStep()) {
       await nextTick()
@@ -2312,7 +2361,7 @@ const validateJourneyBeforeSubmit = async () => {
       return false
     }
   }
-  currentStep.value = reviewStep
+  currentStep.value = lastStep
   clearErrors()
   return true
 }
@@ -2588,6 +2637,7 @@ const submitRegistration = async () => {
   for (const warning of registrationWarnings.value)
     warningOverrides.value[warning.overrideField] = true
   serverError.value = ''
+  registeredNote.value = ''
   isSubmitting.value = true
   try {
     const asGroup =
@@ -2665,6 +2715,14 @@ const submitRegistration = async () => {
       await focusErrors()
       return
     }
+    if (journey.value === 'supervisor_individual' && !asGroup) {
+      // On its own: straight back to an empty form, saying who was registered.
+      const { student } = forms.supervisorIndividual
+      const who = `${studentName(student)} (${student.email.trim()})`
+      startAnotherRegistration()
+      registeredNote.value = `Registration successful: ${who} is registered.`
+      return
+    }
     success.value = result.receipt
     scrollToTop()
   } catch (error) {
@@ -2683,6 +2741,7 @@ const scrollToTop = () => {
 }
 
 const resetRegistration = () => {
+  registeredNote.value = ''
   submissionKey = ''
   submissionSignature = ''
   Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
@@ -2702,11 +2761,19 @@ const resetRegistration = () => {
   scrollToTop()
 }
 
+// A supervisor's next registration of the same kind, from its first step.
 const startAnotherRegistration = () => {
-  const registerStudent = isSupervisorMode.value && journey.value === 'supervisor_individual'
+  const again = isSupervisorMode.value ? journey.value : null
   resetRegistration()
-  if (registerStudent) selectJourney('supervisor_individual')
+  if (again) selectJourney(again)
 }
+
+const ANOTHER_LABELS: Partial<Record<RegistrationJourney, string>> = {
+  supervisor_individual: 'Register Another Student',
+  supervisor_group: 'Register Another Group',
+  supervisor_csv: 'Upload Another CSV',
+}
+const anotherLabel = computed(() => (journey.value && ANOTHER_LABELS[journey.value]) || 'Register Another')
 
 watch(invitationToken, resetRegistration)
 
@@ -3295,6 +3362,14 @@ form,
   color: var(--registration-ink);
   font-size: 1.25rem;
   font-weight: 600;
+}
+
+/* A little taller than the heading's capitals, on its baseline. */
+.success-check {
+  margin-left: 0.4rem;
+  color: var(--success);
+  font-size: 0.8em;
+  vertical-align: 0;
 }
 
 .success-note {
@@ -3929,6 +4004,17 @@ dd {
   line-height: 1.35;
 }
 
+/* Register one student's, under its description. */
+.registered-note {
+  margin: 0.75rem 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: var(--success);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .form-required-note {
   margin: 0 0 0 auto;
   color: var(--registration-muted);
@@ -3937,7 +4023,7 @@ dd {
 }
 
 /* On the right: Continue or Submit, with Add student before it on a
-   group's Students step (and a note before that on Register one student). */
+   group's Students step and on Register one student, with a note before it. */
 .form-footer {
   margin-top: 46px;
   display: flex;
