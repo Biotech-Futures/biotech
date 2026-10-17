@@ -30,6 +30,7 @@ export const PRONOUN_OPTIONS = [
   'Other',
 ] as const
 
+// Upload student details's columns, in this order (see parseRegistrationCsv).
 export const CSV_HEADERS = [
   'first_name',
   'last_name',
@@ -42,10 +43,8 @@ export const CSV_HEADERS = [
   'guardian_first_name',
   'guardian_last_name',
   'guardian_email',
-  'guardian_relationship',
-  'guardian_relationship_other',
-  'grouping_preference',
 ] as const
+
 
 export const MAX_CSV_ROWS = 500
 
@@ -277,6 +276,10 @@ export const parseRegistrationInterests = (value: string): string[] =>
     .map((interest) => interest.trim())
     .filter(Boolean)
 
+/** The Areas of Interest option ``text`` names, whatever its case; none when it isn't one. */
+export const interestOption = (text: string): (typeof INTEREST_CATEGORIES)[number] | undefined =>
+  INTEREST_CATEGORIES.find((option) => option.toLowerCase() === text.trim().toLowerCase())
+
 export const createRegistrationForms = (): RegistrationForms => ({
   studentIndividual: {
     student: createStudent(),
@@ -390,7 +393,6 @@ const csvRowCategory = (
     ['school', 'School is required.'],
     ['year_level', 'Year level is required.'],
     ['country', 'Country is required.'],
-    ['interests', 'At least one interest is required.'],
   ]
 
   required.forEach(([key, message]) => {
@@ -404,40 +406,25 @@ const csvRowCategory = (
   if (values.year_level && !['9', '10', '11', '12'].includes(values.year_level)) {
     fieldErrors.year_level = 'Year level must be 9, 10, 11, or 12.'
   }
-  if (values.country.toLowerCase() === 'australia' && !values.state) {
-    fieldErrors.state = 'State or territory is required for Australian students.'
+  // As the student form: a State in Australia, a Region (optional) elsewhere.
+  if (isAustralia(values.country) && !values.state) {
+    fieldErrors.state = 'Enter the Australian state or territory.'
   }
   if (values.guardian_email && !isValidRegistrationEmail(values.guardian_email)) {
     fieldErrors.guardian_email = 'Guardian email format is invalid.'
   }
   if (guardianIsStudent)
     fieldErrors.guardian_email = 'A student in this import cannot be listed as a guardian.'
-  if (
-    values.grouping_preference &&
-    !['school_only', 'cross_school'].includes(values.grouping_preference)
-  ) {
-    fieldErrors.grouping_preference = 'Grouping preference must be school_only or cross_school.'
-  }
-  if (
-    values.guardian_relationship &&
-    !['Parent', 'Legal guardian', 'Other'].includes(values.guardian_relationship)
-  ) {
-    fieldErrors.guardian_relationship = 'Guardian relationship is not recognised.'
-  }
-  if (values.guardian_relationship === 'Other' && !values.guardian_relationship_other) {
-    fieldErrors.guardian_relationship_other = 'Describe the Other guardian relationship.'
-  }
 
-  const selectedInterests = parseRegistrationInterests(values.interests)
-  if (!selectedInterests.length) fieldErrors.interests = 'At least one interest is required.'
-  const unknownInterests = selectedInterests.filter(
-    (interest) => !INTEREST_CATEGORIES.includes(interest as (typeof INTEREST_CATEGORIES)[number]),
+  // Optional, but each one of the Areas of Interest options.
+  const unknownInterests = parseRegistrationInterests(values.interests).filter(
+    (interest) => !interestOption(interest),
   )
   if (unknownInterests.length) {
-    reviewIssues.push(`Interest needs review: ${unknownInterests.join(', ')}.`)
+    fieldErrors.interests = `Not an Areas of Interest option: ${unknownInterests.join(', ')}.`
   }
 
-  // A guardian is their name and email; a relationship, if given, is checked above.
+  // A guardian is their name and email.
   const guardianCore = [values.guardian_first_name, values.guardian_last_name, values.guardian_email]
   if (guardianCore.every((entry) => !entry)) {
     reviewIssues.push('Guardian details are deferred; student follow-up will be required.')
@@ -492,29 +479,27 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`] }
   }
 
+  // The template's headers exactly, in its order; columns after them are ignored.
   const headers = matrix[0].cells.map((header) => header.trim())
-  const missing = CSV_HEADERS.filter((header) => !headers.includes(header))
-  const duplicate = CSV_HEADERS.filter(
-    (header) => headers.filter((candidate) => candidate === header).length > 1,
+  const errors = CSV_HEADERS.flatMap((header, index) =>
+    headers[index] === header
+      ? []
+      : [`Column ${index + 1} must be ${header}${headers[index] ? `, not ${headers[index]}` : ''}.`],
   )
-  const unexpected = headers.filter((header) => !CSV_HEADERS.includes(header as CsvHeader))
-  const errors: string[] = []
-  if (missing.length) errors.push(`Missing columns: ${missing.join(', ')}.`)
-  if (duplicate.length) errors.push(`Duplicate columns: ${duplicate.join(', ')}.`)
-  if (unexpected.length) errors.push(`Unexpected columns: ${unexpected.join(', ')}.`)
   if (errors.length) return { rows: [], errors }
 
-  const rows: CsvRow[] = matrix.slice(1).map(({ cells, rowNumber }) => {
-    const values = Object.fromEntries(
-      CSV_HEADERS.map((header) => [header, (cells[headers.indexOf(header)] || '').trim()]),
-    ) as Record<CsvHeader, string>
-    return {
+  const rows: CsvRow[] = matrix
+    .slice(1)
+    .map(({ cells, rowNumber }) => ({
       rowNumber,
-      values,
-      category: 'valid',
+      values: Object.fromEntries(
+        CSV_HEADERS.map((header, index) => [header, (cells[index] || '').trim()]),
+      ) as Record<CsvHeader, string>,
+      category: 'valid' as const,
       issues: [],
-    }
-  })
+    }))
+    // A row with something only in the ignored columns is ignored too.
+    .filter(({ values }) => Object.values(values).some(Boolean))
 
   return {
     rows: revalidateRegistrationCsvRows(rows),

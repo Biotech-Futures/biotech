@@ -257,7 +257,6 @@
         <button
           type="button"
           class="btn btn-outline back-button change-journey"
-          :disabled="isCsvEditing"
           @click="changeJourney"
         >
           <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
@@ -291,7 +290,7 @@
                     current: currentStep === index,
                     complete: index < currentStep,
                   }"
-                  :disabled="index > maxReachedStep || isCsvEditing"
+                  :disabled="index > maxReachedStep"
                   :aria-current="currentStep === index ? 'step' : undefined"
                   @click="goToStep(index)"
                 >
@@ -692,23 +691,45 @@
 
             <template v-else-if="journey === 'supervisor_csv'">
               <div v-if="currentStep === 0" class="upload-step">
+                <!-- What the file needs, as Upload Guardian Details on My Students words it:
+                     the heading with the template beside it, then the rules at full width. -->
                 <div class="template-download">
-                  <div>
-                    <h3>Use the prescribed CSV template</h3>
-                    <p>
-                      Keep the column names unchanged. Separate multiple interests with commas in
-                      one quoted CSV cell. Guardian fields may be left blank.
-                    </p>
+                  <div class="template-download__head">
+                    <h3>Upload student details</h3>
+                    <!-- The app's own outline button, on one line. -->
+                    <button
+                      type="button"
+                      class="btn btn-outline template-download__button"
+                      @click="downloadCsvTemplate"
+                    >
+                      <i class="fas fa-download" aria-hidden="true"></i> Download example template
+                    </button>
                   </div>
-                  <button type="button" class="secondary-action" @click="downloadCsvTemplate">
-                    Download example template
-                  </button>
+                  <p>
+                    .xlsx or .csv, one row per student<br />
+                    <code>first_name</code>, <code>last_name</code>, <code>email</code>,<br />
+                    <code>school</code>, <code>year_level</code>, <code>country</code>,<br />
+                    <code>state</code>, <code>interests</code>,<br />
+                    <code>guardian_first_name</code>, <code>guardian_last_name</code>,
+                    <code>guardian_email</code>
+                  </p>
+                  <p>
+                    Column headers must match exactly and need to be in order.<br />
+                    If <code>country</code> is Australia, <code>state</code> is mandatory.<br />
+                    Otherwise <code>state</code> is optional.<br />
+                    Fields <code>interests</code>, <code>guardian_first_name</code>,
+                    <code>guardian_last_name</code> and <code>guardian_email</code> are optional.<br />
+                    Extra columns and rows are ignored.
+                  </p>
                 </div>
                 <label class="csv-upload">
-                  <span>Choose completed CSV <span class="required-mark" aria-hidden="true">*</span></span>
+                  <span
+                    >Choose completed .xlsx or .csv
+                    <span class="required-mark" aria-hidden="true">*</span></span
+                  >
                   <input
                     type="file"
-                    accept=".csv,text/csv"
+                    accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     :aria-invalid="Boolean(errors['supervisorCsv.file'])"
                     @change="handleCsvUpload"
                   />
@@ -716,7 +737,6 @@
                     Loaded {{ forms.supervisorCsv.fileName }} ·
                     {{ forms.supervisorCsv.rows.length }} student rows
                   </small>
-                  <small v-else>CSV only, up to 2 MB.</small>
                   <strong v-if="errors['supervisorCsv.file']" class="inline-error">
                     {{ errors['supervisorCsv.file'] }}
                   </strong>
@@ -747,9 +767,9 @@
                   </div>
                 </div>
                 <p class="preview-guidance">
-                  Choose Edit row to correct any student details here. Validation updates as you
+                  Choose Edit to correct any student details here. Validation updates as you
                   type, without re-uploading. Review-required rows can be included for authoritative
-                  review; invalid rows must be fixed or explicitly excluded.
+                  review. Invalid rows must be fixed or explicitly excluded.
                 </p>
                 <section
                   v-if="editingCsvRow"
@@ -760,9 +780,6 @@
                   <h3 id="csv-row-editor-title" ref="csvEditorHeadingRef" tabindex="-1">
                     Edit row {{ editingCsvRow.rowNumber }}
                   </h3>
-                  <p class="preview-guidance">
-                    Changes are kept in this upload and included when you submit the registration.
-                  </p>
                   <p v-if="isCsvRowExcluded(editingCsvRow.rowNumber)" class="preview-guidance">
                     This row is still excluded. Clear its exclusion checkbox to include it after
                     correcting the details.
@@ -770,7 +787,6 @@
                   <RegistrationCsvRowEditor
                     :key="editingCsvRow.rowNumber"
                     :row="editingCsvRow"
-                    :excluded="isCsvRowExcluded(editingCsvRow.rowNumber)"
                     :errors="{
                       ...editingCsvRow.fieldErrors,
                       ...csvServerFieldsByRow[editingCsvRow.rowNumber],
@@ -778,68 +794,58 @@
                     @update:values="updateCsvRow(editingCsvRow, $event)"
                   />
                   <footer class="csv-editor-footer">
-                    <p id="csv-editor-confirmation-hint" class="preview-guidance">
-                      Choose Done editing below to confirm your row changes before continuing.
-                    </p>
                     <button type="button" class="primary-action" @click="closeCsvEditor">
                       Done editing
                     </button>
                   </footer>
                 </section>
-                <div class="table-scroll">
-                  <table>
-                    <caption>
-                      Parsed student rows
-                    </caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Row</th>
-                        <th scope="col">Student</th>
-                        <th scope="col">Email</th>
-                        <th scope="col">Status and action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="row in forms.supervisorCsv.rows"
-                        :key="row.rowNumber"
-                        :class="{ 'is-excluded': isCsvRowExcluded(row.rowNumber) }"
+                <!-- The file's rows, as the portal's other tables: each row's status
+                     (and what's wrong), then Edit and Exclude. -->
+                <AppDataTable
+                  class="csv-table"
+                  :columns="CSV_TABLE_COLUMNS"
+                  :rows="csvTableRows"
+                  row-key="rowNumber"
+                  :selectable="false"
+                  :default-sort="{ key: 'rowNumber', direction: 'asc' }"
+                  :row-class="(row) => ({ 'is-excluded': isCsvRowExcluded(toCsvRow(row).rowNumber) })"
+                  :action-headings="['Actions']"
+                  search-placeholder="Name or email"
+                  empty-message="No student rows in this file."
+                >
+                  <template #cell-status="{ row }">
+                    <strong :class="`csv-status csv-status--${toCsvRow(row).category}`">
+                      {{ csvCategoryLabel(toCsvRow(row).category) }}
+                    </strong>
+                    <ul v-if="csvRowIssues(toCsvRow(row)).length" class="csv-issues">
+                      <li v-for="issue in csvRowIssues(toCsvRow(row))" :key="issue">{{ issue }}</li>
+                    </ul>
+                  </template>
+                  <template #actions="{ row }">
+                    <div class="csv-row-actions">
+                      <button
+                        type="button"
+                        :id="`csv-edit-${toCsvRow(row).rowNumber}`"
+                        class="btn btn-sm btn-outline"
+                        :aria-label="`Edit row ${toCsvRow(row).rowNumber}`"
+                        :aria-expanded="editingCsvRowNumber === toCsvRow(row).rowNumber"
+                        aria-controls="csv-row-editor"
+                        @click="editCsvRow(toCsvRow(row).rowNumber)"
                       >
-                        <td>{{ row.rowNumber }}</td>
-                        <td>{{ row.values.first_name }} {{ row.values.last_name }}</td>
-                        <td>{{ row.values.email || 'Missing' }}</td>
-                        <td>
-                          <strong :class="`csv-status csv-status--${row.category}`">
-                            {{ csvCategoryLabel(row.category) }}
-                          </strong>
-                          <ul v-if="csvRowIssues(row).length">
-                            <li v-for="issue in csvRowIssues(row)" :key="issue">{{ issue }}</li>
-                          </ul>
-                          <button
-                            type="button"
-                            :id="`csv-edit-${row.rowNumber}`"
-                            class="csv-edit-action"
-                            :aria-label="`Edit row ${row.rowNumber}`"
-                            :aria-expanded="editingCsvRowNumber === row.rowNumber"
-                            aria-controls="csv-row-editor"
-                            @click="editCsvRow(row.rowNumber)"
-                          >
-                            Edit row
-                          </button>
-                          <label class="exclude-row">
-                            <input
-                              type="checkbox"
-                              :aria-label="`Exclude row ${row.rowNumber}`"
-                              :checked="isCsvRowExcluded(row.rowNumber)"
-                              @change="toggleCsvRow(row.rowNumber)"
-                            />
-                            Exclude this row
-                          </label>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                        Edit
+                      </button>
+                      <label class="exclude-row">
+                        <input
+                          type="checkbox"
+                          :aria-label="`Exclude row ${toCsvRow(row).rowNumber}`"
+                          :checked="isCsvRowExcluded(toCsvRow(row).rowNumber)"
+                          @change="toggleCsvRow(toCsvRow(row).rowNumber)"
+                        />
+                        Exclude
+                      </label>
+                    </div>
+                  </template>
+                </AppDataTable>
               </div>
             </template>
 
@@ -1119,8 +1125,7 @@
               v-if="!(journey === 'student_team' && currentStep === 2 && joiningGroup)"
               type="submit"
               class="primary-action"
-              :disabled="isSubmitting || isCsvEditing"
-              :aria-describedby="isCsvEditing ? 'csv-editor-confirmation-hint' : undefined"
+              :disabled="isSubmitting"
             >
               <span v-if="isSubmitting" class="spinner" aria-hidden="true"></span>
               {{
@@ -1144,6 +1149,7 @@ import { RouterLink } from 'vue-router'
 
 import RegistrationAvailabilityField from '@/components/registration/RegistrationAvailabilityField.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
@@ -1195,6 +1201,7 @@ import {
   type SupervisorDetails,
   type SupervisorGroupForm,
 } from '@/registration/registration'
+import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
 
 interface StepDefinition {
   label: string
@@ -1383,7 +1390,7 @@ const journeyOptions: JourneyOption[] = [
   {
     value: 'supervisor_csv',
     role: 'Supervisor / teacher',
-    title: 'Upload students by CSV',
+    title: 'Upload student details',
     description:
       'Use the prescribed template, parse it locally and resolve row issues before save.',
     steps: [
@@ -1738,9 +1745,6 @@ const warningSubject = (warning: RegistrationWarning) => {
 const editingCsvRow = computed(() =>
   forms.supervisorCsv.rows.find((row) => row.rowNumber === editingCsvRowNumber.value),
 )
-const isCsvEditing = computed(
-  () => journey.value === 'supervisor_csv' && Boolean(editingCsvRow.value),
-)
 const csvRequestPaths: Record<CsvHeader, string> = {
   first_name: 'firstName',
   last_name: 'lastName',
@@ -1753,9 +1757,6 @@ const csvRequestPaths: Record<CsvHeader, string> = {
   guardian_first_name: 'guardian.firstName',
   guardian_last_name: 'guardian.lastName',
   guardian_email: 'guardian.email',
-  guardian_relationship: 'guardian.relationship',
-  guardian_relationship_other: 'guardian.relationshipOther',
-  grouping_preference: 'groupingPreference',
 }
 const csvServerFieldsByRow = computed(() => {
   const result: Record<number, Partial<Record<CsvHeader, string>>> = {}
@@ -1949,20 +1950,25 @@ const reviewSections = computed<ReviewSection[]>(() => {
           })),
         },
       ]
+    // As Register a student group's: each student registered (not those
+    // excluded), with their email and whether their guardian's given. A
+    // guardian is only kept with all three of their columns.
     case 'supervisor_csv':
       return [
         {
-          title: 'Import owner',
-          items: [{ label: 'File', value: forms.supervisorCsv.fileName }],
-        },
-        {
-          title: 'Rows',
-          items: [
-            { label: 'Included', value: String(includedCsvRows.value.length) },
-            { label: 'Valid', value: String(csvCounts.value.valid) },
-            { label: 'Pending review', value: String(csvCounts.value.review) },
-            { label: 'Explicitly excluded', value: String(csvCounts.value.excluded) },
-          ],
+          title: 'Students',
+          items: includedCsvRows.value.map(({ values }, index) => {
+            const parts = [
+              `${values.first_name} ${values.last_name}`.trim() || 'Not provided',
+              values.email,
+              `Guardian ${
+                values.guardian_first_name && values.guardian_last_name && values.guardian_email
+                  ? 'provided'
+                  : 'deferred'
+              }`,
+            ]
+            return { label: `Student ${index + 1}`, value: parts.join(' · '), parts }
+          }),
         },
       ]
     case 'mentor':
@@ -2305,7 +2311,7 @@ const backToRoleSelection = () => {
 }
 
 const changeJourney = () => {
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   registeredNote.value = ''
   journey.value = null
   currentStep.value = 0
@@ -2323,7 +2329,7 @@ const changeJourney = () => {
 }
 
 const goToStep = (index: number) => {
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   if (index > maxReachedStep.value || index === currentStep.value) return
   currentStep.value = index
   clearErrors()
@@ -2332,7 +2338,7 @@ const goToStep = (index: number) => {
 }
 
 const continueJourney = async () => {
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   if (!validateCurrentStep()) {
     await focusErrors()
     return
@@ -2512,20 +2518,26 @@ const handleCsvUpload = async (event: Event) => {
   delete clientErrors['supervisorCsv.file']
   if (!file) return
   if (file.size > MAX_CSV_BYTES) {
-    clientErrors['supervisorCsv.file'] = 'Choose a CSV no larger than 2 MB.'
+    clientErrors['supervisorCsv.file'] = 'Choose a file no larger than 2 MB.'
     return
   }
+  // An .xlsx comes back from the server as CSV text, then is checked as a CSV is.
+  const xlsx = isXlsx(file)
   try {
-    const result = parseRegistrationCsv(await file.text())
+    const result = parseRegistrationCsv(xlsx ? await sheetAsCsv(file) : await file.text())
     if (result.errors.length) {
       csvFileErrors.value = result.errors
       return
     }
     forms.supervisorCsv.fileName = file.name
     forms.supervisorCsv.rows = result.rows
-  } catch {
+  } catch (error) {
     csvFileErrors.value = [
-      'The browser could not read this CSV. Try saving and uploading it again.',
+      xlsx
+        ? error instanceof Error
+          ? error.message
+          : 'This .xlsx could not be read. Try saving and uploading it again.'
+        : 'The browser could not read this CSV. Try saving and uploading it again.',
     ]
   }
 }
@@ -2600,19 +2612,14 @@ const editCsvRow = async (rowNumber: number) => {
 const closeCsvEditor = async () => {
   const rowNumber = editingCsvRowNumber.value
   editingCsvRowNumber.value = null
-  delete clientErrors['supervisorCsv.editor']
   await nextTick()
   document.getElementById(`csv-edit-${rowNumber}`)?.focus()
 }
 
-const blockCsvEditorAction = () => {
-  const row = editingCsvRow.value
-  if (!isCsvEditing.value || !row) return false
-  clientErrors['supervisorCsv.editor'] =
-    'Choose Done editing below the row fields before continuing.'
-  currentStep.value = 1
-  void editCsvRow(row.rowNumber)
-  return true
+// Leaving Preview (Back, a step, Continue or Submit) with a row open closes
+// it: its changes are already in the row, made as they're typed.
+const leaveCsvEditor = () => {
+  editingCsvRowNumber.value = null
 }
 
 const updateCsvRow = (row: CsvRow, values: CsvRow['values']) => {
@@ -2624,9 +2631,28 @@ const updateCsvRow = (row: CsvRow, values: CsvRow['values']) => {
 const csvCategoryLabel = (category: CsvCategory) =>
   category === 'review-required' ? 'Review required' : category === 'invalid' ? 'Invalid' : 'Valid'
 
+// The file's rows on Preview, by row number; the status column has what's wrong too.
+const CSV_TABLE_COLUMNS: DataTableColumn[] = [
+  { key: 'rowNumber', label: 'Row', type: 'number' },
+  { key: 'student', label: 'Student' },
+  { key: 'email', label: 'Email' },
+  // Only as wide as it needs: "Valid" on its own is narrow (see .csv-issues).
+  { key: 'status', label: 'Status' },
+]
+const csvTableRows = computed(() =>
+  forms.supervisorCsv.rows.map((row) => ({
+    rowNumber: row.rowNumber,
+    student: `${row.values.first_name} ${row.values.last_name}`.trim() || 'Missing',
+    email: row.values.email || 'Missing',
+    status: csvCategoryLabel(row.category),
+    row,
+  })),
+)
+const toCsvRow = (row: Record<string, unknown>) => row.row as CsvRow
+
 const submitRegistration = async () => {
   if (!journey.value || isSubmitting.value) return
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   if (!(await validateJourneyBeforeSubmit())) return
   if (
     registrationWarnings.value.some((warning) => !warningAcknowledgements[warning.overrideField])
@@ -3342,10 +3368,16 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
+/* A step that can't be gone to yet faded; the open one keeps its green (its
+   white label would vanish on a clear background), faded too while a CSV
+   row is being edited. */
 .step-navigation button:disabled {
-  background: transparent;
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+.step-navigation button:disabled:not(.active) {
+  background: transparent;
 }
 
 form,
@@ -3443,7 +3475,6 @@ form,
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
-  margin-top: 2px;
   accent-color: var(--registration-green);
 }
 
@@ -3556,12 +3587,36 @@ form,
   line-height: 1.52;
 }
 
+/* The file's columns and rules, as Grading's Upload marks words them: each
+   column name as code. */
+.template-download p + p {
+  margin-top: 0.75rem;
+}
+
+.template-download code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: var(--bg-light);
+  font-size: 0.82rem;
+}
+
 .section-divider--with-action,
-.template-download {
+.template-download__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
+}
+
+/* The heading, with the template on the right (below it when narrow). */
+.template-download__head {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.template-download__button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .small-action {
@@ -3629,11 +3684,6 @@ form,
 .upload-step {
   display: grid;
   gap: 30px;
-}
-
-.template-download {
-  padding-bottom: 28px;
-  border-bottom: 1px solid var(--registration-line);
 }
 
 .csv-upload {
@@ -3729,82 +3779,43 @@ form,
   border-block: 1px solid var(--registration-line);
 }
 
+/* Headed as Register one student's sections are. */
 .csv-row-editor h3 {
   margin: 0;
-  font-size: 1.1rem;
+  color: var(--registration-ink);
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
+/* Done editing, on the right as the form's own buttons are. */
 .csv-editor-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px;
+  justify-content: flex-end;
 }
 
-.csv-edit-action {
-  display: block;
-  margin-top: 10px;
-  padding: 5px 0;
-  min-height: 44px;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-weight: 750;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  min-width: 780px;
-  border-collapse: collapse;
-  color: var(--registration-ink);
-  font-size: 0.8rem;
-}
-
-caption {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-th,
-td {
-  padding: 13px 12px;
-  border-bottom: 1px solid var(--registration-line);
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  background: #f2f6f2;
-  color: #3c5c54;
-  font-size: 0.75rem;
-}
-
-td ul {
+/* What's wrong with a row, under its status: wrapping at 16rem, so the
+   column is only wider than its status when a row has something wrong. */
+.csv-issues {
+  max-width: 16rem;
+  white-space: normal;
   margin: 6px 0 0;
   padding-left: 16px;
   color: var(--registration-muted);
+  font-size: 0.8rem;
   line-height: 1.4;
 }
 
-tr.is-excluded {
+/* An excluded row, faded and struck through. */
+.csv-table :deep(tr.is-excluded) {
   opacity: 0.52;
   text-decoration: line-through;
 }
 
-.csv-status {
-  font-size: 0.76rem;
+/* Edit, then Exclude, on one line. */
+.csv-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .csv-status--valid {
@@ -3820,12 +3831,12 @@ tr.is-excluded {
 }
 
 .exclude-row {
-  margin-top: 9px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 7px;
   color: #803530;
-  font-weight: 750;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 

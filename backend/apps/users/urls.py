@@ -30,6 +30,7 @@ from .views import (
     SupervisedStudentSignaturesView,
     SupervisedStudentsView,
 )
+from .registration_sheet import RegistrationSheetView
 from .registration_intake import (
     RegistrationCountriesView,
     RegistrationGroupCodeView,
@@ -82,6 +83,8 @@ urlpatterns = [
     path("registration/group-code/", RegistrationGroupCodeView.as_view(), name="registration-group-code"),
     path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
+    # Upload student details, from an .xlsx: its first sheet as CSV text.
+    path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
     path("registration-management/", RegistrationManagementView.as_view(), name="registration-management"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
     path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),

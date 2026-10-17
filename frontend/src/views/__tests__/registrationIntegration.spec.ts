@@ -428,8 +428,8 @@ describe('registration gateway UI integration', () => {
     expect(send).not.toHaveBeenCalled()
     await wrapper.get('button[aria-label="Edit row 2"]').trigger('click')
     await wrapper.get('#csv-row-2-email').setValue('corrected@example.test')
-    await wrapper.get('#csv-row-2-year_level').setValue('11')
-    await wrapper.get('#csv-row-2-first_name').setValue('Corrected Alex')
+    await wrapper.get('#csv-row-2-yearLevel').setValue('11')
+    await wrapper.get('#csv-row-2-firstName').setValue('Corrected Alex')
     expect(setup.forms.supervisorCsv.rows[0].category).toBe('valid')
     expect(wrapper.text()).not.toContain('Student email format is invalid.')
     const excluded = {
@@ -440,13 +440,10 @@ describe('registration gateway UI integration', () => {
     setup.forms.supervisorCsv.rows.push(excluded)
     setup.forms.supervisorCsv.excludedRowNumbers = [3]
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.form-footer button[type="submit"]').attributes('disabled')).toBeDefined()
-    await wrapper.get('form').trigger('submit')
-    expect(setup.currentStep).toBe(1)
-    expect(send).not.toHaveBeenCalled()
-    await wrapper.get('.csv-editor-footer button').trigger('click')
+    // Continue with the row still open: it closes, and Review opens.
     await wrapper.get('form').trigger('submit')
     expect(setup.currentStep).toBe(2)
+    expect(wrapper.find('#csv-row-editor').exists()).toBe(false)
     await wrapper.get('form').trigger('submit')
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(send.mock.calls[0]![0]).toMatchObject({
@@ -470,7 +467,7 @@ describe('registration gateway UI integration', () => {
     wrapper.unmount()
   })
 
-  it('puts row confirmation after the fields and prevents all submission and step bypasses while editing', async () => {
+  it('puts Done editing after the fields, and leaves Back, the steps and Submit open while editing', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,
       receipt: {
@@ -494,27 +491,18 @@ describe('registration gateway UI integration', () => {
     expect(confirmation.text()).toBe('Done editing')
     expect(confirmation.attributes('type')).toBe('button')
     expect(
-      editor.get('.csv-fields').element.compareDocumentPosition(confirmation.element) &
+      editor.get('.student-editor').element.compareDocumentPosition(confirmation.element) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(wrapper.get('.form-footer button[type="submit"]').attributes('disabled')).toBeDefined()
-    expect(
-      wrapper
-        .findAll('.step-navigation button')
-        .every((button) => button.attributes('disabled') !== undefined),
-    ).toBe(true)
-    expect(wrapper.get('.change-journey').attributes('disabled')).toBeDefined()
-    setup.goToStep(2)
-    setup.changeJourney()
-    expect(setup.currentStep).toBe(1)
-    expect(setup.journey).toBe('supervisor_csv')
-    setup.currentStep = 2
-    await setup.submitRegistration()
-    expect(send).not.toHaveBeenCalled()
-    expect(setup.currentStep).toBe(1)
-    await confirmation.trigger('click')
+    // Nothing locked while a row is open: its changes are already in it.
     expect(wrapper.get('.form-footer button[type="submit"]').attributes('disabled')).toBeUndefined()
-    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('.change-journey').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('.step-navigation button')[2]!.attributes('disabled')).toBeUndefined()
+    // Going to Review closes it.
+    setup.goToStep(2)
+    await wrapper.vm.$nextTick()
+    expect(setup.currentStep).toBe(2)
+    expect(wrapper.find('#csv-row-editor').exists()).toBe(false)
     await wrapper.get('form').trigger('submit')
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
@@ -605,9 +593,8 @@ describe('registration gateway UI integration', () => {
     await wrapper.findAll('tbody tr')[1].get('input[type="checkbox"]').setValue(true)
     expect(setup.forms.supervisorCsv.rows[0].category).toBe('valid')
     await wrapper.get('#csv-edit-3').trigger('click')
-    await wrapper.get('#csv-row-3-first_name').setValue('Repaired student')
+    await wrapper.get('#csv-row-3-firstName').setValue('Repaired student')
     expect(setup.forms.supervisorCsv.excludedRowNumbers).toEqual([3])
-    expect(wrapper.get('#csv-row-3-email').attributes('type')).toBe('text')
     await wrapper.findAll('tbody tr')[1].get('input[type="checkbox"]').setValue(false)
     expect(setup.forms.supervisorCsv.rows.map((entry) => entry.category)).toEqual([
       'invalid',

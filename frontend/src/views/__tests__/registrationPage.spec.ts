@@ -28,9 +28,9 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
   await button!.trigger('click')
 }
 
-// Upload students by CSV, chosen as a supervisor would.
+// Upload student details, chosen as a supervisor would.
 const openCsvUpload = async (wrapper: VueWrapper) => {
-  await clickButton(wrapper, 'Upload students by CSV')
+  await clickButton(wrapper, 'Upload student details')
   await wrapper.vm.$nextTick()
 }
 
@@ -190,7 +190,7 @@ describe('canonical registration intake', () => {
     // Its one step has no tabs.
     { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 0 },
     { mode: 'supervisor', journey: 'Register a student group', choice: 'Register a student group', steps: 3 },
-    { mode: 'supervisor', journey: 'Upload students by CSV', choice: '', steps: 3 },
+    { mode: 'supervisor', journey: 'Upload student details', choice: '', steps: 3 },
   ] as const)(
     'keeps numbered tabs without a percentage bar for $journey',
     async ({ mode, journey, choice, steps }) => {
@@ -199,7 +199,7 @@ describe('canonical registration intake', () => {
         if (mode === 'canonical') {
           await clickButton(wrapper, journey === 'Register as a mentor' ? 'Mentor' : 'Student')
         }
-        if (journey === 'Upload students by CSV') await openCsvUpload(wrapper)
+        if (journey === 'Upload student details') await openCsvUpload(wrapper)
         else if (journey !== 'Register as a mentor') {
           await clickButton(wrapper, choice)
         }
@@ -362,7 +362,7 @@ describe('canonical registration intake', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('Student email format is invalid.')
-    expect(wrapper.text()).toContain('Exclude this row')
+    expect(wrapper.text()).toContain('Exclude')
   })
 
   it('explains guardian permission on the contact step without a before-submit bubble', async () => {
@@ -425,7 +425,7 @@ describe('canonical registration intake', () => {
 
     const csv = mountPage('supervisor')
     await openCsvUpload(csv)
-    expect(csv.text()).toContain('Choose completed CSV')
+    expect(csv.text()).toContain('Choose completed .xlsx or .csv')
   })
 
   it('puts the creator profile before team configuration and removes naming', async () => {
@@ -757,7 +757,7 @@ describe('canonical registration intake', () => {
     const wrapper = mountPage('supervisor')
     expect(wrapper.text()).toContain('Register one student')
     expect(wrapper.text()).toContain('Register a student group')
-    expect(wrapper.text()).toContain('Upload students by CSV')
+    expect(wrapper.text()).toContain('Upload student details')
   })
 
   it("offers the database's countries, and Australia's states, as dropdowns", async () => {
