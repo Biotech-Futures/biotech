@@ -64,8 +64,11 @@ def presentation_section(components: list[dict]) -> str:
     return section_html("Presentation", rows)
 
 
-def times_section(times: list[str], day: str) -> str:
-    """The times the team selected, or nothing before it has selected any."""
+def times_section(times: list[str], day: str, clock: str = "") -> str:
+    """The times the team selected, or nothing before it has selected any; ``clock`` is e.g. "AEDT, UTC+11"."""
     rows = [{"label": label, "status": "Available", "colour": GREEN} for label in times]
-    note = f"All times are on the symposium day, {day}, in Sydney time." if day else "All times are in Sydney time."
+    if day:
+        note = f"All times are on the symposium day, {day}, in Sydney time ({clock})."
+    else:
+        note = "All times are in Sydney time."
     return section_html("Times you selected", rows, note)

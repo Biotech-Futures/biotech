@@ -15,7 +15,7 @@ TIMES YOU SELECTED
 {% for label in AVAILABLE_TIMES %}
   {{ label }}{% endfor %}
 
-{% if SYMPOSIUM_DATE %}All times are on the symposium day, {{ SYMPOSIUM_DATE }}, in Sydney time.{% else %}All times are in Sydney time.{% endif %}
+{% if SYMPOSIUM_DATE %}All times are on the symposium day, {{ SYMPOSIUM_DATE }}, in Sydney time ({{ SYDNEY_CLOCK }}).{% else %}All times are in Sydney time.{% endif %}
 {% endif %}
 {% if SLIDES_DUE %}You can continue to update your slides and available times up until slides
 are due on {{ SLIDES_DUE }}.{% else %}You can continue to update your slides and available times from your

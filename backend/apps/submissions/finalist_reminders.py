@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 EMAIL_KEY = "finalist_submission_reminder"
 
 
-def components_for(group_id: int, entry: FinalistEntry | None) -> list[dict]:
+def components_for(group_id: int, entry: FinalistEntry | None, symposium_day=None) -> list[dict]:
     """Where the team's slides and times stand; the times only once finalists can choose them."""
     slides = (entry.presentation or {}) if entry else {}
     rows = [{
@@ -39,7 +39,7 @@ def components_for(group_id: int, entry: FinalistEntry | None) -> list[dict]:
     }]
     if times_shown():
         # Saved with its own button on the finalist page, as the team's availability.
-        times = finalist_times(group_id)
+        times = finalist_times(group_id, symposium_day)
         rows.append({
             "label": "Availability",
             "submitted": bool(times),
@@ -73,8 +73,8 @@ def components_section(components: list[dict]) -> str:
 
 def reminder_context(group, entry: FinalistEntry | None) -> dict:
     """The values the reminder's template and merge tags read."""
-    components = components_for(group.id, entry)
     details = apps.get_model("management", "FinalistEmailSettings").load()
+    components = components_for(group.id, entry, details.symposium_date)
     return {
         "GROUP_NAME": group.group_name,
         "YEAR": current_cohort(),

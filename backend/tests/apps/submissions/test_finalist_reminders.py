@@ -68,7 +68,7 @@ class FinalistReminderTests(TestCase):
 
         body = mail.outbox[0].body
         self.assertIn("Status: Uploaded\n  deck.pdf", body)
-        self.assertIn("Status: Submitted\n  10:00 – 11:00", body)
+        self.assertIn("Status: Submitted\n  10:00 - 11:00", body)
         self.assertIn("Both are in. Press Submit on your finalist page to complete your submission.", body)
         html = mail.outbox[0].alternatives[0][0]
         self.assertIn("Submission components", html)

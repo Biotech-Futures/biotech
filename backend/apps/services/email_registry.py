@@ -75,7 +75,7 @@ _GROUP_TO_AND_CC = "Each group gets one email: its students in To, and its mento
 _SAMPLE_PRESENTATION = presentation_section(
     [{"label": "Presentation Slides", "submitted": True, "status": "Submitted", "detail": "2026_BTF01_Slides.pptx"}]
 )
-_SAMPLE_TIMES = times_section(["9:30 – 10:00", "11:40 – 12:30"], "Friday, 23 October 2026")
+_SAMPLE_TIMES = times_section(["09:30 - 10:00 AEDT", "11:40 - 12:30 AEDT"], "Friday, 23 October 2026", "AEDT, UTC+11")
 _SAMPLE_REMINDER = section_html(
     "Submission components",
     [

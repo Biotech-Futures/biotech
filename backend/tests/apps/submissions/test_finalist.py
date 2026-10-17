@@ -190,10 +190,10 @@ class FinalistTests(TestCase):
         slides = FinalistEntry.objects.get(group=self.group).submitted_presentation["name"]
         self.assertTrue(message.body.startswith("Hi Group BTF-FINAL,"))
         self.assertIn(slides, message.body)
-        self.assertIn("10:00 – 11:00", message.body)
-        self.assertNotIn("11:40 – 12:30", message.body)
+        self.assertIn("10:00 - 11:00", message.body)
+        self.assertNotIn("11:40 - 12:30", message.body)
         html = message.alternatives[0][0]
-        self.assertIn("10:00 – 11:00", html)
+        self.assertIn("10:00 - 11:00", html)
         self.assertIn(f"https://example.org/#/groups/{self.group.id}/finalist", html)
 
     def test_the_email_gives_the_symposium_day_and_when_slides_are_due(self):
@@ -204,8 +204,15 @@ class FinalistTests(TestCase):
 
         body = self._emailed()[0].body
 
-        self.assertIn("All times are on the symposium day, Friday, 23 October 2026, in Sydney time.", body)
+        self.assertIn("10:00 - 11:00 AEDT", body)
+        self.assertIn("All times are on the symposium day, Friday, 23 October 2026, in Sydney time (AEDT, UTC+11).", body)
         self.assertIn("are due on Friday, 16 October 2026", body)
+
+    def test_times_carry_the_clock_sydney_keeps_on_the_symposium_day(self):
+        from apps.submissions.emails import sydney_clock
+
+        self.assertEqual(sydney_clock(date(2026, 10, 23)), ("AEDT", "UTC+11"))
+        self.assertEqual(sydney_clock(date(2026, 6, 19)), ("AEST", "UTC+10"))
 
     def test_resubmitting_sends_the_email_again(self):
         def submit_twice():
@@ -262,7 +269,7 @@ class FinalistTests(TestCase):
 
         self.assertIn("<p>Thanks BTF-FINAL.</p>", html)
         self.assertNotIn("<ul>", html)
-        for text in ("Presentation", "Presentation Slides", "Submitted", "Times you selected", "10:00 – 11:00"):
+        for text in ("Presentation", "Presentation Slides", "Submitted", "Times you selected", "10:00 - 11:00"):
             self.assertIn(text, html)
         self.assertIn("background:#f4f7f5", html)
 

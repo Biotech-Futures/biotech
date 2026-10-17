@@ -294,12 +294,29 @@ def finalist_components(entry) -> list[dict]:
     ]
 
 
-def finalist_times(group_id: int) -> list[str]:
-    """The times the team said it can present, earliest first, e.g. "9:30 – 10:00"."""
-    from .finalist import team_answer, team_time_ids, time_options
+def sydney_clock(day) -> tuple[str, str]:
+    """Sydney's clock on ``day``, as the finalist page names it: ("AEDT", "UTC+11") or ("AEST", "UTC+10")."""
+    from datetime import datetime, time, timedelta
+
+    from apps.management.services.finalist_notify import SYMPOSIUM_TZ
+
+    # Midday, well clear of a clock change in the small hours.
+    daylight = datetime.combine(day, time(12), tzinfo=SYMPOSIUM_TZ).utcoffset() == timedelta(hours=11)
+    return ("AEDT", "UTC+11") if daylight else ("AEST", "UTC+10")
+
+
+def finalist_times(group_id: int, day=None) -> list[str]:
+    """The times the team selected, earliest first, as the finalist page shows them:
+    "09:30 - 10:00 AEDT" once the symposium day is set, "09:30 - 10:00" before."""
+    from .finalist import presentation_times, team_answer, team_time_ids
 
     chosen = set(team_time_ids(team_answer(group_id)))
-    return [option["label"] for option in time_options() if option["id"] in chosen]
+    zone = f" {sydney_clock(day)[0]}" if day else ""
+    return [
+        f"{slot.starts_at:%H:%M} - {slot.ends_at:%H:%M}{zone}"
+        for slot in presentation_times()
+        if slot.id in chosen
+    ]
 
 
 def finalist_url(group) -> str:
@@ -316,8 +333,9 @@ def finalist_confirmation_context(entry) -> dict:
 
     details = FinalistEmailSettings.load()
     components = finalist_components(entry)
-    times = finalist_times(entry.group_id)
+    times = finalist_times(entry.group_id, details.symposium_date)
     symposium_day = _long_day(details.symposium_date)
+    clock = ", ".join(sydney_clock(details.symposium_date)) if details.symposium_date else ""
     return {
         "GROUP_NAME": entry.group.group_name,
         "YEAR": current_cohort(),
@@ -325,8 +343,9 @@ def finalist_confirmation_context(entry) -> dict:
         "AVAILABLE_TIMES": times,
         # Ready-made and styled, so an admin's edited email shows them as the default one does.
         "PRESENTATION_SECTION": presentation_section(components),
-        "TIMES_SECTION": times_section(times, symposium_day),
+        "TIMES_SECTION": times_section(times, symposium_day, clock),
         "SYMPOSIUM_DATE": symposium_day,
+        "SYDNEY_CLOCK": clock,
         "SLIDES_DUE": _long_day(details.slides_due),
         "SUBMITTED_BY": submitter_name(entry.submitted_by),
         "FINALIST_URL": finalist_url(entry.group),
