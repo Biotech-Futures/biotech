@@ -13,9 +13,9 @@
         :key="tab.to"
         :to="tab.to"
         role="tab"
-        :aria-selected="route.path.startsWith(tab.to)"
+        :aria-selected="isOpen(tab.to)"
         class="tab-pill"
-        :class="{ active: route.path.startsWith(tab.to) }"
+        :class="{ active: isOpen(tab.to) }"
       >
         {{ tab.label }}
       </RouterLink>
@@ -30,7 +30,12 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
+// The tab open: its own path or one under it (Registration isn't open on
+// Registration Visibility).
+const isOpen = (to: string) => route.path === to || route.path.startsWith(`${to}/`)
+
 const tabs = [
+  { label: 'Registration', to: '/management/registration' },
   { label: 'Registration Visibility', to: '/management/registration-visibility' },
   { label: 'Submission Deadline', to: '/management/submission-deadline' },
   { label: 'Extend Deadline', to: '/management/extend-deadline' },

@@ -186,8 +186,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
       { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
-      // Registration Visibility: the registration dates, late links, supervisors
-      // after close, and Supervisor Pages Visibility.
+      // The registration dates, then registering students as a supervisor does.
+      { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
+      // Registration Visibility: late links, supervisors after close, and
+      // Supervisor Pages Visibility.
       { path: 'registration-visibility', name: 'management-registration-visibility', component: () => import('@/views/management/RegistrationVisibilityPage.vue') },
       { path: 'supervisor-visibility', redirect: '/management/registration-visibility' }
     ]

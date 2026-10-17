@@ -50,15 +50,17 @@ class StudentProfile(models.Model):
             models.Index(fields=['supervisor']),
         ]
         constraints = [
+        # A guardian may be left for later when someone else registered the
+        # student: a peer, their supervisor, or an admin (Management > Registration).
         models.CheckConstraint(
             condition=~Q(pg_first_name='') | Q(
-                registered_by__in=['peer', 'supervisor'], parent_guardian_flag=False,
+                registered_by__in=['peer', 'supervisor', 'admin'], parent_guardian_flag=False,
             ),
             name='student_first_name_not_empty'
         ),
         models.CheckConstraint(
             condition=~Q(pg_last_name='') | Q(
-                registered_by__in=['peer', 'supervisor'], parent_guardian_flag=False,
+                registered_by__in=['peer', 'supervisor', 'admin'], parent_guardian_flag=False,
             ),
             name='student_last_name_not_empty'
         ),

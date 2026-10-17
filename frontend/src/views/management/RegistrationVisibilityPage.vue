@@ -1,9 +1,8 @@
 <template>
-  <!-- Registration Visibility: when registration is open, first, then late
-       links and the supervisors who register after it closes; then what
-       supervisors see (their pages and their Registration page). -->
+  <!-- Registration Visibility: late links and the supervisors who register
+       after registration closes (its dates are on Registration); then what
+       supervisors see. -->
   <div class="registration-visibility">
-    <RegistrationDatesPage />
     <LateLinksPage />
     <SupervisorsAfterClosePage />
     <SupervisorPagesPage />
@@ -12,7 +11,6 @@
 
 <script setup lang="ts">
 import LateLinksPage from './LateLinksPage.vue'
-import RegistrationDatesPage from './RegistrationDatesPage.vue'
 import SupervisorPagesPage from './SupervisorPagesPage.vue'
 import SupervisorsAfterClosePage from './SupervisorsAfterClosePage.vue'
 </script>

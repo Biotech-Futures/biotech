@@ -20,10 +20,10 @@ from zoneinfo import available_timezones
 
 
 # What the form's ``RegisteredBy`` says when someone else registered the
-# student (the same answers UserRegisterView reads as peer or supervisor).
-# Their guardian can be added later. A student registering individually, or a
-# form that doesn't say who filled it in, has to name one.
-_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher"}
+# student (the same answers UserRegisterView reads as peer, supervisor or
+# admin). Their guardian can be added later. A student registering
+# individually, or a form that doesn't say who filled it in, has to name one.
+_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher", "admin"}
 REGISTRATION_OVERRIDES = {"ConfirmSchoolOverride", "ConfirmNameEmailOverride"}
 
 

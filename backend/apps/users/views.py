@@ -1100,6 +1100,7 @@ _REGISTERED_BY = {
     "team": StudentProfile.RegisteredBy.PEER,
     "supervisor": StudentProfile.RegisteredBy.SUPERVISOR,
     "teacher": StudentProfile.RegisteredBy.SUPERVISOR,
+    "admin": StudentProfile.RegisteredBy.ADMIN,
 }
 
 

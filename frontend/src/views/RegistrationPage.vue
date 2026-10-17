@@ -1,8 +1,13 @@
 <template>
-  <!-- A supervisor's, in the portal: laid out as its other pages are. -->
+  <!-- A supervisor's, in the portal: laid out as its other pages are; or
+       within Management > Registration (embedded), as its cards are. -->
   <main
     class="registration-page"
-    :class="{ 'registration-page--supervisor content-area': isSupervisorMode }"
+    :class="{
+      'registration-page--supervisor': isSupervisorMode,
+      'content-area': isSupervisorMode && !embedded,
+      'registration-page--embedded': embedded,
+    }"
   >
 
     <!-- Registered: as the steps before it, every step done, with what was
@@ -358,6 +363,23 @@
               {{ currentStepDefinition.title }}
             </h2>
 
+            <!-- An admin (Management > Registration): their students'
+                 supervisor first, if they have one, before the students: an
+                 existing supervisor, found by email. -->
+            <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
+              <div class="section-divider section-divider--first">
+                <h3>Supervisor</h3>
+                <p>If the students have a supervisor, search for them by email.</p>
+              </div>
+              <SupervisorSearchField
+                id="admin-supervisor-email"
+                v-model="forms.adminSupervisorEmail"
+                label="Supervisor email"
+                :supervisors="registrationSupervisors"
+                :error="errors.supervisorEmail"
+              />
+            </div>
+
             <template v-if="journey === 'student_individual'">
               <RegistrationStudentEditor
                 v-if="currentStep === 0"
@@ -600,14 +622,16 @@
             <template v-else-if="journey === 'supervisor_individual'">
               <!-- With students added (Add student), each in turn, all in one group. -->
               <div v-if="currentStep === 0" class="step-stack">
+                <!-- Headed Student 1 once students are added, or under an
+                     admin's Supervisor (its line between them). -->
                 <div
                   :class="{
                     'student-entry student-entry--first':
-                      forms.supervisorIndividual.extraStudents.length,
+                      forms.supervisorIndividual.extraStudents.length || adminChoosesSupervisor,
                   }"
                 >
                   <div
-                    v-if="forms.supervisorIndividual.extraStudents.length"
+                    v-if="forms.supervisorIndividual.extraStudents.length || adminChoosesSupervisor"
                     class="student-entry__heading"
                   >
                     <h3>Student 1</h3>
@@ -1156,6 +1180,8 @@ import RegistrationAvailabilityField from '@/components/registration/Registratio
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
+import SupervisorSearchField from '@/components/registration/SupervisorSearchField.vue'
+import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
@@ -1467,10 +1493,31 @@ const props = withDefaults(
   defineProps<{
     mode?: 'canonical' | 'supervisor'
     invitationToken?: string | null
+    /** Within another page (Management > Registration): its own padding,
+     *  background and height, not a page's. */
+    embedded?: boolean
   }>(),
-  { mode: 'canonical' },
+  { mode: 'canonical', embedded: false },
 )
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
+// An admin registering students (Management > Registration) chooses their
+// students' supervisor, from every supervisor.
+const SUPERVISOR_JOURNEYS: RegistrationJourney[] = ['supervisor_individual', 'supervisor_group', 'supervisor_csv']
+const adminChoosesSupervisor = computed(
+  () => props.embedded && Boolean(journey.value && SUPERVISOR_JOURNEYS.includes(journey.value)),
+)
+const registrationSupervisors = ref<RegistrationSupervisor[]>([])
+if (props.embedded) {
+  fetchRegistrationSupervisors()
+    .then((supervisors) => (registrationSupervisors.value = supervisors))
+    .catch(() => {
+      // Left to the server to check the email, then.
+    })
+}
+const chosenSupervisor = computed(() => {
+  const email = forms.adminSupervisorEmail.trim().toLowerCase()
+  return email ? registrationSupervisors.value.find((item) => item.email.toLowerCase() === email) : undefined
+})
 // Management > Registration Visibility: closed by the year's dates, the public
 // can't register themselves (a late link still can), nor supervisors register
 // their students, unless let register after them.
@@ -1815,7 +1862,27 @@ const availabilitySummary = (slots: AvailabilitySlot[]) =>
 const filledTeammates = computed(() =>
   forms.studentTeam.teammates.filter((student) => !isBlankStudent(student)),
 )
-const reviewSections = computed<ReviewSection[]>(() => {
+// An admin's (Management > Registration): their students' supervisor, first.
+const reviewSections = computed<ReviewSection[]>(() =>
+  adminChoosesSupervisor.value
+    ? [
+        {
+          title: 'Supervisor',
+          items: [
+            {
+              label: 'Supervisor',
+              value: chosenSupervisor.value
+                ? `${chosenSupervisor.value.name} · ${chosenSupervisor.value.email}`
+                : forms.adminSupervisorEmail.trim() || 'None',
+            },
+          ],
+        },
+        ...journeyReviewSections.value,
+      ]
+    : journeyReviewSections.value,
+)
+
+const journeyReviewSections = computed<ReviewSection[]>(() => {
   switch (journey.value) {
     case 'student_individual': {
       const form = forms.studentIndividual
@@ -2114,6 +2181,15 @@ const validateCurrentStep = () => {
   clearErrors()
   if (!journey.value) return false
   const step = currentStep.value
+  // An admin's students' supervisor, on the first step: one of the list, if any.
+  if (
+    adminChoosesSupervisor.value &&
+    step === 0 &&
+    forms.adminSupervisorEmail.trim() &&
+    registrationSupervisors.value.length &&
+    !chosenSupervisor.value
+  )
+    clientErrors.supervisorEmail = 'Choose a supervisor from the list.'
 
   if (journey.value === 'student_individual') {
     if (step === 0)
@@ -2683,7 +2759,9 @@ const submitRegistration = async () => {
           supervisorGroup: oneStudentAsGroup(),
         })
       : buildRegistrationRequest(journey.value, forms)
-    const signature = JSON.stringify({ request, overrides: warningOverrides.value })
+    // An admin's students' supervisor goes with it (Management > Registration).
+    const supervisorEmail = adminChoosesSupervisor.value ? forms.adminSupervisorEmail.trim() : ''
+    const signature = JSON.stringify({ request, overrides: warningOverrides.value, supervisorEmail })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
     const attachments: Record<string, File> = {}
@@ -2710,6 +2788,7 @@ const submitRegistration = async () => {
       invitationToken: invitationToken.value,
       idempotencyKey: submissionKey,
       overrides: { ...warningOverrides.value },
+      supervisorEmail: supervisorEmail || undefined,
     })
     clearServerErrors()
     if (!result.ok) {
@@ -2770,6 +2849,9 @@ const submitRegistration = async () => {
 }
 
 const scrollToTop = () => {
+  // Within Management > Registration (Back, another registration): the page
+  // stays where it is, under the Registration Dates card.
+  if (props.embedded) return
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' })
 }
@@ -2919,6 +3001,12 @@ onBeforeUnmount(() => {
   min-height: calc(100vh - 60px);
   overflow: visible;
   font-family: inherit;
+}
+
+/* Within Management > Registration: on its page, as tall as it needs. */
+.registration-page--embedded {
+  min-height: 0;
+  background: transparent;
 }
 
 /* From the page's top left corner and its full width, as the portal's
@@ -3668,6 +3756,14 @@ form,
 .student-entry--first {
   padding-top: 0;
   border-top: 0;
+}
+
+/* An admin's students' supervisor (Management > Registration), then a line
+   and the rest of the step, as far apart as its sections are. */
+.admin-supervisor {
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--registration-line);
 }
 
 .student-entry__heading {

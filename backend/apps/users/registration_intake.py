@@ -191,6 +191,9 @@ class PayloadInput(StrictInput):
     )
     source = SourceInput()
     supervisor = SupervisorInput(required=False)
+    # An admin's students' supervisor (Management > Registration): an existing
+    # supervisor, by their email.
+    supervisorEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     group = GroupInput(required=False)
 
 
@@ -235,8 +238,11 @@ class IntakeInput(StrictInput):
         elif set(source) - {"method"}:
             errors["payload.source"] = "CSV metadata is only accepted for CSV intake."
         # A student registering themselves may nominate a supervisor (optional).
+        # A supervisor is their own students'; an admin chooses one (register).
         if journey in SUPERVISOR_JOURNEYS and "supervisor" in payload:
             errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
+        if journey not in SUPERVISOR_JOURNEYS and payload.get("supervisorEmail"):
+            errors["payload.supervisorEmail"] = "Only an admin registering students chooses their supervisor."
         students = []
         emails = {}
         for index, raw in enumerate(payload["students"]):
@@ -485,13 +491,28 @@ def save_student(student, supervisor, now, *, registered_by):
     return user
 
 
+def registering_as_admin(user) -> bool:
+    """An admin registering students (Management > Registration) who isn't a
+    supervisor: their students have no supervisor, registered by an admin."""
+    return (
+        getattr(user, "is_authenticated", False)
+        and (is_admin(user) or user.is_staff or user.is_superuser)
+        and not SupervisorProfile.objects.filter(user=user).exists()
+    )
+
+
 def authenticated_supervisor(request):
+    """Who's registering students: a supervisor, as their students'
+    supervisor; or an admin with no supervisor profile, as no one's
+    (``admin``)."""
     user = request.user
     if (
         not user.is_authenticated or user.account_status in User.INACTIVE_LOGIN_STATUSES
         or not (user_has_role(user, ROLE_SUPERVISOR) or is_admin(user) or user.is_staff or user.is_superuser)
     ):
         raise PermissionDenied("An authenticated current supervisor is required.")
+    if registering_as_admin(user):
+        return {"firstName": "", "lastName": "", "email": "", "school": "", "admin": True}
     profile = SupervisorProfile.objects.filter(user=user).first()
     if profile is None:
         raise PermissionDenied("An existing supervisor profile is required.")
@@ -555,7 +576,10 @@ def save_group(users, payload, actor, *, joining=None):
             group.mark_formed(Groups.FormedBy.MEMBERS, users[0])
         else:
             group = Groups.create_auto_named()
-            group.mark_formed(Groups.FormedBy.SUPERVISOR, actor)
+            # By an admin, from Management > Registration, when they aren't a supervisor.
+            group.mark_formed(
+                Groups.FormedBy.ADMIN if registering_as_admin(actor) else Groups.FormedBy.SUPERVISOR, actor,
+            )
     except (GroupAutoNameUnavailable, GroupCodeUnavailable) as exc:
         raise RegistrationConflict(str(exc)) from exc
     GroupMembership.objects.bulk_create([
@@ -602,10 +626,27 @@ def register(request):
     journey = parser.validated_data["journey"]
     students = payload["students"]
     # None nominated: blank details, as the supervisor is optional.
-    supervisor = (
-        authenticated_supervisor(request) if journey in SUPERVISOR_JOURNEYS
-        else payload.get("supervisor") or {"firstName": "", "lastName": "", "email": ""}
-    )
+    if journey in SUPERVISOR_JOURNEYS:
+        supervisor = authenticated_supervisor(request)
+        chosen = (payload.get("supervisorEmail") or "").strip()
+        if chosen:
+            # An admin chooses their students' supervisor (Management >
+            # Registration), even one who supervises too; a supervisor's
+            # students are their own.
+            user = request.user
+            if not (is_admin(user) or user.is_staff or user.is_superuser):
+                raise serializers.ValidationError(
+                    {"supervisorEmail": "Only an admin chooses the students' supervisor."}
+                )
+            profile = SupervisorProfile.objects.select_related("user").filter(user__email__iexact=chosen).first()
+            if profile is None:
+                raise serializers.ValidationError({"supervisorEmail": "No supervisor has this email."})
+            supervisor = {
+                "firstName": profile.user.first_name, "lastName": profile.user.last_name,
+                "email": profile.user.email, "school": profile.school_name, "admin": True,
+            }
+    else:
+        supervisor = payload.get("supervisor") or {"firstName": "", "lastName": "", "email": ""}
     raw_token = request.headers.get("X-Registration-Invitation", "")
     key_value = request.headers.get("Idempotency-Key")
     try:
@@ -675,7 +716,10 @@ def register(request):
             errors, warnings, provenance = {}, [], []
             for index, student in enumerate(students):
                 registered_by = (
-                    StudentProfile.RegisteredBy.SUPERVISOR if journey in SUPERVISOR_JOURNEYS
+                    (
+                        StudentProfile.RegisteredBy.ADMIN if supervisor.get("admin")
+                        else StudentProfile.RegisteredBy.SUPERVISOR
+                    ) if journey in SUPERVISOR_JOURNEYS
                     else StudentProfile.RegisteredBy.PEER if index else StudentProfile.RegisteredBy.SELF
                 )
                 provenance.append(registered_by)

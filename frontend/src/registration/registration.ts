@@ -194,6 +194,9 @@ export interface RegistrationForms {
   supervisorGroup: SupervisorGroupForm
   supervisorCsv: SupervisorCsvForm
   mentor: MentorForm
+  /** An admin's students' supervisor (Management > Registration): an existing
+   *  supervisor's email, if they choose one, on every supervisor journey. */
+  adminSupervisorEmail: string
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -281,6 +284,7 @@ export const interestOption = (text: string): (typeof INTEREST_CATEGORIES)[numbe
   INTEREST_CATEGORIES.find((option) => option.toLowerCase() === text.trim().toLowerCase())
 
 export const createRegistrationForms = (): RegistrationForms => ({
+  adminSupervisorEmail: '',
   studentIndividual: {
     student: createStudent(),
     supervisor: createSupervisor(),
