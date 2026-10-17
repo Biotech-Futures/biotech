@@ -170,13 +170,31 @@ class SupervisorResultsTests(_GradingFixture):
 
         bundle = self._get("supervisor-results-certificates")
         self.assertEqual(bundle.status_code, status.HTTP_200_OK)
-        names = sorted(zipfile.ZipFile(io.BytesIO(bundle.content)).namelist())
+        names = zipfile.ZipFile(io.BytesIO(bundle.content)).namelist()
         year = self.year
-        self.assertEqual(names, sorted([
-            f"{year}_BTF_Student_Certificate_Amy_Chen.docx",
-            f"{year}_BTF_Student_Certificate_Ben_Ng.docx",
-            f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
-        ]))
+        # A folder per group, as Grading's downloads have: students, then mentors.
+        folder = f"{year}_{self.group.group_name}"
+        self.assertEqual(names, [
+            f"{folder}/{year}_BTF_Student_Certificate_Amy_Chen.docx",
+            f"{folder}/{year}_BTF_Student_Certificate_Ben_Ng.docx",
+            f"{folder}/{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
+        ])
+
+    def test_each_group_has_its_folder_and_a_mentor_of_two_has_one_in_each(self):
+        _release(CertificatesRelease)
+        second = _submitted_team("Second Team", self.staff)
+        _student("cara@example.com", "Cara", "Ng", second, SupervisorProfile.objects.get(user=self.sam))
+        GroupMembership.objects.create(user=self.mo, group=second, membership_role="mentor")
+
+        names = zipfile.ZipFile(io.BytesIO(self._get("supervisor-results-certificates").content)).namelist()
+        year = self.year
+        self.assertEqual(names, [
+            f"{year}_{self.group.group_name}/{year}_BTF_Student_Certificate_Amy_Chen.docx",
+            f"{year}_{self.group.group_name}/{year}_BTF_Student_Certificate_Ben_Ng.docx",
+            f"{year}_{self.group.group_name}/{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
+            f"{year}_Second_Team/{year}_BTF_Student_Certificate_Cara_Ng.docx",
+            f"{year}_Second_Team/{year}_BTF_Mentor_Certificate_Mo_Mentor.docx",
+        ])
 
     def test_finalists_certificates_come_with_the_rest_when_not_held_back(self):
         _release(CertificatesRelease, exclude_finalists=False)

@@ -21,6 +21,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.filenames import safe_name
 from apps.grading.models import FinalistFlag
 from apps.grading.services.marks import grades_payload
 from apps.grading.services.text import natural_key
@@ -118,6 +119,38 @@ def _file(payload: bytes, filename: str, content_type: str) -> HttpResponse:
     response = HttpResponse(payload, content_type=content_type)
     response["Content-Disposition"] = content_disposition_header(as_attachment=True, filename=filename)
     return response
+
+
+def _folder(year: int, group) -> str:
+    """"2026_BTF01": a group's folder in the zip, as Grading's downloads name it."""
+    return f"{year}_{safe_name(group.group_name)}"
+
+
+def _certificate_files(scope: "_Scope", docs) -> list:
+    """Every certificate the zip holds, each in its group's folder: the
+    group's students, then its mentors. Two people with one name in a group
+    get "..._2.docx"; a mentor of two groups gets one in each folder."""
+    files, folders = [], {}
+    for group in scope.groups:
+        if group.id in scope.withheld:
+            continue
+        folder = _folder(scope.year, group)
+        # Two groups whose names make the same folder: the second is "..._2".
+        count = folders[folder] = folders.get(folder, 0) + 1
+        if count > 1:
+            folder = f"{folder}_{count}"
+        for file in results_notify._numbered([
+            results_notify.ResultsFile(
+                _certificate_name(scope.year, kind, person),
+                results_notify.DOCX,
+                lambda kind=kind, person=person, group=group: _certificate(docs, kind, person, group),
+            )
+            for kind, person, holder_group in scope.holders()
+            if holder_group.id == group.id
+        ]):
+            file.name = f"{folder}/{file.name}"
+            files.append(file)
+    return files
 
 
 def _zip_name(year: int, supervisor) -> str:
@@ -284,7 +317,8 @@ class SupervisorResultsCertificateView(APIView):
 
 class SupervisorResultsCertificatesZipView(APIView):
     """GET /api/v1/management/supervisor-results/certificates/ — every
-    certificate on the page in one zip, but those released separately."""
+    certificate on the page in one zip, a folder per group ("2026_BTF01/"),
+    but those released separately."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -295,16 +329,7 @@ class SupervisorResultsCertificatesZipView(APIView):
         if not release_state()["certificates_released"]:
             return Response({"detail": CERTIFICATES_NOT_RELEASED}, status=status.HTTP_403_FORBIDDEN)
         scope = _scope(request)
-        docs = results_notify.Documents(scope.year)
-        files = results_notify._numbered([
-            results_notify.ResultsFile(
-                _certificate_name(scope.year, kind, person),
-                results_notify.DOCX,
-                lambda kind=kind, person=person, group=group: _certificate(docs, kind, person, group),
-            )
-            for kind, person, group in scope.holders()
-            if group.id not in scope.withheld
-        ])
+        files = _certificate_files(scope, results_notify.Documents(scope.year))
         buffer = io.BytesIO()
         try:
             with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:

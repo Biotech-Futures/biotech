@@ -280,6 +280,8 @@ class UserSerializer(serializers.ModelSerializer):
     supervisor_id = serializers.SerializerMethodField()
     # The student's own details are their supervisor's to change (see StudentProfile.details_locked).
     details_locked = serializers.SerializerMethodField()
+    # Their guardian too, once permission is given (see StudentProfile.guardian_locked).
+    guardian_locked = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -325,6 +327,7 @@ class UserSerializer(serializers.ModelSerializer):
             "guardian_reminder",
             "supervisor_id",
             "details_locked",
+            "guardian_locked",
             "must_change_password",
             "timezone",
             "pronouns",
@@ -363,6 +366,10 @@ class UserSerializer(serializers.ModelSerializer):
     def get_details_locked(self, obj):
         profile = self._student_profile(obj)
         return bool(profile and profile.details_locked)
+
+    def get_guardian_locked(self, obj):
+        profile = self._student_profile(obj)
+        return bool(profile and profile.guardian_locked)
 
     def get_guardian_reminder(self, obj):
         from .guardian_reminders import reminder_info

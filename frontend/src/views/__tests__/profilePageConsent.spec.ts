@@ -135,6 +135,28 @@ describe('ProfilePage guardian consent', () => {
     expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(true)
   })
 
+  it("locks a supervisor's student's guardian once permission is given, pointing to support", async () => {
+    const wrapper = await mountAs({
+      ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com',
+      join_perm: true, details_locked: true, guardian_locked: true,
+    })
+    expect(wrapper.find('[data-test="guardian-edit"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="guardian-lock"]').exists()).toBe(true)
+    const note = wrapper.get('[data-test="guardian-locked"]')
+    expect(note.text()).toContain("Your guardian has given permission, so their details can't be changed here.")
+    expect(note.get('a').attributes('href')).toBe('mailto:support@biotechfutures.org')
+  })
+
+  it('lets them edit their guardian while permission is pending', async () => {
+    const wrapper = await mountAs({
+      ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com',
+      join_perm: false, details_locked: true, guardian_locked: false,
+    })
+    expect(wrapper.find('[data-test="guardian-edit"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="guardian-lock"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="guardian-locked"]').exists()).toBe(false)
+  })
+
   it('saves edited guardian details', async () => {
     const wrapper = await mountAs({ ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: false })
     const auth = useAuthStore()

@@ -40,7 +40,7 @@
     <section v-if="!loading" class="groups-board">
       <div class="groups-board-toolbar">
         <div class="groups-board-heading">
-          <h2>My Groups</h2>
+          <h2>Groups</h2>
         </div>
         <div class="groups-board-toolbar-actions">
           <button type="button" class="btn btn-primary" @click="openCreateGroup">Create Group</button>

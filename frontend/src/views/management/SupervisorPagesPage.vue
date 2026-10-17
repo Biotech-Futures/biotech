@@ -7,8 +7,7 @@
       <h3 class="supervisor-pages__title">Supervisor Visibility</h3>
       <p class="supervisor-pages__hint">
         Shows or hides Home, Groups, Events, Announcements and Resources for supervisors. While
-        hidden, supervisors only see Supervisor portal pages like My Profile, My Students and My
-        Groups.
+        hidden, supervisors only see Supervisor portal pages like My Profile, Students and Groups.
       </p>
 
       <p

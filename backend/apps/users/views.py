@@ -894,7 +894,9 @@ class MeGuardianView(APIView):
     """A student updates the parent/guardian on their own profile.
 
     A change replaces the guardian on file straight away, and the new guardian
-    is emailed the consent form. If consent was already given, the student's
+    is emailed the consent form. A student their supervisor manages can't
+    change a guardian who has given permission (``guardian_locked``): they
+    contact BIOTech Support. If consent was already given, the student's
     permission is cleared (media consent too): the new guardian has to sign
     before the student can take part again. The old guardian's signed consent
     stays on record. Saving the same details changes nothing. DELETE withdraws
@@ -926,6 +928,11 @@ class MeGuardianView(APIView):
 
         with transaction.atomic():
             profile = self._profile(request)
+            if profile.guardian_locked:
+                raise PermissionDenied(
+                    "Your guardian has given permission, so their details can't be changed here. "
+                    "Contact BIOTech Support if they need to change."
+                )
             unchanged = (
                 first_name == profile.pg_first_name
                 and last_name == profile.pg_last_name

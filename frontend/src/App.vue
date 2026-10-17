@@ -522,8 +522,8 @@ const sidebarSections = computed(() => {
         ...(auth.isAdmin || supervisorRegistrationShown.value
           ? [{ label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' }]
           : []),
-        { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
-        { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
+        { label: 'Students', to: '/my-students', active: path.startsWith('/my-students') },
+        { label: 'Groups', to: '/my-groups', active: path === '/my-groups' },
         ...(supervisorResultsShown.value
           ? [{ label: 'Results', to: '/my-results', active: path === '/my-results' }]
           : []),

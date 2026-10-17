@@ -1512,6 +1512,35 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
         self.assertIsNone(response.json()["pending_guardian"])
 
+    def _managed_by_supervisor(self):
+        from apps.users.models import StudentProfile
+
+        self.profile.registered_by = StudentProfile.RegisteredBy.SUPERVISOR
+        self.profile.save()
+
+    def test_a_supervisors_student_cant_change_a_guardian_who_gave_permission(self):
+        self._managed_by_supervisor()
+        self._grant_consent()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Contact BIOTech Support", str(response.data))
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Pat")
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertTrue(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+
+    def test_while_permission_is_pending_a_supervisors_student_still_can(self):
+        self._managed_by_supervisor()
+
+        self.assertFalse(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+
     def test_saving_the_same_guardian_keeps_permission(self):
         self._grant_consent()
         self.profile.refresh_from_db()
