@@ -13,6 +13,8 @@ from apps.admin.permissions import IsAdminScoped
 
 logger = logging.getLogger(__name__)
 from apps.admin.serializers import (
+    AdminTaskListQuerySerializer,
+    AdminTaskToggleSerializer,
     BulkUserRowSerializer,
     SystemEmailPreviewSerializer,
     SystemEmailTestSendSerializer,
@@ -686,8 +688,12 @@ class EventRsvpDetailView(APIView):
 
     def put(self, request, rsvp_id):
         result = update_event_rsvp(rsvp_id, request.data)
-        code = status.HTTP_200_OK if result.get(
-            "data") else status.HTTP_404_NOT_FOUND
+        if result.get("data"):
+            code = status.HTTP_200_OK
+        elif result.get("msg", "").startswith("Invalid RSVP status:"):
+            code = status.HTTP_400_BAD_REQUEST
+        else:
+            code = status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
 
 
@@ -1268,13 +1274,13 @@ class AdminTaskListCreateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request):
-        page = int(request.query_params.get("page", 1))
-        limit = int(request.query_params.get("limit", 10))
+        query = AdminTaskListQuerySerializer(data=request.query_params.dict())
+        query.is_valid(raise_exception=True)
         task_type = request.query_params.get("task_type") or None
         result = list_admin_tasks(
             request.user,
-            page=page,
-            limit=limit,
+            page=query.validated_data["page"],
+            limit=query.validated_data["limit"],
             task_type=task_type,
             sort_by=request.query_params.get("sortBy", "createdAt"),
             sort_order=request.query_params.get("sortOrder", "desc"),
@@ -1329,13 +1335,10 @@ class AdminTaskToggleView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request, task_id):
-        completed = request.data.get("completed")
-        if completed is None:
-            return Response(
-                {"msg": "completed field is required", "data": None},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        result = toggle_admin_task(request.user, task_id, bool(completed))
+        data = request.data.dict() if hasattr(request.data, "dict") else request.data
+        payload = AdminTaskToggleSerializer(data=data)
+        payload.is_valid(raise_exception=True)
+        result = toggle_admin_task(request.user, task_id, payload.validated_data["completed"])
         if result.get("msg") == "Task not found":
             return Response(result, status=status.HTTP_404_NOT_FOUND)
         return Response(result)

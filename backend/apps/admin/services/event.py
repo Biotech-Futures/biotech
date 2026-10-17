@@ -7,6 +7,7 @@ from django.db import transaction
 
 from apps.events.image_storage import extract_event_image_key, resolve_event_image_url
 from apps.events.models import Events, EventRsvp, EventTargetGroup, EventTargetRole
+from apps.events.services import set_event_rsvp
 from apps.groups.models import Groups, group_name_sort_key
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.users.models import StudentProfile, User
@@ -608,13 +609,8 @@ def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     if rsvp_status not in EventRsvp.RsvpStatus.values:
         return {"msg": f"Invalid RSVP status: {rsvp_status}", "data": None}
 
-    responded_at = timezone.now()
-
-    rsvp = EventRsvp.objects.create(
-        event_id=event_id,
-        user_id=data.get("userId") or data.get("user_id"),
-        rsvp_status=rsvp_status,
-        responded_at=responded_at,
+    _, rsvp, _ = set_event_rsvp(
+        data.get("userId") or data.get("user_id"), event_id, rsvp_status,
     )
 
     user = User.objects.filter(id=rsvp.user_id).first()
@@ -670,8 +666,7 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
 
     try:
         rsvp = EventRsvp.objects.get(id=rsvp_id)
-        rsvp.rsvp_status = rsvp_status
-        rsvp.save()
+        _, rsvp, _ = set_event_rsvp(rsvp.user_id, rsvp.event_id, rsvp_status)
 
         user = User.objects.filter(id=rsvp.user_id).first()
         first_name = user.first_name if user else ""

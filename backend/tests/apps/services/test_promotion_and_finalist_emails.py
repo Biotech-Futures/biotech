@@ -9,7 +9,7 @@ from unittest import mock
 from django.core import mail
 from django.test import TestCase, override_settings
 
-from apps.events.models import Events
+from apps.events.models import EventRsvp, Events
 from apps.events.promotion_email import notify_waitlist_promoted
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
@@ -45,6 +45,9 @@ class WaitlistPromotionEmailTests(TestCase):
         )
 
     def _send(self, event):
+        EventRsvp.objects.create(
+            event=event, user=self.user, rsvp_status="accepted", responded_at=START,
+        )
         notify_waitlist_promoted(event_id=event.id, user_id=self.user.id)
 
     def test_unedited_email_keeps_subject_and_plain_text_and_gains_branded_html(self):
