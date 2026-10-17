@@ -25,11 +25,10 @@ const mountPage = () =>
   })
 
 describe('the management shell', () => {
-  it('offers every section as a tab', () => {
+  it('offers every section but the hidden Registration as a tab', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     const paths = [
-      ['Registration', 'registration'],
       ['Late Registration', 'late-registration'],
       ['Challenge Start', 'challenge-start'],
       ['Submission Deadline', 'submission-deadline'],
@@ -48,7 +47,7 @@ describe('the management shell', () => {
     routePath.value = '/management/late-registration'
     const tabs = mountPage().findAll('[role="tab"]')
     expect(tabs.map((tab) => tab.attributes('aria-selected'))).toEqual(
-      tabs.map((_, index) => String(index === 1)),
+      tabs.map((_, index) => String(index === 0)),
     )
   })
 
@@ -57,8 +56,8 @@ describe('the management shell', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs[0]!.attributes('aria-selected')).toBe('false')
-    expect(tabs[3]!.attributes('aria-selected')).toBe('true')
-    expect(tabs[3]!.classes()).toContain('active')
+    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
+    expect(tabs[2]!.classes()).toContain('active')
   })
 
   it('renders the section content through the nested router view', () => {

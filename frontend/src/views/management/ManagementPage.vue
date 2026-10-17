@@ -34,8 +34,9 @@ const route = useRoute()
 // same (Registration isn't open on /management/registration-dates, say).
 const isOpen = (to: string) => route.path === to || route.path.startsWith(`${to}/`)
 
+// Registration (/management/registration) is hidden for now: its page still
+// opens at that address.
 const tabs = [
-  { label: 'Registration', to: '/management/registration' },
   { label: 'Late Registration', to: '/management/late-registration' },
   { label: 'Challenge Start', to: '/management/challenge-start' },
   { label: 'Submission Deadline', to: '/management/submission-deadline' },
