@@ -31,8 +31,9 @@
                 Your students' registration summary
               </h2>
 
-              <!-- The three counts, one under the other. -->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+              <!-- The three counts, one under the other: a table each, with a gap
+                   under it, so an editor shows no empty rows between them. -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse; margin:0 0 10px 0;">
                 <tr>
                   <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
                     <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ COMPLETE_COUNT }}</p>
@@ -40,7 +41,8 @@
                     <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">No further action is required.</p>
                   </td>
                 </tr>
-                <tr><td style="height:10px; line-height:10px; font-size:0;">&nbsp;</td></tr>
+              </table>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse; margin:0 0 10px 0;">
                 <tr>
                   <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
                     <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ PENDING_SIGNATURE_COUNT }}</p>
@@ -48,7 +50,8 @@
                     <p style="margin:4px 0 0 0; color:#3d4b43; font-size:14px; line-height:1.55;">The student has provided their guardian's details, but the permission form has not been signed. The guardian receives a daily email from {{ SENDER_EMAIL }} prompting them to sign the form.</p>
                   </td>
                 </tr>
-                <tr><td style="height:10px; line-height:10px; font-size:0;">&nbsp;</td></tr>
+              </table>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse; margin:0 0 10px 0;">
                 <tr>
                   <td style="padding:14px 16px; border:1px solid #d7e3dc; border-radius:6px;">
                     <p style="margin:0; color:#307054; font-size:26px; line-height:1.1; font-weight:700;">{{ PENDING_CONTACT_COUNT }}</p>
