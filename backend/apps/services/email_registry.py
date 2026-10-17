@@ -147,6 +147,25 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="registration_supervisor",
+        name="Registration confirmation (to supervisor)",
+        description=(
+            "Sent to a supervisor once they register students: one student, a group, or an "
+            "uploaded file. Not sent when an admin registers students for them."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "students_url", "Link to the supervisor's My Students",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="guardian_details_request",
         name="Guardian details needed",
         description=(

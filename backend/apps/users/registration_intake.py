@@ -792,7 +792,10 @@ def register(request):
             # Its registration emails, once it's saved (System Emails > Registration).
             from .registration_emails import send_registration_emails
 
-            transaction.on_commit(lambda: send_registration_emails(journey, users))
+            # A supervisor's confirmation too, never an admin's (registering
+            # students for a supervisor or for none).
+            registering = request.user if journey in SUPERVISOR_JOURNEYS and not supervisor.get("admin") else None
+            transaction.on_commit(lambda: send_registration_emails(journey, users, supervisor=registering))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:

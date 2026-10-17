@@ -101,7 +101,7 @@ const query = ref('')
 // Each email's group, with a heading above it, in the order the list shows them.
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
-  ['Registration', ['registration_student', 'registration_group']],
+  ['Registration', ['registration_student', 'registration_group', 'registration_supervisor']],
   [
     'Guardians',
     [
