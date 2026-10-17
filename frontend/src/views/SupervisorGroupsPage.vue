@@ -7,7 +7,7 @@
       <div class="waiting-area-header">
         <h1>Waiting Area</h1>
         <span class="waiting-count">
-          {{ waitingStudents.length }} {{ waitingStudents.length === 1 ? 'Student' : 'Students' }}
+          {{ waitingCount }} {{ waitingCount === 1 ? 'Student' : 'Students' }}
         </span>
       </div>
       <!-- Each its own paragraph, the same gap between each line of text and
@@ -18,22 +18,66 @@
       </p>
       <p class="waiting-copy waiting-copy--tight">Click a student to see their details.</p>
       <p class="waiting-copy">Drag and drop students around the page from one box to another.</p>
-      <div class="waiting-bubbles">
-        <button
-          v-for="student in waitingStudents"
-          :key="student.id"
-          type="button"
-          class="student-bubble"
-          draggable="true"
-          @dragstart="onDragStart($event, student.id)"
-          @dragend="draggingId = null"
-          @click="sheetStudentId = student.id"
-        >
-          {{ studentName(student) }}
-        </button>
-        <p v-if="!waitingStudents.length" class="supervisor-muted waiting-empty">
-          No unassigned students.
-        </p>
+      <!-- Groups formed while registering, a line each: those the supervisor
+           registered, then those their students formed. Not named: they
+           aren't BIOTech groups until made so (Create all groups). Students go
+           from here into a group below, not from one part of the Waiting Area
+           to another; back here, onto their own line (waitingLineOf). A line
+           with none of its students here isn't shown. -->
+      <div
+        v-for="section in waitingSections"
+        :key="section.title"
+        class="waiting-section"
+      >
+        <div class="waiting-section-header">
+          <h2 class="waiting-section-title">{{ section.title }}</h2>
+          <!-- Makes them BIOTech groups, onto the Groups board below. -->
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            :data-test="`create-all-${section.registeredBy}`"
+            @click="pendingCreateAll = section"
+          >
+            Create all groups
+          </button>
+        </div>
+        <div v-for="group in section.groups" :key="group.id" class="waiting-group">
+          <span class="waiting-group-label">Group:</span>
+          <div class="waiting-bubbles">
+            <button
+              v-for="student in group.students"
+              :key="student.id"
+              type="button"
+              class="student-bubble"
+              draggable="true"
+              @dragstart="onDragStart($event, student.id)"
+              @dragend="draggingId = null"
+              @click="sheetStudentId = student.id"
+            >
+              {{ studentName(student) }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="waiting-section">
+        <h2 class="waiting-section-title">Students without a group</h2>
+        <div class="waiting-bubbles">
+          <button
+            v-for="student in waitingStudents"
+            :key="student.id"
+            type="button"
+            class="student-bubble"
+            draggable="true"
+            @dragstart="onDragStart($event, student.id)"
+            @dragend="draggingId = null"
+            @click="sheetStudentId = student.id"
+          >
+            {{ studentName(student) }}
+          </button>
+          <p v-if="!waitingStudents.length" class="supervisor-muted waiting-empty">
+            No unassigned students.
+          </p>
+        </div>
       </div>
     </section>
 
@@ -167,6 +211,24 @@
       </section>
     </div>
 
+    <div v-if="pendingCreateAll" class="bulk-delete-backdrop">
+      <section class="bulk-delete-card" role="dialog" aria-modal="true" aria-labelledby="create-all-title">
+        <h3 id="create-all-title">
+          Create {{ pendingCreateAll.groups.length }} group{{ pendingCreateAll.groups.length === 1 ? '' : 's' }}?
+        </h3>
+        <p>
+          {{ pendingCreateAll.title }} become BIOTech groups and move to Groups below, where their
+          students can be moved like any group's.
+        </p>
+        <div class="bulk-delete-actions">
+          <button type="button" class="btn btn-outline" @click="pendingCreateAll = null">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="bulkBusy" @click="createAllGroups">
+            Create groups
+          </button>
+        </div>
+      </section>
+    </div>
+
     <div v-if="pendingBulkDelete" class="bulk-delete-backdrop">
       <section class="bulk-delete-card" role="dialog" aria-modal="true">
         <h3>Delete selected groups?</h3>
@@ -195,6 +257,7 @@ import { useGroupsStore } from '@/stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import {
   addSupervisedGroupMembers,
+  createAllWaitingGroups,
   deleteSupervisedGroup,
   fetchSupervisedGroups,
   saveSupervisedGroupOrder,
@@ -310,25 +373,98 @@ const schoolMovePrompt = (student: SupervisedStudent, groupId: number) => {
   }
 }
 
-const waitingStudents = computed(() =>
-  students.value.filter((student) => !assignment.value[student.id]),
+// In the supervisor's own order, as the server gives it and moving them sets.
+const allGroups = computed(() =>
+  supervisedGroups.value.map((owned) => {
+    const members = students.value.filter((student) => assignment.value[student.id] === owned.id)
+    return {
+      id: owned.id,
+      name: owned.group_name,
+      registeredBy: owned.registered_by || '',
+      placed: Boolean(owned.placed),
+      students: members,
+      shared: sharedInterests(members.map((member) => member.interests)),
+    }
+  }),
+)
+const groupById = computed(() => new Map(allGroups.value.map((group) => [group.id, group])))
+
+// The Groups board: groups made here (or by an admin), and those formed while
+// registering once made BIOTech groups. The rest wait in the Waiting Area.
+const groups = computed(() => allGroups.value.filter((group) => !group.registeredBy || group.placed))
+
+// A student's place: undefined when in a group on the board; otherwise in the
+// Waiting Area, on the line of the group they registered in (the group
+// itself while it waits there, or its line once it's a BIOTech group they've
+// come back from), or null with no line, having registered alone.
+const waitingLineOf = (student: SupervisedStudent) => {
+  const current = assignment.value[student.id]
+  if (current != null) {
+    const group = groupById.value.get(current)
+    return group?.registeredBy && !group.placed ? group : undefined
+  }
+  const home = student.registration_group_id
+  const group = home != null ? groupById.value.get(home) : undefined
+  return group?.registeredBy ? group : null
+}
+
+// Everyone in the Waiting Area: each line's students, and those with none.
+const waitingArea = computed(() => {
+  const lines = new Map<number, SupervisedStudent[]>()
+  const alone: SupervisedStudent[] = []
+  for (const student of students.value) {
+    const line = waitingLineOf(student)
+    if (line === null) alone.push(student)
+    else if (line) lines.set(line.id, [...(lines.get(line.id) ?? []), student])
+  }
+  return { lines, alone }
+})
+
+const waitingStudents = computed(() => waitingArea.value.alone)
+
+// A section's lines, in the groups' order: each with its students here.
+const waitingGroups = (registeredBy: string) =>
+  allGroups.value
+    .filter((group) => group.registeredBy === registeredBy && waitingArea.value.lines.has(group.id))
+    .map((group) => ({ id: group.id, students: waitingArea.value.lines.get(group.id)! }))
+
+const waitingSections = computed(() =>
+  [
+    { title: 'Groups you registered', registeredBy: 'supervisor' as const, groups: waitingGroups('supervisor') },
+    { title: 'Groups students formed', registeredBy: 'members' as const, groups: waitingGroups('members') },
+  ].filter((section) => section.groups.length),
 )
 
-// In the supervisor's own order, as the server gives it and moving them sets.
-const groups = computed(() => {
-  return supervisedGroups.value
-    .map((owned) => {
-      const members = students.value.filter(
-        (student) => assignment.value[student.id] === owned.id,
-      )
-      return {
-        id: owned.id,
-        name: owned.group_name,
-        students: members,
-        shared: sharedInterests(members.map((member) => member.interests)),
-      }
-    })
-})
+// Create all groups, waiting for its confirm: one section's groups.
+const pendingCreateAll = ref<(typeof waitingSections.value)[number] | null>(null)
+
+const createAllGroups = async () => {
+  const section = pendingCreateAll.value
+  if (!section) return
+  bulkBusy.value = true
+  clearFlash()
+  try {
+    for (const group of await createAllWaitingGroups(section.registeredBy)) applyOwnedGroup(group)
+    pendingCreateAll.value = null
+  } catch (createError) {
+    showFlash(createError instanceof Error ? createError.message : 'The groups could not be created.')
+  } finally {
+    bulkBusy.value = false
+  }
+}
+
+// Back to the Waiting Area, onto their own line: into the group they
+// registered in while it still waits there; otherwise out of their group (on
+// that group's line once it's a BIOTech group, or with no group).
+const returnTarget = (studentId: number) => {
+  const home = students.value.find((student) => student.id === studentId)?.registration_group_id
+  const group = home != null ? groupById.value.get(home) : undefined
+  return group?.registeredBy && !group.placed ? group.id : null
+}
+
+const waitingCount = computed(
+  () => waitingArea.value.alone.length + [...waitingArea.value.lines.values()].reduce((sum, line) => sum + line.length, 0),
+)
 
 
 const toggleGroup = (groupId: number) => {
@@ -486,10 +622,30 @@ const onDragOver = (event: DragEvent, group: { id: number; students: { id: numbe
   event.preventDefault()
 }
 
+// Anywhere in the Waiting Area: back onto their own line (returnTarget). One
+// already in the Waiting Area stays put, so nothing moves within it.
 const onDropWaiting = (event: DragEvent) => {
   if (draggingGroupId.value !== null) return
   const studentId = Number(event.dataTransfer?.getData('text/plain'))
-  if (Number.isFinite(studentId)) void moveStudent(studentId, null)
+  if (!Number.isFinite(studentId)) return
+  const student = students.value.find((item) => item.id === studentId)
+  if (student && waitingLineOf(student) !== undefined) return
+  void moveStudent(studentId, returnTarget(studentId))
+}
+
+// Students sent back to the Waiting Area by deleting their group: into the
+// group they registered in while it still waits there; the rest are already
+// back on their lines, out of any group.
+const returnHome = async (studentIds: number[]) => {
+  const byHome = new Map<number, number[]>()
+  for (const studentId of studentIds) {
+    const home = returnTarget(studentId)
+    if (home != null) byHome.set(home, [...(byHome.get(home) ?? []), studentId])
+  }
+  for (const [home, ids] of byHome) {
+    applyOwnedGroup(await addSupervisedGroupMembers(home, ids, 'student'))
+    for (const studentId of ids) setStudentGroup(studentId, home)
+  }
 }
 
 const onDrop = (event: DragEvent, groupId: number) => {
@@ -580,8 +736,12 @@ const deleteSelectedGroups = async () => {
   clearFlash()
   try {
     for (const groupId of [...selectedGroupIds.value]) {
+      const members = students.value
+        .filter((student) => assignment.value[student.id] === groupId)
+        .map((student) => student.id)
       await deleteSupervisedGroup(groupId)
       onGroupDeleted(groupId)
+      await returnHome(members)
     }
     pendingBulkDelete.value = false
   } catch (deleteError) {
@@ -712,6 +872,50 @@ onMounted(async () => {
 .waiting-empty {
   margin: 0;
 }
+
+/* Groups you registered, Groups students formed, Students without a group. */
+.waiting-section {
+  margin-top: 1.25rem;
+}
+
+/* A section's heading, with Create all groups beside it. */
+.waiting-section-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.waiting-section-header .waiting-section-title {
+  margin: 0;
+}
+
+.waiting-section-title {
+  margin: 0 0 0.6rem;
+  color: #333;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* A group formed while registering: "Group:", then its students. */
+.waiting-group {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.waiting-group + .waiting-group {
+  margin-top: 0.6rem;
+}
+
+.waiting-group-label {
+  flex: 0 0 auto;
+  color: #333;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
 
 .groups-board {
   display: grid;

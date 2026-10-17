@@ -188,6 +188,69 @@ class FormedByTests(MultiStudentSetup, TestCase):
         self.assertEqual(group.formed_by, Groups.FormedBy.SUPERVISOR)
         self.assertEqual(group.created_by, self.supervisor)
 
+    def test_my_groups_knows_which_formed_while_registering(self):
+        from apps.users.supervisor_group_views import _registered_by
+
+        self.post_batch(batch("student_team"))
+        self.post_batch(batch("supervisor_group", offset=10))
+        made_later = Groups.objects.create(group_name="Made on My Groups")
+        made_later.mark_formed(Groups.FormedBy.SUPERVISOR, self.supervisor)
+        self.assertEqual(
+            sorted(_registered_by(group) for group in Groups.objects.all()),
+            ["", "members", "supervisor"],
+        )
+        # On the supervisor's own list, for My Groups' Waiting Area.
+        listed = self.supervisor_client.get("/api/v1/users/supervised-groups/").json()
+        self.assertIn("supervisor", [group["registered_by"] for group in listed])
+
+    def test_create_all_groups_makes_the_waiting_ones_biotech_groups(self):
+        url = "/api/v1/users/supervised-groups/place/"
+        self.post_batch(batch("supervisor_group", offset=10))
+        registered = Groups.objects.get(formed_by=Groups.FormedBy.SUPERVISOR)
+
+        # None formed by students here; a kind that isn't one is refused.
+        self.assertEqual(self.supervisor_client.post(url, {"registered_by": "members"}, format="json").json(), [])
+        self.assertEqual(self.supervisor_client.post(url, {"registered_by": "admin"}, format="json").status_code, 400)
+
+        response = self.supervisor_client.post(url, {"registered_by": "supervisor"}, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        # Made a BIOTech group, still known as one the supervisor registered.
+        self.assertEqual(
+            [(g["id"], g["registered_by"], g["placed"]) for g in response.json()],
+            [(registered.id, "supervisor", True)],
+        )
+        registered.refresh_from_db()
+        self.assertIsNotNone(registered.placed_at)
+        # Nothing waiting now: nothing more to make.
+        self.assertEqual(self.supervisor_client.post(url, {"registered_by": "supervisor"}, format="json").json(), [])
+
+        # A student back in the Waiting Area (out of every group) rejoins it.
+        student_id = GroupMembership.objects.filter(group=registered, membership_role="student").first().user_id
+        GroupMembership.objects.filter(group=registered, user_id=student_id).update(left_at=timezone.now())
+        response = self.supervisor_client.post(url, {"registered_by": "supervisor"}, format="json")
+        self.assertEqual([g["id"] for g in response.json()], [registered.id])
+        self.assertTrue(
+            GroupMembership.objects.filter(group=registered, user_id=student_id, left_at__isnull=True).exists()
+        )
+
+    def test_each_student_keeps_their_group_from_registering(self):
+        self.post_batch(batch("supervisor_group", offset=10))
+        self.post_batch(batch("supervisor_individual", offset=20))
+        registered = Groups.objects.get(formed_by=Groups.FormedBy.SUPERVISOR)
+        roster = self.supervisor_client.get("/api/v1/users/supervised-students/").json()
+        homes = sorted((row["registration_group_id"] or 0) for row in roster)
+        # The group's students have it, the student registered alone none.
+        self.assertEqual(homes, [0] + [registered.id] * (len(roster) - 1))
+
+        # Moved to another group, they still have it, to go back to.
+        other = Groups.objects.create(group_name="Made on My Groups")
+        moving = next(row for row in roster if row["registration_group_id"])
+        GroupMembership.objects.filter(user_id=moving["id"], left_at__isnull=True).update(left_at=timezone.now())
+        GroupMembership.objects.create(group=other, user_id=moving["id"], membership_role="student")
+        roster = self.supervisor_client.get("/api/v1/users/supervised-students/").json()
+        moved = next(row for row in roster if row["id"] == moving["id"])
+        self.assertEqual((moved["group_id"], moved["registration_group_id"]), (other.id, registered.id))
+
     def test_admins_see_who_formed_each_group(self):
         from apps.admin.services.group import create_group, query_groups
 

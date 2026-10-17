@@ -25,6 +25,7 @@ from.models import (
     SupervisorProfile,
     StudentSupervisor,
     GuardianConsent,
+    RegistrationStudent,
 )
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.common.role_names import (
@@ -515,6 +516,8 @@ class SupervisedStudentsView(APIView):
             ):
                 group_by_user.setdefault(membership.user_id, membership)
 
+        registration_group_by_user = _registration_groups(user_ids)
+
         latest_consent_by_student = {}
         if profiles:
             for consent in (
@@ -551,6 +554,7 @@ class SupervisedStudentsView(APIView):
                 "joinperm_granted_at": profile.joinperm_granted_at,
                 "group_id": None if group is None or group.deleted_at else group.id,
                 "group_name": None if group is None or group.deleted_at else group.group_name,
+                "registration_group_id": registration_group_by_user.get(profile.user_id),
             })
 
         return Response(SupervisedStudentSerializer(payload, many=True).data)
@@ -846,6 +850,19 @@ def _account_fields(user, consent):
     }
 
 
+def _registration_groups(user_ids) -> dict:
+    """Each student's group from registering, by user id, while it's still
+    there: where My Groups puts them back when they return to its Waiting
+    Area. Students who registered without one aren't in it."""
+    return dict(
+        RegistrationStudent.objects.filter(
+            student_id__in=user_ids,
+            submission__group__isnull=False,
+            submission__group__deleted_at__isnull=True,
+        ).values_list("student_id", "submission__group_id")
+    )
+
+
 def _supervised_student_row(profile):
     interests = list(
         UserInterest.objects.filter(user_id=profile.user_id)
@@ -882,6 +899,7 @@ def _supervised_student_row(profile):
         "joinperm_granted_at": profile.joinperm_granted_at,
         "group_id": None if group is None or group.deleted_at else group.id,
         "group_name": None if group is None or group.deleted_at else group.group_name,
+        "registration_group_id": _registration_groups([profile.user_id]).get(profile.user_id),
     }
 
 

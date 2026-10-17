@@ -674,6 +674,8 @@ class SupervisedStudentSerializer(serializers.Serializer):
     # No signature: fetched when a consent form is opened (SupervisedStudentSignaturesView).
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
+    # Their group from registering, where My Groups' Waiting Area keeps them.
+    registration_group_id = serializers.IntegerField(allow_null=True, required=False)
 
 
 class SupervisedGroupMemberSerializer(serializers.Serializer):
@@ -689,6 +691,10 @@ class SupervisedGroupSerializer(serializers.Serializer):
     group_name = serializers.CharField()
     members = SupervisedGroupMemberSerializer(many=True)
     interests = serializers.ListField(child=serializers.CharField())
+    # "supervisor" or "members" for a group formed while registering, else "".
+    registered_by = serializers.CharField(allow_blank=True)
+    # Made a BIOTech group from My Groups' Waiting Area (Create all groups).
+    placed = serializers.BooleanField(default=False)
 
 
 class SupervisedGroupNameSerializer(serializers.Serializer):
