@@ -1188,3 +1188,32 @@
 .analytics-value-row > strong {
   flex: 0 1 auto;
 }
+
+/* =========================================================
+   Dropdowns: one chevron with breathing room on the right.
+   Native select arrows sit flush against the border and differ
+   by browser, so every Analytics select draws the same chevron
+   12px in from its right edge. The :not() filters only raise
+   specificity above the page-scoped filter rules that reset
+   padding with !important.
+   ========================================================= */
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) select:not([multiple]):not([size]):not([data-native-arrow]) {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding-right: 34px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23017151' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 12px 12px !important;
+  text-overflow: ellipsis;
+}

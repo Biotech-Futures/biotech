@@ -226,8 +226,60 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
                     "unattributed_failed": 0,
                 },
                 "recent_deliveries": [],
+                "recent_sends": [],
             },
         )
+
+    def test_recent_sends_cover_every_email_type_newest_first(self):
+        announced = self.delivery(
+            started_at=self.snapshot_at - timedelta(hours=3),
+            recipients=4,
+            delivered=3,
+            failed=1,
+            delivery_status=AnnouncementDelivery.Status.PARTIAL,
+            initiated_by=self.admin,
+        )
+        EmailDeliveryMetric.objects.create(
+            email_type="password_reset",
+            source_mailbox=self.primary_mailbox,
+            attempted_count=1,
+            delivered_count=1,
+            failed_count=0,
+            status=EmailDeliveryMetric.Status.SUCCESS,
+            started_at=self.snapshot_at - timedelta(hours=1),
+            completed_at=self.snapshot_at - timedelta(hours=1),
+        )
+        EmailDeliveryMetric.objects.create(
+            email_type="custom_bulk_send",
+            source_mailbox=self.secondary_mailbox,
+            attempted_count=2,
+            delivered_count=0,
+            failed_count=2,
+            status=EmailDeliveryMetric.Status.FAILED,
+            started_at=self.snapshot_at - timedelta(days=30),
+            completed_at=self.snapshot_at - timedelta(days=30),
+        )
+
+        sends = self.get_as_admin()["recent_sends"]
+
+        self.assertEqual(
+            [(row["email_type"], row["email_type_label"]) for row in sends],
+            [
+                ("password_reset", "Password reset"),
+                ("announcement", "Announcement notification"),
+                ("custom_bulk_send", "Custom bulk send"),
+            ],
+        )
+        self.assertIsNone(sends[0]["title"])
+        self.assertEqual(sends[0]["initiated_by_name"], "System")
+        self.assertEqual(sends[1]["title"], "Analytics update")
+        self.assertEqual(sends[1]["announcement_id"], announced.announcement_id)
+        self.assertEqual(
+            (sends[1]["status"], sends[1]["attempted"], sends[1]["delivered"], sends[1]["failed"]),
+            ("partial", 4, 3, 1),
+        )
+        self.assertEqual(sends[1]["initiated_by_email"], self.admin.email)
+        self.assertEqual(sends[2]["source_mailbox"], self.secondary_mailbox)
 
     def test_response_serializer_allows_null_opened_and_rejects_negative_counts(self):
         payload = {

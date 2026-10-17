@@ -87,6 +87,13 @@
       </article>
     </section>
 
+    <section v-if="sourceAvailable('resourceAnalytics')" class="analytics-card resource-trend-card">
+      <h2>Clicks and Unique Users by Resource</h2>
+      <p class="card-subtitle">Daily usage of each resource. Switch resources on or off to compare them.</p>
+      <ResourceUsageTrendChart v-if="data.resourceDaily" :rows="data.resourceDaily" />
+      <p v-else class="card-subtitle">Per-resource daily usage is not available from the server yet.</p>
+    </section>
+
     <section class="analytics-card table-card">
       <div class="table-heading">
         <div>
@@ -161,6 +168,8 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
+import ResourceUsageTrendChart from '@/components/analytics/ResourceUsageTrendChart.vue'
+import type { ResourceDailyUsage } from '@/types/analytics'
 import {
   buildResourcesAnalytics,
   loadResourcesAnalyticsBundle,
@@ -170,6 +179,7 @@ import {
 const data = reactive({
   totalClicks: 0, uniqueUsers: 0, activeResources: 0, mostUsedResource: '—',
   dailyClicks: [] as Array<{ label: string; clicks: number }>,
+  resourceDaily: [] as ResourceDailyUsage[] | null,
   resources: [] as Array<{ id: number; name: string; clicks: number; uniqueUsers: number; type: string; roles: Array<'Student' | 'Mentor' | 'Supervisor'> }>,
   byType: [] as Array<{ label: string; value: number; color: string }>,
 })

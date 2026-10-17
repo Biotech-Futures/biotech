@@ -197,6 +197,8 @@ describe('independent analytics sources', () => {
   it('keeps messages without groups, and group structure without activity', async () => {
     vi.mocked(api.fetchAllGroups).mockRejectedValue(error)
     expect(data.buildMessagesAnalytics(await data.loadMessagesAnalyticsBundle()).totalMessages).toBe(23)
+    // Pages share cached sources, so start the second scenario from a cold cache.
+    data.clearLiveAnalyticsCache()
     vi.mocked(api.fetchAllGroups).mockResolvedValue(groups)
     vi.mocked(api.fetchGroupActivity).mockRejectedValue(error)
     const bundle = await data.loadGroupsAnalyticsBundle()
@@ -375,12 +377,14 @@ describe('partial analytics pages', () => {
     expect(w.text()).not.toContain('1 of 1 mentors assigned')
     expect(w.text()).not.toContain('Over capacity')
   })
-  it('does not mark every mentor as lacking a recorded login when activity fails', async () => {
+  it('keeps account last logins when message activity fails', async () => {
     vi.mocked(api.fetchGroupActivity).mockRejectedValue(error)
     const w = await show(MentorsPage)
     expect(w.find('[aria-label="Mentor snapshot summary"]').exists()).toBe(true)
-    expect(w.text()).not.toContain('No recorded login')
-    expect(w.text()).not.toContain('Last Login Distribution')
+    // Last login comes from the mentor account, not from message activity.
+    expect(w.text()).toContain('Last Login Distribution')
+    const neverLoggedIn = w.findAll('.key-insights-row').find((row) => row.text().includes('Never logged in'))
+    expect(neverLoggedIn?.get('strong').text()).toBe('0')
   })
 
   it('exports group summaries even if the user endpoint fails', async () => {

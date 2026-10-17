@@ -509,6 +509,7 @@ const liveData = ref<GroupsAnalyticsYear>({
   smallGroups: 0,
   inactiveRecent: 0,
   nearCapacity: 0,
+  overCapacity: 0,
   groupSizeDistribution: [],
   groupStatus: [],
   ratioDistribution: [],
@@ -604,7 +605,10 @@ const groupInsightItems = computed(() => [
   },
   { key: 'small', value: data.value.smallGroups, text: 'groups have fewer than 3 students.' },
   ...(sourceAvailable('groupActivity') ? [{ key: 'inactive', value: data.value.inactiveRecent, text: 'groups have had no activity in the past 7 days.' }] : []),
-  { key: 'capacity', value: data.value.nearCapacity, text: 'groups are nearing capacity (10+ students).' },
+  { key: 'capacity', value: data.value.nearCapacity, text: 'groups are full (5 students, the maximum).' },
+  ...(data.value.overCapacity
+    ? [{ key: 'over-capacity', value: data.value.overCapacity, text: 'groups have more than 5 students, above the limit.' }]
+    : []),
 ])
 
 const studentsNotAssignedRows = computed(() =>
@@ -627,18 +631,7 @@ const groupsWithoutMentorRows = computed(() =>
 
 
 
-const groupSizeDistributionForChart = computed(() => {
-  const items = [...data.value.groupSizeDistribution]
-
-  if (!items.some((item) => item.label === '20+')) {
-    items.push({
-      label: '20+',
-      value: 0,
-    })
-  }
-
-  return items
-})
+const groupSizeDistributionForChart = computed(() => data.value.groupSizeDistribution)
 
 const maxGroupSizeCount = computed(() =>
   Math.max(...groupSizeDistributionForChart.value.map((item) => item.value), 1),
@@ -1739,19 +1732,23 @@ async function exportCsv() {
     grid-row: 1;
   }
 
+  /* Key Insights runs down both chart rows so every insight fits at the
+     shared Key Insights text size. */
   .compact-insights-card {
     grid-column: 67 / 85 !important;
-    grid-row: 1;
+    grid-row: 1 / 3;
+    height: auto !important;
   }
 
-  /* Row 2: give the denser group-size distribution more room. */
+  /* Row 2: group size (0–5 students) and the ratio chart share the width
+     beside Key Insights. */
   .group-size-card {
-    grid-column: 1 / 50 !important;
+    grid-column: 1 / 34 !important;
     grid-row: 2;
   }
 
   .ratio-card {
-    grid-column: 50 / 85 !important;
+    grid-column: 34 / 67 !important;
     grid-row: 2;
   }
 

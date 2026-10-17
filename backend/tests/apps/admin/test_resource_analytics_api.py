@@ -79,8 +79,8 @@ class ResourceAnalyticsApiTests(APITestCase):
     def test_empty_dataset(self):
         self.assertEqual(self.data(), {
             "total_clicks": 0, "unique_users": 0, "active_resources": 0,
-            "clicks_by_day": [], "top_resources": [], "clicks_by_category": [],
-            "query_range": {"start": None, "end": None},
+            "clicks_by_day": [], "top_resources": [], "clicks_by_resource_by_day": [],
+            "clicks_by_category": [], "query_range": {"start": None, "end": None},
         })
 
     def test_totals_count_events_and_distinct_users_and_resources(self):
@@ -97,6 +97,20 @@ class ResourceAnalyticsApiTests(APITestCase):
             {"date": "2026-08-29", "click_count": 1},
             {"date": "2026-08-30", "click_count": 3},
             {"date": "2026-08-31", "click_count": 1},
+        ])
+
+    def test_daily_usage_per_resource_counts_clicks_and_distinct_users(self):
+        self.seed_events()
+        self.event(self.first, self.admin, "2026-08-30T15:00:00")
+        self.assertEqual(self.data()["clicks_by_resource_by_day"], [
+            {"date": "2026-08-29", "resource_id": self.second.id, "resource_name": "Second",
+             "click_count": 1, "unique_users": 1},
+            {"date": "2026-08-30", "resource_id": self.first.id, "resource_name": "First",
+             "click_count": 3, "unique_users": 2},
+            {"date": "2026-08-30", "resource_id": self.uncategorized.id, "resource_name": "Other",
+             "click_count": 1, "unique_users": 1},
+            {"date": "2026-08-31", "resource_id": self.first.id, "resource_name": "First",
+             "click_count": 1, "unique_users": 1},
         ])
 
     def test_top_resources_have_stable_tie_order(self):
@@ -130,6 +144,12 @@ class ResourceAnalyticsApiTests(APITestCase):
                 {"resource_id": self.first.id, "resource_name": "First", "click_count": 2, "unique_users": 1},
                 {"resource_id": self.uncategorized.id, "resource_name": "Other", "click_count": 1, "unique_users": 1},
             ],
+            "clicks_by_resource_by_day": [
+                {"date": "2026-08-30", "resource_id": self.first.id, "resource_name": "First",
+                 "click_count": 2, "unique_users": 1},
+                {"date": "2026-08-30", "resource_id": self.uncategorized.id, "resource_name": "Other",
+                 "click_count": 1, "unique_users": 1},
+            ],
             "clicks_by_category": [
                 {"category_id": self.category.id, "category_name": "Guide", "click_count": 2},
                 {"category_id": None, "category_name": None, "click_count": 1},
@@ -146,7 +166,7 @@ class ResourceAnalyticsApiTests(APITestCase):
                 self.assertEqual(data["query_range"], {"start": params.get("start"), "end": params.get("end")})
         data = self.data({"start": "2027-01-01"})
         self.assertEqual((data["total_clicks"], data["unique_users"], data["active_resources"]), (0, 0, 0))
-        for field in ("clicks_by_day", "top_resources", "clicks_by_category"):
+        for field in ("clicks_by_day", "top_resources", "clicks_by_resource_by_day", "clicks_by_category"):
             self.assertEqual(data[field], [])
 
     def test_invalid_dates(self):

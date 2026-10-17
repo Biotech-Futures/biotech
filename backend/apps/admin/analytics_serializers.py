@@ -177,6 +177,14 @@ class ResourceClickCountSerializer(serializers.Serializer):
     unique_users = serializers.IntegerField(min_value=0)
 
 
+class DailyResourceUsageSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    resource_id = serializers.IntegerField()
+    resource_name = serializers.CharField()
+    click_count = serializers.IntegerField(min_value=0)
+    unique_users = serializers.IntegerField(min_value=0)
+
+
 class ResourceCategoryClickCountSerializer(serializers.Serializer):
     category_id = serializers.IntegerField(allow_null=True)
     category_name = serializers.CharField(allow_null=True)
@@ -189,6 +197,7 @@ class ResourceAnalyticsDataSerializer(serializers.Serializer):
     active_resources = serializers.IntegerField(min_value=0)
     clicks_by_day = DailyResourceClickCountSerializer(many=True)
     top_resources = ResourceClickCountSerializer(many=True)
+    clicks_by_resource_by_day = DailyResourceUsageSerializer(many=True)
     clicks_by_category = ResourceCategoryClickCountSerializer(many=True)
     query_range = AnalyticsQueryRangeSerializer()
 
@@ -263,6 +272,22 @@ class RecentEmailDeliverySerializer(serializers.Serializer):
     initiated_by_email = serializers.EmailField(allow_blank=True)
 
 
+class RecentEmailSendSerializer(serializers.Serializer):
+    id = serializers.IntegerField(min_value=1)
+    email_type = serializers.CharField()
+    email_type_label = serializers.CharField()
+    title = serializers.CharField(allow_null=True)
+    announcement_id = serializers.IntegerField(allow_null=True)
+    source_mailbox = serializers.EmailField()
+    started_at = serializers.DateTimeField()
+    status = serializers.ChoiceField(choices=("success", "partial", "failed"))
+    attempted = serializers.IntegerField(min_value=0)
+    delivered = serializers.IntegerField(min_value=0)
+    failed = serializers.IntegerField(min_value=0)
+    initiated_by_name = serializers.CharField(allow_blank=True)
+    initiated_by_email = serializers.EmailField(allow_blank=True)
+
+
 class EmailDeliveryAnalyticsDataSerializer(serializers.Serializer):
     snapshot_at = serializers.DateTimeField()
     mailboxes = EmailMailboxAnalyticsSerializer(many=True)
@@ -274,6 +299,7 @@ class EmailDeliveryAnalyticsDataSerializer(serializers.Serializer):
     status_by_role = EmailDeliveryStatusByRoleSerializer(many=True)
     role_attribution = EmailRoleAttributionSerializer()
     recent_deliveries = RecentEmailDeliverySerializer(many=True)
+    recent_sends = RecentEmailSendSerializer(many=True)
 
 
 class EmailDeliveryAnalyticsResponseSerializer(serializers.Serializer):

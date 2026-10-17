@@ -89,6 +89,7 @@ export type GroupsAnalyticsYear = {
   smallGroups: number
   inactiveRecent: number
   nearCapacity: number
+  overCapacity: number
   groupSizeDistribution: Array<{ label: string; value: number }>
   groupStatus: Array<{ label: string; value: number; color: string }>
   ratioDistribution: Array<{ label: string; value: number }>
@@ -168,8 +169,22 @@ export interface AnalyticsMentor {
   capacity: number
   groupIds: string[]
   studentIds: string[]
+  // Whether the mentor's account is activated (account_status "active").
+  accountActive?: boolean
+  // Last successful login on the account (ISO timestamp), when the mentor
+  // source provides it; undefined falls back to login events.
+  lastLogin?: string | null
 }
 export type DemoMentor = AnalyticsMentor
+
+/** One resource's usage on one UTC day. */
+export interface ResourceDailyUsage {
+  date: string
+  resourceId: number
+  name: string
+  clicks: number
+  uniqueUsers: number
+}
 export interface MentorEvent {
   mentorId: string
   date: string
@@ -184,8 +199,12 @@ export type EmailLog = {
   recipient: string
   recipientEmail: string
   title: string
+  type: string
   sentAt: string
   status: 'Delivered' | 'Partial' | 'Opened' | 'Failed'
+  attempted: number
+  delivered: number
+  failed: number
 }
 
 export type EmailMonitoringData = {

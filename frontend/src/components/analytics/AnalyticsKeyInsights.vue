@@ -129,7 +129,9 @@ function hideInfoTooltip() {
 .key-insights-list {
   display: grid;
   grid-template-columns: 1fr;
-  align-content: space-between;
+  /* Equal-height rows spread the insights across tall cards without leaving
+     uneven gaps; each row then centres its own number and text. */
+  grid-auto-rows: 1fr;
   flex: 1;
   min-height: 0;
   min-width: 0;
@@ -140,9 +142,9 @@ function hideInfoTooltip() {
   display: grid;
   grid-template-columns: minmax(64px, 38%) minmax(0, 1fr);
   column-gap: clamp(12px, 3cqi, 28px);
-  align-items: start;
+  align-items: center;
   min-width: 0;
-  padding: 4px 0;
+  padding: 10px 0;
   border-top: 1px solid #e7eeeb;
 }
 
@@ -155,7 +157,7 @@ function hideInfoTooltip() {
   min-width: 44px;
   padding-left: 8px;
   color: #017151;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -168,14 +170,15 @@ function hideInfoTooltip() {
 .key-insights-copy small {
   display: block;
   color: #536762;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
 .key-insights-copy small {
   margin-top: 3px;
   color: #71817d;
+  font-size: 13px;
 }
 
 @media (max-width: 520px) {

@@ -463,90 +463,6 @@
       </article>
 
       <div class="right-stack">
-        <article class="analytics-card active-groups-card">
-          <div class="card-heading ranking-heading">
-            <div>
-              <h2>Top 5 Most Active {{ contentMode === 'groups' ? 'Groups' : 'Users' }}</h2>
-              <p>
-                {{ contentMode === 'groups' ? 'Groups' : 'Users' }} with the highest number of messages across all recorded dates.
-              </p>
-            </div>
-          </div>
-
-          <ol class="ranking-list">
-            <li
-              v-for="(item, index) in mostActiveRankingItems"
-              :key="item.id ?? `${contentMode}-${item.name}`"
-              class="interactive-chart-row"
-              @mouseenter="showTooltip($event, item.name, `${item.value.toLocaleString()} messages`, contentMode === 'users' ? `${userGroupName(item.id)} · Rank #${index + 1}` : `Rank #${index + 1}`)"
-              @mousemove="moveTooltip"
-              @mouseleave="hideTooltip"
-            >
-              <span class="rank-number">{{ index + 1 }}</span>
-              <span class="rank-name">
-                <span class="user-name-line">
-                  <span>{{ item.name }}</span>
-                  <span
-                    v-if="contentMode === 'users'"
-                    class="role-circle"
-                    :class="`role-circle-${roleClass(roleForItem(item))}`"
-                    :title="roleForItem(item)"
-                  >
-                    {{ roleBadgeText(roleForItem(item)) }}
-                  </span>
-                </span>
-                <small v-if="contentMode === 'users'">{{ userGroupName(item.id) }}</small>
-              </span>
-              <div class="rank-track">
-                <span :style="{ width: `${barWidth(item.value, rankingMaxMessages)}%` }"></span>
-              </div>
-              <strong>{{ item.value.toLocaleString() }}</strong>
-            </li>
-          </ol>
-        </article>
-
-        <article class="analytics-card least-groups-card">
-          <div class="card-heading">
-            <div>
-              <h2>Bottom 5 Least Active {{ contentMode === 'groups' ? 'Groups' : 'Users' }}</h2>
-              <p>
-                {{ contentMode === 'groups' ? 'Groups' : 'Users' }} with the lowest number of messages across all recorded dates.
-              </p>
-            </div>
-          </div>
-
-          <ol class="ranking-list least-ranking-list">
-            <li
-              v-for="(item, index) in leastActiveRankingItems"
-              :key="item.id ?? `${contentMode}-${item.name}`"
-              class="interactive-chart-row"
-              @mouseenter="showTooltip($event, item.name, `${item.value.toLocaleString()} messages`, contentMode === 'users' ? `${userGroupName(item.id)} · Bottom rank #${index + 1}` : `Bottom rank #${index + 1}`)"
-              @mousemove="moveTooltip"
-              @mouseleave="hideTooltip"
-            >
-              <span class="rank-number">{{ index + 1 }}</span>
-              <span class="rank-name">
-                <span class="user-name-line">
-                  <span>{{ item.name }}</span>
-                  <span
-                    v-if="contentMode === 'users'"
-                    class="role-circle"
-                    :class="`role-circle-${roleClass(roleForItem(item))}`"
-                    :title="roleForItem(item)"
-                  >
-                    {{ roleBadgeText(roleForItem(item)) }}
-                  </span>
-                </span>
-                <small v-if="contentMode === 'users'">{{ userGroupName(item.id) }}</small>
-              </span>
-              <div class="rank-track least-rank-track">
-                <span :style="{ width: `${barWidth(item.value, rankingMaxMessages)}%` }"></span>
-              </div>
-              <strong>{{ item.value.toLocaleString() }}</strong>
-            </li>
-          </ol>
-        </article>
-
         <article class="analytics-card insights-card">
           <AnalyticsKeyInsights
             :items="messageInsightItems"
@@ -583,10 +499,11 @@ import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { MessagesAnalyticsYear } from '@/types/analytics'
 import {
   buildMessagesAnalytics,
+  groupActivityForRange,
   loadMessagesAnalyticsBundle,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
-import { fetchGroupActivity, type GroupActivityResponse } from '@/utils/liveAnalyticsApi'
+import type { GroupActivityResponse } from '@/utils/liveAnalyticsApi'
 import { downloadReportCsv } from '@/utils/reportExport'
 
 const availableYears = ref<number[]>([])
@@ -689,7 +606,8 @@ async function initializeMessages(force = false, preserveFilters = false) {
       const end = new Date(`${datasetAnchorDay.value}T00:00:00Z`)
       const start = new Date(end)
       start.setUTCDate(start.getUTCDate() - 6)
-      recentActivity.value = await fetchGroupActivity(
+      recentActivity.value = await groupActivityForRange(
+        bundle.groupActivity,
         start.toISOString().slice(0, 10),
         datasetAnchorDay.value,
       )
@@ -857,7 +775,8 @@ async function refreshMessageData(preserveData = false) {
   const { start, end } = periodDateRange()
   if (!preserveData) loading.value = true
   try {
-  const activity = await fetchGroupActivity(start, end)
+  // Derived from the loaded full-range data, so changing dates needs no request.
+  const activity = await groupActivityForRange(baseBundle.value.groupActivity, start, end)
   if (version !== refreshVersion) return
   currentActivity.value = activity
   loadError.value = ''
@@ -1023,20 +942,6 @@ const mostActiveGroup = computed(() => visibleGroups.value[0] ?? { name: '—', 
 const leastActiveGroups = computed(() =>
   [...visibleGroups.value].sort((a, b) => a.value - b.value).slice(0, 5),
 )
-const mostActiveRankingItems = computed(() => {
-  const source = contentMode.value === 'groups' ? allTimeVisibleGroups.value : allTimeVisibleUsers.value
-  return [...source].sort((a, b) => b.value - a.value).slice(0, 5)
-})
-
-const leastActiveRankingItems = computed(() => {
-  const source = contentMode.value === 'groups' ? allTimeVisibleGroups.value : allTimeVisibleUsers.value
-  return [...source].sort((a, b) => a.value - b.value).slice(0, 5)
-})
-
-const rankingMaxMessages = computed(() =>
-  Math.max(...mostActiveRankingItems.value.map((item) => item.value), 1),
-)
-
 function roleClass(role: string | undefined) {
   return (role || 'Unavailable').toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
@@ -1765,7 +1670,6 @@ async function exportCsv() {
   min-height: 0;
 }
 
-.active-groups-card,
 .insights-card {
   min-height: 0;
 }
@@ -1946,137 +1850,6 @@ th {
 
 tbody tr:hover {
   background: #f7fbfa;
-}
-
-.ranking-list {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.ranking-list li {
-  display: grid;
-  grid-template-columns: 28px 85px minmax(80px, 1fr) 54px;
-  align-items: center;
-  gap: 9px;
-  border-radius: 8px;
-  padding: 5px;
-}
-
-
-.ranking-heading {
-  align-items: flex-start;
-}
-
-.ranking-toggle {
-  flex: 0 0 auto;
-}
-
-.ranking-controls {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.ranking-role-filter {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 6px;
-  max-width: 250px;
-  color: #58706d;
-  font-size: 10px;
-}
-
-.ranking-role-filter > span {
-  font-weight: 700;
-  color: #174243;
-}
-
-.ranking-role-filter label {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.ranking-role-filter input {
-  width: 12px;
-  height: 12px;
-  accent-color: #017151;
-}
-
-.ranking-list li {
-  grid-template-columns: 28px minmax(74px, 0.8fr) minmax(72px, 1.35fr) 46px;
-}
-
-.rank-name {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  overflow: hidden;
-}
-
-.rank-name > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rank-name small {
-  color: #7a8f8b;
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.15;
-  white-space: nowrap;
-}
-.rank-number {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 6px;
-  background: #f4f5f8;
-  color: #647270;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.rank-name {
-  color: #425e59;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.rank-track {
-  height: 12px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: #eff2f1;
-}
-
-.rank-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: #174243;
-}
-
-.least-rank-track span {
-  background: #BAD7B8;
-}
-
-.ranking-list strong {
-  color: #314e49;
-  font-size: 11px;
-  text-align: right;
 }
 
 .insight-list {
@@ -2334,20 +2107,10 @@ tbody tr:hover {
 .message-dot { fill: #39687B !important; }
 .purple-fill { background: #5EA99E !important; }
 .teal-fill { background: #017151 !important; }
-.rank-track span { background: #5EA99E !important; }
-.least-rank-track span { background: #5EA99E !important; }
 
 /* Visual refinements */
 .messages-analytics-page .message-area {
   fill: rgba(186, 215, 184, 0.28) !important;
-}
-
-.messages-analytics-page .rank-track span {
-  background: #5EA99E !important;
-}
-
-.messages-analytics-page .least-rank-track span {
-  background: #5EA99E !important;
 }
 
 .chart-range-summary {
@@ -2582,9 +2345,9 @@ tbody tr:hover {
 }
 
 /*
- * Let the natural Top 5 + Bottom 5 + Key Insights stack set this row's height.
- * Size containment stops a long user table from making the grid row grow; the
- * table then scrolls inside the details card while both columns stay aligned.
+ * The details card sets this row's height. Size containment stops a long user
+ * table from making the grid row grow; the table then scrolls inside the card
+ * and Key Insights stretches to match it.
  */
 .lower-grid {
   align-items: stretch !important;
@@ -2593,7 +2356,7 @@ tbody tr:hover {
 .details-card {
   display: flex;
   height: 100% !important;
-  min-height: 0 !important;
+  min-height: 480px !important;
   flex-direction: column;
   overflow: hidden !important;
   contain: size;
@@ -2614,13 +2377,8 @@ tbody tr:hover {
 }
 
 .right-stack {
-  align-self: start;
-  height: auto;
-  grid-template-rows: auto auto auto !important;
-}
-
-.right-stack > .analytics-card:last-child {
-  height: auto;
+  align-self: stretch;
+  grid-template-rows: minmax(0, 1fr) !important;
 }
 
 
@@ -2829,8 +2587,7 @@ tbody tr:hover {
 
 
 .messages-analytics-page .horizontal-row.interactive-chart-row,
-.messages-analytics-page .message-details-table tbody tr.interactive-chart-row,
-.messages-analytics-page .ranking-list > li.interactive-chart-row {
+.messages-analytics-page .message-details-table tbody tr.interactive-chart-row {
   cursor: default;
 }
 

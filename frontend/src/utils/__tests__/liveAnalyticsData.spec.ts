@@ -1,0 +1,142 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as api from '@/utils/liveAnalyticsApi'
+import * as data from '@/utils/liveAnalyticsData'
+
+vi.mock('@/utils/liveAnalyticsApi', () => ({
+  fetchAllUsers: vi.fn(), fetchAllGroups: vi.fn(), fetchMentors: vi.fn(),
+  fetchGroupActivity: vi.fn(), fetchLoginActivity: vi.fn(),
+  fetchResourceAnalytics: vi.fn(), fetchEmailDeliveryAnalytics: vi.fn(), fetchAllResources: vi.fn(),
+}))
+
+const fullActivity: api.GroupActivityResponse = {
+  messages_by_group: [
+    { group_id: 1, group_name: 'Alpha', message_count: 5 },
+    { group_id: 2, group_name: 'Beta', message_count: 0 },
+  ],
+  messages_by_user: [
+    { user_id: 10, name: 'Ava', message_count: 5 },
+    { user_id: 11, name: 'Ben', message_count: 0 },
+  ],
+  messages_by_day: [
+    { date: '2026-10-01', message_count: 2 },
+    { date: '2026-10-05', message_count: 3 },
+  ],
+  messages_by_group_by_day: [
+    { date: '2026-10-01', group_id: 1, group_name: 'Alpha', message_count: 2 },
+    { date: '2026-10-05', group_id: 1, group_name: 'Alpha', message_count: 3 },
+  ],
+  messages_by_user_by_group_by_day: [
+    { date: '2026-10-01', user_id: 10, name: 'Ava', group_id: 1, group_name: 'Alpha', message_count: 2 },
+    { date: '2026-10-05', user_id: 10, name: 'Ava', group_id: 1, group_name: 'Alpha', message_count: 3 },
+  ],
+  mentor_activity_by_day: [
+    { mentor_id: 20, date: '2026-10-01', messages: 1, logins: 0 },
+    { mentor_id: 20, date: '2026-10-05', messages: 1, logins: 1 },
+  ],
+  mentor_count: 1,
+  student_count: 1,
+  students_per_mentor: 1,
+  query_range: { start: null, end: null },
+}
+
+beforeEach(() => {
+  vi.resetAllMocks()
+  data.clearLiveAnalyticsCache()
+})
+
+describe('sliceGroupActivity', () => {
+  it('derives a date range like the API, keeping zero-count groups and members', () => {
+    const range = data.sliceGroupActivity(fullActivity, '2026-10-04', '2026-10-10')!
+
+    expect(range.messages_by_group).toEqual([
+      { group_id: 1, group_name: 'Alpha', message_count: 3 },
+      { group_id: 2, group_name: 'Beta', message_count: 0 },
+    ])
+    expect(range.messages_by_user).toEqual([
+      { user_id: 10, name: 'Ava', message_count: 3 },
+      { user_id: 11, name: 'Ben', message_count: 0 },
+    ])
+    expect(range.messages_by_day).toEqual([{ date: '2026-10-05', message_count: 3 }])
+    expect(range.mentor_activity_by_day).toEqual([{ mentor_id: 20, date: '2026-10-05', messages: 1, logins: 1 }])
+    expect(range.query_range).toEqual({ start: '2026-10-04', end: '2026-10-10' })
+  })
+
+  it('needs the per-user daily breakdown to slice on the client', () => {
+    const older = { ...fullActivity, messages_by_user_by_group_by_day: undefined }
+    expect(data.sliceGroupActivity(older, '2026-10-04', '2026-10-10')).toBeNull()
+  })
+
+  it('answers range changes without a request when the full data is loaded', async () => {
+    await data.groupActivityForRange(fullActivity, '2026-10-01', '2026-10-01')
+    expect(api.fetchGroupActivity).not.toHaveBeenCalled()
+  })
+})
+
+describe('shared analytics cache', () => {
+  it('lets pages share a source instead of requesting it again', async () => {
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([])
+    vi.mocked(api.fetchAllGroups).mockResolvedValue([])
+    vi.mocked(api.fetchGroupActivity).mockResolvedValue(fullActivity)
+    vi.mocked(api.fetchLoginActivity).mockRejectedValue(new Error('offline'))
+
+    await data.loadGroupsAnalyticsBundle()
+    await data.loadMessagesAnalyticsBundle()
+    await data.loadActivityAnalyticsBundle()
+
+    expect(api.fetchAllUsers).toHaveBeenCalledTimes(1)
+    expect(api.fetchAllGroups).toHaveBeenCalledTimes(1)
+    expect(api.fetchGroupActivity).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses a date range response and retries a failed one', async () => {
+    vi.mocked(api.fetchLoginActivity)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({
+        by_day: [], by_year: [], active_users: { daily: 0, weekly: 0, monthly: 0 },
+        latest_activity_date: null, query_range: { start: '2026-08-01', end: '2026-10-01' },
+      })
+
+    await expect(data.loadLoginActivityRange('2026-08-01', '2026-10-01')).rejects.toThrow('offline')
+    await data.loadLoginActivityRange('2026-08-01', '2026-10-01')
+    await data.loadLoginActivityRange('2026-08-01', '2026-10-01')
+
+    expect(api.fetchLoginActivity).toHaveBeenCalledTimes(2)
+    expect(api.fetchLoginActivity).toHaveBeenLastCalledWith('2026-08-01', '2026-10-01')
+  })
+
+  it('warms every source so Analytics pages open from the cache', async () => {
+    for (const fetcher of [
+      api.fetchAllUsers, api.fetchAllGroups, api.fetchMentors, api.fetchAllResources,
+    ]) vi.mocked(fetcher).mockResolvedValue([])
+    vi.mocked(api.fetchGroupActivity).mockResolvedValue(fullActivity)
+    vi.mocked(api.fetchLoginActivity).mockRejectedValue(new Error('offline'))
+    vi.mocked(api.fetchResourceAnalytics).mockRejectedValue(new Error('offline'))
+    vi.mocked(api.fetchEmailDeliveryAnalytics).mockRejectedValue(new Error('offline'))
+
+    await data.prefetchAnalytics()
+    await data.loadMentorsAnalyticsBundle()
+
+    expect(api.fetchMentors).toHaveBeenCalledTimes(1)
+    expect(api.fetchAllUsers).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('buildGroupsAnalytics', () => {
+  it('buckets group size from 0 to 5 students and flags groups above the limit', () => {
+    const member = (id: number, role = 'student') => ({ id: String(id), name: `M${id}`, email: '', role, membershipId: id })
+    const group = (id: string, studentCount: number) => ({
+      id, name: id, createdAt: '', updatedAt: '', mentor: null,
+      members: [...Array.from({ length: studentCount }, (_, index) => member(index)), member(99, 'mentor')],
+    })
+    const result = data.buildGroupsAnalytics({
+      users: [],
+      groups: [group('a', 0), group('b', 5), group('c', 6)],
+      groupActivity: fullActivity,
+    }, 2026)
+
+    expect(result.groupSizeDistribution.map((bucket) => bucket.label)).toEqual(['0', '1', '2', '3', '4', '5', 'Over 5'])
+    expect(result.groupSizeDistribution.map((bucket) => bucket.value)).toEqual([1, 0, 0, 0, 0, 1, 1])
+    expect(result.nearCapacity).toBe(1)
+    expect(result.overCapacity).toBe(1)
+  })
+})

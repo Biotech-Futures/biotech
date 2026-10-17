@@ -154,7 +154,7 @@
       <div class="section-heading-row logs-heading">
         <div>
           <h2>Email Logs</h2>
-          <p>Recent announcement delivery runs.</p>
+          <p>Recent sends of every email type, newest first.</p>
         </div>
 
         <div class="log-actions">
@@ -165,6 +165,12 @@
             placeholder="Search email logs"
             aria-label="Search email logs"
           />
+          <label class="status-filter">
+            <select v-model="logType" aria-label="Filter email logs by email type">
+              <option value="all">All email types</option>
+              <option v-for="type in logTypes" :key="type" :value="type">{{ type }}</option>
+            </select>
+          </label>
           <label class="status-filter">
             <select v-model="logStatus" aria-label="Filter email logs by status">
               <option value="all">All statuses</option>
@@ -188,6 +194,7 @@
               <th>Sender Email</th>
               <th>Recipient</th>
               <th>Recipient Email</th>
+              <th>Email Type</th>
               <th>Email Title</th>
               <th>Sent At</th>
               <th>Status</th>
@@ -199,10 +206,11 @@
               <td>{{ log.senderEmail }}</td>
               <td>{{ log.recipient }}</td>
               <td>{{ log.recipientEmail }}</td>
+              <td>{{ log.type }}</td>
               <td class="email-title-cell">{{ log.title }}</td>
               <td>{{ log.sentAt }}</td>
               <td>
-                <span class="log-status" :class="log.status.toLowerCase()">
+                <span class="log-status" :class="log.status.toLowerCase()" :title="statusDetail(log)">
                   {{ log.status }}
                 </span>
               </td>
@@ -214,6 +222,29 @@
       <div class="logs-footer">
         <span>{{ filteredLogs.length }} log entries shown</span>
       </div>
+
+      <dl class="log-status-legend" aria-label="What the statuses mean">
+        <div>
+          <dt><span class="log-status delivered">Delivered</span></dt>
+          <dd>Every recipient's mail server accepted the email.</dd>
+        </div>
+        <div>
+          <dt><span class="log-status partial">Partial</span></dt>
+          <dd>
+            Some recipients received the email and some could not be reached, so it did not go to everyone.
+            This happens when a mail server refuses an address (for example a mistyped or closed mailbox)
+            or the send stopped part-way.
+          </dd>
+        </div>
+        <div>
+          <dt><span class="log-status failed">Failed</span></dt>
+          <dd>No recipient received the email.</dd>
+        </div>
+        <p>
+          Who was missed and why is listed in
+          <RouterLink to="/admin/emails">System Emails → Failed Sending Emails</RouterLink>.
+        </p>
+      </dl>
     </section>
 
 
@@ -571,7 +602,7 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import { useRoute } from 'vue-router'
-import type { EmailMonitoringData } from '@/types/analytics'
+import type { EmailLog, EmailMonitoringData } from '@/types/analytics'
 import {
   buildEmailMonitoring,
   loadEmailMonitoringAnalyticsBundle,
@@ -617,10 +648,13 @@ const exportDisabled = computed(() => isLoading.value || !!loadError.value || is
 const analyticsSnapshotAt = ref<string | null>(null)
 const logSearch = ref('')
 const logStatus = ref('all')
+const logType = ref('all')
+const logTypes = computed(() => [...new Set(data.value.logs.map((log) => log.type))].sort())
 
 useAnalyticsRefreshState('email', {
   logSearch,
   logStatus,
+  logType,
 }, () => !isLoading.value && hasLoaded.value)
 
 const filteredLogs = computed(() => {
@@ -628,11 +662,13 @@ const filteredLogs = computed(() => {
 
   return data.value.logs.filter((log) => {
     const matchesStatus = logStatus.value === 'all' || log.status === logStatus.value
+    const matchesType = logType.value === 'all' || log.type === logType.value
     const haystack = [
       log.sender,
       log.senderEmail,
       log.recipient,
       log.recipientEmail,
+      log.type,
       log.title,
       log.sentAt,
       log.status,
@@ -640,9 +676,16 @@ const filteredLogs = computed(() => {
       .join(' ')
       .toLowerCase()
 
-    return matchesStatus && (!query || haystack.includes(query))
+    return matchesStatus && matchesType && (!query || haystack.includes(query))
   })
 })
+
+function statusDetail(log: EmailLog) {
+  const counts = `${log.delivered} of ${log.attempted} delivered, ${log.failed} not delivered.`
+  if (log.status === 'Partial') return `Partial: not every recipient received this email. ${counts}`
+  if (log.status === 'Failed') return `Failed: no recipient received this email. ${counts}`
+  return counts
+}
 
 
 
@@ -827,15 +870,19 @@ function refreshAnalytics() {
 
 function exportLogsCsv() {
   const rows: (string | number)[][] = [
-    ['Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Email Title', 'Sent At', 'Status'],
+    ['Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Email Type', 'Email Title', 'Sent At', 'Status', 'Attempted', 'Delivered', 'Not Delivered'],
     ...filteredLogs.value.map((log) => [
       log.sender,
       log.senderEmail,
       log.recipient,
       log.recipientEmail,
+      log.type,
       log.title,
       log.sentAt,
       log.status,
+      log.attempted,
+      log.delivered,
+      log.failed,
     ]),
   ]
 
@@ -1670,11 +1717,12 @@ th {
 
 .email-log-table th:nth-child(1) { width: 10%; }
 .email-log-table th:nth-child(2) { width: 16%; }
-.email-log-table th:nth-child(3) { width: 12%; }
-.email-log-table th:nth-child(4) { width: 16%; }
-.email-log-table th:nth-child(5) { width: 24%; }
-.email-log-table th:nth-child(6) { width: 12%; }
-.email-log-table th:nth-child(7) { width: 10%; }
+.email-log-table th:nth-child(3) { width: 9%; }
+.email-log-table th:nth-child(4) { width: 8%; }
+.email-log-table th:nth-child(5) { width: 13%; }
+.email-log-table th:nth-child(6) { width: 20%; }
+.email-log-table th:nth-child(7) { width: 13%; }
+.email-log-table th:nth-child(8) { width: 11%; }
 
 .email-title-cell {
   min-width: 0;
@@ -1720,6 +1768,41 @@ th {
   padding-top: 8px;
   color: #667873;
   font-size: 10px;
+}
+
+/* What each delivery status means (Partial in particular). */
+.log-status-legend {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #e1e9e6;
+  border-radius: 10px;
+  background: #f7fbf9;
+  color: #536762;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.log-status-legend div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.log-status-legend dt,
+.log-status-legend dd {
+  margin: 0;
+}
+
+.log-status-legend p {
+  margin: 2px 0 0;
+}
+
+.log-status-legend a {
+  color: #017151;
+  font-weight: 700;
 }
 
 .mailbox-quota-list {

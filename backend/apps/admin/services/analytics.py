@@ -15,6 +15,7 @@ from apps.audit.models import AuditLog
 from apps.chat.models import Messages
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
+from apps.services.email_registry import get_email_type, is_known_email_type
 from apps.services.models import EmailDeliveryMetric
 from apps.users.models import User
 
@@ -460,6 +461,9 @@ def get_resource_analytics(
 
     Date bounds and daily groups use the current Django timezone. Only dates
     and resources with events are returned; uncategorized events form one group.
+    ``clicks_by_resource_by_day`` gives each resource's daily clicks and
+    distinct users, so per-resource trends can be compared; daily distinct
+    users cannot be summed into a period total.
     """
     events = ResourceAccessEvent.objects.all()
     if start_date is not None:
@@ -489,6 +493,19 @@ def get_resource_analytics(
         .annotate(click_count=Count("id"), unique_users=Count("user_id", distinct=True))
         .order_by("-click_count", "resource_id")
     ]
+    clicks_by_resource_by_day = [
+        {
+            "date": row["date"],
+            "resource_id": row["resource_id"],
+            "resource_name": row["resource__name"],
+            "click_count": row["click_count"],
+            "unique_users": row["unique_users"],
+        }
+        for row in events.annotate(date=TruncDate("created_at"))
+        .values("date", "resource_id", "resource__name")
+        .annotate(click_count=Count("id"), unique_users=Count("user_id", distinct=True))
+        .order_by("date", "resource_id")
+    ]
     clicks_by_category = [
         {
             "category_id": row["resource__type_id"],
@@ -503,9 +520,71 @@ def get_resource_analytics(
         **totals,
         "clicks_by_day": clicks_by_day,
         "top_resources": top_resources,
+        "clicks_by_resource_by_day": clicks_by_resource_by_day,
         "clicks_by_category": clicks_by_category,
         "query_range": {"start": start_date, "end": end_date},
     }
+
+
+RECENT_SENDS_LIMIT = 100
+
+
+def _email_type_label(key: str) -> str:
+    """System Emails name for a send type, or a readable form of its key."""
+    if is_known_email_type(key):
+        return get_email_type(key).name
+    return key.replace("_", " ").replace("-", " ").strip().capitalize() or "Email"
+
+
+def _recent_email_sends() -> list[dict]:
+    """The latest sends of every email type, newest first.
+
+    ``EmailDeliveryMetric`` records one row per real send operation for system
+    emails, announcements, chat digests and management bulk sends, so it is the
+    one source that covers every type. Announcement sends are matched to their
+    delivery row (recorded with the same start time) to show the title.
+    """
+    rows = list(
+        EmailDeliveryMetric.objects.select_related("initiated_by")
+        .order_by("-started_at", "-id")[:RECENT_SENDS_LIMIT]
+    )
+    announcement_starts = [row.started_at for row in rows if row.email_type == "announcement"]
+    announcements_by_start = {
+        delivery.started_at: delivery
+        for delivery in AnnouncementDelivery.objects.filter(
+            started_at__in=announcement_starts
+        ).select_related("announcement")
+    } if announcement_starts else {}
+
+    sends = []
+    for row in rows:
+        delivery = (
+            announcements_by_start.get(row.started_at)
+            if row.email_type == "announcement"
+            else None
+        )
+        sends.append(
+            {
+                "id": row.id,
+                "email_type": row.email_type,
+                "email_type_label": _email_type_label(row.email_type),
+                "title": delivery.announcement.title if delivery else None,
+                "announcement_id": delivery.announcement_id if delivery else None,
+                "source_mailbox": row.source_mailbox,
+                "started_at": row.started_at.isoformat(),
+                "status": row.status,
+                "attempted": row.attempted_count,
+                "delivered": row.delivered_count,
+                "failed": row.failed_count,
+                "initiated_by_name": (
+                    f"{row.initiated_by.first_name} {row.initiated_by.last_name}".strip()
+                    if row.initiated_by
+                    else "System"
+                ),
+                "initiated_by_email": row.initiated_by.email if row.initiated_by else "",
+            }
+        )
+    return sends
 
 
 def get_email_delivery_analytics() -> dict:
@@ -609,6 +688,7 @@ def get_email_delivery_analytics() -> dict:
             "hourly": [],
             "daily": [],
             "status_by_role": empty_role_status(),
+            "recent_sends": [],
             "role_attribution": role_attribution(
                 tracked_delivery_runs=0,
                 unattributed_delivery_runs=0,
@@ -875,4 +955,5 @@ def get_email_delivery_analytics() -> dict:
         "status_by_role": status_by_role,
         "role_attribution": attribution,
         "recent_deliveries": recent_deliveries,
+        "recent_sends": _recent_email_sends(),
     }

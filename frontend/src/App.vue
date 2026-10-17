@@ -332,7 +332,7 @@ import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
+import { clearLiveAnalyticsCache, prefetchAnalytics } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
@@ -794,6 +794,38 @@ const handleKeydown = (event: KeyboardEvent) => {
     avatarRef.value?.focus?.()
   }
 }
+
+// Warm the Analytics cache for admins once the rest of the site has loaded,
+// so opening Analytics does not wait. It runs after the page's own requests
+// (window load, then idle time) and again for each newly signed-in admin.
+let analyticsPrefetchUserId: number | string | null = null
+const scheduleAnalyticsPrefetch = () => {
+  const userId = auth.user?.id ?? null
+  if (!auth.isAdmin || userId === null || analyticsPrefetchUserId === userId) return
+  analyticsPrefetchUserId = userId
+  const run = () => {
+    if (!auth.isAdmin || auth.user?.id !== userId) return
+    void prefetchAnalytics()
+  }
+  const whenIdle = () => {
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => void
+    }).requestIdleCallback
+    if (typeof ric === 'function') ric(run, { timeout: 5000 })
+    else window.setTimeout(run, 1500)
+  }
+  if (document.readyState === 'complete') whenIdle()
+  else window.addEventListener('load', whenIdle, { once: true })
+}
+
+watch(
+  () => [auth.user?.id, auth.isAdmin],
+  () => {
+    if (!auth.isAdmin) analyticsPrefetchUserId = null
+    scheduleAnalyticsPrefetch()
+  },
+  { immediate: true },
+)
 
 // Sidebar group list is non-critical — defer behind requestIdleCallback
 // so we don't fight the main page's fetches for connection budget.

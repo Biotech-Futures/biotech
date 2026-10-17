@@ -696,7 +696,7 @@ import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vu
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
-import { fetchLoginActivity, type LoginActivityResponse } from '@/utils/liveAnalyticsApi'
+import type { LoginActivityResponse } from '@/utils/liveAnalyticsApi'
 import { useRoute } from 'vue-router'
 import type {
   ActivityAnalyticsData,
@@ -717,6 +717,7 @@ import {
   liveAnalyticsAsOf,
   liveAnalyticsYear,
   loadActivityAnalyticsBundle,
+  loadLoginActivityRange,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 
@@ -748,7 +749,7 @@ const liveGroupData = ref<GroupsAnalyticsYear>({
   comparisonPreviousYear: new Date().getFullYear() - 1,
   groupsWithMentorPrevious: null, groupsWithoutMentorPrevious: null,
   mentorStudentRatioPrevious: null,
-  smallGroups: 0, inactiveRecent: 0, nearCapacity: 0,
+  smallGroups: 0, inactiveRecent: 0, nearCapacity: 0, overCapacity: 0,
   groupSizeDistribution: [], groupStatus: [], ratioDistribution: [], groupActivity: [],
 })
 const liveYear = ref(new Date().getFullYear())
@@ -975,7 +976,7 @@ async function loadActivityWindowComparison() {
   const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - 59)
   try {
-    const response = await fetchLoginActivity(
+    const response = await loadLoginActivityRange(
       start.toISOString().slice(0, 10),
       selectedEndDate.value,
     )

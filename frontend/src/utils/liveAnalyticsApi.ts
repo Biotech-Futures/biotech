@@ -50,6 +50,9 @@ export type AdminMentor = {
   name: string
   email: string
   isActive: boolean
+  // User.account_status ("active" once the account is activated). Optional
+  // while older backends that only send isActive are still deployed.
+  accountStatus?: string | null
   hasLoggedIn: boolean
   lastLogin: string | null
   institution: string | null
@@ -122,6 +125,14 @@ export type ResourceAnalyticsResponse = {
   active_resources: number
   clicks_by_day: Array<{ date: string; click_count: number }>
   top_resources: Array<{ resource_id: number; resource_name: string; click_count: number; unique_users: number }>
+  // Optional until every backend sends per-resource daily usage.
+  clicks_by_resource_by_day?: Array<{
+    date: string
+    resource_id: number
+    resource_name: string
+    click_count: number
+    unique_users: number
+  }>
   clicks_by_category: Array<{ category_id: number | null; category_name: string | null; click_count: number }>
   query_range: { start: string | null; end: string | null }
 }
@@ -180,6 +191,23 @@ export type EmailDeliveryAnalyticsResponse = {
     recipient_count: number
     success_count: number
     failure_count: number
+    initiated_by_name: string
+    initiated_by_email: string
+  }>
+  // Every email type (system emails, announcements, digests, bulk sends).
+  // Optional while older backends only send announcement deliveries.
+  recent_sends?: Array<{
+    id: number
+    email_type: string
+    email_type_label: string
+    title: string | null
+    announcement_id: number | null
+    source_mailbox: string
+    started_at: string
+    status: 'success' | 'partial' | 'failed'
+    attempted: number
+    delivered: number
+    failed: number
     initiated_by_name: string
     initiated_by_email: string
   }>
