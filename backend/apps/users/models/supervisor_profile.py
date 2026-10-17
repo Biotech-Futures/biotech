@@ -10,6 +10,9 @@ class SupervisorProfile(models.Model):
     # Still registers students while registration is closed by its dates
     # (Management > Late Registration > Supervisors After Close).
     register_after_close = models.BooleanField(default=False)
+    # The day their daily registration status email last went, so it goes
+    # once a day at most (apps.users.supervisor_status).
+    status_digest_sent_on = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = 'supervisor_profile'

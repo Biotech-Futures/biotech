@@ -31,6 +31,7 @@ describe('the management shell', () => {
     const paths = [
       ['Registration', 'registration'],
       ['Late Registration', 'late-registration'],
+      ['Challenge Start', 'challenge-start'],
       ['Submission Deadline', 'submission-deadline'],
       ['Notify Finalists', 'notify-finalists'],
       ['Finalist Presentation', 'finalist-presentation'],
@@ -56,8 +57,8 @@ describe('the management shell', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs[0]!.attributes('aria-selected')).toBe('false')
-    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
-    expect(tabs[2]!.classes()).toContain('active')
+    expect(tabs[3]!.attributes('aria-selected')).toBe('true')
+    expect(tabs[3]!.classes()).toContain('active')
   })
 
   it('renders the section content through the nested router view', () => {

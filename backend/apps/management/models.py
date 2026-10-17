@@ -81,6 +81,29 @@ def template_upload_to(instance, filename):
     return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
 
 
+class ChallengeStart(models.Model):
+    """The day a year's challenge starts (Management > Challenge Start): the
+    supervisors' daily registration status email asks for permission forms to
+    be signed by then. Who last set it, and when."""
+
+    year = models.PositiveSmallIntegerField(unique=True)
+    starts_on = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "challenge_start"
+
+    def __str__(self):
+        return f"Challenge {self.year} starts {self.starts_on or 'unset'}"
+
+    @classmethod
+    def for_year(cls, year: int) -> "ChallengeStart":
+        return cls.objects.get_or_create(year=year)[0]
+
+
 class SupervisorPagesSetting(SingletonModel):
     """Whether supervisors see Home, Groups, Events, Announcements and
     Resources; off until an admin turns it on (Management > Late

@@ -304,6 +304,30 @@ export function fetchRegistrationOpen(): Promise<RegistrationState> {
   return requestJson<RegistrationState>('/api/v1/management/registration-open/')
 }
 
+/** Management > Challenge Start: the day this year's challenge starts, which
+ *  the supervisors' daily registration status email names. */
+export interface ChallengeStart {
+  year: number
+  /** "2026-07-27"; null while it isn't set. */
+  starts_on: string | null
+  /** Who last set it, and when; "" and none until someone has. */
+  set_by: string
+  updated_at: string | null
+}
+
+// GET /api/v1/management/challenge-start/
+export function fetchChallengeStart(): Promise<ChallengeStart> {
+  return requestJson<ChallengeStart>('/api/v1/management/challenge-start/')
+}
+
+// PUT /api/v1/management/challenge-start/ — null clears it.
+export function saveChallengeStart(startsOn: string | null): Promise<ChallengeStart> {
+  return requestJson<ChallengeStart>('/api/v1/management/challenge-start/', {
+    method: 'PUT',
+    body: JSON.stringify({ starts_on: startsOn }),
+  })
+}
+
 /** The year's registration dates: none set, it's open (as far as they go). */
 export interface RegistrationWindow {
   year: number

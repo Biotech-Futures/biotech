@@ -1,7 +1,11 @@
 from django.urls import path
 from .profile_options import StudentProfileOptionsView, GuardianInvitationView
 from .consent_views import GuardianConsentView, GuardianDetailsFormView
-from .guardian_details_views import SendGuardianConsentRemindersView, SendGuardianDetailsRemindersView
+from .guardian_details_views import (
+    SendGuardianConsentRemindersView,
+    SendGuardianDetailsRemindersView,
+    SendSupervisorRegistrationStatusView,
+)
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
@@ -103,5 +107,11 @@ urlpatterns = [
         "admin/send-guardian-consent-reminders/",
         SendGuardianConsentRemindersView.as_view(),
         name="guardian-consent-reminders",
+    ),
+    # The supervisors' daily registration status email.
+    path(
+        "admin/send-supervisor-registration-status/",
+        SendSupervisorRegistrationStatusView.as_view(),
+        name="supervisor-registration-status",
     ),
 ]

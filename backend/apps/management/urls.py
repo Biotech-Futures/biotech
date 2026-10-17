@@ -12,6 +12,7 @@ from .views import (
     FinalistNotifyAllView,
     GradingSettingsView,
     BounceCheckTriggerView,
+    ChallengeStartView,
     RegistrationOpenView,
     RegistrationSupervisorsView,
     RegistrationSupervisorView,
@@ -70,6 +71,8 @@ urlpatterns = [
     path("settings/", GradingSettingsView.as_view(), name="settings"),
     path("supervisor-pages/", SupervisorPagesView.as_view(), name="supervisor-pages"),
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
+    # Management > Challenge Start.
+    path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
     # Late Registration > Supervisors After Close.
     path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
     path(

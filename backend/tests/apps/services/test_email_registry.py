@@ -22,6 +22,7 @@ EXPECTED_KEYS = {
     "registration_student",
     "registration_group",
     "registration_supervisor",
+    "supervisor_registration_status",
     "unread_messages",
     "rsvp_reminder",
     "event_promotion",
