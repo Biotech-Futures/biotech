@@ -19,7 +19,10 @@ from apps.live.broadcast import notify_changed
 from config.errors import GroupAccessDenied
 
 from .emails import send_submission_confirmation
+from . import coedit
 from .errors import (
+    AnswersOverLimit,
+    CoeditingActive,
     FileNotUploadedYet,
     NoFileUploaded,
     NotSubmittedYet,
@@ -40,6 +43,7 @@ from .serializers import (
     SubmissionQuestionSerializer,
     SubmissionSerializer,
     missing_required_answers,
+    over_limit_answers,
 )
 from .services import deadline_for_group
 from .checklist import blank_checklist, detected_checklist, is_confirmed
@@ -94,6 +98,14 @@ def _require_open(group_id: int, user):
     return info
 
 
+def _apply_text(submission, data) -> None:
+    if "project_title" in data:
+        submission.project_title = data["project_title"]
+    if "answers" in data:
+        # Merged, not replaced, so teammates on different questions do not collide.
+        submission.answers = {**(submission.answers or {}), **data["answers"]}
+
+
 def _deadline_payload(group_id: int) -> dict:
     info = deadline_for_group(group_id)
     return {
@@ -127,6 +139,8 @@ class GroupSubmissionView(APIView):
             "max_file_sizes": max_sizes(),
             # Admins act for a team at any time, without the template checks.
             "admin_access": _is_staff(request.user),
+            # Answers and title are co-edited live, and the server saves them.
+            "coediting": coedit.enabled(),
             # None means the team has not started.
             "submission": (
                 SubmissionSerializer(submission).data if submission is not None else None
@@ -138,9 +152,15 @@ class GroupSubmissionView(APIView):
         _require_can_edit(request.user, group.id)
         _require_open(group.id, request.user)
 
-        payload = SubmissionDraftSerializer(data=request.data)
+        staff = _is_staff(request.user)
+        payload = SubmissionDraftSerializer(data=request.data, context={"saves_as_typed": coedit.enabled() and not staff})
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
+        # While co-editing, a team's text is saved from the shared document; only a page that cannot
+        # hold the live connection sends it here, and any other page sending it is out of date.
+        without_live = coedit.enabled() and not staff and ("answers" in data or "project_title" in data)
+        if without_live and not data.get("live_unavailable"):
+            raise CoeditingActive()
 
         # Locked so two teammates auto-saving at once cannot overwrite each other.
         with transaction.atomic():
@@ -149,11 +169,8 @@ class GroupSubmissionView(APIView):
             )
             _require_unlocked(submission, request.user)
 
-            if "project_title" in data:
-                submission.project_title = data["project_title"]
-            if "answers" in data:
-                # Merged, not replaced, so teammates on different questions do not collide.
-                submission.answers = {**(submission.answers or {}), **data["answers"]}
+            if not without_live:
+                _apply_text(submission, data)
             if "prototype_url" in data:
                 submission.prototype_url = data["prototype_url"]
             if "poster_checklist" in data:
@@ -163,8 +180,27 @@ class GroupSubmissionView(APIView):
                 }
             submission.save()
 
+            if staff and coedit.enabled():
+                # Under the row lock, so a team's save cannot fall between the entry and the document and rebuild it.
+                written = {coedit.answer_field(key): value for key, value in data.get("answers", {}).items()}
+                if "project_title" in data:
+                    written[coedit.TITLE_FIELD] = data["project_title"]
+                coedit.write_fields(group.id, written)
+
+        if without_live:
+            typed = {coedit.answer_field(key): value for key, value in data.get("answers", {}).items()}
+            if "project_title" in data:
+                typed[coedit.TITLE_FIELD] = data["project_title"]
+            if not coedit.take_typing(group.id, typed):
+                # The shared document is out of reach, so the entry takes the text; it wins when the document is next read.
+                with transaction.atomic():
+                    submission = Submission.objects.select_for_update().get(group=group)
+                    _apply_text(submission, data)
+                    submission.save()
+            submission.refresh_from_db()
+
         # Open pages catch up on what live text does not carry: an admin's save, ticks and the link.
-        if _is_staff(request.user):
+        if staff:
             notify_changed("submission", group.id, "draft", by=request.user)
         elif "poster_checklist" in data:
             notify_changed("submission", group.id, "checklist", by=request.user)
@@ -322,6 +358,9 @@ class GroupSubmissionSubmitView(APIView):
         _require_can_edit(request.user, group.id)
         _require_open(group.id, request.user)
 
+        # The shared document's latest text reaches the entry before it is copied.
+        coedit.flush(group.id)
+
         # Locked so a teammate's auto-save cannot land mid-submit and be lost.
         with transaction.atomic():
             submission, _ = (
@@ -341,6 +380,11 @@ class GroupSubmissionSubmitView(APIView):
             missing = missing_required_answers(submission)
             if missing:
                 raise RequiredAnswersMissing(missing)
+
+            # A co-edited draft is saved as typed, so the limit is checked here, for teams and admins alike.
+            too_long = over_limit_answers(submission)
+            if too_long:
+                raise AnswersOverLimit(too_long)
 
             # Admins skip the template checks at upload, but confirm the checklist like a team.
             if not is_confirmed(submission.poster_checklist):

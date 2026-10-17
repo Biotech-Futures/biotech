@@ -142,7 +142,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             group_id__in=group_ids,
             left_at__isnull=True
         )
-        .select_related("user", "user__mentorprofile", "user__studentprofile")
+        .select_related("user")
         .order_by("group_id", "id")
     )
     
@@ -167,9 +167,13 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     
     for membership in members_qs:
         user = membership.user
-        role = _get_member_role(user)
+        # Group roles describe this assignment, independently of account profiles.
+        role = membership.membership_role
         
-        if not role:
+        if role not in (
+            GroupMembership.MembershipRoleChoices.MENTOR,
+            GroupMembership.MembershipRoleChoices.STUDENT,
+        ):
             continue
         
         user_ints = sorted(list(dict.fromkeys(interests_by_user.get(user.id, []))), key=str.lower)
@@ -349,7 +353,7 @@ def query_groups(
                 "groupmembership",
                 filter=Q(
                     groupmembership__left_at__isnull=True,
-                    groupmembership__user__studentprofile__isnull=False,
+                    groupmembership__membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
                 ),
                 distinct=True,
             ),
@@ -362,7 +366,7 @@ def query_groups(
                 ),
                 filter=Q(
                     groupmembership__left_at__isnull=True,
-                    groupmembership__user__mentorprofile__isnull=False,
+                    groupmembership__membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
                 ),
             ),
         )

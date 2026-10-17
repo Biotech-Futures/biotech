@@ -9,6 +9,7 @@ from apps.admin.services.group import (
     update_group, remove_group_member, remove_group_message,
     delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
+from apps.admin.services.page_reports import build_page_report
 from apps.audit.models import AuditLog
 from apps.chat.models import Messages
 from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
@@ -49,6 +50,53 @@ class AdminGroupServiceTests(TestCase):
         self.assertNotIn("created_at", group)
         self.assertEqual(group["mentor"]["membershipId"], self.membership.id)
         self.assertNotIn("membership_id", group["mentor"])
+
+    def test_group_mentor_coverage_matches_csv_for_membership_roles(self):
+        for role, departed in (("student", False), ("supervisor", False), ("", False), ("mentor", True)):
+            with self.subTest(role=role, departed=departed):
+                self.membership.membership_role = role
+                self.membership.left_at = timezone.now() if departed else None
+                self.membership.save(update_fields=["membership_role", "left_at"])
+
+                group = query_groups(requesting_user=self.admin_user)["data"]["items"][0]
+                self.assertIsNone(group["mentor"])
+                self.assertEqual(
+                    [member["id"] for member in group["members"]],
+                    [str(self.mentor.id)] if role == "student" else [],
+                )
+                self.assertEqual(query_groups(mentor_status="unmatched")["data"]["total"], 1)
+
+                _, rows, _ = build_page_report({"report": "groups", "year": timezone.now().year})
+                self.assertIn(["Groups with Mentor", 0], rows)
+                self.assertIn(["Groups without Mentor", 1], rows)
+
+    def test_group_mentor_membership_does_not_require_a_mentor_profile(self):
+        self.mentor.mentorprofile.delete()
+
+        group = query_group_by_id(str(self.group.id))["data"]
+
+        self.assertEqual(group["mentor"]["id"], str(self.mentor.id))
+        self.assertEqual(group["mentor"]["role"], "mentor")
+        self.assertEqual(group["members"], [])
+
+    def test_query_groups_sorts_by_assigned_mentor_only(self):
+        other = Groups.objects.create(group_name="Group Two")
+        for first_name, group, role in (
+            ("Aaron", self.group, "supervisor"),
+            ("Charlie", other, "mentor"),
+        ):
+            user = User.objects.create_user(
+                email=f"{first_name.lower()}@example.com", first_name=first_name,
+            )
+            MentorProfile.objects.create(user=user, institution="UNSW", mentor_reason="Testing")
+            GroupMembership.objects.create(group=group, user=user, membership_role=role)
+
+        result = query_groups(sort_by="mentor", sort_order="asc")
+
+        self.assertEqual(
+            [group["id"] for group in result["data"]["items"]],
+            [str(other.id), str(self.group.id)],
+        )
 
     def test_query_groups_orders_by_created_at_desc(self):
         older = self.group

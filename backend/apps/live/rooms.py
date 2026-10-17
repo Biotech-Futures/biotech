@@ -7,6 +7,20 @@ ROOM_ACCESS = {
 }
 
 
+# Kinds whose rooms also share a live-merged document, by the module that keeps it. The module
+# provides enabled(), can_edit(user, room_id), state_since(room_id, vector) -> (missing, vector),
+# generation(room_id), apply_and_claim(room_id, update, generation, claim_seconds) -> (accepted, claimed),
+# save(room_id), flush(room_id), and release_save(room_id), so a room's typists share one save.
+ROOM_DOCUMENTS = {
+    "submission": "apps.submissions.coedit",
+}
+
+
+def document_for(kind: str):
+    path = ROOM_DOCUMENTS.get(kind)
+    return import_module(path) if path else None
+
+
 def can_join(kind: str, user, room_id: int) -> bool:
     path = ROOM_ACCESS.get(kind)
     if path is None:
