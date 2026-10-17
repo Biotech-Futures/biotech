@@ -525,8 +525,9 @@ CORS_ALLOW_CREDENTIALS = True
 # Response headers the SPA is allowed to read on cross-origin fetches.
 # Browsers hide everything but a small safelist otherwise: without this the
 # download filename in Content-Disposition (job exports) and the X-Request-ID
-# that apiError.ts attaches to error reports both read as null in JS.
-CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID"]
+# that apiError.ts attaches to error reports both read as null in JS, as
+# would the System Logs export's X-Export-Truncated and X-Export-Row-Limit.
+CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID", "X-Export-Truncated", "X-Export-Row-Limit"]
 
 # Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
 # app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's

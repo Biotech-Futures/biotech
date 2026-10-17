@@ -130,6 +130,65 @@ class ReviewProbeTests(SimpleTestCase):
                 self.assertEqual(scrub_text(text), text)
 
 
+class ShortSecretNameTests(SimpleTestCase):
+    """code, sid, sig and pass also mean harmless things; only the secrets
+    they can name are redacted."""
+
+    def test_status_and_other_codes_are_kept(self):
+        for text in (
+            "status code=500",
+            "response code: 404",
+            "upstream returned HTTP status code: 502",
+            "worker exited with exit code: 1",
+            "error code=ECONNRESET",
+            "{'detail': 'Not found.', 'code': 'not_found'}",
+            "code=1234567 is not a sign-in code",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(scrub_text(text), text)
+
+    def test_sign_in_codes_are_redacted(self):
+        cases = {
+            "Or enter code: 123456 (expires in 10 mins)": f"Or enter code: {REDACTED} (expires in 10 mins)",
+            "GET /services/magic/?email=a%40b.com&code=987654": f"GET /services/magic/?email=a%40b.com&code={REDACTED}",
+            '{"email": "a@b.com", "code": "123456"}': f'{{"email": "a@b.com", "code": {REDACTED}}}',
+            "context {'OTP_CODE': '123456', 'EXPIRY_MINUTES': 10}":
+                f"context {{'OTP_CODE': {REDACTED}, 'EXPIRY_MINUTES': 10}}",
+            "otp=123456": f"otp={REDACTED}",
+            "login_code=123456": f"login_code={REDACTED}",
+            "verify_code: 654321": f"verify_code: {REDACTED}",
+            "verification_code=ab12cd": f"verification_code={REDACTED}",
+            "reset_code=Xy7-abc": f"reset_code={REDACTED}",
+            "auth_code=4/0AbCdEf": f"auth_code={REDACTED}",
+        }
+        for text, stored in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(scrub_text(text), stored)
+
+    def test_log_lines_naming_the_code_views_are_kept(self):
+        for text in (
+            "verify_login_code: invalid code email_tag=ab12 ip=203.0.113.9 attempt=2",
+            "send_login_code: no user found — enumeration attempt suppressed ip=203.0.113.9",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(scrub_text(text), text)
+
+    def test_sid_is_redacted_only_when_it_looks_like_a_session_key(self):
+        self.assertEqual(scrub_text("grading sid=42 component=3"), "grading sid=42 component=3")
+        self.assertEqual(
+            scrub_text("revoked sid=4f9c1b2a7d3e4c5f8a9b0c1d2e3f4a5b"), f"revoked sid={REDACTED}"
+        )
+
+    def test_sig_is_redacted_only_as_a_url_parameter(self):
+        self.assertEqual(scrub_text("worker stopped sig=15"), "worker stopped sig=15")
+        self.assertEqual(scrub_text("sv=2024&sig=abcDEF123%3D&se=x"), f"sv=2024&sig={REDACTED}&se=x")
+
+    def test_pass_is_redacted_only_as_pass_equals_or_a_quoted_key(self):
+        self.assertEqual(scrub_text("First pass: grouped 12 students"), "First pass: grouped 12 students")
+        self.assertEqual(scrub_text("smtp login pass=hunter2"), f"smtp login pass={REDACTED}")
+        self.assertEqual(scrub_text("{'user': 'a', 'pass': 'hunter2'}"), f"{{'user': 'a', 'pass': {REDACTED}}}")
+
+
 class ScrubPathTests(SimpleTestCase):
     def test_redacts_url_arguments_named_like_secrets(self):
         self.assertEqual(
@@ -153,6 +212,13 @@ class CleanExtraTests(SimpleTestCase):
         self.assertEqual(cleaned["access_token"], REDACTED)
         self.assertEqual(cleaned["user_id"], 7)
         self.assertEqual(cleaned["reason"], "no_user")
+
+    def test_code_keys_are_redacted_only_when_they_name_a_sign_in_code(self):
+        cleaned = clean_extra({"status_code": 500, "error_code": "E42", "code": "123456", "otp_code": "123456"})
+        self.assertEqual(cleaned["status_code"], 500)
+        self.assertEqual(cleaned["error_code"], "E42")
+        self.assertEqual(cleaned["code"], REDACTED)
+        self.assertEqual(cleaned["otp_code"], REDACTED)
 
     def test_makes_values_json_safe(self):
         cleaned = clean_extra({"obj": object(), "nan": float("nan"), "ok": 1.5})

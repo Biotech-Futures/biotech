@@ -26,23 +26,53 @@ _URL_USERINFO = re.compile(r"(?P<scheme>\b[a-zA-Z][a-zA-Z0-9+.-]*://)(?P<user>[^
 _AUTH_SCHEME = re.compile(r"(?i)\b(?P<scheme>bearer|token|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
 # A JSON Web Token on its own: three base64url parts, the first always "eyJ".
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
+_ANY_VALUE = r"\"[^\"]*\"|'[^']*'|[^\s&,;'\"}]+"
+
+
+def _pair(name, value=_ANY_VALUE, quote=r"[\"']?", sep=r"\s*[=:]\s*", before=r"\b"):
+    return re.compile(
+        rf"(?i){before}(?P<name>{name})(?P<quote>{quote})(?P<sep>{sep})(?P<value>{value})"
+    )
+
+
 # name=value / name: value pairs whose name says the value is secret, also
-# with the name quoted as in a dict or JSON ('password': 'x', "code": "1"),
+# with the name quoted as in a dict or JSON ('password': 'x', "otp": "1"),
 # and the keys in Azure connection strings (AccountKey=...;).
-_SECRET_PAIR = re.compile(
-    r"(?i)\b(?P<name>password|passwd|pwd|pass|secret|client_secret|token|access_token|refresh_token"
+_SECRET_PAIR = _pair(
+    r"password|passwd|pwd|secret|client_secret|token|access_token|refresh_token"
     r"|api_key|apikey|secret_key|account_key|accountkey|sharedaccesskey|access_key|sessionid|session_key"
-    r"|csrftoken|csrfmiddlewaretoken|sid|otp|code|signature|sig|authorization|cookie)"
-    r"(?P<quote>[\"']?)(?P<sep>\s*[=:]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s&,;'\"}]+)"
+    r"|csrftoken|csrfmiddlewaretoken|otp|otp_code|login_code|verify_code|verification_code|reset_code"
+    r"|auth_code|signature|authorization|cookie"
+)
+
+# Short names that also mean harmless things, redacted only when the pair is
+# shaped like the secret they can stand for:
+#   code  "status code=500", "exit code: 1", DRF's {'code': 'invalid'}. Only
+#         the six-digit sign-in code (LoginToken.generate_token), as in magic
+#         links (&code=123456) and the login email ("enter code: 123456").
+#   sid   also a student or submission id here (sid=42). Only a value shaped
+#         like a session key (32 characters in user_sessions).
+#   sig   also a signal number (sig=15). Only as a URL parameter, as in Azure
+#         SAS strings (...&sig=...).
+#   pass  also a word ("First pass: ..."). Only as pass=value or a quoted key.
+_SHAPED_SECRET_PAIRS = (
+    _pair("code", value=r"\"\d{6}\"|'\d{6}'|\d{6}(?!\w)"),
+    _pair("sid", value=r"\"[\w-]{20,}\"|'[\w-]{20,}'|[\w-]{20,}"),
+    _pair("sig", before=r"(?<=[?&])", sep="="),
+    _pair("pass", quote="", sep=r"\s*=\s*"),
+    _pair("pass", quote=r"[\"']"),
 )
 
 # Extra keys kept as they are, even though a word in them looks sensitive.
 SAFE_EXTRA_KEYS = frozenset({"user_id", "reason", "status", "kind", "count", "duration_ms", "revoked_at", "ended_at"})
 _SENSITIVE_KEY_PARTS = frozenset({
     "password", "passwd", "pwd", "secret", "token", "sid", "session", "sessionid", "cookie",
-    "authorization", "auth", "otp", "code", "magic", "csrf", "signature", "sig", "credential",
+    "authorization", "auth", "otp", "magic", "csrf", "signature", "sig", "credential",
     "credentials", "apikey", "key",
 })
+# Sensitive only as the whole key: as a part, "code" is mostly harmless
+# (status_code, error_code).
+_SENSITIVE_KEYS = frozenset({"code", "login_code", "verify_code", "verification_code", "reset_code"})
 
 
 # Terminal colour and cursor codes, as servers colour their console lines
@@ -76,7 +106,13 @@ def scrub_text(text: str) -> str:
     text = _URL_QUERY.sub(lambda m: f"{m.group('url')}?{REDACTED}", text)
     text = _AUTH_SCHEME.sub(lambda m: f"{m.group('scheme')} {REDACTED}", text)
     text = _JWT.sub(REDACTED, text)
-    return _SECRET_PAIR.sub(lambda m: f"{m.group('name')}{m.group('quote')}{m.group('sep')}{REDACTED}", text)
+    for pattern in (_SECRET_PAIR, *_SHAPED_SECRET_PAIRS):
+        text = pattern.sub(_redact_pair, text)
+    return text
+
+
+def _redact_pair(match: re.Match) -> str:
+    return f"{match.group('name')}{match.group('quote')}{match.group('sep')}{REDACTED}"
 
 
 def truncate(text: str, limit: int) -> str:
@@ -93,6 +129,8 @@ def truncate(text: str, limit: int) -> str:
 def is_sensitive_key(key: str) -> bool:
     if key.lower() in SAFE_EXTRA_KEYS:
         return False
+    if key.lower() in _SENSITIVE_KEYS:
+        return True
     parts = re.split(r"[^a-z0-9]+", key.lower())
     return any(part in _SENSITIVE_KEY_PARTS for part in parts) or any(
         word in key.lower() for word in ("password", "token", "secret")

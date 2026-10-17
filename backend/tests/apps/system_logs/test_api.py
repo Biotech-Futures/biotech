@@ -367,6 +367,45 @@ class ExportTests(_AdminApiTestCase):
 
         self.assertEqual(len(body.splitlines()), 2)
 
+    def test_says_when_the_file_stopped_at_the_row_limit(self):
+        for _ in range(3):
+            make_entry()
+
+        with mock.patch.object(export, "EXPORT_MAX_ROWS", 2):
+            response, body = self._download()
+
+        self.assertEqual(response[export.TRUNCATED_HEADER], "true")
+        self.assertEqual(response[export.ROW_LIMIT_HEADER], "2")
+        # Told in a header, not in the file: every line after the heading is a row.
+        rows = list(csv.reader(io.StringIO(body.lstrip("﻿"))))
+        self.assertEqual(len(rows), 3)
+
+    def test_says_when_every_matching_row_fits(self):
+        for _ in range(2):
+            make_entry()
+
+        with mock.patch.object(export, "EXPORT_MAX_ROWS", 2):
+            response, _ = self._download(type="json")
+
+        self.assertEqual(response[export.TRUNCATED_HEADER], "false")
+
+    def test_counts_only_the_rows_the_filters_match(self):
+        make_entry(level=logging.ERROR)
+        for _ in range(3):
+            make_entry(level=logging.WARNING)
+
+        with mock.patch.object(export, "EXPORT_MAX_ROWS", 2):
+            response, _ = self._download(level="ERROR")
+
+        self.assertEqual(response[export.TRUNCATED_HEADER], "false")
+
+    def test_the_browser_may_read_the_export_headers(self):
+        from django.conf import settings
+
+        for header in (export.TRUNCATED_HEADER, export.ROW_LIMIT_HEADER, "Content-Disposition"):
+            with self.subTest(header=header):
+                self.assertIn(header, settings.CORS_EXPOSE_HEADERS)
+
     def test_bad_type_or_filter_is_a_400(self):
         self.assertEqual(self.client.get(EXPORT_URL, {"type": "xml"}).status_code, 400)
         self.assertEqual(self.client.get(EXPORT_URL, {"level": "LOUD"}).status_code, 400)

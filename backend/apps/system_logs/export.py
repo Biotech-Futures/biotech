@@ -15,9 +15,15 @@ from itertools import islice
 from asgiref.sync import sync_to_async
 from django.core.handlers.asgi import ASGIRequest
 
-# The most rows one export holds; narrow the filters for more.
+# The most rows one export holds; narrow the filters for more. The page warns
+# from the same number (SYSTEM_LOG_EXPORT_MAX_ROWS in frontend adminAPI.ts).
 EXPORT_MAX_ROWS = 100_000
 CHUNK_SIZE = 2_000
+
+# Response headers telling the page whether the file stopped at the limit.
+# Not a marker row in the file: that would break reading it as CSV or JSON.
+TRUNCATED_HEADER = "X-Export-Truncated"
+ROW_LIMIT_HEADER = "X-Export-Row-Limit"
 
 COLUMNS = [
     ("created_at", "Time (UTC)"),
@@ -38,6 +44,12 @@ COLUMNS = [
 
 # A spreadsheet runs a cell starting with these as a formula.
 _FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def is_truncated(queryset) -> bool:
+    """Whether the filters match more rows than one export holds. Counts no
+    further than one row past the limit."""
+    return queryset[:EXPORT_MAX_ROWS + 1].count() > EXPORT_MAX_ROWS
 
 
 def _rows(queryset):

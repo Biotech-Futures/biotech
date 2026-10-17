@@ -69,7 +69,9 @@ class SystemLogDetailView(generics.RetrieveAPIView):
 
 class SystemLogExportView(APIView):
     """GET /api/v1/admin/system-logs/export/?type=csv|json – every row the
-    same filters match (up to ``export.EXPORT_MAX_ROWS``), streamed.
+    same filters match (up to ``export.EXPORT_MAX_ROWS``, the newest first),
+    streamed. ``X-Export-Truncated: true`` says more rows matched than the file
+    holds.
 
     ``type`` rather than ``format``: DRF reads ``?format=`` itself to pick a
     renderer, and would answer 404 for csv.
@@ -109,6 +111,8 @@ class SystemLogExportView(APIView):
         stamp = timezone.now().strftime("%Y%m%d-%H%M%S")
         response["Content-Disposition"] = f'attachment; filename="system-logs-{stamp}.{extension}"'
         response["Cache-Control"] = "no-store"
+        response[export.TRUNCATED_HEADER] = "true" if export.is_truncated(queryset) else "false"
+        response[export.ROW_LIMIT_HEADER] = str(export.EXPORT_MAX_ROWS)
         return response
 
 
