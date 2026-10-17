@@ -55,12 +55,31 @@ normalizeDirectAuthRedirect()
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: routes
+  routes: routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (to.hash) {
+      return { el: to.hash, top: 80, behavior: 'smooth' }
+    }
+
+    if (to.path.startsWith('/analytics') && to.path !== from.path && !to.hash) {
+      return { left: 0, top: 0 }
+    }
+
+    return savedPosition ?? undefined
+  },
 })
 
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
-import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
+import {
+  isSupervisorHiddenPath,
+  loadSupervisorPages,
+  loadSupervisorRegistration,
+} from '../composables/useSupervisorPages'
+import {
+  isSupervisorRegistrationRoute,
+  resolveSupervisorRegistrationRouteAccess,
+} from './registrationAccess'
 
 router.beforeEach((to, from, next) => {
 
@@ -70,6 +89,7 @@ router.beforeEach((to, from, next) => {
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
   const requiresAdmin = to.meta.requiresAdmin === true
+  const supervisorRegistrationAccess = resolveSupervisorRegistrationRouteAccess(to, auth)
 
   if (to.meta.public === true) {
     // Open to anyone, signed in or not, and never redirected away.
@@ -93,6 +113,9 @@ router.beforeEach((to, from, next) => {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
 
+  } else if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
+
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)
@@ -103,6 +126,9 @@ router.beforeEach((to, from, next) => {
   } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
     // Hidden from supervisors until Management > Supervisor Visibility shows them.
     void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
+  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorRegistrationRoute(to)) {
+    // Their Registration page, unless Management > Supervisor Visibility hides it.
+    void loadSupervisorRegistration().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

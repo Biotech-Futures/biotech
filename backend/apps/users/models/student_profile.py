@@ -51,19 +51,24 @@ class StudentProfile(models.Model):
         ]
         constraints = [
         models.CheckConstraint(
-            condition=~Q(pg_first_name=''),
+            condition=~Q(pg_first_name='') | Q(
+                registered_by__in=['peer', 'supervisor'], parent_guardian_flag=False,
+            ),
             name='student_first_name_not_empty'
         ),
         models.CheckConstraint(
-            condition=~Q(pg_last_name=''),
+            condition=~Q(pg_last_name='') | Q(
+                registered_by__in=['peer', 'supervisor'], parent_guardian_flag=False,
+            ),
             name='student_last_name_not_empty'
         ),
         models.CheckConstraint(
-            condition=~Q(school_name=''),
+            condition=~Q(school_name='') | Q(registered_by='peer'),
             name='student_school_name_not_empty'
         ),
         models.CheckConstraint(
-            condition=Q(year_lvl__in=[str(i) for i in range(9, 13)]),
+            condition=Q(year_lvl__in=[str(i) for i in range(9, 13)])
+            | Q(registered_by='peer', year_lvl=''),
             name='student_year_lvl_valid'
         ),
         models.CheckConstraint(

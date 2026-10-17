@@ -24,7 +24,7 @@ from apps.services.email_log import (
     MISSED_KEPT, NOT_SENT, email_log, mark_failures_seen, note_send, unseen_failures,
 )
 from apps.services.email_registry import EMAIL_TYPES
-from apps.services.models import SystemEmailLog, SystemEmailSettings
+from apps.services.models import EmailDeliveryMetric, SystemEmailLog, SystemEmailSettings
 from apps.services.system_email import FAILED, SENT, send_system_email, sender_for
 from apps.submissions.emails import send_messages
 from apps.users.models import GuardianConsentRequest, StudentProfile, User
@@ -71,6 +71,13 @@ class EmailLogTests(TestCase):
         self.assertIsNotNone(log.last_sent_at)
         self.assertEqual(log.last_sent_by, self.admin)
         self.assertEqual(log.missed, [])
+        metric = EmailDeliveryMetric.objects.get(email_type="password_changed")
+        self.assertEqual(metric.source_mailbox, "info@biotechfutures.org")
+        self.assertEqual(metric.attempted_count, 1)
+        self.assertEqual(metric.delivered_count, 1)
+        self.assertEqual(metric.failed_count, 0)
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.SUCCESS)
+        self.assertEqual(metric.initiated_by, self.admin)
 
     def test_a_refused_address_is_noted_with_its_reason(self):
         with patch.object(EmailMultiAlternatives, "send", side_effect=_refused("jin@example.com")):
@@ -80,6 +87,11 @@ class EmailLogTests(TestCase):
         log = SystemEmailLog.objects.get(key="password_changed")
         self.assertIsNone(log.last_sent_by)
         self.assertEqual(log.missed[0]["missed"], [{"address": "jin@example.com", "reason": "address refused"}])
+        metric = EmailDeliveryMetric.objects.get(email_type="password_changed")
+        self.assertEqual(metric.attempted_count, 1)
+        self.assertEqual(metric.delivered_count, 0)
+        self.assertEqual(metric.failed_count, 1)
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.FAILED)
 
     def test_a_background_send_notes_itself_once_it_has_gone_or_not(self):
         # The test settings send the mail pool's work straight away.
@@ -113,6 +125,24 @@ class EmailLogTests(TestCase):
                 {"address": "cc@example.com", "reason": "address refused"},
             ],
         )
+        metric = EmailDeliveryMetric.objects.get(email_type="submission_reminder")
+        self.assertEqual(metric.source_mailbox, sender.address)
+        self.assertEqual(metric.attempted_count, 3)
+        self.assertEqual(metric.delivered_count, 1)
+        self.assertEqual(metric.failed_count, 2)
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.PARTIAL)
+
+    def test_metric_normalises_a_display_name_to_its_mailbox(self):
+        note_send(
+            "unread_messages",
+            attempted=2,
+            delivered=2,
+            failed=0,
+            source_mailbox="BIOTech Connect <CONNECT@biotechfutures.org>",
+        )
+
+        metric = EmailDeliveryMetric.objects.get(email_type="unread_messages")
+        self.assertEqual(metric.source_mailbox, "connect@biotechfutures.org")
 
     def test_only_the_latest_sends_that_missed_someone_are_kept(self):
         for n in range(MISSED_KEPT + 5):

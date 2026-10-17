@@ -15,7 +15,21 @@
     </div>
 
     <template v-else-if="detail">
-      <div class="status-line" :class="`is-${state.tone}`">
+      <AdminSubmissionBar
+        v-if="adminAccess"
+        :team="teamName"
+        :entry="adminEntry"
+        :students="studentsNote"
+        :editing="adminEditing"
+        :dirty="adminDirty"
+        :busy="isBusy"
+        @edit="startAdminEdit"
+        @save="adminSave"
+        @submit="adminSubmit"
+        @discard="adminDiscard"
+        @done="leaveAdminEdit"
+      />
+      <div v-else class="status-line" :class="`is-${state.tone}`">
         <span class="status-line__icon" aria-hidden="true">
           <i :class="`fas ${state.icon}`"></i>
         </span>
@@ -62,6 +76,37 @@
             <button type="button" class="btn btn-outline" @click="closeReopenDialog">Cancel</button>
             <button ref="reopenConfirm" type="button" class="btn btn-primary" @click="confirmReopen">
               Reopen
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <!-- Admins confirm anything the team will see. -->
+      <div
+        v-if="adminDialog"
+        class="submission-dialog-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="finalist-admin-dialog-title"
+        tabindex="-1"
+        data-testid="admin-dialog"
+        @keydown.esc="answerAdminDialog(false)"
+      >
+        <section class="submission-dialog">
+          <h2 id="finalist-admin-dialog-title" class="submission-dialog__title">{{ adminDialog.title }}</h2>
+          <p class="submission-dialog__body">{{ adminDialog.body }}</p>
+          <div class="submission-dialog__actions">
+            <button type="button" class="btn btn-outline" data-testid="admin-dialog-cancel" @click="answerAdminDialog(false)">
+              Cancel
+            </button>
+            <button
+              ref="adminDialogConfirm"
+              type="button"
+              class="btn btn-primary"
+              data-testid="admin-dialog-confirm"
+              @click="answerAdminDialog(true)"
+            >
+              {{ adminDialog.confirm }}
             </button>
           </div>
         </section>
@@ -120,7 +165,7 @@
 
         <div v-if="detail.sessions.length" class="finalist-availability-submit">
           <button
-            v-if="isEditable"
+            v-if="isEditable && !adminAccess"
             class="btn btn-primary btn-sm"
             type="button"
             data-testid="submit-availability"
@@ -156,7 +201,7 @@
               </p>
               <p v-if="shownPresentation" class="submission-file">
                 <a :href="downloadUrl" target="_blank" rel="noopener noreferrer">{{ shownPresentation.name }}</a>
-                <span class="submission-muted"> ({{ formatFileSize(shownPresentation.size) }})</span>
+                <span class="submission-muted"> ({{ formatFileSize(shownPresentation.size) }}{{ pendingFile ? ' · not saved yet' : '' }})</span>
               </p>
               <p v-else class="submission-muted">Nothing attached yet.</p>
             </div>
@@ -220,7 +265,7 @@
                 v-if="isPdf"
                 class="preview-frame"
                 title="Presentation preview"
-                :src="`${previewUrl}?v=${encodeURIComponent(shownPresentation?.storage_key ?? '')}`"
+                :src="pendingFile ? previewUrl : `${previewUrl}?v=${encodeURIComponent(shownPresentation?.storage_key ?? '')}`"
               ></iframe>
               <div v-else-if="shownPresentation" class="preview-empty">
                 <i class="fas fa-file-powerpoint" aria-hidden="true"></i>
@@ -237,7 +282,7 @@
       </section>
 
       <div class="submission-actions">
-        <button v-if="isEditable" class="btn btn-primary" type="button" :disabled="isBusy" @click="onSubmit">
+        <button v-if="isEditable && !adminAccess" class="btn btn-primary" type="button" :disabled="isBusy" @click="onSubmit">
           {{ isSubmitting ? 'Submitting…' : 'Submit' }}
         </button>
       </div>
@@ -247,7 +292,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import AdminSubmissionBar from '@/components/submission/AdminSubmissionBar.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatDayMonthTime, formatEventCalendarDay, formatSydneySlot, sydneyClockOn } from '@/utils/date'
 import {
@@ -269,6 +315,7 @@ const MESSAGE_TIMEOUT_MS = 4000
 const ALLOWED_EXTENSIONS = ['pdf', 'ppt', 'pptx']
 
 const route = useRoute()
+const router = useRouter()
 const groupId = computed(() => String(route.params.id ?? ''))
 
 const detail = ref<FinalistDetail | null>(null)
@@ -293,16 +340,41 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const entry = computed(() => detail.value?.entry ?? null)
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isLocked = computed(() => Boolean(entry.value?.is_locked))
-const isEditable = computed(() => isOpen.value && !isLocked.value)
+// Admins act for a team in their own edit mode: read-only until they choose Edit.
+const adminAccess = computed(() => Boolean(detail.value?.admin_access))
+const adminEditing = ref(false)
+const isEditable = computed(() => isOpen.value && (adminAccess.value ? adminEditing.value : !isLocked.value))
 const isBusy = computed(
   () => isSaving.value || isSubmitting.value || isReopening.value || isUploading.value
 )
 const showsSubmittedCopy = computed(
-  () => Boolean(entry.value?.is_submitted) && (isLocked.value || !isOpen.value)
+  () => Boolean(entry.value?.is_submitted) && !adminEditing.value && (isLocked.value || !isOpen.value)
 )
-const shownPresentation = computed(() =>
-  showsSubmittedCopy.value ? entry.value?.submitted_presentation ?? null : entry.value?.presentation ?? null
-)
+/** An admin's presentation change, held until Save or Submit: a file to upload, or null to remove. */
+const pendingPresentation = ref<File | null | undefined>(undefined)
+const pendingFile = computed(() => pendingPresentation.value ?? null)
+let pendingObjectUrl = ''
+
+function pendingUrl(): string {
+  const file = pendingFile.value
+  if (!file || typeof URL.createObjectURL !== 'function') return ''
+  pendingObjectUrl ||= URL.createObjectURL(file)
+  return pendingObjectUrl
+}
+
+function clearPending() {
+  if (pendingObjectUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(pendingObjectUrl)
+  pendingObjectUrl = ''
+  pendingPresentation.value = undefined
+}
+
+const shownPresentation = computed(() => {
+  if (pendingPresentation.value !== undefined) {
+    const file = pendingPresentation.value
+    return file ? { storage_key: `pending:${file.name}:${file.size}`, name: file.name, mime: file.type, size: file.size } : null
+  }
+  return showsSubmittedCopy.value ? entry.value?.submitted_presentation ?? null : entry.value?.presentation ?? null
+})
 const isPdf = computed(() => (shownPresentation.value?.name ?? '').toLowerCase().endsWith('.pdf'))
 /** Nothing can be uploaded any more and nothing was, so there is nothing to preview. */
 const isPreviewShut = computed(() => !isEditable.value && !shownPresentation.value)
@@ -340,8 +412,8 @@ const availabilitySubmittedLine = computed(() => {
   const by = entry.value?.availability_submitted_by_name
   return `Submitted${by ? ` by ${by}` : ''} on ${formatDayMonthTime(at)}`
 })
-const downloadUrl = computed(() => presentationDownloadUrl(groupId.value))
-const previewUrl = computed(() => presentationPreviewUrl(groupId.value))
+const downloadUrl = computed(() => (pendingFile.value ? pendingUrl() : presentationDownloadUrl(groupId.value)))
+const previewUrl = computed(() => (pendingFile.value ? pendingUrl() : presentationPreviewUrl(groupId.value)))
 
 const state = computed(() => {
   const closed = !isOpen.value
@@ -469,6 +541,11 @@ async function uploadFile(file: File) {
     setMessage(`That file is ${formatFileSize(file.size)}. The limit is ${maxSizeLabel.value}.`, true)
     return
   }
+  if (adminAccess.value) {
+    clearPending()
+    pendingPresentation.value = file
+    return
+  }
   isUploading.value = true
   uploadPercent.value = 0
   setMessage('')
@@ -510,6 +587,12 @@ function onDrop(event: DragEvent) {
 }
 
 async function removeFile() {
+  if (adminAccess.value) {
+    clearPending()
+    // A held file the team never had is simply dropped; a saved one is marked for removal.
+    if (entry.value?.presentation) pendingPresentation.value = null
+    return
+  }
   isUploading.value = true
   try {
     applyResult(await removePresentation(groupId.value))
@@ -587,7 +670,7 @@ async function refreshDeadline() {
   try {
     const latest = await fetchFinalist(groupId.value)
     if (!detail.value || isBusy.value) return
-    if (!isOpen.value && latest.deadline.is_open) {
+    if (!isOpen.value && latest.deadline.is_open && !adminEditing.value) {
       detail.value = latest
       syncSelection()
     } else {
@@ -621,7 +704,222 @@ watch(now, async () => {
   if (!isOpen.value) setMessage('The finalist deadline has just passed.', true)
 })
 
-watch(groupId, load)
+watch(groupId, () => {
+  adminEditing.value = false
+  clearPending()
+  load()
+})
+
+// ---- Admin edit mode: nothing reaches the team until Save or Submit -----------------------
+
+const teamName = computed(() => detail.value?.group.name ?? 'this team')
+
+const adminEntry = computed(() => {
+  const current = entry.value
+  const when = current?.submitted_at ? formatDayMonthTime(current.submitted_at) : ''
+  switch (current?.stage ?? 'not_started') {
+    case 'submitted':
+      return `Submitted ${when}`
+    case 'revising':
+      return `Reopened, last submitted ${when}`
+    case 'in_progress':
+      return 'Draft, not submitted'
+    default:
+      return 'Not started'
+  }
+})
+
+/** The finalist deadline is shown, not enforced, so only a submitted entry stops the team. */
+const studentsNote = computed(() => {
+  if (isLocked.value) return "Can't edit until reopened"
+  const closesAt = detail.value?.deadline.closes_at
+  return closesAt ? `Can edit · due ${deadlineDate.value}` : 'Can edit'
+})
+
+const adminDirty = computed(
+  () => adminEditing.value && (availabilityChanged.value || pendingPresentation.value !== undefined)
+)
+
+/** The times and slides as they stood when the admin chose Edit, to tell what the team changed since. */
+let editStart: { sessions: number[]; presentationKey: string } = { sessions: [], presentationKey: '' }
+
+const adminDialog = ref<{ title: string; body: string; confirm: string } | null>(null)
+const adminDialogConfirm = ref<HTMLButtonElement | null>(null)
+let answerDialog: ((ok: boolean) => void) | null = null
+
+function askAdmin(title: string, body: string, confirm: string): Promise<boolean> {
+  adminDialog.value = { title, body, confirm }
+  void nextTick(() => adminDialogConfirm.value?.focus())
+  return new Promise((resolve) => {
+    answerDialog = resolve
+  })
+}
+
+function answerAdminDialog(ok: boolean) {
+  adminDialog.value = null
+  answerDialog?.(ok)
+  answerDialog = null
+}
+
+/** The entry as the server now holds it, since the team may have changed it meanwhile. */
+async function reloadEntry() {
+  try {
+    detail.value = await fetchFinalist(groupId.value)
+  } catch {
+    // Kept as it was; the next save reports any problem.
+  }
+}
+
+async function startAdminEdit() {
+  await reloadEntry()
+  syncSelection()
+  editStart = {
+    sessions: [...(entry.value?.available_session_ids ?? [])],
+    presentationKey: entry.value?.presentation?.storage_key ?? ''
+  }
+  adminEditing.value = true
+}
+
+async function leaveAdminEdit() {
+  adminEditing.value = false
+  clearPending()
+  await reloadEntry()
+  syncSelection()
+}
+
+async function adminDiscard() {
+  if (!(await askAdmin('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
+  await leaveAdminEdit()
+  setMessage('Changes discarded.')
+}
+
+function sameTimes(a: number[], b: number[]) {
+  return a.length === b.length && a.every((id) => b.includes(id))
+}
+
+/**
+ * Takes the entry's current state before an admin's Save or Submit, so reopening follows it, and
+ * asks before overwriting what the team changed meanwhile. The admin's ticks and file stay.
+ */
+async function readyToWrite(): Promise<boolean> {
+  const latest = await fetchFinalist(groupId.value)
+  if (!detail.value) return false
+  detail.value = { ...detail.value, deadline: latest.deadline, entry: latest.entry }
+  const timesClash =
+    !sameTimes(selected.value, editStart.sessions) &&
+    !sameTimes(latest.entry?.available_session_ids ?? [], editStart.sessions)
+  const fileClash =
+    pendingPresentation.value !== undefined && (latest.entry?.presentation?.storage_key ?? '') !== editStart.presentationKey
+  const conflicts = (timesClash ? 1 : 0) + (fileClash ? 1 : 0)
+  return (
+    !conflicts ||
+    askAdmin(
+      conflicts === 1 ? 'Overwrite a conflicting change?' : `Overwrite ${conflicts} conflicting changes?`,
+      'The team changed some of the same parts while you were editing. Continuing replaces their version of those.',
+      'Overwrite'
+    )
+  )
+}
+
+/** Sends the ticked times (when changed, or when a submit needs them) and the held presentation. */
+async function publishAdminChanges(forSubmit: boolean) {
+  const needsTimes = forSubmit && detail.value?.times_shown && !entry.value?.availability_submitted_at
+  if (detail.value?.times_shown && (availabilityChanged.value || needsTimes)) {
+    applyResult(await submitAvailability(groupId.value, selected.value))
+  }
+  if (pendingPresentation.value !== undefined) {
+    const file = pendingPresentation.value
+    isUploading.value = true
+    try {
+      if (file) {
+        applyResult(await uploadPresentation(groupId.value, file, (percent) => (uploadPercent.value = percent)))
+      } else if (entry.value?.presentation) {
+        applyResult(await removePresentation(groupId.value))
+      }
+    } finally {
+      isUploading.value = false
+      uploadPercent.value = 0
+    }
+    clearPending()
+  }
+}
+
+async function adminSave() {
+  if (detail.value?.times_shown && availabilityChanged.value && !selected.value.length) {
+    setMessage('Choose at least one session the team can attend.', true)
+    showPart('availability')
+    return
+  }
+  isSaving.value = true
+  setMessage('')
+  try {
+    if (!(await readyToWrite())) return
+    // The round has no enforced deadline, so a submitted entry is reopened to show the team the changes.
+    if (isLocked.value) {
+      const reopen = await askAdmin(
+        'Reopen for the team?',
+        `Saving reopens ${teamName.value}'s finalist entry with your changes. Their submission stands until it's submitted again.`,
+        'Reopen'
+      )
+      if (!reopen) return
+      applyResult(await reopenFinalist(groupId.value))
+    }
+    await publishAdminChanges(false)
+    await leaveAdminEdit()
+    setMessage(`Saved to ${teamName.value}'s finalist entry.`)
+  } catch (error) {
+    setMessage(errorText(error), true)
+  } finally {
+    isSaving.value = false
+  }
+}
+
+async function adminSubmit() {
+  if (detail.value?.times_shown && !selected.value.length) {
+    setMessage('Choose at least one session the team can attend.', true)
+    showPart('availability')
+    return
+  }
+  if (!shownPresentation.value) {
+    setMessage('A presentation must be uploaded before the entry can be submitted.', true)
+    showPart('presentation')
+    return
+  }
+  isSubmitting.value = true
+  setMessage('')
+  try {
+    if (!(await readyToWrite())) return
+    const confirmed = await askAdmin(
+      `Submit for ${teamName.value}?`,
+      'This becomes their latest finalist submission.',
+      'Submit'
+    )
+    if (!confirmed) return
+    await publishAdminChanges(true)
+    applyResult(await submitFinalist(groupId.value))
+    await leaveAdminEdit()
+    setMessage(`Submitted for ${teamName.value}.`)
+  } catch (error) {
+    setMessage(errorText(error), true)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+const LEAVE_WARNING = 'You have unsaved changes for this team. Leave without saving?'
+
+// Moving between this team's sections keeps the page, and the changes, in place.
+const removeLeaveGuard = router.beforeEach((to) => {
+  if (!adminDirty.value || String(to.params.id ?? '') === groupId.value) return true
+  return window.confirm(LEAVE_WARNING)
+})
+
+function warnBeforeUnload(event: BeforeUnloadEvent) {
+  if (!adminDirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+window.addEventListener('beforeunload', warnBeforeUnload)
 
 onMounted(() => {
   load()
@@ -630,6 +928,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  removeLeaveGuard()
+  window.removeEventListener('beforeunload', warnBeforeUnload)
+  clearPending()
   window.removeEventListener('focus', onPageVisible)
   document.removeEventListener('visibilitychange', onPageVisible)
   if (messageTimer) clearTimeout(messageTimer)

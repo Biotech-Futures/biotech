@@ -20,6 +20,7 @@ from apps.groups.models import GroupMembership
 from apps.users.models import User
 from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, UNREACHABLE, note_send, reason_for
+from apps.services.retry import RetryLater, reset
 from apps.services.system_email import (
     RenderedEmail,
     build_message,
@@ -401,11 +402,31 @@ def _schedule_announcement_email(
     in the request), the deferred send is silently dropped, so we never
     notify recipients about an announcement that doesn't actually exist.
     """
-    transaction.on_commit(
-        lambda: send_announcement_email(
-            announcement_id, initiated_by=initiated_by,
-        )
-    )
+    transaction.on_commit(lambda: queue_announcement_email(announcement_id, initiated_by))
+
+
+def queue_announcement_email(announcement_id: int, initiated_by: Optional["UserType"] = None) -> None:
+    """Queue the announcement's email to send in its turn, after any bulk
+    email going from the same mailbox (see ``send_guard``)."""
+    from apps.management.services.send_guard import queue_job
+
+    actor = initiated_by if getattr(initiated_by, "pk", None) else None
+    queue_job("announcement", actor, {"announcement_id": announcement_id})
+
+
+def announcement_job(actor, options: Dict[str, Any]) -> Dict[str, int]:
+    """The queued send of one announcement's email (``send_guard.JOBS``)."""
+    result = send_announcement_email(options["announcement_id"], initiated_by=actor)
+    return {"sent": result.get("succeeded", 0), "failed": result.get("failed", 0)}
+
+
+def notify_announcement(announcement_id: int, initiated_by: Optional["UserType"] = None) -> Dict[str, Any]:
+    """Email Notification on an announcement: queued to send in its turn,
+    or skipped at once when there's no such announcement."""
+    if not _fetch_announcement(announcement_id):
+        return _skipped_send_result("Announcement not found")
+    queue_announcement_email(announcement_id, initiated_by)
+    return {**_skipped_send_result("The email is queued and sends shortly."), "status": "queued"}
 
 
 def _resolve_author_user_id(
@@ -635,6 +656,8 @@ def _deliver_announcement_to_recipients(
             failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
         return 0, failed, connection_error
 
+    # Those that fail, kept to try once more once everyone has been tried.
+    later = RetryLater(connection)
     try:
         for addr in emails:
             message = build_message(render_for(addr), addr, from_email=sender.from_email, connection=connection)
@@ -644,6 +667,9 @@ def _deliver_announcement_to_recipients(
                 # raises on SMTP errors.
                 result = message.send(fail_silently=False)
             except Exception as exc:
+                if later.keep(exc, addr, lambda message=message: message.send(fail_silently=False)):
+                    reset(connection)
+                    continue
                 failed.append({
                     "email": addr,
                     "error": _sanitize_error(exc),
@@ -678,6 +704,17 @@ def _deliver_announcement_to_recipients(
                         "announcement_id=%s recipient=%s",
                         announcement_id, addr,
                     )
+        # Once more, a few seconds on, over a fresh connection (see ``retry``).
+        for addr, exc in later.run():
+            if exc is None:
+                succeeded += 1
+                continue
+            failed.append({"email": addr, "error": _sanitize_error(exc), "reason": reason_for(exc)})
+            logger.warning(
+                "announcement_email.send_failed "
+                "announcement_id=%s recipient=%s error=%s",
+                announcement_id, addr, _sanitize_error(exc),
+            )
     finally:
         try:
             connection.close()
@@ -825,6 +862,11 @@ def send_announcement_email(
         "announcement",
         missed={item["email"]: item.get("reason", NOT_SENT) for item in failed},
         by=initiated_by,
+        attempted=len(emails),
+        delivered=succeeded,
+        failed=len(failed),
+        source_mailbox=sender_for("announcement").address,
+        started_at=delivery.started_at,
     )
 
     failure_count = len(failed)

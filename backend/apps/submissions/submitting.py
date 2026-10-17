@@ -1,17 +1,18 @@
 """Completing an entry: shared by the Submit button and the automated submission."""
 from .checklist import is_confirmed
 from .models import Submission
-from .serializers import missing_required_answers
+from .serializers import missing_required_answers, over_limit_answers
 from .services import active_deadline, current_cohort
 from .storage import submission_file_service
 
 
 def is_complete(submission: Submission) -> bool:
-    """Everything Submit requires of a team: poster, title, every required answer and the checklist."""
+    """Everything Submit requires of a team: poster, title, every required answer within its limit, and the checklist."""
     return bool(
         submission.poster
         and submission.project_title.strip()
         and not missing_required_answers(submission)
+        and not over_limit_answers(submission)
         and is_confirmed(submission.poster_checklist)
     )
 

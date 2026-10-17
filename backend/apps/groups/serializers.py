@@ -14,16 +14,42 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
   user_name = serializers.SerializerMethodField()
   has_logged_in = serializers.SerializerMethodField()
   student_details = serializers.SerializerMethodField()
+  interests = serializers.SerializerMethodField()
 
   class Meta:
     model = GroupMembership
     fields = [
       'id', 'group', 'user', 'user_name', 'membership_role',
       'joined_at', 'left_at', 'has_logged_in',
-      'student_details',
+      'student_details', 'interests',
     ]
-    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in']
+    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in', 'interests']
     validators = []
+
+  def get_interests(self, obj) -> list[str]:
+    user = getattr(obj, 'user', None)
+    if user is None:
+      return []
+    if hasattr(user, 'userinterest_set'):
+      return sorted(
+        {
+          ui.interest.interest_desc.strip()
+          for ui in user.userinterest_set.all()
+          if getattr(ui, 'interest', None) and ui.interest.interest_desc
+        },
+        key=str.lower,
+      )
+    from apps.users.models import UserInterest
+    return sorted(
+      {
+        desc.strip()
+        for desc in UserInterest.objects.filter(user_id=obj.user_id)
+        .select_related('interest')
+        .values_list('interest__interest_desc', flat=True)
+        if desc and desc.strip()
+      },
+      key=str.lower,
+    )
 
   def get_student_details(self, obj):
     from apps.users.models import StudentProfile
@@ -107,8 +133,8 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at']
-    read_only_fields = ['id', 'year', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at', 'formed_by']
+    read_only_fields = ['id', 'year', 'created_at', 'deleted_at', 'formed_by']
     validators = []
     extra_kwargs = {
       'group_name': {'validators': [], 'required': False, 'allow_blank': True},

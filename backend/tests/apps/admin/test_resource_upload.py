@@ -135,6 +135,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": upload,
                 "resource_name": "Brief",
                 "resource_description": "A brief file",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -170,6 +171,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": upload,
                 "resource_name": "Brief",
                 "resource_description": "A brief file",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -202,6 +204,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": upload,
                 "resource_name": "Brief",
                 "resource_description": "A brief file",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -507,6 +510,7 @@ class AdminResourceUploadTests(TestCase):
                 "file": original_upload,
                 "resource_name": "Replaceable Resource",
                 "resource_description": "Will be replaced",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -542,6 +546,7 @@ class AdminResourceUploadTests(TestCase):
                     "original.pdf", b"original content", content_type="application/pdf"
                 ),
                 "resource_name": "No Replacement File",
+                "role_ids": [str(self.role.id)],
             },
             format="multipart",
         )
@@ -555,3 +560,46 @@ class AdminResourceUploadTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["msg"], "No file was uploaded.")
+
+    def test_admin_can_update_page_resource_content_html_without_resource_kind(self):
+        create_response = self.client.post(
+            reverse("admin_api:resource-list-create"),
+            {
+                "resource_name": "Rich Content Page",
+                "resource_description": "Initial description",
+                "resource_kind": "page",
+                "visibility_scope": "role_based",
+                "role_ids": [self.role.id],
+                "content_html": "<p>Initial text</p>",
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        resource_id = create_response.data["data"]["id"]
+
+        update_response = self.client.put(
+            reverse("admin_api:resource-detail", args=[resource_id]),
+            {
+                "resource_name": "Rich Content Page Updated",
+                "resource_description": "Updated description",
+                "visibility_scope": "role_based",
+                "role_ids": [self.role.id],
+                "content_html": "<p>Updated rich content text</p>",
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            update_response.data["data"]["content_html"],
+            "<p>Updated rich content text</p>",
+        )
+
+        detail_response = self.client.get(
+            reverse("admin_api:resource-detail", args=[resource_id])
+        )
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            detail_response.data["data"]["content_html"],
+            "<p>Updated rich content text</p>",
+        )
+

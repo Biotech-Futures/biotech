@@ -1,5 +1,5 @@
-"""Management's Supervisor Pages switch: off by default, readable by anyone
-signed in, changed by admins only."""
+"""Management's Supervisor Visibility switches: the pages off by default, the
+Registration page on; readable by anyone signed in, changed by admins only."""
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -17,13 +17,25 @@ class SupervisorPagesTests(TestCase):
 
     def test_off_until_an_admin_turns_it_on(self):
         self.client.force_authenticate(self.supervisor)
-        self.assertEqual(self.client.get(URL).json(), {"shown": False})
+        self.assertEqual(self.client.get(URL).json(), {"shown": False, "registration_shown": True})
 
         self.client.force_authenticate(self.admin)
-        self.assertEqual(self.client.put(URL, {"shown": True}, format="json").json(), {"shown": True})
+        self.assertEqual(
+            self.client.put(URL, {"shown": True}, format="json").json(),
+            {"shown": True, "registration_shown": True},
+        )
 
         self.client.force_authenticate(self.supervisor)
-        self.assertEqual(self.client.get(URL).json(), {"shown": True})
+        self.assertEqual(self.client.get(URL).json(), {"shown": True, "registration_shown": True})
+
+    def test_the_registration_page_is_hidden_apart(self):
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(
+            self.client.put(URL, {"registration_shown": False}, format="json").json(),
+            {"shown": False, "registration_shown": False},
+        )
+        self.client.force_authenticate(self.supervisor)
+        self.assertEqual(self.client.get(URL).json(), {"shown": False, "registration_shown": False})
 
     def test_only_admins_change_it(self):
         self.client.force_authenticate(self.supervisor)
@@ -32,6 +44,8 @@ class SupervisorPagesTests(TestCase):
     def test_needs_true_or_false(self):
         self.client.force_authenticate(self.admin)
         self.assertEqual(self.client.put(URL, {"shown": "yes"}, format="json").status_code, 400)
+        self.assertEqual(self.client.put(URL, {"registration_shown": 1}, format="json").status_code, 400)
+        self.assertEqual(self.client.put(URL, {}, format="json").status_code, 400)
 
     def test_needs_signing_in(self):
         self.assertIn(self.client.get(URL).status_code, (401, 403))

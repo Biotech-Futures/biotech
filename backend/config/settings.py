@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -163,7 +164,7 @@ RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
     str(value).strip().lower().lstrip(".")
     for value in config(
         "RESOURCE_FILE_ALLOWED_EXTENSIONS",
-        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx,mp4,webm,mov",
         cast=Csv(),
     )
     if str(value).strip()
@@ -176,7 +177,8 @@ RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
             "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
             "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
             "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
-            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+            "video/mp4,video/webm,video/quicktime"
         ),
         cast=Csv(),
     )
@@ -480,6 +482,11 @@ CORS_ALLOWED_ORIGINS = config(
 )
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    *default_headers,
+    "idempotency-key",
+    "x-registration-invitation",
+]
 
 # Response headers the SPA is allowed to read on cross-origin fetches.
 # Browsers hide everything but a small safelist otherwise: without this the
@@ -633,6 +640,7 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
 )
+SUBMISSION_COEDITING_ENABLED = config("SUBMISSION_COEDITING_ENABLED", default=False, cast=bool)
 
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
@@ -658,10 +666,13 @@ GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false",
 BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
 # Once a run has tried every email, it waits this many seconds, then tries
-# once more the ones that failed.
+# once more the ones that failed: Management's bulk emails, announcements, the
+# RSVP reminders and the unread digest. A single email is tried again at once
+# (apps.services.retry).
 BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
-# Bulk email runs send one at a time; each starts this many seconds after the
-# one before it finished.
+# Bulk email runs (with announcements and the scheduled emails) send one at a
+# time from each mailbox; each starts this many seconds after the one before
+# it finished.
 BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
@@ -687,11 +698,9 @@ UNREAD_DIGEST_QUIET_END_HOUR = config(
     "UNREAD_DIGEST_QUIET_END_HOUR", default=7, cast=int
 )
 UNREAD_DIGEST_QUIET_TZ = config("UNREAD_DIGEST_QUIET_TZ", default="Australia/Sydney")
-# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and runs
-# on a background thread. Sync dispatch (tests) runs it inline instead.
-UNREAD_DIGEST_DISPATCH_SYNC = config(
-    "UNREAD_DIGEST_DISPATCH_SYNC", default="false", cast=env_bool,
-)
+# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and
+# the run is queued, to send in its turn (BULK_EMAIL_DISPATCH_SYNC runs it
+# inline under tests).
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h
@@ -743,3 +752,15 @@ LINK_PREVIEW_USER_AGENT = config(
 LINK_PREVIEW_DISPATCH_SYNC = config(
     "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )
+
+# QuickEmailVerification (apps.users.email_verification). The key comes only from
+# the environment; with none set, every check reports "error" and nothing is blocked.
+QEV_API_KEY = config("QEV_API_KEY", default="")
+QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
+QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
+QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=600, cast=int)
+QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
+QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
+# Email checks run on a background thread after commit; tests run them inline.
+EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)

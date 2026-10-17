@@ -39,7 +39,6 @@ from .serializers import (
 )
 from .services import (
     get_request_accepted_event_ids,
-    send_due_rsvp_reminders,
     set_user_rsvp,
     visible_events_queryset,
 )
@@ -506,15 +505,8 @@ class RsvpReminderTriggerView(APIView):
         if refusal:
             return refusal
 
-        events_processed, sent, failed = send_due_rsvp_reminders()
-        return Response(
-            {
-                "events_processed": events_processed,
-                "emails_sent": sent,
-                "emails_failed": failed,
-            },
-            status=status.HTTP_200_OK,
-        )
+        # Sent in its turn, after any bulk email going from the same mailbox.
+        return email_jobs.queued("rsvp_reminder")
 
 
 # ---------------------------------------------------------------------------

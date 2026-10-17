@@ -123,11 +123,12 @@ describe('AnnouncementsPage - Admin Integration', () => {
       audiences: []
     })
     vi.spyOn(adminApi, 'deleteAdminAnnouncement').mockResolvedValue({} as any)
+    // The email is queued, to send in its turn after any bulk email.
     vi.spyOn(adminApi, 'notifyAdminAnnouncement').mockResolvedValue({
-      msg: 'Announcement email sent successfully',
-      status: 'success',
-      attempted: 5,
-      succeeded: 5,
+      msg: 'The email is queued and sends shortly.',
+      status: 'queued',
+      attempted: 0,
+      succeeded: 0,
       failed: 0
     })
   })
@@ -398,7 +399,7 @@ describe('AnnouncementsPage - Admin Integration', () => {
       await flushPromises()
 
       expect(adminApi.notifyAdminAnnouncement).toHaveBeenCalledWith(201)
-      expect(wrapper.text()).toContain('Email notification sent successfully')
+      expect(wrapper.text()).toContain('The email is queued and sends shortly.')
     })
 
     it('renders checkboxes constantly on announcement cards for admins', async () => {

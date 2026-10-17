@@ -42,6 +42,7 @@ from .serializers import (
     StudentGuardianUpdateSerializer,
     SupervisedStudentEmailSerializer,
     SupervisedStudentIdsSerializer,
+    SelfNameSerializer,
     SupervisedStudentGuardianSerializer,
     SupervisedStudentProfileUpdateSerializer,
     SupervisedStudentSerializer,
@@ -349,6 +350,22 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
 
+        # A supervisor changes their own name on their profile, and nothing
+        # else of theirs; the rest of the student fields stay students' only.
+        if (
+            not StudentProfile.objects.filter(user=user).exists()
+            and SupervisorProfile.objects.filter(user=user).exists()
+        ):
+            name_data = {key: data[key] for key in ("first_name", "last_name") if key in data}
+            if name_data:
+                names = SelfNameSerializer(data=name_data)
+                names.is_valid(raise_exception=True)
+                for field, value in names.validated_data.items():
+                    setattr(user, field, value.strip())
+                user.save(update_fields=list(names.validated_data))
+                _log_edit(user, user.id, "profile_update", {"fields": sorted(names.validated_data)})
+            data = {key: value for key, value in data.items() if key not in ("first_name", "last_name")}
+
         student_update_data = {
             key: value for key, value in data.items() if key in STUDENT_SELF_PROFILE_FIELDS
         }
@@ -414,12 +431,15 @@ class MeRetrieveView(generics.RetrieveAPIView):
 
                 # Changing guardian details invalidates a prior consent response.
                 if guardian_changed:
+                    profile.parent_guardian_flag = bool(
+                        profile.pg_first_name.strip() and profile.pg_last_name.strip() and profile.pg_email
+                    )
                     profile.has_join_permission = False
                     profile.joinperm_responseID = None
                     profile.joinperm_granted_at = None
                     profile.guardian_reminder_sent_at = None
                     profile.guardian_reminder_due_at = None
-                    profile_update_fields.extend(["has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
+                    profile_update_fields.extend(["parent_guardian_flag", "has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
                 if profile_update_fields:
                     profile.save(update_fields=list(set(profile_update_fields)))
                 _log_edit(user, user.id, "profile_update", {"fields": sorted(student_update_data)})
@@ -503,7 +523,7 @@ class SupervisedStudentsView(APIView):
                     withdrawn_at__isnull=True,
                 )
                 .order_by("student_id", "-signed_at")
-                .only("student_id", "signature_png", "signed_at", "media_consent", "media_withdrawn_at")
+                .only("student_id", "signed_at", "media_consent", "media_withdrawn_at")
             ):
                 latest_consent_by_student.setdefault(consent.student_id, consent)
 
@@ -529,7 +549,6 @@ class SupervisedStudentsView(APIView):
                 "has_join_permission": profile.has_join_permission,
                 "joinperm_response_id": profile.joinperm_responseID or "",
                 "joinperm_granted_at": profile.joinperm_granted_at,
-                "signature": latest_signature_data_url(profile, consent),
                 "group_id": None if group is None or group.deleted_at else group.id,
                 "group_name": None if group is None or group.deleted_at else group.group_name,
             })
@@ -599,6 +618,40 @@ def _supervised_profiles(scope, student_ids):
     if any(student_id not in found_ids for student_id in student_ids):
         raise PermissionDenied("One or more students are not on your roster.")
     return profiles
+
+
+class SupervisedStudentSignaturesView(APIView):
+    """GET ?ids=1,2: those students' guardians' drawn signatures, each the
+    newest still standing as a PNG data URL (or None), for their consent forms
+    when one's opened or downloaded. The roster leaves them out, as they're
+    large. Only students the user may see (as the roster)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    def get(self, request):
+        try:
+            student_ids = sorted({
+                int(part) for part in request.query_params.get("ids", "").split(",") if part.strip()
+            })
+        except ValueError:
+            return Response({"detail": "ids must be student ids."}, status=status.HTTP_400_BAD_REQUEST)
+        profiles = _supervised_profiles(_student_scope(request.user), student_ids)
+        latest = {}
+        for consent in (
+            GuardianConsent.objects.filter(
+                student_id__in=[profile.pk for profile in profiles], withdrawn_at__isnull=True,
+            )
+            .order_by("student_id", "-signed_at")
+            .only("student_id", "signature_png", "signed_at")
+        ):
+            latest.setdefault(consent.student_id, consent)
+        return Response({
+            "signatures": {
+                str(profile.user_id): latest_signature_data_url(profile, latest.get(profile.pk))
+                for profile in profiles
+            },
+        })
 
 
 class SupervisedStudentEmailView(APIView):
@@ -780,7 +833,9 @@ def _account_fields(user, consent):
     """A roster row's account details and media consent. ``consent`` is the
     student's newest signed form still standing, or None."""
     return {
+        "country_id": user.country_id,
         "country_name": user.country.country_name if user.country else "",
+        "state_id": user.state_id,
         "state_name": user.state.state_name if user.state else "",
         "account_status": user.get_account_status_display(),
         # From the signed form: None when there's none on the platform.
@@ -825,7 +880,6 @@ def _supervised_student_row(profile):
         "has_join_permission": profile.has_join_permission,
         "joinperm_response_id": profile.joinperm_responseID or "",
         "joinperm_granted_at": profile.joinperm_granted_at,
-        "signature": latest_signature_data_url(profile, consent),
         "group_id": None if group is None or group.deleted_at else group.id,
         "group_name": None if group is None or group.deleted_at else group.group_name,
     }
@@ -905,6 +959,23 @@ class MeGuardianView(APIView):
         return self._response(request)
 
 
+class SupervisedStudentOptionsView(APIView):
+    """GET the countries, regions and areas of interest a supervisor or admin
+    can pick from when editing a student in the student panel."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(exclude=True)
+    def get(self, request):
+        _student_scope(request.user)  # supervisors and admins only
+        return Response({
+            "countries": list(Countries.objects.order_by("country_name").values("id", "country_name")),
+            "regions": list(CountryStates.objects.order_by("state_name").values("id", "country_id", "state_name")),
+            "interests": list(AreasOfInterest.objects.order_by("interest_desc").values_list("interest_desc", flat=True)),
+        })
+
+
 class SupervisedStudentDetailView(APIView):
     """Update a supervised student's name, email, and school details."""
 
@@ -945,6 +1016,15 @@ class SupervisedStudentDetailView(APIView):
                 )
             user.email = new_email
             user_fields.append("email")
+        if "country_id" in data or "state_id" in data:
+            country = data.get("country_id", user.country)
+            state = data.get("state_id", user.state)
+            if "country_id" in data and "state_id" not in data and state and state.country_id != getattr(country, "pk", None):
+                state = None
+            if state and state.country_id != getattr(country, "pk", None):
+                raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+            user.country, user.state = country, state
+            user_fields.extend(["country", "state"])
         user.save(update_fields=user_fields)
 
         profile.school_name = data["school_name"].strip()
@@ -996,113 +1076,14 @@ def _registered_by(value) -> str:
 
 
 class UserRegisterView(APIView):
-    """Public student self-registration endpoint.
-
-    ``AllowAny`` is intentional — this is the front door for new students.
-    Hardening on top of the permission:
-
-    * Per-IP rate limit so the endpoint can't be used to bulk-create
-      ``StudentProfile`` rows or to flood the supervisor table.
-    * Refuses to overwrite an existing user. The legacy implementation
-      ``get_or_create``'d both the student and the supervisor by email and
-      then unconditionally wrote ``first_name`` / ``last_name`` back, which
-      let any anonymous caller rename any existing user (incl. admins).
-    """
+    """Compatibility entry point for callers importing the legacy view."""
     permission_classes = [permissions.AllowAny]
     serializer_class = UserRegisterRequestSerializer
 
     @extend_schema(request=UserRegisterRequestSerializer, responses={200: UserRegisterRequestSerializer})
-    @transaction.atomic
     def post(self, request):
-        ip = _client_ip(request)
-        rate_key = f"registration_ip:{ip}"
-        attempts = cache.get(rate_key, 0)
-        if attempts >= REGISTRATION_PER_IP_LIMIT:
-            logger.warning("registration: rate limit hit ip=%s attempts=%s", ip, attempts)
-            raise TooManyFailedAttempts()
-        cache.set(rate_key, attempts + 1, REGISTRATION_WINDOW_SECONDS)
-
-        data = request.data
-        databody = data["body"]
-
-        student_email = (databody.get("Title") or "").strip().lower()
-        supervisor_email = (databody.get("SupervisorEmail") or "").strip().lower()
-        if not student_email or not supervisor_email:
-            raise serializers.ValidationError({"body": "Student and supervisor emails are required."})
-
-        # Refuse to clobber an existing account. Self-registration is for
-        # brand new students; account recovery flows live under /services/.
-        if User.objects.filter(email__iexact=student_email).exists():
-            raise serializers.ValidationError({"Title": "An account with this email already exists."})
-
-        user = User.objects.create_user(email=student_email)
-        user.first_name = databody["FirstName"]
-        user.last_name = databody["Surname"]
-
-        # iexact so a casing variant can't fork a second country off the real one.
-        country, created = Countries.objects.get_or_create(
-            country_name__iexact=databody["Country"],
-            defaults={"country_name": databody["Country"]},
-        )
-        user.country = country
-
-        # Region is sub-national (AU sends NSW/VIC/...) and is often absent. A blank
-        # state is fine — country is what matching needs. Never fall back to the
-        # country name here: that is what used to show "United Arab Emirates" as a state.
-        region = (databody.get("Region") or "").strip()
-        if region and region.casefold() != country.country_name.strip().casefold():
-            user.state, s_created = CountryStates.objects.get_or_create(
-                country=country, state_name=region
-            )
-
-        user.save()
-
-        # roleassignmenthistory creation
-        # Look up roles by stable name (registration must work in any env, regardless of seed order).
-        now = timezone.now()
-        role = get_role_by_name(ROLE_STUDENT)
-        rah = RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
-
-        #supervisorprofile check
-        sup, sup_created = User.objects.get_or_create(email=databody["SupervisorEmail"])
-        sup.first_name = databody["SupervisorFirstName"]
-        sup.last_name = databody["SupervisorSurname"]
-        # Registration carries no supervisor geography and the pair are at the same
-        # school, so inherit the student's — matching _resolve_supervisor_id on the
-        # import path. Only fills gaps; never moves an existing supervisor.
-        if sup.country_id is None:
-            sup.country = user.country
-        if sup.state_id is None:
-            sup.state = user.state
-        sup.save()
-        sup_role = get_role_by_name(ROLE_SUPERVISOR)
-        sup_rah = RoleAssignmentHistory.objects.create(user=sup, role=sup_role, valid_from=now+timedelta(seconds=1), valid_to=now+timedelta(weeks=6))
-
-        supprof, supprof_created = SupervisorProfile.objects.get_or_create(user=sup, school_name=databody["SchoolName"])
-
-        sp = StudentProfile.objects.create(
-            user=user,
-            pg_first_name=databody["GuardianName"],
-            pg_last_name=databody["GuardianSurname"],
-            pg_email=(databody.get("GuardianEmail") or "").strip().lower() or None,
-            # The form requires the guardian's name, so a guardian is on file.
-            parent_guardian_flag=True,
-            supervisor=supprof,
-            school_name=databody["SchoolName"],
-            year_lvl=databody["YearLevel"],
-            registered_by=_registered_by(databody.get("RegisteredBy")),
-        )
-
-        ss = StudentSupervisor.objects.create(
-            student_user=sp,
-            supervisor_user=supprof,
-        )
-
-        si = UserInterest.objects.create(
-            interest=AreasOfInterest.objects.get_or_create(interest_desc=databody["Areaofinterest"])[0],
-            user=user
-        )
-        return Response(data["body"])
+        from .registration_intake import register
+        return register(request)
 
 
 #issue 128

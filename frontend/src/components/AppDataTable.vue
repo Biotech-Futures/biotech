@@ -61,7 +61,7 @@
                   @change="togglePageSelection"
                 />
               </th>
-              <th v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" scope="col">
+              <th v-if="hasDetail() && !allDetailsShown" class="data-table-expand-col" scope="col">
                 <span class="sr-only">Details</span>
               </th>
               <th
@@ -89,10 +89,13 @@
                   v-for="index in actionColumns"
                   :key="`actions-${index}`"
                   class="data-table-head data-table-actions-col"
+                  :class="{ 'data-table-actions-col--headed': Boolean(actionHeadings[index - 1]) }"
                   scope="col"
                 >
-                  <!-- Button columns have no heading, but screen readers still hear one. -->
-                  <span class="sr-only">Actions</span>
+                  <template v-if="actionHeadings[index - 1]">{{ actionHeadings[index - 1] }}</template>
+                  <!-- Button columns have no heading unless given one, but
+                       screen readers still hear one. -->
+                  <span v-else class="sr-only">Actions</span>
                 </th>
               </template>
             </tr>
@@ -113,8 +116,10 @@
                 class="data-table-row"
                 :class="[
                   {
-                    'data-table-row--clickable': clickableRows || (hasDetail() && !showAllDetails),
+                    'data-table-row--clickable': hasDetail() && !allDetailsShown,
+                    'data-table-row--opens': opensRow(row),
                     'data-table-row--two-line': twoLineRows,
+                    'data-table-row--joined': joinedDetails && hasDetail() && rowHasDetail(row),
                   },
                   rowClass?.(row),
                 ]"
@@ -129,7 +134,7 @@
                     @change="toggleRow(row)"
                   />
                 </td>
-                <td v-if="hasDetail() && !showAllDetails" class="data-table-expand-col" @click.stop>
+                <td v-if="hasDetail() && !allDetailsShown" class="data-table-expand-col" @click.stop>
                   <button
                     v-if="rowHasDetail(row)"
                     type="button"
@@ -152,9 +157,11 @@
                     {
                       'data-table-cell--wrap': column.wrap,
                       [`data-table-cell--${column.align}`]: Boolean(column.align),
+                      'data-table-cell--primary': column.key === primaryKey,
                     },
                     column.cellClass?.(row),
                   ]"
+                  @click="onCellClick(row, column)"
                 >
                   <!-- A page can draw a cell itself with a cell-<key> slot. -->
                   <div class="data-table-cell">
@@ -175,6 +182,7 @@
                     v-for="index in actionColumns"
                     :key="`actions-${index}`"
                     class="data-table-actions-col"
+                    :class="{ 'data-table-actions-col--headed': Boolean(actionHeadings[index - 1]) }"
                     @click.stop
                   >
                     <slot name="actions" :row="row" :column="index - 1" />
@@ -182,10 +190,14 @@
                 </template>
               </tr>
               <tr
-                v-if="hasDetail() && rowHasDetail(row) && (showAllDetails || expandedIds.has(rowId(row)))"
+                v-if="hasDetail() && rowHasDetail(row) && (allDetailsShown || expandedIds.has(rowId(row)))"
                 class="data-table-detail-row"
+                :class="{ 'data-table-detail-row--joined': joinedDetails }"
               >
-                <td :colspan="emptyColspan()">
+                <!-- Joined details start under the row's first value, not
+                     under its tick box. -->
+                <td v-if="joinedDetails && selectable" class="data-table-check-col" aria-hidden="true"></td>
+                <td :colspan="joinedDetails && selectable ? emptyColspan() - 1 : emptyColspan()">
                   <slot name="row-detail" :row="row" />
                 </td>
               </tr>
@@ -210,7 +222,7 @@
         <span class="sr-only">Rows per page</span>
         <select :value="pageSize" @change="onPageSizeChange">
           <option v-for="size in sizeOptions" :key="size" :value="size">
-            {{ size === DATA_TABLE_ALL ? 'All' : `${size} / page` }}
+            {{ size === DATA_TABLE_ALL ? 'All' : size }} Entries
           </option>
         </select>
       </label>
@@ -223,7 +235,7 @@
           class="data-table-page-btn"
           :disabled="page <= 1 || loading"
           aria-label="Previous page"
-          @click="page -= 1"
+          @click="prevPage"
         >
           <i class="fas fa-chevron-left" aria-hidden="true"></i>
         </button>
@@ -242,7 +254,7 @@
           class="data-table-page-btn"
           :disabled="page >= totalPages || loading"
           aria-label="Next page"
-          @click="page += 1"
+          @click="nextPage"
         >
           <i class="fas fa-chevron-right" aria-hidden="true"></i>
         </button>
@@ -254,6 +266,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
+import { usePagerAnchor } from '@/composables/usePagerAnchor'
 import { useTopScrollbar } from '@/composables/useTopScrollbar'
 import {
   DATA_TABLE_ALL,
@@ -282,6 +295,11 @@ export type DataTableColumn = {
   // Classes for a cell, worked out from its row.
   cellClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
+  // The column that names the row: in a row that opens, the cell clicked to
+  // open it, underlined on hover; the first column when none is. In a cell
+  // that holds more than the name, the page marks the name with
+  // data-table-primary-text, so only that underlines.
+  primary?: boolean
 }
 
 export type DataTableSort = { key: string; direction: 'asc' | 'desc' }
@@ -295,6 +313,9 @@ const props = withDefaults(
     rowKey?: string
     // How many columns the actions slot fills; the slot is told which one.
     actionColumns?: number
+    // A heading to show over each of those columns, by column; a column with
+    // none has a heading only screen readers hear.
+    actionHeadings?: string[]
     emptyMessage?: string
     searchPlaceholder?: string
     // Rows of two separate lines, like a name with an email under it: 70px
@@ -305,10 +326,21 @@ const props = withDefaults(
     selectable?: boolean
     // On: every row's details shown under it at once, with no chevrons.
     showAllDetails?: boolean
+    // On: every row's details shown and drawn as part of the row, for details
+    // that are always there and can't be hidden (Extend Deadline's Current
+    // Extensions). No gap between the row and its details, no line between
+    // them, both light up together on hover, and they count as one when
+    // fitting rows to the screen. Details a page can show or hide (Group
+    // Marks' Show details) stay separate rows with showAllDetails.
+    joinedDetails?: boolean
     // Which rows have details; every row when not given.
     detailFor?: (row: Record<string, unknown>) => boolean
-    // Rows that open something when clicked; emits row-click.
+    // Rows that open something, by clicking the cell that names them (the
+    // primary column); emits row-click. Clicking elsewhere on the row opens
+    // nothing.
     clickableRows?: boolean
+    // Which of them do, when not every row (a group with no submission).
+    rowClickable?: (row: Record<string, unknown>) => boolean
     rowClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
     // Server mode: give the total and the table shows `rows` as the current
     // page, leaving search, sorting and paging to the page through the
@@ -328,14 +360,17 @@ const props = withDefaults(
   {
     rowKey: 'id',
     actionColumns: 1,
+    actionHeadings: () => [],
     emptyMessage: 'No matching entries.',
     searchPlaceholder: 'Search',
     twoLineRows: false,
     loading: false,
     selectable: true,
     showAllDetails: false,
+    joinedDetails: false,
     detailFor: undefined,
     clickableRows: false,
+    rowClickable: undefined,
     rowClass: undefined,
     totalCount: undefined,
     page: undefined,
@@ -520,15 +555,32 @@ const toggleDetail = (row: Record<string, unknown>) => {
 
 const rowHasDetail = (row: Record<string, unknown>) => props.detailFor?.(row) ?? true
 
+// Details shown under every row, with no chevrons to open them.
+const allDetailsShown = computed(() => props.showAllDetails || props.joinedDetails)
+
+// Whether the row opens something (row-click) from its name cell, rather
+// than showing its details when clicked.
+const opensRow = (row: Record<string, unknown>) =>
+  props.clickableRows &&
+  (props.rowClickable?.(row) ?? true) &&
+  !(hasDetail() && !allDetailsShown.value && rowHasDetail(row))
+
+// The column whose cell names each row.
+const primaryKey = computed(() => (props.columns.find((column) => column.primary) ?? props.columns[0])?.key)
+
 const onRowClick = (row: Record<string, unknown>) => {
-  if (hasDetail() && !props.showAllDetails && rowHasDetail(row)) toggleDetail(row)
-  else if (props.clickableRows) emit('row-click', row)
+  if (hasDetail() && !allDetailsShown.value && rowHasDetail(row)) toggleDetail(row)
+}
+
+// Only the cell that names a row opens it.
+const onCellClick = (row: Record<string, unknown>, column: DataTableColumn) => {
+  if (column.key === primaryKey.value && opensRow(row)) emit('row-click', row)
 }
 
 const emptyColspan = () =>
   props.columns.length +
   (props.selectable ? 1 : 0) +
-  (hasDetail() && !props.showAllDetails ? 1 : 0) +
+  (hasDetail() && !allDetailsShown.value ? 1 : 0) +
   (slots.actions ? props.actionColumns : 0)
 
 const {
@@ -613,6 +665,9 @@ const countRowsThatFit = () => {
   let fits = 0
   for (const row of rows) {
     used += row.offsetHeight
+    // Its details under it, shown, take room with it.
+    const next = row.nextElementSibling as HTMLElement | null
+    if (next?.classList.contains('data-table-detail-row')) used += next.offsetHeight
     if (used > room) break
     fits += 1
   }
@@ -633,7 +688,26 @@ const refitToWindow = () => {
   else void nextTick(countRowsThatFit)
 }
 
-watch(pagedRows, () => void nextTick(countRowsThatFit))
+// Paging keeps the bottom bar still on screen, its < and > under the mouse,
+// whatever the rows' heights (see usePagerAnchor); a new search, sort, size or
+// count of rows lets go of any room it held below the rows.
+const {
+  turn: turnPage,
+  settle: settlePager,
+  reset: resetPager,
+} = usePagerAnchor(bottomEl, wrapEl)
+const prevPage = () => turnPage(() => {
+  page.value -= 1
+})
+const nextPage = () => turnPage(() => {
+  page.value += 1
+})
+watch([search, sortKey, sortDir, pageSize, total], resetPager)
+
+watch(pagedRows, () => void nextTick(() => {
+  countRowsThatFit()
+  settlePager()
+}))
 onMounted(() => {
   void nextTick(countRowsThatFit)
   window.addEventListener('resize', refitToWindow)
@@ -675,7 +749,9 @@ const onPageDraftInput = (event: Event) => {
 
 const jumpToPage = () => {
   const next = Math.min(totalPages.value, Math.max(1, Math.floor(Number(pageDraft.value) || 1)))
-  page.value = next
+  if (next !== page.value) turnPage(() => {
+    page.value = next
+  })
   pageDraft.value = String(next)
 }
 
@@ -924,7 +1000,8 @@ const togglePageSelection = () => {
   pointer-events: none;
 }
 
-.data-table-row--clickable {
+.data-table-row--clickable,
+.data-table-row--opens .data-table-cell--primary {
   cursor: pointer;
 }
 
@@ -953,6 +1030,30 @@ const togglePageSelection = () => {
   padding: 1rem 1.25rem;
   white-space: normal;
   background: var(--surface-elevated);
+}
+
+/* Joined details (joinedDetails): the row and its details read as one row,
+   the values' top space above and the same below the details, with no gap
+   or line between them: 77px with a one-line reason, button or not. */
+/* Beats the 56px and 70px minimums further down. Tall enough for a small
+   button (about 30px) under the top space, so every joined row is the same
+   height whether its values have a button or only text. */
+tr.data-table-row.data-table-row--joined > td {
+  height: 2.375rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.data-table-detail-row--joined > td {
+  padding: 0.5rem 0.75rem 0.5rem;
+}
+
+tbody tr.data-table-row--joined:hover + .data-table-detail-row td,
+tbody tr.data-table-row--joined:has(+ .data-table-detail-row:hover) td,
+tbody tr.data-table-detail-row--joined:hover td {
+  background-color: var(--light-green);
+  box-shadow: 1px 0 0 var(--light-green);
 }
 
 table {
@@ -1066,6 +1167,12 @@ tbody tr:last-child td {
   padding-right: 0.75rem;
 }
 
+/* A button column with a heading (My Students' Consent Form): its buttons
+   centred under it. */
+.data-table-actions-col--headed {
+  text-align: center;
+}
+
 .data-table-empty {
   color: var(--text-muted);
   text-align: center;
@@ -1093,5 +1200,25 @@ tbody tr:last-child td {
     flex-basis: 100%;
     max-width: none;
   }
+}
+</style>
+
+<style>
+/* A row that opens something, while the mouse is anywhere on it (its joined
+   line too): its name underlined, as a link's would be, though only the name
+   cell opens it. Only the part the page marks data-table-primary-text when it
+   marks one (a name over its description), else all of the cell, its buttons
+   too, which an underline on the cell alone wouldn't reach. */
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--joined:hover))
+  .data-table-cell--primary
+  .data-table-cell:not(:has(.data-table-primary-text)),
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--joined:hover))
+  .data-table-cell--primary
+  .data-table-cell:not(:has(.data-table-primary-text))
+  *,
+.data-table-row--opens:is(:hover, :has(+ .data-table-detail-row--joined:hover))
+  .data-table-cell--primary
+  .data-table-primary-text {
+  text-decoration: underline;
 }
 </style>

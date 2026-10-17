@@ -6,7 +6,7 @@
       </div>
       <h3 class="notify-finalists__section-title">Set Details</h3>
       <p class="notify-finalists__hint">
-        These go into the finalist email and announcement. Set them before sending.
+        These go into the finalist email. Set them before sending.
       </p>
       <p v-if="detailsError" class="notify-finalists__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -142,13 +142,6 @@
           by {{ lastEmailed.notified_by }}</template
         >.
       </p>
-      <!-- The same news in the app, for the finalist groups emailed so far. -->
-      <OutcomeAnnouncement
-        ref="announcement"
-        kind="finalists"
-        @flash="flashAction"
-        @error="(text) => (actionError = text)"
-      />
     </section>
 
     <p v-if="actionError" class="notify-finalists__banner notify-finalists__banner--error">
@@ -249,7 +242,6 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatStatementTime } from '@/utils/date'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
-import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 // The finalist groups, for the status line and Last Emailed.
@@ -355,8 +347,6 @@ const saveDetails = async () => {
     showDetails(await updateFinalistEmailDetails(formFields()))
     saveTried.value = false
     flashAction('Email details saved.')
-    // Its wording has the dates and link in it.
-    void announcement.value?.reload()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -390,9 +380,6 @@ const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   () => previewFinalistEmail(formFields(), testRecipient.value),
   actionError
 )
-
-// The same news in the app, reloaded once a send finishes.
-const announcement = ref<InstanceType<typeof OutcomeAnnouncement> | null>(null)
 
 onMounted(() => {
   void load()
@@ -467,8 +454,6 @@ const reportRun = (run: EmailRun) => {
   if (isError) actionError.value = text
   else flashAction(text, RUN_MESSAGE_MS)
   void load()
-  // More groups emailed: more who'd see the announcement.
-  void announcement.value?.reload()
 }
 useEmailRun(() => details.value, loadDetails, reportRun)
 </script>

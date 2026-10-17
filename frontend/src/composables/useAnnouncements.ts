@@ -29,6 +29,8 @@ export interface Announcement {
   route?: string | null
   archivedAt?: string | null
   isArchived?: boolean
+  /** Not opened yet by the person reading it (see ``markAnnouncementSeen``). */
+  isNew?: boolean
 }
 
 export interface LoadFailure {
@@ -65,6 +67,7 @@ interface AnnouncementApiItem {
   link?: string | null
   route?: string | null
   audiences?: AnnouncementAudience[]
+  is_new?: boolean
   [key: string]: unknown
 }
 
@@ -296,6 +299,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
       scope === 'public' ||
       (audienceRoles.length === 0 && groupIds.length === 0),
     groupIds,
+    isNew: Boolean(a?.is_new),
     images: extractImages(a),
     link: normalizeRichTextUrl(a?.link),
     route: typeof a?.route === 'string' ? a.route : null,
@@ -376,6 +380,20 @@ export function useAnnouncements() {
   }
 
   return { announcements, isLoading, error, load }
+}
+
+/** It's been opened (its card, its title, or expanded), so it isn't New to
+ *  this person any more. Best effort: a failure only leaves it New. */
+export async function markAnnouncementSeen(id: number | string): Promise<void> {
+  try {
+    await fetch(`${DETAIL_ENDPOINT(id)}seen/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true })
+    })
+  } catch (e) {
+    console.warn('Failed to mark the announcement seen:', e)
+  }
 }
 
 export function useAnnouncementDetail() {

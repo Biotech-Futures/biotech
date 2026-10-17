@@ -84,6 +84,10 @@
         </div>
 
         <div class="legacy-links">
+          <!-- Unless Management > Registration has closed it. -->
+          <RouterLink v-if="registrationOpen" class="legacy-website-button" to="/register">
+            Register now
+          </RouterLink>
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -432,7 +436,7 @@
   Imports and external modules.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
@@ -448,6 +452,7 @@ import {
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 import { LOGIN_MESSAGES } from '@/data/login_language'
+import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 
 /*
   Page-level instances.
@@ -1239,7 +1244,10 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
 /*
   Lifecycle: initial focus.
 */
+const { open: registrationOpen } = useRegistrationOpen()
+
 onMounted(async () => {
+  void loadRegistrationOpen(true)
   // Magic-link rejections land here as a redirect from the callback view.
   const linkError = Array.isArray(route.query.error) ? route.query.error[0] : route.query.error
 
@@ -1427,8 +1435,13 @@ onBeforeUnmount(() => {
   margin-top: 0.35rem;
 }
 
+/* Register now and Visit Website side by side, apart; one under the other
+   when there isn't room. */
 .legacy-links {
   margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .legacy-website-button {
