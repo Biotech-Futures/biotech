@@ -205,6 +205,7 @@ class SystemEmailRecipientsTests(TestCase):
     def test_every_email_lists_and_fills_its_recipients_details(self):
         group_emails = {
             "submission_confirmation", "submission_reminder", "finalist_notification",
+            "finalist_submission_confirmation",
             "nonfinalist_invitation", "nonsubmission_notice", "results_team",
         }
         for key, recipients in RECIPIENTS.items():

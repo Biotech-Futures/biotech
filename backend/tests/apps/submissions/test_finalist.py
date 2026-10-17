@@ -4,8 +4,10 @@ availability, and the submitted slides land in that tab's table."""
 import io
 import tempfile
 import zipfile
-from datetime import time
+from datetime import date, time
+from unittest.mock import patch
 
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -15,8 +17,16 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.grading.models import FinalistFlag
 from apps.groups.models import GroupMembership, Groups
-from apps.management.models import FinalistSlides, PresentationAvailability, PresentationSettings, PresentationSlot
+from apps.management.models import (
+    FinalistEmailSettings,
+    FinalistSlides,
+    PresentationAvailability,
+    PresentationSettings,
+    PresentationSlot,
+)
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.services.models import SystemEmailTemplate
+from apps.submissions.emails import finalist_confirmation_context
 from apps.submissions.models import FinalistEntry
 from apps.submissions.services import current_cohort
 from apps.users.models import User
@@ -161,6 +171,109 @@ class FinalistTests(TestCase):
         entry = self._client(self.student).get(self.url).data["entry"]
         self.assertEqual(entry["submitted_by_name"], "BIOTech Futures")
         self.assertEqual(entry["availability_submitted_by_name"], "BIOTech Futures")
+
+    # Confirmation email, as regular submissions send one
+
+    def _emailed(self, submit=None):
+        with self.settings(AUTH_EMAIL_DISPATCH_SYNC=True, FRONTEND_BASE_URL="https://example.org"):
+            (submit or self._submitted_by_team)()
+        return mail.outbox
+
+    def test_submitting_emails_the_team_its_slides_and_chosen_times(self):
+        outbox = self._emailed()
+
+        self.assertEqual(len(outbox), 1)
+        message = outbox[0]
+        self.assertEqual(message.subject, "BIOTech Futures: Presentation received for BTF-FINAL")
+        self.assertEqual(message.to, ["student@test.local"])
+        self.assertEqual(sorted(message.cc), ["mentor@test.local", "supervisor@test.local"])
+        slides = FinalistEntry.objects.get(group=self.group).submitted_presentation["name"]
+        self.assertTrue(message.body.startswith("Hi Group BTF-FINAL,"))
+        self.assertIn(slides, message.body)
+        self.assertIn("10:00 – 11:00", message.body)
+        self.assertNotIn("11:40 – 12:30", message.body)
+        html = message.alternatives[0][0]
+        self.assertIn("10:00 – 11:00", html)
+        self.assertIn(f"https://example.org/#/groups/{self.group.id}/finalist", html)
+
+    def test_the_email_gives_the_symposium_day_and_when_slides_are_due(self):
+        details = FinalistEmailSettings.load()
+        details.symposium_date = date(2026, 10, 23)
+        details.slides_due = date(2026, 10, 16)
+        details.save()
+
+        body = self._emailed()[0].body
+
+        self.assertIn("on Friday, 23 October 2026", body)
+        self.assertIn("are due on Friday, 16 October 2026", body)
+
+    def test_resubmitting_sends_the_email_again(self):
+        def submit_twice():
+            client = self._ready()
+            client.post(self.submit_url, {}, format="json")
+            client.post(self.reopen_url, {}, format="json")
+            client.post(self.submit_url, {}, format="json")
+
+        self.assertEqual(len(self._emailed(submit_twice)), 2)
+
+    def test_an_admin_submitting_shows_as_biotech_futures(self):
+        def by_admin():
+            self._ready(self._client(self.admin)).post(self.submit_url, {}, format="json")
+
+        self._emailed(by_admin)
+
+        context = finalist_confirmation_context(FinalistEntry.objects.get(group=self.group))
+        self.assertEqual(context["SUBMITTED_BY"], "BIOTech Futures")
+
+    def test_without_the_times_released_the_email_leaves_them_out(self):
+        PresentationSettings.objects.update(times_shown=False)
+
+        def slides_only():
+            client = self._client(self.student)
+            client.post(self.file_url, {"file": _pdf()}, format="multipart")
+            client.post(self.submit_url, {}, format="json")
+
+        body = self._emailed(slides_only)[0].body
+
+        self.assertNotIn("TIMES YOU SELECTED", body)
+        self.assertIn("Presentation Slides", body)
+        self.assertNotIn("Times you selected", mail.outbox[0].alternatives[0][0])
+
+    def test_switched_off_sends_nothing_and_the_submission_still_goes_in(self):
+        SystemEmailTemplate.objects.create(key="finalist_submission_confirmation", is_enabled=False)
+
+        self.assertEqual(self._emailed(), [])
+        self.assertTrue(FinalistEntry.objects.get(group=self.group).is_submitted)
+
+    def test_a_failed_email_does_not_fail_the_submission(self):
+        with patch("apps.submissions.emails.render_to_string", side_effect=OSError("boom")):
+            self.assertEqual(self._emailed(), [])
+
+        self.assertTrue(FinalistEntry.objects.get(group=self.group).is_submitted)
+
+    def test_an_edited_email_shows_the_sections_styled_as_the_default_one(self):
+        SystemEmailTemplate.objects.create(
+            key="finalist_submission_confirmation",
+            subject="Slides in, {{ group_name }}",
+            body_html="<p>Thanks {{ group_name }}.</p>{{ presentation }}{{ selected_times }}",
+        )
+
+        html = self._emailed()[0].alternatives[0][0]
+
+        self.assertIn("<p>Thanks BTF-FINAL.</p>", html)
+        self.assertNotIn("<ul>", html)
+        for text in ("Presentation", "Presentation Slides", "Submitted", "Times you selected", "10:00 – 11:00"):
+            self.assertIn(text, html)
+        self.assertIn("background:#f4f7f5", html)
+
+    def test_the_sections_escape_what_they_show(self):
+        from apps.submissions.email_sections import presentation_section, times_section
+
+        html = presentation_section([{"label": "Slides", "submitted": True, "status": "Submitted", "detail": "<b>x</b>.pdf"}])
+
+        self.assertIn("&lt;b&gt;x&lt;/b&gt;.pdf", html)
+        self.assertNotIn("<b>x</b>", html)
+        self.assertEqual(times_section([], "Friday, 23 October 2026"), "")
 
     def test_an_admin_changes_a_submitted_entry_without_reopening_it(self):
         entry = self._submitted_by_team()

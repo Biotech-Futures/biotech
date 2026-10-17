@@ -113,7 +113,7 @@ const GROUPS: [string, string[]][] = [
   ],
   ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
   ['Submissions', ['submission_reminder', 'submission_confirmation']],
-  ['Symposium', ['finalist_notification', 'nonfinalist_invitation', 'nonsubmission_notice']],
+  ['Symposium', ['finalist_notification', 'finalist_submission_confirmation', 'nonfinalist_invitation', 'nonsubmission_notice']],
   ['Results', ['results_team', 'results_supervisor']]
 ]
 const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))

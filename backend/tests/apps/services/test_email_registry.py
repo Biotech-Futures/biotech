@@ -24,6 +24,7 @@ EXPECTED_KEYS = {
     "event_promotion",
     "announcement",
     "submission_confirmation",
+    "finalist_submission_confirmation",
     "submission_reminder",
     "finalist_notification",
     "nonfinalist_invitation",
