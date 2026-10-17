@@ -205,7 +205,6 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         for journey in ("supervisor_individual", "supervisor_group", "supervisor_csv"):
             body = batch(journey)
             self.assertEqual(self.submit(body=body).status_code, 403)
-            self.assertEqual(self.submit(body=body, client=self.staff_client).status_code, 403)
         client = APIClient(enforce_csrf_checks=True)
         client.force_login(self.supervisor)
         self.assertEqual(self.submit(body=batch("supervisor_csv"), client=client).status_code, 403)
@@ -427,21 +426,45 @@ class MultiStudentPhotoTests(MultiStudentSetup, TestCase):
         self.assertFalse(Groups.objects.exists())
 
 
-class SupervisorRegistrationHiddenTests(MultiStudentSetup, TestCase):
-    """Management > Supervisor Visibility can hide supervisors' Registration
-    page: while hidden, they can't register students."""
 
-    def test_a_supervisor_cant_register_while_it_is_hidden(self):
-        from apps.management.models import SupervisorPagesSetting
+class AdminRegistrationTests(MultiStudentSetup, TestCase):
+    """Management > Registration: an admin who isn't a supervisor registers
+    students as a supervisor does, as no one's supervisor."""
 
-        setting = SupervisorPagesSetting.load()
-        setting.registration_shown = False
-        setting.save()
-        response = self.post_batch(batch("supervisor_individual"))
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(StudentProfile.objects.exists())
-
-        setting.registration_shown = True
-        setting.save()
-        response = self.post_batch(batch("supervisor_individual"))
+    def test_an_admin_registers_students_with_no_supervisor(self):
+        response = self.submit(body=batch("supervisor_individual"), client=self.staff_client)
         self.assertEqual(response.status_code, 201, response.data)
+        profile = StudentProfile.objects.get()
+        self.assertEqual((profile.registered_by, profile.supervisor_id), (StudentProfile.RegisteredBy.ADMIN, None))
+        # Theirs to change: no supervisor manages them.
+        self.assertFalse(profile.details_locked)
+
+    def test_an_admins_group_is_formed_by_an_admin(self):
+        response = self.submit(body=batch("supervisor_group", offset=10), client=self.staff_client)
+        self.assertEqual(response.status_code, 201, response.data)
+        group = Groups.objects.get()
+        self.assertEqual((group.formed_by, group.created_by), (Groups.FormedBy.ADMIN, self.staff))
+
+    def test_an_admin_chooses_their_students_supervisor_and_a_supervisor_cant(self):
+        body = batch("supervisor_individual")
+        body["payload"]["supervisorEmail"] = "MANAGER@example.test"
+        response = self.submit(body=body, client=self.staff_client)
+        self.assertEqual(response.status_code, 201, response.data)
+        profile = StudentProfile.objects.get()
+        # Linked to that supervisor, but registered by the admin.
+        self.assertEqual((profile.supervisor_id, profile.registered_by), (self.supervisor.id, "admin"))
+
+        # Only an existing supervisor.
+        body = batch("supervisor_individual", offset=10)
+        body["payload"]["supervisorEmail"] = "nobody@example.test"
+        response = self.submit(body=body, client=self.staff_client)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("supervisorEmail", response.data["fields"])
+
+        # Not by a supervisor, and not with a supervisor's details.
+        body = batch("supervisor_individual", offset=20)
+        body["payload"]["supervisorEmail"] = "manager@example.test"
+        self.assertEqual(self.post_batch(body).status_code, 400)
+        body = batch("supervisor_individual", offset=30)
+        body["payload"]["supervisor"] = {"firstName": "Some", "lastName": "One", "email": "some@example.test"}
+        self.assertEqual(self.submit(body=body, client=self.staff_client).status_code, 400)

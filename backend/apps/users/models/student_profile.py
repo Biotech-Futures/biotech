@@ -50,15 +50,17 @@ class StudentProfile(models.Model):
             models.Index(fields=['supervisor']),
         ]
         constraints = [
+        # A guardian may be left for later when someone else registered the
+        # student: a peer, their supervisor, or an admin (Management > Registration).
         models.CheckConstraint(
             condition=~Q(pg_first_name='') | Q(
-                registered_by__in=['peer', 'supervisor'], parent_guardian_flag=False,
+                registered_by__in=['peer', 'supervisor', 'admin'], parent_guardian_flag=False,
             ),
             name='student_first_name_not_empty'
         ),
         models.CheckConstraint(
             condition=~Q(pg_last_name='') | Q(
-                registered_by__in=['peer', 'supervisor'], parent_guardian_flag=False,
+                registered_by__in=['peer', 'supervisor', 'admin'], parent_guardian_flag=False,
             ),
             name='student_last_name_not_empty'
         ),
@@ -81,8 +83,16 @@ class StudentProfile(models.Model):
     def details_locked(self) -> bool:
         """The student's own details are their supervisor's to change: they
         registered the student, or have edited them since. Guardian details
-        stay the student's to change either way."""
+        stay the student's to change until permission is given
+        (``guardian_locked``)."""
         return self.registered_by == self.RegisteredBy.SUPERVISOR or self.supervisor_edited_at is not None
+
+    @property
+    def guardian_locked(self) -> bool:
+        """A student their supervisor manages (``details_locked``) can't change
+        their guardian once that guardian has given permission: they contact
+        BIOTech Support. While permission is pending, they still can."""
+        return self.details_locked and bool(self.has_join_permission)
 
     @property
     def has_pending_guardian(self):

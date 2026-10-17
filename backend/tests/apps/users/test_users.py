@@ -1431,8 +1431,8 @@ class MeGuardianDetailsTests(TestCase):
 
 
 class MeGuardianUpdateTests(TestCase):
-    """Students update their guardian; one consenting guardian stays on file
-    until a new guardian consents."""
+    """Students update their guardian: a new guardian replaces the old one at
+    once, and clears permission they'd already given until the new one signs."""
 
     def setUp(self):
         from apps.resources.models import RoleAssignmentHistory
@@ -1497,20 +1497,63 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
         self.assertIsNone(response.json()["pending_guardian"])
 
-    def test_after_consent_the_consenting_guardian_stays_on_file(self):
+    def test_changing_the_guardian_after_consent_clears_permission(self):
         self._grant_consent()
 
         response = self.client.put(self.url, self.new_guardian, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.joinperm_granted_at)
+        self.assertIsNone(self.profile.media_consent)
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertIsNone(response.json()["pending_guardian"])
+
+    def _managed_by_supervisor(self):
+        from apps.users.models import StudentProfile
+
+        self.profile.registered_by = StudentProfile.RegisteredBy.SUPERVISOR
+        self.profile.save()
+
+    def test_a_supervisors_student_cant_change_a_guardian_who_gave_permission(self):
+        self._managed_by_supervisor()
+        self._grant_consent()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Contact BIOTech Support", str(response.data))
+        self.profile.refresh_from_db()
         self.assertEqual(self.profile.pg_first_name, "Pat")
-        self.assertEqual(self.profile.pg_email, "pat.parent@test.com")
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertTrue(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+
+    def test_while_permission_is_pending_a_supervisors_student_still_can(self):
+        self._managed_by_supervisor()
+
+        self.assertFalse(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+
+    def test_saving_the_same_guardian_keeps_permission(self):
+        self._grant_consent()
+        self.profile.refresh_from_db()
+        same = {
+            "first_name": self.profile.pg_first_name, "last_name": self.profile.pg_last_name,
+            "email": self.profile.pg_email,
+        }
+
+        self.client.put(self.url, same, format="json")
+
+        self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertEqual(self.profile.joinperm_granted_at, self.granted_at)
-        pending = response.json()["pending_guardian"]
-        self.assertEqual(pending["first_name"], "Robin")
-        self.assertEqual(pending["email"], "robin.carer@test.com")
 
     def test_new_guardians_consent_replaces_the_old_guardian(self):
         self._grant_consent()
@@ -1541,8 +1584,14 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
 
     def test_withdrawing_a_pending_change(self):
+        # A change still held as pending from before changes cleared permission.
         self._grant_consent()
-        self.client.put(self.url, self.new_guardian, format="json")
+        self.profile.refresh_from_db()
+        self.profile.pending_pg_first_name = "Robin"
+        self.profile.pending_pg_last_name = "Carer"
+        self.profile.pending_pg_email = "robin.carer@test.com"
+        self.profile.pending_pg_requested_at = timezone.now()
+        self.profile.save()
 
         response = self.client.delete(self.url)
 

@@ -1,102 +1,131 @@
 <template>
-  <div class="csv-fields">
-    <RegistrationTextField
-      v-for="field in fields"
-      :id="`csv-row-${row.rowNumber}-${field.key}`"
-      :key="field.key"
-      :model-value="row.values[field.key] || ''"
-      :label="field.label"
-      :hint="field.hint"
-      :type="excluded ? 'text' : field.type || 'text'"
-      :required="!excluded && isRequired(field)"
-      :optional="!isRequired(field)"
-      :error="errors[field.key]"
-      @update:model-value="updateField(field.key, $event)"
-    />
-  </div>
+  <!-- A file's row, edited on Register one student's own form: its fields,
+       dropdowns, Areas of Interest and optional guardian contact. -->
+  <RegistrationStudentEditor
+    v-model:student="student"
+    :prefix="prefix"
+    section="full"
+    :errors="studentErrors"
+    allow-guardian-defer
+  />
 </template>
 
 <script setup lang="ts">
-import RegistrationTextField from './RegistrationTextField.vue'
-import type { CsvHeader, CsvRow } from '@/registration/registration'
+import { computed, ref, watch } from 'vue'
+
+import RegistrationStudentEditor from './RegistrationStudentEditor.vue'
+import {
+  createStudent,
+  interestOption,
+  parseRegistrationInterests,
+  type CsvHeader,
+  type CsvRow,
+  type StudentDetails,
+} from '@/registration/registration'
 
 const props = withDefaults(
   defineProps<{
     row: CsvRow
-    excluded?: boolean
     errors?: Partial<Record<CsvHeader, string>>
   }>(),
-  { excluded: false, errors: () => ({}) },
+  { errors: () => ({}) },
 )
 
 const emit = defineEmits<{ 'update:values': [values: CsvRow['values']] }>()
-const updateField = (field: CsvHeader, value: string) =>
-  emit('update:values', { ...props.row.values, [field]: value })
 
-const availableFields: Array<{
-  key: CsvHeader
-  label: string
-  required?: boolean
-  type?: string
-  hint?: string
-}> = [
-  { key: 'first_name', label: 'First name', required: true },
-  { key: 'last_name', label: 'Last name', required: true },
-  { key: 'email', label: 'Student email', type: 'email', required: true },
-  { key: 'school', label: 'School', required: true },
-  { key: 'year_level', label: 'Year level', required: true, hint: '9, 10, 11, or 12.' },
-  { key: 'country', label: 'Country', required: true },
-  { key: 'state', label: 'State or region', hint: 'Required for Australian students.' },
-  {
-    key: 'interests',
-    label: 'Areas of Interest',
-    required: true,
-    hint: 'Separate multiple interests with commas.',
-  },
-  { key: 'guardian_first_name', label: 'Guardian first name' },
-  { key: 'guardian_last_name', label: 'Guardian last name' },
-  { key: 'guardian_email', label: 'Guardian email', type: 'email' },
-  {
-    key: 'guardian_relationship',
-    label: 'Guardian relationship',
-    hint: 'Parent, Legal guardian, or Other.',
-  },
-  {
-    key: 'guardian_relationship_other',
-    label: 'Other guardian relationship',
-    hint: 'Required when the relationship is Other.',
-  },
-  {
-    key: 'grouping_preference',
-    label: 'Legacy grouping preference',
-    hint: 'Optional legacy CSV value: school_only or cross_school. Leave blank if not supplied.',
-  },
-]
-const showLegacyGrouping = Boolean(
-  props.row.values.grouping_preference || props.errors.grouping_preference,
-)
-const fields = availableFields.filter(
-  (field) => field.key !== 'grouping_preference' || showLegacyGrouping,
-)
-const isRequired = (field: (typeof availableFields)[number]) => {
-  if (field.key === 'state')
-    return (props.row.values.country || '').trim().toLowerCase() === 'australia'
-  if (field.key === 'guardian_relationship_other')
-    return props.row.values.guardian_relationship === 'Other'
-  return Boolean(field.required)
-}
-</script>
-
-<style scoped>
-.csv-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+// Each column's field on the student form.
+const FIELDS: Record<CsvHeader, string> = {
+  first_name: 'firstName',
+  last_name: 'lastName',
+  email: 'email',
+  school: 'school',
+  year_level: 'yearLevel',
+  country: 'country',
+  state: 'state',
+  interests: 'interests',
+  guardian_first_name: 'guardian.firstName',
+  guardian_last_name: 'guardian.lastName',
+  guardian_email: 'guardian.email',
 }
 
-@media (max-width: 620px) {
-  .csv-fields {
-    grid-template-columns: minmax(0, 1fr);
+// "csv-row-3": the form's fields are "csv-row-3-firstName" and so on.
+const prefix = computed(() => `csv-row-${props.row.rowNumber}`)
+
+// The row as a student. Its guardian is left for later when none of its
+// guardian columns is filled in.
+const fromRow = (values: CsvRow['values']): StudentDetails => {
+  const student = createStudent({ deferGuardian: true })
+  return {
+    ...student,
+    firstName: values.first_name,
+    lastName: values.last_name,
+    email: values.email,
+    emailConfirm: values.email,
+    school: values.school,
+    yearLevel: values.year_level as StudentDetails['yearLevel'],
+    country: values.country,
+    state: values.state,
+    // As the options name them; any that aren't options stay (and in error).
+    interests: parseRegistrationInterests(values.interests).map(
+      (interest) => interestOption(interest) ?? interest,
+    ),
+    guardian: {
+      ...student.guardian,
+      firstName: values.guardian_first_name,
+      lastName: values.guardian_last_name,
+      email: values.guardian_email,
+    },
+    guardianDeferred: ![
+      values.guardian_first_name,
+      values.guardian_last_name,
+      values.guardian_email,
+    ].some(Boolean),
   }
 }
-</style>
+
+// One student per row: the page keys this editor by the row's number.
+const student = ref<StudentDetails>(fromRow(props.row.values))
+
+// An interest chosen or cleared: any the file had that aren't options go.
+watch(
+  () => [...student.value.interests],
+  (now, before) => {
+    if (now.length !== before.length && now.some((interest) => !interestOption(interest)))
+      student.value.interests = now.filter((interest) => interestOption(interest))
+  },
+)
+
+// Back to the row as it's edited; no guardian when it's left for later.
+watch(
+  student,
+  (edited) => {
+    const guardian = edited.guardianDeferred
+      ? { firstName: '', lastName: '', email: '' }
+      : edited.guardian
+    emit('update:values', {
+      ...props.row.values,
+      first_name: edited.firstName,
+      last_name: edited.lastName,
+      email: edited.email,
+      school: edited.school,
+      year_level: edited.yearLevel,
+      country: edited.country,
+      state: edited.state,
+      interests: edited.interests.join(', '),
+      guardian_first_name: guardian.firstName,
+      guardian_last_name: guardian.lastName,
+      guardian_email: guardian.email,
+    })
+  },
+  { deep: true },
+)
+
+// The row's problems on the form's fields.
+const studentErrors = computed(() =>
+  Object.fromEntries(
+    Object.entries(props.errors)
+      .filter(([, message]) => message)
+      .map(([column, message]) => [`${prefix.value}.${FIELDS[column as CsvHeader]}`, message!]),
+  ),
+)
+</script>

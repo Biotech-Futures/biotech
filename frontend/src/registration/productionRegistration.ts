@@ -1,6 +1,7 @@
 import {
   createStudent,
   isBlankStudent,
+  interestOption,
   parseRegistrationInterests,
   type StudentDetails,
   type RegistrationIntakeJourney,
@@ -107,13 +108,10 @@ export const buildProductionRegistrationRequest = (
           })
           void _confirmation
           const guardian = {
+            ...defaults.guardian,
             firstName: values.guardian_first_name,
             lastName: values.guardian_last_name,
             email: values.guardian_email,
-            phone: '',
-            relationship:
-              values.guardian_relationship as StudentDetails['guardian']['relationship'],
-            relationshipOther: values.guardian_relationship_other,
           }
           return {
             ...defaults,
@@ -124,10 +122,12 @@ export const buildProductionRegistrationRequest = (
             yearLevel: values.year_level as StudentDetails['yearLevel'],
             country: values.country,
             state: values.state,
-            interests: parseRegistrationInterests(values.interests),
+            // As the options name them.
+            interests: parseRegistrationInterests(values.interests).map(
+              (interest) => interestOption(interest) ?? interest,
+            ),
             guardian,
             guardianDeferred: !guardian.firstName || !guardian.lastName || !guardian.email,
-            groupingPreference: values.grouping_preference,
           }
         })
     }
