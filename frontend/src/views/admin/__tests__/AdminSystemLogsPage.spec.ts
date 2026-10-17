@@ -209,7 +209,8 @@ describe('AdminSystemLogsPage', () => {
     await mountPage()
 
     const options = wrapper!.findAll('.data-table-page-size option').map((option) => option.text())
-    expect(options).not.toContain('All')
+    expect(options).not.toContain('All Entries')
+    expect(options.length).toBeGreaterThan(0)
   })
 
   it('names each row in its expand button by local time, level and source', async () => {

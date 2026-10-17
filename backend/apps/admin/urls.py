@@ -1,9 +1,15 @@
 from django.urls import include, path
 from . import views
+from . import analytics_views
 
 app_name = 'admin_api'
 
 urlpatterns = [
+    path('analytics/group-activity/', analytics_views.GroupActivityAnalyticsView.as_view(), name='group-activity-analytics'),
+    path('analytics/login-activity/', analytics_views.LoginActivityAnalyticsView.as_view(), name='login-activity-analytics'),
+    path('analytics/resources/', analytics_views.ResourceAnalyticsView.as_view(), name='resource-analytics'),
+    path('analytics/email/', analytics_views.EmailDeliveryAnalyticsView.as_view(), name='email-delivery-analytics'),
+    path('analytics/reports/export/', analytics_views.ReportExportView.as_view(), name='analytics-report-export'),
     # ========================================================================
     # USER ROUTES
     # ========================================================================

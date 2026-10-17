@@ -111,6 +111,7 @@ import {
   formatRelativeDate,
   getAudienceClass,
   getAudienceLabel,
+  markAnnouncementSeen,
   useAnnouncementDetail
 } from '@/composables/useAnnouncements'
 
@@ -144,6 +145,8 @@ async function reload() {
   const id = route.params.id
   if (typeof id === 'string' || typeof id === 'number') {
     await load(id)
+    // Opened, so it isn't New any more (from a link too, not just a card).
+    if (announcement.value?.isNew) void markAnnouncementSeen(id)
   }
 }
 

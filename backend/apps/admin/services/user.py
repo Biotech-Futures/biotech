@@ -4,7 +4,8 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction, IntegrityError
 from django.utils import timezone
-from django.db.models import Exists, Max, OuterRef, Q, ProtectedError
+from django.db.models import Exists, Max, OuterRef, Q, ProtectedError, Value
+from django.db.models.functions import Concat
 from typing import List, Dict, Any, Optional
 
 # Import models
@@ -708,6 +709,7 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
         filters &= (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
+            Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
@@ -728,10 +730,10 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
     if active is not None:
         filters &= Q(is_active=active)
 
-    return _filter_by_active_group_membership(
-        User.objects.filter(filters),
-        in_group,
+    users = User.objects.annotate(
+        search_full_name=Concat("first_name", Value(" "), "last_name")
     )
+    return _filter_by_active_group_membership(users.filter(filters), in_group)
 
 
 def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
@@ -1295,7 +1297,7 @@ def create_user(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _apply_co_registration(
-    users_input: List[Dict[str, Any]], created_student_emails: set
+    users_input: List[Dict[str, Any]], created_student_emails: set, created_by=None
 ) -> Dict[str, Any]:
     """Place students that share a group number (co-registered friends) into one group.
 
@@ -1332,6 +1334,8 @@ def _apply_co_registration(
             with transaction.atomic():
                 # Co-registered groups draw from the same BTF<n> series as every other auto-name.
                 group = Groups.create_auto_named()
+                # Formed by an admin: the one importing them.
+                group.mark_formed(Groups.FormedBy.ADMIN, created_by)
                 GroupMembership.objects.bulk_create([
                     GroupMembership(
                         group=group,
@@ -1362,7 +1366,9 @@ def _apply_co_registration(
     return {"groupsCreated": groups_created, "warnings": warnings}
 
 
-def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> Dict[str, Any]:
+def bulk_create_users(
+    users_input: List[Dict[str, Any]], admin_user_id: str, created_by=None
+) -> Dict[str, Any]:
     """
     Bulk create users from list.
     """
@@ -1405,7 +1411,7 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
 
     # Third pass: group co-registered students (shared group number) into one group.
     # Runs after the supervisor pass so supervisor links are set before syncing them.
-    co_registration = _apply_co_registration(users_input, created_student_emails)
+    co_registration = _apply_co_registration(users_input, created_student_emails, created_by)
 
     msg = f"Bulk import complete: {len(created)} created, {len(skipped)} skipped"
     data = {"created": created, "skipped": skipped}

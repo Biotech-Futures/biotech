@@ -10,6 +10,7 @@
   --dark-green: #017151;
   --light-green: #c3ecca;
   --teal: #174243;
+  --dark-cyan: #234142;
 
   /* Secondary Colors */
   --air-force-blue: #26697d;
@@ -420,6 +421,32 @@ h5 {
   border-color: var(--dark-green);
 }
 
+/* A page's way back ("Back to resources"): an outline button with a left
+   arrow, above the page's heading. */
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  /* A button's, so a link (e.g. to the login page) is as tall as a button. */
+  line-height: normal;
+  /* White on the page's grey; light green on hover, as .btn-outline. */
+  background-color: var(--white);
+}
+
+/* An outline button that removes or deletes something: red text and icon,
+   with a red outline on hover. */
+.btn-outline-danger {
+  background-color: transparent;
+  color: var(--danger);
+  border: 1px solid var(--border-light);
+}
+
+.btn-outline-danger:hover:not(:disabled) {
+  background-color: rgba(220, 53, 69, 0.08);
+  border-color: var(--danger);
+}
+
 /* Disabled buttons: dimmed, no hover feedback, not-allowed cursor. */
 .btn:disabled {
   opacity: 0.55;
@@ -446,6 +473,11 @@ h5 {
 }
 
 /* Forms */
+/* A required field's * (and the * in "Fields marked * are required."). */
+.required-mark {
+  color: var(--danger);
+}
+
 .form-control {
   width: 100%;
   padding: 0.625rem;

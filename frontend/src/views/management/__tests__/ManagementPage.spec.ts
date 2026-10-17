@@ -29,7 +29,7 @@ describe('the management shell', () => {
     const wrapper = mountPage()
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs.map((t) => t.text())).toEqual([
-      'Supervisor Visibility',
+      'Registration Visibility',
       'Submission Deadline',
       'Extend Deadline',
       'Notify Finalists',
@@ -39,7 +39,7 @@ describe('the management shell', () => {
       'Document Setup',
       'New Year'
     ])
-    expect(tabs[0]!.attributes('href')).toBe('/management/supervisor-visibility')
+    expect(tabs[0]!.attributes('href')).toBe('/management/registration-visibility')
     expect(tabs[3]!.attributes('href')).toBe('/management/notify-finalists')
     expect(tabs[4]!.attributes('href')).toBe('/management/email-nonfinalist')
     expect(tabs[5]!.attributes('href')).toBe('/management/finalist-presentation')

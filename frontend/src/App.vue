@@ -65,6 +65,25 @@
         <i class="fas fa-chevron-up" aria-hidden="true"></i>
       </button>
     </header>
+    <!-- A public page in the site (meta.siteHeader): the same top bar, with
+         just the logo, as its visitor isn't signed in; Registration's
+         (meta.siteHeaderSignIn) has Sign in on the right. -->
+    <header v-else-if="isLoginPage && route.meta.siteHeader === true" class="header">
+      <div class="header-content">
+        <div class="logo-section">
+          <span class="logo">
+            <span class="logo-icon">
+              <img :src="logo" :alt="BRAND_NAME" />
+            </span>
+            <span class="logo-text">{{ BRAND_CONNECT }}</span>
+          </span>
+        </div>
+        <div v-if="route.meta.siteHeaderSignIn === true" class="header-nav">
+          <span class="header-note">Already registered?</span>
+          <RouterLink to="/login" class="header-sign-in">Sign in</RouterLink>
+        </div>
+      </div>
+    </header>
     <button
       v-if="!isLoginPage && onMarkingPage && isHeaderHidden"
       type="button"
@@ -84,16 +103,60 @@
     >
       <aside
         class="sidebar"
-        :class="{ 'is-collapsed': isSidebarCollapsed, 'is-marking': onMarkingPage }"
+        :class="{
+          'is-collapsed': isSidebarCollapsed,
+          'is-marking': onMarkingPage,
+          'is-header-hidden': onMarkingPage && isHeaderHidden,
+        }"
       >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
-            <li v-for="link in mainNavLinks" :key="link.to" class="sidebar-item">
-              <RouterLink :to="link.to" class="sidebar-link" :class="{ active: link.active }">
-                <i :class="['fas', link.icon, 'sidebar-icon']"></i>
-                <span>{{ link.label }}</span>
-              </RouterLink>
-            </li>
+            <template v-for="entry in mainNavLinks" :key="entry.to">
+              <li v-if="!entry.links" class="sidebar-item">
+                <RouterLink :to="entry.to" class="sidebar-link" :class="{ active: entry.active }">
+                  <i :class="['fas', entry.icon, 'sidebar-icon']"></i>
+                  <span>{{ entry.label }}</span>
+                </RouterLink>
+              </li>
+
+              <li v-else class="sidebar-item">
+                <div class="sidebar-link sidebar-link--admin" :class="{ active: entry.active }">
+                  <RouterLink :to="entry.to" class="sidebar-link__main">
+                    <i :class="['fas', entry.icon, 'sidebar-icon']"></i>
+                    <span>{{ entry.label }}</span>
+                  </RouterLink>
+                  <button
+                    type="button"
+                    class="sidebar-subnav-toggle"
+                    :class="{ 'is-open': !entry.collapsed }"
+                    :aria-expanded="!entry.collapsed"
+                    :aria-controls="entry.id"
+                    :aria-label="`${entry.collapsed ? 'Expand' : 'Collapse'} ${entry.label.toLowerCase()} submenu`"
+                    @click="toggleSidebarSection(entry.key)"
+                  >
+                    <i
+                      :class="entry.collapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+                </div>
+                <ul
+                  :id="entry.id"
+                  class="sidebar-subnav"
+                  v-if="!isSidebarCollapsed && !entry.collapsed"
+                >
+                  <li v-for="link in entry.links" :key="link.label" class="sidebar-subitem">
+                    <RouterLink
+                      :to="link.to!"
+                      class="sidebar-sublink"
+                      :class="{ active: link.active }"
+                    >
+                      <span>{{ link.label }}</span>
+                    </RouterLink>
+                  </li>
+                </ul>
+              </li>
+            </template>
 
             <li class="sidebar-item" v-if="auth.isStudent">
               <a href="mailto:support@biotechfutures.org" class="sidebar-link">
@@ -267,7 +330,9 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
@@ -295,6 +360,7 @@ const handleLogout = async () => {
   await auth.logout()
   // Drop the previous user's group cache so the next session re-fetches.
   groupsStore.reset()
+  clearLiveAnalyticsCache()
   go('/login')
 }
 
@@ -358,13 +424,14 @@ watch(
 )
 const programSearchQuery = ref('')
 
-// Tracks whether the collapsible Admin submenu is hidden, so the stacked
+// Tracks whether each collapsible submenu is hidden, so the stacked
 // (mobile) sidebar stays compact. Defaults to collapsed on small screens and
 // expanded on large ones, matching the layout the user sees. Keeps in sync
 // with viewport changes (e.g. loading at desktop width then resizing down).
-// The supervisor's own pages fold the same way.
-type SidebarSectionKey = 'supervisor' | 'admin'
+type SidebarSectionKey = 'analytics' | 'supervisor' | 'admin'
+// On large screens Admin starts open and Analytics folded.
 const collapsedSidebarSections = ref<Record<SidebarSectionKey, boolean>>({
+  analytics: true,
   supervisor: false,
   admin: false,
 })
@@ -372,7 +439,7 @@ let adminSubnavMediaQuery: MediaQueryList | null = null
 
 const syncAdminSubnavViewport = (event: MediaQueryList | MediaQueryListEvent) => {
   if (event.matches) {
-    collapsedSidebarSections.value = { supervisor: true, admin: true }
+    collapsedSidebarSections.value = { analytics: true, supervisor: true, admin: true }
   }
 }
 
@@ -381,12 +448,35 @@ const toggleSidebarSection = (key: SidebarSectionKey) => {
 }
 
 type SidebarLink = { label: string; to?: string; href?: string; active: boolean }
+type MainNavEntry =
+  | {
+      to: string
+      label: string
+      icon: string
+      active: boolean
+      links?: never
+    }
+  | {
+      key: SidebarSectionKey
+      to: string
+      label: string
+      icon: string
+      active: boolean
+      links: Array<SidebarLink & { to: string }>
+      id: string
+      collapsed: boolean
+    }
 
-const { shown: supervisorPagesShown } = useSupervisorPages()
+const { shown: supervisorPagesShown, registrationShown: supervisorRegistrationShown } =
+  useSupervisorPages()
+// Results, once marks or certificates are released.
+const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
-    if (isSupervisor) void loadSupervisorPages()
+    if (!isSupervisor) return
+    void loadSupervisorPages()
+    void loadSupervisorResults()
   },
   { immediate: true },
 )
@@ -395,13 +485,16 @@ watch(
 // Supervisor Visibility shows them.
 const mainNavLinks = computed(() => {
   if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
-  return [
+  const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
+  ]
+  links.push(
     { to: '/groups', label: 'Groups', icon: 'fa-users', active: route.path.startsWith('/groups') },
     { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
     { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
-  ]
+  )
+  return links
 })
 
 // The folding entries: a supervisor's own pages and the admin pages, drawn
@@ -425,8 +518,15 @@ const sidebarSections = computed(() => {
       active: false,
       links: [
         { label: 'My Profile', to: '/profile', active: path === '/profile' },
+        // Unless Management > Supervisor Visibility hides it (admins always see it).
+        ...(auth.isAdmin || supervisorRegistrationShown.value
+          ? [{ label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' }]
+          : []),
         { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
         { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
+        ...(supervisorResultsShown.value
+          ? [{ label: 'Results', to: '/my-results', active: path === '/my-results' }]
+          : []),
         { label: 'Contact Support', href: `mailto:${SUPPORT_EMAIL}`, active: false },
       ],
     })
@@ -450,6 +550,23 @@ const sidebarSections = computed(() => {
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
       ],
     })
+    sections.push({
+      key: 'analytics',
+      label: 'Analytics',
+      icon: 'fa-chart-column',
+      to: '/analytics',
+      active: path === '/analytics',
+      links: [
+        { label: 'Users', to: '/analytics/users', active: path === '/analytics/users' },
+        { label: 'Registration', to: '/analytics/registration', active: path === '/analytics/registration' },
+        { label: 'Groups', to: '/analytics/groups', active: path === '/analytics/groups' },
+        { label: 'Mentors', to: '/analytics/mentors', active: path === '/analytics/mentors' },
+        { label: 'Activity', to: '/analytics/activity', active: path === '/analytics/activity' },
+        { label: 'Messages', to: '/analytics/messages', active: path === '/analytics/messages' },
+        { label: 'Resources', to: '/analytics/resources', active: path === '/analytics/resources' },
+        { label: 'Email Monitoring', to: '/analytics/email', active: path === '/analytics/email' },
+      ],
+    })
   }
   return sections.map((section) => ({
     ...section,
@@ -460,6 +577,7 @@ const sidebarSections = computed(() => {
 
 const programSearchTargets = [
   { path: '/dashboard', terms: ['home', 'dashboard', 'overview', 'program'] },
+  { path: '/analytics', terms: ['analytics', 'report', 'reports', 'statistics', 'metrics'] },
   { path: '/groups', terms: ['group', 'groups', 'team', 'teams', 'mentor', 'mentoring'] },
   { path: '/events', terms: ['event', 'events', 'calendar', 'session', 'sessions', 'workshop'] },
   { path: '/announcements', terms: ['announcement', 'announcements', 'news', 'updates', 'notice'] },
@@ -717,6 +835,7 @@ watch(
     // changes (login, account switch) drop it so the next load fetches fresh.
     if (oldUserId !== undefined && oldUserId !== newUserId) {
       groupsStore.reset()
+      clearLiveAnalyticsCache()
     }
     // Skip the no-op transition where the switcher stays hidden — avoids
     // refetching while the user is bouncing between non-/groups routes.
@@ -892,6 +1011,34 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  /* As tall as the signed-in bar's search box, so every top bar (a public
+     page's too) is the same height. */
+  min-height: 2.875rem;
+}
+
+/* A public page's way to sign in: a white button on the bar, as the
+   signed-in bar's search box is white, with a note before it. */
+.header-note {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+}
+
+.header-sign-in {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--dark-green);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.18s ease;
+}
+
+.header-sign-in:hover,
+.header-sign-in:focus-visible {
+  background: var(--light-green);
 }
 
 .logo-section {
@@ -1005,12 +1152,10 @@ select {
   border-bottom-color: var(--border-light);
 }
 
-:root[data-theme='dark'] .notification-title,
 :root[data-theme='dark'] .panel-quick-copy strong {
   color: var(--teal);
 }
 
-:root[data-theme='dark'] .account-subtitle,
 :root[data-theme='dark'] .panel-quick-copy small {
   color: var(--text-muted);
 }
@@ -1123,19 +1268,37 @@ select {
 .sidebar {
   --sidebar-toggle-offset: 250px;
 
-  position: relative;
+  position: sticky;
+  top: 64px;
   display: flex;
   flex-direction: column;
+  align-self: flex-start;
   width: 250px;
   min-width: 250px;
   flex-shrink: 0;
-  min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
+  min-height: 0;
   padding: 1.5rem 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   background-color: var(--white);
   border-right: 1px solid var(--border-light);
   transition:
     width 0.2s ease,
     min-width 0.2s ease;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.sidebar.is-header-hidden {
+  top: 0;
+  height: 100vh;
 }
 
 .sidebar.is-collapsed {
@@ -1533,17 +1696,19 @@ select {
   min-width: 0;
 }
 
+/* The header is the platform's dark green (.notification-header): the
+   avatar white with green initials, as in the top bar, and the text and
+   close button in white. */
 .account-avatar {
   width: 42px;
   height: 42px;
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: linear-gradient(180deg, #314e43 0%, #22362f 100%);
-  color: #ffffff;
+  background: #ffffff;
+  color: var(--dark-green);
   font-size: 0.9rem;
-  font-weight: 800;
-  box-shadow: 0 10px 24px rgba(8, 14, 13, 0.16);
+  font-weight: 700;
 }
 
 .account-avatar-image { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; display: block; }
@@ -1555,18 +1720,24 @@ select {
 .notification-title {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--text-strong);
+  color: #ffffff;
 }
 
 .account-subtitle {
   margin: 0.16rem 0 0;
   font-size: 0.74rem;
-  color: var(--text-soft);
+  color: rgba(255, 255, 255, 0.8);
   line-height: 1.4;
 }
 
 .account-close-button {
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.account-close-button:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .notification-panel-section {

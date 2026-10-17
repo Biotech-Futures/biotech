@@ -300,7 +300,7 @@ class AdminUserBulkCreateViewTests(TestCase):
         response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "")
+        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
 
     @patch("apps.admin.views.bulk_create_users")
     def test_accepts_wrapped_users_payload_for_compatibility(self, mock_bulk_create_users):
@@ -316,7 +316,7 @@ class AdminUserBulkCreateViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "")
+        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
 
     @patch("apps.admin.views.bulk_create_users")
     def test_rejects_non_array_payload(self, mock_bulk_create_users):
@@ -836,6 +836,17 @@ class AdminUserServiceQueryTests(TestCase):
         result = query_users(search="unique-email", requesting_user=self.admin_user)
         self.assertEqual(result["data"]["total"], 1)
         self.assertEqual(result["data"]["items"][0]["email"], "unique-email@example.com")
+
+    def test_query_users_search_by_full_name(self):
+        user = User.objects.create_user(
+            email="arjun.silva@example.com", first_name="Arjun", last_name="Silva",
+            state=self.state, password="testpass",
+        )
+
+        result = query_users(search="Arjun Silva", requesting_user=self.admin_user)
+
+        self.assertEqual(result["data"]["total"], 1)
+        self.assertEqual(result["data"]["items"][0]["id"], user.id)
 
 
 STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT

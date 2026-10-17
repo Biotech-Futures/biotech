@@ -25,12 +25,7 @@ def _consumer(user_id=1, name="Amy"):
     consumer = LiveRoomConsumer()
     consumer.room = "live.submission.7"
     consumer.user = {"id": user_id, "name": name}
-    consumer._last_frame = 0.0
-    consumer._last_typing = {}
-    consumer._last_text = {}
-    consumer._pending_text = {}
-    consumer._text_sends = {}
-    consumer._open = set()
+    consumer._start_relays()
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test-channel"
     consumer.send_json = AsyncMock()
@@ -194,6 +189,83 @@ class TypingFrameTests(TestCase):
                 async_to_sync(consumer.receive_json)({"type": "typing", "field": f"q{i}", "typing": True})
 
         self.assertEqual(len(_sent(consumer)), 1)
+
+
+class CursorTests(TestCase):
+    def _send(self, consumer, *frames, wait=0.01):
+        async def run():
+            for frame in frames:
+                await consumer.receive_json(frame)
+            await asyncio.sleep(wait)
+        async_to_sync(run)()
+
+    def test_a_cursor_reaches_the_room(self):
+        consumer = _consumer()
+
+        self._send(consumer, {"type": "cursor", "field": "q1", "at": "AQID", "typed": True})
+
+        self.assertEqual(_sent(consumer), [{
+            "type": "room.relay", "kind": "cursor", "user": {"id": 1, "name": "Amy"}, "field": "q1",
+            "at": "AQID", "typed": True,
+        }])
+
+    def test_a_burst_of_moves_ends_on_the_latest_and_keeps_a_keystroke(self):
+        consumer = _consumer()
+
+        self._send(
+            consumer,
+            {"type": "cursor", "field": "q1", "at": "AA=="},
+            {"type": "cursor", "field": "q1", "at": "AQ==", "typed": True},
+            {"type": "cursor", "field": "q1", "at": "Ag=="},
+            wait=consumers.MIN_CURSOR_INTERVAL * 2,
+        )
+
+        sent = [(event["at"], event["typed"]) for event in _sent(consumer)]
+        self.assertEqual(sent, [("Ag==", True)])
+
+    def test_leaving_clears_the_cursors_teammates_can_see(self):
+        consumer = _consumer()
+        self._send(consumer, {"type": "cursor", "field": "q1", "at": "AQID"})
+
+        async_to_sync(consumer.disconnect)(1000)
+
+        self.assertEqual(_sent(consumer)[-1], {
+            "type": "room.relay", "kind": "cursor", "user": {"id": 1, "name": "Amy"}, "field": "q1",
+            "at": None, "typed": False,
+        })
+
+    def test_leaving_the_box_clears_the_cursor(self):
+        consumer = _consumer()
+
+        self._send(consumer, {"type": "cursor", "field": "q1", "at": "AQID"})
+        self._send(consumer, {"type": "cursor", "field": "q1", "at": None, "typed": True}, wait=consumers.MIN_CURSOR_INTERVAL * 2)
+        async_to_sync(consumer.disconnect)(1000)
+
+        self.assertEqual([event["at"] for event in _sent(consumer)], ["AQID", None])
+        self.assertFalse(_sent(consumer)[-1]["typed"])
+
+    def test_malformed_cursors_are_dropped(self):
+        consumer = _consumer()
+
+        self._send(
+            consumer,
+            {"type": "cursor", "field": "q1", "at": 5},
+            {"type": "cursor", "field": "q1", "at": ""},
+            {"type": "cursor", "field": "q1", "at": "x" * (consumers.MAX_CURSOR_LENGTH + 1)},
+            {"type": "cursor", "field": "", "at": "AQID"},
+        )
+
+        consumer.channel_layer.group_send.assert_not_awaited()
+
+    def test_teammates_see_where_the_cursor_is(self):
+        consumer = _consumer(user_id=2)
+        event = {"type": "room.relay", "kind": "cursor", "user": {"id": 1, "name": "Amy"}, "field": "q1", "at": "AQID", "typed": True}
+
+        async_to_sync(consumer.room_relay)(event)
+
+        consumer.send_json.assert_awaited_once_with({
+            "type": "cursor", "user": {"id": 1, "name": "Amy"}, "field": "q1", "at": "AQID", "typed": True,
+        })
 
 
 class ChangedNoticeTests(TestCase):

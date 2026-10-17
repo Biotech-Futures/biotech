@@ -2,7 +2,6 @@
 // releases, Document Setup, the finalist, results and Symposium emails, and
 // the Finalist Presentation tab). Everything here is under /api/v1/management/.
 import { requestBlob, requestJson, triggerBlobDownload, type ComponentBlock } from './gradingAPI'
-import type { SystemEmailMergeTag } from './systemEmail'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -80,6 +79,83 @@ export async function downloadGroupCertificate(
     `/api/v1/management/groups/${groupId}/results/certificate/${certificate.user_id}/`
   )
   triggerBlobDownload(blob, filename ?? certificate.file_name)
+}
+
+// ---------------------------------------------------------------------------
+// Results on a supervisor's portal: their students' groups' marks, as the
+// spreadsheet their results email carries, and the certificates of their
+// students and those groups' mentors, once released.
+
+/** Whether marks or certificates are out: Results shows once either is. */
+export interface SupervisorResultsState {
+  marks_released: boolean
+  certificates_released: boolean
+}
+
+/** A column of the marks spreadsheet, named as the spreadsheet names it. */
+export interface SupervisorResultsColumn {
+  /** The spreadsheet's field name, e.g. "TeamCode", "PM1", "PosterComment1". */
+  key: string
+  /** Its heading, as the spreadsheet's: "Group", "PM1", "Poster Comment 1". */
+  label: string
+  /** A mark's rubric criterion, shown on hover; "" for the rest. */
+  title: string
+  /** A mark (or the total), rather than text. */
+  mark: boolean
+}
+
+/** A student's or mentor's certificate on the page. */
+export interface SupervisorResultsPerson {
+  user_id: number
+  name: string
+  kind: 'student' | 'mentor'
+  group_id: number
+  group_name: string
+  /** A finalist group's, while certificates go out without finalists. */
+  withheld: boolean
+  file_name: string
+}
+
+export interface SupervisorResults extends SupervisorResultsState {
+  year: number
+  /** Once marks are released: every column the spreadsheet has, empty or not. */
+  columns: SupervisorResultsColumn[]
+  /** Once marks are released: a row per group, by column key, highest total first. */
+  groups: Array<Record<string, string | number | null>>
+  sheet_file_name: string
+  /** Once certificates are released: the students', then the mentors'. */
+  people: SupervisorResultsPerson[]
+  zip_file_name: string
+}
+
+// GET /api/v1/management/supervisor-results/state/ — for the menu's Results link.
+export function fetchSupervisorResultsState(): Promise<SupervisorResultsState> {
+  return requestJson<SupervisorResultsState>('/api/v1/management/supervisor-results/state/')
+}
+
+// GET /api/v1/management/supervisor-results/ — what the Results page shows.
+export function fetchSupervisorResults(): Promise<SupervisorResults> {
+  return requestJson<SupervisorResults>('/api/v1/management/supervisor-results/')
+}
+
+// GET /api/v1/management/supervisor-results/marks-sheet/ — the marks spreadsheet.
+export async function downloadSupervisorResultsSheet(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/supervisor-results/marks-sheet/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/supervisor-results/certificates/{groupId}/{userId}/ — one certificate.
+export async function downloadSupervisorResultsCertificate(person: SupervisorResultsPerson): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/supervisor-results/certificates/${person.group_id}/${person.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? person.file_name)
+}
+
+// GET /api/v1/management/supervisor-results/certificates/ — every certificate, zipped.
+export async function downloadSupervisorResultsCertificates(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/supervisor-results/certificates/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
 }
 
 // ---------------------------------------------------------------------------
@@ -183,17 +259,40 @@ export interface ReleaseStatus {
   submissions_open?: boolean
 }
 
-// GET /api/v1/management/supervisor-pages/ — whether supervisors see Home,
-// Groups, Events, Announcements and Resources (off by default).
-export function fetchSupervisorPages(): Promise<{ shown: boolean }> {
-  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/')
+// GET /api/v1/management/registration-open/ — whether registration is open to
+// the public (open by default). Anyone can read it, signed in or not.
+export function fetchRegistrationOpen(): Promise<{ open: boolean }> {
+  return requestJson<{ open: boolean }>('/api/v1/management/registration-open/')
 }
 
-// PUT /api/v1/management/supervisor-pages/ — admins turn it on or off.
-export function saveSupervisorPages(shown: boolean): Promise<{ shown: boolean }> {
-  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/', {
+// PUT /api/v1/management/registration-open/ — admins open or close it.
+export function saveRegistrationOpen(open: boolean): Promise<{ open: boolean }> {
+  return requestJson<{ open: boolean }>('/api/v1/management/registration-open/', {
     method: 'PUT',
-    body: JSON.stringify({ shown })
+    body: JSON.stringify({ open })
+  })
+}
+
+/** Management > Supervisor Visibility: whether supervisors see Home, Groups,
+ *  Events, Announcements and Resources (``shown``, off by default), and their
+ *  Registration page (``registration_shown``, on by default). */
+export interface SupervisorPagesState {
+  shown: boolean
+  registration_shown: boolean
+}
+
+// GET /api/v1/management/supervisor-pages/ — the switches.
+export function fetchSupervisorPages(): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/')
+}
+
+// PUT /api/v1/management/supervisor-pages/ — admins turn either on or off.
+export function saveSupervisorPages(
+  change: Partial<SupervisorPagesState>
+): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/', {
+    method: 'PUT',
+    body: JSON.stringify(change)
   })
 }
 
@@ -460,71 +559,6 @@ export interface AnnouncementCategories {
 // GET /api/v1/management/announcement-categories/ — each category's groups.
 export function fetchAnnouncementCategories(): Promise<AnnouncementCategories> {
   return requestJson<AnnouncementCategories>('/api/v1/management/announcement-categories/')
-}
-
-/** The email an outcome announcement goes with: the finalist, non-finalist
- *  and non-submission emails, and the results emails to groups and to
- *  supervisors. */
-export type OutcomeAnnouncementKind =
-  | 'finalists'
-  | 'nonfinalists'
-  | 'nonsubmissions'
-  | 'results-groups'
-  | 'results-supervisors'
-
-/** The in-app announcement that goes with one of those emails. */
-export interface OutcomeAnnouncement {
-  /** Its wording, with merge tags such as {{ slides_due }}, for editing. */
-  title: string
-  /** HTML, as announcements keep it. */
-  body: string
-  /** The same filled in with the current dates and links, as it'd post. */
-  preview: { title: string; body: string }
-  /** The tags its wording can use, as System Emails offers them. */
-  merge_tags: SystemEmailMergeTag[]
-  /** Changed from the email's wording. */
-  edited: boolean
-  /** Who saved the edited wording and when; null until edited. */
-  edited_by: string | null
-  edited_at: string | null
-  /** The groups, or supervisors, the email has reached so far: who sees it. */
-  recipients: number
-  /** What they are, e.g. "finalist group". */
-  noun: string
-  /** Why it can't be posted yet, or "": it waits for its email to be sent. */
-  blocked: string
-  posted_at: string | null
-  posted_by: string | null
-}
-
-const outcomeAnnouncementUrl = (kind: OutcomeAnnouncementKind) =>
-  `/api/v1/management/outcome-announcements/${kind}/`
-
-// GET — its wording (the email's until edited) and when it was posted.
-export function fetchOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind))
-}
-
-// PATCH — save an edited title and body.
-export function updateOutcomeAnnouncement(
-  kind: OutcomeAnnouncementKind,
-  fields: { title: string; body: string }
-): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), {
-    method: 'PATCH',
-    body: JSON.stringify(fields)
-  })
-}
-
-// DELETE — back to the email's wording.
-export function restoreOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), { method: 'DELETE' })
-}
-
-// POST post/ — post it to whoever the email has reached so far, or update the
-// one already posted.
-export function postOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(`${outcomeAnnouncementUrl(kind)}post/`, { method: 'POST' })
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.

@@ -81,11 +81,33 @@ def template_upload_to(instance, filename):
     return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
 
 
+class PublicRegistrationSetting(SingletonModel):
+    """Whether registration is open to the public (Management > Registration):
+    open until an admin closes it. While closed, the sign-in page has no
+    Register now and students can't register themselves (a late link still
+    can)."""
+
+    open = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "public_registration_setting"
+
+    def __str__(self):
+        return "PublicRegistrationSetting"
+
+
 class SupervisorPagesSetting(SingletonModel):
     """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Supervisor Visibility)."""
+    Resources; off until an admin turns it on (Management > Supervisor Visibility).
+    And whether they see their Registration page (and can register students);
+    on until an admin hides it."""
 
     shown = models.BooleanField(default=False)
+    registration_shown = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",

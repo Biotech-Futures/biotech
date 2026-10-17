@@ -17,6 +17,7 @@ to it, and vice-versa.
 
 import logging
 from datetime import timedelta
+from functools import partial
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -27,6 +28,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 
 from apps.services.email_branding import brand_context
 from apps.services.email_log import note_send, reason_for
+from apps.services.retry import RetryLater
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -670,6 +672,8 @@ def _send_audience_reminders(event, audience):
     sender = sender_for("rsvp_reminder")
     from_email = sender.from_email
     connection = sender_connection(sender)
+    # Those that fail, kept to try once more once everyone has been tried.
+    later = RetryLater(connection)
 
     sent = 0
     failed = 0
@@ -700,16 +704,20 @@ def _send_audience_reminders(event, audience):
             "EVENT_DESCRIPTION": event.description or "",
         }
 
+        resend = partial(
+            _send_one_reminder,
+            subject=subject,
+            recipient=email,
+            from_email=from_email,
+            ctx=ctx,
+            connection=connection,
+        )
         try:
-            _send_one_reminder(
-                subject=subject,
-                recipient=email,
-                from_email=from_email,
-                ctx=ctx,
-                connection=connection,
-            )
+            resend()
             sent += 1
         except Exception as exc:
+            if later.keep(exc, (email, user.id), resend):
+                continue
             failed += 1
             missed[email] = reason_for(exc)
             logger.exception(
@@ -717,9 +725,33 @@ def _send_audience_reminders(event, audience):
                 event.id,
                 user.id,
             )
+    # Once more, a few seconds on, over a fresh connection (see ``retry``).
+    for (email, user_id), exc in later.run():
+        if exc is None:
+            sent += 1
+            continue
+        failed += 1
+        missed[email] = reason_for(exc)
+        logger.error(
+            "Failed to send RSVP reminder for event %s to user %s error=%s",
+            event.id, user_id, type(exc).__name__,
+        )
     if sent or missed:
-        note_send("rsvp_reminder", missed=missed)
+        note_send(
+            "rsvp_reminder",
+            missed=missed,
+            attempted=sent + failed,
+            delivered=sent,
+            failed=failed,
+            source_mailbox=sender.address,
+        )
     return sent, failed
+
+
+def rsvp_reminder_job(actor, options):
+    """The queued run of the RSVP reminders due now (``send_guard.JOBS``)."""
+    _events, sent, failed = send_due_rsvp_reminders()
+    return {"sent": sent, "failed": failed}
 
 
 def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None):

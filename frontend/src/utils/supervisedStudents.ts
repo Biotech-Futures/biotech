@@ -7,7 +7,9 @@ export type SupervisedStudent = {
   first_name: string
   last_name: string
   email: string
+  country_id?: number | null
   country_name?: string
+  state_id?: number | null
   state_name?: string
   /** "Active", "Pending" and so on. */
   account_status?: string
@@ -23,7 +25,6 @@ export type SupervisedStudent = {
   has_join_permission: boolean
   joinperm_response_id: string | null
   joinperm_granted_at: string | null
-  signature?: string | null
   group_id: number | null
   group_name: string | null
 }
@@ -66,10 +67,35 @@ export const toStudentRow = (student: SupervisedStudent) => ({
     ? formatShortDateTime(student.joinperm_granted_at) || 'Recorded'
     : '—',
   permissionGivenAt: student.joinperm_granted_at,
-  signature: student.signature || '',
   groupId: student.group_id,
   groupName: student.group_name,
 })
+
+/** The guardians' drawn signatures for ``studentIds`` (each a PNG data URL,
+ *  or null), fetched when their consent forms are opened: the roster leaves
+ *  them out, as they're large. */
+export async function fetchConsentSignatures(
+  studentIds: number[],
+): Promise<Record<string, string | null>> {
+  if (!studentIds.length) return {}
+  const query = new URLSearchParams({ ids: studentIds.join(',') })
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/signatures/?${query}`, {
+    credentials: 'include',
+    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
+  const body = await response.json()
+  return body?.signatures ?? {}
+}
+
+/** ``rows`` with their guardians' signatures, for their consent forms. */
+export async function withConsentSignatures<T extends { id: unknown }>(
+  rows: T[],
+): Promise<Array<T & { signature: string }>> {
+  const ids = [...new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0))]
+  const signatures = await fetchConsentSignatures(ids)
+  return rows.map((row) => ({ ...row, signature: signatures[String(row.id)] || '' }))
+}
 
 export async function saveGuardianDetails(payload: {
   student_ids: number[]
@@ -101,7 +127,9 @@ export async function updateSupervisedStudentProfile(
     email: string
     school_name: string
     year_lvl: string
-    interests: string[]
+    interests?: string[]
+    country_id?: number | null
+    state_id?: number | null
   },
 ): Promise<SupervisedStudent> {
   await ensureCsrfCookie(API_BASE_URL)
@@ -240,6 +268,22 @@ export async function uploadGuardianDetails(file: File, dryRun: boolean): Promis
   if (!response.ok) {
     throw await apiErrorFromResponse(response)
   }
+  return response.json()
+}
+
+/** What the student panel's Edit offers: countries, regions and interests. */
+export type StudentEditOptions = {
+  countries: { id: number; country_name: string }[]
+  regions: { id: number; country_id: number; state_name: string }[]
+  interests: string[]
+}
+
+export async function fetchStudentEditOptions(): Promise<StudentEditOptions> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/options/`, {
+    credentials: 'include',
+    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
   return response.json()
 }
 

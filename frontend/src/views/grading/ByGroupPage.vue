@@ -21,8 +21,11 @@
         :page-size="DATA_TABLE_ALL"
         search-placeholder="Group name"
         :empty-message="query.trim() ? 'No groups match your search.' : 'No groups.'"
+        clickable-rows
+        :row-clickable="(row) => groupOf(row).submission_id != null"
         @update:sort="setSort($event.key as SortKey)"
         @search-enter="open"
+        @row-click="router.push(`/grading/groups/${groupOf($event).group_id}`)"
       >
         <!-- Enter in Search opens the group it names; this says when none does. -->
         <template v-if="error" #filters>

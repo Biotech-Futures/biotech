@@ -3,6 +3,9 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
+
 const country = { id: 1, countryName: 'Australia' }
 const state = { id: 1, stateName: 'NSW', countryName: 'Australia' }
 
@@ -98,9 +101,28 @@ afterEach(() => {
   document.body.innerHTML = ''
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  routeState.query = {}
 })
 
 describe('AdminUsersView', () => {
+  it('applies status and group membership from a deep link before loading', async () => {
+    routeState.query = { status: 'inactive', inGroup: 'no', search: 'Ada Lovelace' }
+    const fetchMock = fetchMockFor([buildUser({ isActive: false })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    expect(wrapper.get('#status-filter').element).toHaveProperty('value', 'inactive')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'no')
+    expect(wrapper.get('input[type="search"]').element).toHaveProperty('value', 'Ada Lovelace')
+    const url = String(listCall(fetchMock)?.[0] ?? '')
+    expect(url).toContain('active=false')
+    expect(url).toContain('inGroup=no')
+    expect(url).toContain('search=Ada+Lovelace')
+  })
+
   it('loads and renders user rows', async () => {
     vi.stubGlobal(
       'fetch',
@@ -356,7 +378,6 @@ describe('AdminUsersView', () => {
       'Country',
       'State',
       'Group',
-      'Interests',
       'Logged In',
       'Actions'
     ])
@@ -383,13 +404,16 @@ describe('AdminUsersView', () => {
     expect(studentCell.text()).toContain('Ada Lovelace')
     expect(studentCell.text()).toContain('ada@example.com')
 
-    // School / Year / Interests cells render their data in the row.
+    // School / Year cells render their data in the row.
     const firstRow = wrapper.find('.data-table-row')
     expect(firstRow.text()).toContain('State High')
     expect(firstRow.text()).toContain('10')
-    expect(firstRow.text()).toContain('Science')
-    expect(firstRow.text()).toContain('Maths')
     expect(firstRow.text()).toContain('No')
+
+    // Interests, every one, on a line of their own under the row.
+    expect(firstRow.text()).not.toContain('Science')
+    expect(firstRow.classes()).toContain('data-table-row--joined')
+    expect(wrapper.find('.data-table-detail-row').text()).toBe('Areas of Interest: Science, Maths')
   })
 
   it('maps student sortable columns to the supported backend sort fields', async () => {

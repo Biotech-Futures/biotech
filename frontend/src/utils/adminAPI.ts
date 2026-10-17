@@ -35,6 +35,7 @@ import type {
   SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
+import type { MutualInterestItem } from './mutualInterests'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -540,15 +541,22 @@ export interface AdminGroupMember {
   /** "student" | "mentor" */
   role: string
   membershipId: number | null
+  interests?: string[]
 }
+
+export type { MutualInterestItem }
 
 export interface AdminGroupDetail {
   id: number
   name: string
   members: AdminGroupMember[]
   mentor: AdminGroupMember | null
+  mutualInterests?: MutualInterestItem[]
   createdAt: string
   updatedAt: string
+  /** Who formed it: its members (while registering), a supervisor or an admin
+   *  (``kind``, "" when not recorded), and the supervisor's or admin's name. */
+  formedBy?: { kind: 'members' | 'supervisor' | 'admin' | ''; name: string }
 }
 
 export interface AdminGroupListData {
@@ -979,6 +987,11 @@ export interface AdminResourceDetail {
   file_name: string | null
   file_mime_type: string | null
   file_size: number | null
+  slides_file_name?: string | null
+  slides_mime_type?: string | null
+  slides_file_size?: number | null
+  slides_storage_key?: string | null
+  has_slides?: boolean
   content_html?: string | null
   storage_key?: string | null
   labels?: Array<{ id: number; name: string }>
@@ -999,7 +1012,8 @@ export interface CreateAdminResourcePayload {
   resource_name: string
   resource_description: string
   resource_kind: 'file' | 'attachment' | 'page'
-  visibility_scope: 'global' | 'role_based'
+  // Resources are role-based only; the backend rejects 'global'.
+  visibility_scope: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -1011,7 +1025,7 @@ export interface CreateAdminResourcePayload {
 export interface UpdateAdminResourcePayload {
   resource_name?: string
   resource_description?: string | null
-  visibility_scope?: 'global' | 'role_based'
+  visibility_scope?: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -1035,12 +1049,16 @@ export const uploadAdminResource = (formData: FormData) =>
     isFormData: true
   }).then((env) => env.data)
 
-export const uploadLinkedResourceAttachment = async (file: File) => {
+export const uploadLinkedResourceAttachment = async (
+  file: File,
+  acknowledgedOversized = false
+) => {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('resource_kind', 'attachment')
   formData.append('resource_name', file.name)
   formData.append('resource_description', `Resource attachment: ${file.name}`)
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   const resource = await uploadAdminResource(formData)
   const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
   const accessUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/access/`
@@ -1059,9 +1077,22 @@ export const updateAdminResource = (id: number | string, payload: UpdateAdminRes
 export const deleteAdminResource = (id: number | string) =>
   adminDelete<AdminEnvelope<null>>(`/resource/${id}/`).then((env) => env.data)
 
-export const replaceAdminResourceFile = (id: number | string, file: File) => {
+export const replaceAdminResourceFile = (
+  id: number | string,
+  file?: File | null,
+  // The admin ticked "I understand this file is large"; the backend only
+  // accepts a file over the size limit when this is true.
+  acknowledgedOversized = false,
+  slidesFile?: File | null
+) => {
   const formData = new FormData()
-  formData.append('file', file)
+  if (file) {
+    formData.append('file', file)
+  }
+  if (slidesFile) {
+    formData.append('slides_file', slidesFile)
+  }
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
     method: 'POST',
     body: formData,
@@ -1075,8 +1106,13 @@ export const fetchAdminResourceRoles = () =>
 export const fetchAdminResourceTypes = () =>
   adminGet<AdminEnvelope<AdminResourceTypeOption[]>>('/resource/types/').then((env) => env.data || [])
 
-export const downloadAdminResourceFile = async (id: number | string, fileName?: string) => {
-  const url = `${ADMIN_API_BASE}/resource/${id}/download/`
+export const downloadAdminResourceFile = async (
+  id: number | string,
+  fileName?: string,
+  field = 'file'
+) => {
+  const query = field === 'slides' ? '?field=slides' : ''
+  const url = `${ADMIN_API_BASE}/resource/${id}/download/${query}`
   const res = await fetch(url, {
     method: 'GET',
     credentials: 'include'
@@ -1167,7 +1203,8 @@ export interface AdminAnnouncementMergeTag {
 export interface AdminAnnouncementNotifyResult {
   msg: string
   deliveryId?: number
-  status: 'success' | 'partial' | 'failed' | 'skipped'
+  // queued: it sends in its turn, after any bulk email from the same mailbox.
+  status: 'queued' | 'success' | 'partial' | 'failed' | 'skipped'
   attempted: number
   succeeded: number
   failed: number
@@ -1468,6 +1505,7 @@ export interface MatchedGroupMentor {
 }
 
 export interface MatchedGroupStudent {
+  id: number
   name: string
   hasLoggedIn: boolean
   interests: string[]

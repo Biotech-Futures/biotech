@@ -26,9 +26,6 @@ export const userName = (user: AdminUser | null | undefined) =>
 /** DataTable slots hand rows out as Record<string, unknown>. */
 export const toAdminUser = (row: Record<string, unknown>): AdminUser => row as unknown as AdminUser
 
-/** First few interests for the table cell, with the overflow hidden behind a "+n". */
-export const visibleInterests = (user: AdminUser) => (user.interests ?? []).slice(0, 3)
-
 export const joinInterests = (interests: string[] | undefined | null) =>
   interests && interests.length ? interests.join(', ') : '—'
 

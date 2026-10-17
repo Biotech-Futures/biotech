@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 
 from apps.groups.models import GroupAutoNameUnavailable, GroupInterest, GroupMembership, Groups
+from apps.common.rbac import is_admin
 from apps.groups.services import assign_mentor_to_group, sync_supervisor_memberships_for_student
 from apps.users.models import AreasOfInterest, MentorProfile, StudentProfile, SupervisorProfile, User
 from apps.users.serializers import (
@@ -144,6 +145,9 @@ class SupervisedGroupsView(APIView):
             group = Groups.create_auto_named()
         except GroupAutoNameUnavailable as exc:
             raise ValidationError({"group_name": [str(exc)]}) from exc
+        group.mark_formed(
+            Groups.FormedBy.ADMIN if is_admin(request.user) else Groups.FormedBy.SUPERVISOR, request.user,
+        )
         _keep_supervisor_on_group(group, request.user)
         if "interests" in request.data:
             _sync_group_interests(group, serializer.validated_data.get("interests") or [])
@@ -307,7 +311,9 @@ class SupervisedInterestCatalogView(APIView):
 
     @extend_schema(responses={200: SupervisedInterestCatalogSerializer})
     def get(self, request):
-        _require_supervisor(request.user)
+        # Admins edit students' interests too, on Admin > Guardians.
+        if not is_admin(request.user):
+            _require_supervisor(request.user)
         interests = list(
             AreasOfInterest.objects.order_by("interest_desc").values_list("interest_desc", flat=True)
         )

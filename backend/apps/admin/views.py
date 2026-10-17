@@ -1,3 +1,4 @@
+import logging
 from django.contrib.auth import update_session_auth_hash
 from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse
@@ -9,6 +10,8 @@ from rest_framework.views import APIView
 
 from apps.admin.models import AdminView
 from apps.admin.permissions import IsAdminScoped
+
+logger = logging.getLogger(__name__)
 from apps.admin.serializers import (
     BulkUserRowSerializer,
     SystemEmailPreviewSerializer,
@@ -50,12 +53,12 @@ from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
     delete_resource, replace_resource_file, download_resource, access_resource,
     assign_role_to_resource, remove_role_from_resource,
-    list_resource_roles, list_resource_types,
+    list_resource_roles, list_resource_types, _first_error_message,
 )
 from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
-    update_announcement, archive_announcement, delete_announcement, send_announcement_email,
+    update_announcement, archive_announcement, delete_announcement, notify_announcement,
     list_announcement_groups, list_announcement_roles, list_announcement_merge_tags,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
@@ -324,7 +327,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -342,7 +345,7 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -377,7 +380,7 @@ class GroupListView(APIView):
     """POST /api/v1/group - Create a new group"""
 
     def post(self, request):
-        result = create_group(name=request.data.get("name"))
+        result = create_group(name=request.data.get("name"), created_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -571,7 +574,7 @@ class MatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_student_assignments(request.data)
+        result = confirm_student_assignments(request.data, created_by=request.user)
         return Response({"msg": "Assignments confirmed successfully", "data": result})
 
 
@@ -795,15 +798,21 @@ class ResourceDetailView(APIView):
     """PUT /api/v1/resource/{id} - Update resource"""
 
     def put(self, request, resource_id):
-        result = update_resource(resource_id, request.data)
-        code = status.HTTP_200_OK if result.get(
-            "data") else status.HTTP_400_BAD_REQUEST
-        return Response(result, status=code)
+        return self._update(request, resource_id)
 
     """PATCH /api/v1/resource/{id} - Update resource (partial)"""
 
     def patch(self, request, resource_id):
-        result = update_resource(resource_id, request.data)
+        return self._update(request, resource_id)
+
+    def _update(self, request, resource_id):
+        try:
+            result = update_resource(resource_id, request.data)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to update resource", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -822,7 +831,8 @@ class ResourceDownloadView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, resource_id):
-        result = download_resource(resource_id)
+        field = request.query_params.get("field", "file")
+        result = download_resource(resource_id, field=field)
         data = result.get("data")
         if not data:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
@@ -845,7 +855,8 @@ class ResourceAccessView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, resource_id):
-        result = access_resource(resource_id)
+        field = request.query_params.get("field", "file")
+        result = access_resource(resource_id, field=field)
         data = result.get("data")
         if not data:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
@@ -874,7 +885,10 @@ class ResourceUploadView(APIView):
             )
         except ValidationError as exc:
             return Response(
-                {"msg": exc.detail or "Failed to upload resource", "errors": exc.detail},
+                {
+                    "msg": _first_error_message(exc.detail) or "Failed to upload resource",
+                    "errors": exc.detail,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except ValueError as exc:
@@ -889,19 +903,53 @@ class ResourceFileReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
     def post(self, request, resource_id):
         uploaded_file = request.FILES.get("file")
-        if uploaded_file is None:
+        slides_file = request.FILES.get("slides_file") or request.FILES.get("slides")
+        if uploaded_file is None and slides_file is None:
             return Response(
                 {"msg": "No file was uploaded.", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        payload = {
-            **request.data.dict(),
-            "file_bytes": uploaded_file.read(),
-            "file_name": uploaded_file.name,
-            "file_mime_type": uploaded_file.content_type or "application/octet-stream",
-            "file_size": uploaded_file.size,
-        }
-        result = replace_resource_file(resource_id, payload)
+        data_dict = request.data.dict() if hasattr(request.data, "dict") else dict(request.data)
+        payload = {**data_dict}
+        if uploaded_file is not None:
+            file_bytes = uploaded_file.read()
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
+            payload.update({
+                "file_bytes": file_bytes,
+                "file_name": uploaded_file.name,
+                "file_mime_type": uploaded_file.content_type or "application/octet-stream",
+                "file_size": uploaded_file.size,
+                "uploaded_file": uploaded_file,
+            })
+        if slides_file is not None:
+            slides_bytes = slides_file.read()
+            try:
+                slides_file.seek(0)
+            except Exception:
+                pass
+            payload.update({
+                "slides_file_bytes": slides_bytes,
+                "slides_file_name": slides_file.name,
+                "slides_file_mime_type": slides_file.content_type or "application/pdf",
+                "slides_file_size": slides_file.size,
+                "slides_file": slides_file,
+            })
+        try:
+            result = replace_resource_file(resource_id, payload)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to replace resource file", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.exception("Failed to replace resource file: %s", exc)
+            return Response(
+                {"msg": str(exc) or "Failed to replace resource file", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -953,7 +1001,13 @@ class ResourceRemoveRoleView(APIView):
                 {"msg": "roleId is required", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = remove_role_from_resource(resource_id, role_id)
+        try:
+            result = remove_role_from_resource(resource_id, role_id)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to remove role", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -1054,25 +1108,11 @@ class AnnouncementNotifyView(APIView):
             if hasattr(request, "user") and request.user.is_authenticated
             else None
         )
-        result = send_announcement_email(
-            announcement_id, initiated_by=initiated_by,
-        )
-
-        delivery_status = result.get("status")
-        # 200 — every recipient accepted.
-        # 207 — at least one delivered, at least one failed (Multi-Status).
-        # 502 — mail backend was reached but no recipient accepted (or the
-        #       backend itself errored) — distinguishes "broken pipe to SMTP"
-        #       from a client-side validation problem.
-        # 400 — no recipients to send to, or the announcement does not exist.
-        if delivery_status == "success":
-            code = status.HTTP_200_OK
-        elif delivery_status == "partial":
-            code = status.HTTP_207_MULTI_STATUS
-        elif delivery_status == "failed":
-            code = status.HTTP_502_BAD_GATEWAY
-        else:  # "skipped" — no recipients / unknown announcement
-            code = status.HTTP_400_BAD_REQUEST
+        result = notify_announcement(announcement_id, initiated_by=initiated_by)
+        # 202 — queued, to send in its turn after any bulk email going from
+        #       the same mailbox (see ``send_guard``).
+        # 400 — the announcement does not exist.
+        code = status.HTTP_202_ACCEPTED if result["status"] == "queued" else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
