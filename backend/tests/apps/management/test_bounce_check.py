@@ -6,14 +6,18 @@ from email.utils import format_datetime
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.grading.models import FinalistFlag
 from apps.groups.models import Groups
 from apps.management.models import BounceCheckpoint, BounceNotice, EmailDelivery, EmailSendRun
-from apps.management.services.bounce_check import check_bounces
+from apps.management.services.bounce_check import (
+    ALREADY_RUNNING, RUNNING, STARTED, SWITCHED_OFF, _run_check, check_bounces,
+)
 from apps.services import hostinger_mail
 from apps.services.bounces import (
     MAILBOX_FULL, NO_MAILBOX, email_for_subject, looks_like_bounce, parse_bounce, reason_for,
@@ -246,3 +250,50 @@ class CheckBouncesTests(TestCase):
         out = StringIO()
         call_command("check_bounced_emails", stdout=out)
         self.assertIn("HOSTINGER_MAIL_API_KEY isn't set", out.getvalue())
+
+
+TRIGGER = "/api/v1/management/bounce-check/"
+
+
+@override_settings(EMAIL_JOBS_TOKEN="jobs-token", RSVP_REMINDER_TOKEN="", HOSTINGER_MAIL_API_KEY="test-key")
+class TriggerTests(TestCase):
+    """GitHub's schedule starts a check through the trigger, with the email
+    jobs' shared token, as the other scheduled jobs do."""
+
+    def setUp(self):
+        cache.delete(RUNNING)
+        self.addCleanup(cache.delete, RUNNING)
+        patcher = patch("apps.management.services.bounce_check.threading.Thread")
+        self.thread = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def post(self, token="jobs-token"):
+        return APIClient().post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN=token)
+
+    def test_it_starts_one_check_at_a_time(self):
+        response = self.post()
+        self.assertEqual((response.status_code, response.json()), (202, {"status": STARTED}))
+        self.thread.return_value.start.assert_called_once()
+        self.assertEqual(self.post().json(), {"status": ALREADY_RUNNING})
+        self.thread.return_value.start.assert_called_once()
+
+    def test_it_needs_the_jobs_token(self):
+        self.assertEqual(self.post("wrong").status_code, 401)
+        self.thread.assert_not_called()
+
+    @override_settings(EMAIL_JOBS_TOKEN="", RSVP_REMINDER_TOKEN="")
+    def test_it_refuses_while_the_jobs_arent_set_up(self):
+        self.assertEqual(self.post().status_code, 503)
+
+    @override_settings(HOSTINGER_MAIL_API_KEY="")
+    def test_it_does_nothing_without_the_mail_key(self):
+        self.assertEqual(self.post().json(), {"status": SWITCHED_OFF})
+        self.thread.assert_not_called()
+
+    @patch("apps.management.services.bounce_check.check_bounces", side_effect=MailApiError("The Mail API answered 401."))
+    def test_a_failed_check_lets_the_next_one_run(self, check):
+        cache.add(RUNNING, True)
+        with self.assertLogs("apps.management.services.bounce_check", level="ERROR"):
+            _run_check()
+        self.assertIsNone(cache.get(RUNNING))
+

@@ -1,6 +1,11 @@
 """Checking the sending mailboxes for bounce notices (``check_bounced_emails``),
 so the pages show who our emails didn't reach after the mail server took them.
 
+GitHub runs it about every 10 minutes (``.github/workflows/bounce-check.yml``)
+through ``POST /api/v1/management/bounce-check/``, which starts it on a
+background thread (``start_check``); ``manage.py check_bounced_emails`` runs it
+by hand.
+
 Each run reads, through Hostinger's Mail API, each sending mailbox's inbox
 messages newer than the last run's (``BounceCheckpoint``), back at most
 ``settings.BOUNCE_LOOKBACK_DAYS``. Only messages that look like bounce notices
@@ -23,11 +28,13 @@ System Emails Log's Bounced emails. A bounce matching neither is skipped.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import transaction
+from django.core.cache import cache
+from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from apps.common.pii import email_log_tag
@@ -45,6 +52,14 @@ logger = logging.getLogger(__name__)
 # A send's record is saved a little after the email's own Date header.
 RECORD_LAG = timedelta(minutes=10)
 
+# Held while a check runs, across every worker (the cache is Redis in
+# production), so two never overlap; it lapses on its own if a run dies.
+RUNNING = "bounce_check:running"
+RUNNING_FOR = 15 * 60
+
+# What starting a check said: started, one already going, or no key set.
+STARTED, ALREADY_RUNNING, SWITCHED_OFF = "started", "already running", "off: HOSTINGER_MAIL_API_KEY isn't set"
+
 
 @dataclass
 class CheckResult:
@@ -52,6 +67,29 @@ class CheckResult:
     notices: int = 0
     bounces: int = 0
     matched: int = 0
+
+
+def start_check() -> str:
+    """Start a check on a background thread, so the trigger answers at once:
+    ``STARTED``, ``ALREADY_RUNNING`` when one is going, or ``SWITCHED_OFF``
+    with no Mail API key."""
+    if not settings.HOSTINGER_MAIL_API_KEY:
+        return SWITCHED_OFF
+    if not cache.add(RUNNING, True, RUNNING_FOR):
+        return ALREADY_RUNNING
+    threading.Thread(target=_run_check, daemon=True, name="bounce-check").start()
+    return STARTED
+
+
+def _run_check() -> None:
+    try:
+        check_bounces()
+    except Exception:  # noqa: BLE001
+        # Safe to log: a Mail API error never carries its URL or key (see hostinger_mail).
+        logger.exception("bounce_check.failed")
+    finally:
+        cache.delete(RUNNING)
+        close_old_connections()
 
 
 def check_bounces(now=None) -> CheckResult:

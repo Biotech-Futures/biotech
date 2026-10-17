@@ -24,6 +24,7 @@ from .presentation import (
     PresentationTimesShownView,
 )
 from .release import CertificatesReleaseView, MarksReleaseView
+from .bounce_check import BounceCheckTriggerView
 from .registration_open import RegistrationOpenView
 from .supervisor_pages import SupervisorPagesView
 from .supervisor_results import (
@@ -56,6 +57,7 @@ __all__ = [
     "FinalistEmailSettingsView",
     "FinalistNotifyAllView",
     "GradingSettingsView",
+    "BounceCheckTriggerView",
     "RegistrationOpenView",
     "SupervisorPagesView",
     "SupervisorResultsCertificatesZipView",
