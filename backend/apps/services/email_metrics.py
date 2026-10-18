@@ -92,6 +92,25 @@ def record_email_delivery(
         logger.exception("email_metric.recipients_write_failed type=%s", email_type)
 
 
+def mark_recipient_bounced(email_type: str, address: str, reason: str, sent_before=None) -> None:
+    """An email later bounced back from ``address``: its row on the latest
+    send of ``email_type`` to them (made by ``sent_before``) becomes failed
+    with ``reason``. The send's counts are left as recorded at send time."""
+    try:
+        rows = EmailDeliveryRecipient.objects.filter(
+            metric__email_type=email_type, email=mailbox_address(address),
+        )
+        if sent_before is not None:
+            rows = rows.filter(metric__started_at__lte=sent_before)
+        row = rows.order_by("-metric__started_at", "-id").first()
+        if row is not None:
+            row.status = EmailDeliveryRecipient.Status.FAILED
+            row.reason = reason[:120]
+            row.save(update_fields=["status", "reason"])
+    except DatabaseError:
+        logger.exception("email_metric.bounce_write_failed type=%s", email_type)
+
+
 def _recipient_rows(metric, recipients: Iterable[str], missed: Mapping[str, str]):
     """One row per distinct address, failed when ``missed`` names it."""
     reasons = {}

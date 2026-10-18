@@ -41,6 +41,7 @@ from apps.common.pii import email_log_tag
 from apps.services import hostinger_mail
 from apps.services.bounces import Bounce, email_for_subject, looks_like_bounce, parse_bounce
 from apps.services.email_log import BOUNCED, _labels
+from apps.services.email_metrics import mark_recipient_bounced
 from apps.services.models import EmailBounce
 from apps.services.system_email import senders
 
@@ -153,7 +154,9 @@ def record_bounce(bounce: Bounce, notice_at, found_at=None) -> bool:
         .first()
     )
     if delivery is not None:
+        email_type = delivery.email
         _missed_again(delivery, bounce, reason, found_at)
+        mark_recipient_bounced(email_type, bounce.address, reason, sent_by)
         return True
     key = email_for_subject(bounce.subject)
     if key is None:
@@ -168,6 +171,7 @@ def record_bounce(bounce: Bounce, notice_at, found_at=None) -> bool:
         EmailBounce.objects.create(
             key=key, address=bounce.address, who=who, reason=bounce.reason, detected_at=found_at,
         )
+    mark_recipient_bounced(key, bounce.address, reason, sent_by)
     return True
 
 
