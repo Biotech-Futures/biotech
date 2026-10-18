@@ -27,6 +27,10 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
       { id: 10, name: 'Team Alpha' },
       { id: 20, name: 'Team Beta' }
     ])
+    vi.spyOn(adminApi, 'fetchAnnouncementMergeTags').mockResolvedValue([
+      { name: 'first_name', description: "Reader's first name", sample: 'Alex', html: false },
+      { name: 'name', description: "Reader's full name", sample: 'Alex Chen', html: false }
+    ])
     vi.spyOn(adminApi, 'createAdminAnnouncement').mockResolvedValue({
       id: 301,
       title: 'Created Announcement',
@@ -352,6 +356,41 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(confirmDialog.props('modelValue')).toBe(false)
     expect(wrapper.emitted('saved')).toBeTruthy()
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
+  })
+
+  it('offers merge tags under the body and inserts the chosen one', async () => {
+    const insertText = vi.fn()
+    wrapper = mount(AdminAnnouncementFormSheet, {
+      props: { modelValue: true, announcement: null },
+      global: {
+        stubs: {
+          FormSheet: {
+            props: ['modelValue', 'title', 'description'],
+            template: '<div class="form-sheet-stub"><slot /><slot name="footer" /></div>'
+          },
+          RichEditor: {
+            name: 'RichEditor',
+            props: ['modelValue'],
+            emits: ['update:modelValue'],
+            template: '<div class="rich-editor-stub"></div>',
+            methods: { insertText }
+          },
+          ConfirmDialog: true
+        }
+      }
+    })
+    await flushPromises()
+
+    const palette = wrapper.find('[data-testid="merge-tags"]')
+    expect(palette.exists()).toBe(true)
+
+    const firstNameTag = palette
+      .findAll('.merge-tags__tag')
+      .find((tag) => tag.text().includes('first_name'))
+    expect(firstNameTag).toBeTruthy()
+
+    await firstNameTag!.trigger('click')
+    expect(insertText).toHaveBeenCalledWith('{{ first_name }}')
   })
 
   it('renders RichEditor toolbar buttons and supports raw mode toggle', async () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import SetDeadlinePage from '@/views/management/SetDeadlinePage.vue'
 import { fetchSubmissionDeadline, saveSubmissionDeadline } from '@/utils/managementAPI'
+import { formatStatementTime, getBrowserTimeZone } from '@/utils/date'
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchSubmissionDeadline: vi.fn(),
@@ -44,7 +45,7 @@ describe('the current-deadline card', () => {
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain('No deadline set')
     expect(wrapper.text()).toContain('closed')
-    expect(wrapper.find('.card-title').text()).toBe('Current Deadline')
+    expect(wrapper.find('.card-title').text()).toBe('Submission Deadline')
   })
 
   it('shows an open future deadline with its grace and author', async () => {
@@ -99,9 +100,9 @@ describe('setting a deadline', () => {
     const dialog = wrapper.find('[role="dialog"]')
     expect(dialog.exists()).toBe(true)
     expect(dialog.text()).toContain('Set the submission deadline?')
-    expect(dialog.text()).toContain(
-      `${new Date('2026-11-01T09:00').toLocaleDateString('en-GB')} ${new Date('2026-11-01T09:00').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    )
+    // Read back in the computer's time it was typed in.
+    expect(dialog.text()).toContain(formatStatementTime(new Date('2026-11-01T09:00'), getBrowserTimeZone()))
+    expect(dialog.text()).toContain('01/11/2026 at 09:00')
     expect(saveMock).not.toHaveBeenCalled()
   })
 
@@ -124,8 +125,7 @@ describe('setting a deadline', () => {
     expect(saveMock).toHaveBeenCalledWith(new Date('2026-11-01T09:00').toISOString(), 24)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Submissions open')
-    // With a deadline in place the form retitles itself.
-    expect(wrapper.text()).toContain('Change Deadline')
+    expect(wrapper.text()).toContain('Closes:')
   })
 
   it('a refused save is reported under the form', async () => {

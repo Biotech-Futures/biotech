@@ -1,6 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import TicketAttachmentPicker from '../TicketAttachmentPicker.vue'
+// The stylesheet is read as text: jsdom applies no scoped-SFC styles.
+import SOURCE from '../TicketAttachmentPicker.vue?raw'
 
 function file(name: string, size = 1024) {
   const f = new File(['x'.repeat(16)], name, { type: 'application/pdf' })
@@ -27,7 +29,9 @@ describe('TicketAttachmentPicker', () => {
 
     await pick(wrapper, [0, 1, 2, 3, 4, 5].map((i) => file(`f${i}.pdf`)))
 
-    expect(wrapper.text()).toContain('You can attach up to 5 files')
+    expect(wrapper.text()).toContain(
+      'Unable to upload: you can attach up to 5 files to one message.'
+    )
   })
 
   it('keeps exactly five and not the sixth', async () => {
@@ -42,14 +46,71 @@ describe('TicketAttachmentPicker', () => {
     expect((emitted![0][0] as File[]).length).toBe(5)
   })
 
-  it('rejects an oversized file by name', async () => {
+  it('rejects an oversized file by name, and says how big it is', async () => {
     const wrapper = mount(TicketAttachmentPicker, {
       props: { modelValue: [] },
     })
 
     await pick(wrapper, [file('huge.pdf', 11 * 1024 * 1024)])
 
-    expect(wrapper.text()).toContain('huge.pdf is larger than 10 MB.')
+    // The designer's sentence (D2-06), after the client asked for refusals a
+    // Year 9 student cannot misread (C-23).
+    expect(wrapper.text()).toContain('Unable to upload: huge.pdf is larger than 10 MB (it is 11 MB).')
+  })
+
+  it('never says a file over the limit is 10 MB', async () => {
+    // Rounded to the nearest tenth, a file 40 KB over the limit would read
+    // "larger than 10 MB (it is 10 MB)". Rounded up, it cannot.
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: [] } })
+
+    await pick(wrapper, [file('just-over.pdf', 10 * 1024 * 1024 + 40 * 1024)])
+
+    expect(wrapper.text()).toContain('just-over.pdf is larger than 10 MB (it is 10.1 MB).')
+  })
+})
+
+/**
+ * The limits are said before anything is chosen, and the count joins them
+ * once something is: the client asked at the 8 October meeting for the
+ * number to be shown beside the size ("Max file size ten megabytes, max
+ * number...", C-23), and the designer drew it as "Up to 5 files, 10 MB each
+ * (...) · 2 of 5 added" (D2-05).
+ */
+describe('the hint beside the button', () => {
+  it('names both limits and the four types', () => {
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: [] } })
+    expect(wrapper.get('.attach__hint').text()).toBe('Up to 5 files, 10 MB each (PDF, PNG, JPG, DOCX)')
+  })
+
+  it('adds how many are chosen once there are some', () => {
+    const wrapper = mount(TicketAttachmentPicker, {
+      props: { modelValue: [file('a.pdf'), file('b.png')] },
+    })
+    expect(wrapper.get('.attach__hint').text()).toBe(
+      'Up to 5 files, 10 MB each (PDF, PNG, JPG, DOCX) · 2 of 5 added'
+    )
+  })
+})
+
+/**
+ * Keyboard focus lands on the file input, a transparent 1px box whose own
+ * ring cannot be seen. The designer tabbed to Attach files in both themes and
+ * saw nothing move (DT-02, checklist R4). The button draws the ring instead,
+ * and this holds the rule that does it to the source: jsdom draws no focus.
+ */
+describe('keyboard focus on Attach files', () => {
+  const style = (/<style scoped>([\s\S]*?)<\/style>/.exec(SOURCE) as RegExpExecArray)[1]!
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+
+  it('rings the button while its hidden input has keyboard focus', () => {
+    const rule = /\.attach__button:has\(\.attach__input:focus-visible\)\s*\{([^}]*)\}/.exec(style)
+    expect(rule).not.toBeNull()
+    expect(rule![1]).toMatch(/outline:\s*2px solid var\(--attach-focus\)/)
+  })
+
+  it('gives the ring a colour in both themes', () => {
+    expect(style).toMatch(/\.attach\s*\{[^}]*--attach-focus:\s*var\(--dark-green\)/)
+    expect(style).toMatch(/:root\[data-theme='dark'\] \.attach\s*\{[^}]*--attach-focus:\s*#6dbfb1/)
   })
 })
 
@@ -58,15 +119,26 @@ describe('TicketAttachmentPicker', () => {
  * shipped and the drop half did not, which is easy to miss because the field
  * still works — it just does nothing at all when a file is dragged onto it,
  * and the page's own hint never said it should.
+ *
+ * Since the second redesign round only the reply box says so: the designer
+ * shortened the new-ticket form's hint to the limits and left the reply box's
+ * sentence in place. The drop zone itself works in both.
  */
 describe('the drop zone', () => {
   async function drop(wrapper: ReturnType<typeof mount>, files: File[]) {
     await wrapper.trigger('drop', { dataTransfer: { files } })
   }
 
-  it('tells the reader they can drag files onto it', () => {
+  it('tells the reader they can drag files onto it, where it is asked to', () => {
+    const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: [], dropHint: true } })
+    expect(wrapper.get('.attach__hint').text()).toBe(
+      'Drag and drop files here or click to attach. Up to 5 files, 10 MB each (PDF, PNG, JPG, DOCX)'
+    )
+  })
+
+  it('leaves the sentence out of the new-ticket form', () => {
     const wrapper = mount(TicketAttachmentPicker, { props: { modelValue: [] } })
-    expect(wrapper.text()).toContain('Drag and drop files here or click to attach')
+    expect(wrapper.text()).not.toContain('Drag and drop')
   })
 
   it('accepts a dropped file the same way as a picked one', async () => {
@@ -84,7 +156,7 @@ describe('the drop zone', () => {
 
     await drop(wrapper, [file('huge.pdf', 11 * 1024 * 1024)])
 
-    expect(wrapper.text()).toContain('huge.pdf is larger than 10 MB.')
+    expect(wrapper.text()).toContain('Unable to upload: huge.pdf is larger than 10 MB (it is 11 MB).')
   })
 
   it('refuses a type the accept attribute cannot police', async () => {
@@ -95,7 +167,7 @@ describe('the drop zone', () => {
 
     await drop(wrapper, [file('payload.exe')])
 
-    expect(wrapper.text()).toContain('payload.exe is not a PDF, PNG, JPG or DOCX.')
+    expect(wrapper.text()).toContain('Unable to upload: payload.exe is not a PDF, PNG, JPG or DOCX.')
     const emitted = wrapper.emitted('update:modelValue')
     expect((emitted![0][0] as File[]).length).toBe(0)
   })
@@ -165,7 +237,7 @@ describe('replacing a picked file', () => {
     await replace(wrapper, 'wrong.pdf', file('setup.exe'))
 
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(wrapper.text()).toContain('setup.exe is not a PDF, PNG, JPG or DOCX.')
+    expect(wrapper.text()).toContain('Unable to upload: setup.exe is not a PDF, PNG, JPG or DOCX.')
   })
 
   it('refuses an oversized replacement and keeps the original', async () => {
@@ -174,7 +246,7 @@ describe('replacing a picked file', () => {
     await replace(wrapper, 'wrong.pdf', file('huge.pdf', 11 * 1024 * 1024))
 
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(wrapper.text()).toContain('huge.pdf is larger than 10 MB.')
+    expect(wrapper.text()).toContain('Unable to upload: huge.pdf is larger than 10 MB (it is 11 MB).')
   })
 
   it('keeps its own picker out of the tab order, behind the named buttons', () => {

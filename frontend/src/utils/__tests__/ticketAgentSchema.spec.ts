@@ -11,12 +11,10 @@ import {
   TICKET_STATUS_LABELS,
   UNASSIGNED,
   UNKNOWN_REGION,
-  accountStatusNote,
   assigneeOptionSchema,
   auditActionLabel,
   auditActorName,
   categoryLabel,
-  supportAgentSchema,
   ticketDetailSchema,
   ticketQueueSchema,
   ticketRowSchema,
@@ -279,62 +277,6 @@ describe('the assignee option', () => {
   })
 })
 
-describe('the support roster row', () => {
-  const ROW = {
-    id: 4,
-    name: 'Sam Reid',
-    email: 'sam@example.com',
-    openTickets: 3,
-    accountStatus: 'active'
-  }
-
-  it('keeps the account status instead of dropping it on the floor', () => {
-    // zod strips a key the schema does not name, silently. The endpoint has
-    // sent accountStatus since the grant guard went in, and the schema not
-    // naming it meant the roster screen could not have shown it if it had
-    // tried: nothing downstream ever saw the field.
-    expect(supportAgentSchema.parse(ROW).accountStatus).toBe('active')
-  })
-
-  it('refuses a row with no status rather than treating it as fine', () => {
-    // The alternative was a default of "active", which is the answer that
-    // hides the case the field exists for.
-    const withoutIt: Record<string, unknown> = { ...ROW }
-    delete withoutIt.accountStatus
-    expect(supportAgentSchema.safeParse(withoutIt).success).toBe(false)
-  })
-
-  it('takes a status it has no word for, rather than emptying the table', () => {
-    // Not an enum on purpose. account_status belongs to the users app and may
-    // gain a value for reasons that have nothing to do with support; failing
-    // the parse would take the whole roster off the screen over a word this
-    // page only reads.
-    expect(supportAgentSchema.parse({ ...ROW, accountStatus: 'archived' }).accountStatus).toBe(
-      'archived'
-    )
-  })
-})
-
-describe('accountStatusNote', () => {
-  it('marks the statuses that cannot sign in', () => {
-    expect(accountStatusNote('deactivated')).toBe('Deactivated')
-    expect(accountStatusNote('suspended')).toBe('Suspended')
-  })
-
-  it('leaves invited and pending unmarked, because they can sign in', () => {
-    // is_active is false for these two as well, which is why the mark cannot
-    // be driven off is_active. INACTIVE_LOGIN_STATUSES leaves them out and
-    // the grant endpoint accepts them, so marking them invents a problem and
-    // contradicts the server in the same breath.
-    expect(accountStatusNote('invited')).toBeNull()
-    expect(accountStatusNote('pending')).toBeNull()
-  })
-
-  it('says nothing about an ordinary account or an unknown status', () => {
-    expect(accountStatusNote('active')).toBeNull()
-    expect(accountStatusNote('archived')).toBeNull()
-  })
-})
 
 describe('naming the actor on an audit row', () => {
   // One function because two screens print these rows: the audit page's Who

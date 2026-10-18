@@ -1,11 +1,15 @@
-"""The three emails a requester can receive about their ticket.
+"""The emails about support enquiries.
 
-Support agents get none. They work from the queue, so mailing them as well
-would be noise nobody reads (DEC-009).
+Three go to the requester, and each carries the same three things, because a
+ticket update that does not say them leaves the requester guessing: where the
+ticket stands, whose move it is next, and roughly when to expect a reply.
 
-Each email carries the same three things, because a ticket update that does
-not say them leaves the requester guessing: where the ticket stands, whose
-move it is next, and roughly when to expect a reply.
+Two go to the support inbox, not to any one agent. DEC-009 had said support
+gets nothing, since agents work from the queue; the client asked at the
+8 October meeting for "emails to go to our support inbox to say like there is
+a new inquiry" (C-17) and for a regular count of what is still open (C-18).
+They go to one shared address, TICKET_SUPPORT_INBOX, so DEC-009's point still
+holds for the agents themselves.
 """
 
 import logging
@@ -18,7 +22,7 @@ from django.template.loader import render_to_string
 from apps.services.email_branding import attach_inline_logo, brand_context
 from apps.services.mailer import send_async
 
-from ..models import TicketStatus
+from ..models import TicketCategory, TicketPriority, TicketStatus
 
 logger = logging.getLogger(__name__)
 
@@ -105,24 +109,7 @@ def _context(ticket, **extra):
     return ctx
 
 
-def _dispatch(ticket, *, template, subject, kind, text_body, context=None, on_failure=None) -> bool:
-    # These all run after the transaction commits, so re-read: the email must
-    # describe the ticket that exists, not the one the caller was holding.
-    try:
-        ticket.refresh_from_db()
-    except ticket.__class__.DoesNotExist:
-        logger.info("ticket_email.skipped kind=%s reason=ticket_gone", kind)
-        return False
-
-    to = _recipient(ticket)
-    if not to:
-        logger.info(
-            "ticket_email.skipped kind=%s ticket=%s reason=no_recipient",
-            kind, ticket.ticket_number,
-        )
-        return False
-
-    ctx = _context(ticket, **(context or {}))
+def _send(*, to, template, subject, kind, text_body, ctx, on_failure=None) -> None:
     html_body = render_to_string(f"emails/{template}", ctx)
     msg = EmailMultiAlternatives(
         subject=subject.format(**ctx),
@@ -136,6 +123,29 @@ def _dispatch(ticket, *, template, subject, kind, text_body, context=None, on_fa
     msg.attach_alternative(html_body, "text/html")
     attach_inline_logo(msg)
     send_async(msg, kind=kind, on_failure=on_failure)
+
+
+def _dispatch(ticket, *, template, subject, kind, text_body, context=None, on_failure=None, to=None) -> bool:
+    # These all run after the transaction commits, so re-read: the email must
+    # describe the ticket that exists, not the one the caller was holding.
+    try:
+        ticket.refresh_from_db()
+    except ticket.__class__.DoesNotExist:
+        logger.info("ticket_email.skipped kind=%s reason=ticket_gone", kind)
+        return False
+
+    # The requester, unless the email is for the support inbox.
+    to = to or _recipient(ticket)
+    if not to:
+        logger.info(
+            "ticket_email.skipped kind=%s ticket=%s reason=no_recipient",
+            kind, ticket.ticket_number,
+        )
+        return False
+
+    ctx = _context(ticket, **(context or {}))
+    _send(to=to, template=template, subject=subject, kind=kind, text_body=text_body,
+          ctx=ctx, on_failure=on_failure)
     return True
 
 
@@ -175,8 +185,9 @@ def send_ticket_reply(ticket, *, asked_for_information=False) -> bool:
       requests, the status was still in_progress here and an agent asking a
       question rendered the branch for a ticket nobody was waiting on.
     * ``asked_for_information`` is the action the agent took, passed down by
-      ``add_support_reply`` from the "I have asked them for something" box.
-      Nothing on the ticket records it. A ticket stays in "pending user"
+      ``add_support_reply``: the reply was sent with "Pending user" chosen
+      beside it (the old "I have asked them for something" box, a status
+      dropdown since C-19). Nothing on the ticket records it. A ticket stays in "pending user"
       until something moves it out, so a later reply that answers in full
       finds exactly the same status, and for as long as the status was the
       only input neither branch could say "we have asked you for something"
@@ -299,3 +310,160 @@ def _record_delivery_failure(ticket_id, recipient):
         lifecycle._touch(ticket, user_visible=False)
 
     return _callback
+
+
+# --------------------------------------------------------------------------
+# To the support inbox
+# --------------------------------------------------------------------------
+
+# The words the requester chose from, as the portal's form offers them
+# (frontend/src/utils/supportAPI.ts, TICKET_PRIORITIES). The inbox sees both:
+# what the requester said and the queue's own level for it.
+URGENCY_WORDS = {
+    TicketPriority.HIGH: "I cannot continue",
+    TicketPriority.NORMAL: "I can keep working",
+    TicketPriority.LOW: "It can wait",
+}
+
+
+def _support_queue_url(ticket=None) -> str:
+    """The queue in the portal, opened on one ticket when there is one."""
+    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+    return f"{base}/#/admin/tickets" + (f"?ticket={ticket.pk}" if ticket is not None else "")
+
+
+def _name(user) -> str:
+    name = f"{user.first_name} {user.last_name}".strip()
+    return name or user.email
+
+
+def send_new_ticket_to_support(ticket) -> bool:
+    """E4. Sent to the support inbox when someone raises an enquiry (C-17).
+
+    The designer's M-27: who raised it, its category and urgency, whether
+    anyone has it yet, and a button straight to it in the queue. Not the
+    message itself. The requesters are school students, what they write can
+    hold anything about them, and a copy sitting in a shared mailbox is a copy
+    outside the platform's own access rules; the button is one click from it.
+
+    Only for enquiries raised in the portal. Message screening's tickets have
+    their own path (handoff.py) and are not "someone submits a ticket", which
+    is how the client put it.
+    """
+    requester = ticket.created_by
+    assignee = ticket.assignee
+    return _dispatch(
+        ticket,
+        to=settings.TICKET_SUPPORT_INBOX,
+        template="ticket_new_for_support.html",
+        subject="{BRAND_CONNECT}: a new enquiry has come in ({TICKET_NUMBER})",
+        kind="ticket_new_for_support",
+        context={
+            "REQUESTER_NAME": _name(requester) if requester else "Someone",
+            "ASSIGNEE_NAME": _name(assignee) if assignee else "",
+            "ASSIGNEE_LINE": f"Assigned to {_name(assignee)}" if assignee else "Unassigned",
+            "CATEGORY_LABEL": TicketCategory(ticket.category).label,
+            "URGENCY_WORDS": URGENCY_WORDS.get(ticket.priority, ""),
+            "PRIORITY_LABEL": TicketPriority(ticket.priority).label,
+            "CTA_LABEL": "Open in the support queue",
+            "CTA_URL": _support_queue_url(ticket),
+        },
+        text_body=(
+            "Hi support team,\n\n"
+            "A new enquiry has come in: {TICKET_NUMBER}.\n\n"
+            "Raised by: {REQUESTER_NAME}, in the Support Centre\n"
+            "Category: {CATEGORY_LABEL}\n"
+            "Urgency: {URGENCY_WORDS} ({PRIORITY_LABEL} priority)\n"
+            "{ASSIGNEE_LINE}\n"
+            "Subject: {TICKET_SUBJECT}\n\n"
+            "Open it in the support queue: {CTA_URL}\n\n"
+            "This is an automatic message from {BRAND_CONNECT}.\n"
+        ),
+    )
+
+
+# The summary's three statuses, in the queue's order, with the designer's
+# line for each (M-28).
+DIGEST_ROWS = (
+    (TicketStatus.OPEN, "Nobody has picked it up yet"),
+    (TicketStatus.IN_PROGRESS, "Someone is working on it"),
+    (TicketStatus.PENDING_USER, "Waiting on the requester"),
+)
+
+
+def _sydney_date(now) -> str:
+    """"Friday 9 October 2026": the morning it lands in, where the team is."""
+    from zoneinfo import ZoneInfo
+
+    local = now.astimezone(ZoneInfo("Australia/Sydney"))
+    return f"{local:%A} {local.day} {local:%B %Y}"
+
+
+def send_open_tickets_digest(now=None) -> dict:
+    """E5. The morning count of enquiries still open, to the support inbox.
+
+    The client asked for "maybe like a daily digest or something, where you
+    have like 'this is the number of inquiries open'" (C-18); Jinqi settled on
+    every day (DEC-051). The designer's M-28 lays it out: open, in progress,
+    pending user, and how many of those are overdue, which is the queue's own
+    Overdue rule (services/queue.overdue_condition).
+
+    Skipped when nothing is open: his copy says the summary comes "while
+    enquiries are open", and a daily "0 open" is mail somebody learns to
+    ignore. Counted when it is sent, not stored, so a run that comes late or
+    twice says what is true at that moment.
+    """
+    from django.db.models import Count, Q
+    from django.utils import timezone
+
+    from .queue import live_tickets, overdue_condition
+
+    now = now or timezone.now()
+    still_open = live_tickets().exclude(status=TicketStatus.RESOLVED)
+    counts = still_open.aggregate(
+        total=Count("pk"),
+        overdue=Count("pk", filter=overdue_condition(now)),
+        **{
+            str(status): Count("pk", filter=Q(status=status))
+            for status, _ in DIGEST_ROWS
+        },
+    )
+    if not counts["total"]:
+        logger.info("ticket_email.skipped kind=ticket_digest reason=nothing_open")
+        return {"sent": False, "open": 0}
+
+    total = counts["total"]
+    ctx = {
+        **brand_context(),
+        "SENDER_EMAIL": parseaddr(settings.TICKET_FROM_EMAIL)[1],
+        "OPEN_TOTAL": total,
+        "HEADLINE": f"{total} enquir{'y is' if total == 1 else 'ies are'} still open",
+        "TODAY": _sydney_date(now),
+        "ROWS": [
+            {"label": TicketStatus(status).label, "hint": hint, "count": counts[str(status)]}
+            for status, hint in DIGEST_ROWS
+        ],
+        "OVERDUE": counts["overdue"],
+        "CTA_URL": _support_queue_url(),
+    }
+    rows_text = "".join(
+        f"{row['label']}: {row['count']} ({row['hint']})\n" for row in ctx["ROWS"]
+    )
+    _send(
+        to=settings.TICKET_SUPPORT_INBOX,
+        template="ticket_digest.html",
+        subject="{BRAND_CONNECT}: {HEADLINE}",
+        kind="ticket_digest",
+        ctx=ctx,
+        text_body=(
+            "Hi support team,\n\n"
+            "{HEADLINE}. Here is where the support queue stands this morning, "
+            "{TODAY}.\n\n"
+            + rows_text.replace("{", "{{").replace("}", "}}")
+            + "Of these, overdue: {OVERDUE} (longer than its priority allows)\n\n"
+            "We send this summary every morning while enquiries are open.\n\n"
+            "Open the support queue: {CTA_URL}\n\n"
+            "This is an automatic message from {BRAND_CONNECT}.\n"
+        ),
+    )
+    return {"sent": True, "open": total, "overdue": counts["overdue"]}

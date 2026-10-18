@@ -1,6 +1,10 @@
 <template>
   <div class="admin-table">
-    <div class="admin-table__scroll" :class="{ 'admin-table__scroll--loading': loading }">
+    <div
+      ref="scrollEl"
+      class="admin-table__scroll"
+      :class="{ 'admin-table__scroll--loading': loading }"
+    >
       <table class="admin-table__table">
         <thead>
           <tr>
@@ -103,6 +107,7 @@
 
     <div
       v-if="showPagination"
+      ref="footerEl"
       class="admin-table__footer"
     >
       <div class="admin-table__footer-left">
@@ -114,7 +119,7 @@
             @change="onPageSizeChange"
           >
             <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }} / page
+              {{ size }}
             </option>
           </select>
         </label>
@@ -149,7 +154,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+
+import { usePagerAnchor } from '@/composables/usePagerAnchor'
 
 export interface AdminColumn {
   key: string
@@ -281,7 +288,20 @@ const onColumnSort = (key: string) => {
   emit('update:sort', { key, direction })
 }
 
-const onPageChange = (page: number) => emit('page-change', page)
+// Paging keeps the footer still on screen, its < and > under the mouse,
+// whatever the rows' heights (see usePagerAnchor): settled once the new rows
+// come; a new size, count or sort lets go of any room it held below the rows.
+const scrollEl = ref<HTMLElement | null>(null)
+const footerEl = ref<HTMLElement | null>(null)
+const {
+  turn: turnPage,
+  settle: settlePager,
+  reset: resetPager
+} = usePagerAnchor(footerEl, scrollEl)
+watch(() => props.rows, () => void nextTick(settlePager))
+watch([() => props.pageSize, () => props.totalCount, () => props.sortState], resetPager)
+
+const onPageChange = (page: number) => turnPage(() => emit('page-change', page))
 
 const onPageSizeChange = (event: Event) => {
   const value = Number((event.target as HTMLSelectElement).value)
@@ -336,7 +356,7 @@ const renderCell = (value: unknown) => {
   padding: 0.85rem 1rem;
   text-align: center;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border-bottom: 2px solid var(--border-light);
   white-space: nowrap;
@@ -382,7 +402,7 @@ const renderCell = (value: unknown) => {
 
 .admin-table__cell {
   padding: 0.75rem 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -451,7 +471,7 @@ const renderCell = (value: unknown) => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -472,7 +492,7 @@ const renderCell = (value: unknown) => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.8rem;
   cursor: pointer;
   display: inline-flex;
@@ -496,7 +516,7 @@ const renderCell = (value: unknown) => {
   text-align: center;
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 @keyframes admin-table-spin {

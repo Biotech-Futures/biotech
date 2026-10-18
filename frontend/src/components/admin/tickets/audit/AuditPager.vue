@@ -213,11 +213,15 @@ function go(target: number, atEdge: boolean) {
    and goes grey instead of fading. Measured (WCAG AA):
      light  Page N of M #5a6268 on #f8f9fa 5.89   edge #84938f on white 3.21
      dark   Page N of M --text-muted 6.19 on the dark page
-            edge #70827d on the #161f1d button 4.15 (--border-light was 1.16) */
+            edge #70827d on the #161f1d button 4.15 (--border-light was 1.16)
+   A button under the pointer takes the queue's pale green, #e8f5ee (9.87
+   under the number), not --accent-green-soft, the peach in the light theme
+   (C-20). Dark keeps the theme's translucent green. */
 .audit-pager {
   --audit-muted: #5a6268;
   --audit-edge: #84938f;
   --audit-quiet-edge: #e6eae8;
+  --audit-wash: #e8f5ee;
 
   display: flex;
   flex-wrap: wrap;
@@ -230,6 +234,7 @@ function go(target: number, atEdge: boolean) {
   --audit-muted: var(--text-muted);
   --audit-edge: #70827d;
   --audit-quiet-edge: var(--border-light);
+  --audit-wash: var(--accent-green-soft);
 }
 
 .audit-pager__left {
@@ -247,7 +252,7 @@ function go(target: number, atEdge: boolean) {
 
 .audit-pager__size-label {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -264,7 +269,7 @@ function go(target: number, atEdge: boolean) {
   border: 1px solid var(--audit-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
 }
@@ -298,7 +303,7 @@ function go(target: number, atEdge: boolean) {
   border: 1px solid var(--audit-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
   font-weight: 600;
@@ -312,8 +317,8 @@ function go(target: number, atEdge: boolean) {
 /* Hover sets background AND colour so no global rule can combine into
    green-on-green. */
 .audit-pager__btn:hover:not([aria-disabled='true']):not([aria-current='page']) {
-  background: var(--accent-green-soft);
-  color: var(--charcoal);
+  background: var(--audit-wash);
+  color: var(--teal);
 }
 
 /* Literal #fff, not var(--white): --white is a surface colour and turns dark
@@ -332,7 +337,7 @@ function go(target: number, atEdge: boolean) {
 
 .audit-pager__ellipsis {
   padding: 0 0.25rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 

@@ -2,7 +2,7 @@
 
 Follows the codebase's existing ``*_DISPATCH_SYNC`` convention (see
 ``LINK_PREVIEW_DISPATCH_SYNC`` in ``apps.chat.tasks``,
-``UNREAD_DIGEST_DISPATCH_SYNC`` in ``apps.chat.services.digest``). No broker,
+``BULK_EMAIL_DISPATCH_SYNC`` in ``apps.management.services.send_guard``). No broker,
 no Celery, no Redis dependency — a daemon thread is fired after
 ``transaction.on_commit`` and updates the ``GradingJob`` row when done. Tests
 set ``GRADING_JOB_DISPATCH_SYNC=True`` to run inline.

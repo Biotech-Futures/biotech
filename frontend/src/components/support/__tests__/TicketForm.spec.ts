@@ -9,7 +9,7 @@ vi.mock('@/utils/supportAPI', async () => {
   return { ...actual, submitTicket: vi.fn() }
 })
 
-import { TICKET_CATEGORIES, TICKET_PRIORITIES, submitTicket } from '@/utils/supportAPI'
+import { TICKET_CATEGORIES, submitTicket } from '@/utils/supportAPI'
 
 /**
  * The category dropdown is a data-collection default, not a piece of styling.
@@ -80,6 +80,7 @@ describe('TicketForm category', () => {
 
     const wrapper = mount(TicketForm)
     await wrapper.get('select').setValue('help_student_group')
+    await wrapper.findAll('select')[1].setValue('normal')
     await wrapper.get('input[type="text"]').setValue('Cannot sign in')
     await wrapper.get('textarea').setValue('It rejects my password.')
     await wrapper.get('form').trigger('submit')
@@ -114,6 +115,7 @@ describe('TicketForm contract numbers', () => {
     } as never)
     const wrapper = mount(TicketForm)
     await wrapper.get('select').setValue('help_student_group')
+    await wrapper.findAll('select')[1].setValue('normal')
     await wrapper.get('input[type="text"]').setValue('Cannot sign in')
     await wrapper.get('textarea').setValue('It rejects my password.')
     await wrapper.get('form').trigger('submit')
@@ -136,8 +138,11 @@ describe('the wording the client showed on p48', () => {
    * review and the client notices in the first thirty seconds of a demo.
    * Pinned here so it cannot drift back silently.
    */
+  // "How can we help?" was this form's heading on p48. The second redesign
+  // round moves it into the page header above the form (D2-01, held in
+  // SupportCentrePage.spec.ts) and names the form "Raise an enquiry" (D2-02).
   const SPECIFIED = [
-    'How can we help?',
+    'Raise an enquiry',
     'Issue category',
     'Select a category',
     'Enter a short subject',
@@ -160,7 +165,13 @@ describe('TicketForm priority', () => {
   // The client settled on 2026-09-04 that "the person raising the enquiry (not
   // necessarily a student) should be able to set a priority, but the support
   // agent should be able to change it". Before that the form had no such
-  // control and every portal ticket landed on the model default.
+  // control and every portal ticket landed on the model default. At the
+  // 8 October meeting they asked for it to start empty (C-22): "Can you make
+  // that not default to anything? I would want them to select that."
+
+  // The choices, without the placeholder the list opens on.
+  const choices = (wrapper: ReturnType<typeof mount>) =>
+    wrapper.findAll('select')[1].findAll('option').filter((o) => o.attributes('disabled') === undefined)
 
   it('offers the three priorities, in urgency order', () => {
     // Written out rather than derived from TICKET_PRIORITIES. The first
@@ -169,11 +180,7 @@ describe('TicketForm priority', () => {
     // that constant left this green while the form offered them backwards.
     // The name promised an order and nothing verified one.
     const wrapper = mount(TicketForm)
-    const labels = wrapper
-      .findAll('select')[1]
-      .findAll('option')
-      .map((o) => o.text())
-    expect(labels).toEqual([
+    expect(choices(wrapper).map((o) => o.text())).toEqual([
       'I cannot continue',
       'I can keep working',
       'It can wait'
@@ -185,10 +192,7 @@ describe('TicketForm priority', () => {
     // values are the queue's; a test on the text alone would not notice the
     // two being wired up the wrong way round.
     const wrapper = mount(TicketForm)
-    const values = wrapper
-      .findAll('select')[1]
-      .findAll('option')
-      .map((o) => (o.element as HTMLOptionElement).value)
+    const values = choices(wrapper).map((o) => (o.element as HTMLOptionElement).value)
     expect(values).toEqual(['high', 'normal', 'low'])
   })
 
@@ -198,20 +202,16 @@ describe('TicketForm priority', () => {
     // the word is what a person answers, and an explanation beside it does
     // not argue against choosing it.
     const wrapper = mount(TicketForm)
-    const labels = wrapper
-      .findAll('select')[1]
-      .findAll('option')
-      .map((o) => o.text())
-    labels.forEach((label) => {
-      expect(label).not.toMatch(/\b(high|normal|low|urgent|priority)\b/i)
+    choices(wrapper).forEach((o) => {
+      expect(o.text()).not.toMatch(/\b(high|normal|low|urgent|priority)\b/i)
     })
   })
 
   it('keeps every option short enough to survive a phone', () => {
     // A closed <select> does not wrap. At 320px the control measures about
     // 179px, which is roughly 26 characters at this font size — the first
-    // version of this copy rendered as "I need this sorted, b". The default
-    // option is the one line a student who never touches the dropdown reads.
+    // version of this copy rendered as "I need this sorted, b". The
+    // placeholder is held to it as well: it is what the closed list shows.
     const wrapper = mount(TicketForm)
     wrapper
       .findAll('select')[1]
@@ -219,30 +219,37 @@ describe('TicketForm priority', () => {
       .forEach((o) => expect(o.text().length).toBeLessThanOrEqual(26))
   })
 
-  it('puts the fuller explanation where it can wrap', () => {
-    // What the short labels gave up has to land somewhere a phone can render
-    // it, or the scale is three bare fragments.
+  it('is labelled Urgency and starts on its placeholder, with nothing chosen', () => {
+    // The designer's label and placeholder (D2-03).
     const wrapper = mount(TicketForm)
-    expect(wrapper.text()).toContain('Pick the one that is true for you')
+    const select = wrapper.findAll('select')[1]
+    expect(wrapper.findAll('.ticket-form__label').map((l) => l.text())).toContain('Urgency')
+    expect((select.element as HTMLSelectElement).value).toBe('')
+    expect(select.findAll('option')[0].text()).toBe('Select how urgent this is')
+    expect(select.findAll('option')[0].attributes('disabled')).toBeDefined()
   })
 
-  it('starts on Normal, so the field is never left empty', () => {
-    const wrapper = mount(TicketForm)
-    expect((wrapper.findAll('select')[1].element as HTMLSelectElement).value).toBe(
-      'normal'
-    )
-  })
-
-  it('does not block submission the way a missing category does', async () => {
-    // A blank category is a fact we do not have. A blank urgency has an
-    // honest default, and making it required is what pushes people to High.
+  it('will not submit until an urgency is chosen', async () => {
     const wrapper = mount(TicketForm)
     await wrapper.findAll('select')[0].setValue('account_access')
     await wrapper.get('input[type="text"]').setValue('Cannot sign in')
     await wrapper.get('textarea').setValue('It rejects my password.')
-    expect(
-      (wrapper.get('button[type="submit"]').element as HTMLButtonElement).disabled
-    ).toBe(false)
+    const button = wrapper.get('button[type="submit"]')
+    expect((button.element as HTMLButtonElement).disabled).toBe(true)
+
+    // Pressing Enter in a field submits the form without the button.
+    vi.mocked(submitTicket).mockClear()
+    await wrapper.get('form').trigger('submit')
+    expect(submitTicket).not.toHaveBeenCalled()
+
+    await wrapper.findAll('select')[1].setValue('low')
+    expect((button.element as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('no longer carries the hint under the field', () => {
+    // The designer took it out with the default (D2-03).
+    const wrapper = mount(TicketForm)
+    expect(wrapper.text()).not.toContain('Pick the one that is true for you')
   })
 
   it('sends the chosen priority', async () => {
@@ -267,7 +274,7 @@ describe('TicketForm priority', () => {
     expect(send.mock.calls[0][0].priority).toBe('high')
   })
 
-  it('goes back to Normal after a successful submission', async () => {
+  it('goes back to its placeholder after a successful submission', async () => {
     const send = vi.mocked(submitTicket)
     send.mockClear()
     send.mockResolvedValue({
@@ -285,9 +292,7 @@ describe('TicketForm priority', () => {
 
     // Otherwise the next enquiry the same person raises inherits an urgency
     // they set for a different problem.
-    expect((wrapper.findAll('select')[1].element as HTMLSelectElement).value).toBe(
-      'normal'
-    )
+    expect((wrapper.findAll('select')[1].element as HTMLSelectElement).value).toBe('')
   })
 })
 

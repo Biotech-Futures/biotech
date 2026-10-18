@@ -150,6 +150,7 @@ import { computed, useTemplateRef } from 'vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
+import { getSetTimeZone } from '@/utils/date'
 import type { TicketRow } from '@/utils/ticketAgentSchema'
 import OverdueBadge from './OverdueBadge.vue'
 
@@ -212,9 +213,12 @@ function formatWhen(value: string) {
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
-    // Rendered in whatever zone the reader's machine is in, so the zone has
-    // to be on screen. The same row reads 03:37 pm in Sydney and 02:37 am in
-    // Sao Paulo, and agents compare these times with each other.
+    // Rendered in the reader's set time zone (their Profile timezone, or
+    // their computer's when the profile names none), so the zone has to be on
+    // screen. The same row reads 03:37 pm for an agent set to Sydney and
+    // 02:37 am for one set to Sao Paulo, and agents compare these times with
+    // each other.
+    timeZone: getSetTimeZone(),
     timeZoneName: 'short'
   })
 }
@@ -231,13 +235,17 @@ function formatWhen(value: string) {
    included.
 
    Muted text is a literal in light mode: --text-muted is under AA on these
-   grounds. The redesign's #5a6268 is 6.21:1 on --white and 5.43:1 on the
+   grounds. The redesign's #5a6268 is 6.21:1 on --white and 5.54:1 on the
    selected-row wash. Dark gives it back to the theme, as the designer's dark
    queue keeps its colours: 5.72:1 on the card, 4.95:1 on the wash. The head
    is #24524a on #dff1e8 (7.51:1) in light and keeps the theme's charcoal on
    its green wash in dark. The ticket button is green on light (6.03:1 on
-   --white, 5.27:1 on the wash) and mint on dark (6.13:1, 5.29:1): the theme
-   does not redefine --dark-green, which is 2.79:1 on the dark card. */
+   --white, 5.38:1 on the wash) and mint on dark (6.13:1, 5.29:1): the theme
+   does not redefine --dark-green, which is 2.79:1 on the dark card.
+
+   The second redesign round (October 2026) turns the light wash and the
+   empty list's tile from peach to his greens, #e8f5ee and #dcefe5 (C-20).
+   Dark keeps the theme's translucent green, which was green already. */
 .queue-table {
   --queue-muted: #5a6268;
   --queue-danger: #a71d2a;
@@ -247,8 +255,9 @@ function formatWhen(value: string) {
   --queue-rule: #e6eae8;
   --queue-frame: #e3e7e5;
   --queue-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
-  --queue-tile: #fcede2;
+  --queue-tile: #dcefe5;
   --queue-tile-ink: #017151;
+  --queue-wash: #e8f5ee;
 }
 
 :root[data-theme='dark'] .queue-table {
@@ -256,12 +265,13 @@ function formatWhen(value: string) {
   --queue-danger: var(--danger);
   --queue-link: var(--mint-green);
   --queue-head: var(--light-green);
-  --queue-head-ink: var(--charcoal);
+  --queue-head-ink: var(--teal);
   --queue-rule: var(--border-light);
   --queue-frame: var(--border-light);
   --queue-shadow: none;
   --queue-tile: #143b32;
   --queue-tile-ink: #6dbfb1;
+  --queue-wash: var(--light-green);
 }
 
 .queue-table__state {
@@ -292,7 +302,7 @@ function formatWhen(value: string) {
 
 .queue-table__state--empty p {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1rem;
 }
 
@@ -338,8 +348,9 @@ function formatWhen(value: string) {
 
 .queue-table__table td {
   padding: 0.45rem 0.5rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 400;
+  line-height: 1.5;
   vertical-align: middle;
   border-bottom: 1px solid var(--queue-rule);
 }
@@ -349,7 +360,7 @@ function formatWhen(value: string) {
 }
 
 .queue-table__table .queue-table__check {
-  width: 2.75rem;
+  width: 3.125rem;
   padding-left: 1.125rem;
   padding-right: 0.25rem;
 }
@@ -374,7 +385,7 @@ function formatWhen(value: string) {
    wash whichever of them applies. Checked by queueContrast.spec.ts. */
 .queue-table__row:hover,
 .queue-table__row--selected {
-  background: var(--light-green);
+  background: var(--queue-wash);
 }
 
 .queue-table__open {
@@ -409,7 +420,7 @@ function formatWhen(value: string) {
 }
 
 .queue-table__subject {
-  width: 14rem;
+  width: 15rem;
 }
 
 .queue-table__subject-text {

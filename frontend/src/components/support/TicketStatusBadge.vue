@@ -28,15 +28,18 @@ defineProps<{ status: TicketStatus }>()
      to paint underneath, which is not this component's to know. Opaque values
      end that: one status, one theme, one number.
 
-   The values are the designer's from the first redesign round (October
-   2026): the same on his student list, ticket page, queue and detail panel.
-   Light keeps open and in progress, darkens the pending user amber and moves
-   resolved to a paler ground with darker text. Dark brightens all four, as
-   his dark student list asked. The line height gives his 24px pill.
+   The values are the designer's. His second round (October 2026) settles one
+   colour per status, the same on every ticket screen: open a pale green
+   (it was the peach the client asked us to drop, C-20), in progress solid
+   brand green with white text in both themes, pending user and resolved as
+   they were. Dark open keeps its ground and takes his slightly softer green
+   text. The line height gives his 24px pill.
 
    Measured, all eight against the 4.5:1 AA threshold for text this size:
-     light  open 5.27  in progress 5.03  pending user 6.05  resolved 5.99
-     dark   open 7.37  in progress 7.04  pending user 6.88  resolved 6.81
+     light  open #017151 on #d3ece0 4.84   in progress #ffffff on #017151 6.03
+            pending user #7a5600 on #fff4d2 6.05   resolved #4f575c on #e6e8e9 5.99
+     dark   open #8fcabe on #18352e 7.16   in progress #ffffff on #017151 6.03
+            pending user #fbbf24 on #3f3a17 6.88   resolved #b4c2be on #2a3633 6.81
 
    The dark rules must stay below the light ones: same specificity would not
    be enough, but `:root[data-theme="dark"]` adds one, and source order is what
@@ -53,13 +56,13 @@ defineProps<{ status: TicketStatus }>()
 }
 
 .ticket-badge--open {
-  background: #fcede2;
+  background: #d3ece0;
   color: #017151;
 }
 
 .ticket-badge--in_progress {
-  background: #e4eaed;
-  color: #39687b;
+  background: #017151;
+  color: #ffffff;
 }
 
 .ticket-badge--pending_user {
@@ -74,12 +77,12 @@ defineProps<{ status: TicketStatus }>()
 
 :root[data-theme='dark'] .ticket-badge--open {
   background: #18352e;
-  color: #7fd0c1;
+  color: #8fcabe;
 }
 
 :root[data-theme='dark'] .ticket-badge--in_progress {
-  background: #1f3145;
-  color: #8fc0ff;
+  background: #017151;
+  color: #ffffff;
 }
 
 :root[data-theme='dark'] .ticket-badge--pending_user {

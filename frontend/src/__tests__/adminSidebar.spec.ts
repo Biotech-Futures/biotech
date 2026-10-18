@@ -4,6 +4,7 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import App from '@/App.vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import {
   mentorWithAccess,
   pureAgent,
@@ -28,8 +29,7 @@ vi.mock('@/utils/ticketAgentAPI', async (importActual) => {
     fetchTicketDetail: vi.fn(pending),
     fetchTicketHistory: vi.fn(pending),
     fetchTicketAudit: vi.fn(pending),
-    fetchTicketAnalytics: vi.fn(pending),
-    fetchSupportRoster: vi.fn(pending)
+    fetchTicketAnalytics: vi.fn(pending)
   }
 })
 
@@ -57,10 +57,22 @@ const adminSubLinks = [
   '/admin/tasks',
 ]
 
+const analyticsSubLinks = [
+  '/analytics/users',
+  '/analytics/registration',
+  '/analytics/groups',
+  '/analytics/mentors',
+  '/analytics/activity',
+  '/analytics/messages',
+  '/analytics/resources',
+  '/analytics/email',
+]
+
 let wrapper: VueWrapper | null = null
 let pinia: ReturnType<typeof createPinia>
 
-const mountApp = async (options: { viewport?: 'mobile' | 'desktop' } = {}) => {
+const mountApp = async (options: { viewport?: 'mobile' | 'desktop'; start?: string } = {}) => {
+  vi.stubGlobal('scrollTo', vi.fn())
   globalThis.fetch = vi
     .fn()
     .mockImplementation(() => Promise.resolve(new Response('[]', { status: 200 })))
@@ -90,7 +102,7 @@ const mountApp = async (options: { viewport?: 'mobile' | 'desktop' } = {}) => {
   })
   await router.isReady()
   // Now authenticated, drive into the app shell so the sidebar renders.
-  await router.push('/dashboard')
+  await router.push(options.start ?? '/dashboard')
   await router.isReady()
   await flushPromises()
   return mediaQuery
@@ -117,9 +129,10 @@ describe('App sidebar admin section', () => {
 
     expect(wrapper!.find('a[href="#/admin"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
+    expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
-  it('renders the Admin nav and all expected sub-links for admins', async () => {
+  it('keeps Admin expanded and Analytics collapsed by default, and folds Admin on request', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)
     await mountApp({ viewport: 'desktop' })
@@ -127,11 +140,35 @@ describe('App sidebar admin section', () => {
     const text = wrapper!.text()
     expect(text).toContain('Admin')
 
-    const links = wrapper!.findAll('a')
+    let links = wrapper!.findAll('a')
     for (const sub of adminSubLinks) {
       const found = links.some((a) => a.attributes('href') === `#${sub}`)
-      expect(found, `expected a sidebar link to ${sub}`).toBe(true)
+      expect(found, `expected sub-link ${sub} to be shown initially`).toBe(true)
     }
+
+    const sidebarLinks = wrapper!.findAll('.sidebar-list a')
+    const analyticsLinks = sidebarLinks.filter((a) => a.attributes('href') === '#/analytics')
+    expect(analyticsLinks).toHaveLength(1)
+    // Analytics comes after Admin's own entries, folded.
+    const adminIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/admin')
+    const analyticsIndex = sidebarLinks.findIndex((a) => a.attributes('href') === '#/analytics')
+    expect(analyticsIndex).toBeGreaterThan(adminIndex)
+    for (const sub of analyticsSubLinks) {
+      expect(sidebarLinks.some((a) => a.attributes('href') === `#${sub}`)).toBe(false)
+    }
+
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await toggle.trigger('click')
+
+    links = wrapper!.findAll('a')
+    for (const sub of adminSubLinks) {
+      expect(links.some((a) => a.attributes('href') === `#${sub}`)).toBe(false)
+    }
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+
+    const adminItem = wrapper!.find('a[href="#/admin"]').element.closest('.sidebar-item')
+    expect(adminItem?.textContent).not.toContain('Analytics')
   })
 
   it('collapses the Admin submenu by default on small screens', async () => {
@@ -148,11 +185,27 @@ describe('App sidebar admin section', () => {
       expect(found, `expected sub-link ${sub} to be hidden on mobile`).toBe(false)
     }
 
-    const toggle = wrapper!.find('button.sidebar-subnav-toggle')
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
     expect(toggle.exists()).toBe(true)
     expect(toggle.attributes('aria-expanded')).toBe('false')
 
     expect(mediaQuery.addEventListener).toHaveBeenCalled()
+  })
+
+  it('keeps the Admin submenu in the state selected by the user while navigating', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(adminUser)
+    await mountApp({ viewport: 'desktop' })
+
+    const toggle = wrapper!.find('button[aria-controls="admin-subnav"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    await router.push('/analytics')
+    await flushPromises()
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
   })
 })
 
@@ -180,11 +233,13 @@ describe('App sidebar support entries', () => {
   const sidebarHas = (path: string) => wrapper!.find(`.sidebar-nav a[href="#${path}"]`).exists()
 
   // [account, member items, Support queue, Admin block, Support agents, logo target, /users/me/]
+  // Support agents is offered to nobody since the roster page went (C-15): the
+  // client wants queue access given and taken in the Users tab, by role.
   const table: Array<[string, boolean, boolean, boolean, boolean, string, object]> = [
     ['pure support agent', false, true, false, false, '/admin/tickets', pureAgent],
     ['mentor granted access', true, true, false, false, '/dashboard', mentorWithAccess],
     ['role-support account without access', false, false, false, false, '/support-access', supportWithoutAccess],
-    ['admin', true, true, true, true, '/dashboard', ticketAdmin],
+    ['admin', true, true, true, false, '/dashboard', ticketAdmin],
     ['student', true, false, false, false, '/dashboard', student]
   ]
 
@@ -213,7 +268,7 @@ describe('App sidebar support entries', () => {
     expect(queueLinks[0]!.text()).toBe('Support queue')
     expect(queueLinks[0]!.classes()).toContain('sidebar-link')
     expect(wrapper!.find('#admin-subnav a[href="#/admin/tickets"]').exists()).toBe(false)
-    expect(wrapper!.find('#admin-subnav a[href="#/admin/support-agents"]').text()).toBe('Support agents')
+    expect(wrapper!.find('#admin-subnav a[href="#/admin/support-agents"]').exists()).toBe(false)
   })
 
   it('names the queue link by its words alone, with the icon hidden from screen readers', async () => {
@@ -246,6 +301,52 @@ describe('App sidebar support entries', () => {
       expect(router.currentRoute.value.path).toBe(path)
       expect(wrapper!.find('.sidebar-nav a[href="#/admin/tickets"]').classes(), `on ${path}`).toContain('active')
     }
+  })
+
+  describe('a supervisor, by Management > Supervisor Pages Visibility', () => {
+    const supervisor = {
+      id: 31,
+      email: 'supervisor@example.com',
+      first_name: 'Sue',
+      last_name: 'Park',
+      current_role_name: 'supervisor',
+      timezone: 'UTC',
+      must_change_password: false,
+      isAdmin: false,
+      isSupport: false
+    }
+    // The pages the switch hides from a supervisor until an admin shows them.
+    const switchedPages = ['/dashboard', '/groups', '/events', '/announcements', '/resources']
+
+    afterEach(() => setSupervisorPages({ shown: false }))
+
+    it('off, as it starts: keeps Support, which the switch does not hide, and drops the rest', async () => {
+      // Support used to sit in the same run of links as the switched pages
+      // and went with them, so a supervisor had no way to it in the menu
+      // while /support itself stayed open to them.
+      setSupervisorPages({ shown: false })
+      useAuthStore().loginWithUser(supervisor as never)
+      // Started on Support, which the guard lets them open. /dashboard would
+      // send them on to /profile, whose loads outlive the test and sign the
+      // next one out.
+      await mountApp({ viewport: 'desktop', start: '/support' })
+
+      expect(router.currentRoute.value.path).toBe('/support')
+      expect(sidebarHas('/support'), 'Support').toBe(true)
+      for (const path of switchedPages) {
+        expect(sidebarHas(path), `switched page ${path}`).toBe(false)
+      }
+    })
+
+    it('on: every member item, Support among them', async () => {
+      setSupervisorPages({ shown: true })
+      useAuthStore().loginWithUser(supervisor as never)
+      await mountApp({ viewport: 'desktop' })
+
+      for (const path of memberLinks) {
+        expect(sidebarHas(path), `member link ${path}`).toBe(true)
+      }
+    })
   })
 
   it('names a support account "Support access" in the account menu, not "Student access"', async () => {

@@ -12,10 +12,10 @@
     </label>
 
     <div class="reply__footer">
-      <TicketAttachmentPicker v-model="files" class="reply__attach" />
+      <TicketAttachmentPicker v-model="files" drop-hint class="reply__attach" />
       <span class="reply__counter">{{ body.length }}/{{ MAX_BODY_LENGTH }}</span>
       <button type="submit" class="reply__send" :disabled="isSending || !body.trim()">
-        {{ isSending ? 'Sending…' : 'Send reply' }}
+        {{ isSending ? 'Sending…' : 'Send' }}
       </button>
     </div>
 
@@ -73,12 +73,18 @@ async function send() {
      light  counter #5a6268 6.21:1   placeholder #6c757d 4.69:1
             field edge #84938f 3.21:1
      dark   counter #a3b3ae 6.95:1   placeholder #93a39e on the #161f1d field 6.39:1
-            field edge #70827d on the field 4.15:1 */
+            field edge #70827d on the field 4.15:1
+   The glow round the focused field was the global --light-green, which is
+   the peach the client asked us to drop (C-20). It takes the designer's pale
+   green instead. He has not drawn it yet, so this is a stand-in until he
+   does; the edge, not the glow, is what shows focus. In dark the old token
+   was already a green and stays. */
 .reply {
   --reply-muted: #5a6268;
   --reply-placeholder: #6c757d;
   --reply-edge: #84938f;
   --reply-focus-edge: var(--dark-green);
+  --reply-focus-glow: #d3ece0;
   --reply-card-edge: #e3e7e5;
   --reply-card-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
 
@@ -97,6 +103,7 @@ async function send() {
   --reply-placeholder: #93a39e;
   --reply-edge: #70827d;
   --reply-focus-edge: #6dbfb1;
+  --reply-focus-glow: var(--light-green);
   --reply-card-edge: #2b3936;
   --reply-card-shadow: 0 1px 3px var(--shadow);
 }
@@ -109,11 +116,12 @@ async function send() {
 .reply__control {
   display: block;
   width: 100%;
+  height: 5.5rem;
   padding: 0.65rem 0.875rem;
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.95rem;
   resize: vertical;
@@ -127,7 +135,7 @@ async function send() {
 .reply__control:focus {
   outline: none;
   border-color: var(--reply-focus-edge);
-  box-shadow: 0 0 0 3px var(--light-green);
+  box-shadow: 0 0 0 3px var(--reply-focus-glow);
 }
 
 .reply__footer {
@@ -145,6 +153,7 @@ async function send() {
 
 .reply__attach :deep(.attach__button) {
   min-height: 2rem;
+  padding: 0 0.75rem;
   font-size: 0.85rem;
 }
 
@@ -155,7 +164,7 @@ async function send() {
 }
 
 /* White in both themes, and a hover ground that stays dark: var(--white) and
-   var(--charcoal) swap places in dark, which would put dark text on the
+   var(--teal) swap places in dark, which would put dark text on the
    green, then white text on a pale hover. */
 .reply__send {
   min-height: 2.5rem;
@@ -165,7 +174,7 @@ async function send() {
   background: var(--dark-green);
   color: #ffffff;
   font-weight: 600;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   cursor: pointer;
 }
 

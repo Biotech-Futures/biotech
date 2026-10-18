@@ -83,8 +83,10 @@ describe('the conversation reads as one exchange', () => {
   })
 
   it('leaves room for the name above each bubble', () => {
-    // The gap runs from the foot of one message to the name over the next.
-    expect(value(declarationsFor(TIMELINE, '.timeline'), 'gap')).toBe('0.875rem')
+    // The gap runs from the foot of one message to the name over the next:
+    // 18.5px of white from a bubble to the next name in the designer's second
+    // round, with the name's line now as tall as its words.
+    expect(value(declarationsFor(TIMELINE, '.timeline'), 'gap')).toBe('1.05rem')
   })
 
   it('rounds the bubbles the way a messaging app does', () => {
@@ -140,8 +142,8 @@ describe('the conversation reads as one exchange', () => {
 
 describe('the badges in the enquiry header', () => {
   it('puts clear space between the status and the priority', () => {
-    // 0.35rem read as one block.
-    expect(value(declarationsFor(TICKET_DETAIL_PAGE, '.ticket__badges'), 'gap')).toBe('0.6rem')
+    // 0.35rem read as one block; the designer draws them 10px apart.
+    expect(value(declarationsFor(TICKET_DETAIL_PAGE, '.ticket__badges'), 'gap')).toBe('0.625rem')
   })
 
   it('still stacks them on the right, one above the other', () => {

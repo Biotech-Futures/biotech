@@ -43,7 +43,6 @@ export function useAdminMentorsView() {
   const mentorList = ref<MentorListItem[]>([])
 
   const inactiveDays = ref(30)
-  const expandedIds = ref<Set<number>>(new Set())
   const selectedIds = ref<Set<number>>(new Set())
   const bulkAction = reactive<MentorBulkAction>({
     open: false,
@@ -153,38 +152,7 @@ export function useAdminMentorsView() {
     }
   }
 
-  // -- Expand / select --------------------------------------------------------
-
-  const toggleExpand = (mentorId: number) => {
-    const next = new Set(expandedIds.value)
-    if (next.has(mentorId)) next.delete(mentorId)
-    else next.add(mentorId)
-    expandedIds.value = next
-  }
-
-  const headerChecked = computed<boolean | 'indeterminate'>(() => {
-    if (selectedIds.value.size === 0) return false
-    const all = mentors.value.map((mentor) => mentor.mentorId)
-    return all.length > 0 && all.every((id) => selectedIds.value.has(id)) ? true : 'indeterminate'
-  })
-
-  const toggleAll = () => {
-    const all = mentors.value.map((mentor) => mentor.mentorId)
-    const next = new Set(selectedIds.value)
-    if (all.length > 0 && all.every((id) => next.has(id))) {
-      all.forEach((id) => next.delete(id))
-    } else {
-      all.forEach((id) => next.add(id))
-    }
-    selectedIds.value = next
-  }
-
-  const toggleOne = (mentorId: number) => {
-    const next = new Set(selectedIds.value)
-    if (next.has(mentorId)) next.delete(mentorId)
-    else next.add(mentorId)
-    selectedIds.value = next
-  }
+  // -- Selection -------------------------------------------------------------
 
   const clearSelection = () => {
     selectedIds.value = new Set()
@@ -273,18 +241,13 @@ export function useAdminMentorsView() {
     matchedGroups,
     mentorList,
     inactiveDays,
-    expandedIds,
     selectedIds,
     bulkAction,
     replaceDialogOpen,
     sortState,
     inactiveGroups,
     sortedMentors,
-    headerChecked,
     setSort,
-    toggleExpand,
-    toggleAll,
-    toggleOne,
     clearSelection,
     onInactiveDaysChange,
     toggleActive,
@@ -293,11 +256,6 @@ export function useAdminMentorsView() {
     bulkMessage,
     runBulkStatus,
     onReplaceConfirmed,
-    sortClass: (key: MentorSortKey) => ({ 'admin-mentors__sort--active': sortState.value.key === key }),
-    sortIcon: (key: MentorSortKey) => {
-      if (sortState.value.key !== key) return 'fa-sort'
-      return sortState.value.direction === 'asc' ? 'fa-sort-up' : 'fa-sort-down'
-    },
     load
   }
 }

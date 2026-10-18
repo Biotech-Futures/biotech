@@ -45,6 +45,8 @@
             :key="editorKey"
             v-model="form.description"
             placeholder="Event overview, agenda, or prerequisites..."
+            :allow-attachments="false"
+            :allow-manual-links="false"
           />
         </div>
 
@@ -755,7 +757,7 @@ const submitForm = async () => {
   margin-bottom: 0.35rem;
   font-size: 0.825rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -764,7 +766,7 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
@@ -830,7 +832,7 @@ const submitForm = async () => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 

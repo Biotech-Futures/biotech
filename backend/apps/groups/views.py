@@ -58,7 +58,12 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
     serializer_class = GroupMembershipSerializer
 
     def get_queryset(self):
-        queryset = GroupMembership.objects.select_related("group", "user").order_by("id")
+        queryset = (
+            GroupMembership.objects
+            .select_related("group", "user", "user__studentprofile__supervisor__user")
+            .prefetch_related("user__userinterest_set__interest")
+            .order_by("id")
+        )
         user = self.request.user
         admin = is_admin(user)
         # Non-admins may only read rosters for groups they actively belong to.
@@ -160,6 +165,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                 raise ValidationError({"group_name": [str(exc)]}) from exc
             # Point the serializer at the real row so the response carries the auto name.
             serializer.instance = group
+        group.mark_formed(Groups.FormedBy.ADMIN, self.request.user)
         log_audit_event(
             actor=self.request.user,
             entity_type="group",
@@ -255,6 +261,7 @@ class GroupViewSet(viewsets.ModelViewSet):
                     group = Groups.create_auto_named()
                 except GroupAutoNameUnavailable as exc:
                     raise ValidationError({"group_name": [str(exc)]}) from exc
+            group.mark_formed(Groups.FormedBy.ADMIN, request.user)
             member_users = group_payload.get("member_user_ids") or []
             for member_user in member_users:
                 GroupMembership.objects.get_or_create(

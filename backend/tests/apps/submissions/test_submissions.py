@@ -19,7 +19,7 @@ from apps.submissions.models import (
 from apps.submissions.services import deadline_for_group
 from apps.users.models import User
 
-from .seed_data import install_instructions, install_question_set
+from .seed_data import CONFIRMED_CHECKLIST, install_instructions, install_question_set
 
 
 def _make_user(email, role_name, roles):
@@ -185,7 +185,8 @@ class SubmissionApiTests(TestCase):
             "mime": "application/pdf",
             "size": 1024,
         }
-        submission.save(update_fields=["poster"])
+        submission.poster_checklist = CONFIRMED_CHECKLIST
+        submission.save(update_fields=["poster", "poster_checklist"])
 
     def test_member_reads_empty_submission(self):
         response = self._client_for(self.student).get(self.detail_url)
@@ -292,7 +293,7 @@ class SubmissionApiTests(TestCase):
         reopen_url = reverse("group-submission-reopen", kwargs={"group_id": self.group.id})
         self.assertEqual(client.post(reopen_url, {}, format="json").status_code, 200)
 
-    def test_an_admin_is_held_to_the_deadline_too(self):
+    def test_an_admin_can_still_edit_after_the_deadline(self):
         from apps.users.models import AdminScope
 
         admin = User.objects.create_user(email="admin@test.local", password="testUser@123")
@@ -301,7 +302,7 @@ class SubmissionApiTests(TestCase):
         response = self._client_for(admin).put(
             self.detail_url, {"answers": {self.first_key: "Late."}}, format="json"
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_non_member_may_not_write(self):
         response = self._client_for(self.outsider).put(

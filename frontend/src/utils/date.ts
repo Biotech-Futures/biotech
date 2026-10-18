@@ -37,106 +37,6 @@
  * Modified By: CS17-1 Frontend Team
  */
 
-export function formatDateAU(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value)
-
-  if (Number.isNaN(date.getTime())) return ''
-
-  return date.toLocaleDateString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-/**
- * Format a date value into a long Australian date string.
- *
- * This helper can optionally include the weekday in the output.
- * It is useful for detailed views such as event pages, dashboards, or schedules.
-
- *
- * Example output without weekday:
- * 5 April 2026
- *
- * Example output with weekday:
- * Saturday, 5 April 2026
- *
- * @param value The source date value as a string or Date object.
- * @param withWeekday Whether to include the weekday in the formatted result.
- * @returns A long formatted Australian date string, or an empty string if invalid.
- */
-
-export function formatLongDateAU(value: string | Date, withWeekday = false): string {
-  const date = value instanceof Date ? value : new Date(value)
-
-  if (Number.isNaN(date.getTime())) return ''
-
-  return date.toLocaleDateString('en-AU', {
-    weekday: withWeekday ? 'long' : undefined,
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
-/**
- * Format a date value into a long Australian date followed by the time of day.
- *
- * Both halves are read in the reader's own time zone, the one the browser is
- * set to, so a message reads at the hour it arrived for whoever is looking.
- * Deliberately not DEFAULT_TIME_ZONE below: that is UTC, and a student in
- * Sydney would see every reply stamped ten or eleven hours early.
- *
- * Example output:
- * 24 September 2026, 3:37 pm
- *
- * @param value The source date value as a string or Date object.
- * @returns The long date and the time, or an empty string if invalid.
- */
-export function formatLongDateTimeAU(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value)
-
-  if (Number.isNaN(date.getTime())) return ''
-
-  // Joined here rather than asked of the locale in one call. Asked in one
-  // call, en-AU puts " at " between them (measured on ICU 78), which is not
-  // the shape the client asked for, and that joiner is locale data each
-  // browser ships at its own version.
-  const time = date.toLocaleTimeString('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-  return `${formatLongDateAU(date)}, ${time}`
-}
-
-/**
- * Format a date value for announcement display.
- *
- * This function is similar to the short Australian date formatter,
- * but it provides a friendly fallback message when the date is invalid.
- *
- * Example output:
- * 5 Apr 2026
- *
- * Fallback output:
- * Recently posted
- *
- * @param value The source date value as a string or Date object.
- * @returns A short formatted date string for announcements, or a fallback message if invalid.
- */
-export function formatAnnouncementDateAU(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value)
-
-  if (Number.isNaN(date.getTime())) return 'Recently posted'
-
-  return date.toLocaleDateString('en-AU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
 /** Sydney's clock on a day ("YYYY-MM-DD"): AEDT in daylight saving
  *  (UTC+11), else AEST (UTC+10). */
 export function sydneyClockOn(isoDate: string): { name: 'AEDT' | 'AEST'; daylight: boolean; offset: string } {
@@ -232,6 +132,9 @@ export function getTimeZoneDateParts(
   return { year, month, day }
 }
 
+// Spelled out: browsers differ on "Sep" and "Sept".
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
 export function formatEventDate(
   value: string | Date | null | undefined,
   timeZone = DEFAULT_TIME_ZONE,
@@ -292,3 +195,147 @@ function getEventTimeZoneAbbreviation(date: Date, timeZone: string): string {
   return parts.find((part) => part.type === 'timeZoneName')?.value || normalizedTimeZone
 }
 
+
+/* ------------------------------------------------------------------------
+   The site's date styles. Each shows the "set time" (the Profile timezone,
+   or the computer's when none is set) unless a zone is passed, in which
+   case the caller labels it, like "(AEDT)".
+   ------------------------------------------------------------------------ */
+
+let readProfileTimeZone: () => string | null | undefined = () => undefined
+
+/** The auth store hands over the signed-in user's Profile timezone. */
+export function registerProfileTimeZone(read: () => string | null | undefined): void {
+  readProfileTimeZone = read
+}
+
+/** The set time: the Profile timezone, or the computer's when none is set. */
+export function getSetTimeZone(): string {
+  let zone: string | null | undefined
+  try {
+    zone = readProfileTimeZone()
+  } catch {
+    zone = undefined
+  }
+  return isValidTimeZone(zone) ? zone : getBrowserTimeZone()
+}
+
+const LONG_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+const zonedParts = (value: string | Date | null | undefined, timeZone: string) => {
+  const date = toValidDate(value)
+  if (!date) return null
+  const part = new Map(
+    getFormatter('en-GB', {
+      timeZone: normalizeTimeZone(timeZone),
+      weekday: 'long',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((item) => [item.type, item.value]),
+  )
+  const month = Number(part.get('month'))
+  const hour = Number(part.get('hour'))
+  if (!month || Number.isNaN(hour)) return null
+  return {
+    weekday: part.get('weekday') ?? '',
+    year: part.get('year') ?? '',
+    month,
+    day: Number(part.get('day')),
+    dd: part.get('day') ?? '',
+    mm: part.get('month') ?? '',
+    hour,
+    HH: String(hour).padStart(2, '0'),
+    MM: part.get('minute') ?? '',
+    SS: part.get('second') ?? '',
+  }
+}
+
+/** "9th", "22nd", "13th". */
+export function ordinal(day: number): string {
+  const teen = day % 100 >= 11 && day % 100 <= 13
+  const suffix = teen ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th'
+  return `${day}${suffix}`
+}
+
+/** Admin and Supervisor tables: "09/10/26". */
+export function formatShortDate(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${p.dd}/${p.mm}/${p.year.slice(-2)}` : ''
+}
+
+/** Admin and Supervisor tables: "09/10/26 16:12". */
+export function formatShortDateTime(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${p.dd}/${p.mm}/${p.year.slice(-2)} ${p.HH}:${p.MM}` : ''
+}
+
+/** Exact moments: "09/10/26 16:12:01". */
+export function formatExactTime(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${p.dd}/${p.mm}/${p.year.slice(-2)} ${p.HH}:${p.MM}:${p.SS}` : ''
+}
+
+/** Admin sentences, popups and statements: "09/10/2026 at 16:12". */
+export function formatStatementTime(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${p.dd}/${p.mm}/${p.year} at ${p.HH}:${p.MM}` : ''
+}
+
+// The year only shows for a date outside this year, in the same zone.
+const yearSuffix = (year: string, timeZone: string) =>
+  year === zonedParts(new Date(), timeZone)?.year ? '' : ` ${year}`
+
+/** Pages every role uses, a date alone: "9 Oct", or "9 Oct 2025" from another year. */
+export function formatDayMonth(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${p.day} ${SHORT_MONTHS[p.month - 1]}${yearSuffix(p.year, timeZone)}` : ''
+}
+
+/** Pages every role uses: "9 Oct, 4:12 pm", or "9 Oct 2025, 4:12 pm" from another year. */
+export function formatDayMonthTime(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  if (!p) return ''
+  const hour12 = p.hour % 12 || 12
+  const meridiem = p.hour < 12 ? 'am' : 'pm'
+  return `${p.day} ${SHORT_MONTHS[p.month - 1]}${yearSuffix(p.year, timeZone)}, ${hour12}:${p.MM} ${meridiem}`
+}
+
+/** A date written out: "9th October 2026". */
+export function formatOrdinalDate(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${ordinal(p.day)} ${LONG_MONTHS[p.month - 1]} ${p.year}` : ''
+}
+
+/** Set events: "Friday, 9th October 2026". */
+export function formatEventDay(value: string | Date | null | undefined, timeZone = getSetTimeZone()): string {
+  const p = zonedParts(value, timeZone)
+  return p ? `${p.weekday}, ${ordinal(p.day)} ${LONG_MONTHS[p.month - 1]} ${p.year}` : ''
+}
+
+/** Set events, for a calendar day ("YYYY-MM-DD") with no time: "Friday, 9th October 2026". */
+export function formatEventCalendarDay(isoDate: string | null | undefined): string {
+  if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return ''
+  // Midday UTC lands on the same calendar day in UTC.
+  return formatEventDay(`${isoDate}T12:00:00Z`, 'UTC')
+}
+
+/** A Sydney time slot on a calendar day ("YYYY-MM-DD"), from "9:30" and
+ *  "10:00" clock times: "09:30 - 10:00 AEDT", or AEST in winter. */
+export function formatSydneySlot(start: string, end: string, isoDate: string | null | undefined): string {
+  const pad = (hhmm: string) => {
+    const [hours = '', minutes = ''] = hhmm.split(':')
+    return `${hours.padStart(2, '0')}:${minutes.slice(0, 2).padStart(2, '0')}`
+  }
+  const range = `${pad(start)} - ${pad(end)}`
+  return isoDate ? `${range} ${sydneyClockOn(isoDate).name}` : range
+}

@@ -8,10 +8,17 @@ password_reset.html — a VML rectangle for Outlook, an anchor for everything
 else. It replaced a line of 12px grey text at the foot of the email, which was
 the only route back to the conversation and read as small print. The
 recipients are school students and their guardians; the way to answer must not
-be the least visible thing on the page. Since the first redesign round
-(October 2026) it is solid email green with white words (5.88:1), not the pale
-green the platform's other emails still use. The VML copy carries the same
-colours and an arcsize that matches the 8px corners (8 of its 48px height).
+be the least visible thing on the page. The first redesign round (October
+2026) made it solid email green; the second puts it back to the pale green
+every other email on the platform uses (D2-22): #007253 words on #C3EBCA with
+a #007253 edge, 4.55:1. The VML copy carries the same colours and the 12%
+arcsize login.html gives the same 6px corners.
+
+The two emails to the support inbox (a new enquiry, and the open-enquiry
+summary) use the same block with their own words and link on the button,
+CTA_LABEL and CTA_URL, and add ASSIGNEE_LINE after the status. The three to
+the requester set none of them and get "Open this enquiry" and their own
+ticket's page.
 
 Two of the strings below can arrive as one unbreakable word, and a table is
 never narrower than the longest word it holds. The subject is typed by the
@@ -29,19 +36,20 @@ Named here because this is where the rule is explained; the test that keeps
 all three honest does not work from a list of places, it fills every field a
 requester can type into and looks for wherever the words come out.
 
-"Pending user" is the one status that means the requester has to act, and in
-the same green bold as the ticket number it read as part of the reference. The
-client asked for it to stand out, so it is drawn as an amber pill, and since
-the first redesign round its whole box turns pale amber too. Resolved got the
-designer's own treatment in that round: a green box and a green pill with a
-tick, so a closed enquiry reads as done at a glance. Open and in progress
-stay as they were. Style only: the words stay exactly the label the portal
-shows, and the tick is hidden from screen readers. The branches are on
-STATUS_KEY, the stored value, so rewording a label cannot silently drop its
-pill. Measured: #7A4B00 on #FFE9A8 is 6.17:1, #1C5A3C on #C6E9D3 is 6.21:1, and
-the ticket number on the amber and green boxes 5.64:1 and 5.22:1, all above the
-4.5:1 AA needs at this size. Outlook for Windows does not support
-border-radius, so there a pill is a square box; the colours are what carry it.
+Every status is a pill since the designer's second round (D2-12, D2-21), in
+the colours the portal's badges use, so a status reads the same in the email
+and on the page: open pale green, in progress solid email green, pending user
+amber, resolved grey with a tick. The box around them is the one grey box for
+all four; the pill is what tells them apart. "Pending user" is the one status
+that means the requester has to act (the client asked for it to stand out,
+C-04), and it is the one warm colour. Style only: the words stay exactly the
+label the portal shows, and the tick is hidden from screen readers. The
+branches are on STATUS_KEY, the stored value, so rewording a label cannot
+silently drop its pill. Measured on their pills: #017151 on #D3ECE0 4.84:1,
+#ffffff on #307054 5.88:1, #7A5600 on #FFF4D2 6.05:1, #4F575C on #E6E8E9
+5.99:1; the ticket number #307054 on the #f4f7f5 box 5.45:1. Outlook for
+Windows does not support border-radius, so there a pill is a square box; the
+colours are what carry it.
 
 The address under the button is a real link and not plain text. Mail clients
 turn a bare URL into a link of their own and paint it their default blue, which
@@ -55,11 +63,11 @@ the {% templatetag opencomment %} short form for any note spanning more than
 one line. The short form is single-line only, and a multi-line note written
 with it was rendered into a live email to a student.
 {% endcomment %}
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="{% if STATUS_KEY == "pending_user" %}background:#FFFAEB; border:1px solid #EBD9A8;{% elif STATUS_KEY == "resolved" %}background:#E6F5EC; border:1px solid #A9D6BC;{% else %}background:#f4f7f5; border:1px solid #d8e1dc;{% endif %} border-radius:8px; border-collapse:separate;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
                 <tr>
                   <td style="padding:16px 18px;">
                     <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
-                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {% if STATUS_KEY == "pending_user" %}<span style="display:inline-block; padding:2px 10px; background:#FFE9A8; border:1px solid #C99A2E; border-radius:999px; color:#7A4B00; font-weight:700;">{{ STATUS_LABEL }}</span>{% elif STATUS_KEY == "resolved" %}<span style="display:inline-block; padding:2px 10px; background:#C6E9D3; border:1px solid #6FB58E; border-radius:999px; color:#1C5A3C; font-weight:700;"><span aria-hidden="true">&#10003;&nbsp;</span>{{ STATUS_LABEL }}</span>{% else %}{{ STATUS_LABEL }}{% endif %}
+                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; <span style="display:inline-block; padding:3px 12px; {% if STATUS_KEY == "pending_user" %}background:#FFF4D2; color:#7A5600;{% elif STATUS_KEY == "resolved" %}background:#E6E8E9; color:#4F575C;{% elif STATUS_KEY == "in_progress" %}background:#307054; color:#ffffff;{% else %}background:#D3ECE0; color:#017151;{% endif %} border-radius:999px; font-weight:700;">{% if STATUS_KEY == "resolved" %}<span aria-hidden="true">&#10003;&nbsp;</span>{% endif %}{{ STATUS_LABEL }}</span>{% if ASSIGNEE_LINE %} &nbsp;&middot;&nbsp; {{ ASSIGNEE_LINE }}{% endif %}
                     </p>
                     <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55; overflow-wrap:anywhere;">
                       {{ TICKET_SUBJECT }}
@@ -68,26 +76,4 @@ with it was rendered into a live email to a student.
                 </tr>
               </table>
 
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
-                <tr>
-                  <td align="center" style="padding:24px 0 8px 0;">
-                    <!--[if mso]>
-                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ TICKET_URL }}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="17%" strokecolor="#307054" fillcolor="#307054">
-                      <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;">Open this enquiry</center>
-                    </v:roundrect>
-                    <![endif]-->
-                    <!--[if !mso]><!-- -->
-                    <a class="cta-link" href="{{ TICKET_URL }}" style="background:#307054; border:1px solid #307054; border-radius:8px; color:#ffffff; display:inline-block; font-size:16px; font-weight:700; line-height:1.2; padding:14px 28px; text-align:center; text-decoration:none; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-                      Open this enquiry
-                    </a>
-                    <!--<![endif]-->
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin:8px 0 0 0; color:#5c6860; font-size:12px; line-height:1.6; text-align:center;">
-                Or paste this into your browser: <a href="{{ TICKET_URL }}" style="color:#307054; text-decoration:underline; word-break:break-all;">{{ TICKET_URL }}</a>
-              </p>
-
-{% include "emails/_ticket_signoff.html" %}
+{% include "emails/_ticket_button.html" %}

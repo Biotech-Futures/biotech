@@ -1,6 +1,21 @@
 from rest_framework import serializers
 
 from .models import Announcement, AnnouncementAudience
+from .rendering import fill_merge_tags
+
+
+def _requesting_user(serializer):
+    """The user reading the announcement, when there is one.
+
+    The platform fills an announcement's merge tags (``{{ first_name }}``)
+    with the reader's own details. The admin dashboard reads through its own
+    API (``apps.admin``), which keeps the body as written so it stays
+    editable, so only these serializers fill them."""
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if user is not None and getattr(user, "is_authenticated", False):
+        return user
+    return None
 
 
 class AnnouncementAudienceSerializer(serializers.ModelSerializer):
@@ -32,6 +47,8 @@ class AnnouncementSerializer(serializers.ModelSerializer):
     sender_name = serializers.CharField(default="Administrator", read_only=True)
     audiences = AnnouncementAudienceSerializer(many=True, read_only=True)
     audience_rules = AnnouncementAudienceWriteSerializer(many=True, write_only=True, required=False)
+    # Not yet opened by the user reading it, and not their own: shows as New.
+    is_new = serializers.SerializerMethodField()
 
     # Above this size we truncate on list responses; one embedded base64
     # image in a single row otherwise inflates the whole page payload.
@@ -49,8 +66,17 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "archived_at",
             "audiences",
             "audience_rules",
+            "is_new",
         ]
-        read_only_fields = ["id", "published_at", "audiences"]
+        read_only_fields = ["id", "published_at", "audiences", "is_new"]
+
+    def get_is_new(self, obj) -> bool:
+        user = _requesting_user(self)
+        # Without the queryset's seen_by_me (a write's response), never New;
+        # nor one from before New existed.
+        if user is None or not obj.shows_new or getattr(obj, "seen_by_me", True):
+            return False
+        return obj.author_user_id != user.id
 
     def _replace_audiences(self, announcement, audience_rules):
         if audience_rules is None:
@@ -75,6 +101,13 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         self._replace_audiences(announcement, audience_rules)
         return announcement
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        user = _requesting_user(self)
+        if user is not None and data.get("body"):
+            data["body"] = fill_merge_tags(data["body"], user)
+        return data
+
 
 class AnnouncementListSerializer(AnnouncementSerializer):
     """Truncates ``body`` for list responses.
@@ -91,7 +124,8 @@ class AnnouncementListSerializer(AnnouncementSerializer):
         fields = AnnouncementSerializer.Meta.fields + ["body_truncated"]
 
     def get_body(self, obj):
-        body = obj.body or ""
+        # Fill before truncating, so a cut can never leave half a tag behind.
+        body = fill_merge_tags(obj.body or "", _requesting_user(self))
         if len(body) <= self.LIST_BODY_CAP:
             return body
         return body[: self.LIST_BODY_CAP]

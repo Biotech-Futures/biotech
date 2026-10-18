@@ -11,9 +11,10 @@ everything and then failed on production Postgres mid-deploy, leaving the
 platform half-migrated with login unavailable.
 
 These tests cover what the function *does*. The "will Django run it" half is
-covered by `migrate` against a real Postgres database, which
-.github/workflows/backend-postgres.yml runs on every push and which this
-project's definition of done requires before a release.
+covered by `migrate` against a real Postgres database, which this
+project's definition of done requires before a release: run locally against
+a kept test database, or by starting .github/workflows/backend-postgres.yml
+by hand.
 
 Imported through importlib because a module name beginning with a digit is not
 a valid identifier, so `from apps.tickets.migrations.0005_... import` will not

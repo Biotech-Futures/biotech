@@ -286,7 +286,7 @@ const confirm = async () => {
 .replace-dialog__name {
   margin: 0;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   overflow-wrap: anywhere;
 }
 

@@ -419,33 +419,14 @@ def _year_of(iso: str | None) -> str:
     return str(date.fromisoformat(str(iso)).year) if iso else ""
 
 
-def _signature_bytes(field) -> bytes | None:
-    """Read one signature image, or None if unset/unreadable.
-
-    Best-effort: a missing blob must not sink a certificate run, so failures
-    are logged and the document renders without that image.
-    """
-    if not field:
-        return None
-    try:
-        with default_storage.open(field.name, "rb") as fh:
-            return fh.read()
-    except Exception:
-        logger.exception("grading_docx.signature_unreadable name=%s", getattr(field, "name", ""))
-        return None
-
-
 def signature_images(settings) -> dict:
     """``{"Director1Signature": image_bytes, ...}`` for whichever signatures
-    are uploaded."""
+    are uploaded (kept in the database, see ``GradingSettings``)."""
     images = {}
-    for index, field in (
-        (1, settings.director_1_signature),
-        (2, settings.director_2_signature),
-    ):
-        data = _signature_bytes(field)
+    for index in (1, 2):
+        data = getattr(settings, f"director_{index}_signature_image")
         if data:
-            images[f"Director{index}Signature"] = data
+            images[f"Director{index}Signature"] = bytes(data)
     return images
 
 

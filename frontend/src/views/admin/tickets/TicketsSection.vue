@@ -128,9 +128,16 @@ const tabs = [
 }
 
 /* Hover sets background AND colour so no global rule can combine into
-   green-on-green. */
+   green-on-green. The wash is the queue's pale green, #e8f5ee (9.87:1 under
+   the words), not --accent-green-soft: that is the peach in the light theme,
+   which the client asked to go from what we built (C-20). Dark keeps the
+   theme's translucent green, which was green already. */
 .tickets-section__switch:hover:not(.active) {
-  color: var(--charcoal);
+  color: var(--teal);
+  background: #e8f5ee;
+}
+
+:root[data-theme='dark'] .tickets-section__switch:hover:not(.active) {
   background: var(--accent-green-soft);
 }
 

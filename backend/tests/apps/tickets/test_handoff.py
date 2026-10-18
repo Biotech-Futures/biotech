@@ -35,7 +35,7 @@ class ScreeningFixture(TestCase):
     """
 
     def setUp(self):
-        self.country = Countries.objects.create(country_name="Australia")
+        self.country = Countries.objects.get_or_create(country_name="Australia")[0]
         self.sender = User.objects.create_user(
             email="student@example.com", password="pass1234",
             first_name="Mia", last_name="Thompson", country=self.country,

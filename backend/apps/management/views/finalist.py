@@ -13,6 +13,8 @@ from apps.common.rbac import IsStaffOrAdmin
 from apps.grading.models import FinalistFlag
 from apps.grading.services.text import natural_key
 from apps.services.email_branding import LOGO_CID, logo_data_uri
+from apps.services.email_registry import get_email_type
+from apps.services.system_email import is_email_enabled
 from apps.submissions.emails import recipients_for
 
 from ..models import FinalistEmailSettings
@@ -114,6 +116,13 @@ def _waiting() -> dict:
     return waiting
 
 
+def _switched_off() -> str:
+    """Why Notify Finalists can't send because its email is off, or ""."""
+    if is_email_enabled(EMAIL_KEY):
+        return ""
+    return f"{get_email_type(EMAIL_KEY).name} is switched off on System Emails."
+
+
 class FinalistEmailSettingsView(APIView):
     """GET/PATCH /api/v1/management/finalists/email/ — the dates and link the
     finalist email gives teams. Also says whether the email is complete."""
@@ -132,6 +141,8 @@ class FinalistEmailSettingsView(APIView):
             "dates_in_past": details.dates_before(today),
             # Why sending waits for submissions to close, or "".
             "submissions_open": submissions_open_reason(),
+            # Why the email can't go because it's off on System Emails, or "".
+            "switched_off": _switched_off(),
             # Whether a run is sending now, and its progress.
             **run_state(FINALIST_SEND),
             # Everyone due the email and emailed, by role.
@@ -207,6 +218,11 @@ class FinalistNotifyAllView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
+        # Refused up front, as the other Management emails are: a run would
+        # send nothing and log every member as missed.
+        switched_off = _switched_off()
+        if switched_off:
+            return Response({"detail": switched_off}, status=status.HTTP_400_BAD_REQUEST)
         details = FinalistEmailSettings.load()
         if not details.is_complete:
             return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)

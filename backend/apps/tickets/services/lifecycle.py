@@ -291,6 +291,11 @@ def create_ticket(
         transaction.on_commit(
             lambda: emails.send_ticket_submitted(ticket), robust=True
         )
+        # And the support inbox hears of it (C-17), after the receipt so the
+        # requester's email is never the one queued second.
+        transaction.on_commit(
+            lambda: emails.send_new_ticket_to_support(ticket), robust=True
+        )
     return ticket
 
 
@@ -535,6 +540,37 @@ def add_support_reply(
             ),
             robust=True,
         )
+    return message
+
+
+def add_support_reply_with_status(
+    *, ticket, actor, body, next_status, attachments=None
+) -> TicketMessage:
+    """A reply and the status it leaves the ticket in, as one action (C-19).
+
+    The client asked for the status to be chosen beside the reply box rather
+    than ticked as "I have asked them for something": pending user by
+    default, in progress or resolved when the agent says so.
+
+    Pending user is the reply-and-wait that add_support_reply already does in
+    one step, so it goes there and nowhere else: its clock and its email
+    ("we are waiting on you") stay exactly as they were. The other two are a
+    plain reply followed by the status change the dropdown at the top of the
+    panel makes, inside the one transaction, so a crash between them cannot
+    leave a reply whose status never landed. Resolved goes through resolve()
+    and so sends E3 as well as the reply's E2, in that order, which is what
+    replying and then resolving by hand has always sent.
+    """
+    with transaction.atomic():
+        message = add_support_reply(
+            ticket=ticket,
+            actor=actor,
+            body=body,
+            attachments=attachments,
+            move_to_pending=next_status == TicketStatus.PENDING_USER,
+        )
+        if next_status != TicketStatus.PENDING_USER:
+            set_status(ticket=ticket, new_status=next_status, actor=actor)
     return message
 
 

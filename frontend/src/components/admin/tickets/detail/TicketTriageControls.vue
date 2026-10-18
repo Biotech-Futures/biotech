@@ -445,7 +445,7 @@ async function choose(field: Field, picked: string, select: HTMLSelectElement) {
   background-repeat: no-repeat;
   background-position: right 0.9rem center;
   appearance: none;
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.85rem;
   text-overflow: ellipsis;

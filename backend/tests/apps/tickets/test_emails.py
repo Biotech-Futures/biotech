@@ -119,6 +119,10 @@ class TicketEmailTestCase(TestCase):
             ticket = lifecycle.create_ticket(user=self.requester, **fields)
         return ticket
 
+    def to_requester(self):
+        """The outbox without the support inbox's copy of a new enquiry (E4)."""
+        return [message for message in mail.outbox if message.to == [self.requester.email]]
+
     def quiet_ticket(self):
         """A ticket whose creation email has been cleared from the outbox."""
         ticket = self.make_ticket()
@@ -507,8 +511,9 @@ class NothingInAnEmailIsWiderThanTheScreenTests(TicketEmailTestCase):
 class SubmissionEmailTests(TicketEmailTestCase):
     def test_submitting_sends_exactly_one_email_to_the_requester(self):
         self.make_ticket()
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].to, ["mia@example.com"])
+        self.assertEqual([m.to for m in self.to_requester()], [["mia@example.com"]])
+        # The only other one goes to the support inbox (C-17), and second.
+        self.assertEqual([m.to for m in mail.outbox], [["mia@example.com"], [settings.TICKET_SUPPORT_INBOX]])
 
     def test_the_subject_carries_the_ticket_number(self):
         ticket = self.make_ticket()
@@ -878,8 +883,8 @@ class DispatchGuardTests(TicketEmailTestCase):
             )
             lifecycle.resolve(ticket=ticket, actor=self.agent)
 
-        self.assertEqual(len(mail.outbox), 3)
-        for message in mail.outbox:
+        self.assertEqual(len(self.to_requester()), 3)
+        for message in self.to_requester():
             body = visible_text(message.body)
             self.assertIn(ticket.ticket_number.lower(), body)
             self.assertIn("/#/support/tickets/", message.body)
@@ -1214,7 +1219,7 @@ class ExpectedResponseTests(TicketEmailTestCase):
     """
 
     def halves(self):
-        message = mail.outbox[-1]
+        message = self.to_requester()[-1]
         return message.body, message.alternatives[0][0]
 
     def test_e1_says_when_to_expect_a_reply(self):
@@ -1339,6 +1344,11 @@ class TicketEmailsThroughTheApiTestCase(TicketEmailTestCase):
         self.client.force_login(self.agent)
         for label, payload in (
             ("E2 reply", {"messageType": "support_reply", "body": "Looking into it."}),
+            ("E2 reply keeping it in progress", {
+                "messageType": "support_reply",
+                "body": "We are working on it.",
+                "nextStatus": "in_progress",
+            }),
             ("E2 reply asking for something", {
                 "messageType": "support_reply",
                 "body": "Could you send a screenshot?",
@@ -1365,12 +1375,14 @@ class TicketEmailsThroughTheApiTestCase(TicketEmailTestCase):
         ticket.refresh_from_db()
         sent.append(("E3 resolved", ticket.status))
 
-        # One email per request, so pairing them by position cannot slip by
-        # one without this failing first.
-        self.assertEqual(len(mail.outbox), len(sent))
+        # One email to the requester per request, so pairing them by position
+        # cannot slip by one without this failing first. The support inbox's
+        # copy of the new enquiry (E4) is left out: it is not the requester's.
+        requester = self.to_requester()
+        self.assertEqual(len(requester), len(sent))
         return [
             (label, status, message)
-            for (label, status), message in zip(sent, mail.outbox)
+            for (label, status), message in zip(sent, requester)
         ]
 
 
@@ -1450,129 +1462,83 @@ class TheAddressUnderTheButtonIsALinkTests(TicketEmailsThroughTheApiTestCase):
                     self.assertIn("text-decoration:underline", style_of(anchor))
 
 
-class PendingUserStandsOutTests(TicketEmailsThroughTheApiTestCase):
-    """C-04. "Pending user" is the one status that needs the requester to act.
+class EveryStatusIsAPillTests(TicketEmailsThroughTheApiTestCase):
+    """The designer's second round (D2-12, D2-21): every email shows its
+    status as a pill in the one grey box, in the colours the portal's badges
+    use, so a status reads the same in the email and on the page.
 
-    Style only: the words stay the label. The colours are the first redesign
-    round's (October 2026), and are written out here rather than read from
-    the template, so changing them means changing this too. Resolved has a
-    pill of its own since that round (ResolvedReadsAsDoneTests below); no
-    status but pending user may carry the amber.
+    Style only: the words stay the label, and the tick in front of Resolved is
+    hidden from screen readers. "Pending user" is the one status that needs
+    the requester to act (C-04), and it keeps the one warm colour. The colours
+    are written out here rather than read from the template, so changing them
+    means changing this too.
     """
 
-    PILL_RULES = (
-        "display:inline-block",
-        "background:#ffe9a8",
-        "border:1pxsolid#c99a2e",
-        "border-radius:999px",
-        "color:#7a4b00",
-        "font-weight:700",
-    )
+    PILLS = {
+        "open": ("background:#d3ece0", "color:#017151"),
+        "in_progress": ("background:#307054", "color:#ffffff"),
+        "pending_user": ("background:#fff4d2", "color:#7a5600"),
+        "resolved": ("background:#e6e8e9", "color:#4f575c"),
+    }
+    COMMON = ("display:inline-block", "border-radius:999px", "font-weight:700")
+    LABELS = {
+        "open": "Open",
+        "in_progress": "In progress",
+        "pending_user": "Pending user",
+        "resolved": "Resolved",
+    }
 
-    def test_an_email_sent_while_pending_shows_the_status_as_a_pill(self):
-        pending = [
-            (label, message)
-            for label, status, message in self.emails_through_the_api()
-            if status == "pending_user"
-        ]
-        self.assertEqual(
-            [label for label, _ in pending], ["E2 reply asking for something"],
-        )
-        html = pending[0][1].alternatives[0][0]
-
-        places = enclosing_tags(html, "Pending user")
-        self.assertTrue(places, "the pending email no longer prints the status")
-        for stack in places:
-            tag, attrs = stack[-1]
-            self.assertEqual(tag, "span")
-            for rule in self.PILL_RULES:
-                with self.subTest(rule=rule):
-                    self.assertIn(rule, style_of(attrs))
-        # The words did not change, only the box around them.
-        self.assertIn("pending user", visible_text(html))
-
-    def test_no_other_status_gets_the_pill(self):
-        others = [
-            (label, status, message)
-            for label, status, message in self.emails_through_the_api()
-            if status != "pending_user"
-        ]
-        # Open and resolved at the least, or this checks nothing.
-        self.assertTrue({"open", "resolved"} <= {status for _, status, _ in others})
-        for label, status, message in others:
-            html = message.alternatives[0][0].lower()
-            with self.subTest(email=label, status=status):
-                self.assertNotIn("#ffe9a8", html)
-                self.assertNotIn("#7a4b00", html)
-                self.assertNotIn("#c99a2e", html)
-                # Nor the amber box the pill sits in.
-                self.assertNotIn("#fffaeb", html)
-
-    def test_the_pending_email_sits_its_pill_in_an_amber_box(self):
-        pending = [
-            message
-            for _, status, message in self.emails_through_the_api()
-            if status == "pending_user"
-        ]
-        html = pending[0].alternatives[0][0].lower()
-        self.assertIn("background:#fffaeb", html)
-        self.assertIn("border:1px solid #ebd9a8", html)
-
-
-class ResolvedReadsAsDoneTests(TicketEmailsThroughTheApiTestCase):
-    """The first redesign round (October 2026): an email about a resolved
-    enquiry draws Resolved as a green pill with a tick, in a green box, so it
-    reads as done at a glance. Style only, like the pending pill: the label is
-    the portal's word, and the tick is hidden from screen readers so they hear
-    the word alone. Open and in progress carry neither the green nor the
-    amber.
-    """
-
-    PILL_RULES = (
-        "display:inline-block",
-        "background:#c6e9d3",
-        "border:1pxsolid#6fb58e",
-        "border-radius:999px",
-        "color:#1c5a3c",
-        "font-weight:700",
-    )
-
-    def test_a_resolved_email_shows_the_status_as_a_green_pill_with_a_hidden_tick(self):
-        resolved = [
-            (label, message)
-            for label, status, message in self.emails_through_the_api()
-            if status == "resolved"
-        ]
-        self.assertTrue(resolved, "no email went out while resolved")
-        for label, message in resolved:
+    def test_each_status_is_drawn_as_its_own_pill(self):
+        seen = set()
+        for label, status, message in self.emails_through_the_api():
             html = message.alternatives[0][0]
-            places = enclosing_tags(html, "Resolved")
+            places = enclosing_tags(html, self.LABELS[status])
             with self.subTest(email=label):
-                self.assertTrue(places, f"{label} no longer prints the status")
-            for stack in places:
-                tag, attrs = stack[-1]
-                with self.subTest(email=label):
-                    self.assertEqual(tag, "span")
-                    for rule in self.PILL_RULES:
-                        self.assertIn(rule, style_of(attrs))
-            with self.subTest(email=label, part="tick"):
-                self.assertRegex(html, r'<span aria-hidden="true">&#10003;&nbsp;</span>Resolved')
-                self.assertIn("background:#E6F5EC", html)
+                self.assertTrue(places, f"{label} no longer prints its status")
+            # The status line is the one whose innermost tag is a span.
+            spans = [stack[-1][1] for stack in places if stack[-1][0] == "span"]
+            with self.subTest(email=label):
+                self.assertTrue(spans, f"{label} does not put its status in a pill")
+                style = style_of(spans[0])
+                for rule in self.PILLS[status] + self.COMMON:
+                    self.assertIn(rule, style)
+                # No edge: the designer's pills are flat.
+                self.assertNotIn("border:1px", style)
+            seen.add(status)
+        # All four, or this checked less than its name says.
+        self.assertEqual(seen, set(self.PILLS))
 
-    def test_open_and_in_progress_keep_the_plain_grey_box(self):
-        others = [
-            (label, status, message)
-            for label, status, message in self.emails_through_the_api()
-            if status not in ("pending_user", "resolved")
-        ]
-        self.assertTrue({"open"} <= {status for _, status, _ in others})
-        for label, status, message in others:
+    def test_only_resolved_carries_the_tick_and_it_is_hidden(self):
+        for label, status, message in self.emails_through_the_api():
+            html = message.alternatives[0][0]
+            with self.subTest(email=label):
+                if status == "resolved":
+                    self.assertRegex(html, r'<span aria-hidden="true">&#10003;&nbsp;</span>Resolved')
+                else:
+                    self.assertNotIn("&#10003;", html)
+
+    def test_every_status_sits_in_the_one_grey_box(self):
+        for label, status, message in self.emails_through_the_api():
             html = message.alternatives[0][0].lower()
             with self.subTest(email=label, status=status):
-                self.assertIn("background:#f4f7f5", html)
-                self.assertNotIn("#c6e9d3", html)
-                self.assertNotIn("#e6f5ec", html)
-                self.assertNotIn("&#10003;", html)
+                self.assertIn("background:#f4f7f5; border:1px solid #d8e1dc;", html)
+                # None of the first round's boxes or pills.
+                for gone in ("#fffaeb", "#e6f5ec", "#ffe9a8", "#c6e9d3", "#7a4b00", "#1c5a3c"):
+                    self.assertNotIn(gone, html)
+
+    def test_the_button_is_the_platform_pale_green_again(self):
+        """D2-22: back to the style every other email on the platform uses."""
+        for label, _, message in self.emails_through_the_api():
+            html = message.alternatives[0][0]
+            anchor = re.search(r'<a class="cta-link"[^>]*style="([^"]*)"', html)
+            vml = re.search(r"<v:roundrect\b[^>]*>", html)
+            with self.subTest(email=label):
+                self.assertIsNotNone(anchor)
+                style = anchor.group(1).replace(" ", "").lower()
+                for rule in ("background:#c3ebca", "border:1pxsolid#007253", "color:#007253"):
+                    self.assertIn(rule, style)
+                self.assertIn('fillcolor="#C3EBCA"', vml.group(0))
+                self.assertIn('strokecolor="#007253"', vml.group(0))
 
 
 class TicketEmailFooterNoteTests(TicketEmailsThroughTheApiTestCase):

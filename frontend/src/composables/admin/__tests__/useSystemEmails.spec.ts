@@ -4,6 +4,7 @@ import { useSystemEmails } from '@/composables/admin/useSystemEmails'
 import {
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
+  fetchSystemEmailTestRecipients,
   previewSystemEmailTemplate,
   restoreSystemEmailTemplate,
   testSendSystemEmailTemplate,
@@ -19,6 +20,7 @@ vi.mock('@/utils/adminAPI', () => ({
   restoreSystemEmailTemplate: vi.fn(),
   previewSystemEmailTemplate: vi.fn(),
   testSendSystemEmailTemplate: vi.fn(),
+  fetchSystemEmailTestRecipients: vi.fn(),
   updateSystemEmailSettings: vi.fn()
 }))
 
@@ -66,8 +68,12 @@ const loadOnce = async (templates: SystemEmailTemplate[]) => {
   return view
 }
 
+// Lets the selected email's "of" list load and the preview it starts finish.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue(null)
 })
 
 describe('useSystemEmails', () => {
@@ -240,7 +246,85 @@ describe('useSystemEmails', () => {
 
     await view.testSend()
 
-    expect(view.notice.value).toContain('admin@example.com')
+    expect(view.testResult.value).toEqual({ ok: true, text: 'Test sent to admin@example.com.' })
+  })
+
+  it('sends a test to a typed address, with where a bounce goes', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com',
+      sentFrom: 'info@biotechfutures.org'
+    })
+
+    await view.testSend('tester@example.com')
+
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', { to: 'tester@example.com' })
+    expect(view.testResult.value?.ok).toBe(true)
+    expect(view.testResult.value?.text).toContain('Test sent to tester@example.com.')
+    expect(view.testResult.value?.text).toContain('comes back to info@biotechfutures.org')
+  })
+
+  it('sends a test as the one picked, else with the samples', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockResolvedValue({
+      key: 'password_reset',
+      sentTo: 'tester@example.com'
+    })
+
+    view.testOf.value = '9'
+    await view.testSend('tester@example.com')
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', {
+      to: 'tester@example.com',
+      of: '9'
+    })
+
+    view.testOf.value = ''
+    await view.testSend('tester@example.com')
+    expect(testSendSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', { to: 'tester@example.com' })
+  })
+
+  it('loads who a test can be of, picks the first and previews the email as theirs', async () => {
+    vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue([
+      { value: '7', label: '(BTF1, mentor) Aga Smith' },
+      { value: '9', label: '(BTF2) Ben Bell' }
+    ])
+    const view = await loadOnce([buildTemplate()])
+    await settle()
+
+    expect(fetchSystemEmailTestRecipients).toHaveBeenCalledWith('password_reset')
+    expect(view.testOf.value).toBe('7')
+    expect(previewSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', { of: '7' })
+
+    view.testOf.value = '9'
+    await settle()
+    expect(previewSystemEmailTemplate).toHaveBeenLastCalledWith('password_reset', { of: '9' })
+  })
+
+  it('starts each email with its own list, never the pick from the last one', async () => {
+    vi.mocked(fetchSystemEmailTestRecipients).mockImplementation(async (key) =>
+      key === 'login_code' ? [{ value: '3', label: '(BTF3) Cai Chen' }] : [{ value: '7', label: '(BTF1) Amy' }]
+    )
+    const view = await loadOnce([buildTemplate(), buildTemplate({ key: 'login_code', name: 'Login code' })])
+    await settle()
+    expect(view.testOf.value).toBe('7')
+
+    view.select('login_code')
+    await settle()
+
+    expect(view.testOf.value).toBe('3')
+    expect(previewSystemEmailTemplate).not.toHaveBeenCalledWith('login_code', { of: '7' })
+    expect(previewSystemEmailTemplate).toHaveBeenLastCalledWith('login_code', { of: '3' })
+  })
+
+  it('reports a failed test send beside the button', async () => {
+    const view = await loadOnce([buildTemplate()])
+    vi.mocked(testSendSystemEmailTemplate).mockRejectedValue(new Error('smtp down'))
+
+    await view.testSend('tester@example.com')
+
+    expect(view.testResult.value?.ok).toBe(false)
+    expect(view.error.value).toBe('')
   })
 
   it('loads all emails when the server call fails', async () => {

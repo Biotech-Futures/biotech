@@ -73,7 +73,10 @@ export type TicketMessageType = 'user_message' | 'support_reply' | 'system'
 export const MAX_BODY_LENGTH = 2000
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 export const MAX_ATTACHMENTS = 5
-export const ATTACHMENT_HINT = 'Max file size 10 MB (PDF, PNG, JPG, DOCX)'
+// The second redesign round's wording (D2-05). The client asked at the
+// 8 October meeting for the limit on the number of files to be shown next to
+// the limit on their size: "Max file size ten megabytes, max number..." (C-23).
+export const ATTACHMENT_HINT = `Up to ${MAX_ATTACHMENTS} files, 10 MB each (PDF, PNG, JPG, DOCX)`
 
 export interface TicketAttachment {
   id: number

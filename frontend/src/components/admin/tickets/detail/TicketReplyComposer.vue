@@ -1,8 +1,9 @@
 <template>
-  <form class="reply-box" :aria-labelledby="headingId" @submit.prevent="onSubmit">
-    <p :id="headingId" class="reply-box__heading">Reply to the requester</p>
-    <!-- Named on the element: the heading above is visible but a textarea
-         does not take its name from a nearby paragraph. -->
+  <!-- The reply side of TicketComposer.vue, whose tab names it: the box, the
+       tab bar and the colours are all that component's. -->
+  <form class="reply-box" @submit.prevent="onSubmit">
+    <!-- Named on the element: the tab above is visible but a textarea does
+         not take its name from it. -->
     <textarea
       ref="textarea"
       v-model="body"
@@ -14,15 +15,23 @@
       :readonly="isSending"
     ></textarea>
 
-    <div class="reply-box__pending">
-      <input
-        :id="checkboxId"
-        v-model="moveToPending"
-        type="checkbox"
-        class="reply-box__checkbox"
+    <!-- The status the reply leaves the ticket in, chosen with it (C-19).
+         The client asked for this in place of the old "I have asked them for
+         something" box at the 8 October meeting: "you put the status down
+         here, and it would default to pending user, but then it would allow
+         the support agent to change it to in progress or resolved." -->
+    <div class="reply-box__status">
+      <label :for="statusId">Status after sending</label>
+      <select
+        :id="statusId"
+        v-model="nextStatus"
+        class="reply-box__select"
         :disabled="isSending"
-      />
-      <label :for="checkboxId">I have asked them for something. Wait for their reply.</label>
+      >
+        <option v-for="option in REPLY_STATUSES" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </option>
+      </select>
     </div>
 
     <div class="reply-box__footer">
@@ -106,21 +115,30 @@ import { ref, useId } from 'vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
 import '@/components/support/ticketControls.css'
 
+import type { ReplyStatus } from '@/utils/ticketAgentAPI'
+import { TICKET_STATUS_LABELS } from '@/utils/ticketAgentSchema'
+
 import { ACCEPTED_FILES, MAX_BODY_LENGTH, useMessageComposer } from './useMessageComposer'
 
 const props = defineProps<{
   /** Resolves when the reply is stored. Rejects, so a failed send keeps what
    *  was typed instead of throwing it away. */
-  send: (body: string, files: File[], moveToPending: boolean) => Promise<unknown>
+  send: (body: string, files: File[], nextStatus: ReplyStatus) => Promise<unknown>
 }>()
 
-// Off by default: most replies are an answer, not a question.
-//
-// Ticked, it travels on the SAME request as the reply (moveToPending), never
-// as a status change after it. The reply email reads the status at send time
-// to choose its wording, so a reply followed by a separate PATCH went out
-// saying the opposite of what the agent meant.
-const moveToPending = ref(false)
+// In the order of the status control at the top of the panel, with the same
+// words, so the two read as one vocabulary. Open is left out: an answered
+// ticket is not new.
+const REPLY_STATUSES: { value: ReplyStatus; label: string }[] = (
+  ['in_progress', 'pending_user', 'resolved'] as const
+).map((value) => ({ value, label: TICKET_STATUS_LABELS[value] }))
+
+// Pending user by default, as the client asked. It travels on the SAME
+// request as the reply, never as a status change after it: the reply email
+// reads the status at send time to choose its wording, so a reply followed by
+// a separate PATCH went out saying the opposite of what the agent meant.
+const DEFAULT_STATUS: ReplyStatus = 'pending_user'
+const nextStatus = ref<ReplyStatus>(DEFAULT_STATUS)
 
 const {
   body,
@@ -136,19 +154,20 @@ const {
   startReplace,
   onReplace,
   submit
-} = useMessageComposer((text, files) => props.send(text, files, moveToPending.value))
+} = useMessageComposer((text, files) => props.send(text, files, nextStatus.value))
 
-const headingId = useId()
-const checkboxId = useId()
+const statusId = useId()
 
+// Back to the default once the reply is stored, so the next one starts from
+// the same place; a refused send keeps the choice with the words.
 async function onSubmit() {
-  if (await submit()) moveToPending.value = false
+  if (await submit()) nextStatus.value = DEFAULT_STATUS
 }
 </script>
 
 <style scoped>
-/* A plain box on the panel, a step greyer than the panel itself since the
-   first redesign round (October 2026). The note box next to it is the one
+/* The reply side of the box in TicketComposer.vue, which paints the ground
+   (#f8f9fa, dark #161f1d) these were measured on. The note side is the one
    that is marked; this one stays ordinary on purpose. Text on green is a
    literal #fff (6.03:1): --white is a surface token and turns dark green in
    the dark theme (U1 5.3). Measured (WCAG AA: 4.5:1 for text, 3:1 for a
@@ -160,45 +179,34 @@ async function onSubmit() {
 .reply-box {
   --reply-muted: #5a6268;
   --reply-danger: #a71d2a;
-  --reply-ground: #f8f9fa;
-  --reply-frame: #e3e7e5;
   --reply-edge: #84938f;
   --reply-placeholder: #6c757d;
   --reply-file: #017151;
 
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.875rem 1.125rem;
-  border: 1px solid var(--reply-frame);
-  border-radius: 12px;
-  background: var(--reply-ground);
-  color: var(--charcoal);
+  gap: 0.75rem;
 }
 
 :root[data-theme='dark'] .reply-box {
   --reply-muted: #a3b3ae;
   --reply-danger: var(--danger);
-  --reply-ground: #161f1d;
-  --reply-frame: #2b3936;
   --reply-edge: #70827d;
   --reply-placeholder: #93a39e;
   --reply-file: #5ea99e;
 }
 
-.reply-box__heading {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
+/* 84px, three lines, as both sides of the box are drawn. A hair less on
+   the right than the left: the note's placeholder fills one line in the
+   designer's box with 1.5px to spare, and wrapped here at 12px. */
 .reply-box__text {
   width: 100%;
-  padding: 0.55rem 0.875rem;
+  height: 5.25rem;
+  padding: 0.625rem 0.625rem 0.625rem 0.75rem;
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: inherit;
   font-size: 0.95rem;
   line-height: 1.45;
@@ -214,19 +222,32 @@ async function onSubmit() {
   opacity: 0.8;
 }
 
-.reply-box__pending {
+.reply-box__status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.625rem;
   font-size: 0.9rem;
 }
 
-/* The browser's own box, a little bigger, ticked in brand green. */
-.reply-box__checkbox {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  accent-color: #017151;
+/* The panel's own select: the field edge, the thin chevron from
+   ticketControls.css, the 2rem height of the file button beside it. */
+.reply-box__select {
+  min-height: 2rem;
+  padding: 0 2.25rem 0 0.75rem;
+  border: 1px solid var(--reply-edge);
+  border-radius: 8px;
+  background: var(--white) var(--ticket-select-chevron) no-repeat right 0.75rem center;
+  appearance: none;
+  color: var(--teal);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.reply-box__select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .reply-box__footer {
@@ -255,7 +276,7 @@ async function onSubmit() {
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
   background: var(--white) var(--ticket-paperclip) no-repeat 0.7rem center;
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-weight: 700;
   cursor: pointer;

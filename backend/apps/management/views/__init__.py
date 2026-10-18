@@ -24,6 +24,22 @@ from .presentation import (
     PresentationTimesShownView,
 )
 from .release import CertificatesReleaseView, MarksReleaseView
+from .bounce_check import BounceCheckTriggerView
+from .challenge_start import ChallengeStartView
+from .registration_open import RegistrationOpenView
+from .registration_supervisors import RegistrationSupervisorsView, RegistrationSupervisorView
+from .supervisor_pages import SupervisorPagesView
+from .supervisor_results import (
+    AllResultsCertificatesZipView,
+    AllResultsCertificateView,
+    AllResultsSheetView,
+    AllResultsView,
+    SupervisorResultsCertificatesZipView,
+    SupervisorResultsCertificateView,
+    SupervisorResultsSheetView,
+    SupervisorResultsStateView,
+    SupervisorResultsView,
+)
 from .results import (
     ResultsEmailPreviewView,
     ResultsEmailSendView,
@@ -47,6 +63,21 @@ __all__ = [
     "FinalistEmailSettingsView",
     "FinalistNotifyAllView",
     "GradingSettingsView",
+    "BounceCheckTriggerView",
+    "ChallengeStartView",
+    "RegistrationOpenView",
+    "RegistrationSupervisorsView",
+    "RegistrationSupervisorView",
+    "SupervisorPagesView",
+    "AllResultsCertificatesZipView",
+    "AllResultsCertificateView",
+    "AllResultsSheetView",
+    "AllResultsView",
+    "SupervisorResultsCertificatesZipView",
+    "SupervisorResultsCertificateView",
+    "SupervisorResultsSheetView",
+    "SupervisorResultsStateView",
+    "SupervisorResultsView",
     "GroupExtensionDetailView",
     "GroupExtensionListView",
     "GroupResultsCertificateView",

@@ -289,12 +289,49 @@ describe('TicketDetailPage header', () => {
       const page = open()
       await flushPromises()
 
-      expect(page.get('.ticket__meta').text().replace(/\s+/g, ' ')).toBe(
-        'Technical issue · Raised 1 September 2026 · Last updated 3 September 2026, 3:37 pm'
-      )
+      // Three pills since the second redesign round (D2-09), in this order,
+      // with the label and the value of each read as one phrase.
+      expect(
+        page.findAll('.ticket__facts > li').map((pill) => pill.text().replace(/\s+/g, ' ').trim())
+      ).toEqual(['Technical issue', 'Raised 1 Sept 2026', 'Updated 3 Sept 2026, 3:37 pm'])
     } finally {
       if (savedTZ === undefined) delete process.env.TZ
       else process.env.TZ = savedTZ
     }
+  })
+})
+
+/**
+ * The reply box under the conversation, as the second redesign round draws
+ * it: the button says "Send" (D2-11), and the hint beside Attach files keeps
+ * the drag-and-drop sentence the new-ticket form dropped, with the limits the
+ * client asked to see (C-23).
+ */
+describe('TicketDetailPage reply box', () => {
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+  })
+
+  it('sends with a button called Send', async () => {
+    reactiveRoute.params.id = '152'
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValueOnce(detail(152))
+    const page = open()
+    await flushPromises()
+
+    expect(page.get('form.reply button[type="submit"]').text()).toBe('Send')
+  })
+
+  it('says the box takes a dropped file, and gives both limits', async () => {
+    reactiveRoute.params.id = '152'
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValueOnce(detail(152))
+    const page = open()
+    await flushPromises()
+
+    expect(page.get('form.reply .attach__hint').text()).toBe(
+      'Drag and drop files here or click to attach. Up to 5 files, 10 MB each (PDF, PNG, JPG, DOCX)'
+    )
   })
 })

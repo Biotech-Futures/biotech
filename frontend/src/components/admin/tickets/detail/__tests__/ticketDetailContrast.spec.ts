@@ -65,8 +65,31 @@ function panelGround(theme: Theme): string {
   return resolveColour('var(--panel-ground)', locals('TicketDetailPanel.vue', '.ticket-panel', theme), theme)
 }
 
+// The message box's two sides (D2-16). TicketComposer.vue paints the ground
+// and the two composers inside it paint only their own controls: grey for the
+// reply, amber for the note, each with a dark rule laid over it in dark.
+type Side = 'reply' | 'note'
+
+function composerScope(side: Side, theme: Theme): Record<string, string> {
+  const css = style('TicketComposer.vue')
+  const layers = [block(css, '.composer')]
+  if (side === 'note') layers.push(block(css, '.composer--note'))
+  if (theme === 'dark') {
+    layers.push(block(css, ":root[data-theme='dark'] .composer"))
+    if (side === 'note') layers.push(block(css, ":root[data-theme='dark'] .composer--note"))
+  }
+  return Object.assign({}, ...layers)
+}
+
+function composerGround(side: Side, theme: Theme): string {
+  return resolveColour('var(--composer-ground)', composerScope(side, theme), theme)
+}
+
 function groundOf(name: string, scope: Record<string, string>, theme: Theme): string {
-  return name === '<panel>' ? panelGround(theme) : resolveColour(`var(${name})`, scope, theme)
+  if (name === '<panel>') return panelGround(theme)
+  if (name === '<reply side>') return composerGround('reply', theme)
+  if (name === '<note side>') return composerGround('note', theme)
+  return resolveColour(`var(${name})`, scope, theme)
 }
 
 function resolveColour(value: string, scope: Record<string, string>, theme: Theme): string {
@@ -96,8 +119,9 @@ const AA_TEXT = 4.5
 const AA_NON_TEXT = 3
 
 // Text and its grounds, per component. '<panel>' is the panel's own ground
-// (panelGround above); every other ground is a colour the component paints
-// itself: a bubble, the reply box, the note's amber, a field, a label.
+// (panelGround above), '<reply side>' and '<note side>' the message box's
+// (composerGround); every other ground is a colour the component paints
+// itself: a bubble, the note's amber, its solid label, a field, a button.
 const TEXT: { file: string; selector: string; ink: string[]; grounds: string[] }[] = [
   {
     file: 'TicketMessageTimeline.vue',
@@ -106,7 +130,7 @@ const TEXT: { file: string; selector: string; ink: string[]; grounds: string[] }
     grounds: ['<panel>', '--note-ground']
   },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--timeline-file'], grounds: ['--white'] },
-  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--charcoal'], grounds: ['--timeline-theirs'] },
+  { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--teal'], grounds: ['--timeline-theirs'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--timeline-ours-ink'], grounds: ['--timeline-ours'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--note-ink'], grounds: ['--note-ground'] },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', ink: ['--note-on-label'], grounds: ['--note-label'] },
@@ -114,11 +138,11 @@ const TEXT: { file: string; selector: string; ink: string[]; grounds: string[] }
     file: 'TicketReplyComposer.vue',
     selector: '.reply-box',
     ink: ['--reply-muted', '--reply-danger', '--reply-file'],
-    grounds: ['--reply-ground']
+    grounds: ['<reply side>']
   },
   { file: 'TicketReplyComposer.vue', selector: '.reply-box', ink: ['--reply-placeholder'], grounds: ['--white'] },
-  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-ink'], grounds: ['--note-ground'] },
-  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-on-button'], grounds: ['--note-button'] },
+  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-ink', '--note-muted'], grounds: ['<note side>'] },
+  { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--teal'], grounds: ['--note-control'] },
   { file: 'TicketNoteComposer.vue', selector: '.note-box', ink: ['--note-placeholder'], grounds: ['--white'] },
   { file: 'TicketTriageControls.vue', selector: '.triage', ink: ['--triage-muted'], grounds: ['<panel>'] },
   { file: 'TicketFacts.vue', selector: '.ticket-facts', ink: ['--facts-muted'], grounds: ['<panel>'] },
@@ -128,12 +152,13 @@ const TEXT: { file: string; selector: string; ink: string[]; grounds: string[] }
 
 // Lines that carry meaning without being text: the note's dashed wall, the
 // active tab's rule and focus ring, and the edges that say where a control
-// is (3:1 against what is around them).
+// is (3:1 against what is around them). The bar under the message box's open
+// tab has its own test below.
 const NON_TEXT: { file: string; selector: string; line: string; ground: string }[] = [
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', line: '--note-border', ground: '--note-ground' },
   { file: 'TicketMessageTimeline.vue', selector: '.agent-timeline', line: '--timeline-edge', ground: '<panel>' },
-  { file: 'TicketNoteComposer.vue', selector: '.note-box', line: '--note-border', ground: '--note-ground' },
-  { file: 'TicketReplyComposer.vue', selector: '.reply-box', line: '--reply-edge', ground: '--reply-ground' },
+  { file: 'TicketNoteComposer.vue', selector: '.note-box', line: '--note-edge', ground: '<note side>' },
+  { file: 'TicketReplyComposer.vue', selector: '.reply-box', line: '--reply-edge', ground: '<reply side>' },
   { file: 'TicketTriageControls.vue', selector: '.triage', line: '--triage-edge', ground: '<panel>' },
   { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', line: '--panel-accent', ground: '<panel>' },
   { file: 'TicketDetailPanel.vue', selector: '.ticket-panel', line: '--panel-edge', ground: '<panel>' }
@@ -190,21 +215,33 @@ describe('the detail panel clears AA in both themes', () => {
     expect(below).toEqual([])
   })
 
-  it('puts white text on the two solid buttons, never --white', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    for (const side of ['reply', 'note'] as const) {
+      it(`${theme}: the message box's ${side} side, its tab words and the bar under the open tab`, () => {
+        const scope = composerScope(side, theme)
+        const ground = composerGround(side, theme)
+        const colour = (name: string) => resolveColour(`var(${name})`, scope, theme)
+
+        expect(ratio(colour('--teal'), ground)).toBeGreaterThanOrEqual(AA_TEXT)
+        expect(ratio(colour('--composer-muted'), ground)).toBeGreaterThanOrEqual(AA_TEXT)
+        expect(ratio(colour('--composer-mark'), ground)).toBeGreaterThanOrEqual(AA_NON_TEXT)
+      })
+    }
+  }
+
+  it('puts white text on the solid send button, never --white', () => {
     // --white is a surface token and turns dark green in the dark theme.
     const send = block(style('TicketReplyComposer.vue'), '.reply-box__send')
-    const remove = block(style('TicketDetailPanel.vue'), '.ticket-panel__delete-button')
 
     expect(send.color).toBe('#fff')
     expect(ratio('#ffffff', send.background)).toBeGreaterThanOrEqual(AA_TEXT)
-    expect(remove.color).toBe('#fff')
-    expect(ratio('#ffffff', remove.background)).toBeGreaterThanOrEqual(AA_TEXT)
   })
 
   it('never paints with the three tokens that fail, outside a measured dark rule', () => {
     const files = [
       'TicketDetailPanel.vue',
       'TicketMessageTimeline.vue',
+      'TicketComposer.vue',
       'TicketReplyComposer.vue',
       'TicketNoteComposer.vue',
       'TicketTriageControls.vue',

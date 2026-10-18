@@ -32,7 +32,9 @@ export const pureAgent: SupportAccountFixture = {
   isSupport: true
 }
 
-// A mentor granted access on the roster: keeps their member pages, gains the queue.
+// A mentor with queue access (the server can still grant it outside the role,
+// as the roster page did before C-15 took it away): keeps their member pages,
+// gains the queue.
 export const mentorWithAccess: SupportAccountFixture = {
   id: 12,
   email: 'mentor@example.com',
@@ -45,7 +47,7 @@ export const mentorWithAccess: SupportAccountFixture = {
   isSupport: true
 }
 
-// Role support, but the SupportScope row is gone (revoked on the roster).
+// Role support, but the SupportScope row is gone (taken away by the server).
 export const supportWithoutAccess: SupportAccountFixture = {
   id: 13,
   email: 'revoked@example.com',

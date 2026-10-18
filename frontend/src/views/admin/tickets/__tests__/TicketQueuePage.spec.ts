@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 
-import { pureAgent, ticketAdmin } from '@/__tests__/supportAccountFixtures'
+import { pureAgent } from '@/__tests__/supportAccountFixtures'
 import { ApiError } from '@/utils/apiError'
 import type { QueueWalk } from '@/utils/ticketAgentAPI'
 import type { TicketQueue, TicketRow } from '@/utils/ticketAgentSchema'
@@ -77,14 +77,13 @@ const route = holder.route!
 const replaceMock = vi.mocked(holder.replace!)
 
 // The detail panel belongs to another owner and loads its own data. The
-// queue relies on its contract and nothing else (props ticketId and
-// canDelete; events close, changed, deleted), so the panel is stood in for by
-// a component declaring exactly that contract, and the tests read what the
-// queue hands it.
+// queue relies on its contract and nothing else (prop ticketId; events close
+// and changed), so the panel is stood in for by a component declaring
+// exactly that contract, and the tests read what the queue hands it.
 const PanelStub = defineComponent({
   name: 'TicketDetailPanel',
-  props: { ticketId: { type: Number, required: true }, canDelete: { type: Boolean, required: true } },
-  emits: ['close', 'changed', 'deleted'],
+  props: { ticketId: { type: Number, required: true } },
+  emits: ['close', 'changed'],
   setup(props) {
     return () => h('aside', { 'data-panel': String(props.ticketId) })
   }
@@ -926,19 +925,25 @@ describe('the address bar', () => {
 
 describe('the last activity column', () => {
   it('names the time zone it is printing', async () => {
-    // Rendered in the reader's own zone, so the same row is 03:37 pm in
-    // Sydney and 02:37 am in Sao Paulo. Agents read these times to each other
-    // and compare them against the overdue windows.
+    // Rendered in the reader's set zone, so the same row is 03:37 pm for an
+    // agent set to Sydney and 02:37 am for one set to Sao Paulo. Agents read
+    // these times to each other and compare them against the overdue windows.
     await mountPage()
 
     const cells = w().findAll('td')
     const lastActivity = cells[cells.length - 1]!.text()
 
-    // Built from the clock this machine is on rather than matched against a
-    // list of zone spellings. The short name is "UTC" here, "AEST" in Sydney,
-    // "GMT-3" in Sao Paulo and "GMT+5:30" in Kolkata, and a hand-written list
-    // of those turns the suite red on whichever machine it happens to miss.
-    const stamp = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' } as const
+    // Built with Intl rather than matched against a list of zone spellings.
+    // The short name is "UTC" for this agent, "AEST" in Sydney, "GMT-3" in
+    // Sao Paulo and "GMT+5:30" in Kolkata, and a hand-written list of those
+    // turns the suite red on whichever one it happens to miss.
+    const stamp = {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: pureAgent.timezone
+    } as const
     const withoutZone = new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', stamp)
     const withZone = new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', {
       ...stamp,
@@ -950,6 +955,28 @@ describe('the last activity column', () => {
     // in front of it, and there is something after it.
     expect(withZone.startsWith(withoutZone)).toBe(true)
     expect(lastActivity).not.toBe(withoutZone)
+  })
+
+  it("reads the agent's Profile timezone, not the computer's", async () => {
+    // Kolkata sits half an hour off every whole-hour zone, so a time read in
+    // the computer's zone (UTC in CI, Sydney on a laptop here) cannot match
+    // it by luck: only Kolkata puts ":30" on a row stamped on the hour.
+    await mountPage({ ...pureAgent, timezone: 'Asia/Kolkata' })
+
+    const cells = w().findAll('td')
+    const lastActivity = cells[cells.length - 1]!.text()
+
+    expect(lastActivity).toBe(
+      new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Kolkata',
+        timeZoneName: 'short'
+      })
+    )
+    expect(lastActivity).toContain(':30')
   })
 })
 
@@ -1592,7 +1619,7 @@ describe('opening a ticket', () => {
     await mountPage()
 
     const panel = w().findComponent(PanelStub)
-    expect(panel.props()).toEqual({ ticketId: 128, canDelete: false })
+    expect(panel.props()).toEqual({ ticketId: 128 })
   })
 
   it.each([['abc'], ['0'], ['-3'], ['1.5'], ['012'], ['1e3'], [' 12'], ['']])(
@@ -1612,30 +1639,6 @@ describe('opening a ticket', () => {
     await mountPage()
 
     expect(w().findComponent(PanelStub).exists()).toBe(false)
-  })
-
-  it('offers delete to an admin only', async () => {
-    route.query = { ticket: '128' }
-
-    await mountPage(ticketAdmin)
-
-    expect(w().findComponent(PanelStub).props('canDelete')).toBe(true)
-  })
-
-  // Deleting is gated on the server's AdminScope (IsAdminScoped), which the
-  // store carries as isTicketAdmin. The role name is a different question,
-  // Team 1's isAdmin getter, and the two can disagree: a role that says admin
-  // with the AdminScope row gone, or AdminScope granted to another role. The
-  // fixtures above agree on both, so they cannot tell the two apart.
-  it.each([
-    ['role admin, AdminScope gone', { ...ticketAdmin, isAdmin: false }, false],
-    ['role support, AdminScope granted', { ...pureAgent, isAdmin: true }, true]
-  ])('asks the server flag, not the role name: %s', async (_, user, canDelete) => {
-    route.query = { ticket: '128' }
-
-    await mountPage(user)
-
-    expect(w().findComponent(PanelStub).props('canDelete')).toBe(canDelete)
   })
 
   it('keeps the rest of the address when it opens a ticket', async () => {
@@ -1683,44 +1686,6 @@ describe('opening a ticket', () => {
 
     expect(lastAsk()).toMatchObject({ page: 2, walk: WALK })
     expect(summaryMock.mock.calls.length - summaryBefore).toBe(1)
-  })
-
-  it('closes, reloads and forgets a ticket deleted from the panel', async () => {
-    // The bulk bar counts the selection, so leaving the id there makes it
-    // offer to assign a ticket that no longer exists.
-    firstPageItems = [ROW, { ...ROW, id: 2, ticketNumber: 'SUP-2026-00002' }]
-    await mountPage(ticketAdmin)
-    await selectRow('SUP-2026-00001')
-    await selectRow('SUP-2026-00002')
-    await click('Open SUP-2026-00001')
-    const queueBefore = queueMock.mock.calls.length
-    const summaryBefore = summaryMock.mock.calls.length
-
-    w().findComponent(PanelStub).vm.$emit('deleted', 1)
-    await flushPromises()
-
-    expect(w().findComponent(PanelStub).exists()).toBe(false)
-    expect(route.query).toEqual({})
-    expect(w().get('.bulk-actions-bar__count').text()).toBe('1 ticket selected')
-    expect(queueMock.mock.calls.length - queueBefore).toBe(1)
-    expect(summaryMock.mock.calls.length - summaryBefore).toBe(1)
-  })
-
-  it('leaves another ticket open when a delete from an earlier panel lands late', async () => {
-    // Back took ?ticket=1 away while its delete was in flight, and the agent
-    // opened ticket 2 before the answer came back.
-    firstPageItems = [ROW, { ...ROW, id: 2, ticketNumber: 'SUP-2026-00002' }]
-    await mountPage(ticketAdmin)
-    route.query = { ticket: '2' }
-    await flushPromises()
-    const queueBefore = queueMock.mock.calls.length
-
-    w().findComponent(PanelStub).vm.$emit('deleted', 1)
-    await flushPromises()
-
-    expect(route.query).toEqual({ ticket: '2' })
-    expect(w().findComponent(PanelStub).exists()).toBe(true)
-    expect(queueMock.mock.calls.length - queueBefore).toBe(1)
   })
 })
 

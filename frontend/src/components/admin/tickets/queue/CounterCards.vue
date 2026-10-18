@@ -130,7 +130,7 @@ const CARDS: {
   --queue-card-muted: #5a6268;
   --queue-card-alert: #a71d2a;
 
-  padding: 1rem 1.125rem;
+  padding: 1rem 1.125rem 0.875rem;
   border: 1px solid #e3e7e5;
   border-radius: 12px;
   background: var(--white);
@@ -179,16 +179,16 @@ const CARDS: {
 }
 
 /* Colour and background both set, so no global hover rule can combine into
-   an unreadable pair. --charcoal on --white is 11.07:1 light, 14.37:1 dark. */
+   an unreadable pair. --teal on --white is 11.07:1 light, 14.37:1 dark. */
 .queue-card__label--button:hover {
   background: transparent;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: underline;
 }
 
 .queue-card__value {
-  margin: 0.15rem 0 0;
-  color: var(--charcoal);
+  margin: 0.2rem 0 0;
+  color: var(--teal);
   font-size: 1.75rem;
   font-weight: 600;
   line-height: 1.2;
@@ -199,7 +199,7 @@ const CARDS: {
 }
 
 .queue-card__hint {
-  margin: 0.25rem 0 0;
+  margin: 0.15rem 0 0;
   color: var(--queue-card-muted);
   font-size: 0.8rem;
   font-weight: 400;

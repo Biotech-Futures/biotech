@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
-import { formatLongDateTimeAU } from '@/utils/date'
+import { formatLongDateTimeAU } from '@/utils/ticketDates'
 import {
   attachmentErrorMessage,
   downloadTicketAttachment,
@@ -170,7 +170,7 @@ function rowClass(message: TicketMessage) {
   display: flex;
   flex-direction: column;
   /* From the foot of one message to the name over the next. */
-  gap: 0.875rem;
+  gap: 1.05rem;
 }
 
 :root[data-theme="dark"] .timeline {
@@ -249,6 +249,7 @@ function rowClass(message: TicketMessage) {
   margin: 0 0 0.25rem 0;
   padding: 0 0.4rem;
   font-size: 0.78rem;
+  line-height: 1.25;
   color: var(--ticket-muted);
 }
 
@@ -258,7 +259,7 @@ function rowClass(message: TicketMessage) {
 
 .timeline__author {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .timeline__body {
@@ -276,6 +277,7 @@ function rowClass(message: TicketMessage) {
 .timeline__row--system {
   align-items: center;
   gap: 1rem;
+  padding: 1px 0 0.25rem;
 }
 
 .timeline__row--system::before,

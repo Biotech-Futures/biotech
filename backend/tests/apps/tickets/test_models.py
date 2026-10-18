@@ -158,7 +158,7 @@ class DeletingAStudentDoesNotOrphanWhatTheyWroteTests(TestCase):
     def setUp(self):
         from apps.groups.models import Countries
 
-        self.country = Countries.objects.create(country_name="Australia")
+        self.country = Countries.objects.get_or_create(country_name="Australia")[0]
         self.student = User.objects.create_user(
             email="mia@example.com", password="pass1234",
             first_name="Mia", last_name="Thompson", country=self.country,

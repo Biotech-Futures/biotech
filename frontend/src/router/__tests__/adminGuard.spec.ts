@@ -171,7 +171,6 @@ describe('support ticket access in the router guard', () => {
     ['pure support agent', '/admin/tickets', '/admin/tickets', pureAgent],
     ['pure support agent', '/admin/tickets/audit', '/admin/tickets/audit', pureAgent],
     ['pure support agent', '/admin/tickets/analytics', '/admin/tickets/analytics', pureAgent],
-    ['pure support agent', '/admin/support-agents', '/admin/tickets', pureAgent],
     ['pure support agent', '/admin/users', '/admin/tickets', pureAgent],
     ['pure support agent', '/dashboard', '/admin/tickets', pureAgent],
     ['pure support agent', '/groups', '/admin/tickets', pureAgent],
@@ -184,14 +183,12 @@ describe('support ticket access in the router guard', () => {
 
     ['mentor granted access', '/admin/tickets', '/admin/tickets', mentorWithAccess],
     ['mentor granted access', '/admin/tickets/audit', '/admin/tickets/audit', mentorWithAccess],
-    ['mentor granted access', '/admin/support-agents', '/dashboard', mentorWithAccess],
     ['mentor granted access', '/dashboard', '/dashboard', mentorWithAccess],
     ['mentor granted access', '/groups', '/groups/7', mentorWithAccess],
     ['mentor granted access', '/profile', '/profile', mentorWithAccess],
 
     ['role-support account without access', '/admin/tickets', '/support-access', supportWithoutAccess],
     ['role-support account without access', '/admin/tickets/audit', '/support-access', supportWithoutAccess],
-    ['role-support account without access', '/admin/support-agents', '/support-access', supportWithoutAccess],
     ['role-support account without access', '/dashboard', '/support-access', supportWithoutAccess],
     ['role-support account without access', '/groups', '/support-access', supportWithoutAccess],
     ['role-support account without access', '/profile', '/profile', supportWithoutAccess],
@@ -199,14 +196,12 @@ describe('support ticket access in the router guard', () => {
 
     ['admin', '/admin/tickets', '/admin/tickets', ticketAdmin],
     ['admin', '/admin/tickets/audit', '/admin/tickets/audit', ticketAdmin],
-    ['admin', '/admin/support-agents', '/admin/support-agents', ticketAdmin],
     ['admin', '/dashboard', '/dashboard', ticketAdmin],
     ['admin', '/groups', '/groups/7', ticketAdmin],
     ['admin', '/profile', '/profile', ticketAdmin],
 
     ['student', '/admin/tickets', '/dashboard', student],
     ['student', '/admin/tickets/audit', '/dashboard', student],
-    ['student', '/admin/support-agents', '/dashboard', student],
     ['student', '/dashboard', '/dashboard', student],
     ['student', '/groups', '/groups/7', student],
     ['student', '/profile', '/profile', student]

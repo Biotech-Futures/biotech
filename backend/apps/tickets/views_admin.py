@@ -11,11 +11,12 @@ admin can work the queue. The exception is granting and revoking the support
 role itself, which only admins may do.
 """
 
+import re
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, Q
-import re
 from datetime import datetime, time, timedelta, timezone as dt_timezone
 
 from django.http import HttpResponse
@@ -30,6 +31,7 @@ from rest_framework.views import APIView
 from apps.admin.permissions import IsAdminScoped
 from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
+from apps.common import email_jobs
 from apps.common.rbac import user_has_role
 from apps.common.role_names import ROLE_STUDENT
 from apps.common.storage import serve_managed_file
@@ -1028,6 +1030,7 @@ class TicketSupportMessageView(APIView):
         message_type = serializer.validated_data["messageType"]
         body = serializer.validated_data["body"]
         move_to_pending = serializer.validated_data["moveToPending"]
+        next_status = serializer.validated_data.get("nextStatus")
         files = request.FILES.getlist("files")
 
         try:
@@ -1036,6 +1039,11 @@ class TicketSupportMessageView(APIView):
                     lifecycle.add_internal_note(
                         ticket=ticket, actor=request.user, body=body,
                         attachments=attachments,
+                    )
+                elif next_status is not None:
+                    lifecycle.add_support_reply_with_status(
+                        ticket=ticket, actor=request.user, body=body,
+                        attachments=attachments, next_status=next_status,
                     )
                 else:
                     lifecycle.add_support_reply(
@@ -1053,6 +1061,30 @@ class TicketSupportMessageView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class TicketDigestSendView(APIView):
+    """The morning count of open enquiries, called by a scheduler (C-18).
+
+    .github/workflows/ticket-digest.yml calls this once a day with the email
+    jobs' shared token, in the same header as the platform's other scheduled
+    emails (apps.common.email_jobs), so it needs nothing configured that they
+    do not already have. The token is the whole of its access control: with
+    none set the endpoint answers 503 rather than standing open. What it
+    sends, and when it sends nothing, is emails.send_open_tickets_digest's
+    business.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        refusal = email_jobs.refused(request)
+        if refusal:
+            return refusal
+        from .services import emails
+
+        return Response(emails.send_open_tickets_digest(), status=status.HTTP_200_OK)
 
 
 class TicketBulkAssignView(APIView):

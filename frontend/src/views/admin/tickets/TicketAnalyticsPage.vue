@@ -6,10 +6,10 @@
            section, this names the tab inside it. The card titles below are
            h3 and the chart titles h4, one level under each. -->
       <h2 class="ticket-analytics__title">Ticket analytics</h2>
-      <p class="ticket-analytics__subtitle">
-        Dates are read as UTC, the same rule the ticket numbering uses. A window that starts on
-        1 March opens at 11am Sydney time.
-      </p>
+      <!-- The designer's shorter wording (second round, D2-19). The rule is
+           the ticket numbering's: a window that starts on 1 March opens at
+           11am Sydney time. -->
+      <p class="ticket-analytics__subtitle">All dates and times are in UTC.</p>
     </header>
 
     <!-- Filters in one row above the charts. Held on the page, not on the
@@ -67,10 +67,17 @@
     <p v-if="loading" class="ticket-analytics__loading">Loading…</p>
 
     <div v-if="data" class="ticket-analytics__grid">
-      <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-demand">
-        <h3 id="ticket-analytics-demand" class="ticket-analytics__card-title">
-          Demand · what help is being requested?
-        </h3>
+      <section
+        class="ticket-analytics__card"
+        aria-labelledby="ticket-analytics-demand"
+        aria-describedby="ticket-analytics-demand-question"
+      >
+        <header>
+          <h3 id="ticket-analytics-demand" class="ticket-analytics__card-title">Demand</h3>
+          <p id="ticket-analytics-demand-question" class="ticket-analytics__card-question">
+            What help is being requested?
+          </p>
+        </header>
         <StatTile
           label="Tickets raised"
           :value="String(data.demand.volume)"
@@ -86,10 +93,17 @@
         </div>
       </section>
 
-      <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-flow">
-        <h3 id="ticket-analytics-flow" class="ticket-analytics__card-title">
-          Flow · where does work slow down?
-        </h3>
+      <section
+        class="ticket-analytics__card"
+        aria-labelledby="ticket-analytics-flow"
+        aria-describedby="ticket-analytics-flow-question"
+      >
+        <header>
+          <h3 id="ticket-analytics-flow" class="ticket-analytics__card-title">Flow</h3>
+          <p id="ticket-analytics-flow-question" class="ticket-analytics__card-question">
+            Where does work slow down?
+          </p>
+        </header>
         <div class="ticket-analytics__tiles">
           <StatTile
             label="Unassigned"
@@ -114,10 +128,17 @@
         </div>
       </section>
 
-      <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-service">
-        <h3 id="ticket-analytics-service" class="ticket-analytics__card-title">
-          Service · how quickly do we respond?
-        </h3>
+      <section
+        class="ticket-analytics__card"
+        aria-labelledby="ticket-analytics-service"
+        aria-describedby="ticket-analytics-service-question"
+      >
+        <header>
+          <h3 id="ticket-analytics-service" class="ticket-analytics__card-title">Service</h3>
+          <p id="ticket-analytics-service-question" class="ticket-analytics__card-question">
+            How quickly do we respond?
+          </p>
+        </header>
         <div class="ticket-analytics__tiles">
           <StatTile
             label="First reply"
@@ -145,10 +166,17 @@
         </div>
       </section>
 
-      <section class="ticket-analytics__card" aria-labelledby="ticket-analytics-quality">
-        <h3 id="ticket-analytics-quality" class="ticket-analytics__card-title">
-          Quality · did the support help?
-        </h3>
+      <section
+        class="ticket-analytics__card"
+        aria-labelledby="ticket-analytics-quality"
+        aria-describedby="ticket-analytics-quality-question"
+      >
+        <header>
+          <h3 id="ticket-analytics-quality" class="ticket-analytics__card-title">Quality</h3>
+          <p id="ticket-analytics-quality-question" class="ticket-analytics__card-question">
+            Did the support help?
+          </p>
+        </header>
         <div class="ticket-analytics__tiles">
           <StatTile
             label="Resolved"
@@ -410,7 +438,7 @@ const resolvedShare = computed(() => {
 }
 
 .ticket-analytics__label {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -424,7 +452,7 @@ const resolvedShare = computed(() => {
   border: 1px solid var(--analytics-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.9rem;
 }
@@ -492,10 +520,22 @@ const resolvedShare = computed(() => {
   box-shadow: var(--analytics-card-shadow);
 }
 
+/* Two levels since the second redesign round (D2-19), after Zendesk Explore
+   and Freshdesk: the group's name, then the client's p52 question for it in
+   the muted grey (#5a6268 on the white card 6.21:1, dark #a3b3ae on #1d2826
+   6.95:1). The breakdown card has a name and no question. */
 .ticket-analytics__card-title {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.ticket-analytics__card-question {
+  margin: 0.2rem 0 0 0;
+  color: var(--analytics-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
 
 .ticket-analytics__chart-title {

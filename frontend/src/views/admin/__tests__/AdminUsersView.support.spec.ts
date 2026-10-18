@@ -102,8 +102,9 @@ async function mountAt(path: string, props: Record<string, string>) {
 describe('force delete names support tickets (PE-03)', () => {
   it('in the bulk delete dialog', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
-    await flushPromises()
+    // Through a router: the page reads its address as it mounts (?role=, and
+    // main's ?search=, ?status= and ?inGroup=).
+    wrapper = await mountAt('/admin/users', { title: 'Users', noun: 'user' })
 
     await wrapper.find<HTMLInputElement>('input[type="checkbox"]').setValue(true)
     await flushPromises()
@@ -125,8 +126,9 @@ describe('force delete names support tickets (PE-03)', () => {
 
   it('in the single delete dialog opened from the editor', async () => {
     vi.stubGlobal('fetch', fetchMock())
-    wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
-    await flushPromises()
+    // Through a router: the page reads its address as it mounts (?role=, and
+    // main's ?search=, ?status= and ?inGroup=).
+    wrapper = await mountAt('/admin/users', { title: 'Users', noun: 'user' })
 
     await wrapper.findAll('button').find((b) => b.text().trim() === 'Edit')!.trigger('click')
     await flushPromises()

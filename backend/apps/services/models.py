@@ -221,6 +221,18 @@ class PasswordResetToken(models.Model):
         )
 
     @classmethod
+    def peek(cls, token):
+        """The usable row for ``token`` WITHOUT consuming it, else None.
+
+        Lets the caller validate the new password before the token is spent, so
+        a rejected password doesn't burn the link. ``consume`` still does the
+        atomic claim, so two concurrent confirms can't both succeed.
+        """
+        return (cls.objects
+                .filter(token=token, used=False, expires_at__gt=timezone.now())
+                .first())
+
+    @classmethod
     def consume(cls, token):
         """Atomic lookup + mark-used. Returns row on success, None otherwise."""
         from django.db import transaction
@@ -291,6 +303,9 @@ class SystemEmailSettings(models.Model):
     SINGLETON_PK = 1
 
     emails_enabled = models.BooleanField(default=True)
+    # When an admin last looked at Failed Sending Emails: the failures since
+    # are the unseen count on its button. Set without touching updated_at.
+    failures_seen_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -318,3 +333,103 @@ class SystemEmailSettings(models.Model):
         """Return the settings row, creating it with defaults if missing."""
         obj, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
         return obj
+
+class EmailBounce(models.Model):
+    """Someone one of our emails bounced back from, as ``check_bounced_emails``
+    found in a sending mailbox: listed under Bounced emails on the System
+    Emails Log, with when it was found."""
+
+    # The email that bounced, e.g. "finalist_notification".
+    key = models.SlugField(max_length=64)
+    address = models.EmailField()
+    # As the Log lists them: "amy@x.com (BTF07, Amy Chen)".
+    who = models.CharField(max_length=255)
+    # In plain words: "no such mailbox", "mailbox full".
+    reason = models.CharField(max_length=64)
+    # When the check found it: every bounce one check finds shares it.
+    detected_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "email_bounce"
+        indexes = [models.Index(fields=["key", "detected_at"])]
+
+    def __str__(self):
+        return f"EmailBounce({self.key})"
+
+
+class SystemEmailLog(models.Model):
+    """When one system email last went out, who sent it, and its latest sends
+    that couldn't reach someone, for the Log on System Emails. One row per
+    email, made on its first send (see ``email_log``). The bulk emails sent
+    from Management keep their own run (``management.EmailSendRun``)."""
+
+    # Matches a key in apps.services.email_registry, e.g. "password_reset".
+    key = models.SlugField(max_length=64, unique=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    # Blank when nobody signed in sent it, e.g. a reminder or a login code.
+    last_sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    # Newest first, the last few only: {"at": ISO time, "missed":
+    # [{"address": "amy@x.com", "reason": "address refused"}]}.
+    missed = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = 'system_email_log'
+        verbose_name = "System Email Log"
+        verbose_name_plural = "System Email Logs"
+
+    def __str__(self):
+        return f"SystemEmailLog({self.key})"
+
+
+class EmailDeliveryMetric(models.Model):
+    """One aggregate outcome from a real email send operation.
+
+    This table intentionally stores counts rather than recipient addresses. It
+    is the common analytics source for system emails, announcement batches,
+    chat digests, and management bulk sends, regardless of which mailbox was
+    selected for the message.
+    """
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        PARTIAL = "partial", "Partial"
+        FAILED = "failed", "Failed"
+
+    email_type = models.SlugField(max_length=64)
+    source_mailbox = models.EmailField()
+    attempted_count = models.PositiveIntegerField(default=0)
+    delivered_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "email_delivery_metric"
+        ordering = ["-started_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["source_mailbox", "started_at"],
+                name="email_metric_mail_started_idx",
+            ),
+            models.Index(
+                fields=["email_type", "started_at"],
+                name="email_metric_type_started_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email_type}: {self.source_mailbox} ({self.status})"

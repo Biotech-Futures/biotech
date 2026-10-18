@@ -50,7 +50,7 @@ defineProps<{ ticket: TicketDetail }>()
   gap: 0.45rem 1rem;
   margin: 0;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .ticket-facts {

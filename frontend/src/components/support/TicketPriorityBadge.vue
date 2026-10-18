@@ -29,16 +29,17 @@ defineProps<{ priority: TicketPriority }>()
    (October 2026), the same on every ticket screen, and it clears AA on every
    ground a ticket puts this badge on. Measured:
 
-     light  #5a6268 on #ffffff  6.21:1   on #f8f9fa  5.89:1   on #fcede2  5.43:1
+     light  #5a6268 on #ffffff  6.21:1   on #f8f9fa  5.89:1   on #e8f5ee  5.54:1
      dark   #a3b3ae on #0f1715  8.34:1   on #1d2826  6.95:1
 
    The corners are square, not round: that is how his design tells the
    priority apart from the round status pill next to it. The outline is his
    control-border grey, #84938f (dark #70827d). It only frames the words,
    which carry the meaning, and still clears 3:1 on white (3.21:1) and on the
-   dark page (4.49:1). On a queue row under the pointer, peach in light, it
-   is 2.80:1; that is left alone, because a frame that carries nothing is not
-   held to the 3:1 a control's edge is. */
+   dark page (4.49:1). On a queue row under the pointer or selected, the
+   pale green #e8f5ee since the second redesign round, it is 2.86:1; that is
+   left alone, because a frame that carries nothing is not held to the 3:1 a
+   control's edge is. */
 .priority-badge {
   --ticket-muted: #5a6268;
   --badge-edge: #84938f;

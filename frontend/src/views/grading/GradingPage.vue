@@ -1,19 +1,17 @@
 <template>
   <div class="content-area grading" :class="{ 'grading--marking': route.meta.hideSidebar === true }">
-    <header class="grading__hero">
-      <div>
-        <h1 class="grading__title">Grading</h1>
-        <p class="grading__subtitle">Mark submissions by component or group and select finalists.</p>
-      </div>
+    <header class="page-header">
+      <h1 class="page-title">Grading</h1>
+      <p class="page-subtitle">Mark submissions by component or group and select finalists.</p>
     </header>
 
-    <nav class="grading__tabs" aria-label="Grading sections">
+    <nav class="tab-bar tab-bar--main" aria-label="Grading sections">
       <RouterLink
         v-for="tab in tabs"
         :key="tab.to"
         :to="tab.to"
-        class="grading__tab"
-        :class="{ 'grading__tab--active': isTabActive(tab) }"
+        class="tab-pill"
+        :class="{ active: isTabActive(tab) }"
       >
         <i :class="['fas', tab.icon]" aria-hidden="true"></i>
         <span>{{ tab.label }}</span>
@@ -65,63 +63,5 @@ const isTabActive = (tab: GradingTab) => {
    overhang is cut off rather than giving the page a sideways scrollbar. */
 .grading--marking {
   overflow-x: hidden;
-}
-
-.grading__hero {
-  margin-bottom: 1.25rem;
-}
-
-.grading__title {
-  margin-bottom: 0.25rem;
-}
-
-.grading__subtitle {
-  color: var(--text-muted);
-  margin: 0;
-}
-
-/* Segmented pill switcher — same design as the component switcher on the
-   tables below (and the Events page view tabs). */
-.grading__tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1.5rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.grading__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  text-decoration: none;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-/* Hover states set background AND color explicitly so no global rule can
-   ever combine into green-on-green (invisible text). */
-.grading__tab:hover:not(.grading__tab--active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.grading__tab--active,
-.grading__tab--active:hover {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
 }
 </style>

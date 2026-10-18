@@ -134,17 +134,15 @@
       @page-size-change="q.setPageSize"
     />
 
-    <!-- The panel loads its own ticket and its own roster (fresh on every
-         open, so a grant or revoke on the roster is never stale there). The
-         queue only says which ticket, whether this person may delete, and
-         reloads when the panel reports a write. -->
+    <!-- The panel loads its own ticket and its own list of assignees (fresh
+         on every open, so a change of who holds the support role is never
+         stale there). The queue only says which ticket, and reloads when the
+         panel reports a write. -->
     <TicketDetailPanel
       v-if="openTicketId !== null"
       :ticket-id="openTicketId"
-      :can-delete="auth.isTicketAdmin"
       @close="onPanelClose"
       @changed="q.refresh"
-      @deleted="onDeleted"
     />
   </div>
 </template>
@@ -162,12 +160,10 @@ import QueueTable from '@/components/admin/tickets/queue/QueueTable.vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
 import { ticketIdFromQuery } from '@/components/admin/tickets/queue/queueRules'
 import { describeFailure, useTicketQueue } from '@/composables/admin/useTicketQueue'
-import { useAuthStore } from '@/stores/auth'
 import type { TicketFilters } from '@/utils/ticketAgentSchema'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 
 // Filters, page and page size are not in the address bar: reloading the page
 // returns to page one, ten rows, no filters, as the React queue did. A cursor
@@ -208,23 +204,6 @@ function closeTicket() {
 // its own hand-back has happened or has not.
 async function onPanelClose() {
   await closeTicket()
-  await nextTick()
-  catchDroppedFocus()
-}
-
-// A delete can finish after the panel that started it is gone: Back takes
-// `?ticket=` away while the request is still in flight, and the agent may have
-// opened another ticket by the time it lands. Closing unconditionally would
-// shut that other ticket's panel, so only the ticket that was deleted closes.
-// The row is forgotten and the queue reloaded either way.
-//
-// Here the panel hands focus back while the deleted ticket's row is still on
-// screen, and the refresh then removes that row, button and all. So the
-// catch waits for the refresh.
-async function onDeleted(id: number) {
-  q.forgetTicket(id)
-  if (openTicketId.value === id) void closeTicket()
-  await q.refresh()
   await nextTick()
   catchDroppedFocus()
 }

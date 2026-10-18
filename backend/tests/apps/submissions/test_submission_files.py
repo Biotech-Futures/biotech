@@ -1,4 +1,5 @@
 """Tests for the poster, report and prototype attachment slots."""
+import tempfile
 from datetime import timedelta
 
 from django.conf import settings
@@ -14,7 +15,7 @@ from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.submissions.storage import submission_file_service
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import confirm_checklist, install_question_set
 from rest_framework.test import APIClient
 
 
@@ -31,6 +32,13 @@ def _pdf_upload(name="poster.pdf", content=None):
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
 class SubmissionFileTests(TestCase):
     def setUp(self):
+        # Files are stored under fixed names; keep each test's in a throwaway folder.
+        # A download a test leaves open can't be deleted on Windows; skip it.
+        media = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(media.cleanup)
+        setting = override_settings(MEDIA_ROOT=media.name)
+        setting.enable()
+        self.addCleanup(setting.disable)
         reset_managed_storage_caches()
         self.addCleanup(reset_managed_storage_caches)
 
@@ -79,6 +87,36 @@ class SubmissionFileTests(TestCase):
         self.assertFalse(submission_file_service("report").exists(stored["storage_key"]))
         self.assertFalse(submission_file_service("prototype").exists(stored["storage_key"]))
 
+    def test_files_are_stored_named_for_the_year_group_and_slot(self):
+        uploads = {
+            "poster": _pdf_upload("My Poster.pdf"),
+            "report": _pdf_upload("final report.pdf"),
+            "prototype": SimpleUploadedFile(
+                "model.stl", b"solid teapot\nendsolid\n", content_type="application/octet-stream"
+            ),
+        }
+        for slot, upload in uploads.items():
+            self.assertEqual(self._upload(slot, upload).status_code, 200, slot)
+        year = Submission.objects.get(group=self.group).cohort
+
+        self.assertEqual(self._stored("poster")["storage_key"], f"{year}_BTF-FILES_Poster.pdf")
+        self.assertEqual(self._stored("report")["storage_key"], f"{year}_BTF-FILES_Report.pdf")
+        self.assertEqual(self._stored("prototype")["storage_key"], f"{year}_BTF-FILES_Prototype.stl")
+        # Downloads keep the team's own name.
+        self.assertEqual(self._stored("poster")["name"], "my-poster.pdf")
+
+    def test_a_reupload_while_the_old_file_is_kept_gets_a_random_ending(self):
+        self._upload("poster", _pdf_upload())
+        first = self._stored("poster")["storage_key"]
+
+        self._upload("poster", _pdf_upload("poster-v2.pdf"))
+        second = self._stored("poster")["storage_key"]
+
+        # The first still had the name when the second was saved; nothing is overwritten.
+        self.assertRegex(second, rf"^{first[:-4]}_[A-Za-z0-9]{{7}}\.pdf$")
+        self.assertTrue(submission_file_service("poster").exists(second))
+        self.assertFalse(submission_file_service("poster").exists(first))
+
     def test_prototype_accepts_a_non_pdf(self):
         upload = SimpleUploadedFile(
             "model.stl", b"solid teapot\nendsolid\n", content_type="application/octet-stream"
@@ -90,8 +128,18 @@ class SubmissionFileTests(TestCase):
 
     def test_non_pdf_rejected_for_poster(self):
         upload = SimpleUploadedFile("notes.txt", b"just text", content_type="text/plain")
-        self.assertEqual(self._upload("poster", upload).status_code, 400)
+        response = self._upload("poster", upload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Your poster must be a PDF. Please export it as a PDF and try again.", str(response.data))
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
+
+    def test_a_disallowed_name_inside_a_pdf_is_refused_plainly(self):
+        upload = SimpleUploadedFile("poster.exe.pdf", b"%PDF-1.4 tiny", content_type="application/pdf")
+        response = self._upload("poster", upload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("This file can't be accepted. Please upload your poster as a PDF.", str(response.data))
 
     def test_file_renamed_to_pdf_is_rejected(self):
         upload = SimpleUploadedFile(
@@ -100,6 +148,7 @@ class SubmissionFileTests(TestCase):
         response = self._upload("poster", upload)
 
         self.assertEqual(response.status_code, 400)
+        self.assertIn("This file is named as a PDF but isn't one.", str(response.data))
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
 
     def test_executable_rejected_for_prototype(self):
@@ -242,6 +291,7 @@ class SubmissionFileTests(TestCase):
             for question in SubmissionQuestion.active().filter(is_required=True)
         }
         submission.save(update_fields=["project_title", "answers"])
+        confirm_checklist(self.group)
 
     def test_can_submit_once_a_poster_is_attached(self):
         self._upload("poster", _pdf_upload())

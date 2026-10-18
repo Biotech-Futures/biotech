@@ -199,7 +199,7 @@ async function download(file: TicketAttachment) {
 
 .agent-timeline__row {
   display: flex;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .agent-timeline__row--support {
@@ -294,7 +294,7 @@ async function download(file: TicketAttachment) {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.1rem 0.4rem;
-  margin: 0 0 0.25rem;
+  margin: 0 0 1px;
   padding: 0 0.4rem;
   font-size: 0.78rem;
   color: var(--timeline-muted);
@@ -306,7 +306,7 @@ async function download(file: TicketAttachment) {
 
 .agent-timeline__author {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .agent-timeline__wall {

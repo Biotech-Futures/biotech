@@ -1,0 +1,57 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: {{ HEADLINE }}{% endblock %}
+
+{% block preheader %}{{ HEADLINE }}. Here is where the support queue stands this morning.{% endblock %}
+
+{% block content %}
+{% comment %}
+E5, to the support inbox every morning while anything is open (C-18), in the
+designer's M-28: a row a status in one grey box, the count on the right in
+the email green, and the overdue count in red because it is the one that
+needs somebody. Measured on the #f4f7f5 box: labels #1a2e23 13.34:1, hints
+#52645a 5.85:1, counts #307054 5.45:1, overdue #a71d2a 6.83:1.
+{% endcomment %}
+              <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5;">
+                Hi support team,
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                {{ HEADLINE }}
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Here is where the support queue stands this morning, {{ TODAY }}.
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                We send this summary every morning while enquiries are open.
+              </p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
+{% for row in ROWS %}
+                <tr>
+                  <td style="padding:9px 18px;{% if not forloop.first %} border-top:1px solid #d8e1dc;{% endif %}">
+                    <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.2; font-weight:700;">{{ row.label }}</p>
+                    <p style="margin:0; color:#52645a; font-size:13px; line-height:1.4;">{{ row.hint }}</p>
+                  </td>
+                  <td align="right" style="padding:9px 18px; color:#307054; font-size:22px; line-height:1.2; font-weight:700; white-space:nowrap;{% if not forloop.first %} border-top:1px solid #d8e1dc;{% endif %}">{{ row.count }}</td>
+                </tr>
+{% endfor %}
+                <tr>
+                  <td style="padding:9px 18px; border-top:1px solid #d8e1dc;">
+                    <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.2; font-weight:700;">Of these, overdue</p>
+                    <p style="margin:0; color:#52645a; font-size:13px; line-height:1.4;">Longer than its priority allows</p>
+                  </td>
+                  <td align="right" style="padding:9px 18px; color:#a71d2a; font-size:22px; line-height:1.2; font-weight:700; white-space:nowrap; border-top:1px solid #d8e1dc;">{{ OVERDUE }}</td>
+                </tr>
+              </table>
+
+{% include "emails/_ticket_button.html" with CTA_LABEL="Open the support queue" %}
+
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                This is an automatic message from {{ BRAND_CONNECT }}.
+              </p>
+{% endblock %}
+
+{% block footer_note %}{% include "emails/_ticket_footer_note.html" %}{% endblock %}

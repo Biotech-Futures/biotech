@@ -93,7 +93,7 @@ class CreateTicketTests(LifecycleTestCase):
         # quietly emptied out for every new ticket.
         from apps.groups.models import Countries
 
-        country = Countries.objects.create(country_name="Australia")
+        country = Countries.objects.get_or_create(country_name="Australia")[0]
         traveller = User.objects.create_user(
             email="lena@example.com", password="pass1234",
             first_name="Lena", last_name="Okafor", country=country,

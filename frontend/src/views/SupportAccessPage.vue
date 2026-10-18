@@ -67,7 +67,7 @@ onMounted(async () => {
 .support-access__text {
   margin: 0;
   max-width: 420px;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.6;
 }
 

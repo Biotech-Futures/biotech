@@ -53,7 +53,7 @@ const PEOPLE = {
 const detail = (over: Record<string, unknown> = {}) => ({
   director_1_name: 'Prof. Alice Adams',
   director_1_position: 'Chair',
-  director_1_signature: '/media/grading/sig1.png',
+  director_1_signature: 'sig1.png',
   director_2_name: '',
   director_2_position: '',
   director_2_signature: null,

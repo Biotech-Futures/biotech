@@ -14,6 +14,7 @@ export interface LandingAuth {
   isAdmin: boolean
   isSupportOnly: boolean
   canWorkTickets: boolean
+  isSupervisor: boolean
 }
 
 export const SET_PASSWORD_PATH = '/auth/set-password'
@@ -21,6 +22,7 @@ export const ADMIN_LANDING_PATH = '/admin'
 export const TICKET_QUEUE_PATH = '/admin/tickets'
 export const SUPPORT_ACCESS_PATH = '/support-access'
 export const MEMBER_LANDING_PATH = '/dashboard'
+export const SUPERVISOR_LANDING_PATH = '/profile'
 
 export function landingPath(auth: LandingAuth): string {
   if (auth.mustChangePassword) return SET_PASSWORD_PATH
@@ -33,5 +35,8 @@ export function landingPath(auth: LandingAuth): string {
   if (auth.isSupportOnly) {
     return auth.canWorkTickets ? TICKET_QUEUE_PATH : SUPPORT_ACCESS_PATH
   }
+  // A supervisor starts on their own profile: the member pages stay hidden
+  // from them until Management > Supervisor Visibility shows them.
+  if (auth.isSupervisor) return SUPERVISOR_LANDING_PATH
   return MEMBER_LANDING_PATH
 }

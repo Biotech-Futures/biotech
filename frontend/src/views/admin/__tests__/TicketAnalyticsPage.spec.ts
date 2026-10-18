@@ -133,13 +133,25 @@ describe('TicketAnalyticsPage', () => {
     // wall of numbers that answers nothing in particular.
     // h3: one level under the page's own h2 title, which sits under the
     // section shell's h1.
+    // Two levels since the second redesign round (D2-19): the name is the
+    // heading, the question the line under it, and the card says both.
     expect(wrapper!.findAll('h3').map((h3) => h3.text())).toEqual([
-      'Demand · what help is being requested?',
-      'Flow · where does work slow down?',
-      'Service · how quickly do we respond?',
-      'Quality · did the support help?',
+      'Demand',
+      'Flow',
+      'Service',
+      'Quality',
       'Broken down by region'
     ])
+    expect(wrapper!.findAll('.ticket-analytics__card-question').map((p) => p.text())).toEqual([
+      'What help is being requested?',
+      'Where does work slow down?',
+      'How quickly do we respond?',
+      'Did the support help?'
+    ])
+    for (const question of wrapper!.findAll('.ticket-analytics__card-question')) {
+      const card = question.element.closest('section')!
+      expect(card.getAttribute('aria-describedby')).toBe(question.attributes('id'))
+    }
     // And the charts inside the cards one level under those.
     expect(wrapper!.findAll('h4').map((h4) => h4.text())).toEqual([
       'By category',
@@ -154,9 +166,7 @@ describe('TicketAnalyticsPage', () => {
     // An h2, not a second h1: TicketsSection's h1 is the page's only one.
     expect(wrapper!.find('h1').exists()).toBe(false)
     expect(wrapper!.find('h2').text()).toBe('Ticket analytics')
-    expect(wrapper!.find('.ticket-analytics__subtitle').text()).toBe(
-      'Dates are read as UTC, the same rule the ticket numbering uses. A window that starts on 1 March opens at 11am Sydney time.'
-    )
+    expect(wrapper!.find('.ticket-analytics__subtitle').text()).toBe('All dates and times are in UTC.')
   })
 
   it('renders the numbers, not the string undefined', async () => {

@@ -10,13 +10,27 @@
         <div>
           <p class="ticket__number">#{{ ticket.ticketNumber }}</p>
           <h1 class="ticket__title">{{ ticket.subject }}</h1>
-          <p class="ticket__meta">
-            {{ categoryLabel(ticket.category) }}
-            &middot; Raised {{ formatLongDateAU(ticket.createdAt) }}
-            <!-- With the time of day as well as the date: two updates on the
-                 same day read the same otherwise. -->
-            &middot; Last updated {{ formatLongDateTimeAU(ticket.lastUpdated) }}
-          </p>
+          <!-- The second redesign round (October 2026) sets these out as
+               pills with a picture each (D2-09). A list, so a screen reader
+               hears three things; the pictures are hidden from it. Label and
+               value stay on one line in the source, so the space between them
+               is in the text a reader hears. -->
+          <ul class="ticket__facts">
+            <li class="ticket__fact">
+              <TicketIcon name="tag" :size="14" class="ticket__fact-icon" />
+              <span class="ticket__fact-value">{{ categoryLabel(ticket.category) }}</span>
+            </li>
+            <li class="ticket__fact">
+              <TicketIcon name="calendar" :size="14" class="ticket__fact-icon" />
+              <span class="ticket__fact-label">Raised</span> <span class="ticket__fact-value">{{ formatDateAU(ticket.createdAt) }}</span>
+            </li>
+            <li class="ticket__fact">
+              <TicketIcon name="clock" :size="14" class="ticket__fact-icon" />
+              <!-- With the time of day as well as the date: two updates on
+                   the same day read the same otherwise. -->
+              <span class="ticket__fact-label">Updated</span> <span class="ticket__fact-value">{{ formatDateTimeAU(ticket.lastUpdated) }}</span>
+            </li>
+          </ul>
         </div>
         <div class="ticket__badges">
           <TicketStatusBadge :status="ticket.status" />
@@ -51,7 +65,7 @@ import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketTimeline from '@/components/support/TicketTimeline.vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { formatLongDateAU, formatLongDateTimeAU } from '@/utils/date'
+import { formatDateAU, formatDateTimeAU } from '@/utils/ticketDates'
 import { categoryLabel, fetchTicket, type TicketDetail } from '@/utils/supportAPI'
 
 const route = useRoute()
@@ -121,7 +135,13 @@ watch(() => route.params.id, load)
             waiting note #fbbf24 on #3f3a17 6.88:1
    Dark hands the danger colour back to the theme, which is comfortable
    there. The dark back link is the designer's: brand green on the dark page
-   was 3.02:1. */
+   was 3.02:1.
+   The second round's header pills are a card of their own, white in light
+   and the dark card colour in dark, as the designer drew both:
+     light  label #5a6268 on #ffffff 6.21:1   value #174243 11.07:1
+            icon #017151 6.03:1
+     dark   label #a3b3ae on #1d2826 6.95:1   value #e6efed 12.96:1
+            icon #6dbfb1 7.04:1 */
 .ticket {
   --ticket-muted: #5a6268;
   --ticket-danger: #a71d2a;
@@ -130,6 +150,10 @@ watch(() => route.params.id, load)
   --ticket-wait: #fff4d2;
   --ticket-wait-ink: #7a5600;
   --ticket-wait-edge: #e0b252;
+  --ticket-fact: #ffffff;
+  --ticket-fact-edge: #e3e7e5;
+  --ticket-fact-ink: #174243;
+  --ticket-fact-icon: #017151;
 
   max-width: 60rem;
 }
@@ -142,6 +166,10 @@ watch(() => route.params.id, load)
   --ticket-wait: #3f3a17;
   --ticket-wait-ink: #fbbf24;
   --ticket-wait-edge: #fbbf24;
+  --ticket-fact: #1d2826;
+  --ticket-fact-edge: #2b3936;
+  --ticket-fact-ink: #e6efed;
+  --ticket-fact-icon: #6dbfb1;
 }
 
 /* The global focus ring is --dark-green, which the dark theme does not
@@ -157,7 +185,7 @@ watch(() => route.params.id, load)
 .ticket__back {
   display: block;
   width: fit-content;
-  margin: -0.4rem 0 0.75rem 0;
+  margin: -0.3rem 0 1rem 0;
   color: var(--ticket-link);
   font-size: 0.9rem;
   font-weight: 600;
@@ -168,12 +196,14 @@ watch(() => route.params.id, load)
   text-decoration: underline;
 }
 
+/* The badges sit at the foot of the header, level with the pills, as the
+   second round draws them (D2-10). */
 .ticket__head {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
-  padding-bottom: 1rem;
+  padding-bottom: 1.125rem;
   border-bottom: 1px solid var(--ticket-rule);
 }
 
@@ -192,7 +222,7 @@ watch(() => route.params.id, load)
    viewport. `anywhere` rather than `break-word` because only `anywhere`
    lowers the min-content width, which is the number that gets used. */
 .ticket__title {
-  margin: 0.15rem 0 0.25rem 0;
+  margin: 0.25rem 0 0.5625rem 0;
   font-size: 1.6rem;
   line-height: 1.4;
   letter-spacing: -0.01em;
@@ -205,13 +235,43 @@ watch(() => route.params.id, load)
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.6rem;
+  gap: 0.625rem;
+  margin-bottom: 2px;
 }
 
-.ticket__meta {
+.ticket__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   margin: 0;
-  color: var(--ticket-muted);
+  padding: 0;
+  list-style: none;
+}
+
+.ticket__fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem 0.25rem 0.6875rem;
+  border: 1px solid var(--ticket-fact-edge);
+  border-radius: 999px;
+  background: var(--ticket-fact);
+  color: var(--ticket-fact-ink);
   font-size: 0.85rem;
+  line-height: 1.375rem;
+  white-space: nowrap;
+}
+
+.ticket__fact-icon {
+  color: var(--ticket-fact-icon);
+}
+
+.ticket__fact-label {
+  color: var(--ticket-muted);
+}
+
+.ticket__fact-value {
+  font-weight: 700;
 }
 
 /* The one thing a requester has to act on, so it is drawn to be seen: a bar
@@ -220,8 +280,8 @@ watch(() => route.params.id, load)
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-  margin: 1.5rem 0 0 0;
-  padding: 0.7rem 1rem 0.7rem 1.25rem;
+  margin: 1rem 0 0 0;
+  padding: 0.725rem 1rem 0.725rem 1.25rem;
   border-left: 4px solid var(--ticket-wait-edge);
   border-radius: 8px;
   background: var(--ticket-wait);
@@ -240,7 +300,7 @@ watch(() => route.params.id, load)
    (decision DEC-046). TicketTimeline.vue sizes its messages as a share of
    this width. */
 .ticket__conversation {
-  margin: 1.25rem 0 1.5rem;
+  margin: 1.4rem 0 1.375rem;
 }
 
 .ticket__state {

@@ -16,10 +16,17 @@
         class="attach__input"
         @change="onPick"
       />
-      <TicketIcon name="paperclip" :size="14" />
+      <TicketIcon name="paperclip" :size="16" />
       <span>Attach files</span>
     </label>
-    <span class="attach__hint">Drag and drop files here or click to attach. {{ ATTACHMENT_HINT }}</span>
+    <!-- The count joins the hint once something is chosen, as the designer
+         drew it: "Up to 5 files, 10 MB each (...) · 2 of 5 added". His second
+         round shortens the new-ticket form's hint to the limits alone and
+         leaves the reply box saying it takes a dropped file, so the reply
+         box asks for that sentence. -->
+    <span class="attach__hint">
+      <template v-if="dropHint">Drag and drop files here or click to attach. </template>{{ ATTACHMENT_HINT }}<template v-if="modelValue.length"> &middot; {{ modelValue.length }} of {{ MAX_ATTACHMENTS }} added</template>
+    </span>
     <!-- One picker behind every Replace button, for a single file. Out of the
          tab order and hidden from screen readers: the Replace button is what
          they reach, and it names the file it replaces. -->
@@ -42,7 +49,7 @@
           Replace
         </button>
         <button type="button" class="attach__remove" :aria-label="`Remove ${file.name}`" @click="remove(index)">
-          <TicketIcon name="x" />
+          <TicketIcon name="x" :size="14" />
         </button>
       </li>
     </ul>
@@ -65,7 +72,7 @@ const ACCEPT = '.pdf,.png,.jpg,.jpeg,.docx'
 // thing to say no.
 const ALLOWED_EXTENSIONS = ACCEPT.split(',')
 
-const props = defineProps<{ modelValue: File[] }>()
+const props = defineProps<{ modelValue: File[]; dropHint?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [File[]] }>()
 
 const input = ref<HTMLInputElement | null>(null)
@@ -96,13 +103,24 @@ function readableSize(bytes: number): string {
 // Checked here as well as on the server. The server is the one that decides,
 // but telling someone their 40 MB file is too big before they wait for it to
 // upload is the difference between a hint and a rejection.
+//
+// Every refusal opens the same way. The client asked for messages a Year 9
+// student cannot misread ("Unable to upload, as this file is larger than 10
+// megabytes", C-23), and the designer drew the size one (D2-06); the other
+// two follow its pattern.
 function wrongTypeMessage(file: File) {
-  return `${file.name} is not a PDF, PNG, JPG or DOCX.`
+  return `Unable to upload: ${file.name} is not a PDF, PNG, JPG or DOCX.`
 }
 
+// The size is rounded up, so a file only just over the limit never reads as
+// "larger than 10 MB (it is 10 MB)".
 function tooBigMessage(file: File) {
-  return `${file.name} is larger than 10 MB.`
+  const tenths = Math.ceil((file.size / (1024 * 1024)) * 10) / 10
+  const size = Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1)
+  return `Unable to upload: ${file.name} is larger than 10 MB (it is ${size} MB).`
 }
+
+const TOO_MANY_MESSAGE = `Unable to upload: you can attach up to ${MAX_ATTACHMENTS} files to one message.`
 
 function take(picked: File[]) {
   if (!picked.length) return
@@ -124,7 +142,7 @@ function take(picked: File[]) {
   const accepted = rightType.filter((file) => file.size <= MAX_ATTACHMENT_BYTES)
   const combined = [...props.modelValue, ...accepted]
   if (combined.length > MAX_ATTACHMENTS) {
-    error.value = `You can attach up to ${MAX_ATTACHMENTS} files to one message.`
+    error.value = TOO_MANY_MESSAGE
   }
 
   emit('update:modelValue', combined.slice(0, MAX_ATTACHMENTS))
@@ -187,18 +205,20 @@ function onReplacePick(event: Event) {
    Measured (WCAG AA: 4.5:1 for text, 3:1 for a control's edge or an icon):
      light  muted #5a6268 on the card 6.21:1, on the #f8f9fa file row 5.89:1
             button edge #84938f on the card 3.21:1
-            error #a71d2a on #fdf0f0 6.63:1   file icon #017151 on #fcede2 5.27:1
+            error #a71d2a on #fdf0f0 6.63:1   file icon #017151 on #dcefe5 5.03:1
      dark   muted #a3b3ae on the #0f1715 file row 8.34:1, on the card 6.95:1
             button edge #70827d on the card 3.74:1
             error #f87171 on #3a1d20 5.52:1   file icon #6dbfb1 on #143b32 5.72:1
    The dark error and file tile are the colours this feature already uses for
-   Overdue and the help topics; the designer drew neither in dark. */
+   Overdue and the help topics; the designer drew neither in dark. The second
+   round turns the light tile from peach to his green (C-20). */
 .attach {
   --attach-muted: #5a6268;
   --attach-edge: #84938f;
   --attach-rule: #e6eae8;
   --attach-hover: var(--dark-green);
-  --attach-tile: #fcede2;
+  --attach-focus: var(--dark-green);
+  --attach-tile: #dcefe5;
   --attach-tile-ink: #017151;
   --attach-danger: #a71d2a;
   --attach-danger-ground: #fdf0f0;
@@ -206,7 +226,7 @@ function onReplacePick(event: Event) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.625rem 0.875rem;
   /* The padding is room for the drop highlight; the margin takes the same
      space back, so at rest the button lines up with the fields above. */
   padding: 0.6rem;
@@ -221,6 +241,7 @@ function onReplacePick(event: Event) {
   --attach-edge: #70827d;
   --attach-rule: #2b3936;
   --attach-hover: #6dbfb1;
+  --attach-focus: #6dbfb1;
   --attach-tile: #143b32;
   --attach-tile-ink: #6dbfb1;
   --attach-danger: #f87171;
@@ -237,13 +258,13 @@ function onReplacePick(event: Event) {
 .attach__button {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
   min-height: 2.25rem;
-  padding: 0 1rem 0 0.95rem;
+  padding: 0 0.875rem;
   border: 1px solid var(--attach-edge);
   border-radius: 8px;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.88rem;
   cursor: pointer;
 }
@@ -251,6 +272,16 @@ function onReplacePick(event: Event) {
 .attach__button:hover {
   border-color: var(--attach-hover);
   color: var(--attach-hover);
+}
+
+/* Keyboard focus lands on the file input, which is a transparent 1px box, so
+   its own outline cannot be seen (the designer's test of R4 found nothing
+   moved when he tabbed to it, DT-02). The button around it draws the ring
+   instead, only for keyboard focus, as :focus-visible does everywhere else:
+   #017151 on the white card 6.03:1, #6dbfb1 on the dark card 7.04:1. */
+.attach__button:has(.attach__input:focus-visible) {
+  outline: 2px solid var(--attach-focus);
+  outline-offset: 2px;
 }
 
 .attach__input {
@@ -280,7 +311,7 @@ function onReplacePick(event: Event) {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.375rem 0.5rem;
+  padding: 0.375rem 0.625rem 0.375rem 0.5rem;
   border: 1px solid var(--attach-rule);
   border-radius: 8px;
   background: var(--bg-light);
@@ -359,7 +390,7 @@ function onReplacePick(event: Event) {
   flex-basis: 100%;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.5625rem;
   margin: 0;
   padding: 0.55rem 0.8rem;
   border-left: 4px solid var(--attach-danger);

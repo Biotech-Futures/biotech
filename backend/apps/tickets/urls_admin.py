@@ -10,6 +10,7 @@ from .views_admin import (
     TicketAssigneesView,
     TicketAuditView,
     TicketBulkAssignView,
+    TicketDigestSendView,
     TicketHistoryView,
     TicketQueueExportView,
     TicketQueueView,
@@ -31,6 +32,8 @@ urlpatterns = [
     path("assignees/", TicketAssigneesView.as_view(), name="assignees"),
     path("regions/", TicketRegionsView.as_view(), name="regions"),
     path("bulk-assign/", TicketBulkAssignView.as_view(), name="bulk-assign"),
+    # The scheduler's door, with its own token instead of a session.
+    path("digest/send/", TicketDigestSendView.as_view(), name="digest-send"),
     # Before the <int:ticket_id> patterns, like every other literal segment
     # here. "audit" is not a number so it could not be captured by them, but
     # keeping the literals together is what stops the next one being added

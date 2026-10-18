@@ -95,61 +95,33 @@
       </div>
 
       <!-- RSVP Table -->
-      <div v-else class="admin-event-rsvps__table-wrap">
-        <table class="admin-event-rsvps__table">
-          <thead>
-            <tr>
-              <th scope="col" class="th-sortable" @click="toggleSort('name')">
-                <span>User</span>
-                <i :class="sortIcon('name')" aria-hidden="true"></i>
-              </th>
-              <th scope="col" class="th-sortable" @click="toggleSort('role')">
-                <span>User Type</span>
-                <i :class="sortIcon('role')" aria-hidden="true"></i>
-              </th>
-              <th scope="col" class="th-sortable" @click="toggleSort('status')">
-                <span>Status</span>
-                <i :class="sortIcon('status')" aria-hidden="true"></i>
-              </th>
-              <th scope="col" class="th-sortable" @click="toggleSort('date')">
-                <span>Responded At</span>
-                <i :class="sortIcon('date')" aria-hidden="true"></i>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="rsvp in sortedRsvps" :key="rsvp.id">
-              <td class="admin-event-rsvps__attendee-cell">
-                <div class="admin-event-rsvps__avatar" aria-hidden="true">
-                  {{ userInitials(rsvp) }}
-                </div>
-                <div class="admin-event-rsvps__attendee-info">
-                  <span class="admin-event-rsvps__name">
-                    {{ userName(rsvp) }}
-                  </span>
-                  <span class="admin-event-rsvps__email">
-                    {{ userEmail(rsvp) }}
-                  </span>
-                </div>
-              </td>
-              <td class="admin-event-rsvps__role-cell">
-                {{ roleLabel(userRole(rsvp)) }}
-              </td>
-              <td>
+      <AppSimpleTable v-else :columns="rsvpColumns" :rows="rsvpRows">
+        <template #cell-user="{ row }">
+          <div class="admin-event-rsvps__attendee">
+            <div class="admin-event-rsvps__avatar" aria-hidden="true">{{ row.initials }}</div>
+            <div class="admin-event-rsvps__attendee-info">
+              <span class="admin-event-rsvps__name">
+                {{ row.name }}
                 <span
-                  class="rsvp-badge"
-                  :class="`rsvp-badge-${rsvp.rsvpStatus}`"
+                  v-if="row.noMediaConsent"
+                  class="admin-event-rsvps__media-flag"
+                  title="Their guardian didn't give media consent, which in-person events require."
+                  data-test="rsvp-no-media-consent"
                 >
-                  {{ statusLabel(rsvp.rsvpStatus) }}
+                  No media consent
                 </span>
-              </td>
-              <td class="admin-event-rsvps__date-cell">
-                {{ formatDate(rsvp.respondedAt) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              </span>
+              <span class="admin-event-rsvps__email">{{ row.email }}</span>
+            </div>
+          </div>
+        </template>
+        <template #cell-status="{ row }">
+          <span class="rsvp-badge" :class="`rsvp-badge-${row.status}`">{{ row.statusLabel }}</span>
+        </template>
+        <template #cell-respondedAt="{ value }">
+          <span class="admin-event-rsvps__date">{{ value }}</span>
+        </template>
+      </AppSimpleTable>
     </div>
 
     <template #footer>
@@ -163,8 +135,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
 import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
+import { formatShortDateTime } from '@/utils/date'
 import { roleLabel } from '@/utils/userFormat'
 import type { BackendEvent } from '@/utils/eventsAPI'
 
@@ -182,11 +156,6 @@ const error = ref('')
 const rsvps = ref<AdminEventRsvpItem[]>([])
 const searchFilter = ref('')
 const statusFilter = ref('')
-
-type SortColumn = 'name' | 'role' | 'status' | 'date'
-type SortDir = 'asc' | 'desc'
-const sortCol = ref<SortColumn>('date')
-const sortDir = ref<SortDir>('desc')
 
 // Cache user details by ID for display
 const usersMap = ref<Map<number, AdminUser>>(new Map())
@@ -348,31 +317,6 @@ const userInitials = (target: AdminEventRsvpItem | number) => {
   return 'U'
 }
 
-const formatDate = (isoStr?: string | null) => {
-  if (!isoStr) return '—'
-  try {
-    return new Intl.DateTimeFormat('en-AU', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    }).format(new Date(isoStr))
-  } catch {
-    return isoStr
-  }
-}
-
-const toggleSort = (col: SortColumn) => {
-  if (sortCol.value === col) {
-    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    sortCol.value = col
-  }
-}
-
-const sortIcon = (col: SortColumn) => {
-  if (sortCol.value !== col) return 'fas fa-sort sort-neutral'
-  return sortDir.value === 'asc' ? 'fas fa-sort-up sort-active' : 'fas fa-sort-down sort-active'
-}
-
 const filteredRsvps = computed(() => {
   let list = rsvps.value
 
@@ -393,30 +337,36 @@ const filteredRsvps = computed(() => {
   return list
 })
 
-const sortedRsvps = computed(() => {
-  const list = [...filteredRsvps.value]
-  const dir = sortDir.value === 'asc' ? 1 : -1
-
-  list.sort((a, b) => {
-    if (sortCol.value === 'name') {
-      return dir * userName(a).localeCompare(userName(b))
-    }
-    if (sortCol.value === 'role') {
-      return dir * userRole(a).localeCompare(userRole(b))
-    }
-    if (sortCol.value === 'status') {
-      return dir * (a.rsvpStatus || '').localeCompare(b.rsvpStatus || '')
-    }
-    if (sortCol.value === 'date') {
-      const dateA = a.respondedAt ? new Date(a.respondedAt).getTime() : 0
-      const dateB = b.respondedAt ? new Date(b.respondedAt).getTime() : 0
-      return dir * (dateA - dateB)
-    }
-    return 0
+// Newest response first.
+const sortedRsvps = computed(() =>
+  [...filteredRsvps.value].sort((a, b) => {
+    const dateA = a.respondedAt ? new Date(a.respondedAt).getTime() : 0
+    const dateB = b.respondedAt ? new Date(b.respondedAt).getTime() : 0
+    return dateB - dateA
   })
+)
 
-  return list
-})
+const rsvpColumns: SimpleTableColumn[] = [
+  { key: 'user', label: 'User' },
+  { key: 'role', label: 'User Type' },
+  { key: 'status', label: 'Status' },
+  { key: 'respondedAt', label: 'Responded At' },
+]
+
+// What each row shows, worked out once for the table.
+const rsvpRows = computed(() =>
+  sortedRsvps.value.map((rsvp) => ({
+    id: rsvp.id,
+    initials: userInitials(rsvp),
+    name: userName(rsvp),
+    email: userEmail(rsvp),
+    noMediaConsent: rsvp.noMediaConsent,
+    role: roleLabel(userRole(rsvp)),
+    status: rsvp.rsvpStatus,
+    statusLabel: statusLabel(rsvp.rsvpStatus),
+    respondedAt: rsvp.respondedAt ? formatShortDateTime(rsvp.respondedAt) : '—',
+  }))
+)
 </script>
 
 <style scoped>
@@ -451,7 +401,7 @@ const sortedRsvps = computed(() => {
 
 .admin-event-rsvps__stat-val {
   font-weight: 700;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-event-rsvps__stat-pill--accepted {
@@ -463,16 +413,16 @@ const sortedRsvps = computed(() => {
 }
 
 .admin-event-rsvps__stat-pill--tentative {
-  background-color: rgba(241, 229, 166, 0.4);
+  background-color: rgba(243, 230, 157, 0.4);
   border-color: rgba(180, 150, 50, 0.3);
 }
 
 .admin-event-rsvps__stat-pill--waitlisted {
-  background-color: rgba(57, 104, 123, 0.1);
-  border-color: rgba(57, 104, 123, 0.25);
+  background-color: rgba(38, 105, 125, 0.1);
+  border-color: rgba(38, 105, 125, 0.25);
 }
 .admin-event-rsvps__stat-pill--waitlisted .admin-event-rsvps__stat-val {
-  color: #39687b;
+  color: #26697d;
 }
 
 .admin-event-rsvps__stat-pill--declined {
@@ -512,7 +462,7 @@ const sortedRsvps = computed(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -539,7 +489,7 @@ const sortedRsvps = computed(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
   appearance: none;
   -webkit-appearance: none;
@@ -585,7 +535,7 @@ const sortedRsvps = computed(() => {
 .admin-event-rsvps__empty-title {
   font-size: 1.05rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   margin: 0 0 0.25rem;
 }
 
@@ -594,66 +544,8 @@ const sortedRsvps = computed(() => {
   margin: 0;
 }
 
-.admin-event-rsvps__table-wrap {
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.admin-event-rsvps__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.admin-event-rsvps__table th {
-  background-color: var(--bg-light);
-  padding: 0.65rem 0.9rem;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-bottom: 1px solid var(--border-light);
-  user-select: none;
-}
-
-.th-sortable {
-  cursor: pointer;
-}
-
-.th-sortable:hover {
-  color: var(--charcoal);
-}
-
-.sort-neutral {
-  margin-left: 0.35rem;
-  color: #ccc;
-  font-size: 0.75rem;
-}
-
-.sort-active {
-  margin-left: 0.35rem;
-  color: var(--dark-green);
-  font-size: 0.75rem;
-}
-
-.admin-event-rsvps__table td {
-  padding: 0.75rem 0.9rem;
-  border-bottom: 1px solid var(--border-light);
-  vertical-align: middle;
-}
-
-.admin-event-rsvps__table tr:last-child td {
-  border-bottom: none;
-}
-
-.admin-event-rsvps__table tr:hover td {
-  background-color: rgba(1, 113, 81, 0.02);
-}
-
-.admin-event-rsvps__attendee-cell {
+/* Avatar beside the name, email under the name. */
+.admin-event-rsvps__attendee {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -681,7 +573,7 @@ const sortedRsvps = computed(() => {
 
 .admin-event-rsvps__name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-event-rsvps__email {
@@ -692,7 +584,7 @@ const sortedRsvps = computed(() => {
   white-space: nowrap;
 }
 
-.admin-event-rsvps__date-cell {
+.admin-event-rsvps__date {
   color: var(--text-muted);
   font-size: 0.82rem;
   white-space: nowrap;
@@ -724,13 +616,13 @@ const sortedRsvps = computed(() => {
 }
 
 .rsvp-badge-tentative {
-  background: var(--warning, #f1e5a6);
-  color: var(--charcoal);
+  background: var(--warning, #f3e69d);
+  color: var(--teal);
 }
 
 .rsvp-badge-waitlisted {
-  background: rgba(57, 104, 123, 0.15);
-  color: #39687b;
+  background: rgba(38, 105, 125, 0.15);
+  color: #26697d;
 }
 
 .rsvp-badge-declined {
@@ -743,9 +635,16 @@ const sortedRsvps = computed(() => {
   color: #6a329f;
 }
 
-.admin-event-rsvps__role-cell {
-  color: var(--charcoal);
-  font-size: 0.875rem;
+.admin-event-rsvps__media-flag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  color: var(--danger);
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
   white-space: nowrap;
 }
 

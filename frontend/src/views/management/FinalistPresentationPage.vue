@@ -56,61 +56,61 @@
         </div>
         <p v-if="actionError" class="finalist-presentation__error" role="alert">{{ actionError }}</p>
 
-        <div class="finalist-presentation__scroll">
-          <table class="finalist-presentation__table">
-            <thead>
-              <tr>
-                <th>Start</th>
-                <th>End</th>
-                <th class="finalist-presentation__cell--right"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!data.slots.length">
-                <td colspan="3" class="finalist-presentation__empty">No times yet.</td>
-              </tr>
-              <tr v-for="slot in data.slots" :key="slot.id">
-                <template v-if="editingId === slot.id">
-                  <td>
-                    <input v-model="edit.starts_at" type="time" class="finalist-presentation__time" aria-label="Start" />
-                  </td>
-                  <td>
-                    <input v-model="edit.ends_at" type="time" class="finalist-presentation__time" aria-label="End" />
-                  </td>
-                  <td class="finalist-presentation__cell--right">
-                    <div class="finalist-presentation__row-actions">
-                      <button
-                        type="button"
-                        class="btn btn-primary btn-sm"
-                        :disabled="isSaving || !edit.starts_at || !edit.ends_at"
-                        @click="saveEdit(slot.id)"
-                      >
-                        Save
-                      </button>
-                      <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="cancelEdit">
-                        Cancel
-                      </button>
-                    </div>
-                  </td>
-                </template>
-                <template v-else>
-                  <td>{{ formatTime(slot.starts_at) }}</td>
-                  <td>{{ formatTime(slot.ends_at) }}</td>
-                  <td class="finalist-presentation__cell--right">
-                    <div class="finalist-presentation__row-actions">
-                      <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="startEdit(slot)">
-                        Edit
-                      </button>
-                      <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="remove(slot.id)">
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </template>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <AppSimpleTable
+          class="finalist-presentation__times"
+          :columns="timeColumns"
+          :rows="timeRows"
+          empty-message="No times yet."
+        >
+          <template #cell-starts_at="{ row }">
+            <input
+              v-if="editingId === row.id"
+              v-model="edit.starts_at"
+              type="time"
+              class="finalist-presentation__time"
+              aria-label="Start"
+            />
+            <template v-else>{{ formatTime(String(row.starts_at)) }}</template>
+          </template>
+          <template #cell-ends_at="{ row }">
+            <input
+              v-if="editingId === row.id"
+              v-model="edit.ends_at"
+              type="time"
+              class="finalist-presentation__time"
+              aria-label="End"
+            />
+            <template v-else>{{ formatTime(String(row.ends_at)) }}</template>
+          </template>
+          <template #actions="{ row }">
+            <template v-if="editingId === row.id">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="isSaving || !edit.starts_at || !edit.ends_at"
+                @click="saveEdit(Number(row.id))"
+              >
+                Save
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="cancelEdit">
+                Cancel
+              </button>
+            </template>
+            <template v-else>
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                :disabled="isSaving"
+                @click="startEdit(row as unknown as PresentationSlot)"
+              >
+                Edit
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="remove(Number(row.id))">
+                Remove
+              </button>
+            </template>
+          </template>
+        </AppSimpleTable>
       </template>
     </section>
 
@@ -156,68 +156,63 @@
         <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
       </div>
       <template v-else>
-        <div class="finalist-presentation__scroll">
-          <table class="finalist-presentation__table">
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Answered</th>
-                <th>Allocate</th>
-                <th v-for="slot in columns" :key="slot.id" class="finalist-presentation__time-col">
-                  {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!teams.length">
-                <td :colspan="columns.length + 3" class="finalist-presentation__empty">
-                  No finalist teams yet.
-                </td>
-              </tr>
-              <tr v-for="team in teams" :key="team.group_id">
-                <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
-                <td v-if="team.answered_at" :title="team.answered_by ? `By ${team.answered_by}` : undefined">
-                  {{ formatSubmitted(team.answered_at) }}
-                </td>
-                <td v-else class="finalist-presentation__muted">No response</td>
-                <td>
-                  <select
-                    class="finalist-presentation__allocate-select"
-                    :aria-label="`Time for ${team.group_name}`"
-                    :value="team.allocated_slot_id ?? ''"
-                    :disabled="allocating === team.group_id"
-                    @change="allocate(team, $event)"
-                  >
-                    <option value="">Not allocated</option>
-                    <option v-for="slot in columns" :key="slot.id" :value="slot.id">
-                      {{ formatTime(slot.starts_at) }} – {{ formatTime(slot.ends_at) }}
-                    </option>
-                  </select>
-                </td>
-                <td
-                  v-for="slot in columns"
-                  :key="slot.id"
-                  class="finalist-presentation__tick"
-                  :class="{ 'is-allocated': team.allocated_slot_id === slot.id }"
-                >
-                  <i
-                    v-if="team.slot_ids.includes(slot.id)"
-                    class="fas fa-check"
-                    title="Can make it"
-                    aria-label="Can make it"
-                  ></i>
-                  <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <AppDataTable
+          :columns="allocateColumns"
+          :rows="teamRows"
+          row-key="id"
+          :selectable="false"
+          :page-size="DATA_TABLE_ALL"
+          :sort="NO_SORT"
+          search-placeholder="Group name"
+          empty-message="No finalist teams yet."
+        >
+          <template #cell-group="{ row }">
+            <span class="finalist-presentation__cell--strong">{{ teamOf(row).group_name }}</span>
+          </template>
+          <template #cell-answered="{ row }">
+            <span
+              v-if="teamOf(row).answered_at"
+              :title="teamOf(row).answered_by ? `By ${teamOf(row).answered_by}` : undefined"
+            >
+              {{ formatSubmitted(teamOf(row).answered_at) }}
+            </span>
+            <span v-else class="finalist-presentation__muted">No response</span>
+          </template>
+          <template #cell-allocate="{ row }">
+            <select
+              class="finalist-presentation__allocate-select"
+              :aria-label="`Time for ${teamOf(row).group_name}`"
+              :value="teamOf(row).allocated_slot_id ?? ''"
+              :disabled="allocating === teamOf(row).group_id"
+              @change="allocate(teamOf(row), $event)"
+            >
+              <option value="">Not allocated</option>
+              <option v-for="slot in columns" :key="slot.id" :value="slot.id">
+                {{ slotLabel(slot) }}
+              </option>
+            </select>
+          </template>
+          <!-- A column for each time: its heading as written, and a tick where
+               the team said it can make it. -->
+          <template v-for="slot in columns" :key="`head-${slot.id}`" #[`head-slot-${slot.id}`]="{ column }">
+            <span class="finalist-presentation__time-head">{{ column.label }}</span>
+          </template>
+          <template v-for="slot in columns" :key="`cell-${slot.id}`" #[`cell-slot-${slot.id}`]="{ row }">
+            <i
+              v-if="teamOf(row).slot_ids.includes(slot.id)"
+              class="fas fa-check"
+              title="Can make it"
+              aria-label="Can make it"
+            ></i>
+            <span v-else class="finalist-presentation__muted" aria-label="Can't make it">—</span>
+          </template>
+        </AppDataTable>
         <p v-if="allocateError" class="finalist-presentation__error" role="alert">{{ allocateError }}</p>
       </template>
     </section>
 
     <section class="card finalist-presentation__submissions">
-      <h3 class="finalist-presentation__section-title">Finalist Submission</h3>
+      <h3 class="finalist-presentation__section-title">Finalist Submissions</h3>
       <p class="finalist-presentation__hint">
         <template v-if="slidesDue">
           Each finalist team's presentation slides, due {{ slidesDue }}, set on
@@ -233,60 +228,58 @@
         <p>Failed to load the slides. {{ slidesError }}</p>
         <button type="button" class="btn btn-outline btn-sm" @click="loadSlides">Try again</button>
       </div>
-      <div v-else class="finalist-presentation__scroll">
-        <table class="finalist-presentation__table">
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Submitted</th>
-              <th>Type</th>
-              <th class="finalist-presentation__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="!slidesTeams.length">
-              <td colspan="4" class="finalist-presentation__empty">No finalist teams yet.</td>
-            </tr>
-            <tr v-for="team in slidesTeams" :key="team.group_id">
-              <td class="finalist-presentation__cell--strong">{{ team.group_name }}</td>
-              <template v-if="team.submitted">
-                <td>{{ formatSubmitted(team.submitted_at) }}</td>
-                <td>{{ fileType(team.file_name) }}</td>
-                <td class="finalist-presentation__cell--right">
-                  <span class="finalist-presentation__row-actions">
-                    <!-- A PDF opens in a new tab; PowerPoint can't show in the
-                         browser, so it only downloads. The name is on hover. -->
-                    <a
-                      v-if="fileType(team.file_name) === 'PDF'"
-                      :href="presentationSlidesUrl(team.group_id)"
-                      target="_blank"
-                      rel="noopener"
-                      class="btn btn-outline btn-sm"
-                      :title="team.file_name"
-                    >
-                      Open
-                    </a>
-                    <a
-                      :href="presentationSlidesDownloadUrl(team.group_id)"
-                      class="btn btn-outline btn-sm"
-                      :title="team.file_name"
-                    >
-                      Download
-                    </a>
-                  </span>
-                </td>
-              </template>
-              <td v-else colspan="3" class="finalist-presentation__muted">Not submitted yet</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <AppDataTable
+        v-else
+        :columns="submissionColumns"
+        :rows="submissionRows"
+        row-key="id"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        :sort="NO_SORT"
+        search-placeholder="Group name"
+        empty-message="No finalist teams yet."
+        :action-columns="2"
+      >
+        <template #cell-group="{ row }">
+          <span class="finalist-presentation__cell--strong">{{ slidesOf(row).group_name }}</span>
+        </template>
+        <template #cell-submitted="{ row }">
+          <template v-if="slidesOf(row).submitted">{{ formatSubmitted(slidesOf(row).submitted_at) }}</template>
+          <span v-else class="finalist-presentation__muted">Not submitted yet</span>
+        </template>
+        <!-- Open | Download. A PDF opens in a new tab; PowerPoint can't show in
+             the browser, so it only downloads. The name is on hover. -->
+        <template #actions="{ row, column }">
+          <template v-if="slidesOf(row).submitted">
+            <a
+              v-if="column === 0 && fileType(slidesOf(row).file_name) === 'PDF'"
+              :href="presentationSlidesUrl(slidesOf(row).group_id)"
+              target="_blank"
+              rel="noopener"
+              class="btn btn-outline btn-sm"
+              :title="slidesOf(row).file_name"
+            >
+              Open
+            </a>
+            <a
+              v-else-if="column === 1"
+              :href="presentationSlidesDownloadUrl(slidesOf(row).group_id)"
+              class="btn btn-outline btn-sm"
+              :title="slidesOf(row).file_name"
+            >
+              Download
+            </a>
+          </template>
+        </template>
+      </AppDataTable>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import {
   addPresentationSlot,
   allocatePresentationSlot,
@@ -304,7 +297,8 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { sydneyClockOn } from '@/utils/date'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatEventCalendarDay, formatShortDateTime, formatSydneySlot, sydneyClockOn } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
@@ -315,6 +309,13 @@ const actionError = ref('')
 
 const draft = reactive({ starts_at: '', ends_at: '' })
 const editingId = ref<number | null>(null)
+
+// The times, as the simple table lists them.
+const timeColumns: SimpleTableColumn[] = [
+  { key: 'starts_at', label: 'Start' },
+  { key: 'ends_at', label: 'End' },
+]
+const timeRows = computed(() => (data.value?.slots ?? []).map((slot) => ({ ...slot })))
 const edit = reactive({ starts_at: '', ends_at: '' })
 
 const load = async () => {
@@ -349,7 +350,42 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Allocate Slots: giving a team its time.
+// Both tables keep the teams in the order they come; nothing sorts them.
+const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
+
+// Allocate Slots: each team as a row, with plain text for search; the team
+// itself for the cells drawn here.
+const teamRows = computed(() =>
+  teams.value.map((team) => ({
+    id: team.group_id,
+    team,
+    group: team.group_name,
+    answered: team.answered_at ? formatSubmitted(team.answered_at) : 'No response',
+    allocate: slotLabel(columns.value.find((slot) => slot.id === team.allocated_slot_id)) || 'Not allocated'
+  }))
+)
+
+const teamOf = (row: Record<string, unknown>) => row.team as PresentationResponseTeam
+
+// Group, Answered, Allocate, then a column for each time, centred, the
+// team's given time tinted.
+const allocateColumns = computed<DataTableColumn[]>(() => [
+  { key: 'group', label: 'Group', sortable: false },
+  { key: 'answered', label: 'Answered', sortable: false },
+  { key: 'allocate', label: 'Allocate', sortable: false },
+  ...columns.value.map((slot) => ({
+    key: `slot-${slot.id}`,
+    label: slotLabel(slot),
+    sortable: false,
+    align: 'center' as const,
+    cellClass: (row: Record<string, unknown>) => ({
+      'finalist-presentation__tick': true,
+      'is-allocated': teamOf(row).allocated_slot_id === slot.id
+    })
+  }))
+])
+
+// Giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
@@ -369,7 +405,7 @@ const allocate = async (team: PresentationResponseTeam, event: Event) => {
   }
 }
 
-// Finalist Submission: each finalist team's slides.
+// Finalist Submissions: each finalist team's slides.
 const slidesTeams = ref<PresentationSlidesTeam[]>([])
 const slidesDueOn = ref<string | null>(null)
 const isLoadingSlides = ref(false)
@@ -389,25 +425,33 @@ const loadSlides = async () => {
   }
 }
 
+// Finalist Submissions: each team as a row, with plain text for search.
+const submissionColumns: DataTableColumn[] = [
+  { key: 'group', label: 'Group', sortable: false },
+  { key: 'submitted', label: 'Submitted', sortable: false },
+  { key: 'type', label: 'Type', sortable: false }
+]
+
+const submissionRows = computed(() =>
+  slidesTeams.value.map((team) => ({
+    id: team.group_id,
+    team,
+    group: team.group_name,
+    submitted: team.submitted ? formatSubmitted(team.submitted_at) : 'Not submitted yet',
+    type: team.submitted ? fileType(team.file_name) : '—'
+  }))
+)
+
+const slidesOf = (row: Record<string, unknown>) => row.team as PresentationSlidesTeam
+
 onMounted(() => {
   void load()
   void loadResponses()
   void loadSlides()
 })
 
-// "Friday, 23 October 2026", as the finalist email words its dates.
-const longDate = (iso: string | null | undefined) => {
-  if (!iso) return ''
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year!, month! - 1, day).toLocaleDateString('en-AU', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  })
-}
-
-const symposiumDay = computed(() => longDate(data.value?.symposium_date))
+// "Friday, 23rd October 2026".
+const symposiumDay = computed(() => formatEventCalendarDay(data.value?.symposium_date))
 // "AEDT (daylight saving, UTC+11)" on the Symposium day, once it's set.
 const sydneyClock = computed(() => {
   const iso = data.value?.symposium_date
@@ -415,7 +459,7 @@ const sydneyClock = computed(() => {
   const clock = sydneyClockOn(iso)
   return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
 })
-const slidesDue = computed(() => longDate(slidesDueOn.value))
+const slidesDue = computed(() => formatEventCalendarDay(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number)
@@ -425,21 +469,15 @@ const minutesOf = (hhmm: string) => {
 const hhmmOf = (total: number) =>
   `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 
-// 24 hour, no am or pm: "9:30", "13:00".
-const clock = (hours: number, minutes: number) => `${hours}:${String(minutes).padStart(2, '0')}`
+// 24 hour, no am or pm: "09:30", "13:00".
+const formatTime = (hhmm: string) => hhmmOf(minutesOf(hhmm))
 
-const formatTime = (hhmm: string) => {
-  const total = minutesOf(hhmm)
-  return clock(Math.floor(total / 60), total % 60)
-}
+// "09:30 - 10:00 AEDT", in Sydney's clock on the Symposium day.
+const slotLabel = (slot: PresentationSlot | undefined) =>
+  slot ? formatSydneySlot(slot.starts_at, slot.ends_at, data.value?.symposium_date) : ''
 
 // "17/10/26 23:06", as the other management tables write it.
-const formatSubmitted = (iso: string | null) => {
-  if (!iso) return ''
-  const at = new Date(iso)
-  const date = at.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
-  return `${date} ${at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-}
+const formatSubmitted = (iso: string | null) => (iso ? formatShortDateTime(iso) : '')
 
 // "PDF", "PPTX" or "PPT", from the file's name.
 const fileType = (name: string) => (name.includes('.') ? name.split('.').pop()!.toUpperCase() : '')
@@ -531,7 +569,7 @@ const remove = async (id: number) => {
 .finalist-presentation__switch-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalist-presentation__hint a {
@@ -553,53 +591,8 @@ const remove = async (id: number) => {
   margin: -0.25rem 0 1rem;
 }
 
-.finalist-presentation__scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--surface-elevated);
+.finalist-presentation__times {
   margin-bottom: 1rem;
-}
-
-.finalist-presentation__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.finalist-presentation__table th,
-.finalist-presentation__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.finalist-presentation__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.finalist-presentation__table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* Scoped under the table so it outweighs the text-align: left above. */
-.finalist-presentation__table .finalist-presentation__cell--right {
-  text-align: right;
-}
-
-.finalist-presentation__row-actions {
-  display: inline-flex;
-  gap: 0.5rem;
-}
-
-.finalist-presentation__empty {
-  color: var(--text-muted);
-  text-align: center;
 }
 
 .finalist-presentation__muted {
@@ -610,16 +603,10 @@ const remove = async (id: number) => {
   font-weight: 600;
 }
 
-/* Times read as written, not in the header's capitals. */
-.finalist-presentation__table thead .finalist-presentation__time-col {
+/* Times read as written, not in the heading's capitals. */
+.finalist-presentation__time-head {
   text-transform: none;
-  text-align: center;
   line-height: 1.3;
-}
-
-/* Scoped under the table so it outweighs the text-align: left above. */
-.finalist-presentation__table .finalist-presentation__tick {
-  text-align: center;
 }
 
 .finalist-presentation__tick .fa-check {
@@ -627,8 +614,8 @@ const remove = async (id: number) => {
 }
 
 /* The time the team has been given: a green tint and outline, apart from
-   the header's and hover's pale pink. */
-.finalist-presentation__tick.is-allocated {
+   the hover's. The cell is the shared table's, so this reaches in. */
+.finalist-presentation__allocate :deep(.finalist-presentation__tick.is-allocated) {
   background: color-mix(in srgb, var(--dark-green) 14%, transparent);
   box-shadow: inset 0 0 0 1px var(--dark-green);
 }
@@ -641,7 +628,7 @@ const remove = async (id: number) => {
   font-size: 0.85rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalist-presentation__add {
@@ -670,7 +657,7 @@ const remove = async (id: number) => {
   font-size: 0.9rem;
   font-family: inherit;
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .finalist-presentation__time:focus {

@@ -173,10 +173,15 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
      light  #84938f on the white field 3.21:1, on the #f8f9fa page 3.04:1
      dark   #70827d on the #161f1d field 4.15:1, on the #0f1715 page 4.49:1
    The designer kept the dark queue's colours, but its edge, --border-light,
-   is 1.39:1 there; #70827d is the edge his other dark screens use. */
+   is 1.39:1 there; #70827d is the edge his other dark screens use.
+
+   Clear filters under the pointer takes the queue's pale green, #e8f5ee
+   (#017151 on it 5.38:1), not --accent-green-soft, the peach in the light
+   theme (C-20). Dark keeps the theme's translucent green. */
 .queue-filters {
   --queue-filter-edge: #84938f;
   --queue-filter-placeholder: #6c757d;
+  --queue-filter-wash: #e8f5ee;
 
   display: flex;
   flex-wrap: wrap;
@@ -187,6 +192,7 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
 :root[data-theme='dark'] .queue-filters {
   --queue-filter-edge: #70827d;
   --queue-filter-placeholder: var(--text-muted);
+  --queue-filter-wash: var(--accent-green-soft);
 }
 
 .queue-filters__search,
@@ -196,15 +202,26 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
   border: 1px solid var(--queue-filter-edge);
   border-radius: 8px;
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.9rem;
 }
 
+/* Each list starts from its padding (50px with the room for the chevron), so
+   the search starts from half as much again: then it really is a share and a
+   half, as the designer drew it. */
 .queue-filters__search {
-  flex: 1.5 1 0;
+  flex: 1.5 1 4.6875rem;
   min-width: 16.5rem;
   max-width: 100%;
+}
+
+/* Clear filters takes its share of the row once something is filtered, and
+   with the search held at its floor the lists gave it up: "Any assignee" was
+   cut to "Any assign…". The designer's A-12 narrows the search instead
+   (219px against 237px), which is also when its placeholder matters least. */
+.queue-filters:has(.queue-filters__clear) .queue-filters__search {
+  min-width: 12rem;
 }
 
 .queue-filters__search::placeholder {
@@ -244,7 +261,7 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
 }
 
 .queue-filters__clear:hover {
-  background: var(--accent-green-soft);
+  background: var(--queue-filter-wash);
   color: var(--dark-green);
 }
 

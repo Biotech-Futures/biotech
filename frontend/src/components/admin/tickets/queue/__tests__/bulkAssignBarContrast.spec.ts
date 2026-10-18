@@ -101,9 +101,22 @@ const clearHovered = block(SHARED_BAR, /\.bulk-actions-bar__clear:hover:not\(:di
 // The page ground the bar sits on: TicketsSection's .content-area.
 const contentArea = block(THEME, /\.content-area/)
 
+// The bar's own ground. Since the second redesign round BulkAssignBar paints
+// it, the selected rows' pale green instead of the shared bar's peach (C-20),
+// through --bulk-wash on its root; dark hands the wash back to the theme.
+function barGround(theme: Theme): string {
+  const light = block(SOURCE, /\.bulk-actions-bar\.bulk-assign/)
+  const ours =
+    theme === 'dark'
+      ? { ...light, ...block(SOURCE, /:root\[data-theme='dark'\] \.bulk-actions-bar\.bulk-assign/) }
+      : light
+  if (ours['background-color'] !== 'var(--bulk-wash)') return bar['background-color']!
+  return ours['--bulk-wash']!
+}
+
 function grounds(theme: Theme): { rest: Rgb; hover: Rgb } {
   const page = paint(resolve(contentArea['background-color']!, theme), [255, 255, 255])
-  const rest = paint(resolve(bar['background-color']!, theme), page)
+  const rest = paint(resolve(barGround(theme), theme), page)
   return { rest, hover: paint(resolve(clearHovered['background-color']!, theme), rest) }
 }
 
@@ -179,6 +192,13 @@ describe('the bulk bar Clear button', () => {
 
   it('leaves the light theme to the shared bar', () => {
     expect(clearColour('light')).toBe('var(--dark-green)')
+  })
+
+  it('lays its own pale green under the bar, not the shared peach', () => {
+    // What the ratios below are measured on, so it is pinned: falling back to
+    // the shared bar's var(--light-green) would put the peach back (C-20).
+    expect(barGround('light')).toBe('#e8f5ee')
+    expect(barGround('dark')).toBe('var(--light-green)')
   })
 
   for (const theme of ['light', 'dark'] as const) {

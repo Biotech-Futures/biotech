@@ -57,7 +57,7 @@ defineProps<{
 
 .stat-tile__value {
   margin: 0.25rem 0 0 0;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.2;
