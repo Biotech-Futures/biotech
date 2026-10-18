@@ -8791,7 +8791,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.25rem;
-  margin: 0.5rem 0 0;
+  margin: 0;
   padding: 0;
 }
 
@@ -9989,7 +9989,7 @@ onBeforeUnmount(() => {
 
 .reaction-pick-group {
   position: absolute;
-  bottom: 0.5rem;
+  bottom: 0.3rem;
   left: 0.6rem;
   display: inline-flex;
   align-items: center;
@@ -10011,7 +10011,7 @@ onBeforeUnmount(() => {
 /* Reserve room at the bottom of the bubble so the chip strip (positioned
    ``bottom: -0.85rem``) doesn't crash into the next message. */
 .message-content:has(.reaction-pick-group.has-reactions) {
-  padding-bottom: 2rem;
+  padding-bottom: 1.5rem;
 }
 
 .reaction-picker-toggle {
@@ -10421,7 +10421,7 @@ html[data-theme='dark'] .group-detail {
 }
 
 html[data-theme='dark'] .group-hero-card,
-html[data-theme='dark'] .pane {
+html[data-theme='dark'] .pane--tasks {
   background: #111d1a;
   border-color: #2b3835;
 }
@@ -10446,15 +10446,6 @@ html[data-theme='dark'] .task-empty-cta {
 html[data-theme='dark'] .task-empty-cta:hover {
   background: #22302c;
   color: #ffffff;
-}
-
-/* Discussion area */
-html[data-theme='dark'] .chat-messages {
-  background: #18231f;
-}
-
-html[data-theme='dark'] .chat-empty-state {
-  color: #bfc9c6;
 }
 
 /* Tabs */
@@ -10528,14 +10519,6 @@ html[data-theme='dark'] .task-state-menu {
   background: #18231f;
   color: #dce5e2;
   border-color: #34413d;
-}
-
-/* New messages pill */
-:global(html[data-theme='dark']) .new-messages,
-:global(html[data-theme='dark']) .new-messages-indicator {
-  background: #203a35;
-  color: #cce8e1;
-  border-color: #35534c;
 }
 
 /* =========================================================
@@ -10637,14 +10620,6 @@ html[data-theme='dark'] .group-members-btn span {
   border-color: #3b4d48;
 }
 
-
-/* New messages divider / pill */
-html[data-theme='dark'] .missed-message-divider,
-html[data-theme='dark'] .missed-message-divider span {
-  background: #203a35;
-  color: #cce8e1;
-  border-color: #35534c;
-}
 
 
 /* Dropdown options */
@@ -10769,24 +10744,6 @@ html[data-theme='dark'] .task-filter-panel select option {
   border-radius: 999px;
 }
 
-/* Discussion panel */
-:global(html[data-theme='dark'] .chat-messages) {
-  scrollbar-color: #53615d #18231f;
-}
-
-:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar) {
-  width: 8px;
-}
-
-:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-track) {
-  background: #18231f;
-}
-
-:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-thumb) {
-  background: #53615d;
-  border-radius: 999px;
-}
-
 /* =========================================================
    Group page scrollbar — dark mode
    ========================================================= */
@@ -10813,39 +10770,6 @@ html[data-theme='dark'] .task-filter-panel select option {
 
 :global(html[data-theme='dark'] .group-detail::-webkit-scrollbar-thumb:hover) {
   background: #687773;
-}
-
-:global(html[data-theme='dark'] .chat-messages) {
-  scrollbar-color: #53615d #18231f;
-  scrollbar-width: thin;
-}
-
-:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar) {
-  width: 8px;
-}
-
-:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-track) {
-  background: #18231f;
-}
-
-:global(html[data-theme='dark'] .chat-messages::-webkit-scrollbar-thumb) {
-  background: #53615d;
-  border-radius: 999px;
-  border: 2px solid #18231f;
-}
-
-/* Dark mode - 3 unread button */
-html[data-theme='dark'] .missed-message-jump-btn {
-  background: #26332f !important;
-  color: #c8d0ce !important;
-  border-color: #44524e !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22) !important;
-}
-
-html[data-theme='dark'] .missed-message-jump-btn:hover {
-  background: #2f403b !important;
-  color: #ffffff !important;
-  border-color: #536762 !important;
 }
 
 </style>

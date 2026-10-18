@@ -122,6 +122,7 @@
         </nav>
 
         <button
+          v-if="!isNoGroupNotice"
           type="button"
           class="sidebar-collapse-toggle"
           :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
@@ -250,6 +251,10 @@ import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT } from '@/constants/brand'
 
 const route = useRoute()
+const isNoGroupNotice = computed(() =>
+  route.path === '/dashboard' &&
+  route.query.notice === 'no-group'
+)
 const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()

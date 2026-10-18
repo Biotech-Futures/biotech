@@ -633,8 +633,15 @@ onMounted(() => {
 .description {
   margin-top: 18px;
   line-height: 1.6;
-}
 
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 
 .meeting-actions {
   display: flex;

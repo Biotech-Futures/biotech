@@ -551,7 +551,7 @@ const saveSummary = async () => {
     const updated = await updateMeetingSummary(
       meetingId,
       summaryBody.value,
-      false
+      true
     )
 
     summaryBody.value = updated.body || ''
@@ -866,6 +866,8 @@ onBeforeUnmount(() => {
 .meeting-description {
   margin-bottom: 16px;
   color: #555;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .meeting-meta p {
