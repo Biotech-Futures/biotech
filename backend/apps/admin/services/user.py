@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 # Import models
 from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
-    AreasOfInterest, UserInterest, StudentSupervisor
+    AreasOfInterest, UserInterest, StudentSupervisor, EmailVerification
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
@@ -409,9 +409,39 @@ def _user_state_dict(user: User) -> Optional[Dict[str, Any]]:
     }
 
 
-def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
-    """Guardian, consent and pending-guardian fields for the admin user payload."""
+def email_checks(addresses) -> Dict[str, Dict[str, Any]]:
+    """The stored QuickEmailVerification answer for each of ``addresses`` that
+    has one, as the admin payload shows it, keyed by lower-case address (as
+    answers are stored). One query, for a whole page."""
+    wanted = {str(address).strip().lower() for address in addresses if address and str(address).strip()}
+    if not wanted:
+        return {}
+    return {
+        row.email: {
+            "status": row.status,
+            "reason": row.reason,
+            "didYouMean": row.did_you_mean or None,
+            "checkedAt": _iso(row.checked_at),
+        }
+        for row in EmailVerification.objects.filter(email__in=wanted)
+    }
+
+
+def _email_check(checks: Dict[str, Dict[str, Any]], address: Optional[str]) -> Optional[Dict[str, Any]]:
+    return checks.get((address or "").strip().lower()) if address else None
+
+
+def _guardian_dict(
+    student_profile: Optional[StudentProfile],
+    checks: Optional[Dict[str, Dict[str, Any]]] = None,
+    student_email: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Guardian, consent and pending-guardian fields for the admin user payload,
+    with whether the student's and guardian's addresses passed their email
+    check. ``checks`` is ``email_checks`` for the page, so no row looks one up;
+    without it, or for an address never checked, the checks are None."""
     sp = student_profile
+    checks = checks or {}
     pending = None
     if sp and sp.has_pending_guardian:
         pending = {
@@ -424,6 +454,9 @@ def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
         "guardianFirstName": sp.pg_first_name if sp else None,
         "guardianLastName": sp.pg_last_name if sp else None,
         "guardianEmail": sp.pg_email if sp else None,
+        # QuickEmailVerification's answer ("valid", "invalid", "unknown"), or None if never checked.
+        "emailCheck": _email_check(checks, student_email) if sp else None,
+        "guardianEmailCheck": _email_check(checks, sp.pg_email) if sp else None,
         "joinPermissionReceived": sp.has_join_permission if sp else False,
         "joinpermResponseId": (sp.joinperm_responseID or None) if sp else None,
         "joinPermissionGrantedAt": (
@@ -599,7 +632,11 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "mentorReason": mentor_profile.mentor_reason if mentor_profile else None,
         "mentorMaxGroupCount": mentor_profile.max_group_count if mentor_profile else None,
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
-        **_guardian_dict(student_profile),
+        **_guardian_dict(
+            student_profile,
+            email_checks([user.email, student_profile.pg_email]) if student_profile else None,
+            user.email,
+        ),
         "interests": interests,
         "isAdmin": is_admin,
         "isActive": user.is_active,
@@ -815,6 +852,11 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
         mp.user_id: mp for mp in MentorProfile.objects.filter(user_id__in=user_ids)
     }
     admin_user_ids = get_admin_user_ids(user_ids)
+    # The page's students' and guardians' email checks, in one query.
+    page_checks = email_checks(
+        [users_by_id[uid].email for uid in student_profiles if uid in users_by_id]
+        + [sp.pg_email for sp in student_profiles.values()]
+    )
 
     # Active role assignments
     now = timezone.now()
@@ -914,7 +956,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "mentorReason": mp.mentor_reason if mp else None,
             "mentorMaxGroupCount": mp.max_group_count if mp else None,
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
-            **_guardian_dict(sp),
+            **_guardian_dict(sp, page_checks, user.email),
             "interests": interests_map.get(uid, []),
             "isAdmin": uid in admin_user_ids,
             "isActive": user.is_active,
