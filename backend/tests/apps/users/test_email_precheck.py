@@ -224,7 +224,8 @@ class LimitTests(PrecheckTestCase):
 
     @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=3)
     def test_over_the_hourly_budget_the_rest_are_left_unchecked(self):
-        response = self.supervisor_start(batch("supervisor_csv", 5))
+        # A team of 4 and its creator's guardian: 5 addresses.
+        response = self.start(batch("student_team", 4))
 
         self.assertEqual(len(self.checked), 3)
         job = EmailCheckJob.objects.get(pk=response.data["jobId"])
@@ -232,14 +233,27 @@ class LimitTests(PrecheckTestCase):
 
     @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=3)
     def test_the_budget_is_per_ip_and_per_hour(self):
-        self.supervisor_start(batch("supervisor_csv", 3))
-        spent = self.supervisor_start(batch("supervisor_csv", 2, offset=10))
-        other_ip = self.supervisor_start(batch("supervisor_csv", 2, offset=20), REMOTE_ADDR="198.51.100.7")
+        self.start(batch("student_team", 2))
+        spent = self.start(batch("student_team", 1, offset=10))
+        other_ip = self.start(batch("student_team", 1, offset=20), REMOTE_ADDR="198.51.100.7")
 
         self.assertEqual(spent.data["status"], "done")
         self.assertEqual(EmailCheckJob.objects.get(pk=spent.data["jobId"]).skipped, 2)
         self.assertEqual(other_ip.data["status"], "started")
         self.assertEqual(len(self.checked), 5)
+
+    @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=3)
+    def test_a_signed_in_supervisor_isnt_held_to_the_ip_budget(self):
+        supervised = self.supervisor_start(batch("supervisor_csv", 10))
+        anonymous = self.start(batch("student_team", 4, offset=50))
+
+        self.assertEqual(EmailCheckJob.objects.get(pk=supervised.data["jobId"]).skipped, 0)
+        self.assertEqual(EmailCheckJob.objects.get(pk=anonymous.data["jobId"]).skipped, 2)
+        self.assertEqual(len(self.checked), 10 + 3)
+
+    @override_settings(EMAIL_PRECHECK_MAX_ADDRESSES=4)
+    def test_the_per_request_limit_still_applies_to_supervisors(self):
+        self.assertEqual(self.supervisor_start(batch("supervisor_csv", 5)).data, {"status": "too_many"})
 
     @override_settings(EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=1)
     def test_answers_on_file_dont_use_the_budget(self):
@@ -270,8 +284,16 @@ class PollTests(PrecheckTestCase):
 
         self.assertEqual(self.poll(job.pk).data["status"], "running")
 
-    def test_a_job_whose_checks_crash_is_marked_failed(self):
+    def test_checks_that_crash_count_as_errors_and_the_job_still_finishes(self):
         with patch.object(email_precheck.email_verification, "verify_email", side_effect=RuntimeError("boom")):
+            job_id = self.start().data["jobId"]
+
+        data = self.poll(job_id).data
+        self.assertEqual((data["status"], data["done"], data["errors"]), ("done", 2, 2))
+
+    def test_a_job_that_cant_be_handed_to_the_workers_is_marked_failed(self):
+        with override_settings(EMAIL_VERIFICATION_DISPATCH_SYNC=False), \
+                patch.object(email_precheck, "_pool", side_effect=RuntimeError("shutting down")):
             job_id = self.start().data["jobId"]
 
         self.assertEqual(self.poll(job_id).data["status"], "failed")

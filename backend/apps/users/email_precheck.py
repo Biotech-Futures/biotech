@@ -19,14 +19,22 @@ without it.
 It's open only while registration is (or with a valid late link, or for a
 supervisor allowed after close), off unless EMAIL_PRECHECK_ENABLED, limited
 in how many addresses one request may carry (fewer for anyone not signed
-in), and limited in how many new lookups one IP address may cause an hour.
-Addresses over that budget are left unchecked. Addresses are never logged or
-kept on the job.
+in), and limited in how many new lookups one IP address may cause an hour
+when no supervisor is signed in. Addresses over that budget are left
+unchecked. Addresses are never logged or kept on the job.
+
+Each address is checked on a pool of QEV_PRECHECK_WORKERS threads (single
+lookups: the free key can't use QEV's bulk API). An address another job is
+already checking is waited for rather than paid for twice, and when QEV
+answers 429 (too many requests) every worker pauses, for longer each time.
 """
 from __future__ import annotations
 
 import hashlib
 import logging
+import math
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -58,7 +66,26 @@ STARTED, STALLED = "started", "stalled"
 # Jobs are deleted this long after they start.
 JOB_LIFETIME = timedelta(days=1)
 
-_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="email-precheck")
+# Before any lookup has been timed, the seconds one is assumed to take.
+DEFAULT_LOOKUP_SECONDS = 2.0
+
+# How long a worker holds an address it's checking, and how long another
+# waits for its answer before checking it itself.
+BUSY_SECONDS = 60
+BUSY_WAIT_SECONDS = 30
+WAIT_STEP_SECONDS = 0.5
+
+# After a 429, every worker waits this long before its next lookup: 1, 2, 4,
+# 8, then 16 seconds, after which the address counts as not checked.
+RATE_LIMIT_DELAYS = (1, 2, 4, 8, 16)
+PAUSE_KEY = "email_precheck:pause_until"
+
+_executor = None
+_executor_lock = threading.Lock()
+
+# Patched in tests.
+_sleep = time.sleep
+_clock = time.monotonic
 
 
 def _setting(name: str, default: int) -> int:
@@ -152,7 +179,10 @@ def start_check(request) -> tuple[dict, int]:
         on_file = {}
     unchecked = [address for address in addresses if address not in on_file]
     tag = _client_tag(request)
-    to_check = unchecked[:_take_budget(tag, len(unchecked))]
+    # A signed-in supervisor (or admin) registering their students isn't
+    # held to the per-IP budget; anyone else is.
+    exempt = journey in SUPERVISOR_JOURNEYS
+    to_check = unchecked if exempt else unchecked[:_take_budget(tag, len(unchecked))]
     skipped = len(unchecked) - len(to_check)
     if skipped:
         logger.warning("email_precheck.budget_reached client=%s skipped=%s", tag, skipped)
@@ -196,9 +226,19 @@ def job_status(job_id) -> tuple[dict, int]:
     }, status.HTTP_200_OK
 
 
+def workers() -> int:
+    return max(1, _setting("QEV_PRECHECK_WORKERS", 16))
+
+
 def estimate_seconds(job: EmailCheckJob):
-    """Not estimated yet (stage 3): None while the job runs, 0 once done."""
-    return 0 if job.status == EmailCheckJob.Status.DONE else None
+    """Seconds left: the addresses still to check, times the job's average
+    seconds per lookup so far (DEFAULT_LOOKUP_SECONDS before any), divided
+    among the workers. Fewer left than workers run side by side."""
+    remaining = job.total - job.done
+    if job.status == EmailCheckJob.Status.DONE or remaining <= 0:
+        return 0
+    average = job.lookup_seconds / job.lookups if job.lookups else DEFAULT_LOOKUP_SECONDS
+    return math.ceil(remaining * average / min(workers(), remaining))
 
 
 # --- running a job -----------------------------------------------------------
@@ -209,41 +249,121 @@ def _progress(job_id, **counts) -> None:
     )
 
 
-def run_job(job_id, addresses) -> None:
-    """Check each address in turn, noting the job's progress. Never raises:
-    a job that fails is marked failed, and the page submits without it."""
-    try:
-        EmailCheckJob.objects.filter(pk=job_id).update(status=EmailCheckJob.Status.RUNNING, updated_at=timezone.now())
-        for address in addresses:
-            result = email_verification.verify_email(address)
-            _progress(
-                job_id, done=1,
-                invalid=int(result.status == email_verification.INVALID),
-                errors=int(result.status == email_verification.ERROR),
-            )
-        EmailCheckJob.objects.filter(pk=job_id).update(status=EmailCheckJob.Status.DONE, updated_at=timezone.now())
-    except Exception as exc:  # noqa: BLE001
-        logger.error("email_precheck.job_failed job=%s error=%s", job_id, type(exc).__name__)
-        try:
-            EmailCheckJob.objects.filter(pk=job_id).update(status=EmailCheckJob.Status.FAILED, updated_at=timezone.now())
-        except Exception:  # noqa: BLE001
-            pass
+def _busy_key(address: str) -> str:
+    # A hash, not the address: cache keys can turn up in Redis tooling.
+    return "email_precheck_busy:" + hashlib.sha256(address.encode()).hexdigest()[:32]
 
 
-def _run_in_pool(job_id, addresses) -> None:
+def _wait_for_answer(address: str, key: str) -> None:
+    """Wait (up to BUSY_WAIT_SECONDS) while another worker checks
+    ``address``: until its answer is on file or it lets go."""
+    waited = 0.0
+    while waited < BUSY_WAIT_SECONDS:
+        if not cache.get(key) or EmailVerification.reusable(
+            [address], max_age_days=_setting("QEV_RESULT_MAX_AGE_DAYS", 180),
+        ):
+            return
+        _sleep(WAIT_STEP_SECONDS)
+        waited += WAIT_STEP_SECONDS
+
+
+def _wait_out_pause() -> None:
+    """Wait while every worker is paused after a 429 (at most 30 seconds)."""
+    until = cache.get(PAUSE_KEY)
+    if until:
+        wait = min(float(until) - time.time(), 30)
+        if wait > 0:
+            _sleep(wait)
+
+
+def _pause_everyone(seconds: int) -> None:
+    until = time.time() + seconds
+    if until > float(cache.get(PAUSE_KEY) or 0):
+        cache.set(PAUSE_KEY, until, seconds + 5)
+
+
+def _verify(address: str):
+    """Check one address, backing off while QEV answers 429."""
+    for attempt, delay in enumerate((*RATE_LIMIT_DELAYS, None)):
+        _wait_out_pause()
+        result = email_verification.verify_email(address)
+        if result.reason != "http_429" or delay is None:
+            return result
+        logger.warning("email_precheck.rate_limited attempt=%s pause_seconds=%s", attempt + 1, delay)
+        _pause_everyone(delay)
+    return result
+
+
+def _guarded_verify(address: str):
+    """Check one address, unless another worker already is: then wait for
+    its answer, which verify_email reuses rather than paying again."""
+    key = _busy_key(address)
+    if not cache.add(key, 1, BUSY_SECONDS):
+        _wait_for_answer(address, key)
+        return _verify(address)
     try:
-        run_job(job_id, addresses)
+        return _verify(address)
     finally:
+        cache.delete(key)
+
+
+def check_address(job_id, address: str) -> None:
+    """Check one of a job's addresses and count it. Never raises: an address
+    whose check crashes counts as not checked, and the job still finishes."""
+    try:
+        EmailCheckJob.objects.filter(pk=job_id, status=EmailCheckJob.Status.QUEUED).update(
+            status=EmailCheckJob.Status.RUNNING, updated_at=timezone.now(),
+        )
+        started = _clock()
+        result = _guarded_verify(address)
+        counts = {
+            "done": 1,
+            "invalid": int(result.status == email_verification.INVALID),
+            "errors": int(result.status == email_verification.ERROR),
+        }
+        if not result.cached:
+            counts.update(lookups=1, lookup_seconds=_clock() - started)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("email_precheck.check_failed job=%s error=%s", job_id, type(exc).__name__)
+        counts = {"done": 1, "errors": 1}
+    try:
+        _progress(job_id, **counts)
+        EmailCheckJob.objects.filter(
+            pk=job_id, done__gte=F("total"),
+            status__in=(EmailCheckJob.Status.QUEUED, EmailCheckJob.Status.RUNNING),
+        ).update(status=EmailCheckJob.Status.DONE, updated_at=timezone.now())
+    except Exception as exc:  # noqa: BLE001
+        logger.error("email_precheck.progress_failed job=%s error=%s", job_id, type(exc).__name__)
+
+
+def _check_in_pool(job_id, address: str) -> None:
+    try:
+        check_address(job_id, address)
+    finally:
+        # This thread's database connection, opened for the check: close it.
         connections.close_all()
 
 
+def _pool() -> ThreadPoolExecutor:
+    global _executor
+    with _executor_lock:
+        if _executor is None:
+            _executor = ThreadPoolExecutor(max_workers=workers(), thread_name_prefix="email-precheck")
+        return _executor
+
+
 def _dispatch(job_id, addresses) -> None:
+    """Hand each address to the pool (in turn here, in tests)."""
     if getattr(settings, "EMAIL_VERIFICATION_DISPATCH_SYNC", False):
-        run_job(job_id, addresses)
+        for address in addresses:
+            check_address(job_id, address)
         return
     try:
-        _EXECUTOR.submit(_run_in_pool, job_id, addresses)
+        pool = _pool()
+        for address in addresses:
+            pool.submit(_check_in_pool, job_id, address)
     except RuntimeError:
+        # submit() raises once the interpreter is shutting down.
         logger.warning("email_precheck.dispatch_unavailable job=%s", job_id)
         EmailCheckJob.objects.filter(pk=job_id).update(status=EmailCheckJob.Status.FAILED)
 
