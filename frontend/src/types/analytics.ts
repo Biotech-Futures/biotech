@@ -171,6 +171,9 @@ export interface AnalyticsMentor {
   studentIds: string[]
   // Whether the mentor's account is activated (account_status "active").
   accountActive?: boolean
+  // Account status as sent by the mentor source, e.g. "active" or "deactivated".
+  accountStatus?: string | null
+  email?: string
   // Last successful login on the account (ISO timestamp), when the mentor
   // source provides it; undefined falls back to login events.
   lastLogin?: string | null
@@ -201,6 +204,8 @@ export type EmailLog = {
   title: string
   type: string
   sentAt: string
+  // ISO 8601 UTC time of the send, for exports.
+  sentAtIso: string
   status: 'Delivered' | 'Partial' | 'Opened' | 'Failed'
   attempted: number
   delivered: number
@@ -219,8 +224,8 @@ export type EmailMonitoringData = {
   sentLastHour: number
   peakHourLabel: string
   peakHourValue: number
-  hourlyUsage: Array<{ label: string; info: number; connect: number }>
-  verificationDaily: Array<{ label: string; value: number }>
+  hourlyUsage: Array<{ hour: string; label: string; info: number; connect: number }>
+  verificationDaily: Array<{ date: string; label: string; value: number }>
   verificationDailyBaseLimit: number
   statusByRole: Array<{
     role: 'Students' | 'Mentors' | 'Supervisors'

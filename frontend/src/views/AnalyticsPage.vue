@@ -26,10 +26,7 @@
           </select>
         </label>
         <div class="analytics-export-stack">
-          <button class="export-button" type="button" :disabled="exportDisabled || exporting" @click="exportCsv">
-            <i class="fas fa-download"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -345,7 +342,8 @@ import {
   type OverviewAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { useRouter } from 'vue-router'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import { SUMMARY_OPTION, exportFileName, figure, runExport, sourceLabels, summaryCsv, type SummaryRow } from '@/utils/analyticsExport'
 
 const currentYear = new Date().getFullYear()
 const availableAnalyticsYears = ref<number[]>([currentYear])
@@ -358,10 +356,10 @@ const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exporting = ref(false)
 const exportError = ref('')
 const unavailableSources = ref<AnalyticsSource[]>([])
-const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value || unavailableSources.value.length > 0 || selectedData.value.modules.some((module) => module.unavailable))
+// Unavailable sources are named in the export rather than blocking it.
+const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
 
 const overviewSummary = computed(() => {
   const originalSummary = selectedData.value.summary
@@ -939,18 +937,39 @@ const handleViewDetails = async (key: string) => {
   window.alert('This analytics page is not available yet.')
 }
 
-const exportCsv = async () => {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({
-      report: 'overview', year: String(selectedYear.value), registration_period: registrationPeriod.value,
-    }), 'overview')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
-  }
+const exportCsv = () => {
+  exportError.value = runExport(() => {
+    const year = selectedYear.value
+    const rows: SummaryRow[] = [
+      ...overviewSummary.value.flatMap((item) => {
+        const comparison = overviewComparisons.value[item.label]
+        return [
+          figure('Headline', item.label, item.value, '', item.helper),
+          ...(comparison ? [figure('Headline', `${item.label} (${year - 1})`, comparison.previous, '', 'Previous year')] : []),
+        ]
+      }),
+      ...attentionIssueDetails.value.map((item) => figure('Attention required', item.label, item.value, '', item.description)),
+      ...displayedModules.value.flatMap((module) => module.unavailable
+        ? [figure(module.title, module.title, '—')]
+        : [
+            figure(module.title, module.title, module.value, module.unit, module.helper),
+            ...(module.breakdown ?? []).map((part) => figure(module.title, part.label, part.value)),
+            // Only these mini charts have labelled points; the others repeat the breakdown.
+            ...(['registration', 'activity'].includes(module.key)
+              ? module.chart.map((value, index) => figure(module.title, `Trend: ${modulePointLabel(module.key, index)}`, value))
+              : []),
+          ]),
+    ]
+    return {
+      fileName: exportFileName('overview', 'summary', String(year)),
+      csv: summaryCsv({
+        page: 'Overview',
+        covers: `Year ${year}`,
+        filters: [['Registration period', registrationPeriod.value]],
+        unavailable: sourceLabels(unavailableSources.value),
+      }, rows),
+    }
+  })
 }
 
 onBeforeUnmount(() => window.clearTimeout(toastTimer))

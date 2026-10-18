@@ -148,7 +148,7 @@ class EmailSendRecipientsExportView(APIView):
             stream_csv(headers, rows), content_type="text/csv; charset=utf-8"
         )
         response["Content-Disposition"] = (
-            f'attachment; filename="email-{send_id}-recipients.csv"'
+            f'attachment; filename="biotech-email-recipients-send-{send_id}.csv"'
         )
         return response
 

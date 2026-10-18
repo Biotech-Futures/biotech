@@ -18,16 +18,15 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button class="export-button" type="button" :disabled="exportDisabled" @click="downloadVisibleRows">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION, DETAILS_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </header>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -405,6 +404,18 @@ import {
   buildRegistrationAnalytics,
   loadRegistrationAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  runExport,
+  summaryCsv,
+  type ExportKind,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const registrationTrend = reactive<RegistrationTrendPoint[]>([])
 const registrationCompletion = reactive({ registered: 0, guardianDetails: 0, guardianApproved: 0 })
@@ -509,7 +520,7 @@ const filteredTrend = computed(() =>
 const groupedTrend = computed(() => {
   const buckets = new Map<
     string,
-    { label: string; shortLabel: string; students: number; mentors: number }
+    { key: string; label: string; shortLabel: string; students: number; mentors: number }
   >()
   for (const point of filteredTrend.value) {
     const date = parseDate(point.date)
@@ -537,7 +548,7 @@ const groupedTrend = computed(() => {
       label = date.toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' })
       shortLabel = date.toLocaleDateString('en-AU', { month: 'short', timeZone: 'UTC' })
     }
-    const existing = buckets.get(key) ?? { label, shortLabel, students: 0, mentors: 0 }
+    const existing = buckets.get(key) ?? { key, label, shortLabel, students: 0, mentors: 0 }
     existing.students += point.students
     existing.mentors += point.mentors
     buckets.set(key, existing)
@@ -859,40 +870,61 @@ function formatDate(value: string) {
   })
 }
 
-function csvCell(value: string | number) {
-  let text = String(value)
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`
-  return `"${text.replace(/"/g, '""')}"`
+const exportError = ref('')
+
+function registrationSummary() {
+  const rows: SummaryRow[] = [
+    ...recentCards.value.flatMap((card) => [
+      figure('New registrations', `${card.label}: total`, card.total, 'users', `Up to ${endDate.value}`),
+      figure('New registrations', `${card.label}: students`, card.students, 'users'),
+      figure('New registrations', `${card.label}: mentors`, card.mentors, 'users'),
+    ]),
+    ...funnelSteps.value.flatMap((step) => [
+      figure('Registration completion', step.label, step.value, 'students'),
+      figure('Registration completion', `${step.label} (%)`, step.percent, '%', step.missing ? `${step.missing} still missing` : ''),
+    ]),
+    figure('Registration completion', 'Fully registered', completionRate.value, '%', 'Guardian approval received'),
+    ...issueCharts.value.flatMap((chart) => [
+      figure('Follow-up', chart.title, chart.total, 'students'),
+      ...chart.bars.map((bar) => figure(`Follow-up: ${chart.title}`, `${bar.label} days outstanding`, bar.value, 'students')),
+    ]),
+    ...groupedTrend.value.flatMap((bucket) => [
+      figure('Registration trend (Students)', bucket.key, bucket.students, 'users'),
+      figure('Registration trend (Mentors)', bucket.key, bucket.mentors, 'users'),
+    ]),
+  ]
+  return {
+    fileName: exportFileName('registration', 'summary', `${startDate.value} to ${endDate.value}`),
+    csv: summaryCsv({
+      page: 'Registration',
+      covers: `Trend ${startDate.value} to ${endDate.value} (UTC); completion and follow-up are current`,
+      filters: [['Trend interval', interval.value]],
+    }, rows),
+  }
 }
 
-function downloadVisibleRows() {
-  const headers = [
-    'Student',
-    'Email',
-    'Supervisor',
-    'Registration date',
-    'Source',
-    'Status',
-    'Days outstanding',
-  ]
+function registrationDetails() {
   const rows = filteredRows.value.map((row) => [
+    row.id,
     row.student,
     row.email,
-    row.supervisor,
+    row.supervisor === '—' ? '' : row.supervisor,
     row.registrationDate,
-    row.source ?? 'Unavailable',
     issueLabel(row.issue),
     row.daysOutstanding,
+    row.source ?? '',
   ])
-  const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')
-  const url = URL.createObjectURL(
-    new Blob([`\uFEFF${csv}\r\n`], { type: 'text/csv;charset=utf-8' }),
-  )
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `registration-follow-up-${endDate.value}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  return {
+    fileName: exportFileName('registration', 'details', `${issueLabel(activeIssue.value)} ${endDate.value}`),
+    csv: detailsCsv(
+      ['Student ID', 'Student', 'Email', 'Supervisor', 'Registered', 'Follow-up', 'Days Outstanding', 'Source'],
+      rows,
+    ),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? registrationSummary : registrationDetails)
 }
 </script>
 

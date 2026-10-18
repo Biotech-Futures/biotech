@@ -1,7 +1,7 @@
 <template>
   <div v-if="sources.length" class="analytics-partial-notice" role="status">
     <p>
-      Some data could not be loaded: {{ sources.map((source) => labels[source]).join(', ') }}.
+      Some data could not be loaded: {{ sourceLabels(sources).join(', ') }}.
       Available statistics remain visible. A dash or an unavailable section does not mean zero.
     </p>
     <button type="button" @click="$emit('retry')">Retry unavailable data</button>
@@ -10,20 +10,10 @@
 
 <script setup lang="ts">
 import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
+import { sourceLabels } from '@/utils/analyticsExport'
 
 defineProps<{ sources: AnalyticsSource[] }>()
 defineEmits<{ retry: [] }>()
-
-const labels: Record<AnalyticsSource, string> = {
-  users: 'participant details',
-  groups: 'group details',
-  mentors: 'mentor details',
-  groupActivity: 'message activity',
-  loginActivity: 'login history',
-  resourceAnalytics: 'resource activity',
-  emailAnalytics: 'email delivery',
-  resources: 'resource catalogue',
-}
 </script>
 
 <style scoped>

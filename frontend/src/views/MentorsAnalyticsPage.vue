@@ -21,9 +21,7 @@
           </select></label
         >
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || !!rangeError" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="loading || !!loadError || !!rangeError" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -39,7 +37,7 @@
     <p v-else-if="loading" role="status">Loading mentor analytics…</p>
     <template v-else>
     <p v-if="rangeError" class="range-error" role="alert">{{ rangeError }}</p>
-    <p v-if="exportStatus" class="export-status" role="status">{{ exportStatus }}</p>
+    <p v-if="exportError" class="export-status" role="alert">{{ exportError }}</p>
 
     <section class="kpi-grid" aria-label="Mentor snapshot summary">
       <article v-for="item in kpis" :key="item.label" class="kpi-card">
@@ -410,11 +408,27 @@ import { buildMentorData, loadMentorsAnalyticsBundle } from '@/utils/liveAnalyti
 import {
   mentorSnapshot,
   mentorActivity,
-  mentorsCsv,
+  mentorsSummaryRows,
   percent,
   validRange,
   type MetricBucket,
 } from '@/utils/mentorsAnalytics'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  activityStatusLabel,
+  detailsCsv,
+  exportFileName,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+} from '@/utils/analyticsExport'
 
 const liveMentors = ref<DemoMentor[]>([])
 const liveEvents = ref<MentorEvent[]>([])
@@ -702,39 +716,75 @@ function showActivity(event: Event, point: (typeof points.value)[number]) {
     detail: `${point.messages} messages · ${point.logins} logins`,
   }
 }
-const exportStatus = ref('')
+const exportError = ref('')
 watch(range, () => {
   hideTooltip()
-  exportStatus.value = ''
+  exportError.value = ''
 })
-function exportCsv() {
-  if (rangeError.value) return
-  try {
-    const url = URL.createObjectURL(
-      new Blob([mentorsCsv(snapshot.value, activity.value, range.value, mentorsSnapshotDate.value, {
-        groups: sourceAvailable('groups'),
-        background: sourceAvailable('users'),
-        activity: sourceAvailable('groupActivity'),
-      })], {
-        type: 'text/csv;charset=utf-8;',
-      }),
-    )
-    const anchor = document.createElement('a')
-    try {
-      anchor.href = url
-      anchor.download = `mentors-analytics-${range.value.start}-${range.value.end}.csv`
-      document.body.appendChild(anchor)
-      anchor.click()
-      exportStatus.value =
-        'CSV download started. Includes snapshot metrics and selected activity dates.'
-    } finally {
-      anchor.remove()
-      URL.revokeObjectURL(url)
-    }
-  } catch {
-    exportStatus.value = 'The CSV could not be downloaded. Please try again.'
+const exportOptions: ExportOption[] = [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'One row per mentor: status, capacity, groups and messages' },
+]
+
+function mentorsSummary() {
+  const { start, end } = range.value
+  return {
+    fileName: exportFileName('mentors', 'summary', `${start} to ${end}`),
+    csv: summaryCsv({
+      page: 'Mentors',
+      covers: `Current mentors; activity ${start} to ${end} (UTC)`,
+      dataAsOf: mentorsSnapshotDate.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, mentorsSummaryRows(snapshot.value, activity.value, {
+      groups: sourceAvailable('groups'),
+      background: sourceAvailable('users'),
+      activity: sourceAvailable('groupActivity'),
+    })),
   }
 }
+
+const backgroundLabel = (value: string) =>
+  value === 'unknown' ? '' : value === 'hdr' ? 'HDR' : value.charAt(0).toUpperCase() + value.slice(1)
+
+function mentorsDetails() {
+  const { start, end } = range.value
+  const messages = new Map<string, number>()
+  for (const event of liveEvents.value) {
+    if (event.date >= start && event.date <= end) messages.set(event.mentorId, (messages.get(event.mentorId) ?? 0) + event.messages)
+  }
+  // Snapshot rows keep only the login date; the account timestamp is on the mentor.
+  const lastLogins = new Map(liveMentors.value.map((mentor) => [mentor.id, mentor.lastLogin]))
+  const rows = [...snapshot.value.rows]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((mentor) => [
+      mentor.id,
+      mentor.name,
+      mentor.email,
+      accountStatusLabel(mentor.accountStatus, mentor.accountActive),
+      activityStatusLabel(mentor.daysSinceLogin),
+      isoUtc(lastLogins.get(mentor.id)),
+      mentor.daysSinceLogin,
+      mentor.capacity,
+      mentor.groups,
+      Math.max(mentor.capacity - mentor.groups, 0),
+      mentor.students,
+      messages.get(mentor.id) ?? 0,
+      backgroundLabel(mentor.background),
+    ])
+  return {
+    fileName: exportFileName('mentors', 'details', `${start} to ${end}`),
+    csv: detailsCsv([
+      'Mentor ID', 'Mentor', 'Email', 'Account Status', `Activity Status (${ACTIVE_WINDOW_DAYS} days)`, 'Last Login (UTC)',
+      'Days Since Last Login', 'Capacity (Groups)', 'Groups', 'Open Slots', 'Students', 'Messages in Range', 'Background',
+    ], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  if (rangeError.value) return
+  exportError.value = runExport(kind === 'summary' ? mentorsSummary : mentorsDetails)
+}
+
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await initializeMentors(true, true) })
 

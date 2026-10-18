@@ -19,16 +19,15 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
-            <i class="fas fa-download"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -646,6 +645,20 @@ import {
   type EmailAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { downloadEmailRecipientsCsv, searchEmailsToRecipient } from '@/utils/liveAnalyticsApi'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoUtc,
+  runExport,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const route = useRoute()
 const data = ref<EmailMonitoringData>({
@@ -963,41 +976,102 @@ function refreshAnalytics() {
   return loadAnalytics(true)
 }
 
-function exportLogsCsv() {
-  const rows: (string | number)[][] = [
-    ['Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Email Type', 'Email Title', 'Sent At', 'Status', 'Attempted', 'Delivered', 'Not Delivered'],
-    ...filteredLogs.value.map((log) => [
-      log.sender,
-      log.senderEmail,
-      log.recipient,
-      log.recipientEmail,
-      log.type,
-      log.title,
-      log.sentAt,
-      log.status,
-      log.attempted,
-      log.delivered,
-      log.failed,
-    ]),
-  ]
-
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'email-logs.csv'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 
 
 onMounted(() => loadAnalytics())
+
+const exportError = ref('')
+const exportOptions: ExportOption[] = [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'The email logs below, with their filters' },
+]
+
+function emailSummary() {
+  const current = data.value
+  const attribution = current.roleAttribution
+  const latestHour = current.hourlyUsage[current.hourlyUsage.length - 1]
+  const peak = current.hourlyUsage.find((row) => row.label === current.peakHourLabel)
+  const stats = current.overallStats
+  const rows: SummaryRow[] = [
+    ...mailboxSummaries.value.flatMap((mailbox) => [
+      figure(`Mailbox ${mailbox.email}`, 'Rolling 24-hour usage', mailbox.currentUsage, 'recipients'),
+      figure(`Mailbox ${mailbox.email}`, 'Quota', mailbox.quotaLimit, 'recipients'),
+      figure(`Mailbox ${mailbox.email}`, 'Quota used', mailbox.percent, '%'),
+      figure(`Mailbox ${mailbox.email}`, 'Remaining', mailbox.remaining, 'recipients'),
+    ]),
+    figure('Rolling 24 hours', 'Combined usage', combinedUsage.value, 'recipients'),
+    figure('Rolling 24 hours', 'Window end', isoUtc(analyticsSnapshotAt.value), 'UTC'),
+    figure('Rolling 24 hours', 'Latest recorded hour', latestHour ? isoUtc(latestHour.hour) : '', 'UTC'),
+    figure('Rolling 24 hours', 'Latest recorded hour attempts', current.sentLastHour, 'recipients'),
+    figure('Rolling 24 hours', 'Peak hour', peak ? isoUtc(peak.hour) : '', 'UTC'),
+    figure('Rolling 24 hours', 'Peak hour attempts', current.peakHourValue, 'recipients'),
+    figure('Emails', 'Attempted', stats.sent, 'recipients'),
+    figure('Emails', 'Delivered', stats.delivered, 'recipients'),
+    figure('Emails', 'Not delivered', stats.failed, 'recipients'),
+    figure('Emails', 'Average recipients per send', stats.averageSentPerUser, 'recipients'),
+    ...current.verificationDaily.map((point) => figure('Attempts per day', point.date, point.value, 'recipients')),
+    ...current.hourlyUsage.flatMap((row) => [
+      figure('Attempts per hour (info mailbox)', isoUtc(row.hour), row.info, 'recipients'),
+      figure('Attempts per hour (connect mailbox)', isoUtc(row.hour), row.connect, 'recipients'),
+    ]),
+    ...current.categories.map((item) => figure('Email volume by type', item.label, item.value, 'emails')),
+    figure('Role attribution', 'Availability', attribution.available ? 'Available' : 'Unavailable', '',
+      "Based on each announcement's current single-role audience, not a record made at send time"),
+    figure('Role attribution', 'Coverage', !attribution.available ? '' : attribution.complete ? 'Complete' : 'Partial'),
+    figure('Role attribution', 'Attributed sends', attribution.trackedDeliveryRuns, 'sends'),
+    figure('Role attribution', 'Unattributed sends', attribution.unattributedDeliveryRuns, 'sends'),
+    figure('Role attribution', 'Attributed attempts', attribution.trackedAttempted, 'recipients'),
+    figure('Role attribution', 'Unattributed attempts', attribution.unattributedAttempted, 'recipients'),
+    ...(attribution.available
+      ? current.statusByRole.flatMap((row) => [
+          figure(`Delivery by role (${row.role})`, 'Attempted', row.attempted, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Delivered', row.delivered, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Not delivered', row.failed, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Sends', row.trackedDeliveries, 'sends'),
+        ])
+      : []),
+    ...emailInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+  ]
+  const snapshot = isoUtc(analyticsSnapshotAt.value)
+  return {
+    fileName: exportFileName('email', 'summary', snapshot.slice(0, 10) || 'latest'),
+    csv: summaryCsv({
+      page: 'Email Monitoring',
+      covers: snapshot ? `Rolling 24 hours to ${snapshot}; daily attempts for the last 14 days` : 'Latest recorded sends',
+    }, rows),
+  }
+}
+
+function emailLogsDetails() {
+  const perRecipient = recipientMode.value
+  // A send's title repeats its type for system emails; keep it only when it adds something.
+  const titleOf = (log: EmailLog) => (log.title === log.type ? '' : log.title)
+  const rows = filteredLogs.value.map((log) => perRecipient
+    ? [
+        log.sendId, isoUtc(log.sentAtIso), log.type, titleOf(log), log.sender, log.senderEmail,
+        log.recipient === '—' ? '' : log.recipient, log.recipientEmail, log.status, log.recipientReason ?? '',
+      ]
+    : [
+        log.sendId, isoUtc(log.sentAtIso), log.type, titleOf(log), log.sender, log.senderEmail,
+        log.status, log.attempted, log.delivered, log.failed, log.recipientsRecorded,
+      ])
+  const headers = perRecipient
+    ? ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Status', 'Reason Not Delivered']
+    : ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Sender Email', 'Status', 'Recipients', 'Delivered', 'Not Delivered', 'Recipients Recorded']
+  const scope = perRecipient ? `to ${recipientQuery.value.trim()}` : isoUtc(analyticsSnapshotAt.value).slice(0, 10) || 'latest'
+  return {
+    fileName: exportFileName('email', 'logs', scope),
+    csv: detailsCsv(headers, rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? emailSummary : emailLogsDetails)
+}
+
+function exportLogsCsv() {
+  exportCsv('details')
+}
 
 async function scrollToDeepLinkTarget(hash: string) {
   if (!hash) return
@@ -1025,94 +1099,6 @@ watch(
   { immediate: true },
 )
 
-function exportCsv() {
-  const rows: (string | number)[][] = [
-    ['Email Monitoring'],
-    [],
-    ['Metric', 'Value'],
-    ...mailboxSummaries.value.flatMap((mailbox) => [
-      [`${mailbox.email} - 24-Hour Usage`, mailbox.currentUsage],
-      [`${mailbox.email} - Quota Limit`, mailbox.quotaLimit],
-      [`${mailbox.email} - Quota Used (%)`, mailbox.percent],
-      [`${mailbox.email} - Remaining`, mailbox.remaining],
-    ]),
-    ['Combined 24-Hour Usage', combinedUsage.value],
-    ['Mailbox Limit', data.value.verificationDailyBaseLimit],
-    ...data.value.verificationDaily.map((point) => [`Delivery Attempts - ${point.label}`, point.value]),
-    ['Rolling 24-Hour Window End (UTC)', analyticsSnapshotLabel.value || 'Unavailable'],
-    ['Latest Recorded UTC Hour', latestRecordedHourLabel.value],
-    ['Latest Recorded UTC Hour Attempts', data.value.sentLastHour],
-    ['Peak Hour', data.value.peakHourLabel],
-    ['Peak Hour Attempted Recipients', data.value.peakHourValue],
-    [],
-    ['Overall Email Stats'],
-    ['Emails Delivered', data.value.overallStats.delivered],
-    ['Emails Sent', data.value.overallStats.sent],
-    ['Emails Failed', data.value.overallStats.failed],
-    ['Emails Clicked', optionalMetric(data.value.overallStats.clicked)],
-    ['Emails Opened', optionalMetric(data.value.overallStats.opened)],
-    ['Marked as Spam', optionalMetric(data.value.overallStats.spam)],
-    ['Average Attempted Recipients per Delivery Run', optionalMetric(data.value.overallStats.averageSentPerUser)],
-    ['Average Opened per User', optionalMetric(data.value.overallStats.averageOpenedPerUser)],
-    ['Average Clicked per User', optionalMetric(data.value.overallStats.averageClickedPerUser)],
-    [],
-    ['Role Attribution'],
-    ['Basis', 'Current single-role announcement audience; not a send-time historical role snapshot'],
-    ['Availability', data.value.roleAttribution.available ? 'Available' : 'Unavailable'],
-    [
-      'Coverage',
-      !data.value.roleAttribution.available
-        ? 'Unavailable'
-        : data.value.roleAttribution.complete
-          ? 'Complete'
-          : 'Partial',
-    ],
-    ['Attributed Delivery Runs', data.value.roleAttribution.trackedDeliveryRuns],
-    ['Unattributed Delivery Runs', data.value.roleAttribution.unattributedDeliveryRuns],
-    ['Attributed Attempts', data.value.roleAttribution.trackedAttempted],
-    ['Unattributed Attempts', data.value.roleAttribution.unattributedAttempted],
-    ['Attributed Delivered', data.value.roleAttribution.trackedDelivered],
-    ['Unattributed Delivered', data.value.roleAttribution.unattributedDelivered],
-    ['Attributed Failed', data.value.roleAttribution.trackedFailed],
-    ['Unattributed Failed', data.value.roleAttribution.unattributedFailed],
-    ['Role', 'Attributed Delivery Runs', 'Attempted', 'Delivered', 'Failed', 'Opened'],
-    ...(data.value.roleAttribution.available
-      ? data.value.statusByRole.map((row) => [
-          row.role,
-          row.trackedDeliveries,
-          row.attempted,
-          row.delivered,
-          row.failed,
-          optionalMetric(row.opened),
-        ])
-      : [['Unavailable', '', '', '', '', 'Unavailable']]),
-    [],
-    ['Hour', 'info@biotechfutures.org', 'connect@biotechfutures.org', 'Combined'],
-    ...data.value.hourlyUsage.map((item) => [
-      item.label,
-      item.info,
-      item.connect,
-      item.info + item.connect,
-    ]),
-    [],
-    ['Email Type', 'Messages'],
-    ...data.value.categories.map((item) => [item.label, item.value]),
-  ]
-
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'email-monitoring.csv'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 </script>
 
 <style src="@/assets/analytics-theme.css"></style>

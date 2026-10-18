@@ -353,7 +353,7 @@ export async function downloadEmailRecipientsCsv(sendId: number): Promise<string
   const candidate = /filename="?([^";]+)"?/i.exec(response.headers.get('Content-Disposition') ?? '')?.[1]
   const filename = candidate && /^[a-z0-9][a-z0-9._-]*\.csv$/i.test(candidate)
     ? candidate
-    : `email-${sendId}-recipients.csv`
+    : `biotech-email-recipients-send-${sendId}.csv`
   const url = window.URL.createObjectURL(await response.blob())
   const link = document.createElement('a')
   link.href = url

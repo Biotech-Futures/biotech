@@ -1,3 +1,4 @@
+import type { SummaryRow } from '@/utils/analyticsExport'
 import type { DemoMentor, MentorEvent } from '@/types/analytics'
 
 export interface MetricBucket {
@@ -240,105 +241,76 @@ export function mentorActivity(mentors: DemoMentor[], events: MentorEvent[], ran
   }
 }
 
-export function mentorsCsv(
+/** Summary export rows: every figure on the Mentors page. */
+export function mentorsSummaryRows(
   snapshot: ReturnType<typeof mentorSnapshot>,
   activity: ReturnType<typeof mentorActivity>,
-  range: MentorRange,
-  asOf: string,
   available: { groups?: boolean; background?: boolean; activity?: boolean } = {},
-) {
+): SummaryRow[] {
   const groupsAvailable = available.groups !== false
   const activityAvailable = available.activity !== false
-  const unknown = 'Unavailable'
-  const rows: (string | number)[][] = [
-    ['Section', 'Metric', 'Value', 'Detail'],
-    ['Metadata', 'Source', 'Django analytics API', 'Local database-backed data'],
-    ['Metadata', 'Snapshot date', asOf, 'UTC'],
-    ['Metadata', 'Activity start', range.start, 'Inclusive UTC date'],
-    ['Metadata', 'Activity end', range.end, 'Inclusive UTC date'],
-    ['Summary', 'Total Mentors', snapshot.total],
-    ['Summary', 'Mentor Utilisation (%)', groupsAvailable ? snapshot.utilisation : unknown],
-    ['Summary', 'Assigned Mentors', groupsAvailable ? snapshot.assigned : unknown],
-    ['Summary', 'Unassigned Mentors', groupsAvailable ? snapshot.unassigned : unknown],
-    [
-      'Summary',
-      'Average Students per Mentor',
-      groupsAvailable ? snapshot.averageStudents : unknown,
-      'Assigned mentors only; unique students per mentor',
-    ],
+  const unavailable = (section: string): SummaryRow =>
+    ({ section, metric: 'Availability', value: '', notes: 'The data for this section could not be loaded' })
+  const rows: SummaryRow[] = [
+    { section: 'Mentors', metric: 'Total mentors', value: snapshot.total, unit: 'mentors' },
   ]
-  for (const [section, buckets] of Object.entries({
-    Status: snapshot.status,
-    Background: snapshot.background,
-    Capacity: snapshot.capacity,
-    'Groups per Mentor': snapshot.groups,
-    'Students per Mentor': snapshot.students,
-    'Last Login': snapshot.lastLogin,
-    Coverage: snapshot.coverage,
-  })) {
-    // Last Login comes from the mentor accounts, so it does not depend on the
-    // message activity source.
-    const missing = section === 'Background' ? available.background === false
-      : section === 'Last Login' ? false
-        : section !== 'Status' && !groupsAvailable
-    if (missing) {
-      rows.push([section, 'Availability', unknown, 'The data for this section could not be loaded.'])
-      continue
-    }
-    const [base, baseLabel] = section === 'Capacity'
-      ? [snapshot.capacityPool.activatedMentors, 'activated mentors']
-      : [snapshot.total, 'mentors']
-    for (const bucket of buckets)
-      rows.push([
-        section,
-        bucket.label,
-        bucket.value,
-        `${percent(bucket.value, base)}% of ${baseLabel}`,
-      ])
-  }
-  for (const point of activityAvailable ? activity.monthly : []) {
-    rows.push([
-      'Monthly Activity',
-      point.month,
-      point.active,
-      'Distinct mentors with a login or message',
-    ])
-    rows.push(
-      ['Monthly Messages', point.month, point.messages],
-      ['Monthly Logins', point.month, point.logins],
-    )
-  }
-  ;(activityAvailable ? activity.ranking : []).forEach((mentor, index) =>
-    rows.push(['Mentor Activity', mentor.name, mentor.messages, `Rank ${index + 1}; messages in range`]),
-  )
   if (groupsAvailable) {
     const pool = snapshot.capacityPool
     rows.push(
-      ['Capacity Pool', 'Activated mentors', pool.activatedMentors, 'Accounts with status active'],
-      ['Capacity Pool', 'Total group capacity', pool.totalSlots, 'Sum of activated mentors\' configured capacity'],
-      ['Capacity Pool', 'Groups supported', pool.usedSlots, 'Current groups of activated mentors'],
-      ['Capacity Pool', 'Open group slots', pool.openSlots, 'Capacity not yet used'],
-      ['Capacity Pool', 'Utilisation (%)', pool.utilisation, 'Groups supported / total capacity'],
+      { section: 'Mentors', metric: 'Mentors with a group', value: snapshot.assigned, unit: 'mentors' },
+      { section: 'Mentors', metric: 'Mentors without a group', value: snapshot.unassigned, unit: 'mentors' },
+      { section: 'Mentors', metric: 'Mentors with a group (%)', value: snapshot.utilisation, unit: '%', notes: 'Share of all mentors' },
+      {
+        section: 'Mentors', metric: 'Average students per mentor', value: snapshot.averageStudents, unit: 'students',
+        notes: 'Mentors with a group; unique students',
+      },
+      { section: 'Capacity pool', metric: 'Activated mentors', value: pool.activatedMentors, unit: 'mentors', notes: 'Account status active' },
+      { section: 'Capacity pool', metric: 'Total capacity', value: pool.totalSlots, unit: 'groups', notes: "Sum of activated mentors' configured capacity" },
+      { section: 'Capacity pool', metric: 'Groups supported', value: pool.usedSlots, unit: 'groups' },
+      { section: 'Capacity pool', metric: 'Open slots', value: pool.openSlots, unit: 'groups' },
+      { section: 'Capacity pool', metric: 'Capacity used (%)', value: pool.utilisation, unit: '%', notes: 'Groups supported / total capacity' },
     )
+  } else {
+    rows.push(unavailable('Capacity pool'))
   }
-  if (!activityAvailable) rows.push(['Monthly Activity', 'Availability', unknown, 'Message activity could not be loaded.'])
-  snapshot.insights.forEach((item) => {
-    const missing = ['Unassigned mentors', 'Near capacity', 'Over capacity'].includes(item.label)
-      ? !groupsAvailable
-      : false
-    rows.push(['Insight', item.label, missing ? unknown : item.value,
-      missing ? 'The data for this metric could not be loaded.' : item.detail])
-  })
-  return (
-    '\ufeff' +
-    rows
-      .map((row) =>
-        Array.from({ length: 4 }, (_, index) => {
-          let value = String(row[index] ?? '')
-          if (/^[=+@\-\t\r]/.test(value)) value = `'${value}`
-          return `"${value.replace(/"/g, '""')}"`
-        }).join(','),
+  const sections: Array<[string, MetricBucket[], boolean, number, string]> = [
+    ['Mentor status', snapshot.status, true, snapshot.total, 'mentors'],
+    ['Background', snapshot.background, available.background !== false, snapshot.total, 'mentors'],
+    ['Capacity split', snapshot.capacity, groupsAvailable, snapshot.capacityPool.activatedMentors, 'activated mentors'],
+    ['Groups per mentor', snapshot.groups, groupsAvailable, snapshot.total, 'mentors'],
+    ['Students per mentor', snapshot.students, groupsAvailable, snapshot.total, 'mentors'],
+    // Last login comes from the mentor accounts, not the message activity.
+    ['Last login', snapshot.lastLogin, true, snapshot.total, 'mentors'],
+    ['Coverage', snapshot.coverage, groupsAvailable, snapshot.total, 'mentors'],
+  ]
+  for (const [section, buckets, isAvailable, base, baseLabel] of sections) {
+    if (!isAvailable) {
+      rows.push(unavailable(section))
+      continue
+    }
+    for (const bucket of buckets) {
+      rows.push({ section, metric: bucket.label, value: bucket.value, unit: 'mentors', notes: `${percent(bucket.value, base)}% of ${baseLabel}` })
+    }
+  }
+  if (activityAvailable) {
+    for (const point of activity.monthly) {
+      rows.push(
+        { section: 'Monthly activity', metric: `${point.month}: active mentors`, value: point.active, unit: 'mentors', notes: 'A login or a message' },
+        { section: 'Monthly activity', metric: `${point.month}: messages`, value: point.messages, unit: 'messages' },
+        { section: 'Monthly activity', metric: `${point.month}: logins`, value: point.logins, unit: 'logins' },
       )
-      .join('\r\n')
-  )
+    }
+    activity.ranking.forEach((mentor, index) => rows.push({
+      section: 'Mentor activity', metric: mentor.name, value: mentor.messages, unit: 'messages', notes: `Rank ${index + 1} in the date range`,
+    }))
+  } else {
+    rows.push(unavailable('Monthly activity'))
+  }
+  for (const item of snapshot.insights) {
+    const missing = !groupsAvailable && ['Unassigned mentors', 'Near capacity', 'Over capacity'].includes(item.label)
+    rows.push(missing
+      ? { section: 'Key insights', metric: item.label, value: '', notes: 'The data for this metric could not be loaded' }
+      : { section: 'Key insights', metric: item.label, value: item.value, unit: 'mentors', notes: item.detail })
+  }
+  return rows
 }

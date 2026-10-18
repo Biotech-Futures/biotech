@@ -28,10 +28,7 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION, DETAILS_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -849,7 +846,26 @@ import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { UserAnalyticsYear } from '@/types/analytics'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import type { AdminUser } from '@/utils/liveAnalyticsApi'
+import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  activityStatusLabel,
+  daysSince,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoDay,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 import {
   buildUsersAnalytics,
   liveAnalyticsAsOf,
@@ -885,9 +901,10 @@ const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exporting = ref(false)
 const exportError = ref('')
 const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
+// Current participants (students, mentors, supervisors) for the details export.
+const participants = ref<AdminUser[]>([])
 
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
@@ -910,6 +927,9 @@ async function loadAnalytics(force = false, preserveFilters = false) {
       selectedYear.value = year
     }
     liveData.value = buildUsersAnalytics(bundle)
+    participants.value = bundle.users.filter((user) =>
+      !user.isAdmin && ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
+    )
     isEmpty.value = liveData.value.totalUsers === 0
     hasLoaded.value = true
     markUpdated()
@@ -1269,7 +1289,7 @@ const lastLoginTicks = computed(() =>
 
 // Activity Status by Role uses its own 14-day login window; the daily, weekly
 // and monthly active-user windows elsewhere are unchanged.
-const ACTIVE_STATUS_WINDOW_DAYS = 14
+const ACTIVE_STATUS_WINDOW_DAYS = ACTIVE_WINDOW_DAYS
 
 const analyticsAsOfLabel = computed(() => {
   const date = analyticsAsOf.value ? new Date(`${analyticsAsOf.value}T00:00:00Z`) : null
@@ -1832,16 +1852,103 @@ function trendPoints(values: number[]) {
     .join(' ')
 }
 
-async function exportCsv() {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({ report: 'users', year: String(selectedYear.value) }), 'users')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const roleTitle = (role: string | null) => {
+  const value = (role ?? '').toLowerCase()
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : ''
+}
+
+function usersSummary() {
+  const current = data.value
+  const year = selectedYear.value
+  const rows: SummaryRow[] = [
+    figure('Users', 'Total users', current.totalUsers, 'users'),
+    figure('Users', 'Students', current.students, 'users'),
+    figure('Users', 'Mentors', current.mentors, 'users'),
+    figure('Users', 'Supervisors', current.supervisors, 'users'),
+    ...([
+      ['Total users', current.totalGrowth],
+      ['Students', current.studentGrowth],
+      ['Mentors', current.mentorGrowth],
+      ['Supervisors', current.supervisorGrowth],
+    ] as const)
+      .filter(([, change]) => change !== null)
+      .map(([label, change]) => figure('Change vs previous year', label, change, '%', `Compared with ${year - 1}`)),
+    ...loginRates.value.map((rate) => figure('Logged in at least once', rate.label, rate.value, '%')),
+    ...activityStatusByRole.value.flatMap((row) => [
+      figure(`Activity status (${row.role}s)`, 'Active', row.active, 'users', `Logged in within the last ${ACTIVE_WINDOW_DAYS} days`),
+      figure(`Activity status (${row.role}s)`, 'Inactive', row.inactive, 'users'),
+      figure(`Activity status (${row.role}s)`, 'Never logged in', row.never, 'users'),
+    ]),
+    ...lastLoginRoles.flatMap((role) =>
+      lastLoginStacks.value.map((bucket) => figure(`Last login (${role.label}s)`, bucket.label, bucket[role.key], 'users')),
+    ),
+    ...(['students', 'mentors', 'supervisors'] as const).flatMap((role) =>
+      visibleRegistrationMonths.value.map((_, month) => figure(
+        `Registrations (${roleTitle(role.slice(0, -1))}s)`,
+        `${year}-${String(month + 1).padStart(2, '0')}`,
+        visibleRegistrationSeries.value[role][month] ?? 0,
+        'users',
+      )),
+    ),
+    ...sortedInterests.value.flatMap((interest) => [
+      figure('Areas of interest (Students)', interest.name, interest.students, 'users'),
+      figure('Areas of interest (Mentors)', interest.name, interest.mentors, 'users'),
+    ]),
+    ...current.regions.map((region) => figure('Users by region', region.name, region.value, 'users')),
+    ...current.dailyActivity.labels.map((label, index) =>
+      figure('Daily activity', label, current.dailyActivity.total[index] ?? 0, 'users'),
+    ),
+  ]
+  return {
+    fileName: exportFileName('users', 'summary', String(year)),
+    csv: summaryCsv({
+      page: 'Users',
+      covers: `Current participants; registrations for ${year}`,
+      dataAsOf: analyticsAsOf.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function usersDetails() {
+  const asOfDay = analyticsAsOf.value || isoDay(new Date())
+  const asOf = new Date(`${asOfDay}T00:00:00Z`)
+  const roleOrder = ['student', 'mentor', 'supervisor']
+  const rows = [...participants.value]
+    .sort((a, b) =>
+      roleOrder.indexOf((a.role ?? '').toLowerCase()) - roleOrder.indexOf((b.role ?? '').toLowerCase())
+      || `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
+    )
+    .map((user) => {
+      const days = daysSince(user.lastLogin, asOf)
+      return [
+        user.id,
+        `${user.firstName} ${user.lastName}`.trim(),
+        user.email,
+        roleTitle(user.role),
+        accountStatusLabel(user.accountStatus, user.isActive),
+        activityStatusLabel(days),
+        isoUtc(user.lastLogin),
+        days,
+        isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+        user.groupName,
+        user.schoolName,
+        user.country?.countryName,
+        user.state?.stateName,
+        user.interests.join('; '),
+      ]
+    })
+  return {
+    fileName: exportFileName('users', 'details', asOfDay),
+    csv: detailsCsv([
+      'User ID', 'Name', 'Email', 'Role', 'Account Status', `Activity Status (${ACTIVE_WINDOW_DAYS} days)`,
+      'Last Login (UTC)', 'Days Since Last Login', 'Registered (UTC)', 'Group', 'School', 'Country', 'State', 'Interests',
+    ], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? usersSummary : usersDetails)
 }
 </script>
 

@@ -866,6 +866,17 @@
   .resources-analytics-page .page-heading {
     grid-template-columns: 1fr !important;
   }
+
+  /* On these pages the export button leads the actions row, so once the
+     actions drop below the title it sits at the left edge; the status line
+     runs rightwards from it instead of past the content area. */
+  .messages-analytics-page .analytics-update-status,
+  .activity-analytics-page .analytics-update-status,
+  .email-monitoring-page .analytics-update-status {
+    left: 0;
+    right: auto;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 680px) {

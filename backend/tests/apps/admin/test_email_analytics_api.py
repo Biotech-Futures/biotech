@@ -257,7 +257,7 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response["Content-Disposition"], f'attachment; filename="email-{metric.id}-recipients.csv"',
+            response["Content-Disposition"], f'attachment; filename="biotech-email-recipients-send-{metric.id}.csv"',
         )
         lines = b"".join(response.streaming_content).decode("utf-8-sig").splitlines()
         self.assertEqual(

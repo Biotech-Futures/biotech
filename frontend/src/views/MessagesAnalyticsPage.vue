@@ -19,10 +19,11 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || (contentMode === 'users' && (!sourceAvailable('users') || !sourceAvailable('groups'))) || !availableYears.length || userGroupCountsUnavailable || userRecentGroupCountsUnavailable || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu
+            :options="exportOptions"
+            :disabled="loading || !!loadError || !availableYears.length || !periodDateRange().start"
+            @select="exportCsv"
+          />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -504,7 +505,20 @@ import {
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import type { GroupActivityResponse } from '@/utils/liveAnalyticsApi'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const availableYears = ref<number[]>([])
 const selectedYear = ref(0)
@@ -526,7 +540,6 @@ const baseBundle = ref<CoreAnalyticsBundle | null>(null)
 const currentActivity = ref<GroupActivityResponse | null>(null)
 const recentActivity = ref<GroupActivityResponse | null>(null)
 const loading = ref(true)
-const exporting = ref(false)
 const exportError = ref('')
 let initializing = false
 
@@ -1026,7 +1039,7 @@ const maxBreakdownMessages = computed(() =>
 const timeSeries = computed(() => {
   const activity = currentActivity.value
   const range = periodDateRange()
-  if (!activity || !range.start || !range.end) return { labels: [] as string[], values: [] as number[] }
+  if (!activity || !range.start || !range.end) return { keys: [] as string[], labels: [] as string[], values: [] as number[] }
 
   const rows = selectedGroupId.value === 'all'
     ? activity.messages_by_day.map((row) => ({ date: row.date, value: row.message_count }))
@@ -1072,6 +1085,7 @@ const timeSeries = computed(() => {
     if (bucket) bucket.value += row.value
   }
   return {
+    keys: [...buckets.keys()],
     labels: [...buckets.values()].map((bucket) => bucket.label),
     values: [...buckets.values()].map((bucket) => bucket.value),
   }
@@ -1254,27 +1268,86 @@ function resetFilters() {
   detailsSortDirection.value = 'desc'
 }
 
-async function exportCsv() {
-  const range = periodDateRange()
-  if (!range.start || !range.end) return
-  const params = new URLSearchParams({
-    report: 'messages', start_date: range.start, end_date: range.end,
-    interval: interval.value, mode: contentMode.value,
-    search: detailsSearch.value.trim(), sort_by: effectiveDetailsSortKey.value,
-    sort_order: detailsSortDirection.value, show_all_details: String(showAllMessageDetails.value),
-  })
-  if (selectedGroupId.value !== 'all') params.set('group_id', String(selectedGroupId.value))
-  if (contentMode.value === 'users') params.set('user_role', selectedUserRole.value)
-  if (datasetAnchorDay.value) params.set('anchor_date', datasetAnchorDay.value)
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(params, 'messages')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  {
+    ...DETAILS_OPTION,
+    description: contentMode.value === 'groups'
+      ? 'One row per group in the details table, with its filters'
+      : 'One row per user in the details table, with its filters',
+    disabled: contentMode.value === 'users' && (!sourceAvailable('users') || !sourceAvailable('groups')),
+  },
+])
+
+function messagesSummary() {
+  const { start, end } = periodDateRange()
+  const previous = previousPeriodMetrics.value
+  const rows: SummaryRow[] = [
+    figure('Messages', 'Messages (all time)', totalMessages.value, 'messages'),
+    figure('Messages', 'Messages in the period', periodTotal.value, 'messages'),
+    figure('Messages', 'Messages in the same period last year', previous.messages, 'messages'),
+    figure('Messages', 'Groups with messages', groupsWithMessages.value, 'groups'),
+    figure('Messages', 'Groups with messages last year', previous.groupsWithMessages, 'groups'),
+    figure('Messages', 'Group coverage', groupCoverage.value, '%', `Of ${data.value.totalGroups} groups`),
+    figure('Messages', 'Average per group', averagePerGroup.value, 'messages', 'Groups with messages'),
+    figure('Messages', 'Average per group last year', previous.averagePerGroup, 'messages'),
+    figure('Messages', 'Most active group', mostActiveGroup.value.name, '', `${mostActiveGroup.value.value} messages`),
+    figure('Messages', 'Least active group', leastActiveGroup.value.name, '', `${leastActiveGroup.value.value} messages`),
+    ...messageInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+    ...timeSeries.value.keys.map((key, index) =>
+      figure(`Messages over time (${chartPeriodName.value})`, key, timeSeries.value.values[index] ?? 0, 'messages'),
+    ),
+    ...breakdownItems.value.map((item) =>
+      figure(contentMode.value === 'groups' ? 'Messages by group' : 'Messages by user', item.name, item.value, 'messages'),
+    ),
+  ]
+  return {
+    fileName: exportFileName('messages', 'summary', `${start} to ${end}`),
+    csv: summaryCsv({
+      page: 'Messages',
+      covers: `${start} to ${end} (UTC)`,
+      filters: [
+        ['View', contentMode.value],
+        ['Group', selectedGroupLabel.value],
+        ['Trend interval', interval.value],
+        ...(contentMode.value === 'users' ? [['Role', selectedUserRole.value] as [string, string]] : []),
+      ],
+      dataAsOf: datasetAnchorDay.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function messagesDetails() {
+  const { start, end } = periodDateRange()
+  const scope = showAllMessageDetails.value ? 'all dates' : `${start} to ${end}`
+  if (contentMode.value === 'groups') {
+    return {
+      fileName: exportFileName('messages', 'details', `groups ${scope}`),
+      csv: detailsCsv(
+        ['Group ID', 'Group', 'Messages', 'Average per Day', 'Messages (Last 7 Days)', 'Share of Messages (%)'],
+        filteredSortedTableGroups.value.map((group) => [group.id, group.name, group.value, group.avgPerDay, group.last7Days, group.share]),
+      ),
+    }
+  }
+  return {
+    fileName: exportFileName('messages', 'details', `users ${scope}`),
+    csv: detailsCsv(
+      ['User ID', 'User', 'Role', 'Groups', 'Messages', 'Messages (Last 7 Days)'],
+      filteredSortedTableUsers.value.map((user) => [
+        user.id,
+        user.name,
+        roleForItem(user),
+        userGroupName(user.id).replace(/^Group (—|unavailable)$/, ''),
+        user.value,
+        user.last7Days,
+      ]),
+    ),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? messagesSummary : messagesDetails)
 }
 </script>
 

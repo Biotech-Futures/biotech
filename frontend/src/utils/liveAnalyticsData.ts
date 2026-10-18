@@ -918,6 +918,8 @@ export function buildMentorData(bundle: MentorAnalyticsBundle) {
       groupIds: groups.map((group) => group.id),
       studentIds: [...new Set(studentIds)],
       accountActive: mentor.accountStatus ? mentor.accountStatus === 'active' : mentor.isActive,
+      accountStatus: mentor.accountStatus ?? null,
+      email: mentor.email,
       lastLogin: mentor.lastLogin,
     }
   })
@@ -988,6 +990,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
   const hourlyUsage = [...new Set([...infoHourly.keys(), ...connectHourly.keys()])]
     .sort((left, right) => left.localeCompare(right))
     .map((hour) => ({
+      hour,
       label: `${hour.slice(0, 13).replace('T', ' ')}:00 UTC`,
       info: infoHourly.get(hour)?.attempted ?? 0,
       connect: connectHourly.get(hour)?.attempted ?? 0,
@@ -1011,6 +1014,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
   const daily = [...combinedDailyMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, value]) => ({
+      date,
       label: new Date(`${date}T00:00:00Z`).toLocaleDateString('en-AU', {
         day: '2-digit',
         month: 'short',
@@ -1119,6 +1123,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           title: row.title ?? row.email_type_label,
           type: row.email_type_label,
           sentAt: formatLogTime(row.started_at),
+          sentAtIso: row.started_at,
           status: logStatus(row.status, row.delivered, row.failed),
           attempted: row.attempted,
           delivered: row.delivered,
@@ -1135,6 +1140,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           title: row.title,
           type: 'Announcement notification',
           sentAt: formatLogTime(row.started_at),
+          sentAtIso: row.started_at,
           status: logStatus(row.status, row.success_count, row.failure_count),
           attempted: row.recipient_count,
           delivered: row.success_count,
@@ -1156,6 +1162,7 @@ export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[
     title: row.title ?? row.email_type_label,
     type: row.email_type_label,
     sentAt: formatLogTime(row.started_at),
+    sentAtIso: row.started_at,
     status: row.recipient.status === 'delivered' ? 'Delivered' : 'Failed',
     attempted: row.attempted,
     delivered: row.delivered,
@@ -1303,7 +1310,7 @@ export function buildOverviewAnalytics(bundle: OverviewAnalyticsBundle): Analyti
       },
       {
         key: 'email', title: 'Email Monitoring', value: email.overallStats.sent.toLocaleString(), unit: '24h recipients',
-        helper: 'Announcement delivery attempts in the current rolling 24-hour window', icon: 'mail-check', tone: 'orange', source: 'live-api',
+        helper: 'Email delivery attempts (every email type) in the current rolling 24-hour window', icon: 'mail-check', tone: 'orange', source: 'live-api',
         chart: email.mailboxes.map((mailbox) => percent(mailbox.currentUsage, mailbox.quotaLimit)),
       },
     ],
