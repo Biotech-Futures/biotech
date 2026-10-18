@@ -7,9 +7,12 @@ import type {
 } from '@/registration/registrationGateway'
 import type { RegistrationIntakeJourney } from '@/registration/registration'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { readEmailCheckJobId, readEmailCheckStatus, runEmailCheck } from './emailPrecheck'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import {
+  REGISTRATION_OVERRIDE_FIELDS,
   buildProductionRegistrationRequest,
+  parseOverridePath,
   registrationFormPath,
   studentRequestPrefixes,
 } from './productionRegistration'
@@ -18,6 +21,9 @@ interface HttpRegistrationGatewayOptions {
   endpoint: string
   fetchImpl?: typeof fetch
   ensureCsrf?: typeof ensureCsrfCookie
+  /** Where to check a registration's email addresses before submitting it.
+   *  Without one, the gateway doesn't check them. */
+  emailCheckEndpoint?: string
 }
 
 type ReceiptSource = Record<string, unknown>
@@ -94,16 +100,13 @@ const normalizeWarnings = (
       !item.message.trim()
     )
       return null
-    const match =
-      /^students\.(\d+)\.overrides\.(ConfirmSchoolOverride|ConfirmNameEmailOverride)$/.exec(
-        item.override_field,
-      )
+    // Each warning is about the field its override confirms, for a student in the request.
+    const override = parseOverridePath(item.override_field)
     if (
-      !match ||
+      !override ||
       overrideFields.has(item.override_field) ||
-      !studentRequestPrefixes(request)[Number(match[1])] ||
-      item.field !==
-        `students.${match[1]}.${match[2] === 'ConfirmSchoolOverride' ? 'school' : 'email'}`
+      !studentRequestPrefixes(request)[override.index] ||
+      item.field !== `students.${override.index}.${REGISTRATION_OVERRIDE_FIELDS[override.name]}`
     )
       return null
     overrideFields.add(item.override_field)
@@ -121,7 +124,53 @@ export const createHttpRegistrationGateway = ({
   endpoint,
   fetchImpl = fetch,
   ensureCsrf = ensureCsrfCookie,
+  emailCheckEndpoint,
 }: HttpRegistrationGatewayOptions): RegistrationGateway => ({
+  ...(emailCheckEndpoint
+    ? {
+        async checkEmails(request, options, onProgress) {
+          if (request.journey === 'mentor') return 'skipped'
+          const checkEndpoint = emailCheckEndpoint.replace(/\/?$/, '/')
+          return runEmailCheck(
+            {
+              async start() {
+                const csrfApiBaseUrl = csrfBaseUrl(checkEndpoint)
+                if (!(await ensureCsrf(csrfApiBaseUrl))) return null
+                const headers = buildSessionHeaders({
+                  includeCSRF: true,
+                  csrfApiBaseUrl,
+                  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                })
+                if (options.invitationToken)
+                  headers.set('X-Registration-Invitation', options.invitationToken)
+                // The registration as it would be submitted, without its photos.
+                const production = buildProductionRegistrationRequest(request, options.overrides)
+                if (options.supervisorEmail?.trim()) {
+                  ;(production.payload as Record<string, unknown>).supervisorEmail =
+                    options.supervisorEmail.trim()
+                }
+                const response = await fetchImpl(checkEndpoint, {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers,
+                  body: JSON.stringify(production),
+                })
+                return response.status === 202 ? readEmailCheckJobId(await response.json()) : null
+              },
+              async poll(jobId) {
+                const response = await fetchImpl(`${checkEndpoint}${encodeURIComponent(jobId)}/`, {
+                  method: 'GET',
+                  credentials: 'include',
+                  headers: { Accept: 'application/json' },
+                })
+                return response.ok ? readEmailCheckStatus(await response.json()) : null
+              },
+            },
+            onProgress,
+          )
+        },
+      }
+    : {}),
   async submit(request, options = {}): Promise<RegistrationGatewayResult> {
     const csrfApiBaseUrl = csrfBaseUrl(endpoint)
     let csrfReady = false
@@ -267,7 +316,10 @@ export const configuredRegistrationGateway = (
 ): RegistrationGateway => {
   const normalizedEndpoint = endpoint?.trim()
   const base = apiBaseUrl?.trim().replace(/\/+$/, '') || ''
+  const registration = normalizedEndpoint || `${base}/api/v1/registration`
   return createHttpRegistrationGateway({
-    endpoint: normalizedEndpoint || `${base}/api/v1/registration`,
+    endpoint: registration,
+    // Beside registration: /api/v1/registration/email-check/.
+    emailCheckEndpoint: `${registration.replace(/\/+$/, '')}/email-check/`,
   })
 }
