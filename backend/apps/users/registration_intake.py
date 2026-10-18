@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import uuid
 from datetime import timedelta
 from urllib.parse import quote
@@ -34,12 +35,14 @@ from .models import (
     AreasOfInterest, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
     StudentProfile, StudentSupervisor, SupervisorProfile, User, UserInterest,
 )
+from .email_verification import verify_after_commit
 from .profile_images import save_profile_image, validate_profile_image
 from .serializers import (
     REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings,
 )
 
+logger = logging.getLogger(__name__)
 
 JOURNEY = "student_individual"
 GROUP_JOURNEYS = {"student_team", "supervisor_group"}
@@ -500,6 +503,32 @@ def save_student(student, supervisor, now, *, registered_by):
     return user
 
 
+def checked_addresses(students) -> list[str]:
+    """The email addresses a registration has checked (QuickEmailVerification):
+    each student's own, unless they confirmed it past the name/email warning,
+    and each guardian's given. Lower case, each once, in the form's order."""
+    addresses = []
+    for student in students:
+        if not student["overrides"].get("ConfirmNameEmailOverride"):
+            addresses.append(student["email"])
+        addresses.append(student["guardian"].get("email", ""))
+    return list(dict.fromkeys(
+        address.strip().lower() for address in addresses if address and address.strip()
+    ))
+
+
+def check_addresses_after_commit(students) -> None:
+    """Check the registration's addresses in the background once it's saved,
+    when EMAIL_VERIFICATION_ENABLED is on. Never raises: a registration never
+    waits on, or fails because of, the check."""
+    if not getattr(settings, "EMAIL_VERIFICATION_ENABLED", False):
+        return
+    try:
+        verify_after_commit(checked_addresses(students))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("registration.email_check_not_scheduled error=%s", type(exc).__name__)
+
+
 def registering_as_admin(user) -> bool:
     """An admin registering students (Management > Registration) who isn't a
     supervisor: their students have no supervisor, registered by an admin."""
@@ -796,6 +825,8 @@ def register(request):
             # students for a supervisor or for none).
             registering = request.user if journey in SUPERVISOR_JOURNEYS and not supervisor.get("admin") else None
             transaction.on_commit(lambda: send_registration_emails(journey, users, supervisor=registering))
+            # And whether its addresses exist, once it's saved (never for one rolled back).
+            check_addresses_after_commit(students)
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:

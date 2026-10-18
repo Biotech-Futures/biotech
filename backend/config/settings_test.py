@@ -62,6 +62,9 @@ BULK_EMAIL_QUEUE_GAP_SECONDS = 0
 # environment (its HTTP is mocked anyway), and its checks run inline.
 QEV_API_KEY = "test-dummy-key"
 EMAIL_VERIFICATION_DISPATCH_SYNC = True
+# Off whatever the environment says, so registration tests never check
+# addresses; the tests that turn it on mock every request.
+EMAIL_VERIFICATION_ENABLED = False
 
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,
 # which then tries to parse an AZURE_CONNECTION_STRING that CI doesn't set.

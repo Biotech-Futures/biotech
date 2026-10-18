@@ -774,3 +774,7 @@ QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
 # Email checks run on a background thread after commit; tests run them inline.
 EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Registration checks its students' and guardians' addresses
+# (QuickEmailVerification) once saved. Off unless set; separate from the key.
+EMAIL_VERIFICATION_ENABLED = config("EMAIL_VERIFICATION_ENABLED", default="false", cast=env_bool)
