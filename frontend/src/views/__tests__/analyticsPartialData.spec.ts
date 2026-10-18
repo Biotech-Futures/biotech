@@ -266,6 +266,17 @@ describe('partial analytics pages', () => {
     expect(w.find('.activity-issue-context').exists()).toBe(false)
   })
 
+  it('shows Activity before a ranged login comparison returns', async () => {
+    const loginActivity = await api.fetchLoginActivity()
+    vi.mocked(api.fetchLoginActivity).mockImplementation((start?: string) => start
+      ? new Promise(() => {})
+      : Promise.resolve({ ...loginActivity, latest_activity_date: '2026-10-14' }))
+
+    const w = await show(ActivityPage)
+    expect(api.fetchLoginActivity).toHaveBeenCalledWith('2026-08-17', '2026-10-15')
+    expect(w.find('#user-activity-details').exists()).toBe(true)
+  })
+
   it('opens the matching Admin filters from group issue rows', async () => {
     vi.mocked(api.fetchAllUsers).mockResolvedValue([
       { ...student, groupId: null, groupName: null },
@@ -357,7 +368,9 @@ describe('partial analytics pages', () => {
     expect(w.text()).toContain('Selected day')
     expect(w.text()).toContain('7 days ending on selected date')
     expect(w.text()).toContain('30 days ending on selected date')
-    expect(api.fetchLoginActivity).toHaveBeenCalledWith('2026-08-17', '2026-10-15')
+    // The default end date is the latest login date, so the loaded response is reused.
+    expect(api.fetchLoginActivity).toHaveBeenCalledTimes(1)
+    expect(api.fetchLoginActivity).toHaveBeenCalledWith()
   })
   it('keeps resource activity without inventing category or audience metadata', async () => {
     vi.mocked(api.fetchAllResources).mockRejectedValue(error)

@@ -973,6 +973,13 @@ async function loadActivityWindowComparison() {
     activityWindowComparison.value = null
     return
   }
+  // The unranged response already compares windows ending on the latest
+  // login date, so the default end date needs no extra request.
+  const loaded = liveCoreBundle.value?.loginActivity
+  if (loaded?.active_user_comparison && loaded.latest_activity_date === selectedEndDate.value) {
+    activityWindowComparison.value = loaded.active_user_comparison
+    return
+  }
   const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - 59)
   try {
@@ -1608,7 +1615,8 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     liveGroupData.value = buildGroupsAnalytics(bundle)
     liveCoreBundle.value = bundle
     if (!preserveFilters) applyObservedTrendRange()
-    await loadActivityWindowComparison()
+    // Show the page now; the window KPIs update when their comparison arrives.
+    void loadActivityWindowComparison()
     const hasParticipants = bundle.users.some((user) =>
       ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
     )
