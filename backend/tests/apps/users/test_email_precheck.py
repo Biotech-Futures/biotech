@@ -28,7 +28,8 @@ def status_url(job_id):
 
 @override_settings(
     EMAIL_PRECHECK_ENABLED=True, EMAIL_PRECHECK_MAX_ADDRESSES=2000, EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES=20,
-    EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=200, EMAIL_PRECHECK_STALL_SECONDS=60, QEV_RESULT_MAX_AGE_DAYS=180,
+    EMAIL_PRECHECK_IP_HOURLY_LOOKUPS=200, EMAIL_PRECHECK_STALL_SECONDS=60,
+    EMAIL_PRECHECK_QUEUED_STALL_SECONDS=300, QEV_RESULT_MAX_AGE_DAYS=180,
     EMAIL_VERIFICATION_DISPATCH_SYNC=True,
 )
 class PrecheckTestCase(MultiStudentSetup, TestCase):
@@ -271,18 +272,36 @@ class PollTests(PrecheckTestCase):
 
         self.assertEqual((response.status_code, response.data), (404, {"status": "not_found"}))
 
-    def test_a_job_that_stops_moving_is_reported_stalled(self):
-        job = EmailCheckJob.objects.create(total=10, done=3, status="running")
-        EmailCheckJob.objects.filter(pk=job.pk).update(updated_at=timezone.now() - timedelta(seconds=61))
-
+    def idle_job(self, status, seconds):
+        job = EmailCheckJob.objects.create(total=10, done=3, status=status)
+        EmailCheckJob.objects.filter(pk=job.pk).update(updated_at=timezone.now() - timedelta(seconds=seconds))
         data = self.poll(job.pk).data
+        return data["status"], data["estimatedSecondsRemaining"]
 
-        self.assertEqual((data["status"], data["estimatedSecondsRemaining"]), ("stalled", None))
+    def test_a_running_job_that_stops_moving_is_reported_stalled(self):
+        self.assertEqual(self.idle_job("running", 61), ("stalled", None))
 
-    def test_a_job_moving_recently_is_still_running(self):
-        job = EmailCheckJob.objects.create(total=10, done=3, status="running")
+    def test_a_job_moving_recently_is_still_running_with_an_estimate(self):
+        status, estimate = self.idle_job("running", 5)
 
-        self.assertEqual(self.poll(job.pk).data["status"], "running")
+        self.assertEqual(status, "running")
+        self.assertIsNotNone(estimate)
+
+    def test_a_queued_job_is_reported_queued_without_an_estimate(self):
+        self.assertEqual(self.idle_job("queued", 5), ("queued", None))
+
+    def test_a_queued_job_may_wait_longer_than_a_running_one(self):
+        self.assertEqual(self.idle_job("queued", 299), ("queued", None))
+
+    def test_a_queued_job_never_started_is_reported_stalled_after_its_own_limit(self):
+        self.assertEqual(self.idle_job("queued", 301), ("stalled", None))
+
+    @override_settings(EMAIL_PRECHECK_QUEUED_STALL_SECONDS=30)
+    def test_the_queued_limit_comes_from_the_setting(self):
+        self.assertEqual(self.idle_job("queued", 31), ("stalled", None))
+
+    def test_a_finished_job_is_never_stalled(self):
+        self.assertEqual(self.idle_job("done", 3600), ("done", 0))
 
     def test_checks_that_crash_count_as_errors_and_the_job_still_finishes(self):
         with patch.object(email_precheck.email_verification, "verify_email", side_effect=RuntimeError("boom")):

@@ -7,7 +7,11 @@ registering can correct any that don't exist while they wait.
   file. ``202 {"status": "started" | "done", "jobId", "total", "done"}``.
 - ``GET /api/v1/registration/email-check/<jobId>/`` reports its progress:
   ``{"status", "total", "done", "invalid", "errors", "skipped",
-  "estimatedSecondsRemaining"}``.
+  "estimatedSecondsRemaining"}``. ``status`` is ``queued`` (waiting for
+  earlier checks; no estimate yet), ``running``, ``done``, ``failed``, or
+  ``stalled``: a running job that hasn't moved for EMAIL_PRECHECK_STALL_SECONDS
+  (60), or a queued one not started within EMAIL_PRECHECK_QUEUED_STALL_SECONDS
+  (300). ``estimatedSecondsRemaining`` is null while queued or stalled.
 
 Each answer is stored as an EmailVerification, so when the registration is
 then submitted, ``register()`` warns about any address found not to exist
@@ -215,14 +219,22 @@ def job_status(job_id) -> tuple[dict, int]:
     if job is None:
         return {"status": "not_found"}, status.HTTP_404_NOT_FOUND
     current = job.status
-    stall_after = timedelta(seconds=_setting("EMAIL_PRECHECK_STALL_SECONDS", 60))
-    if current in (EmailCheckJob.Status.QUEUED, EmailCheckJob.Status.RUNNING) and \
-            timezone.now() - job.updated_at > stall_after:
+    idle = timezone.now() - job.updated_at
+    # A running job should move every few seconds; a queued one may wait a
+    # while behind earlier checks before its first address starts.
+    if current == EmailCheckJob.Status.RUNNING and idle > timedelta(
+        seconds=_setting("EMAIL_PRECHECK_STALL_SECONDS", 60),
+    ):
         current = STALLED
+    elif current == EmailCheckJob.Status.QUEUED and idle > timedelta(
+        seconds=_setting("EMAIL_PRECHECK_QUEUED_STALL_SECONDS", 300),
+    ):
+        current = STALLED
+    estimated = current not in (STALLED, EmailCheckJob.Status.QUEUED)
     return {
         "status": current, "total": job.total, "done": job.done, "invalid": job.invalid,
         "errors": job.errors, "skipped": job.skipped,
-        "estimatedSecondsRemaining": estimate_seconds(job) if current not in (STALLED,) else None,
+        "estimatedSecondsRemaining": estimate_seconds(job) if estimated else None,
     }, status.HTTP_200_OK
 
 
