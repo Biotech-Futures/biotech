@@ -86,6 +86,7 @@ JOBS: dict[str, str] = {
     "finalist_submission_reminder": "apps.submissions.finalist_reminders:reminder_job",
     "guardian_details_request": "apps.users.guardian_details:reminder_job",
     "guardian_consent_request": "apps.users.guardian_reminders:reminder_job",
+    "supervisor_registration_status": "apps.users.supervisor_status:digest_job",
 }
 
 

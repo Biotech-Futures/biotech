@@ -132,6 +132,87 @@ EMAIL_TYPES = (
             *_BRAND_TAGS,
         ),
     ),
+    # Registration: sent once someone registers (apps.users.registration_emails).
+    EmailType(
+        key="registration_student",
+        name="Registration confirmation (to student)",
+        description=(
+            "Sent to a student when they register on their own, including with a late link."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_student.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_group",
+        name="Group registration confirmation (to students)",
+        description=(
+            "Sent to each student who registers as a team, each with their own copy, and to a "
+            "student who joins a group by its code."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_group.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_supervisor",
+        name="Registration confirmation (to supervisor)",
+        description=(
+            "Sent to a supervisor once they register students: one student, a group, or an "
+            "uploaded file. Not sent when an admin registers students for them."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "students_url", "Link to the supervisor's My Students",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="supervisor_registration_status",
+        name="Registration status (to supervisor)",
+        description=(
+            "Sent daily to each supervisor with a student whose permission form isn't signed yet: "
+            "how many of their students are complete, waiting for a signature, or waiting for "
+            "guardian details. Stops once all their students are complete."
+        ),
+        default_subject="{{ brand_name }}: Student Registration Status",
+        default_template="emails/supervisor_registration_status.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("complete_count", "How many of their students are complete", "4", "COMPLETE_COUNT"),
+            MergeTag(
+                "pending_signature_count", "How many wait for their guardian's signature", "2",
+                "PENDING_SIGNATURE_COUNT",
+            ),
+            MergeTag(
+                "pending_contact_count", "How many wait for their guardian's details", "1",
+                "PENDING_CONTACT_COUNT",
+            ),
+            MergeTag(
+                "challenge_start", "The challenge start date (Management > Challenge Start)", "27 July",
+                "CHALLENGE_START",
+            ),
+            MergeTag(
+                "students_url", "Link to the supervisor's My Students",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
     EmailType(
         key="guardian_details_request",
         name="Guardian details needed",

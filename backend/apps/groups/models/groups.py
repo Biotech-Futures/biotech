@@ -192,6 +192,9 @@ class Groups(models.Model):
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
     )
+    # A group formed while registering waits in My Groups' Waiting Area until
+    # a supervisor makes it a BIOTech group there (Create all groups): when.
+    placed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'groups'

@@ -352,6 +352,16 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 # Django defaults this to None, i.e. no socket timeout at all — a stalled relay
 # (Azure SNAT exhaustion is the usual cause) then pins the worker indefinitely.
 EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=20, cast=int)
+
+# Hostinger's Mail API, which check_bounced_emails reads the sending
+# mailboxes' bounce notices with (read-only). Made in hPanel under the email
+# domain's Agentic Mail > API access. Blank turns the check off.
+HOSTINGER_MAIL_API_KEY = config("HOSTINGER_MAIL_API_KEY", default="")
+HOSTINGER_MAIL_API_URL = config("HOSTINGER_MAIL_API_URL", default="https://api.mail.hostinger.com")
+HOSTINGER_MAIL_TIMEOUT_SECONDS = config("HOSTINGER_MAIL_TIMEOUT_SECONDS", default=15, cast=float)
+# How far back a check looks for bounce notices, and for the sends they match:
+# about 3 months (only its first run, or one after a gap, reads that far).
+BOUNCE_LOOKBACK_DAYS = config("BOUNCE_LOOKBACK_DAYS", default=90, cast=int)
 # Synchronous dispatch (used by tests) sends auth mail inline instead of on the
 # pool, so assertions can observe msg.send() without racing a thread.
 AUTH_EMAIL_DISPATCH_SYNC = config(
@@ -759,8 +769,16 @@ QEV_API_KEY = config("QEV_API_KEY", default="")
 QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
 QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
 QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
-QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=600, cast=int)
+# Lookups allowed per UTC day; 0 (the default) means no limit.
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
 QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
 # Email checks run on a background thread after commit; tests run them inline.
 EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Tried when QEV_API_KEY (the free key) is out of credit; set only in the
+# deployment's environment. Low-credit alerts follow this key's balance.
+QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
+# Minutes before a key that ran out of credit is tried again (a new UTC day
+# also allows a retry).
+QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)

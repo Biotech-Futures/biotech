@@ -81,33 +81,35 @@ def template_upload_to(instance, filename):
     return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
 
 
-class PublicRegistrationSetting(SingletonModel):
-    """Whether registration is open to the public (Management > Registration):
-    open until an admin closes it. While closed, the sign-in page has no
-    Register now and students can't register themselves (a late link still
-    can)."""
+class ChallengeStart(models.Model):
+    """The day a year's challenge starts (Management > Challenge Start): the
+    supervisors' daily registration status email asks for permission forms to
+    be signed by then. Who last set it, and when."""
 
-    open = models.BooleanField(default=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    year = models.PositiveSmallIntegerField(unique=True)
+    starts_on = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
     )
 
     class Meta:
-        db_table = "public_registration_setting"
+        db_table = "challenge_start"
 
     def __str__(self):
-        return "PublicRegistrationSetting"
+        return f"Challenge {self.year} starts {self.starts_on or 'unset'}"
+
+    @classmethod
+    def for_year(cls, year: int) -> "ChallengeStart":
+        return cls.objects.get_or_create(year=year)[0]
 
 
 class SupervisorPagesSetting(SingletonModel):
     """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Supervisor Visibility).
-    And whether they see their Registration page (and can register students);
-    on until an admin hides it."""
+    Resources; off until an admin turns it on (Management > Late
+    Registration > Supervisor Pages Visibility)."""
 
     shown = models.BooleanField(default=False)
-    registration_shown = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -368,6 +370,45 @@ class EmailDelivery(models.Model):
 
     def __str__(self):
         return f"{self.email}: {self.group_id} {self.address}"
+
+
+class BounceNotice(models.Model):
+    """A bounce notice ``check_bounced_emails`` has read from a sending
+    mailbox, so it's never counted twice (the mailbox itself is never
+    changed). Only our mailbox and the notice's Message-ID are kept, not who
+    it was about."""
+
+    mailbox = models.EmailField()
+    # The notice's Message-ID, or "uid:<n>" without one.
+    message_key = models.CharField(max_length=255)
+    read_at = models.DateTimeField(auto_now_add=True)
+    # How many of the bounces it reported matched one of our emails.
+    matched = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "bounce_notice"
+        constraints = [
+            models.UniqueConstraint(fields=["mailbox", "message_key"], name="uniq_bounce_notice"),
+        ]
+
+    def __str__(self):
+        return f"BounceNotice({self.mailbox})"
+
+
+class BounceCheckpoint(models.Model):
+    """How far ``check_bounced_emails`` has read a sending mailbox: the
+    newest message it has seen (its UID), so the next run reads only newer
+    ones."""
+
+    mailbox = models.EmailField(unique=True)
+    last_uid = models.PositiveBigIntegerField(default=0)
+    checked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "bounce_checkpoint"
+
+    def __str__(self):
+        return f"BounceCheckpoint({self.mailbox})"
 
 
 class EmailSendRun(models.Model):

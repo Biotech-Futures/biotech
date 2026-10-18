@@ -283,9 +283,6 @@ describe('HTTP registration gateway', () => {
         guardian_first_name: '',
         guardian_last_name: '',
         guardian_email: '',
-        guardian_relationship: '',
-        guardian_relationship_other: '',
-        grouping_preference: '',
       },
     }))
     const result = await gateway.submit(buildRegistrationRequest('supervisor_csv', forms))

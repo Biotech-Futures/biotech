@@ -20,6 +20,21 @@
 
       <ul class="year__facts">
         <li>
+          <span class="year__fact-label">Registration start</span>
+          <span v-if="registration?.opens_at">{{ formatStatementTime(registration.opens_at) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Registration close</span>
+          <span v-if="registration?.closes_at">{{ formatStatementTime(registration.closes_at) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Challenge start</span>
+          <span v-if="challengeStart">{{ dayText(challengeStart) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
           <span class="year__fact-label">Submission deadline</span>
           <span v-if="deadline">{{ formatStatementTime(deadline.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
@@ -36,17 +51,22 @@
           </span>
         </li>
         <li>
-          <span class="year__fact-label">Certificates</span>
-          <span :class="certsReleased ? 'year__ok' : 'year__muted'">
-            {{ certsReleased ? 'released' : 'not released' }}
-          </span>
-        </li>
-        <li>
           <span class="year__fact-label">Notify finalists</span>
           <span v-if="finalists.length" :class="allNotified ? 'year__ok' : 'year__muted'">
             {{ notifiedCount }} of {{ finalists.length }} notified
           </span>
           <span v-else class="year__muted">no finalists</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Symposium date</span>
+          <span v-if="symposiumDate">{{ dayText(symposiumDate) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Certificates</span>
+          <span :class="certsReleased ? 'year__ok' : 'year__muted'">
+            {{ certsReleased ? 'released' : 'not released' }}
+          </span>
         </li>
       </ul>
     </section>
@@ -84,11 +104,15 @@ import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists, type FinalistRow } from '@/utils/gradingAPI'
 import {
   fetchCertificatesRelease,
+  fetchChallengeStart,
+  fetchFinalistEmailDetails,
   fetchGroupExtensions,
   challengeYear,
+  fetchRegistrationOpen,
   fetchRelease,
   fetchSubmissionDeadline,
   type GroupExtension,
+  type RegistrationState,
   type ReleaseStatus,
   type SubmissionDeadline
 } from '@/utils/managementAPI'
@@ -101,6 +125,13 @@ const marks = ref<ReleaseStatus | null>(null)
 const certs = ref<ReleaseStatus | null>(null)
 const extensions = ref<GroupExtension[]>([])
 const finalists = ref<FinalistRow[]>([])
+const registration = ref<RegistrationState | null>(null)
+// Days alone, as "2026-07-27": Challenge Start's, and Notify Finalists' Symposium.
+const challengeStart = ref<string | null>(null)
+const symposiumDate = ref<string | null>(null)
+
+/** "27/07/2026", as the deadlines read without their time. */
+const dayText = (value: string) => value.split('-').reverse().join('/')
 
 const marksReleased = computed(() => marks.value?.released_at != null)
 const certsReleased = computed(() => certs.value?.released_at != null)
@@ -125,6 +156,21 @@ const currentYear = computed(() => challengeYear(deadline.value))
 
 onMounted(async () => {
   // Best-effort: each block independent so one failure doesn't blank the page.
+  try {
+    registration.value = await fetchRegistrationOpen()
+  } catch {
+    registration.value = null
+  }
+  try {
+    challengeStart.value = (await fetchChallengeStart()).starts_on
+  } catch {
+    challengeStart.value = null
+  }
+  try {
+    symposiumDate.value = (await fetchFinalistEmailDetails()).symposium_date
+  } catch {
+    symposiumDate.value = null
+  }
   try {
     deadline.value = (await fetchSubmissionDeadline()).deadline
   } catch {

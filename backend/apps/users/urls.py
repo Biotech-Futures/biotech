@@ -1,11 +1,16 @@
 from django.urls import path
 from .profile_options import StudentProfileOptionsView, GuardianInvitationView
 from .consent_views import GuardianConsentView, GuardianDetailsFormView
-from .guardian_details_views import SendGuardianConsentRemindersView, SendGuardianDetailsRemindersView
+from .guardian_details_views import (
+    SendGuardianConsentRemindersView,
+    SendGuardianDetailsRemindersView,
+    SendSupervisorRegistrationStatusView,
+)
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
     SupervisedGroupMembersView,
     SupervisedGroupOrderView,
+    SupervisedGroupsPlaceView,
     SupervisedGroupsView,
     SupervisedInterestCatalogView,
     SupervisedMentorsView,
@@ -30,6 +35,7 @@ from .views import (
     SupervisedStudentSignaturesView,
     SupervisedStudentsView,
 )
+from .registration_sheet import RegistrationSheetView
 from .registration_intake import (
     RegistrationCountriesView,
     RegistrationGroupCodeView,
@@ -70,6 +76,8 @@ urlpatterns = [
     path("users/supervised-groups/interests/", SupervisedInterestCatalogView.as_view(), name="supervised-group-interests"),
     path("users/supervised-groups/", SupervisedGroupsView.as_view(), name="supervised-groups"),
     path("users/supervised-groups/order/", SupervisedGroupOrderView.as_view(), name="supervised-group-order"),
+    # My Groups' Waiting Area: Create all groups.
+    path("users/supervised-groups/place/", SupervisedGroupsPlaceView.as_view(), name="supervised-groups-place"),
     path("users/supervised-groups/<int:pk>/members/", SupervisedGroupMembersView.as_view(), name="supervised-group-members"),
     path("users/supervised-groups/<int:pk>/", SupervisedGroupDetailView.as_view(), name="supervised-group-detail"),
     path("users/<int:pk>/", UsersRetrieveUpdateView.as_view(), name="user-detail"),
@@ -82,6 +90,8 @@ urlpatterns = [
     path("registration/group-code/", RegistrationGroupCodeView.as_view(), name="registration-group-code"),
     path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
+    # Upload student details, from an .xlsx: its first sheet as CSV text.
+    path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
     path("registration-management/", RegistrationManagementView.as_view(), name="registration-management"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
     path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),
@@ -97,5 +107,11 @@ urlpatterns = [
         "admin/send-guardian-consent-reminders/",
         SendGuardianConsentRemindersView.as_view(),
         name="guardian-consent-reminders",
+    ),
+    # The supervisors' daily registration status email.
+    path(
+        "admin/send-supervisor-registration-status/",
+        SendSupervisorRegistrationStatusView.as_view(),
+        name="supervisor-registration-status",
     ),
 ]

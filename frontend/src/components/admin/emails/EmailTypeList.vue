@@ -102,6 +102,10 @@ const query = ref('')
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
   [
+    'Registration',
+    ['registration_student', 'registration_group', 'registration_supervisor', 'supervisor_registration_status']
+  ],
+  [
     'Guardians',
     [
       'guardian_details_request',

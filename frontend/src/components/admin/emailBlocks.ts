@@ -20,8 +20,9 @@ declare module '@tiptap/core' {
       unsetEmailBox: () => ReturnType
     }
     emailButton: {
-      /** Turn the current line into a button, or change the button's link or style. */
-      setEmailButton: (attributes: { href?: string; style?: string }) => ReturnType
+      /** Turn the current line into a button, or change the button's link,
+       *  style, or where it sits on its line. */
+      setEmailButton: (attributes: { href?: string; style?: string; align?: 'left' | 'center' }) => ReturnType
     }
   }
 }

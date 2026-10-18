@@ -27,6 +27,9 @@ export type SupervisedStudent = {
   joinperm_granted_at: string | null
   group_id: number | null
   group_name: string | null
+  /** Their group from registering, while it's there: where My Groups' Waiting
+   *  Area puts them back. None for a student who registered without one. */
+  registration_group_id?: number | null
 }
 
 export type StudentRegistrationBucket =

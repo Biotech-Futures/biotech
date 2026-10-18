@@ -40,8 +40,9 @@ API docs (DEBUG only): `/api/docs/` (Swagger) and `/api/redoc/`.
 
 Students without a linked supervisor can edit their name, school, year, country,
 region and interests from their profile. Guardian editing uses the separate
-Guardian Details section: after consent, the current guardian stays on file
-until the new guardian signs the platform's consent form.
+Guardian Details section, which warns first: a new guardian replaces the old one
+straight away, and clears the permission already given (media consent too) until
+the new guardian signs the platform's consent form, which is emailed to them.
 
 The resend button uses the same `guardian_consent_request` email service as the
 admin page, including its ten-minute cooldown and single-use consent link.
@@ -58,6 +59,21 @@ for `python manage.py send_guardian_reminders`, set
 then record a next reminder due date. The command only processes due reminders
 for active students who still need permission or have a pending guardian change; it doesn't send an initial email
 to every existing student. No scheduler is created by these code changes.
+
+Bounced emails are found by a check of the sending mailboxes through Hostinger's
+Mail API (read-only, nothing in a mailbox is changed). It opens only bounce
+notices and notes who each one says didn't get our email: on the Management page
+it came from (listed as missed, so Resend Email To Missed Individuals emails them
+again) and on the System Emails log under Bounced emails. GitHub's
+`.github/workflows/bounce-check.yml` starts it about every 10 minutes through
+`POST /api/v1/management/bounce-check/`, with the `EMAIL_JOBS_TOKEN` the other
+email jobs use. `python manage.py check_bounced_emails` runs it by hand.
+
+To switch it on, set `HOSTINGER_MAIL_API_KEY` on the backend (in production, the
+Azure app's Settings > Environment variables > App settings), made in hPanel >
+Emails > the domain > Agentic Mail > API access. Never commit it. Without the key
+the check answers "off" and does nothing. `BOUNCE_LOOKBACK_DAYS` (default 90, about
+3 months) limits how far back its first run, or one after a gap, reads.
 
 ### Frontend
 
