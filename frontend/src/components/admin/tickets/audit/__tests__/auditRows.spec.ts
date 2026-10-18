@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { actorOptions } from '../auditRows'
+import { registerProfileTimeZone } from '@/utils/date'
+import { actorOptions, when } from '../auditRows'
 
 /**
  * Who the audit page's Who filter offers. The page-level spec shows the
@@ -75,3 +76,28 @@ describe('actorOptions', () => {
     ).toEqual([{ id: 4, name: 'Samuel Reid' }])
   })
 })
+
+describe('when', () => {
+  afterEach(() => registerProfileTimeZone(() => undefined))
+
+  it('prints the reader’s Profile timezone, and names it', () => {
+    // Kolkata is half an hour off every whole-hour zone, so the computer's
+    // zone (UTC in CI, Sydney on a laptop here) cannot produce this by luck.
+    registerProfileTimeZone(() => 'Asia/Kolkata')
+
+    const printed = when('2026-09-01T09:00:00Z')
+    expect(printed).toBe(
+      new Date('2026-09-01T09:00:00Z').toLocaleString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Kolkata',
+        timeZoneName: 'short'
+      })
+    )
+    expect(printed).toContain(':30')
+  })
+})
+

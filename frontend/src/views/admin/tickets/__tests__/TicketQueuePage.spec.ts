@@ -925,19 +925,25 @@ describe('the address bar', () => {
 
 describe('the last activity column', () => {
   it('names the time zone it is printing', async () => {
-    // Rendered in the reader's own zone, so the same row is 03:37 pm in
-    // Sydney and 02:37 am in Sao Paulo. Agents read these times to each other
-    // and compare them against the overdue windows.
+    // Rendered in the reader's set zone, so the same row is 03:37 pm for an
+    // agent set to Sydney and 02:37 am for one set to Sao Paulo. Agents read
+    // these times to each other and compare them against the overdue windows.
     await mountPage()
 
     const cells = w().findAll('td')
     const lastActivity = cells[cells.length - 1]!.text()
 
-    // Built from the clock this machine is on rather than matched against a
-    // list of zone spellings. The short name is "UTC" here, "AEST" in Sydney,
-    // "GMT-3" in Sao Paulo and "GMT+5:30" in Kolkata, and a hand-written list
-    // of those turns the suite red on whichever machine it happens to miss.
-    const stamp = { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' } as const
+    // Built with Intl rather than matched against a list of zone spellings.
+    // The short name is "UTC" for this agent, "AEST" in Sydney, "GMT-3" in
+    // Sao Paulo and "GMT+5:30" in Kolkata, and a hand-written list of those
+    // turns the suite red on whichever one it happens to miss.
+    const stamp = {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: pureAgent.timezone
+    } as const
     const withoutZone = new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', stamp)
     const withZone = new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', {
       ...stamp,
@@ -949,6 +955,28 @@ describe('the last activity column', () => {
     // in front of it, and there is something after it.
     expect(withZone.startsWith(withoutZone)).toBe(true)
     expect(lastActivity).not.toBe(withoutZone)
+  })
+
+  it("reads the agent's Profile timezone, not the computer's", async () => {
+    // Kolkata sits half an hour off every whole-hour zone, so a time read in
+    // the computer's zone (UTC in CI, Sydney on a laptop here) cannot match
+    // it by luck: only Kolkata puts ":30" on a row stamped on the hour.
+    await mountPage({ ...pureAgent, timezone: 'Asia/Kolkata' })
+
+    const cells = w().findAll('td')
+    const lastActivity = cells[cells.length - 1]!.text()
+
+    expect(lastActivity).toBe(
+      new Date(ROW.supportUpdatedAt).toLocaleString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Kolkata',
+        timeZoneName: 'short'
+      })
+    )
+    expect(lastActivity).toContain(':30')
   })
 })
 

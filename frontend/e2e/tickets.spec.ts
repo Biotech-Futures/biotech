@@ -311,17 +311,31 @@ test.describe('support tickets, both sides in the portal', () => {
     await expect(message.locator('.timeline__body')).toHaveText(body)
     await expect(message.getByRole('button', { name: 'screenshot.pdf' })).toBeVisible()
 
-    // C-06: the date AND the time, in the reader's own zone. Checked against
-    // the instant the element itself carries, so this fails on a time that is
-    // present but wrong as well as on one that is missing.
+    // C-06: the date AND the time, in the account's set zone: its Profile
+    // timezone, as on every other page of the platform. (The sign-in prompt
+    // that offers the computer's zone instead is dismissed by track().)
+    // Checked against the instant the element itself carries, so this fails
+    // on a time that is present but wrong as well as on one that is missing.
     const stamp = message.locator('.timeline__meta time')
     await expect(stamp).toHaveText(/^\d{1,2} [A-Z][a-z]+ \d{4}, \d{1,2}:\d{2}\s?[ap]m$/i)
     const shown = (await stamp.textContent())!.trim()
-    const expected = await stamp.evaluate((element) => {
-      const when = new Date(element.getAttribute('datetime')!)
-      return when.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })
+    const me = await page.context().request.get(`${API_URL}/api/v1/users/me/`, {
+      headers: { Accept: 'application/json' }
     })
-    expect(shown.endsWith(expected), `"${shown}" should end with "${expected}"`).toBe(true)
+    const accountZone = String((await me.json()).timezone)
+    const expected = await stamp.evaluate(
+      (element, timeZone) =>
+        new Date(element.getAttribute('datetime')!).toLocaleTimeString('en-AU', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone
+        }),
+      accountZone
+    )
+    expect(
+      shown.endsWith(expected),
+      `"${shown}" should end with "${expected}" (${accountZone})`
+    ).toBe(true)
 
     // And it is in their list, linked to its page.
     await page.getByRole('link', { name: /Back to Support Centre/ }).click()
