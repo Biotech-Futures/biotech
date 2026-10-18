@@ -9,6 +9,9 @@ urlpatterns = [
     path('analytics/login-activity/', analytics_views.LoginActivityAnalyticsView.as_view(), name='login-activity-analytics'),
     path('analytics/resources/', analytics_views.ResourceAnalyticsView.as_view(), name='resource-analytics'),
     path('analytics/email/', analytics_views.EmailDeliveryAnalyticsView.as_view(), name='email-delivery-analytics'),
+    path('analytics/email/recipients/', analytics_views.EmailRecipientSearchView.as_view(), name='email-recipient-search'),
+    path('analytics/email/sends/<int:send_id>/recipients/', analytics_views.EmailSendRecipientsView.as_view(), name='email-send-recipients'),
+    path('analytics/email/sends/<int:send_id>/recipients/export/', analytics_views.EmailSendRecipientsExportView.as_view(), name='email-send-recipients-export'),
     path('analytics/reports/export/', analytics_views.ReportExportView.as_view(), name='analytics-report-export'),
     # ========================================================================
     # USER ROUTES

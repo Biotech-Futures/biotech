@@ -288,6 +288,49 @@ class RecentEmailSendSerializer(serializers.Serializer):
     initiated_by_email = serializers.EmailField(allow_blank=True)
 
 
+class RecentEmailSendWithRecipientsSerializer(RecentEmailSendSerializer):
+    # How many recipients were recorded for the send; 0 for sends made before
+    # recipients were kept.
+    recipients_recorded = serializers.IntegerField(min_value=0)
+
+
+class EmailRecipientSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    user_id = serializers.IntegerField(allow_null=True)
+    name = serializers.CharField(allow_blank=True)
+    status = serializers.ChoiceField(choices=("delivered", "failed"))
+    reason = serializers.CharField(allow_blank=True)
+
+
+class EmailSendRecipientsDataSerializer(serializers.Serializer):
+    send = RecentEmailSendSerializer()
+    recipients_recorded = serializers.BooleanField()
+    recipients = EmailRecipientSerializer(many=True)
+
+
+class EmailSendRecipientsResponseSerializer(serializers.Serializer):
+    msg = serializers.CharField()
+    data = EmailSendRecipientsDataSerializer()
+
+
+class EmailRecipientSearchQuerySerializer(serializers.Serializer):
+    recipient = serializers.CharField(
+        min_length=3,
+        max_length=254,
+        trim_whitespace=True,
+        help_text="Part of a recipient's email address or name (at least 3 characters).",
+    )
+
+
+class EmailSendToRecipientSerializer(RecentEmailSendSerializer):
+    recipient = EmailRecipientSerializer()
+
+
+class EmailRecipientSearchResponseSerializer(serializers.Serializer):
+    msg = serializers.CharField()
+    data = EmailSendToRecipientSerializer(many=True)
+
+
 class EmailDeliveryAnalyticsDataSerializer(serializers.Serializer):
     snapshot_at = serializers.DateTimeField()
     mailboxes = EmailMailboxAnalyticsSerializer(many=True)
@@ -299,7 +342,7 @@ class EmailDeliveryAnalyticsDataSerializer(serializers.Serializer):
     status_by_role = EmailDeliveryStatusByRoleSerializer(many=True)
     role_attribution = EmailRoleAttributionSerializer()
     recent_deliveries = RecentEmailDeliverySerializer(many=True)
-    recent_sends = RecentEmailSendSerializer(many=True)
+    recent_sends = RecentEmailSendWithRecipientsSerializer(many=True)
 
 
 class EmailDeliveryAnalyticsResponseSerializer(serializers.Serializer):

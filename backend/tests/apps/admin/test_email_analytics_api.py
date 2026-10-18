@@ -18,7 +18,7 @@ from apps.announcements.models import (
 )
 from apps.groups.models import Groups
 from apps.resources.models import Roles
-from apps.services.models import EmailDeliveryMetric
+from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
 from apps.users.models import AdminScope
 
 
@@ -182,6 +182,119 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
         self.client.force_authenticate(user=self.reader)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def send_with_recipients(self, *, started_at, outcomes, email_type="password_reset"):
+        """One send of ``email_type`` with ``outcomes``: {address: reason or ""}."""
+        failed = sum(1 for reason in outcomes.values() if reason)
+        metric = EmailDeliveryMetric.objects.create(
+            email_type=email_type,
+            source_mailbox=self.primary_mailbox,
+            attempted_count=len(outcomes),
+            delivered_count=len(outcomes) - failed,
+            failed_count=failed,
+            status="partial" if failed and failed < len(outcomes) else ("failed" if failed else "success"),
+            started_at=started_at,
+            completed_at=started_at,
+        )
+        users = {user.email: user for user in get_user_model().objects.filter(email__in=list(outcomes))}
+        for address, reason in outcomes.items():
+            EmailDeliveryRecipient.objects.create(
+                metric=metric,
+                user=users.get(address),
+                email=address,
+                status="failed" if reason else "delivered",
+                reason=reason,
+            )
+        return metric
+
+    def test_recent_sends_report_how_many_recipients_were_recorded(self):
+        recorded = self.send_with_recipients(
+            started_at=self.snapshot_at - timedelta(hours=1),
+            outcomes={self.reader.email: "", "guardian@outside.test": "address refused"},
+        )
+        older = EmailDeliveryMetric.objects.create(
+            email_type="password_reset", source_mailbox=self.primary_mailbox,
+            attempted_count=1, delivered_count=1, failed_count=0, status="success",
+            started_at=self.snapshot_at - timedelta(days=2), completed_at=self.snapshot_at - timedelta(days=2),
+        )
+
+        sends = {row["id"]: row for row in self.get_as_admin()["recent_sends"]}
+
+        self.assertEqual(sends[recorded.id]["recipients_recorded"], 2)
+        self.assertEqual(sends[older.id]["recipients_recorded"], 0)
+
+    def test_send_recipients_list_each_address_with_its_outcome(self):
+        metric = self.send_with_recipients(
+            started_at=self.snapshot_at - timedelta(hours=1),
+            outcomes={self.reader.email: "", "guardian@outside.test": "address refused"},
+        )
+        url = f"/api/v1/admin/analytics/email/sends/{metric.id}/recipients/"
+
+        self.client.force_authenticate(user=self.reader)
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.admin)
+        data = self.client.get(url).data["data"]
+        self.assertTrue(data["recipients_recorded"])
+        self.assertEqual(data["send"]["id"], metric.id)
+        self.assertEqual(data["recipients"], [
+            {"email": "email.analytics.reader@example.com", "user_id": self.reader.id,
+             "name": "Regular Reader", "status": "delivered", "reason": ""},
+            {"email": "guardian@outside.test", "user_id": None,
+             "name": "", "status": "failed", "reason": "address refused"},
+        ])
+        missing = self.client.get("/api/v1/admin/analytics/email/sends/999999/recipients/")
+        self.assertEqual(missing.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_send_recipients_export_as_csv(self):
+        metric = self.send_with_recipients(
+            started_at=self.snapshot_at - timedelta(hours=1),
+            outcomes={self.reader.email: "", "guardian@outside.test": "address refused"},
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(f"/api/v1/admin/analytics/email/sends/{metric.id}/recipients/export/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Disposition"], f'attachment; filename="email-{metric.id}-recipients.csv"',
+        )
+        lines = b"".join(response.streaming_content).decode("utf-8-sig").splitlines()
+        self.assertEqual(
+            lines[0], "Email,Name,Status,Reason,Email Type,Email Title,Sent At (UTC),Sent From",
+        )
+        self.assertTrue(lines[1].startswith("email.analytics.reader@example.com,Regular Reader,Delivered,,"))
+        self.assertTrue(lines[2].startswith("guardian@outside.test,,Not delivered,address refused,Password reset,"))
+
+    def test_recipient_search_finds_the_emails_sent_to_a_person(self):
+        first = self.send_with_recipients(
+            started_at=self.snapshot_at - timedelta(days=1),
+            outcomes={self.reader.email: "address refused", "other@example.com": ""},
+        )
+        latest = self.send_with_recipients(
+            started_at=self.snapshot_at - timedelta(hours=1),
+            outcomes={self.reader.email: ""},
+            email_type="unread_messages",
+        )
+        self.send_with_recipients(
+            started_at=self.snapshot_at - timedelta(hours=2),
+            outcomes={"other@example.com": ""},
+        )
+        self.client.force_authenticate(user=self.admin)
+        url = "/api/v1/admin/analytics/email/recipients/"
+
+        for query in ("analytics.reader", "Regular Reader", "reader"):
+            with self.subTest(query=query):
+                rows = self.client.get(url, {"recipient": query}).data["data"]
+                self.assertEqual([row["id"] for row in rows], [latest.id, first.id])
+                self.assertEqual(
+                    [row["recipient"]["status"] for row in rows], ["delivered", "failed"],
+                )
+                self.assertEqual(rows[0]["email_type_label"], "Unread messages digest")
+
+        self.assertEqual(
+            self.client.get(url, {"recipient": "re"}).status_code, status.HTTP_400_BAD_REQUEST,
+        )
 
     def test_empty_dataset_contract_exposes_both_configured_mailboxes(self):
         data = self.get_as_admin()

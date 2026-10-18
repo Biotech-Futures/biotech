@@ -173,12 +173,15 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
             delivered=0,
             failed=len(recipients),
             source_mailbox=sender.address,
+            recipients=recipients,
         )
         return 0, len(messages)
 
+    attempted_addresses = []
     try:
         for message in messages:
             message.connection = connection
+            attempted_addresses.extend(message.recipients())
             try:
                 send_with_retry(message)
             except Exception as exc:
@@ -206,6 +209,7 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
         delivered=delivered_recipients,
         failed=failed_recipients,
         source_mailbox=sender.address,
+        recipients=attempted_addresses,
     )
     return sent, failed
 

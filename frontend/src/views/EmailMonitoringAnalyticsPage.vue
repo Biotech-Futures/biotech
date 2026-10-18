@@ -154,10 +154,20 @@
       <div class="section-heading-row logs-heading">
         <div>
           <h2>Email Logs</h2>
-          <p>The latest 100 sends of each email type, newest first.</p>
+          <p v-if="recipientMode">
+            Emails sent to recipients matching “{{ recipientQuery.trim() }}”, newest first. Each row is one recipient's copy.
+          </p>
+          <p v-else>The latest 100 sends of each email type, newest first.</p>
         </div>
 
         <div class="log-actions">
+          <input
+            v-model="recipientQuery"
+            type="search"
+            class="log-search recipient-search"
+            placeholder="Emails sent to… (name or email)"
+            aria-label="Find emails sent to a recipient by name or email"
+          />
           <input
             v-model.trim="logSearch"
             type="search"
@@ -198,6 +208,7 @@
               <th>Email Title</th>
               <th>Sent At</th>
               <th>Status</th>
+              <th>Recipients</th>
             </tr>
           </thead>
           <tbody>
@@ -214,14 +225,39 @@
                   {{ log.status }}
                 </span>
               </td>
+              <td>
+                <button
+                  v-if="log.sendId && log.recipientsRecorded"
+                  type="button"
+                  class="recipient-export-button"
+                  :disabled="exportingSendId === log.sendId"
+                  :title="`Download the ${log.recipientsRecorded} recorded recipients of this email as CSV`"
+                  :aria-label="`Download recipients of ${log.title}`"
+                  @click="exportRecipients(log)"
+                >
+                  <i class="fas fa-download" aria-hidden="true"></i>
+                  CSV
+                </button>
+                <span
+                  v-else
+                  class="recipients-not-recorded"
+                  title="Recipient lists are kept for emails sent since recipient tracking was added."
+                >Not recorded</span>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div class="logs-footer">
+        <span v-if="recipientError" class="recipient-error" role="alert">{{ recipientError }}</span>
+        <span v-else-if="recipientLoading">Searching recipients…</span>
         <span>{{ filteredLogs.length }} log entries shown</span>
       </div>
+      <p class="recipient-note">
+        Recipient lists are kept for emails sent since recipient tracking was added; earlier emails show
+        “Not recorded”. Search by recipient to see every recorded email sent to one person.
+      </p>
 
       <dl class="log-status-legend" aria-label="What the statuses mean">
         <div>
@@ -605,9 +641,11 @@ import { useRoute } from 'vue-router'
 import type { EmailLog, EmailMonitoringData } from '@/types/analytics'
 import {
   buildEmailMonitoring,
+  buildRecipientEmailLogs,
   loadEmailMonitoringAnalyticsBundle,
   type EmailAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import { downloadEmailRecipientsCsv, searchEmailsToRecipient } from '@/utils/liveAnalyticsApi'
 
 const route = useRoute()
 const data = ref<EmailMonitoringData>({
@@ -649,7 +687,59 @@ const analyticsSnapshotAt = ref<string | null>(null)
 const logSearch = ref('')
 const logStatus = ref('all')
 const logType = ref('all')
-const logTypes = computed(() => [...new Set(data.value.logs.map((log) => log.type))].sort())
+// Recipient search (by name or address) replaces the recent sends with every
+// recorded email to the matching recipients.
+const RECIPIENT_SEARCH_MIN_LENGTH = 3
+const recipientQuery = ref('')
+const recipientLogs = ref<EmailLog[] | null>(null)
+const recipientLoading = ref(false)
+const recipientError = ref('')
+const recipientMode = computed(() => recipientLogs.value !== null)
+const shownLogs = computed(() => recipientLogs.value ?? data.value.logs)
+const logTypes = computed(() => [...new Set(shownLogs.value.map((log) => log.type))].sort())
+
+let recipientTimer: ReturnType<typeof setTimeout> | undefined
+let recipientRequest = 0
+watch(recipientQuery, (value) => {
+  clearTimeout(recipientTimer)
+  const query = value.trim()
+  recipientError.value = ''
+  if (query.length < RECIPIENT_SEARCH_MIN_LENGTH) {
+    recipientRequest += 1
+    recipientLogs.value = null
+    recipientLoading.value = false
+    return
+  }
+  recipientTimer = setTimeout(async () => {
+    const request = ++recipientRequest
+    recipientLoading.value = true
+    try {
+      const rows = await searchEmailsToRecipient(query)
+      if (request === recipientRequest) recipientLogs.value = buildRecipientEmailLogs(rows)
+    } catch {
+      if (request === recipientRequest) {
+        recipientLogs.value = []
+        recipientError.value = 'Emails to this recipient could not be loaded.'
+      }
+    } finally {
+      if (request === recipientRequest) recipientLoading.value = false
+    }
+  }, 350)
+})
+
+const exportingSendId = ref<number | null>(null)
+async function exportRecipients(log: EmailLog) {
+  if (!log.sendId) return
+  exportingSendId.value = log.sendId
+  recipientError.value = ''
+  try {
+    await downloadEmailRecipientsCsv(log.sendId)
+  } catch {
+    recipientError.value = 'The recipient list could not be downloaded.'
+  } finally {
+    exportingSendId.value = null
+  }
+}
 
 useAnalyticsRefreshState('email', {
   logSearch,
@@ -660,7 +750,7 @@ useAnalyticsRefreshState('email', {
 const filteredLogs = computed(() => {
   const query = logSearch.value.toLowerCase()
 
-  return data.value.logs.filter((log) => {
+  return shownLogs.value.filter((log) => {
     const matchesStatus = logStatus.value === 'all' || log.status === logStatus.value
     const matchesType = logType.value === 'all' || log.type === logType.value
     const haystack = [
@@ -681,6 +771,11 @@ const filteredLogs = computed(() => {
 })
 
 function statusDetail(log: EmailLog) {
+  if (log.recipientReason !== undefined) {
+    return log.recipientReason
+      ? `Not delivered to this recipient: ${log.recipientReason}.`
+      : 'Delivered to this recipient.'
+  }
   const counts = `${log.delivered} of ${log.attempted} delivered, ${log.failed} not delivered.`
   if (log.status === 'Partial') return `Partial: not every recipient received this email. ${counts}`
   if (log.status === 'Failed') return `Failed: no recipient received this email. ${counts}`
@@ -1715,14 +1810,60 @@ th {
   font-size: 10px;
 }
 
-.email-log-table th:nth-child(1) { width: 10%; }
-.email-log-table th:nth-child(2) { width: 16%; }
+.email-log-table th:nth-child(1) { width: 9%; }
+.email-log-table th:nth-child(2) { width: 15%; }
 .email-log-table th:nth-child(3) { width: 9%; }
-.email-log-table th:nth-child(4) { width: 8%; }
-.email-log-table th:nth-child(5) { width: 13%; }
-.email-log-table th:nth-child(6) { width: 20%; }
-.email-log-table th:nth-child(7) { width: 13%; }
-.email-log-table th:nth-child(8) { width: 11%; }
+.email-log-table th:nth-child(4) { width: 12%; }
+.email-log-table th:nth-child(5) { width: 11%; }
+.email-log-table th:nth-child(6) { width: 16%; }
+.email-log-table th:nth-child(7) { width: 11%; }
+.email-log-table th:nth-child(8) { width: 9%; }
+.email-log-table th:nth-child(9) { width: 8%; }
+
+/* Recipient search and per-email recipient export. */
+.recipient-search {
+  min-width: 220px;
+}
+
+.recipient-export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid #bad7b8;
+  border-radius: 7px;
+  background: #fff;
+  color: #017151;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recipient-export-button:hover:not(:disabled) {
+  background: #f3f8f5;
+}
+
+.recipient-export-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.recipients-not-recorded {
+  color: #8a9a96;
+  font-size: 10px;
+}
+
+.recipient-error {
+  margin-right: auto;
+  color: #9b3b1f;
+  font-weight: 700;
+}
+
+.recipient-note {
+  margin: 6px 0 0;
+  color: #667873;
+  font-size: 11px;
+}
 
 .email-title-cell {
   min-width: 0;
@@ -1765,6 +1906,7 @@ th {
 .logs-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   padding-top: 8px;
   color: #667873;
   font-size: 10px;

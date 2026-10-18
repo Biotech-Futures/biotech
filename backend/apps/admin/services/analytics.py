@@ -16,7 +16,7 @@ from apps.chat.models import Messages
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
 from apps.services.email_registry import get_email_type, is_known_email_type
-from apps.services.models import EmailDeliveryMetric
+from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
 from apps.users.models import User
 
 
@@ -558,6 +558,22 @@ def _recent_email_sends() -> list[dict]:
         .filter(type_rank__lte=RECENT_SENDS_PER_TYPE)
         .order_by("-started_at", "-id")
     )
+    recorded = dict(
+        EmailDeliveryRecipient.objects.filter(metric_id__in=[row.id for row in rows])
+        .values("metric_id")
+        .annotate(total=Count("id"))
+        .values_list("metric_id", "total")
+    )
+    return [
+        {**send, "recipients_recorded": recorded.get(send["id"], 0)}
+        for send in _send_rows(rows)
+    ]
+
+
+def _send_rows(rows) -> list[dict]:
+    """``EmailDeliveryMetric`` rows as the Email Logs list them. Announcement
+    sends are matched to their delivery row (recorded with the same start
+    time) to show the title."""
     announcement_starts = [row.started_at for row in rows if row.email_type == "announcement"]
     announcements_by_start = {
         delivery.started_at: delivery
@@ -595,6 +611,70 @@ def _recent_email_sends() -> list[dict]:
             }
         )
     return sends
+
+
+def _recipient_row(recipient: EmailDeliveryRecipient) -> dict:
+    user = recipient.user
+    return {
+        "email": recipient.email,
+        "user_id": recipient.user_id,
+        "name": f"{user.first_name} {user.last_name}".strip() if user else "",
+        "status": recipient.status,
+        "reason": recipient.reason,
+    }
+
+
+def get_email_send_recipients(send_id: int) -> dict | None:
+    """Everyone one send was addressed to, and whether it reached them.
+
+    ``None`` when the send does not exist. A send made before recipients were
+    recorded returns an empty list with ``recipients_recorded`` False.
+    """
+    metric = (
+        EmailDeliveryMetric.objects.select_related("initiated_by")
+        .filter(pk=send_id)
+        .first()
+    )
+    if metric is None:
+        return None
+    recipients = [
+        _recipient_row(recipient)
+        for recipient in metric.recipients.select_related("user").order_by("email", "id")
+    ]
+    return {
+        "send": _send_rows([metric])[0],
+        "recipients_recorded": bool(recipients),
+        "recipients": recipients,
+    }
+
+
+RECIPIENT_SEARCH_LIMIT = 200
+RECIPIENT_SEARCH_MIN_LENGTH = 3
+
+
+def find_email_sends_for_recipient(query: str) -> list[dict]:
+    """Emails sent to the recipients matching ``query``, newest first.
+
+    ``query`` matches part of a recipient address or of the name on the
+    account it belongs to. Each result is one send to one matching recipient,
+    with whether that send reached them.
+    """
+    terms = (query or "").strip()
+    if len(terms) < RECIPIENT_SEARCH_MIN_LENGTH:
+        return []
+    name_match = Q()
+    for word in terms.split():
+        name_match &= Q(user__first_name__icontains=word) | Q(user__last_name__icontains=word)
+    matches = list(
+        EmailDeliveryRecipient.objects.select_related("user", "metric", "metric__initiated_by")
+        .filter(Q(email__icontains=terms) | name_match)
+        .order_by("-metric__started_at", "-metric_id", "email")[:RECIPIENT_SEARCH_LIMIT]
+    )
+    sends = {send["id"]: send for send in _send_rows(list({m.metric_id: m.metric for m in matches}.values()))}
+    return [
+        {**sends[match.metric_id], "recipient": _recipient_row(match)}
+        for match in matches
+    ]
 
 
 def get_email_delivery_analytics() -> dict:

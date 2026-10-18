@@ -205,6 +205,13 @@ export type EmailLog = {
   attempted: number
   delivered: number
   failed: number
+  // The send behind the row (null for legacy announcement rows) and how many
+  // of its recipients were recorded, for exporting the recipient list.
+  sendId: number | null
+  recipientsRecorded: number
+  // Set when the row is one recipient's copy (recipient search): why it did
+  // not reach them, or "" when it did.
+  recipientReason?: string
 }
 
 export type EmailMonitoringData = {

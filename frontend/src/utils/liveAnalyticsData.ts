@@ -31,6 +31,7 @@ import {
   type AdminMentor,
   type AdminUser,
   type EmailDeliveryAnalyticsResponse,
+  type EmailSendToRecipient,
   type GroupActivityResponse,
   type LoginActivityResponse,
   type ResourceAnalyticsResponse,
@@ -1122,6 +1123,8 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           attempted: row.attempted,
           delivered: row.delivered,
           failed: row.failed,
+          sendId: row.id,
+          recipientsRecorded: row.recipients_recorded ?? 0,
         }))
       : email.recent_deliveries.map((row) => ({
           id: row.id,
@@ -1136,8 +1139,31 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           attempted: row.recipient_count,
           delivered: row.success_count,
           failed: row.failure_count,
+          sendId: null,
+          recipientsRecorded: 0,
         })),
   }
+}
+
+/** One row per email sent to a matching recipient, for the recipient search. */
+export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[] {
+  return rows.map((row) => ({
+    id: row.id,
+    sender: row.initiated_by_name || 'System',
+    senderEmail: row.initiated_by_email || row.source_mailbox,
+    recipient: row.recipient.name || '—',
+    recipientEmail: row.recipient.email,
+    title: row.title ?? row.email_type_label,
+    type: row.email_type_label,
+    sentAt: formatLogTime(row.started_at),
+    status: row.recipient.status === 'delivered' ? 'Delivered' : 'Failed',
+    attempted: row.attempted,
+    delivered: row.delivered,
+    failed: row.failed,
+    sendId: row.id,
+    recipientsRecorded: row.attempted,
+    recipientReason: row.recipient.status === 'delivered' ? '' : (row.recipient.reason || "couldn't be sent"),
+  }))
 }
 
 function logStatus(status: string, delivered: number, failed: number): EmailLog['status'] {

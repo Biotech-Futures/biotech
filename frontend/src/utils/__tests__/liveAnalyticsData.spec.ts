@@ -140,3 +140,24 @@ describe('buildGroupsAnalytics', () => {
     expect(result.overCapacity).toBe(1)
   })
 })
+
+describe('buildRecipientEmailLogs', () => {
+  it('turns each recipient search result into that recipient\'s copy of the email', () => {
+    const base = {
+      email_type: 'announcement', email_type_label: 'Announcement notification', title: 'Week 3',
+      announcement_id: 9, source_mailbox: 'info@biotechfutures.org', started_at: '2026-10-18T01:00:00Z',
+      status: 'partial' as const, attempted: 2, delivered: 1, failed: 1,
+      initiated_by_name: '', initiated_by_email: '',
+    }
+    const logs = data.buildRecipientEmailLogs([
+      { ...base, id: 7, recipient: { email: 'amy@example.com', user_id: 1, name: 'Amy Chen', status: 'delivered', reason: '' } },
+      { ...base, id: 8, recipient: { email: 'bo@example.com', user_id: null, name: '', status: 'failed', reason: 'address refused' } },
+    ])
+
+    expect(logs.map((log) => [log.sendId, log.recipient, log.recipientEmail, log.status, log.recipientReason])).toEqual([
+      [7, 'Amy Chen', 'amy@example.com', 'Delivered', ''],
+      [8, '—', 'bo@example.com', 'Failed', 'address refused'],
+    ])
+    expect(logs[0]).toMatchObject({ sender: 'System', senderEmail: 'info@biotechfutures.org', title: 'Week 3' })
+  })
+})

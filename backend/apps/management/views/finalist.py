@@ -257,7 +257,7 @@ def _finalist_work(actor, options: dict) -> list[Work]:
     work = []
     for flag, addresses in _due(options.get("which", ""), options.get("group_ids")):
         people = member_labels(flag.group, addresses)
-        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor)))
+        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor), list(people)))
     return work
 
 

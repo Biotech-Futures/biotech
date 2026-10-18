@@ -492,6 +492,7 @@ def send_system_email(
             delivered=0,
             failed=recipient_count,
             source_mailbox=message.from_email,
+            recipients=message.recipients(),
         )
         return FAILED
     recipient_count = len(message.recipients())
@@ -502,6 +503,7 @@ def send_system_email(
         delivered=recipient_count,
         failed=0,
         source_mailbox=message.from_email,
+        recipients=message.recipients(),
     )
     return SENT
 
@@ -527,6 +529,7 @@ class _NotedSend:
                 delivered=0,
                 failed=recipient_count,
                 source_mailbox=self.message.from_email,
+                recipients=self.message.recipients(),
             )
             raise
         recipient_count = len(self.message.recipients())
@@ -537,4 +540,5 @@ class _NotedSend:
             delivered=recipient_count,
             failed=0,
             source_mailbox=self.message.from_email,
+            recipients=self.message.recipients(),
         )

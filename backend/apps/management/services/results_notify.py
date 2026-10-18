@@ -755,7 +755,7 @@ def _work(audience: str, actor, options: dict) -> list[Work]:
             # Anyone a run already reached isn't emailed again.
             due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
             people = {address: label for address, label in people.items() if address in due}
-        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
+        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor), list(people)))
     return work
 
 

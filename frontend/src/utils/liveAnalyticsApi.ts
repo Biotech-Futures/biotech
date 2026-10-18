@@ -210,7 +210,21 @@ export type EmailDeliveryAnalyticsResponse = {
     failed: number
     initiated_by_name: string
     initiated_by_email: string
+    // Recipients kept for the send; 0 for sends made before they were recorded.
+    recipients_recorded?: number
   }>
+}
+
+export type EmailRecipient = {
+  email: string
+  user_id: number | null
+  name: string
+  status: 'delivered' | 'failed'
+  reason: string
+}
+
+export type EmailSendToRecipient = Omit<NonNullable<EmailDeliveryAnalyticsResponse['recent_sends']>[number], 'recipients_recorded'> & {
+  recipient: EmailRecipient
 }
 
 export type AdminResource = {
@@ -318,6 +332,37 @@ export async function fetchEmailDeliveryAnalytics(): Promise<EmailDeliveryAnalyt
   const body = await getJson<ApiEnvelope<EmailDeliveryAnalyticsResponse>>('/api/v1/admin/analytics/email/')
   if (!body.data) throw new Error('Email analytics returned no data.')
   return body.data
+}
+
+/** Emails sent to recipients whose address or name matches ``query``. */
+export async function searchEmailsToRecipient(query: string): Promise<EmailSendToRecipient[]> {
+  const params = new URLSearchParams({ recipient: query })
+  const body = await getJson<ApiEnvelope<EmailSendToRecipient[]>>(
+    `/api/v1/admin/analytics/email/recipients/?${params}`,
+  )
+  return body.data ?? []
+}
+
+/** Download one send's recipient list as CSV. */
+export async function downloadEmailRecipientsCsv(sendId: number): Promise<string> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/admin/analytics/email/sends/${sendId}/recipients/export/`,
+    { credentials: 'include' },
+  )
+  if (!response.ok) throw new Error(`The recipient list could not be downloaded (${response.status}).`)
+  const candidate = /filename="?([^";]+)"?/i.exec(response.headers.get('Content-Disposition') ?? '')?.[1]
+  const filename = candidate && /^[a-z0-9][a-z0-9._-]*\.csv$/i.test(candidate)
+    ? candidate
+    : `email-${sendId}-recipients.csv`
+  const url = window.URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+  return filename
 }
 
 export async function fetchAllResources(): Promise<AdminResource[]> {

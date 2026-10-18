@@ -867,6 +867,7 @@ def send_announcement_email(
         failed=len(failed),
         source_mailbox=sender_for("announcement").address,
         started_at=delivery.started_at,
+        recipients=emails,
     )
 
     failure_count = len(failed)
