@@ -331,20 +331,12 @@ export function useTicketQueue() {
     bulkResult.value = null
   }
 
-  // Drop it from the selection too. The bulk bar counts selectedIds, so
-  // leaving it there makes the bar offer to assign a ticket that no longer
-  // exists.
-  function forgetTicket(id: number) {
-    selectedIds.value = selectedIds.value.filter((x) => x !== id)
-  }
-
   // A rejected batch is described inside the selection block, because the
   // selection is still there when a request is refused. Whenever the
   // selection empties, by the bar's Clear or any other road (a filter change,
-  // a card, the last selected ticket deleted from the panel), the message
-  // goes with it: otherwise the next selection opens reading as though it had
-  // failed too, before anything was sent. React reset it on Clear only, so a
-  // filter change left it waiting for the next batch.
+  // a card), the message goes with it: otherwise the next selection opens
+  // reading as though it had failed too, before anything was sent. React reset
+  // it on Clear only, so a filter change left it waiting for the next batch.
   watch(
     () => selectedIds.value.length,
     (count) => {
@@ -482,7 +474,6 @@ export function useTicketQueue() {
     toggle,
     toggleAll,
     clearSelection,
-    forgetTicket,
     assignSelected,
     exportQueue,
     refresh

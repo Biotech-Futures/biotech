@@ -96,11 +96,15 @@ function go(target: number, atEdge: boolean) {
      light  edge #84938f on white 3.21:1   disabled words #5a6268 6.21:1
             Page N of M #5a6268 on the #f8f9fa page 5.89:1
      dark   edge #70827d on the #161f1d button 4.15:1   (--border-light was 1.16:1)
-            disabled words and Page N of M take --text-muted, 5.72:1 and 6.19:1 */
+            disabled words and Page N of M take --text-muted, 5.72:1 and 6.19:1
+   A button under the pointer takes the queue's pale green, #e8f5ee (9.87:1
+   under the number), not --accent-green-soft, the peach in the light theme
+   (C-20). Dark keeps the theme's translucent green. */
 .queue-pager {
   --pager-edge: #84938f;
   --pager-muted: #5a6268;
   --pager-quiet-edge: #e6eae8;
+  --pager-wash: #e8f5ee;
 
   display: flex;
   flex-wrap: wrap;
@@ -113,6 +117,7 @@ function go(target: number, atEdge: boolean) {
   --pager-edge: #70827d;
   --pager-muted: var(--text-muted);
   --pager-quiet-edge: var(--border-light);
+  --pager-wash: var(--accent-green-soft);
 }
 
 .queue-pager__left {
@@ -154,7 +159,7 @@ function go(target: number, atEdge: boolean) {
 /* Background and colour both set, so no global rule can combine into
    green-on-green. */
 .queue-pager__btn:hover:not([aria-disabled='true']) {
-  background: var(--accent-green-soft);
+  background: var(--pager-wash);
   color: var(--teal);
 }
 

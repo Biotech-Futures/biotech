@@ -294,7 +294,7 @@ async function download(file: TicketAttachment) {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.1rem 0.4rem;
-  margin: 0 0 0.25rem;
+  margin: 0 0 1px;
   padding: 0 0.4rem;
   font-size: 0.78rem;
   color: var(--timeline-muted);

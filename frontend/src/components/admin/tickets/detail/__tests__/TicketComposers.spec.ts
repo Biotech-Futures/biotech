@@ -20,9 +20,9 @@ import {
 // The reply box and the internal-note box, driven through the real panel.
 // Ported from the "two attachment pickers and two message boxes" and "when a
 // message is refused" blocks of TicketDetailPanel.test.tsx, plus what those
-// boxes never had a test for: moveToPending on the one request, the reset
-// after a send, the double-submit guard, one pending flag per box, and the
-// file input emptied after a send.
+// boxes never had a test for: the reply's status on the one request (C-19),
+// the reset after a send, the double-submit guard, one pending flag per box,
+// and the file input emptied after a send.
 vi.mock('@/utils/ticketAgentAPI', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/ticketAgentAPI')>()),
   fetchTicketDetail: vi.fn(),
@@ -30,7 +30,6 @@ vi.mock('@/utils/ticketAgentAPI', async (importOriginal) => ({
   fetchTicketHistory: vi.fn(),
   updateTicket: vi.fn(),
   sendTicketMessage: vi.fn(),
-  deleteTicket: vi.fn(),
   downloadTicketAttachment: vi.fn()
 }))
 
@@ -106,12 +105,29 @@ describe('the two attachment pickers and the two message boxes', () => {
     ])
   })
 
-  it('ties the "wait for their reply" label to its checkbox', async () => {
+  it('asks what the reply leaves the ticket as, starting on Pending user', async () => {
+    // The client's words at the 8 October meeting (C-19): "it would default
+    // to pending user, but then it would allow the support agent to change it
+    // to in progress or resolved." Written out, as the status words are the
+    // top control's.
     const { page } = await openPanel(ticketWith())
 
-    const box = page.get('.reply-box input[type="checkbox"]')
-    expect(accessibleName(box.element)).toBe('I have asked them for something. Wait for their reply.')
-    expect((box.element as HTMLInputElement).checked).toBe(false)
+    const select = page.get('.reply-box select')
+    expect(accessibleName(select.element)).toBe('Status after sending')
+    expect((select.element as HTMLSelectElement).value).toBe('pending_user')
+    expect(select.findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([
+      ['in_progress', 'In progress'],
+      ['pending_user', 'Pending user'],
+      ['resolved', 'Resolved']
+    ])
+    expect(page.find('.reply-box input[type="checkbox"]').exists()).toBe(false)
+  })
+
+  it('offers no status in the internal note box', async () => {
+    const { page } = await openPanel(ticketWith())
+
+    expect(page.find('.note-box').exists()).toBe(true)
+    expect(page.find('.note-box select').exists()).toBe(false)
   })
 
   it('takes the file types the server takes, and no more text than it keeps', async () => {
@@ -168,18 +184,18 @@ describe('sending', () => {
       messageType: 'support_reply',
       body: TYPED,
       files: [],
-      moveToPending: false
+      nextStatus: 'pending_user'
     })
     expect(panel.wrapper.emitted('changed')).toHaveLength(1)
   })
 
-  it('folds "wait for their reply" into the SAME request as the reply', async () => {
+  it('sends the chosen status on the SAME request as the reply', async () => {
     // Splitting it into a reply and a status change made the email read the
     // old status and pick the wrong wording.
-    api.sendTicketMessage.mockResolvedValue(ticketWith({ status: 'pending_user' }))
+    api.sendTicketMessage.mockResolvedValue(ticketWith({ status: 'in_progress' }))
     const panel = await openPanel(ticketWith())
 
-    await panel.page.get('.reply-box input[type="checkbox"]').setValue(true)
+    await panel.page.get('.reply-box select').setValue('in_progress')
     await sendFrom(panel, 'reply')
 
     expect(api.sendTicketMessage).toHaveBeenCalledTimes(1)
@@ -187,33 +203,33 @@ describe('sending', () => {
       messageType: 'support_reply',
       body: TYPED,
       files: [],
-      moveToPending: true
+      nextStatus: 'in_progress'
     })
     expect(api.updateTicket).not.toHaveBeenCalled()
   })
 
-  it('clears the box and the tick once the server has the reply', async () => {
+  it('clears the box and goes back to Pending user once the server has the reply', async () => {
     api.sendTicketMessage.mockResolvedValue(ticketWith())
     const panel = await openPanel(ticketWith())
-    await panel.page.get('.reply-box input[type="checkbox"]').setValue(true)
+    await panel.page.get('.reply-box select').setValue('resolved')
 
     await sendFrom(panel, 'reply')
 
     expect(value(panel, REPLY)).toBe('')
-    expect((panel.page.get('.reply-box input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    expect((panel.page.get('.reply-box select').element as HTMLSelectElement).value).toBe('pending_user')
   })
 
-  it('keeps the tick when the reply did not go', async () => {
+  it('keeps the chosen status when the reply did not go', async () => {
     api.sendTicketMessage.mockRejectedValue(await refusal('Attach at most 5 files to one message.'))
     const panel = await openPanel(ticketWith())
-    await panel.page.get('.reply-box input[type="checkbox"]').setValue(true)
+    await panel.page.get('.reply-box select').setValue('resolved')
 
     await sendFrom(panel, 'reply')
 
-    expect((panel.page.get('.reply-box input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
+    expect((panel.page.get('.reply-box select').element as HTMLSelectElement).value).toBe('resolved')
   })
 
-  it('never lets an internal note carry moveToPending', async () => {
+  it('never lets an internal note carry a status', async () => {
     // A note must not move the ticket: a status that says "your move" with
     // nothing on the requester's timeline asking for anything.
     api.sendTicketMessage.mockResolvedValue(ticketWith())
@@ -431,6 +447,102 @@ describe('when a message is refused', () => {
 
     expect(value(panel, REPLY)).toBe(TYPED)
     expect(value(panel, NOTE)).toBe('A note about it.')
+  })
+})
+
+/**
+ * One box, two sides (D2-16): the designer's second round folds the reply box
+ * and the note box into one, with two tabs, the way Zendesk and Intercom do.
+ * The danger in that is a note sent to the requester, with an email, so the
+ * tests are about which side is open and what can cross between them.
+ */
+describe('one box with a reply side and a note side', () => {
+  const sides = ({ page }: Panel) =>
+    page.get('[role="tablist"][aria-label="Write to"]').findAll('[role="tab"]')
+  const side = (panel: Panel, label: string) => sides(panel).find((node) => node.text() === label)!
+  const shown = ({ page }: Panel, selector: string) =>
+    !(page.get(selector).element.closest('[role="tabpanel"]') as HTMLElement).style.display.includes('none')
+
+  it('opens on the reply side, as two real tabs', async () => {
+    const panel = await openPanel(ticketWith())
+
+    expect(sides(panel).map((node) => [node.text(), node.attributes('aria-selected')])).toEqual([
+      ['Reply to the requester', 'true'],
+      ['Internal note', 'false']
+    ])
+    const controlled = document.getElementById(side(panel, 'Internal note').attributes('aria-controls')!)
+    expect(controlled?.getAttribute('role')).toBe('tabpanel')
+    expect(controlled?.querySelector('.note-box')).not.toBeNull()
+    expect(shown(panel, REPLY)).toBe(true)
+    expect(shown(panel, NOTE)).toBe(false)
+  })
+
+  it('turns the whole box amber on the note side', async () => {
+    const panel = await openPanel(ticketWith())
+    const box = panel.page.get('.composer')
+    expect(box.classes()).toContain('composer--reply')
+
+    await side(panel, 'Internal note').trigger('click')
+
+    expect(box.classes()).toContain('composer--note')
+    expect(box.classes()).not.toContain('composer--reply')
+    expect(shown(panel, NOTE)).toBe(true)
+    expect(shown(panel, REPLY)).toBe(false)
+  })
+
+  it('never carries words from one side to the other', async () => {
+    const panel = await openPanel(ticketWith())
+    await panel.page.get(REPLY).setValue('For Stella')
+
+    await side(panel, 'Internal note').trigger('click')
+    expect(value(panel, NOTE)).toBe('')
+    await panel.page.get(NOTE).setValue('For the team')
+
+    await side(panel, 'Reply to the requester').trigger('click')
+    expect(value(panel, REPLY)).toBe('For Stella')
+    expect(value(panel, NOTE)).toBe('For the team')
+  })
+
+  it('moves between the two with the arrow keys, and the focus goes too', async () => {
+    const panel = await openPanel(ticketWith())
+
+    await side(panel, 'Reply to the requester').trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+    expect(side(panel, 'Internal note').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(side(panel, 'Internal note').element)
+
+    await side(panel, 'Internal note').trigger('keydown', { key: 'Home' })
+    await flushPromises()
+    expect(side(panel, 'Reply to the requester').attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(side(panel, 'Reply to the requester').element)
+  })
+
+  it('keeps one tab in the tab order, the open one', async () => {
+    const panel = await openPanel(ticketWith())
+    await side(panel, 'Internal note').trigger('click')
+
+    expect(sides(panel).map((node) => node.attributes('tabindex'))).toEqual(['-1', '0'])
+  })
+
+  it('says under the note who will see it, and ties that to the box', async () => {
+    const { page } = await openPanel(ticketWith())
+
+    const describedBy = page.get(NOTE).attributes('aria-describedby')!
+    expect(document.getElementById(describedBy)?.textContent?.trim()).toBe(
+      'Only support can see this. The requester is not emailed.'
+    )
+  })
+
+  it('opens the next ticket on the reply side again', async () => {
+    const panel = await openPanel(ticketWith())
+    await side(panel, 'Internal note').trigger('click')
+
+    api.fetchTicketDetail.mockResolvedValue(ticketWith({ id: 8, ticketNumber: 'SUP-2026-00008' }))
+    await panel.wrapper.setProps({ ticketId: 8 })
+    await flushPromises()
+
+    expect(side(panel, 'Reply to the requester').attributes('aria-selected')).toBe('true')
+    expect(shown(panel, REPLY)).toBe(true)
   })
 })
 

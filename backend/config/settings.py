@@ -384,6 +384,10 @@ SUPPORT_EMAIL = "support@biotechfutures.org"
 # trace is an auth_email.send_failed log line (plus an internal note on the
 # ticket for the resolution email). Check the logs after changing either one.
 TICKET_FROM_EMAIL = f"{BRAND_NAME} <{SUPPORT_EMAIL}>"
+# Where the two emails about the queue go: a new enquiry, and the morning count
+# of what is still open (apps/tickets/services/emails.py, C-17 and C-18). The
+# designer's draft names support@; set this to send them somewhere else.
+TICKET_SUPPORT_INBOX = config("TICKET_SUPPORT_INBOX", default=SUPPORT_EMAIL)
 
 # Second mailbox — the "unread messages" digest sends from here, NOT the default
 # transactional account, so it can live under its own 3000/day send quota and
@@ -655,6 +659,12 @@ EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="")
 # The jobs' old token, still accepted alongside EMAIL_JOBS_TOKEN until the
 # backend stops reading it; removed after.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
+
+# Shared secret for POST /api/v1/admin/tickets/digest/send/, the morning count
+# of open enquiries sent to TICKET_SUPPORT_INBOX (.github/workflows/
+# ticket-digest.yml). Same fail-loud contract as EMAIL_JOBS_TOKEN: unset means
+# the endpoint answers 503 rather than standing open.
+TICKET_DIGEST_TOKEN = config("TICKET_DIGEST_TOKEN", default="")
 
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool

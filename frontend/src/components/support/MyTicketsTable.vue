@@ -50,24 +50,28 @@ defineProps<{ tickets: TicketRow[] }>()
 /* The first redesign round (October 2026) draws this table edge to edge in
    its card, under a pale green head row with small capitals. The head's
    colours are this component's own, not the global thead's --light-green,
-   which is peach in light and translucent in dark. A row under the pointer
-   still takes main.css's tbody tr:hover wash in that token.
+   which is peach in light and translucent in dark. The second round (C-20)
+   takes the peach out of the rest: the empty list's picture sits on the
+   designer's #dcefe5, and a row under the pointer takes the queue's pale
+   green, #e8f5ee, instead of main.css's tbody tr:hover peach. Dark keeps the
+   theme's translucent green there.
 
    Measured against the grounds they sit on (WCAG AA, 4.5:1 for text):
      light  head #24524a on #dff1e8 7.51:1   date #5a6268 on the #ffffff card 6.21:1
      dark   head #b4c2be on #2a3633 6.81:1   date #a3b3ae on the #1d2826 card 6.95:1
    Links are brand green in light (6.03:1 on the card) and the designer's
    #6dbfb1 in dark, where brand green on the card was 2.52:1. On a hovered
-   row the date and the links are 5.43:1 and 5.27:1 on the peach, and 6.06:1
-   and 6.13:1 on the dark wash (#18352e). */
+   row the date and the links are 5.54:1 and 5.38:1 on the pale green, and
+   6.06:1 and 6.13:1 on the dark wash (#18352e). */
 .my-tickets {
   --ticket-muted: #5a6268;
   --my-tickets-head: #dff1e8;
   --my-tickets-head-ink: #24524a;
   --my-tickets-rule: #e6eae8;
   --my-tickets-link: var(--dark-green);
-  --my-tickets-tile: #fcede2;
+  --my-tickets-tile: #dcefe5;
   --my-tickets-tile-ink: #017151;
+  --my-tickets-hover: #e8f5ee;
 }
 
 :root[data-theme="dark"] .my-tickets {
@@ -78,12 +82,14 @@ defineProps<{ tickets: TicketRow[] }>()
   --my-tickets-link: #6dbfb1;
   --my-tickets-tile: #143b32;
   --my-tickets-tile-ink: #6dbfb1;
+  --my-tickets-hover: var(--light-green);
 }
 
 .my-tickets__table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .my-tickets__table thead {
@@ -92,7 +98,7 @@ defineProps<{ tickets: TicketRow[] }>()
 
 .my-tickets__table th {
   text-align: left;
-  padding: 0.75rem;
+  padding: 0.78rem 0.75rem;
   border-top: 1px solid var(--my-tickets-rule);
   border-bottom: 1px solid var(--my-tickets-rule);
   color: var(--my-tickets-head-ink);
@@ -103,7 +109,7 @@ defineProps<{ tickets: TicketRow[] }>()
 }
 
 .my-tickets__table td {
-  padding: 0.95rem 0.75rem;
+  padding: 0.94rem 0.75rem;
   border-bottom: 1px solid var(--my-tickets-rule);
   vertical-align: middle;
 }
@@ -118,6 +124,11 @@ defineProps<{ tickets: TicketRow[] }>()
 .my-tickets__table th:last-child,
 .my-tickets__table td:last-child {
   padding-right: 1.75rem;
+}
+
+/* On the row, as main.css paints it, so the dark wash is laid once. */
+.my-tickets__table tbody tr:hover {
+  background: var(--my-tickets-hover);
 }
 
 /* The band under the table draws the last line. */
@@ -164,8 +175,8 @@ defineProps<{ tickets: TicketRow[] }>()
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-  padding: 1.9rem 1.75rem;
+  gap: 0.65rem;
+  padding: 0.8rem 1.75rem 1.9rem;
   text-align: center;
 }
 

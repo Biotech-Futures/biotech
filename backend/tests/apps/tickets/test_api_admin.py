@@ -1844,13 +1844,26 @@ class SupportEndpointPermissionTests(AdminTicketAPITestCase):
         from apps.tickets import urls_admin
         from apps.tickets.permissions import IsSupportScoped
 
+        from apps.tickets.views_admin import TicketDigestSendView
+
         ticket_gates = {IsSupportScoped, IsAdminScoped}
+        # The one route a scheduler calls, with a shared token and no session
+        # (the morning count, C-18). It declares no permission class on
+        # purpose and checks the token itself, the way the platform's other
+        # reminder triggers do; DigestTriggerTests holds it to that. Still
+        # held here to declaring both lists itself and empty, so it cannot
+        # pick up the project default by accident.
+        token_gated = {TicketDigestSendView}
         offenders = []
         for pattern in urls_admin.urlpatterns:
             view = getattr(pattern.callback, "cls", None)
             if view is None:                       # not an APIView route
                 continue
             declared = view.__dict__.get("permission_classes")
+            if view in token_gated:
+                if declared != [] or view.__dict__.get("authentication_classes") != []:
+                    offenders.append(f"{view.__name__} ({pattern.name}): not token-only")
+                continue
             if declared is None:
                 offenders.append(f"{view.__name__} ({pattern.name}): no permission_classes")
             elif not ticket_gates.intersection(declared):
@@ -2387,6 +2400,134 @@ class ReplyAndMoveToPendingEndpointTests(AdminTicketAPITestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row.actor_user_id, self.agent.pk)
         self.assertEqual(row.after_state["status"], TicketStatus.PENDING_USER)
+
+
+class ReplyWithStatusEndpointTests(AdminTicketAPITestCase):
+    """C-19: the status a reply leaves the ticket in, chosen beside the box.
+
+    The client asked at the 8 October meeting for the "I have asked them for
+    something" checkbox to become a status picked with the reply: pending
+    user by default, in progress or resolved when the agent says so. The
+    portal sends it as nextStatus; moveToPending still works for any caller
+    that sends only that.
+    """
+
+    def reply(self, ticket, next_status, body="We are on it.", **extra):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(
+                f"{QUEUE}{ticket.pk}/messages/",
+                data=json.dumps(
+                    {"messageType": "support_reply", "body": body,
+                     "nextStatus": next_status, **extra}
+                ),
+                content_type="application/json",
+            )
+
+    def subjects(self):
+        return [message.subject.split(": ", 1)[1].split(" (")[0] for message in mail.outbox]
+
+    def test_pending_user_is_the_reply_and_wait(self):
+        ticket = self.make_ticket()
+        response = self.reply(ticket, "pending_user", body="Could you send a screenshot?")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, TicketStatus.PENDING_USER)
+        self.assertEqual(response.json()["data"]["status"], TicketStatus.PENDING_USER)
+        # The same email as ticking the old box: it says we asked for something.
+        self.assertEqual(self.subjects(), ["an update on your enquiry"])
+        self.assertIn("We have asked you for some more information", mail.outbox[0].alternatives[0][0])
+
+    def test_in_progress_keeps_the_ball_with_support(self):
+        """What the client said they could not do: answer "we are working on
+        it" and keep it in progress."""
+        ticket = self.make_ticket()
+        self.assertEqual(ticket.status, TicketStatus.OPEN)
+        response = self.reply(ticket, "in_progress", body="We are looking into it now.")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, TicketStatus.IN_PROGRESS)
+        self.assertEqual(response.json()["data"]["status"], TicketStatus.IN_PROGRESS)
+        self.assertEqual(self.subjects(), ["an update on your enquiry"])
+        html = mail.outbox[0].alternatives[0][0]
+        self.assertNotIn("waiting on your answer", html)
+        # The timeline says so, as a status change from the dropdown does.
+        self.assertTrue(
+            ticket.messages.filter(message_type=TicketMessageType.SYSTEM).exists()
+        )
+
+    def test_resolved_sends_the_reply_then_the_resolution(self):
+        ticket = self.make_ticket()
+        response = self.reply(ticket, "resolved", body="That is fixed now.")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, TicketStatus.RESOLVED)
+        self.assertIsNotNone(ticket.resolved_at)
+        # Two emails, in the order replying and then resolving has always sent.
+        self.assertEqual(self.subjects(), ["an update on your enquiry", "your enquiry is resolved"])
+
+    def test_resolving_a_resolved_ticket_again_sends_one_resolution_at_most(self):
+        ticket = self.make_ticket()
+        lifecycle.resolve(ticket=ticket, actor=self.agent)
+        mail.outbox.clear()
+
+        response = self.reply(ticket, "resolved", body="One more thing for the record.")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(self.subjects(), ["an update on your enquiry"])
+
+    def test_the_change_is_filed_under_the_agent_who_replied(self):
+        ticket = self.make_ticket()
+        self.reply(ticket, "in_progress")
+        row = (
+            AuditLog.objects.filter(entity_type="ticket", entity_id=ticket.pk, action="status")
+            .order_by("-created_at")
+            .first()
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row.actor_user_id, self.agent.pk)
+        self.assertEqual(row.after_state["status"], TicketStatus.IN_PROGRESS)
+
+    def test_the_same_status_again_writes_no_change(self):
+        ticket = self.make_ticket()
+        lifecycle.set_status(ticket=ticket, new_status=TicketStatus.IN_PROGRESS, actor=self.agent)
+        before = AuditLog.objects.filter(entity_id=ticket.pk, action="status").count()
+
+        self.reply(ticket, "in_progress")
+
+        self.assertEqual(AuditLog.objects.filter(entity_id=ticket.pk, action="status").count(), before)
+
+    def test_open_is_not_a_status_a_reply_can_leave(self):
+        ticket = self.make_ticket()
+        response = self.reply(ticket, "open")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(ticket.messages.filter(body="We are on it.").count(), 0)
+
+    def test_an_internal_note_may_not_change_the_status(self):
+        ticket = self.make_ticket()
+        response = self.client.post(
+            f"{QUEUE}{ticket.pk}/messages/",
+            data=json.dumps(
+                {"messageType": "internal_note", "body": "Escalating.", "nextStatus": "resolved"}
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, TicketStatus.OPEN)
+        self.assertEqual(ticket.messages.filter(body="Escalating.").count(), 0)
+
+    def test_both_ways_of_saying_it_at_once_are_refused(self):
+        ticket = self.make_ticket()
+        response = self.reply(ticket, "resolved", moveToPending=True)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, TicketStatus.OPEN)
 
 
 class UnassignedFilterTests(AdminTicketAPITestCase):

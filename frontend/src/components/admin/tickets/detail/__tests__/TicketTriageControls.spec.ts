@@ -36,7 +36,6 @@ vi.mock('@/utils/ticketAgentAPI', async (importOriginal) => ({
   fetchTicketHistory: vi.fn(),
   updateTicket: vi.fn(),
   sendTicketMessage: vi.fn(),
-  deleteTicket: vi.fn(),
   downloadTicketAttachment: vi.fn()
 }))
 

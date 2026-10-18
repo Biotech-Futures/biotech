@@ -130,7 +130,7 @@ const CARDS: {
   --queue-card-muted: #5a6268;
   --queue-card-alert: #a71d2a;
 
-  padding: 1rem 1.125rem;
+  padding: 1rem 1.125rem 0.875rem;
   border: 1px solid #e3e7e5;
   border-radius: 12px;
   background: var(--white);
@@ -187,7 +187,7 @@ const CARDS: {
 }
 
 .queue-card__value {
-  margin: 0.15rem 0 0;
+  margin: 0.2rem 0 0;
   color: var(--teal);
   font-size: 1.75rem;
   font-weight: 600;
@@ -199,7 +199,7 @@ const CARDS: {
 }
 
 .queue-card__hint {
-  margin: 0.25rem 0 0;
+  margin: 0.15rem 0 0;
   color: var(--queue-card-muted);
   font-size: 0.8rem;
   font-weight: 400;

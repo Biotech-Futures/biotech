@@ -2,7 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { pureAgent, ticketAdmin } from '@/__tests__/supportAccountFixtures'
+import { pureAgent } from '@/__tests__/supportAccountFixtures'
 import type { TicketQueue, TicketRow } from '@/utils/ticketAgentSchema'
 
 /**
@@ -50,7 +50,6 @@ vi.mock('@/utils/ticketAgentAPI', async () => {
     fetchTicketHistory: vi.fn(),
     updateTicket: vi.fn(),
     sendTicketMessage: vi.fn(),
-    deleteTicket: vi.fn(),
     downloadTicketAttachment: vi.fn()
   }
 })
@@ -241,21 +240,6 @@ describe('focus when the detail panel closes', () => {
 
     await pressEscape()
 
-    expect(document.activeElement).toBe(table())
-  })
-
-  it('goes to the table once a ticket deleted from its panel has left the queue', async () => {
-    // The panel hands focus back to the deleted ticket's row button as it
-    // closes, and the refresh then takes that row away.
-    await mountPage(ticketAdmin)
-    await openFromRow(7)
-    rows = [row(8)]
-
-    panel().vm.$emit('deleted', 7)
-    await flushPromises()
-
-    expect(document.querySelector('.ticket-panel')).toBeNull()
-    expect(openButton(7).exists()).toBe(false)
     expect(document.activeElement).toBe(table())
   })
 })

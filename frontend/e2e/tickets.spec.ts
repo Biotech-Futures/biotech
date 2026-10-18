@@ -168,8 +168,10 @@ async function raiseEnquiry(
   subject: string,
   options: { body?: string; attachment?: Attachment } = {}
 ): Promise<RaisedTicket> {
-  await expect(page.getByRole('heading', { name: 'How can we help?' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Raise an enquiry' })).toBeVisible()
   await page.getByLabel('Issue category').selectOption('technical_issue')
+  // No default since the client asked for one to be chosen (C-22).
+  await page.getByLabel('Urgency').selectOption('normal')
   await page.getByLabel('Subject').fill(subject)
   await page
     .getByLabel('Message')
@@ -411,10 +413,11 @@ test.describe('support tickets, both sides in the portal', () => {
     await expect(title).toContainText(ticket.number)
     await expect(title).toContainText('Open')
 
-    // "Reply and wait for their reply": one reply with the box ticked.
+    // "Reply and wait for their reply": one reply, with the status beside the
+    // box left on its default, Pending user (C-19).
     const question = 'Which group is it? Please tell us its name.'
     await dialog.getByRole('textbox', { name: 'Reply to the requester' }).fill(question)
-    await dialog.getByLabel('I have asked them for something. Wait for their reply.').check()
+    await expect(dialog.getByLabel('Status after sending')).toHaveValue('pending_user')
     await dialog.getByRole('button', { name: 'Send reply' }).click()
     await expect(dialog.locator('.agent-timeline__body', { hasText: question })).toBeVisible()
     await expect(title).toContainText('Pending user')
@@ -429,7 +432,7 @@ test.describe('support tickets, both sides in the portal', () => {
 
     const answer = 'It is the Blue Team group.'
     await student.page.getByLabel('Your reply').fill(answer)
-    await student.page.getByRole('button', { name: 'Send reply' }).click()
+    await student.page.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(student.page.locator('p.timeline__body', { hasText: answer })).toBeVisible()
     await expect(badges).toContainText('In progress')
 
@@ -456,7 +459,7 @@ test.describe('support tickets, both sides in the portal', () => {
     // Replying to a resolved enquiry reopens it (T7).
     const again = 'It is happening again, sorry.'
     await student.page.getByLabel('Your reply').fill(again)
-    await student.page.getByRole('button', { name: 'Send reply' }).click()
+    await student.page.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(student.page.locator('p.timeline__body', { hasText: again })).toBeVisible()
     await expect(badges).toContainText('Open')
     await expect(student.page.locator('.timeline__system').last()).toContainText(
@@ -616,6 +619,7 @@ test.describe('the stale-session guard that predates the port: a tab whose sessi
 
   async function submitEnquiryAndExpectRefusal(tabA: Page, subject: string) {
     await tabA.getByLabel('Issue category').selectOption('account_access')
+    await tabA.getByLabel('Urgency').selectOption('normal')
     await tabA.getByLabel('Subject').fill(subject)
     await tabA.getByLabel('Message').fill('I cannot see my group.')
     await tabA.getByRole('button', { name: 'Submit ticket' }).click()
@@ -645,7 +649,7 @@ test.describe('the stale-session guard that predates the port: a tab whose sessi
 
     const reply = `Takeover reply that must not be filed ${Date.now()}`
     await tabA.getByLabel('Your reply').fill(reply)
-    await tabA.getByRole('button', { name: 'Send reply' }).click()
+    await tabA.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(tabA.locator('.reply__error')).toHaveText(SIGNED_IN_AS_SOMEONE_ELSE)
     await expect(tabA.getByLabel('Your reply')).toHaveValue(reply)
 

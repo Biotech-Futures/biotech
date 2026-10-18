@@ -37,6 +37,10 @@ export const TICKET_ICON_PATHS = {
   ],
   sheet: [box3to21, 'M3 9h18', 'M3 15h18', 'M12 9v12'],
   x: ['M18 6L6 18', 'M6 6l12 12'],
+  // The ticket page's header pills, from the second redesign round.
+  tag: ['M12 2H2v10l9.29 9.29a2.42 2.42 0 0 0 3.42 0l6.58-6.58a2.42 2.42 0 0 0 0-3.42z', 'M7 7h.01'],
+  calendar: ['M8 2v4', 'M16 2v4', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M3 10h18'],
+  clock: ['M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0', 'M12 6v6l4 2'],
 } as const satisfies Record<string, readonly string[]>
 
 export type TicketIconName = keyof typeof TICKET_ICON_PATHS

@@ -91,10 +91,12 @@ withDefaults(
 </script>
 
 <style scoped>
-/* Muted text sits on this card (--white) and, under the pointer, on the
-   global `tbody tr:hover` wash (--light-green). The first redesign round's
-   (October 2026) #5a6268 is 6.21:1 and 5.43:1 there; --text-muted would be
-   4.69:1 and 4.10:1, under AA on the hover. Since that round the table is
+/* Muted text sits on this card (--white) and, under the pointer, on a row
+   wash. That was the global `tbody tr:hover` peach (--light-green) until the
+   second redesign round (October 2026, C-20) gave the row the queue's pale
+   green, #e8f5ee; dark keeps the theme's translucent green. The first
+   round's #5a6268 is 6.21:1 and 5.54:1 there; --text-muted would be 4.69:1
+   and 4.18:1, under AA on the hover. Since that round the table is
    framed like the queue's: a pale green head in small capitals (#24524a on
    #dff1e8, 7.51:1), a softer edge and shadow, and shorter rows.
 
@@ -110,6 +112,7 @@ withDefaults(
   --audit-head: #dff1e8;
   --audit-head-ink: #24524a;
   --audit-rule: #e6eae8;
+  --audit-hover: #e8f5ee;
 
   overflow-x: auto;
   background: var(--white);
@@ -124,6 +127,7 @@ withDefaults(
   --audit-head: var(--light-green);
   --audit-head-ink: var(--teal);
   --audit-rule: var(--border-light);
+  --audit-hover: var(--light-green);
 
   border-color: var(--border-light);
   box-shadow: none;
@@ -141,7 +145,7 @@ withDefaults(
 
 /* 40px with its rule, as the design draws it. */
 .audit-table__col {
-  padding: 0.625rem 1.125rem;
+  padding: 0.65rem 1.125rem;
   border-bottom: 1px solid var(--audit-rule);
   color: var(--audit-head-ink);
   font-size: 0.75rem;
@@ -164,10 +168,17 @@ withDefaults(
   width: 140px;
 }
 
+/* Rows of 43px, as he draws them. */
 .audit-table__table td {
-  padding: 0.625rem 1.125rem;
+  padding: 0.633rem 1.125rem;
   border-bottom: 1px solid var(--audit-rule);
   vertical-align: middle;
+}
+
+/* On the row, not its cells: main.css's tbody tr:hover paints the row, and
+   one wash on one element is what keeps the dark one from doubling. */
+.audit-table__table tbody tr:hover {
+  background: var(--audit-hover);
 }
 
 .audit-table__table tbody tr:last-child td {

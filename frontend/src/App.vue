@@ -167,9 +167,9 @@
             </li>
 
             <!-- The agent side of support tickets, on the server's isSupport
-                 flag: admins, support agents and anyone granted access on the
-                 roster. One entry point for all of them, so it is not also an
-                 Admin sub-item. -->
+                 flag: admins, support agents, and anyone else the server has
+                 given queue access. One entry point for all of them, so it is
+                 not also an Admin sub-item. -->
             <li class="sidebar-item" v-if="auth.canWorkTickets">
               <RouterLink
                 to="/admin/tickets"
@@ -570,10 +570,6 @@ const sidebarSections = computed(() => {
       active: isAdminLandingActive.value,
       links: [
         { label: 'Users', to: '/admin/users', active: path === '/admin/users' },
-        // Admin-only, and deliberately not beside Support queue: a support
-        // agent must not be offered the screen that grants the role
-        // (adminweb Nav.tsx).
-        { label: 'Support agents', to: '/admin/support-agents', active: path === '/admin/support-agents' },
         { label: 'Guardians', to: '/admin/guardians', active: path === '/admin/guardians' },
         { label: 'Views', to: '/admin/views', active: path.startsWith('/admin/views') },
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },

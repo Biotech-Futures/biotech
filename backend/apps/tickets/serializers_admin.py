@@ -74,17 +74,42 @@ class SupportMessageSerializer(serializers.Serializer):
     # which of the two it is. Optional, and the reply behaves exactly as
     # before when it is absent.
     moveToPending = serializers.BooleanField(required=False, default=False)
+    # The status a reply leaves the ticket in, chosen beside the reply box
+    # (C-19, the 8 October client meeting: "you put the status down here, and
+    # it would default to pending user, but then it would allow the support
+    # agent to change it to in progress or resolved"). Open is not offered:
+    # an answered ticket is not new. Optional, so a caller that sends only
+    # moveToPending, or nothing, behaves exactly as before; pending user is
+    # the same action as moveToPending.
+    nextStatus = serializers.ChoiceField(
+        choices=[
+            TicketStatus.IN_PROGRESS,
+            TicketStatus.PENDING_USER,
+            TicketStatus.RESOLVED,
+        ],
+        required=False,
+    )
 
     def validate(self, attrs):
-        if (
-            attrs.get("moveToPending")
-            and attrs["messageType"] == TicketMessageType.INTERNAL_NOTE
-        ):
+        is_note = attrs["messageType"] == TicketMessageType.INTERNAL_NOTE
+        if attrs.get("moveToPending") and is_note:
             # An internal note is invisible to the requester, so moving the
             # ticket onto them would leave a status that says "your move"
             # with nothing on their timeline asking for anything.
             raise serializers.ValidationError(
                 "An internal note cannot move the ticket to pending user."
+            )
+        if "nextStatus" in attrs and is_note:
+            # The same reason, for every status: a change the requester can
+            # see, made by a message they cannot.
+            raise serializers.ValidationError(
+                "An internal note cannot change the status."
+            )
+        if "nextStatus" in attrs and attrs.get("moveToPending"):
+            # Two answers to one question. Picking one of them silently would
+            # be guessing which the caller meant.
+            raise serializers.ValidationError(
+                "Send either nextStatus or moveToPending, not both."
             )
         return attrs
 

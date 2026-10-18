@@ -140,15 +140,6 @@ export function changeNotSavedMessage(error: unknown): string {
   return `That change was not saved. ${ticketRefusalReason(error) ?? CHANGE_NOT_SAVED_FALLBACK}`
 }
 
-export function deleteRefusedMessage(error: unknown): string {
-  // Reached most often by an admin whose admin access was taken away while
-  // this panel was open, since canDelete came from the session loaded with
-  // the page: the server answers "You do not have admin privileges." and
-  // "Nothing has changed" on its own leaves them pressing the button again.
-  const reason = ticketRefusalReason(error)
-  return reason ? `That did not delete. Nothing has changed. ${reason}` : 'That did not delete. Nothing has changed.'
-}
-
 /** What a message box says when the server did not take the message.
  *
  *  Say what the server said. An 11 MB attachment is refused with "Attachment

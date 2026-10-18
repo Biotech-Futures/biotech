@@ -184,3 +184,32 @@ describe('the promise at the foot of the page', () => {
     expect(promise).not.toMatch(/by email[^.]*repl\w*/)
   })
 })
+
+/**
+ * The second redesign round's header (D2-01): no small capitals above the
+ * title, and the client's p48 question, "How can we help?", as the line
+ * under it, now that the form below is called "Raise an enquiry". The help
+ * card's opening sentence is his one-liner (D2-07).
+ */
+describe('the page header', () => {
+  beforeEach(() => {
+    fetchMock.mockResolvedValue(pageOf([], { total: 0, hasMore: false }))
+  })
+
+  it('asks the client’s question under the title', async () => {
+    const wrapper = mount(SupportCentrePage)
+    await flushPromises()
+
+    const hero = wrapper.get('header.support__hero')
+    expect(hero.get('h1').text()).toBe('Support Centre')
+    expect(hero.get('.support__tagline').text()).toBe('How can we help?')
+    expect(hero.text()).not.toMatch(/help and support/i)
+  })
+
+  it('opens the help card with one short sentence', async () => {
+    const wrapper = mount(SupportCentrePage)
+    await flushPromises()
+
+    expect(wrapper.get('.support__selfserve-lede').text()).toBe('Quick answers to common questions.')
+  })
+})

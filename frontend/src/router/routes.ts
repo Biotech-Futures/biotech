@@ -166,7 +166,6 @@ const routes: RouteRecordRaw[] = [
   },
   // Admin-only on the server too (IsAdminScoped); the page also checks the
   // server's own flag, since the route's requiresAdmin reads the role name.
-  { path: '/admin/support-agents', name: 'admin-support-agents', component: () => import('@/views/admin/SupportAgentsPage.vue'), meta: { requiresAdmin: true } },
   // For an account whose role is support but who has no queue access.
   { path: '/support-access', name: 'support-access', component: () => import('@/views/SupportAccessPage.vue') },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },

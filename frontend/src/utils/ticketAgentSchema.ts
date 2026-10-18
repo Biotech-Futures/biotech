@@ -198,46 +198,6 @@ export const assigneeOptionSchema = personSchema.extend({
   assignable: z.boolean()
 })
 
-export const supportAgentSchema = personSchema.extend({
-  email: z.string(),
-  // What revoking would strand. Resolved tickets are not counted: nobody has
-  // to pick those up again.
-  openTickets: z.number(),
-  /** The account's own status, straight from the users table.
-   *
-   *  Queue access and account status are kept apart on purpose, so switching
-   *  an agent off leaves their row on the roster exactly where it was. The
-   *  cost is that a name on this list may be an account nobody can sign into,
-   *  and the endpoint sends this field so the screen can say which.
-   *
-   *  A plain string and not an enum, unlike status and priority above. Those
-   *  two are the ticket module's own and a new value there is a defect worth
-   *  failing loudly over. This one belongs to the users app, which has five
-   *  values today and may gain a sixth for reasons that have nothing to do
-   *  with support, and a parse failure would take the whole roster off the
-   *  screen over a word this page only reads. accountStatusNote below decides
-   *  what to make of it and has an answer for a value it does not know. */
-  accountStatus: z.string()
-})
-
-// Cannot sign in, so cannot work the queue. Mirrors
-// users.User.INACTIVE_LOGIN_STATUSES, which deliberately leaves out "invited"
-// and "pending": those are is_active=False as well, and they can still sign in
-// with a usable password. Reading this off is_active instead is how an invited
-// colleague gets marked as switched off.
-const SIGN_IN_BLOCKED: Record<string, string> = {
-  suspended: 'Suspended',
-  deactivated: 'Deactivated'
-}
-
-/** What to say beside a roster name whose account cannot sign in, or null.
- *
- *  Null for every other status, this being a mark and not a status column: an
- *  account that can sign in is the ordinary case and needs no comment. */
-export function accountStatusNote(accountStatus: string): string | null {
-  return SIGN_IN_BLOCKED[accountStatus] ?? null
-}
-
 export const ticketAuditRowSchema = z.object({
   id: z.number(),
   ticketId: z.number(),
@@ -404,7 +364,6 @@ export const ticketFiltersSchema = z.object({
 export type TicketAnalytics = z.infer<typeof ticketAnalyticsSchema>
 export type TicketAuditRow = z.infer<typeof ticketAuditRowSchema>
 export type TicketAuditPage = z.infer<typeof ticketAuditPageSchema>
-export type SupportAgent = z.infer<typeof supportAgentSchema>
 export type TicketRow = z.infer<typeof ticketRowSchema>
 export type TicketQueue = z.infer<typeof ticketQueueSchema>
 export type TicketSummary = z.infer<typeof ticketSummarySchema>

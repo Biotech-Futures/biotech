@@ -143,14 +143,16 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     ]
   },
   {
-    // In the tickets card. A row under the pointer takes main.css's
-    // tbody tr:hover wash.
+    // In the tickets card. A row under the pointer takes the table's own
+    // wash, pale green since the second round (C-20) where it was main.css's
+    // tbody tr:hover peach; the date in the last column is muted.
     file: 'components/support/MyTicketsTable.vue',
     root: '.my-tickets',
     pairs: [
       ['--my-tickets-head-ink', '--my-tickets-head', TEXT],
       ['--my-tickets-link', '--surface-elevated', TEXT],
-      ['--my-tickets-link', '--light-green over --surface-elevated', TEXT],
+      ['--my-tickets-link', '--my-tickets-hover over --surface-elevated', TEXT],
+      ['--ticket-muted', '--my-tickets-hover over --surface-elevated', TEXT],
       ['--my-tickets-tile-ink', '--my-tickets-tile', NON_TEXT]
     ]
   },
@@ -202,12 +204,16 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     ]
   },
   {
-    // The back link and the waiting callout, on the page.
+    // The back link and the waiting callout, on the page; the header pills
+    // of the second round are a ground of their own.
     file: 'views/TicketDetailPage.vue',
     root: '.ticket',
     pairs: [
       ['--ticket-wait-ink', '--ticket-wait', TEXT],
-      ['--ticket-link', '--bg-light', TEXT]
+      ['--ticket-link', '--bg-light', TEXT],
+      ['--ticket-muted', '--ticket-fact', TEXT],
+      ['--ticket-fact-ink', '--ticket-fact', TEXT],
+      ['--ticket-fact-icon', '--ticket-fact', NON_TEXT]
     ]
   },
   {
@@ -245,12 +251,15 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     ]
   },
   {
-    // The head row on the --white frame, and the empty list's round picture.
+    // The head row on the --white frame, the empty list's round picture, and
+    // a selected or hovered row's wash.
     file: 'components/admin/tickets/queue/QueueTable.vue',
     root: '.queue-table',
     pairs: [
       ['--queue-head-ink', '--queue-head over --white', TEXT],
-      ['--queue-tile-ink', '--queue-tile', NON_TEXT]
+      ['--queue-tile-ink', '--queue-tile', NON_TEXT],
+      ['--queue-muted', '--queue-wash over --white', TEXT],
+      ['--queue-link', '--queue-wash over --white', TEXT]
     ]
   },
   {
@@ -286,7 +295,7 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     ]
   },
   {
-    // A --white select on the shared bar, which is --light-green on the page.
+    // A --white select on the bar, which paints its own wash on the page.
     file: 'components/admin/tickets/queue/BulkAssignBar.vue',
     root: '.bulk-actions-bar.bulk-assign',
     pairs: [
@@ -298,7 +307,11 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
     // The head row on the --white frame.
     file: 'components/admin/tickets/audit/TicketAuditTable.vue',
     root: '.audit-table',
-    pairs: [['--audit-head-ink', '--audit-head over --white', TEXT]]
+    pairs: [
+      ['--audit-head-ink', '--audit-head over --white', TEXT],
+      ['--audit-muted', '--audit-hover over --white', TEXT],
+      ['--audit-link', '--audit-hover over --white', TEXT]
+    ]
   },
   {
     // --white controls on the page.
@@ -326,35 +339,13 @@ const FILES: { file: string; root: string; pairs: Pair[] }[] = [
       ['--analytics-edge', '--white', NON_TEXT],
       ['--analytics-edge', '--bg-light', NON_TEXT]
     ]
-  },
-  {
-    // The search box and the create button are on the page; Grant is in the
-    // --white results card; Revoke is on a table row, which is --white until
-    // the pointer washes it.
-    file: 'views/admin/SupportAgentsPage.vue',
-    root: '.support-agents',
-    pairs: [
-      ['--roster-edge', '--white', NON_TEXT],
-      ['--roster-edge', '--bg-light', NON_TEXT],
-      ['--roster-row-edge', '--white', NON_TEXT],
-      ['--roster-row-edge', '--light-green over --white', NON_TEXT],
-      ['--roster-focus', '--white', NON_TEXT],
-      ['--roster-focus', '--bg-light', NON_TEXT],
-      ['--roster-accent', '--white', NON_TEXT],
-      ['--roster-accent', '--bg-light', NON_TEXT]
-    ]
   }
 ]
 
-describe('the controls on a peach ground take the darker edge', () => {
-  // #84938f is 2.80:1 on --light-green's peach, so the two controls that sit
-  // on it take #7a8884 instead. The greys look alike, and the pairs above only
-  // measure the properties; this pins each control to its own.
-  it('draws Revoke with the row edge, not the search box grey', () => {
-    const revoke = rule(stylesheet('components/admin/support-agents/SupportRosterTable.vue'), '.support-roster__revoke')
-    expect(revoke?.border).toBe('1px solid var(--roster-row-edge)')
-  })
-
+describe('the control on a tinted ground takes the darker edge', () => {
+  // #84938f is 2.86:1 on the bulk bar's pale green, so the select that sits
+  // on it takes #7a8884 instead. The greys look alike, and the pairs above
+  // only measure the properties; this pins the control to its own.
   it('draws the bulk bar select with the bar edge', () => {
     const select = rule(stylesheet('components/admin/tickets/queue/BulkAssignBar.vue'), '.bulk-assign__select')
     expect(select?.border).toBe('1px solid var(--bulk-edge)')

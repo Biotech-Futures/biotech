@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatLongDateTimeAU } from '@/utils/ticketDates'
+import { formatDateTimeAU, formatLongDateTimeAU } from '@/utils/ticketDates'
 
 /**
  * The stamp on every line of a ticket conversation.
@@ -55,5 +55,28 @@ describe('formatLongDateTimeAU', () => {
 
   it('says nothing rather than "Invalid Date" for a value it cannot read', () => {
     expect(formatLongDateTimeAU('not a date')).toBe('')
+  })
+})
+
+/**
+ * The ticket page's header pills since the second redesign round (October
+ * 2026): "Updated 29 Sept 2026, 8:18 pm". The month is short there, and the
+ * zone rule is the conversation's.
+ */
+describe('formatDateTimeAU', () => {
+  it('shows the short date and the time of day', () => {
+    vi.stubEnv('TZ', 'Australia/Sydney')
+
+    expect(formatDateTimeAU(REPLY_AT)).toBe('24 Sept 2026, 3:37 pm')
+  })
+
+  it('moves the date with the reader’s zone, not only the hour', () => {
+    vi.stubEnv('TZ', 'America/Los_Angeles')
+
+    expect(formatDateTimeAU(REPLY_AT)).toBe('23 Sept 2026, 10:37 pm')
+  })
+
+  it('says nothing rather than "Invalid Date" for a value it cannot read', () => {
+    expect(formatDateTimeAU('not a date')).toBe('')
   })
 })

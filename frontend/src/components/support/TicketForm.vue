@@ -1,15 +1,15 @@
 <template>
   <form class="ticket-form" @submit.prevent="submit">
-    <h2 class="ticket-form__title">How can we help?</h2>
+    <!-- The second redesign round moves the client's p48 question, "How can
+         we help?", up into the page header and names the form for what it
+         does. -->
+    <h2 class="ticket-form__title">Raise an enquiry</h2>
     <p class="ticket-form__lede">
-      Tell us more about your issue and we'll get back to you as soon as possible. You
-      will be able to follow the conversation from this page.
+      Tell us more about your issue and we'll get back to you as soon as possible.
     </p>
 
     <!-- Side by side once there is room for both, one above the other when
-         there is not. The hint under them is about the urgency, and says so
-         to a screen reader through aria-describedby now that it is no longer
-         inside that label. -->
+         there is not. -->
     <div class="ticket-form__pair">
       <label class="ticket-form__field">
         <span class="ticket-form__label">Issue category</span>
@@ -27,34 +27,22 @@
       </label>
 
       <label class="ticket-form__field">
-        <span class="ticket-form__label">How urgent is this?</span>
-        <select
-          v-model="priority"
-          class="ticket-form__control ticket-form__select"
-          :aria-describedby="urgencyHintId"
-        >
+        <span class="ticket-form__label">Urgency</span>
+        <select v-model="priority" required class="ticket-form__control ticket-form__select">
+          <!-- Starts unselected, like the category, because the client asked
+               for it at the 8 October meeting (C-22): "Can you make that not
+               default to anything? I would want them to select that." A
+               preselected answer is one a student never reads, and it used to
+               be "I can keep working", so every untouched enquiry said so.
+               The server still falls back to Normal for a caller that sends
+               nothing; this form always sends a choice. -->
+          <option value="" disabled>Select how urgent this is</option>
           <option v-for="option in TICKET_PRIORITIES" :key="option.value" :value="option.value">
             {{ option.label }}
           </option>
         </select>
-        <!-- Preselected to Normal rather than left blank, unlike the category
-             above. The two are not the same question: a blank category is a
-             fact we do not have, so asking for it is right, while a blank
-             urgency has an obvious and honest default. Making it a required
-             choice would also push people towards High, because that is what an
-             unanswered question about your own problem feels like. -->
       </label>
     </div>
-    <!-- The full sentences live here, not in the option labels. A closed
-         <select> cannot wrap, so anything long enough to explain itself is
-         truncated on a phone, and the default option is the one line a
-         student who never opens the dropdown will read. This paragraph
-         wraps, so it can carry the explanation the labels had to drop. -->
-    <p :id="urgencyHintId" class="ticket-form__hint">
-      Pick the one that is true for you: whether you are stuck right now,
-      able to carry on for the time being, or just letting us know. Support
-      can change this if they need to.
-    </p>
 
     <label class="ticket-form__field">
       <span class="ticket-form__label">Subject</span>
@@ -94,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, useId } from 'vue'
+import { computed, ref } from 'vue'
 import TicketAttachmentPicker from '@/components/support/TicketAttachmentPicker.vue'
 import '@/components/support/ticketControls.css'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -111,17 +99,17 @@ import {
 const emit = defineEmits<{ submitted: [TicketDetail] }>()
 
 const category = ref<TicketCategory | ''>('')
-const priority = ref<TicketPriority>('normal')
+const priority = ref<TicketPriority | ''>('')
 const subject = ref('')
 const body = ref('')
 const files = ref<File[]>([])
 const isSubmitting = ref(false)
 const error = ref('')
-const urgencyHintId = useId()
 
 const canSubmit = computed(
   () =>
     category.value !== '' &&
+    priority.value !== '' &&
     subject.value.trim().length > 0 &&
     body.value.trim().length > 0
 )
@@ -134,13 +122,13 @@ async function submit() {
   try {
     const ticket = await submitTicket({
       category: category.value as TicketCategory,
-      priority: priority.value,
+      priority: priority.value as TicketPriority,
       subject: subject.value.trim(),
       body: body.value.trim(),
       files: files.value
     })
     category.value = ''
-    priority.value = 'normal'
+    priority.value = ''
     subject.value = ''
     body.value = ''
     files.value = []
@@ -164,19 +152,23 @@ async function submit() {
      dark   muted #a3b3ae on the #1d2826 card 6.95:1
             placeholder #93a39e on the #161f1d field 6.39:1
             control edge #70827d on #161f1d 4.15:1, on the card 3.74:1
-   The old edge, --border-light, was 1.32:1 in light and 1.16:1 in dark. */
+   The old edge, --border-light, was 1.32:1 in light and 1.16:1 in dark.
+   The glow round a focused field was the global --light-green, the peach the
+   client asked us to drop (C-20); it takes the designer's pale green until he
+   draws one, and dark keeps the token, which is already a green there. */
 .ticket-form {
   --form-muted: #5a6268;
   --form-placeholder: #6c757d;
   --form-control-edge: #84938f;
   --form-focus-edge: var(--dark-green);
+  --form-focus-glow: #d3ece0;
   --form-card-edge: #e3e7e5;
   --form-card-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
 
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1.5rem 1.75rem 1.625rem;
+  padding: 1.5625rem 1.75rem 1.625rem;
   background: var(--surface-elevated);
   border: 1px solid var(--form-card-edge);
   border-top: 3px solid var(--dark-green);
@@ -191,6 +183,7 @@ async function submit() {
   --form-placeholder: #93a39e;
   --form-control-edge: #70827d;
   --form-focus-edge: #6dbfb1;
+  --form-focus-glow: var(--light-green);
   --form-card-edge: #2b3936;
   --form-card-shadow: 0 1px 3px var(--shadow);
 }
@@ -202,7 +195,7 @@ async function submit() {
 }
 
 .ticket-form__lede {
-  margin: -0.5rem 0 0 0;
+  margin: -0.55rem 0 0.125rem 0;
   color: var(--form-muted);
   font-size: 0.9rem;
   line-height: 1.5;
@@ -224,6 +217,7 @@ async function submit() {
 .ticket-form__label {
   font-size: 0.85rem;
   font-weight: 600;
+  line-height: 1.5;
   color: var(--teal);
 }
 
@@ -246,12 +240,12 @@ async function submit() {
 .ticket-form__control:focus {
   outline: none;
   border-color: var(--form-focus-edge);
-  box-shadow: 0 0 0 3px var(--light-green);
+  box-shadow: 0 0 0 3px var(--form-focus-glow);
 }
 
 /* The browser's arrow is switched off for the thin chevron from
    ticketControls.css, with room kept clear of it on the right. Until a
-   category is picked the required select is :invalid, and it reads as a
+   choice is made each required select is :invalid, and it reads as a
    placeholder; the open list keeps the normal text colour. */
 .ticket-form__select {
   appearance: none;
@@ -275,16 +269,10 @@ async function submit() {
   line-height: 1.45;
 }
 
-.ticket-form__hint {
-  margin: -0.5rem 0 0 0;
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: var(--form-muted);
-}
-
 .ticket-form__counter {
   align-self: flex-end;
   font-size: 0.8rem;
+  line-height: 1.2;
   color: var(--form-muted);
 }
 
@@ -300,12 +288,6 @@ async function submit() {
   margin-top: calc(-0.6rem - 1px - 0.55rem);
 }
 
-/* Here the hint takes a line of its own under the button, however wide the
-   form is; in the reply box it stays beside the button. */
-.ticket-form__attach :deep(.attach__hint) {
-  flex-basis: 100%;
-}
-
 .ticket-form__error {
   margin: 0;
   color: var(--danger);
@@ -318,6 +300,7 @@ async function submit() {
 .ticket-form__submit {
   align-self: flex-start;
   min-height: 2.75rem;
+  margin-top: 0.125rem;
   padding: 0.65rem 1.5rem;
   border: none;
   border-radius: 8px;

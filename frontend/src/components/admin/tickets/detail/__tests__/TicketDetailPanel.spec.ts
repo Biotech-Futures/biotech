@@ -22,7 +22,8 @@ import {
 } from './ticketDetailFixtures'
 
 // Ported from adminweb/src/components/tickets/TicketDetailPanel.test.tsx
-// (shell, header, history, times, delete) plus what the Vue panel owns that
+// (shell, header, history, times; its delete went with C-16) plus what the
+// Vue panel owns that
 // the React one left to TanStack Query and Radix: the stale-response token,
 // the assignee read on every open (T02), focus in and out, Esc, and telling
 // the queue after a write.
@@ -33,7 +34,6 @@ vi.mock('@/utils/ticketAgentAPI', async (importOriginal) => ({
   fetchTicketHistory: vi.fn(),
   updateTicket: vi.fn(),
   sendTicketMessage: vi.fn(),
-  deleteTicket: vi.fn(),
   downloadTicketAttachment: vi.fn()
 }))
 
@@ -73,12 +73,6 @@ function button({ page }: Panel, scope: string, label: string) {
   const found = page.get(scope).findAll('button').find((node) => node.text() === label)
   if (!found) throw new Error(`no ${label} button in ${scope}`)
   return found
-}
-
-async function askToDelete(panel: Panel) {
-  await openDetails(panel)
-  await panel.page.get('.ticket-panel__delete-button').trigger('click')
-  await flushPromises()
 }
 
 describe('opening a ticket', () => {
@@ -320,21 +314,12 @@ describe('focus, Esc and closing', () => {
     expect(wrapper.emitted('close')).toHaveLength(2)
   })
 
-  it('leaves Esc to the delete confirmation while that is open', async () => {
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-
-    await panel.page.get('.admin-modal').trigger('keydown', { key: 'Escape' })
-    await flushPromises()
-
-    expect(panel.wrapper.emitted('close')).toBeUndefined()
-    expect(panel.page.find('.admin-modal').exists()).toBe(false)
-  })
-
+  // The reply side of the message box is open when a ticket opens (D2-16),
+  // so its send button is the last control there is.
   it('keeps Tab inside the panel: past the last control it comes back to the first', async () => {
     const { page } = await openPanel(ticketWith())
-    await page.get(NOTE).setValue('Called the school.')
-    const last = page.get('.note-box__send')
+    await page.get(REPLY).setValue('Thanks, all sorted.')
+    const last = page.get('.reply-box__send')
     ;(last.element as HTMLElement).focus()
 
     await last.trigger('keydown', { key: 'Tab' })
@@ -344,21 +329,38 @@ describe('focus, Esc and closing', () => {
 
   it('keeps Shift+Tab inside the panel too: before the first control it goes to the last', async () => {
     const { page } = await openPanel(ticketWith())
-    await page.get(NOTE).setValue('Called the school.')
+    await page.get(REPLY).setValue('Thanks, all sorted.')
     const first = page.get('button[aria-label="Close"]')
     ;(first.element as HTMLElement).focus()
 
     await first.trigger('keydown', { key: 'Tab', shiftKey: true })
 
-    expect(document.activeElement).toBe(page.get('.note-box__send').element)
+    expect(document.activeElement).toBe(page.get('.reply-box__send').element)
+  })
+
+  it('counts the note side once it is the side that is open', async () => {
+    const panel = await openPanel(ticketWith())
+    await tab(panel, 'Internal note').trigger('click')
+    await panel.page.get(NOTE).setValue('Called the school.')
+    const first = panel.page.get('button[aria-label="Close"]')
+    ;(first.element as HTMLElement).focus()
+
+    await first.trigger('keydown', { key: 'Tab', shiftKey: true })
+
+    expect(document.activeElement).toBe(panel.page.get('.note-box__send').element)
   })
 })
 
 describe('the two tabs', () => {
-  it('are a real tablist, with the selected one marked', async () => {
-    const { page } = await openPanel(ticketWith())
+  // The panel's own pair. The message box has a pair of its own (D2-16),
+  // tested with the composers.
+  const sectionTabs = ({ page }: Panel) =>
+    page.get('[role="tablist"][aria-label="Ticket sections"]').findAll('[role="tab"]')
 
-    const tabs = page.findAll('[role="tab"]')
+  it('are a real tablist, with the selected one marked', async () => {
+    const panel = await openPanel(ticketWith())
+
+    const tabs = sectionTabs(panel)
     expect(tabs.map((node) => [node.text(), node.attributes('aria-selected')])).toEqual([
       ['Conversation', 'true'],
       ['Details', 'false']
@@ -374,9 +376,7 @@ describe('the two tabs', () => {
     await tab(panel, 'Conversation').trigger('keydown', { key: 'ArrowRight' })
     await flushPromises()
 
-    expect(panel.page.findAll('[role="tab"]').map((node) => node.attributes('aria-selected'))).toEqual(
-      ['false', 'true']
-    )
+    expect(sectionTabs(panel).map((node) => node.attributes('aria-selected'))).toEqual(['false', 'true'])
     expect(document.activeElement).toBe(tab(panel, 'Details').element)
   })
 
@@ -780,170 +780,30 @@ describe('a write that lands after the panel was closed (DT-39)', () => {
     expect(api.fetchTicketDetail).toHaveBeenCalledTimes(1)
     expect(api.fetchTicketHistory).toHaveBeenCalledTimes(1)
   })
-
-  it('still tells the queue which ticket went when a delete lands after the panel was closed', async () => {
-    // The confirmation holds the panel open while a delete is on its way, but
-    // the queue can still take the panel away (Back in the browser drops
-    // ?ticket= from the address).
-    const onDeleted = vi.fn()
-    const answer = deferred<number>()
-    api.deleteTicket.mockReturnValue(answer.promise)
-    const panel = await openPanel(ticketWith(), { canDelete: true, listeners: { onDeleted } })
-    await askToDelete(panel)
-    await button(panel, '.admin-modal', 'Delete').trigger('click')
-
-    closeLikeTheQueue(panel)
-    answer.resolve(7)
-    await flushPromises()
-
-    expect(onDeleted).toHaveBeenCalledWith(7)
-    expect(onDeleted).toHaveBeenCalledTimes(1)
-  })
 })
 
+/**
+ * The client does not want tickets deleted by hand, only closed (8 October
+ * meeting, C-16: "I don't think I ever want a ticket deleted manually. I only
+ * want the option to close."). The Details tab used to end in a Delete this
+ * ticket card for admins (DEC-024); it is gone for everybody.
+ */
 describe('deleting a ticket', () => {
-  it('is not offered to a support agent at all', async () => {
-    const panel = await openPanel(ticketWith(), { canDelete: false })
+  it('is not offered on the Details tab', async () => {
+    const panel = await openPanel(ticketWith())
     await openDetails(panel)
 
-    expect(panel.page.text()).not.toContain('Delete this ticket')
-    expect(panel.page.find('.ticket-panel__delete-button').exists()).toBe(false)
+    const details = panel.page.get('[role="tabpanel"][id$="-panel-details"]')
+    expect(details.text()).not.toMatch(/delete/i)
+    expect(details.findAll('button').map((b) => b.text())).not.toContain('Delete ticket')
   })
 
-  it('asks first, naming the ticket and whose list it leaves', async () => {
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
+  it('is not offered anywhere else in the panel either', async () => {
+    const panel = await openPanel(ticketWith())
 
-    const dialog = panel.page.get('.admin-modal')
-    expect(dialog.get('h2').text()).toBe('Delete SUP-2026-00007?')
-    expect(dialog.get('.admin-modal__message').text()).toBe(
-      "This removes it from the queue and from Mia Thompson's own list of enquiries. " +
-        'It cannot be undone from the app. A record of the deletion is kept in the history.'
+    expect(panel.page.findAll('button').map((b) => b.text().toLowerCase())).not.toContain(
+      'delete ticket'
     )
-    expect(api.deleteTicket).not.toHaveBeenCalled()
-  })
-
-  it('says "the requester" when the ticket has none to name', async () => {
-    const panel = await openPanel(ticketWith({ requester: null }), { canDelete: true })
-    await askToDelete(panel)
-
-    expect(panel.page.get('.admin-modal__message').text()).toContain(
-      "from the requester's own list of enquiries"
-    )
-  })
-
-  it('opens the confirmation on "Keep it", so an Enter straight away does not delete', async () => {
-    // Radix's AlertDialog in React opened on its Cancel. ConfirmDialog
-    // focuses its confirm button, which here is the one that deletes a
-    // ticket for good.
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-
-    expect(document.activeElement).toBe(button(panel, '.admin-modal', 'Keep it').element)
-    expect(document.activeElement).not.toBe(button(panel, '.admin-modal', 'Delete').element)
-  })
-
-  it('sends one delete, however fast the second click on Delete comes', async () => {
-    // Both clicks land before a re-render, so ConfirmDialog has not seen
-    // `busy` yet and passes both on. What stops the second is the panel's
-    // own check of `deleting`, read live.
-    const answer = deferred<number>()
-    api.deleteTicket.mockReturnValue(answer.promise)
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-
-    const confirm = button(panel, '.admin-modal', 'Delete').element as HTMLButtonElement
-    confirm.click()
-    confirm.click()
-    answer.resolve(7)
-    await flushPromises()
-
-    expect(api.deleteTicket).toHaveBeenCalledTimes(1)
-    expect(panel.wrapper.emitted('deleted')).toEqual([[7]])
-  })
-
-  it('does not carry a refused delete over to the next ticket', async () => {
-    api.deleteTicket.mockRejectedValue(
-      await serverError(403, {
-        error: 'You do not have admin privileges.',
-        code: 'permission_denied',
-        request_id: 'c3fbf345963e'
-      })
-    )
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-    await button(panel, '.admin-modal', 'Delete').trigger('click')
-    await flushPromises()
-    expect(panel.page.find('.ticket-panel__delete [role="alert"]').exists()).toBe(true)
-
-    api.fetchTicketDetail.mockResolvedValue(ticketWith({ id: 8, ticketNumber: 'SUP-2026-00008' }))
-    await panel.wrapper.setProps({ ticketId: 8 })
-    await flushPromises()
-
-    expect(panel.page.get('h2').text()).toContain('SUP-2026-00008')
-    expect(panel.page.find('.ticket-panel__delete [role="alert"]').exists()).toBe(false)
-  })
-
-  it('keeps it on "Keep it" and hands focus back to the Delete button', async () => {
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-
-    await button(panel, '.admin-modal', 'Keep it').trigger('click')
-    await flushPromises()
-
-    expect(api.deleteTicket).not.toHaveBeenCalled()
-    expect(document.activeElement).toBe(panel.page.get('.ticket-panel__delete-button').element)
-  })
-
-  it('deletes on "Delete" and tells the queue which ticket went', async () => {
-    api.deleteTicket.mockResolvedValue(7)
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-
-    await button(panel, '.admin-modal', 'Delete').trigger('click')
-    await flushPromises()
-
-    expect(api.deleteTicket).toHaveBeenCalledWith(7)
-    expect(panel.wrapper.emitted('deleted')).toEqual([[7]])
-    // The queue closes the panel and reloads on this one event.
-    expect(panel.wrapper.emitted('changed')).toBeUndefined()
-    // The ticket is gone, so reading it again would only fetch a 404.
-    expect(api.fetchTicketDetail).toHaveBeenCalledTimes(1)
-  })
-
-  it('says what the server said, on top of saying nothing changed', async () => {
-    // An admin whose admin access was taken away mid-session still has the
-    // button, because canDelete came from the session loaded with the page.
-    // "Nothing has changed" alone leaves them clicking it again.
-    api.deleteTicket.mockRejectedValue(
-      await serverError(403, {
-        error: 'You do not have admin privileges.',
-        code: 'permission_denied',
-        request_id: 'c3fbf345963e'
-      })
-    )
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-    await button(panel, '.admin-modal', 'Delete').trigger('click')
-    await flushPromises()
-
-    expect(panel.page.get('.ticket-panel__delete [role="alert"]').text()).toBe(
-      'That did not delete. Nothing has changed. You do not have admin privileges.'
-    )
-    expect(panel.wrapper.emitted('deleted')).toBeUndefined()
-  })
-
-  it('says nothing more when the ticket was already deleted', async () => {
-    // Two admins pressing Delete on the same ticket. The second gets the 404,
-    // and its two words add nothing to the sentence already there.
-    api.deleteTicket.mockRejectedValue(await ticketGone())
-    const panel = await openPanel(ticketWith(), { canDelete: true })
-    await askToDelete(panel)
-    await button(panel, '.admin-modal', 'Delete').trigger('click')
-    await flushPromises()
-
-    expect(panel.page.get('.ticket-panel__delete [role="alert"]').text()).toBe(
-      'That did not delete. Nothing has changed.'
-    )
+    expect(document.body.querySelector('.admin-modal')).toBeNull()
   })
 })

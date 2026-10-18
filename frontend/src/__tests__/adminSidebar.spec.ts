@@ -28,8 +28,7 @@ vi.mock('@/utils/ticketAgentAPI', async (importActual) => {
     fetchTicketDetail: vi.fn(pending),
     fetchTicketHistory: vi.fn(pending),
     fetchTicketAudit: vi.fn(pending),
-    fetchTicketAnalytics: vi.fn(pending),
-    fetchSupportRoster: vi.fn(pending)
+    fetchTicketAnalytics: vi.fn(pending)
   }
 })
 
@@ -233,11 +232,13 @@ describe('App sidebar support entries', () => {
   const sidebarHas = (path: string) => wrapper!.find(`.sidebar-nav a[href="#${path}"]`).exists()
 
   // [account, member items, Support queue, Admin block, Support agents, logo target, /users/me/]
+  // Support agents is offered to nobody since the roster page went (C-15): the
+  // client wants queue access given and taken in the Users tab, by role.
   const table: Array<[string, boolean, boolean, boolean, boolean, string, object]> = [
     ['pure support agent', false, true, false, false, '/admin/tickets', pureAgent],
     ['mentor granted access', true, true, false, false, '/dashboard', mentorWithAccess],
     ['role-support account without access', false, false, false, false, '/support-access', supportWithoutAccess],
-    ['admin', true, true, true, true, '/dashboard', ticketAdmin],
+    ['admin', true, true, true, false, '/dashboard', ticketAdmin],
     ['student', true, false, false, false, '/dashboard', student]
   ]
 
@@ -266,7 +267,7 @@ describe('App sidebar support entries', () => {
     expect(queueLinks[0]!.text()).toBe('Support queue')
     expect(queueLinks[0]!.classes()).toContain('sidebar-link')
     expect(wrapper!.find('#admin-subnav a[href="#/admin/tickets"]').exists()).toBe(false)
-    expect(wrapper!.find('#admin-subnav a[href="#/admin/support-agents"]').text()).toBe('Support agents')
+    expect(wrapper!.find('#admin-subnav a[href="#/admin/support-agents"]').exists()).toBe(false)
   })
 
   it('names the queue link by its words alone, with the icon hidden from screen readers', async () => {

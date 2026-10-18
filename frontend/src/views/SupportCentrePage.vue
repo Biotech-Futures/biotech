@@ -1,8 +1,8 @@
 <template>
   <div class="content-area support">
     <header class="support__hero">
-      <p class="support__eyebrow">Help and support</p>
       <h1 class="support__title">Support Centre</h1>
+      <p class="support__tagline">How can we help?</p>
       <p class="support__subtitle">
         Raise an enquiry with the BIOTech Futures team and follow it through to an answer.
       </p>
@@ -13,10 +13,7 @@
 
       <aside class="support__selfserve">
         <h2 class="support__selfserve-title">Find help quickly</h2>
-        <p class="support__selfserve-lede">
-          Browse our most common topics or visit the Resources section for more guides and
-          information.
-        </p>
+        <p class="support__selfserve-lede">Quick answers to common questions.</p>
 
         <ul class="support__topics">
           <li v-for="topic in TOPICS" :key="topic.title" class="support__topic">
@@ -221,11 +218,13 @@ onMounted(() => {
 <style scoped>
 /* The first redesign round (October 2026) gives the ticket screens their own
    greys, rules and card edge. They are set here, on this page's root, rather
-   than in main.css: the global tokens are every other team's too.
+   than in main.css: the global tokens are every other team's too. The second
+   round turns the peach tiles green (C-20: the client wants the peach gone
+   from the features we built).
 
    Measured against the grounds they sit on (WCAG AA, 4.5:1 for text):
      light  muted #5a6268  on #ffffff 6.21:1  on the #f8f9fa band 5.89:1
-            link  #017151  on #ffffff 6.03:1  icon on its #fcede2 tile 5.27:1
+            link  #017151  on #ffffff 6.03:1  icon on its #dcefe5 tile 5.03:1
      dark   muted #a3b3ae  on the #1d2826 card 6.95:1  on the #161f1d band 7.71:1
             link  #6dbfb1  on #1d2826 7.04:1  icon on its #143b32 tile 5.72:1
    The dark link is the designer's: brand green on a dark card was 2.52:1. */
@@ -236,7 +235,7 @@ onMounted(() => {
   --ticket-card-edge: #e3e7e5;
   --ticket-card-shadow: 0 1px 2px rgba(23, 66, 67, 0.06), 0 4px 12px rgba(23, 66, 67, 0.05);
   --ticket-band: #f8f9fa;
-  --ticket-tile: #fcede2;
+  --ticket-tile: #dcefe5;
   --ticket-tile-ink: #017151;
   --ticket-control-edge: #84938f;
 }
@@ -262,24 +261,26 @@ onMounted(() => {
 }
 
 .support__hero {
-  margin-bottom: 1.25rem;
-}
-
-.support__eyebrow {
-  margin: 0;
-  color: var(--ticket-link);
-  font-size: 0.8rem;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  margin-bottom: 1.3rem;
 }
 
 .support__title {
-  margin: 0.25rem 0 0 0;
+  margin: 0;
   font-size: 2rem;
   line-height: 1.2;
   letter-spacing: -0.01em;
+}
+
+/* The second round's line under the title, in the link green: brand green in
+   light (5.72:1 on the #f8f9fa page), the designer's #6dbfb1 in dark (8.44:1
+   on the #0f1715 page, where brand green would be 3.02:1). It is a line of
+   the header, not a heading: the form below has its own title. */
+.support__tagline {
+  margin: 0.125rem 0 0.2rem 0;
+  color: var(--ticket-link);
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .support__subtitle {
@@ -303,7 +304,7 @@ onMounted(() => {
 }
 
 .support__selfserve {
-  padding: 1.5rem;
+  padding: 1.5rem 1.5rem 1.2rem;
   background: var(--surface-elevated);
   border: 1px solid var(--ticket-card-edge);
   border-radius: 12px;
@@ -317,7 +318,7 @@ onMounted(() => {
 }
 
 .support__selfserve-lede {
-  margin: 0.4rem 0 0.5rem 0;
+  margin: 0.45rem 0 0.4rem 0;
   color: var(--ticket-muted);
   font-size: 0.9rem;
   line-height: 1.5;
@@ -334,7 +335,7 @@ onMounted(() => {
 }
 
 .support__topic {
-  padding: 0.95rem 0;
+  padding: 0.875rem 0 0.95rem;
 }
 
 .support__topic + .support__topic {
@@ -378,10 +379,10 @@ onMounted(() => {
 }
 
 .support__topic h3 {
-  margin: 0 0 0.2rem 0;
+  margin: 0 0 1px 0;
   font-size: 0.95rem;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.4;
 }
 
 .support__topic p {
@@ -393,7 +394,7 @@ onMounted(() => {
 
 .support__resources-link {
   display: inline-block;
-  margin-top: 1rem;
+  margin-top: 0.9rem;
   color: var(--ticket-link);
   font-size: 0.9rem;
   font-weight: 600;
@@ -440,7 +441,7 @@ onMounted(() => {
   color: var(--ticket-muted);
   font-size: 0.78rem;
   font-weight: 700;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .support__table {
@@ -449,7 +450,7 @@ onMounted(() => {
 
 .support__promise {
   margin: 1rem -1.75rem 0;
-  padding: 0.85rem 1.75rem;
+  padding: 0.9rem 1.75rem;
   border-top: 1px solid var(--ticket-rule);
   background: var(--ticket-band);
   color: var(--ticket-muted);

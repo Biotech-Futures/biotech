@@ -1,8 +1,9 @@
 /**
  * The ticket pages' own date formats, as the client and the designer asked
  * for them: "24 Sept 2026" in lists and the ticket header, "24 September
- * 2026, 3:37 pm" on a message and on Last updated (client items C-05, C-06;
- * DEC-050), read in the reader's own time zone.
+ * 2026, 3:37 pm" on a message, "24 Sept 2026, 3:37 pm" where there is less
+ * room (client items C-05, C-06; DEC-050), read in the reader's own time
+ * zone.
  *
  * They lived in utils/date.ts until main's date work of 12 October 2026
  * (0ebdedc2), which moved the platform onto shared styles in the Profile
@@ -92,4 +93,30 @@ export function formatLongDateTimeAU(value: string | Date): string {
     minute: '2-digit',
   })
   return `${formatLongDateAU(date)}, ${time}`
+}
+
+/**
+ * Format a date value into a short Australian date followed by the time of
+ * day: the month abbreviated, as formatDateAU writes it.
+ *
+ * The same reader's-own-zone rule as formatLongDateTimeAU, for places that
+ * have less room than a conversation line, such as the ticket page's header
+ * pills.
+ *
+ * Example output:
+ * 24 Sept 2026, 3:37 pm
+ *
+ * @param value The source date value as a string or Date object.
+ * @returns The short date and the time, or an empty string if invalid.
+ */
+export function formatDateTimeAU(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) return ''
+
+  const time = date.toLocaleTimeString('en-AU', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+  return `${formatDateAU(date)}, ${time}`
 }

@@ -1,19 +1,23 @@
 <template>
-  <form class="note-box" :aria-labelledby="headingId" @submit.prevent="submit">
-    <p :id="headingId" class="note-box__heading">
-      <TicketIcon name="lock" :size="14" />
-      Internal note: the requester never sees this
-    </p>
+  <!-- The note side of TicketComposer.vue, whose tab names it and whose box
+       turns amber while it is open. -->
+  <form class="note-box" @submit.prevent="submit">
     <textarea
       ref="textarea"
       v-model="body"
       class="note-box__text"
       aria-label="Internal note, not visible to the requester"
+      :aria-describedby="hintId"
       :maxlength="MAX_BODY_LENGTH"
       rows="3"
       placeholder="Visible to support only. No email is sent and the requester's ticket shows no change."
       :readonly="isSending"
     ></textarea>
+    <!-- The designer's line, said once more under the words themselves. -->
+    <p :id="hintId" class="note-box__hint">
+      <TicketIcon name="lock" :size="12" />
+      Only support can see this. The requester is not emailed.
+    </p>
 
     <div class="note-box__footer">
       <!-- The visible frame, the lock and the wording all say which of the two
@@ -96,10 +100,10 @@ import { ACCEPTED_FILES, MAX_BODY_LENGTH, useMessageComposer } from './useMessag
 /**
  * Deliberately does not look like the reply box.
  *
- * These two controls sit next to each other and do opposite things: one is
- * read by a student, the other must never be. The amber frame, the lock and
- * the wording are all there so that telling them apart does not depend on
- * reading a label carefully at the end of a long shift.
+ * The two sides of one box do opposite things: one is read by a student, the
+ * other must never be. The amber ground, the lock and the wording are all
+ * there so that telling them apart does not depend on reading a label
+ * carefully at the end of a long shift.
  */
 const props = defineProps<{
   /** Resolves when the note is stored. Rejects, so a failed send keeps what
@@ -125,60 +129,50 @@ const {
   submit
 } = useMessageComposer((text, files) => props.send(text, files))
 
-const headingId = useId()
+const hintId = useId()
 </script>
 
 <style scoped>
-/* The same amber as the internal-note rows in the timeline, a shade deeper
-   since the first redesign round (October 2026). Measured:
-     light  ink #78350f on #fffbeb 8.75, on the #ffffff textarea 9.07,
-            border #b45309 on #fffbeb 4.84 (non-text, needs 3:1)
-     dark   ink #fbbf24 on #2b2410 9.23, on the --white textarea 10.08,
-            border #d08a1e on #2b2410 5.38
-   The button is a deep amber with white words in light, #fff on #92400e
-   7.09 (the designer drew it only greyed out; this is the colour that greys
-   to what he drew), and the ink on the ground reversed in dark, #2b2410 on
-   #fbbf24 9.23. */
+/* The note side of the box in TicketComposer.vue, which paints the amber
+   ground (#fff8e6, dark #2a2516) these were measured on. The second redesign
+   round (D2-16) moves the marking from a dashed frame round this box to the
+   whole box's colour, and draws the controls in it as plain as the reply
+   side's, with the button an outline. Measured (WCAG AA: 4.5:1 for text, 3:1
+   for a control's edge):
+     light  hint #8a5a00 5.59   muted #5a6268 5.86   field edge #84938f 3.03
+            (3.21 against the white field)
+     dark   hint #fbbf24 9.15   muted #a3b3ae 7.00   field edge #70827d 3.77
+   The button is an outline on its own ground, #174243 on #ffffff 11.07 and
+   #e6efed on #1d2826 12.96 in dark: he drew it only greyed out, and this is
+   what greys to what he drew. */
 .note-box {
-  --note-ground: #fffbeb;
-  --note-border: #b45309;
-  --note-ink: #78350f;
-  --note-button: #92400e;
-  --note-on-button: #ffffff;
+  --note-ink: #8a5a00;
+  --note-edge: #84938f;
+  --note-muted: #5a6268;
+  --note-control: #ffffff;
   --note-placeholder: #6c757d;
 
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.875rem 1.125rem;
-  border: 2px dashed var(--note-border);
-  border-radius: 12px;
-  background: var(--note-ground);
-  color: var(--note-ink);
+  gap: 0.75rem;
 }
 
 :root[data-theme='dark'] .note-box {
-  --note-ground: #2b2410;
-  --note-border: #d08a1e;
   --note-ink: #fbbf24;
-  --note-button: #fbbf24;
-  --note-on-button: #2b2410;
+  --note-edge: #70827d;
+  --note-muted: #a3b3ae;
+  --note-control: #1d2826;
   --note-placeholder: #93a39e;
 }
 
-.note-box__heading {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
+/* 84px, three lines, as both sides of the box are drawn. A hair less on
+   the right than the left: the note's placeholder fills one line in the
+   designer's box with 1.5px to spare, and wrapped here at 12px. */
 .note-box__text {
   width: 100%;
-  padding: 0.55rem 0.875rem;
-  border: 1px solid var(--note-border);
+  height: 5.25rem;
+  padding: 0.625rem 0.625rem 0.625rem 0.75rem;
+  border: 1px solid var(--note-edge);
   border-radius: 8px;
   background: var(--white);
   color: var(--teal);
@@ -195,6 +189,17 @@ const headingId = useId()
 
 .note-box__text[readonly] {
   opacity: 0.8;
+}
+
+.note-box__hint {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  color: var(--note-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .note-box__footer {
@@ -218,9 +223,9 @@ const headingId = useId()
   height: 2rem;
   margin: 0;
   padding: 0 0.75rem 0 2rem;
-  border: 1px solid var(--note-border);
+  border: 1px solid var(--note-edge);
   border-radius: 8px;
-  background: var(--white) var(--ticket-paperclip) no-repeat 0.7rem center;
+  background: var(--note-control) var(--ticket-paperclip) no-repeat 0.7rem center;
   color: var(--teal);
   font: inherit;
   font-weight: 700;
@@ -234,7 +239,7 @@ const headingId = useId()
 
 .note-box__none {
   font-size: 0.85rem;
-  color: var(--note-ink);
+  color: var(--note-muted);
 }
 
 .note-box__chosen {
@@ -259,8 +264,8 @@ const headingId = useId()
   overflow-wrap: anywhere;
 }
 
-/* As in TicketReplyComposer.vue, in the note's ink: #78350f on #fffbeb is
-   8.75:1, dark #fbbf24 on #2b2410 9.23:1. */
+/* As in TicketReplyComposer.vue, in the note's ink: #8a5a00 on #fff8e6 is
+   5.59:1, dark #fbbf24 on #2a2516 9.15:1. */
 .note-box__chip-replace,
 .note-box__chip-remove {
   display: inline-flex;
@@ -310,19 +315,24 @@ const headingId = useId()
 
 .note-box__counter {
   font-size: 0.78rem;
-  color: var(--note-ink);
+  color: var(--note-muted);
 }
 
 .note-box__send {
   min-height: 2.5rem;
   padding: 0 1.125rem;
-  border: none;
+  border: 1px solid var(--note-edge);
   border-radius: 8px;
-  background: var(--note-button);
-  color: var(--note-on-button);
+  background: var(--note-control);
+  color: var(--teal);
+  font-family: inherit;
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
+}
+
+.note-box__send:hover:not(:disabled) {
+  border-color: var(--teal);
 }
 
 .note-box__send:disabled {

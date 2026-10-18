@@ -125,8 +125,7 @@
                    end up under another (the React boxes were not keyed and
                    could carry a draft across on Back/Forward). A refetch of
                    the same ticket keeps the key, and so keeps the draft. -->
-              <TicketReplyComposer :key="`reply-${ticket.id}`" :send="sendReply" />
-              <TicketNoteComposer :key="`note-${ticket.id}`" :send="sendNote" />
+              <TicketComposer :key="`composer-${ticket.id}`" :send-reply="sendReply" :send-note="sendNote" />
             </div>
 
             <div
@@ -138,64 +137,35 @@
             >
               <TicketFacts :ticket="ticket" />
               <TicketHistoryList :entries="history" :state="historyState" @retry="retryHistory" />
-
-              <!-- Only admins may delete (DEC-024), so the control is not
-                   rendered at all for a support agent. The server refuses
-                   them either way (IsAdminScoped). -->
-              <section v-if="canDelete" class="ticket-panel__delete" :aria-labelledby="`${idBase}-delete`">
-                <h3 :id="`${idBase}-delete`" class="ticket-panel__delete-title">Delete this ticket</h3>
-                <p class="ticket-panel__delete-hint">
-                  For a duplicate, a test submission or spam. It leaves the queue and the requester's
-                  own list, and there is no undo. To close a real enquiry, mark it Resolved instead.
-                </p>
-                <button
-                  ref="deleteButton"
-                  type="button"
-                  class="ticket-panel__delete-button"
-                  :disabled="deleting"
-                  @click="confirmOpen = true"
-                >
-                  {{ deleting ? 'Deleting…' : 'Delete ticket' }}
-                </button>
-                <p v-if="deleteError" class="ticket-panel__error" role="alert">{{ deleteError }}</p>
-              </section>
+              <!-- No delete here any more. The client does not want a ticket
+                   deleted by hand, only closed (8 October meeting, C-16:
+                   "I don't think I ever want a ticket deleted manually. I only
+                   want the option to close."), so the Delete this ticket card
+                   and its confirmation are gone (DEC-051 overturns DEC-024).
+                   Resolved is the way to close one. -->
             </div>
           </template>
         </div>
       </section>
-
-      <ConfirmDialog
-        v-if="ticket && canDelete"
-        v-model="confirmOpen"
-        :title="confirmTitle"
-        :message="deleteMessage"
-        confirm-label="Delete"
-        cancel-label="Keep it"
-        busy-label="Deleting…"
-        variant="danger"
-        :busy="deleting"
-        @confirm="confirmDelete"
-      />
     </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
-import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import OverdueBadge from '@/components/admin/tickets/queue/OverdueBadge.vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
 import TicketPriorityBadge from '@/components/support/TicketPriorityBadge.vue'
 import TicketStatusBadge from '@/components/support/TicketStatusBadge.vue'
 import { logApiError } from '@/utils/apiError'
 import {
-  deleteTicket,
   fetchAssignees,
   fetchTicketDetail,
   fetchTicketHistory,
   sendTicketMessage,
   updateTicket,
+  type ReplyStatus,
   type TicketPatch
 } from '@/utils/ticketAgentAPI'
 import type {
@@ -207,39 +177,31 @@ import type {
 import TicketFacts from './TicketFacts.vue'
 import TicketHistoryList from './TicketHistoryList.vue'
 import TicketMessageTimeline from './TicketMessageTimeline.vue'
-import TicketNoteComposer from './TicketNoteComposer.vue'
-import TicketReplyComposer from './TicketReplyComposer.vue'
+import TicketComposer from './TicketComposer.vue'
 import TicketTriageControls from './TicketTriageControls.vue'
-import { changeNotSavedMessage, deleteRefusedMessage } from './ticketDetailText'
+import { changeNotSavedMessage } from './ticketDetailText'
 
 // The contract with the queue page (fixed by the scaffold's placeholder):
 //
 // ticketId  - the ticket to show; the panel loads its own data. The queue
 //             mounts the panel while a ticket is open and unmounts it on
 //             close, so mounting is opening.
-// canDelete - the server's admin flag (auth.isTicketAdmin): only admins may
-//             delete, the endpoint is IsAdminScoped.
 // close     - the agent dismissed the panel.
 // changed   - a write went through; the queue reloads rows and counters.
 //             "A status change moves it between counter cards and can move it
 //             in the sort order."
-// deleted   - the ticket is gone; the queue closes the panel and reloads.
-//             Sent instead of `changed`, not as well: the queue does both
-//             things on this one event.
 //
-// onChanged and onDeleted below are not new inputs. They are the queue's own
-// @changed and @deleted listeners, which Vue hands over as props named that
-// way when they are declared (its emit() says an event must be "declared in
-// the emits option" or "as an onX prop"). Declared so the panel can still
-// reach them after it has been closed; see tellQueue below. The queue's
-// template is unchanged: it still writes @changed and @deleted.
+// onChanged below is not a new input. It is the queue's own @changed
+// listener, which Vue hands over as a prop named that way when it is
+// declared (its emit() says an event must be "declared in the emits option"
+// or "as an onX prop"). Declared so the panel can still reach it after it has
+// been closed; see tellQueue below. The queue's template still writes
+// @changed.
 const props = defineProps<{
   ticketId: number
-  canDelete: boolean
   onChanged?: () => void
-  onDeleted?: (id: number) => void
 }>()
-const emit = defineEmits<{ close: []; changed: []; deleted: [id: number] }>()
+const emit = defineEmits<{ close: []; changed: [] }>()
 
 type Tab = 'conversation' | 'details'
 const TABS: { key: Tab; label: string }[] = [
@@ -251,7 +213,6 @@ const idBase = useId()
 const titleId = `${idBase}-title`
 
 const sheet = ref<HTMLElement | null>(null)
-const deleteButton = ref<HTMLButtonElement | null>(null)
 const tabButtons: Partial<Record<Tab, HTMLButtonElement | null>> = {}
 
 // --- The ticket -----------------------------------------------------------------
@@ -375,7 +336,6 @@ function onTabKeydown(event: KeyboardEvent) {
 // --- Writes ------------------------------------------------------------------------
 
 const updateError = ref<string | null>(null)
-const deleteError = ref<string | null>(null)
 
 let writeSeq = 0
 let paintedWriteSeq = 0
@@ -387,7 +347,7 @@ let burstSucceeded = 0
 let unmounted = false
 
 /**
- * Tells the queue that a write went through, or that the ticket is gone.
+ * Tells the queue that a write went through.
  *
  * In React this was the query layer's job (useTicketInvalidation, run from
  * each mutation's onSuccess), and it happened whether or not the sheet was
@@ -398,22 +358,18 @@ let unmounted = false
  * that still showed the old status. Once the panel is going, the queue's own
  * listener is called directly instead.
  */
-function tellQueue(event: 'changed'): void
-function tellQueue(event: 'deleted', id: number): void
-function tellQueue(event: 'changed' | 'deleted', id?: number) {
+function tellQueue() {
   if (!unmounted) {
-    if (event === 'changed') emit('changed')
-    else emit('deleted', id as number)
+    emit('changed')
     return
   }
   // A throw here must not turn a write that went through into one that
   // reads as failed. emit() hands a listener's throw to Vue's error handler
   // for the same reason.
   try {
-    if (event === 'changed') props.onChanged?.()
-    else props.onDeleted?.(id as number)
+    props.onChanged?.()
   } catch (error) {
-    console.error(`[TicketDetailPanel] the queue's ${event} listener threw`, error)
+    console.error("[TicketDetailPanel] the queue's changed listener threw", error)
   }
 }
 
@@ -440,7 +396,7 @@ async function write(id: number, run: () => Promise<TicketDetail>): Promise<Tick
   try {
     const result = await run()
     burstSucceeded += 1
-    tellQueue('changed')
+    tellQueue()
     if (!unmounted && id === props.ticketId && seq > paintedWriteSeq) {
       paintedWriteSeq = seq
       loadToken += 1
@@ -471,88 +427,22 @@ async function applyPatch(patch: TicketPatch): Promise<void> {
 
 // The boxes keep what was typed when a send fails, and they can only know it
 // failed if the rejection reaches them, so these rethrow.
-function sendReply(body: string, files: File[], moveToPending: boolean) {
+function sendReply(body: string, files: File[], nextStatus: ReplyStatus) {
   const id = props.ticketId
-  // "Reply and wait for their reply" is ONE request. The backend moves the
-  // ticket to pending_user inside the same lock, before the email is built,
-  // so the email sees the status the agent intended.
+  // The reply and the status it leaves the ticket in are ONE request. The
+  // backend changes the status in the same transaction, before the email is
+  // built, so the email sees the status the agent intended.
   return write(id, () =>
-    sendTicketMessage(id, { messageType: 'support_reply', body, files, moveToPending })
+    sendTicketMessage(id, { messageType: 'support_reply', body, files, nextStatus })
   )
 }
 
 function sendNote(body: string, files: File[]) {
   const id = props.ticketId
-  // No moveToPending, ever: a note must not move the ticket, and the server
-  // refuses the flag on one.
+  // No status, ever: a note must not move the ticket, and the server refuses
+  // one on it.
   return write(id, () => sendTicketMessage(id, { messageType: 'internal_note', body, files }))
 }
-
-// --- Delete (admins only) --------------------------------------------------------
-
-const confirmOpen = ref(false)
-const deleting = ref(false)
-
-const deleteMessage = computed(() => {
-  const whose = ticket.value?.requester ? `${ticket.value.requester.name}'s` : "the requester's"
-  return (
-    `This removes it from the queue and from ${whose} own list of enquiries. ` +
-    'It cannot be undone from the app. A record of the deletion is kept in the history.'
-  )
-})
-
-async function confirmDelete() {
-  if (deleting.value) return
-  const id = props.ticketId
-  deleting.value = true
-  deleteError.value = null
-  try {
-    await deleteTicket(id)
-    confirmOpen.value = false
-    tellQueue('deleted', id)
-  } catch (error) {
-    logApiError('ticket delete', error)
-    confirmOpen.value = false
-    if (id === props.ticketId) deleteError.value = deleteRefusedMessage(error)
-  } finally {
-    deleting.value = false
-  }
-}
-
-const confirmTitle = computed(() => (ticket.value ? `Delete ${ticket.value.ticketNumber}?` : ''))
-
-/** The confirmation's "Keep it" button. ConfirmDialog teleports to body and
- *  exposes no ref, so it is found by the title this panel gave it and the
- *  label this panel gave the button. */
-function keepItButton(): HTMLButtonElement | null {
-  for (const dialog of Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))) {
-    if (dialog === sheet.value) continue
-    if (dialog.querySelector('h2')?.textContent?.trim() !== confirmTitle.value) continue
-    const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
-    return buttons.find((button) => button.textContent?.trim() === 'Keep it') ?? null
-  }
-  return null
-}
-
-// The confirmation opens on "Keep it", as the React AlertDialog did (Radix
-// focuses its Cancel). ConfirmDialog focuses its confirm button instead, one
-// tick after it opens (ConfirmDialog.vue focusConfirm), and for this dialog
-// that is the destructive one: an Enter pressed straight after opening would
-// delete a ticket that cannot be restored. So focus is moved once that has
-// happened: the first tick here resumes before ConfirmDialog's (both wait on
-// the same render), the second after it.
-//
-// ConfirmDialog does not hand focus back when it closes either. The Delete
-// button is where the agent was, and where the warning below it is.
-watch(confirmOpen, async (open, wasOpen) => {
-  if (open) {
-    await nextTick()
-    await nextTick()
-    if (confirmOpen.value) keepItButton()?.focus()
-    return
-  }
-  if (wasOpen) void nextTick(() => deleteButton.value?.focus())
-})
 
 // --- Moving between tickets ------------------------------------------------------
 
@@ -563,8 +453,6 @@ watch(
     // must not stay on screen while the agent looks at the next one. The
     // message boxes are keyed by ticket and reset themselves.
     updateError.value = null
-    deleteError.value = null
-    confirmOpen.value = false
     history.value = null
     historyState.value = 'loading'
     void loadTicket(id)
@@ -618,11 +506,10 @@ function trapTab(event: KeyboardEvent) {
   }
 }
 
-// Esc closes the panel from wherever focus is, as the React sheet did. Heard
-// on the capture phase so it is seen before ConfirmDialog's own Esc handler
-// closes that dialog: while the confirm is open, Esc belongs to it.
+// Esc closes the panel from wherever focus is, as the React sheet did.
+// Heard on the capture phase, before anything inside the panel can act on it.
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || confirmOpen.value) return
+  if (event.key !== 'Escape') return
   // A triage control holding a value it has not sent yet takes this Esc for
   // itself, to put the saved value back (TicketTriageControls onKeydown), the
   // way an open Radix list in React took Esc before the sheet did. The next
@@ -633,10 +520,10 @@ function onDocumentKeydown(event: KeyboardEvent) {
 
 // Focus that escapes to the page behind (a mouse click out there is stopped
 // by the backdrop, but a script or the browser can still move it) is brought
-// back. The confirm dialog is its own modal on top and keeps its focus.
+// back.
 function onDocumentFocusIn(event: FocusEvent) {
   const target = event.target as Node | null
-  if (!sheet.value || !target || confirmOpen.value) return
+  if (!sheet.value || !target) return
   if (sheet.value.contains(target)) return
   sheet.value.focus()
 }
@@ -657,7 +544,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* Same frame as FormSheet.vue (right-hand drawer over a backdrop, z-index
-   1999 so ConfirmDialog's 2000 stacks on top), with the focus handling
+   1999, under ConfirmDialog's 2000), with the focus handling
    FormSheet lacks. Full width on a phone, 42rem at most, as the React sheet.
    The first redesign round (October 2026) gives it the ticket screens' greys
    and rules, a little more room at the sides, and the card colour as its
@@ -665,16 +552,15 @@ onBeforeUnmount(() => {
 
    Contrast, measured with the WCAG formula on the panel's ground (--white in
    light, #1d2826 in dark):
-     light  muted #5a6268 6.21   error #a71d2a 7.36
-            delete button #fff on #b3202c 6.65   control edge #84938f 3.21
+     light  muted #5a6268 6.21   error #a71d2a 7.36   control edge #84938f 3.21
             active tab rule #017151 6.03 (non-text, needs 3:1)
      dark   muted #a3b3ae 6.95   error --danger 5.49   control edge #70827d 3.74
             active tab rule #5ea99e 5.52   focus ring #5ea99e 5.52
    --dark-green is not redefined for dark and is 2.52:1 there (U1 5.3), so
    the dark rule and the focus ring take the mint literal instead. The
    designer drew his dark tab rule in brand green; the mint stays, because
-   his would not reach 3:1. color-scheme has the browser draw the composer's
-   checkbox dark, as his dark panel shows it. */
+   his would not reach 3:1. color-scheme has the browser draw its own form
+   controls dark (the open list of a select, a date field's picker). */
 .ticket-panel {
   --panel-muted: #5a6268;
   --panel-danger: #a71d2a;
@@ -682,7 +568,6 @@ onBeforeUnmount(() => {
   --panel-ground: var(--white);
   --panel-rule: #e6eae8;
   --panel-edge: #84938f;
-  --panel-danger-ground: #fdf0f0;
 
   position: fixed;
   inset: 0;
@@ -696,7 +581,6 @@ onBeforeUnmount(() => {
   --panel-ground: #1d2826;
   --panel-rule: #2b3936;
   --panel-edge: #70827d;
-  --panel-danger-ground: #3a1d20;
 
   color-scheme: dark;
 }
@@ -735,7 +619,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.125rem 1.5rem;
+  padding: 1.1875rem 1.5rem 1.125rem;
   border-bottom: 1px solid var(--panel-rule);
 }
 
@@ -789,7 +673,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem 1.5rem 1.5rem;
+  padding: 1.03125rem 1.5rem 1.5rem;
 }
 
 .ticket-panel__quiet {
@@ -824,9 +708,12 @@ onBeforeUnmount(() => {
 }
 
 /* Both tabs bold; the chosen one darker and underlined in the accent. */
+/* The designer's triage row sits a little lower than the body's gap puts it
+   and his tabs stay where they were, so the tabs give that back. */
 .ticket-panel__tabs {
   display: flex;
   gap: 0.25rem;
+  margin-top: -0.09375rem;
   border-bottom: 1px solid var(--panel-rule);
 }
 
@@ -852,55 +739,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1.125rem;
-}
-
-/* The danger zone: a pale red card with a heavy bar on the left, kept a
-   little further from the history above it than the blocks are from each
-   other. The words are the body colour: 9.96:1 on the light ground, 13.03:1
-   (#e6efed on #3a1d20) on the dark one, which the designer did not draw and
-   which takes Overdue's dark red ground. */
-.ticket-panel__delete {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
-  margin-top: 0.6rem;
-  padding: 0.875rem 1rem 1rem 1.125rem;
-  border: 1px solid var(--panel-danger);
-  border-left-width: 4px;
-  border-radius: 8px;
-  background: var(--panel-danger-ground);
-}
-
-.ticket-panel__delete-title {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.ticket-panel__delete-hint {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  color: var(--teal);
-}
-
-.ticket-panel__delete-button {
-  min-height: 2rem;
-  padding: 0.4rem 0.875rem;
-  border: none;
-  border-radius: 8px;
-  background: #b3202c;
-  color: #fff;
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.ticket-panel__delete-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 @keyframes ticket-panel-in {

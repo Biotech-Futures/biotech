@@ -103,7 +103,7 @@ export function ticketGone() {
 // --- Mounting --------------------------------------------------------------
 
 /** Every network call the panel makes. Each spec file mocks the module with
- *  exactly these seven (vi.mock is hoisted per file, so the list is written
+ *  exactly these six (vi.mock is hoisted per file, so the list is written
  *  out in each) and keeps the rest real: ticketRefusalReason and
  *  attachmentErrorMessage stay real because a stub of them would be the
  *  sentences asserting themselves. */
@@ -113,7 +113,6 @@ export const api = {
   fetchTicketHistory: vi.mocked(agentAPI.fetchTicketHistory),
   updateTicket: vi.mocked(agentAPI.updateTicket),
   sendTicketMessage: vi.mocked(agentAPI.sendTicketMessage),
-  deleteTicket: vi.mocked(agentAPI.deleteTicket),
   downloadTicketAttachment: vi.mocked(agentAPI.downloadTicketAttachment)
 }
 
@@ -130,18 +129,16 @@ export function panelHost(): HTMLElement {
   return host
 }
 
-/** The queue's listeners, passed the way a parent template's @changed and
- *  @deleted arrive. `wrapper.emitted()` only records emits, and an emit is
+/** The queue's listeners, passed the way a parent template's @changed
+ *  arrives. `wrapper.emitted()` only records emits, and an emit is
  *  exactly what cannot reach the queue once the panel has closed, so the
  *  tests about that listen here instead. */
 export type PanelListeners = {
   onClose?: () => void
   onChanged?: () => void
-  onDeleted?: (id: number) => void
 }
 
 export type PanelOptions = {
-  canDelete?: boolean
   /** What the assignee request does: a list comes back, or the promise to
    *  use (pending() for still loading, a rejection for failed). */
   roster?: AssigneeOption[] | Promise<AssigneeOption[]>
@@ -151,8 +148,8 @@ export type PanelOptions = {
 export type Panel = {
   /** The component: props, emitted events, unmount. */
   wrapper: VueWrapper
-  /** The document the panel teleports into. Everything on screen, the
-   *  panel and its ConfirmDialog included, is found through this. */
+  /** The document the panel teleports into. Everything on screen is found
+   *  through this. */
   page: DOMWrapper<Element>
 }
 
@@ -166,13 +163,9 @@ export type Panel = {
  *  wiped by the TEST HARNESS, and a test of "the draft survives" could not
  *  tell the harness from the component. With the real Teleport the same
  *  element and the same draft survive. */
-export function mountPanel(
-  ticketId: number,
-  canDelete = false,
-  listeners: PanelListeners = {}
-): Panel {
+export function mountPanel(ticketId: number, listeners: PanelListeners = {}): Panel {
   mounted = mount(TicketDetailPanel, {
-    props: { ticketId, canDelete, ...listeners },
+    props: { ticketId, ...listeners },
     attachTo: panelHost()
   })
   return { wrapper: mounted, page: new DOMWrapper(document.body) }
@@ -186,7 +179,7 @@ export async function openPanel(ticket: TicketDetail, options: PanelOptions = {}
   api.fetchAssignees.mockImplementation(() =>
     Array.isArray(roster) ? Promise.resolve(roster) : roster
   )
-  const panel = mountPanel(ticket.id, options.canDelete ?? false, options.listeners)
+  const panel = mountPanel(ticket.id, options.listeners)
   await flushPromises()
   return panel
 }

@@ -11,10 +11,13 @@ admin can work the queue. The exception is granting and revoking the support
 role itself, which only admins may do.
 """
 
+import hmac
+import re
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Q
-import re
 from datetime import datetime, time, timedelta, timezone as dt_timezone
 
 from django.http import HttpResponse
@@ -830,6 +833,7 @@ class TicketSupportMessageView(APIView):
         message_type = serializer.validated_data["messageType"]
         body = serializer.validated_data["body"]
         move_to_pending = serializer.validated_data["moveToPending"]
+        next_status = serializer.validated_data.get("nextStatus")
         files = request.FILES.getlist("files")
 
         try:
@@ -838,6 +842,11 @@ class TicketSupportMessageView(APIView):
                     lifecycle.add_internal_note(
                         ticket=ticket, actor=request.user, body=body,
                         attachments=attachments,
+                    )
+                elif next_status is not None:
+                    lifecycle.add_support_reply_with_status(
+                        ticket=ticket, actor=request.user, body=body,
+                        attachments=attachments, next_status=next_status,
                     )
                 else:
                     lifecycle.add_support_reply(
@@ -855,6 +864,34 @@ class TicketSupportMessageView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class TicketDigestSendView(APIView):
+    """The morning count of open enquiries, called by a scheduler (C-18).
+
+    .github/workflows/ticket-digest.yml calls this once a day with a shared
+    token, the way the platform's other reminders are run; the token is the
+    whole of its access control, so it answers 503 while none is configured
+    rather than standing open. What it sends, and when it sends nothing, is
+    emails.send_open_tickets_digest's business.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        expected = getattr(settings, "TICKET_DIGEST_TOKEN", "") or ""
+        if not expected:
+            return Response(
+                {"detail": "The ticket digest trigger is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        provided = request.headers.get("X-Reminder-Token", "")
+        if not hmac.compare_digest(provided, expected):
+            return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
+        from .services import emails
+
+        return Response(emails.send_open_tickets_digest(), status=status.HTTP_200_OK)
 
 
 class TicketBulkAssignView(APIView):

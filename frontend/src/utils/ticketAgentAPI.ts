@@ -40,7 +40,6 @@ import {
   assigneeOptionSchema,
   bulkAssignResultSchema,
   regionOptionSchema,
-  supportAgentSchema,
   ticketAnalyticsSchema,
   ticketAuditPageSchema,
   ticketDetailSchema,
@@ -50,7 +49,6 @@ import {
   type AssigneeOption,
   type BulkAssignResult,
   type RegionOption,
-  type SupportAgent,
   type TicketAnalytics,
   type TicketAuditPage,
   type TicketDetail,
@@ -228,41 +226,36 @@ export async function updateTicket(id: number, patch: TicketPatch): Promise<Tick
   return ticketDetailSchema.parse(data)
 }
 
+/** The statuses a reply can leave a ticket in (C-19). Not open: an answered
+ *  ticket is not new. */
+export type ReplyStatus = 'in_progress' | 'pending_user' | 'resolved'
+
 export type TicketMessageInput = {
   messageType: 'support_reply' | 'internal_note'
   body: string
   files?: File[]
-  // "Reply and wait for their reply": ONE request, so the email the requester
-  // gets knows it is asking them something. Sending the reply and the status
-  // change separately makes the email pick the wrong branch. The backend
+  // The status the reply leaves the ticket in, sent on the SAME request, so
+  // the email the requester gets is built after the change: pending user is
+  // the "we are waiting on you" wording, and sending the reply and the status
+  // change separately made the email pick the wrong branch. The backend
   // refuses it on an internal note, which the requester never sees.
-  moveToPending?: boolean
+  nextStatus?: ReplyStatus
 }
 
 // A reply and an internal note are the same endpoint; messageType decides.
 export async function sendTicketMessage(
   id: number,
-  { messageType, body, files, moveToPending }: TicketMessageInput
+  { messageType, body, files, nextStatus }: TicketMessageInput
 ): Promise<TicketDetail> {
   const fields: Record<string, string> = { messageType, body }
-  // Only sent when ticked. FormData carries strings, so an unticked box would
-  // otherwise post "false" — which the serializer does read correctly, but
-  // leaving the key out keeps the request identical to what it was before
-  // this option existed.
-  if (moveToPending) fields.moveToPending = 'true'
+  // Left out of a note entirely rather than sent empty: the server refuses a
+  // status on a note, and an empty value would read as one.
+  if (nextStatus) fields.nextStatus = nextStatus
   const data = await requestJson<unknown>(`${BASE}/${id}/messages/`, {
     method: 'POST',
     body: ticketFormData(fields, files ?? [])
   })
   return ticketDetailSchema.parse(data)
-}
-
-// Admin only on the server (IsAdminScoped): gate the control on
-// auth.isTicketAdmin so a support agent never sees a button that would 403.
-// A second delete, or losing the race to a colleague, answers 404.
-export async function deleteTicket(id: number): Promise<number> {
-  await requestJson<unknown>(`${BASE}/${id}/delete/`, { method: 'DELETE' })
-  return id
 }
 
 /** Fetch the file rather than pointing the browser at it.
@@ -271,9 +264,9 @@ export async function deleteTicket(id: number): Promise<number> {
  *  things were wrong with that. With `target="_blank"` WebKit opens a tab per
  *  click and closes none of them, so three downloads leave three tabs behind.
  *  Without the target, a click is a top-level navigation the browser commits
- *  to before it knows the answer, so any refusal — the ticket deleted from the
- *  button two inches away on this same panel, a session that aged out, a blob
- *  missing from the container — replaces the whole page with DRF's
+ *  to before it knows the answer, so any refusal — a ticket deleted since the
+ *  panel opened, a session that aged out, a blob missing from the
+ *  container — replaces the whole page with DRF's
  *  browsable-API error page and takes the reply being typed with it.
  *
  *  Fetching leaves the page alone: the refusal is a value the panel renders.
@@ -361,27 +354,6 @@ export async function fetchTicketAnalytics(params: AnalyticsParams = {}): Promis
   )
 }
 
-// --- The support roster. Admin-only on the server; the screen is admin-only
-// --- too, so a support agent never sees a control that would 403.
-
-const ROSTER = `${BASE}/support-scope/`
-
-export async function fetchSupportRoster(): Promise<SupportAgent[]> {
-  return z.array(supportAgentSchema).parse(await requestJson<unknown>(ROSTER))
-}
-
-// 201 when the row was created, 200 when the person already had access; the
-// screen treats both as done. A refusal (a student, a switched-off account)
-// is a 400 whose sentence is in `msg`: read it with serverMessage.
-export async function grantSupport(userId: number): Promise<void> {
-  await requestJson<unknown>(ROSTER, { method: 'POST', body: JSON.stringify({ userId }) })
-}
-
-// Does not hand the person's open tickets to anybody: they stay in their name.
-export async function revokeSupport(userId: number): Promise<void> {
-  await requestJson<unknown>(`${ROSTER}${userId}/`, { method: 'DELETE' })
-}
-
 // --- Reading a refusal ------------------------------------------------------
 
 /** Codes marking a refusal somebody on this project wrote for a person.
@@ -430,12 +402,12 @@ function sessionRefusal(error: TicketSessionError): string {
  *  `{error, code, request_id}`, which is what this reads.
  *
  *  The 404s never raise. views_admin.py's _not_found answers `{msg, data}`
- *  directly, the older admin shape serverMessage below reads, and its "Ticket
- *  not found" is deliberately not picked up here (apiError.ts gives a body
- *  with no code the code `http_404`, which is not on the list). That 404 is
- *  the commonest failure on this path, because it is what a colleague
- *  deleting the ticket looks like, and every caller already answers it with
- *  a longer sentence that says what to do next.
+ *  directly, the older admin shape, and its "Ticket not found" is
+ *  deliberately not picked up here (apiError.ts gives a body with no code the
+ *  code `http_404`, which is not on the list). That 404 is the commonest
+ *  failure on this path, because it is what a ticket deleted since the page
+ *  loaded looks like, and every caller already answers it with a longer
+ *  sentence that says what to do next.
  *
  *  Worth reading, because the commonest refusals that do raise are ones the
  *  agent can act on: "Attachment exceeds the maximum allowed size of 10 MB.",
@@ -462,26 +434,6 @@ export function ticketRefusalReason(error: unknown): string | undefined {
   // words help nobody.
   if (reason === '' || /^csrf/i.test(reason)) return undefined
   return reason
-}
-
-/** The server's own explanation of a refusal on the roster, when it gave one.
- *
- *  The roster endpoints answer `{msg, data}` and return 400 with a useful
- *  `msg` when they decline a write: "Students cannot be given support queue
- *  access. Change their role first if this is not a student account." A
- *  caller that falls back to a generic string shows the generic string for
- *  every one of those, and the admin presses Grant again on a row the server
- *  has already explained. serverMessage and not ticketRefusalReason: these
- *  endpoints answer the msg/data envelope directly rather than raising, so the
- *  reason is in msg and not in the error/code shape the ticket write path
- *  uses. The transport's own refusals (TicketSessionError) come through for
- *  the same reason as there.
- */
-export function serverMessage(error: unknown): string | undefined {
-  if (error instanceof TicketSessionError) return sessionRefusal(error)
-  if (!(error instanceof ApiError)) return undefined
-  const msg = error.body.msg
-  return typeof msg === 'string' && msg.trim() !== '' ? msg : undefined
 }
 
 /** Whether a failed read was a refusal rather than a fault.

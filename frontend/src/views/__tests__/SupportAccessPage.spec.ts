@@ -29,8 +29,7 @@ vi.mock('@/utils/ticketAgentAPI', async (importActual) => {
     fetchTicketDetail: vi.fn(pending),
     fetchTicketHistory: vi.fn(pending),
     fetchTicketAudit: vi.fn(pending),
-    fetchTicketAnalytics: vi.fn(pending),
-    fetchSupportRoster: vi.fn(pending)
+    fetchTicketAnalytics: vi.fn(pending)
   }
 })
 

@@ -8,11 +8,9 @@ import { TicketSessionError } from '@/utils/ticketTransport'
 import {
   attachmentErrorMessage,
   bulkAssignTickets,
-  deleteTicket,
   downloadTicketAttachment,
   exportTickets,
   fetchAssignees,
-  fetchSupportRoster,
   fetchTicketAnalytics,
   fetchTicketAudit,
   fetchTicketDetail,
@@ -20,11 +18,8 @@ import {
   fetchTicketQueue,
   fetchTicketRegions,
   fetchTicketSummary,
-  grantSupport,
-  revokeSupport,
   saveTicketExport,
   sendTicketMessage,
-  serverMessage,
   ticketRefusalReason,
   updateTicket,
   wasRefused
@@ -523,46 +518,36 @@ describe('one ticket', () => {
     expect(last().headers.get('Content-Type')).toBeNull()
   })
 
-  it('folds "reply and wait for their reply" into the same request', async () => {
+  it('sends the status a reply leaves the ticket in on the same request', async () => {
     answer(ok({ ...DETAIL, status: 'pending_user' }, 201))
 
     const ticket = await sendTicketMessage(42, {
       messageType: 'support_reply',
       body: 'Can you send a screenshot?',
-      moveToPending: true
+      nextStatus: 'pending_user'
     })
 
     expect(sent).toHaveLength(1)
     expect(formEntries()).toEqual([
       ['messageType', 'support_reply'],
       ['body', 'Can you send a screenshot?'],
-      ['moveToPending', 'true']
+      ['nextStatus', 'pending_user']
     ])
     expect(ticket.status).toBe('pending_user')
   })
 
-  it('sends an internal note without the pending key at all', async () => {
+  it('sends an internal note without a status key at all', async () => {
     answer(ok(DETAIL, 201))
 
     await sendTicketMessage(42, {
       messageType: 'internal_note',
-      body: 'Checking the group membership.',
-      moveToPending: false
+      body: 'Checking the group membership.'
     })
 
     expect(formEntries()).toEqual([
       ['messageType', 'internal_note'],
       ['body', 'Checking the group membership.']
     ])
-  })
-
-  it('deletes through the delete route and hands the id back', async () => {
-    answer(json({ msg: 'Ticket deleted', data: null }))
-
-    await expect(deleteTicket(42)).resolves.toBe(42)
-
-    expect(last().method).toBe('DELETE')
-    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/42/delete/')
   })
 })
 
@@ -748,67 +733,6 @@ describe('audit and analytics', () => {
   })
 })
 
-describe('the support roster', () => {
-  it('reads the roster with each account status', async () => {
-    answer(
-      ok([
-        { id: 4, name: 'Sam Reid', email: 'sam@x.test', openTickets: 3, accountStatus: 'suspended' }
-      ])
-    )
-
-    await expect(fetchSupportRoster()).resolves.toEqual([
-      { id: 4, name: 'Sam Reid', email: 'sam@x.test', openTickets: 3, accountStatus: 'suspended' }
-    ])
-    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/support-scope/')
-  })
-
-  it('grants by user id', async () => {
-    answer(json({ msg: 'Support access granted', data: { id: 9, name: 'Ada Byron', email: 'a@x.test' } }, 201))
-
-    await grantSupport(9)
-
-    expect(last().method).toBe('POST')
-    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/support-scope/')
-    expect(String(last().body)).toBe('{"userId":9}')
-  })
-
-  it('revokes by user id', async () => {
-    answer(json({ msg: 'Support access revoked', data: null }))
-
-    await revokeSupport(9)
-
-    expect(last().method).toBe('DELETE')
-    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/support-scope/9/')
-  })
-
-  it("shows the server's sentence when a grant is refused (RO-07)", async () => {
-    const sentence =
-      'Students cannot be given support queue access. Change their role first if this is not a student account.'
-    answer(json({ msg: sentence, data: null }, 400))
-
-    const error = await grantSupport(9).catch((caught: unknown) => caught)
-
-    expect(serverMessage(error)).toBe(sentence)
-    // The ticket reader would miss it: the sentence is in msg, not error/code.
-    expect(ticketRefusalReason(error)).toBeUndefined()
-  })
-
-  it('shows the server sentence for a revoke of somebody no longer on it', async () => {
-    answer(json({ msg: 'Support access not found', data: null }, 404))
-
-    const error = await revokeSupport(9).catch((caught: unknown) => caught)
-
-    expect(serverMessage(error)).toBe('Support access not found')
-  })
-
-  it('has no server sentence for a network failure or a blank msg', () => {
-    expect(serverMessage(new TypeError('Failed to fetch'))).toBeUndefined()
-    expect(
-      serverMessage(new ApiError({ error: 'x', code: 'http_400', request_id: 'r', msg: '   ' }, 400))
-    ).toBeUndefined()
-  })
-})
-
 describe('reading a refused ticket write', () => {
   const refuse = (body: Record<string, unknown>, status: number) =>
     json({ request_id: 'r1', ...body }, status)
@@ -838,11 +762,12 @@ describe('reading a refused ticket write', () => {
   })
 
   it("shows the permission classes' own sentence", async () => {
-    answer(refuse({ error: 'You do not have admin privileges.', code: 'permission_denied' }, 403))
+    // An agent whose queue access was taken away while the page was open.
+    answer(refuse({ error: 'You do not have support privileges.', code: 'permission_denied' }, 403))
 
-    const error = await deleteTicket(42).catch((caught: unknown) => caught)
+    const error = await updateTicket(42, { status: 'resolved' }).catch((caught: unknown) => caught)
 
-    expect(ticketRefusalReason(error)).toBe('You do not have admin privileges.')
+    expect(ticketRefusalReason(error)).toBe('You do not have support privileges.')
     expect(wasRefused(error)).toBe(true)
   })
 
@@ -904,10 +829,7 @@ describe('every agent write goes through the stale-session guard', () => {
     ['a status change', () => updateTicket(42, { status: 'resolved' })],
     ['a reply', () => sendTicketMessage(42, { messageType: 'support_reply', body: 'Done.' })],
     ['an internal note', () => sendTicketMessage(42, { messageType: 'internal_note', body: 'x' })],
-    ['a delete', () => deleteTicket(42)],
-    ['a bulk assignment', () => bulkAssignTickets([42], 4)],
-    ['a roster grant', () => grantSupport(9)],
-    ['a roster revoke', () => revokeSupport(9)]
+    ['a bulk assignment', () => bulkAssignTickets([42], 4)]
   ]
 
   // The requester's sentence with its dash taken out: the agent pages are new
@@ -928,7 +850,6 @@ describe('every agent write goes through the stale-session guard', () => {
       expect(sent).toHaveLength(1)
       // And the pages have a sentence to show for it, not "try again".
       expect(ticketRefusalReason(error)).toBe(REFUSAL)
-      expect(serverMessage(error)).toBe(REFUSAL)
     })
   }
 
@@ -950,7 +871,6 @@ describe('every agent write goes through the stale-session guard', () => {
 
     expect(error).toBeInstanceOf(TicketSessionError)
     expect(ticketRefusalReason(error)).toBe(REFUSAL)
-    expect(serverMessage(error)).toBe(REFUSAL)
     // Sent once, refused as a stale token, never replayed.
     expect(sent.map((request) => `${request.method} ${request.url}`)).toEqual([
       'POST http://localhost:8000/api/v1/admin/tickets/42/messages/',
@@ -971,9 +891,6 @@ describe('every agent write goes through the stale-session guard', () => {
     // Only the token fetch went out.
     expect(down).toHaveBeenCalledTimes(1)
     expect(ticketRefusalReason(error)).toBe(
-      'Could not initialize a secure session. Please refresh and try again.'
-    )
-    expect(serverMessage(error)).toBe(
       'Could not initialize a secure session. Please refresh and try again.'
     )
   })
