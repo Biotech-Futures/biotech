@@ -134,7 +134,17 @@ export const systemEmailLogSchema = z.array(
         at: z.string(),
         people: z.array(z.object({ who: z.string(), reason: z.string() }))
       })
-    )
+    ),
+    // Who it bounced back from after the mail server took it, grouped by
+    // when the bounce check found them, newest first.
+    bounced: z
+      .array(
+        z.object({
+          at: z.string(),
+          people: z.array(z.object({ who: z.string(), reason: z.string() }))
+        })
+      )
+      .default([])
   })
 )
 

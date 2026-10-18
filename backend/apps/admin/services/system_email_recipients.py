@@ -430,10 +430,36 @@ class Recipients:
 
 _EVERYONE = Recipients(_everyone, _first_name)
 
+def _registration_context(value: str) -> dict:
+    from apps.users.registration_emails import registration_context
+
+    return registration_context(_user(value))
+
+
+def _supervisors_only() -> list[dict]:
+    return _people(_ROLES.SUPERVISOR)
+
+
+def _registration_supervisor_context(value: str) -> dict:
+    from apps.users.registration_emails import supervisor_context
+
+    return supervisor_context(_user(value))
+
+
+def _registration_status_context(value: str) -> dict:
+    from apps.users.supervisor_status import status_context
+
+    return status_context(_user(value))
+
+
 RECIPIENTS: dict[str, Recipients] = {
     "login_code": _EVERYONE,
     "password_reset": _EVERYONE,
     "password_changed": _EVERYONE,
+    "registration_student": Recipients(_students, _registration_context),
+    "registration_group": Recipients(_students, _registration_context),
+    "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
+    "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,

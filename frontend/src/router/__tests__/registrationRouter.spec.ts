@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
-import { setSupervisorPages } from '@/composables/useSupervisorPages'
 
-// Management > Supervisor Visibility, as it starts: the Registration page shown.
+// Management > Supervisor Pages Visibility, as it starts: the pages hidden.
 vi.mock('@/utils/managementAPI', async (original) => ({
   ...(await original<typeof import('@/utils/managementAPI')>()),
-  fetchSupervisorPages: vi.fn(async () => ({ shown: false, registration_shown: true })),
+  fetchSupervisorPages: vi.fn(async () => ({ shown: false })),
 }))
 
 describe('registration in the current application router', () => {
@@ -48,20 +47,6 @@ describe('registration in the current application router', () => {
     expect(router.resolve('/analytics/registration').name).toBe('registration-analytics')
     await router.push('/register')
     expect(router.currentRoute.value.name).toBe('register')
-  })
-
-  it('sends a supervisor to their profile while Supervisor Visibility hides Registration', async () => {
-    useAuthStore().loginWithUser({
-      id: 1, email: 'supervisor@example.test', first_name: 'Member',
-      last_name: 'User', current_role_name: 'supervisor',
-    })
-    setSupervisorPages({ shown: false, registration_shown: false })
-    try {
-      await router.push('/supervisor/registration')
-      expect(router.currentRoute.value.path).toBe('/profile')
-    } finally {
-      setSupervisorPages({ shown: false, registration_shown: true })
-    }
   })
 
   it('preserves the first-password gate for protected supervisor intake', async () => {

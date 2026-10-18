@@ -334,6 +334,29 @@ class SystemEmailSettings(models.Model):
         obj, _ = cls.objects.get_or_create(pk=cls.SINGLETON_PK)
         return obj
 
+class EmailBounce(models.Model):
+    """Someone one of our emails bounced back from, as ``check_bounced_emails``
+    found in a sending mailbox: listed under Bounced emails on the System
+    Emails Log, with when it was found."""
+
+    # The email that bounced, e.g. "finalist_notification".
+    key = models.SlugField(max_length=64)
+    address = models.EmailField()
+    # As the Log lists them: "amy@x.com (BTF07, Amy Chen)".
+    who = models.CharField(max_length=255)
+    # In plain words: "no such mailbox", "mailbox full".
+    reason = models.CharField(max_length=64)
+    # When the check found it: every bounce one check finds shares it.
+    detected_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "email_bounce"
+        indexes = [models.Index(fields=["key", "detected_at"])]
+
+    def __str__(self):
+        return f"EmailBounce({self.key})"
+
+
 class SystemEmailLog(models.Model):
     """When one system email last went out, who sent it, and its latest sends
     that couldn't reach someone, for the Log on System Emails. One row per
