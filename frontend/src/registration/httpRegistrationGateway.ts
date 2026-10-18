@@ -120,57 +120,76 @@ const normalizeWarnings = (
   return warnings
 }
 
+/** The gateway's email check (emailPrecheck.ts), at ``endpoint``. Once the
+ *  check answers that it's switched off, it isn't asked again for the rest of
+ *  the page session (this gateway's lifetime). */
+const emailCheck = (
+  endpoint: string,
+  fetchImpl: typeof fetch,
+  ensureCsrf: typeof ensureCsrfCookie,
+): Pick<RegistrationGateway, 'checkEmails'> => {
+  let switchedOff = false
+  const noteSwitchedOff = (data: unknown) => {
+    if (isRecord(data) && data.status === 'disabled') switchedOff = true
+  }
+  const checkEndpoint = endpoint.replace(/\/?$/, '/')
+  return {
+    async checkEmails(request, options, onProgress) {
+      if (request.journey === 'mentor' || switchedOff) return 'skipped'
+      return runEmailCheck(
+        {
+          async start() {
+            const csrfApiBaseUrl = csrfBaseUrl(checkEndpoint)
+            if (!(await ensureCsrf(csrfApiBaseUrl))) return null
+            const headers = buildSessionHeaders({
+              includeCSRF: true,
+              csrfApiBaseUrl,
+              headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            })
+            if (options.invitationToken)
+              headers.set('X-Registration-Invitation', options.invitationToken)
+            // The registration as it would be submitted, without its photos.
+            const production = buildProductionRegistrationRequest(request, options.overrides)
+            if (options.supervisorEmail?.trim()) {
+              ;(production.payload as Record<string, unknown>).supervisorEmail =
+                options.supervisorEmail.trim()
+            }
+            const response = await fetchImpl(checkEndpoint, {
+              method: 'POST',
+              credentials: 'include',
+              headers,
+              body: JSON.stringify(production),
+            })
+            const data: unknown = await response.json().catch(() => null)
+            if (response.status === 202) return readEmailCheckJobId(data)
+            noteSwitchedOff(data)
+            return null
+          },
+          async poll(jobId) {
+            const response = await fetchImpl(`${checkEndpoint}${encodeURIComponent(jobId)}/`, {
+              method: 'GET',
+              credentials: 'include',
+              headers: { Accept: 'application/json' },
+            })
+            if (!response.ok) return null
+            const data: unknown = await response.json().catch(() => null)
+            noteSwitchedOff(data)
+            return readEmailCheckStatus(data)
+          },
+        },
+        onProgress,
+      )
+    },
+  }
+}
+
 export const createHttpRegistrationGateway = ({
   endpoint,
   fetchImpl = fetch,
   ensureCsrf = ensureCsrfCookie,
   emailCheckEndpoint,
 }: HttpRegistrationGatewayOptions): RegistrationGateway => ({
-  ...(emailCheckEndpoint
-    ? {
-        async checkEmails(request, options, onProgress) {
-          if (request.journey === 'mentor') return 'skipped'
-          const checkEndpoint = emailCheckEndpoint.replace(/\/?$/, '/')
-          return runEmailCheck(
-            {
-              async start() {
-                const csrfApiBaseUrl = csrfBaseUrl(checkEndpoint)
-                if (!(await ensureCsrf(csrfApiBaseUrl))) return null
-                const headers = buildSessionHeaders({
-                  includeCSRF: true,
-                  csrfApiBaseUrl,
-                  headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-                })
-                if (options.invitationToken)
-                  headers.set('X-Registration-Invitation', options.invitationToken)
-                // The registration as it would be submitted, without its photos.
-                const production = buildProductionRegistrationRequest(request, options.overrides)
-                if (options.supervisorEmail?.trim()) {
-                  ;(production.payload as Record<string, unknown>).supervisorEmail =
-                    options.supervisorEmail.trim()
-                }
-                const response = await fetchImpl(checkEndpoint, {
-                  method: 'POST',
-                  credentials: 'include',
-                  headers,
-                  body: JSON.stringify(production),
-                })
-                return response.status === 202 ? readEmailCheckJobId(await response.json()) : null
-              },
-              async poll(jobId) {
-                const response = await fetchImpl(`${checkEndpoint}${encodeURIComponent(jobId)}/`, {
-                  method: 'GET',
-                  credentials: 'include',
-                  headers: { Accept: 'application/json' },
-                })
-                return response.ok ? readEmailCheckStatus(await response.json()) : null
-              },
-            },
-            onProgress,
-          )
-        },
-      }
-    : {}),
+  ...(emailCheckEndpoint ? emailCheck(emailCheckEndpoint, fetchImpl, ensureCsrf) : {}),
   async submit(request, options = {}): Promise<RegistrationGatewayResult> {
     const csrfApiBaseUrl = csrfBaseUrl(endpoint)
     let csrfReady = false
@@ -202,7 +221,8 @@ export const createHttpRegistrationGateway = ({
       const production = buildProductionRegistrationRequest(request, options.overrides)
       // An admin's students' supervisor, when they choose one.
       if (options.supervisorEmail?.trim()) {
-        ;(production.payload as Record<string, unknown>).supervisorEmail = options.supervisorEmail.trim()
+        ;(production.payload as Record<string, unknown>).supervisorEmail =
+          options.supervisorEmail.trim()
       }
       body = JSON.stringify(production)
       if (Object.keys(options.attachments || {}).length) {

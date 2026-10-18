@@ -191,6 +191,101 @@ describe('the email check in the HTTP gateway', () => {
   })
 })
 
+describe('remembering that the check is switched off', () => {
+  const checking = (fetchImpl: typeof fetch, csrf = ensureCsrf) =>
+    createHttpRegistrationGateway({
+      endpoint,
+      fetchImpl,
+      ensureCsrf: csrf,
+      emailCheckEndpoint: checkEndpoint,
+    })
+
+  it('doesn’t ask again for the rest of the session once it answers “disabled”', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => response({ status: 'disabled' }))
+    const csrf = vi.fn(async () => true)
+    const gateway = checking(fetchImpl, csrf)
+
+    expect(await gateway.checkEmails!(studentRequest(), {}, vi.fn())).toBe('skipped')
+    expect(await gateway.checkEmails!(studentRequest(), {}, vi.fn())).toBe('skipped')
+    expect(await gateway.checkEmails!(studentRequest(), {}, vi.fn())).toBe('skipped')
+
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(csrf).toHaveBeenCalledOnce()
+  })
+
+  it('remembers it when a job’s poll says so too', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response({ status: 'started', jobId: 'job-9' }, 202))
+      .mockResolvedValueOnce(response({ status: 'disabled' }))
+    const gateway = checking(fetchImpl)
+
+    expect(await gateway.checkEmails!(studentRequest(), {}, vi.fn())).toBe('skipped')
+    expect(await gateway.checkEmails!(studentRequest(), {}, vi.fn())).toBe('skipped')
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['closed', response({ status: 'closed' })],
+    ['too many addresses', response({ status: 'too_many' })],
+    ['an error', response({ error: 'Server error' }, 500)],
+  ])('asks again next time after %s', async (_, answer) => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => answer.clone())
+    const gateway = checking(fetchImpl)
+
+    await gateway.checkEmails!(studentRequest(), {}, vi.fn())
+    await gateway.checkEmails!(studentRequest(), {}, vi.fn())
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks again after a network error', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    const gateway = checking(fetchImpl)
+
+    await gateway.checkEmails!(studentRequest(), {}, vi.fn())
+    await gateway.checkEmails!(studentRequest(), {}, vi.fn())
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('is remembered per page session, not shared with a new one', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => response({ status: 'disabled' }))
+
+    await checking(fetchImpl).checkEmails!(studentRequest(), {}, vi.fn())
+    await checking(fetchImpl).checkEmails!(studentRequest(), {}, vi.fn())
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('still submits the registration itself while switched off', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response({ status: 'disabled' }))
+      .mockResolvedValue(
+        response(
+          {
+            reference_code: 'REG-1',
+            journey: 'student_individual',
+            student_count: 1,
+            created_at: '2026-10-18T10:00:00Z',
+          },
+          201,
+        ),
+      )
+    const gateway = checking(fetchImpl)
+
+    await gateway.checkEmails!(studentRequest(), {}, vi.fn())
+    const result = await gateway.submit(studentRequest())
+
+    expect(result.ok).toBe(true)
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([checkEndpoint, endpoint])
+  })
+})
+
 describe('the email warnings', () => {
   it('accepts a warning for each address found not to exist, on the right field', async () => {
     const request = studentRequest()
