@@ -1,0 +1,40 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: a new enquiry has come in{% endblock %}
+
+{% block preheader %}{{ REQUESTER_NAME }} raised {{ TICKET_NUMBER }} in the Support Centre.{% endblock %}
+
+{% block content %}
+{% comment %}
+E4, to the support inbox (C-17), in the designer's M-27: the requester emails'
+layout, a greeting to the team, who raised it, its category and urgency, the
+ticket box with whether anyone has it, and the button straight to it in the
+queue. Not the message: see send_new_ticket_to_support in services/emails.py.
+
+The requester's name is a field they can edit and can be long, so its line
+breaks anywhere, as the greeting in the requester emails does.
+{% endcomment %}
+              <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5;">
+                Hi support team,
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                A new enquiry has come in
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65; overflow-wrap:anywhere;">
+                {{ REQUESTER_NAME }} raised it in the Support Centre. {% if ASSIGNEE_NAME %}It is assigned to {{ ASSIGNEE_NAME }}.{% else %}It is not assigned to anyone yet.{% endif %}
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Category: {{ CATEGORY_LABEL }} &nbsp;&middot;&nbsp; Urgency: {{ URGENCY_WORDS }} ({{ PRIORITY_LABEL }} priority)
+              </p>
+
+{% include "emails/_ticket_meta.html" %}
+
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                This is an automatic message from {{ BRAND_CONNECT }}.
+              </p>
+{% endblock %}
+
+{% block footer_note %}{% include "emails/_ticket_footer_note.html" %}{% endblock %}

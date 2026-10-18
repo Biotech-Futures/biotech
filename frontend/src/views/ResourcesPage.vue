@@ -181,7 +181,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
@@ -206,6 +206,7 @@ import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const isAdmin = computed(() => auth.isAdmin)
 
 const busy = ref(false)
@@ -241,7 +242,13 @@ const fieldErrors = ref<Record<string, string[]>>({})
 
 const searchQuery = ref('')
 const selectedType = ref('')
-const selectedLabelId = ref('')
+// Seeded from ?label= so another page can link straight to one shelf of the
+// library. The Support Centre uses this to send someone to the help articles
+// for the topic they clicked, instead of dropping them in the full list to
+// find it themselves.
+const selectedLabelId = ref(
+  typeof route.query.label === 'string' ? route.query.label : ''
+)
 let loadSequence = 0
 
 const getFieldError = (field: string): string => fieldErrors.value[field]?.[0] || ''

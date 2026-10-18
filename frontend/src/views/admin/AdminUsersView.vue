@@ -115,10 +115,10 @@
     >
       <label class="admin-users__force-toggle">
         <input v-model="bulkForce" type="checkbox" />
-        <span>
-          Force delete - also permanently delete each user's chat messages, uploaded resources,
-          workshops, and match runs. Required to remove accounts that have any activity.
-        </span>
+        <!-- What force delete destroys is written once, in ForceDeleteNotice.
+             This copy used to leave out support tickets, which the purge
+             deletes as well. -->
+        <ForceDeleteNotice :subject="userNoun" />
       </label>
       <p v-if="bulkForce" class="admin-users__force-warning">
         This destroys their content for everyone, not just the account, and cannot be undone.
@@ -150,10 +150,8 @@
     >
       <label class="admin-users__force-toggle">
         <input v-model="singleDelete.force" type="checkbox" />
-        <span>
-          Force delete - also permanently delete this user's chat messages, uploaded resources,
-          workshops, and match runs. Required to remove accounts that have any activity.
-        </span>
+        <!-- What force delete destroys is written once, in ForceDeleteNotice. -->
+        <ForceDeleteNotice :subject="userNoun" />
       </label>
       <p v-if="singleDelete.force" class="admin-users__force-warning">
         This destroys their content for everyone, not just the account, and cannot be undone.
@@ -256,7 +254,9 @@ import AdminUsersBulkBar from '@/components/admin/users/AdminUsersBulkBar.vue'
 import AdminUserFormSheet from '@/components/admin/users/AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
+import ForceDeleteNotice from '@/components/admin/users/ForceDeleteNotice.vue'
 import type { AdminUser } from '@/utils/adminAPI'
+import { USER_ROLES } from '@/utils/userOptions'
 import { useAdminUsersView } from '@/composables/admin/useAdminUsersView'
 
 const props = withDefaults(
@@ -414,7 +414,25 @@ const onSingleDeleteConfirmed = () => {
   void runSingleDelete()
 }
 
+// ?role=<role> opens the Users tab already filtered to that role. The
+// support-agents roster links here with ?role=support ("Create a support
+// agent on the People page"), the way adminweb's People route read the same
+// parameter. Read once, before the first load, so the list is fetched once
+// and already filtered; the filter select shows it and can be changed as
+// usual (changes are not written back to the address). Only a role this
+// list offers is taken, so a stray value cannot put the page in a state its
+// own controls could not produce, and only on the Users tab: the other tabs
+// fix their role. Read next to main's ?search=, ?status= and ?inGroup=.
 onMounted(() => {
+  const requestedRole = route.query.role
+  if (
+    !props.roleFilter &&
+    typeof requestedRole === 'string' &&
+    (USER_ROLES as readonly string[]).includes(requestedRole)
+  ) {
+    filters.value = { ...filters.value, role: requestedRole as (typeof USER_ROLES)[number] }
+  }
+
   const search = route.query.search
   if (typeof search === 'string') {
     setSearchImmediately(search)

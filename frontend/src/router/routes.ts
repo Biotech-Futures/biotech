@@ -147,8 +147,31 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/admin/views/:id(\\d+)', name: 'admin-view-detail', component: () => import('@/views/admin/AdminViewExecutedPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/emails', name: 'admin-emails', component: () => import('@/views/admin/AdminEmailsPage.vue'), meta: { requiresAdmin: true } },
+  {
+    // Support tickets, the agent side. meta.requiresSupport is merged into
+    // every child's meta like adminOnly on /grading below, and the guard
+    // admits it on the server's isSupport flag: admins and support agents
+    // alike (backend SUPPORT_PERMISSIONS covers the queue, audit and
+    // analytics). The roster is not a child here: a support agent must never
+    // be offered the screen that grants the role (adminweb Nav.tsx).
+    path: '/admin/tickets',
+    component: () => import('@/views/admin/tickets/TicketsSection.vue'),
+    meta: { requiresSupport: true },
+    children: [
+      // ?ticket=<id> opens the detail panel; the queue page validates it.
+      { path: '', name: 'admin-tickets', component: () => import('@/views/admin/tickets/TicketQueuePage.vue') },
+      { path: 'audit', name: 'admin-tickets-audit', component: () => import('@/views/admin/tickets/TicketAuditPage.vue') },
+      { path: 'analytics', name: 'admin-tickets-analytics', component: () => import('@/views/admin/tickets/TicketAnalyticsPage.vue') }
+    ]
+  },
+  // Admin-only on the server too (IsAdminScoped); the page also checks the
+  // server's own flag, since the route's requiresAdmin reads the role name.
+  // For an account whose role is support but who has no queue access.
+  { path: '/support-access', name: 'support-access', component: () => import('@/views/SupportAccessPage.vue') },
   { path: '/announcements', name: 'announcements', component: () => import('@/views/AnnouncementsPage.vue') },
   { path: '/announcements/:id', name: 'announcement-detail', component: () => import('@/views/AnnouncementDetailPage.vue') },
+  { path: '/support', name: 'support', component: () => import('@/views/SupportCentrePage.vue') },
+  { path: '/support/tickets/:id(\\d+)', name: 'support-ticket', component: () => import('@/views/TicketDetailPage.vue') },
   {
     // Admin-only grading section. meta.adminOnly is merged into every child
     // route's meta by Vue Router, so the global guard covers the whole tree.

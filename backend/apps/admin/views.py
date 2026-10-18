@@ -34,6 +34,12 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services import guardian_consent
+from apps.admin.services.email_verification import get_credit_balance
+from apps.admin.services.known_university import (
+    add_known_university,
+    delete_known_university,
+    list_known_universities,
+)
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -114,7 +120,7 @@ class UserListCreateView(APIView):
         return Response(result)
 
     def post(self, request):
-        result = create_user(request.data)
+        result = create_user(request.data, initiated_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -278,9 +284,11 @@ class UserBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        # force=True also purges records that PROTECT the user (chat messages,
-        # uploaded resources, workshops, match runs) — permanently. The admin
-        # portal gates this behind an explicit opt-in + typed confirmation.
+        # force=True also purges the records that PROTECT the user, permanently.
+        # Which records is written in services/user._purge_protecting_records and
+        # nowhere else — the copy that used to sit here went stale when tickets
+        # joined the purge. The admin portal gates this behind an explicit
+        # opt-in + typed confirmation.
         force = bool(request.data.get("force"))
         # "Select all matching" resolves the target set server-side from the
         # same filters the list uses, instead of shipping every id from the browser.
@@ -327,7 +335,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "", created_by=request.user)
+        result = bulk_create_users(users, "", initiated_by=request.user, created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -345,7 +353,11 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "", created_by=request.user)
+        # No serializer on this path, unlike the JSON twin above. The role
+        # whitelist lives in add_users_by_role instead, which both endpoints
+        # reach; putting a second copy here is what let the two drift far
+        # enough for one to refuse "support" and the other to grant it.
+        result = bulk_create_users(users, "", initiated_by=request.user, created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -1777,5 +1789,36 @@ class SystemEmailSettingsView(APIView):
         return Response(result)
 
 
+class EmailVerificationCreditsView(APIView):
+    """GET /api/v1/admin/email-verification/credits/ — the QuickEmailVerification
+    balance, its low-credit alert levels and today's lookups. Read-only."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_credit_balance())
 
 
+class KnownUniversityListCreateView(APIView):
+    """GET/POST /api/v1/admin/known-university/ — the names the registration
+    school check treats as universities (optional ``?search=`` on name)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_known_universities(request.query_params.get("search")))
+
+    def post(self, request):
+        name = request.data.get("name") if isinstance(request.data, dict) else None
+        result, code = add_known_university(name, actor=request.user)
+        return Response(result, status=code)
+
+
+class KnownUniversityDetailView(APIView):
+    """DELETE /api/v1/admin/known-university/<id>/ — take a name off the list."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def delete(self, request, university_id):
+        result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)

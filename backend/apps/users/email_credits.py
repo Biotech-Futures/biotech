@@ -31,13 +31,25 @@ def _credits(value):
     return int(text) if text.isdigit() else None
 
 
-def record_remaining(headers) -> None:
-    """Store the balance from one QEV answer's ``headers``. Never raises."""
-    global _unreadable_logged
+def credits_in(headers):
+    """The credits left according to one QEV answer's ``headers``, or None if
+    they don't say (missing, unreadable or not a whole number)."""
     try:
-        remaining = _credits(headers.get(CREDITS_HEADER))
+        return _credits(headers.get(CREDITS_HEADER))
     except Exception:  # noqa: BLE001 - headers that can't be read are just unusable
-        remaining = None
+        return None
+
+
+# The keys whose balance is kept: the paid one (QEV_PAID_API_KEY), which
+# alerts follow, and the free one (QEV_API_KEY), kept for display only.
+FREE, PAID = "free", "paid"
+
+
+def record_remaining(headers, key: str = PAID) -> None:
+    """Store the balance one QEV answer's ``headers`` give for ``key``. Only
+    the paid key's is checked against the alert levels. Never raises."""
+    global _unreadable_logged
+    remaining = credits_in(headers)
     if remaining is None:
         if not _unreadable_logged:
             logger.warning("email_credits.header_unusable header=%s", CREDITS_HEADER)
@@ -46,6 +58,13 @@ def record_remaining(headers) -> None:
     _unreadable_logged = False
 
     try:
+        if key == FREE:
+            EmailVerificationCredits.get()
+            EmailVerificationCredits.objects.filter(pk=EmailVerificationCredits.SINGLETON_PK).update(
+                free_remaining=remaining, free_updated_at=timezone.now(),
+            )
+            logger.info("email_credits.recorded key=free remaining=%s", remaining)
+            return
         with transaction.atomic():
             EmailVerificationCredits.get()
             credits = EmailVerificationCredits.objects.select_for_update().get(

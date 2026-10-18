@@ -8,7 +8,7 @@
     <header class="header" v-if="!isLoginPage && !(onMarkingPage && isHeaderHidden)">
       <div class="header-content">
         <div class="logo-section">
-          <RouterLink :to="auth.isSupervisor ? '/profile' : '/dashboard'" class="logo">
+          <RouterLink :to="logoTarget" class="logo">
             <div class="logo-icon">
               <img :src="logo" :alt="BRAND_NAME" />
             </div>
@@ -111,6 +111,7 @@
       >
         <nav class="sidebar-nav">
           <ul class="sidebar-list">
+            <!-- The member pages, Support among them (mainNavLinks). -->
             <template v-for="entry in mainNavLinks" :key="entry.to">
               <li v-if="!entry.links" class="sidebar-item">
                 <RouterLink :to="entry.to" class="sidebar-link" :class="{ active: entry.active }">
@@ -163,6 +164,21 @@
                 <i class="fas fa-envelope sidebar-icon" aria-hidden="true"></i>
                 <span>Contact Support</span>
               </a>
+            </li>
+
+            <!-- The agent side of support tickets, on the server's isSupport
+                 flag: admins, support agents, and anyone else the server has
+                 given queue access. One entry point for all of them, so it is
+                 not also an Admin sub-item. -->
+            <li class="sidebar-item" v-if="auth.canWorkTickets">
+              <RouterLink
+                to="/admin/tickets"
+                class="sidebar-link"
+                :class="{ active: route.path.startsWith('/admin/tickets') }"
+              >
+                <i class="fas fa-headset sidebar-icon" aria-hidden="true"></i>
+                <span>Support queue</span>
+              </RouterLink>
             </li>
 
             <!-- Admin's and a supervisor's own pages: one entry each that folds open. -->
@@ -329,9 +345,14 @@ import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
-import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import {
+  isSupervisorHiddenPath,
+  loadSupervisorPages,
+  useSupervisorPages,
+} from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
+import { landingPath } from '@/utils/landing'
 import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
@@ -386,8 +407,17 @@ const isLoginPage = computed(() =>
   route.meta.public === true,
 )
 const isAdminLandingActive = computed(() => route.path === '/admin')
+// A support-only account's start page is the queue (or the page explaining
+// why it has none), not the member dashboard it cannot open. A supervisor's
+// is their profile.
+const logoTarget = computed(() => {
+  if (auth.isSupportOnly) return landingPath(auth)
+  return auth.isSupervisor ? '/profile' : '/dashboard'
+})
+// Support-only accounts belong to no group and cannot open /groups; skipping
+// the switcher also skips its group list and per-group unread requests.
 const showSidebarGroupSwitcher = computed(
-  () => !isLoginPage.value && route.path.startsWith('/groups'),
+  () => !isLoginPage.value && !auth.isSupportOnly && route.path.startsWith('/groups'),
 )
 
 const sidebarGroups = ref<SidebarGroupOption[]>([])
@@ -480,10 +510,15 @@ watch(
   { immediate: true },
 )
 
-// The top-level links every role sees; supervisors only once Management >
-// Supervisor Pages Visibility shows them.
+// The top-level links every role sees. A support agent who is not an admin
+// gets the queue and none of these: the guard sends them back from these
+// anyway, so offering the links would only be a detour. A supervisor goes
+// without the pages Management > Supervisor Pages Visibility hides until it
+// shows them, and keeps the rest: Support is not one of them, so a supervisor
+// can always find it. The list is the router guard's own, so the menu never
+// offers a page the guard refuses or hides one it allows.
 const mainNavLinks = computed(() => {
-  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
+  if (auth.isSupportOnly) return []
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]
@@ -492,7 +527,11 @@ const mainNavLinks = computed(() => {
     { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
     { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
+    { to: '/support', label: 'Support', icon: 'fa-life-ring', active: route.path.startsWith('/support') },
   )
+  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) {
+    return links.filter((link) => !isSupervisorHiddenPath(link.to))
+  }
   return links
 })
 

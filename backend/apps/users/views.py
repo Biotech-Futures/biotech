@@ -40,6 +40,7 @@ from .serializers import (
     AdminOperationsSummarySerializer,
     BulkUserStatusSerializer,
     JoinPermissionRequestSerializer,
+    MeSerializer,
     StudentGuardianUpdateSerializer,
     SupervisedStudentEmailSerializer,
     SupervisedStudentIdsSerializer,
@@ -325,7 +326,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
     and is gated on ``is_admin``.
     """
 
-    serializer_class = UserSerializer
+    serializer_class = MeSerializer
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]
 
@@ -458,7 +459,12 @@ class MeRetrieveView(generics.RetrieveAPIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
-        return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
+        # Validation above deliberately runs through ``UserSerializer``; the
+        # response deliberately does not. GET and PATCH on this endpoint have
+        # to return the same shape, or a client that PATCHes their timezone
+        # and stores the reply silently loses ``isAdmin``/``isSupport`` from
+        # its cached user and stops showing them the menus they have.
+        return Response(MeSerializer(user).data, status=status.HTTP_200_OK)
 
 
 class ProfileImageUploadView(APIView):

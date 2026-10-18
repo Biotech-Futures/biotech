@@ -1,16 +1,31 @@
 import type { Router } from 'vue-router'
 import { formatTimeZoneLabel, getBrowserTimeZone, normalizeTimeZone } from '@/utils/date'
+import { landingPath } from '@/utils/landing'
 
 interface AdminAwareAuth {
   isAdmin: boolean
   isSupervisor?: boolean
   mustChangePassword: boolean
+  // The ticket side's two flags (stores/auth.ts), which the store always has.
+  // A caller that leaves them out is neither a support agent nor on the queue.
+  isSupportOnly?: boolean
+  canWorkTickets?: boolean
   timeZone?: string
   user?: {
     id?: number | string
     timezone?: string | null
   } | null
 }
+
+// Their usual home: landingPath(), with any flag a caller left out read as false.
+const home = (auth: AdminAwareAuth) =>
+  landingPath({
+    mustChangePassword: auth.mustChangePassword,
+    isAdmin: auth.isAdmin,
+    isSupportOnly: auth.isSupportOnly === true,
+    canWorkTickets: auth.canWorkTickets === true,
+    isSupervisor: auth.isSupervisor === true,
+  })
 
 const TIMEZONE_PROMPT_SESSION_PREFIX = 'timezone-mismatch-prompted'
 
@@ -77,7 +92,8 @@ const shouldPromptForTimezoneMismatch = (auth: AdminAwareAuth) => {
 /**
  * Where someone goes once signed in: setting their password first if they
  * must (the remembered page waits for after that), else the page they asked
- * for while signed out, else their usual home.
+ * for while signed out, else their usual home (home() above: an admin's, a
+ * supervisor's, a support agent's queue, or the member dashboard).
  */
 export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) => {
   if (auth.mustChangePassword) {
@@ -88,22 +104,25 @@ export const redirectAfterLogin = async (auth: AdminAwareAuth, router: Router) =
   const returnTo = takeReturnTo(router)
 
   if (auth.isAdmin) {
-    await router.replace(returnTo || '/admin')
+    await router.replace(returnTo || home(auth))
     return
   }
 
   if (auth.isSupervisor) {
-    await router.replace(returnTo || '/profile')
+    await router.replace(returnTo || home(auth))
     return
   }
 
+  // Never asked of admins, supervisors, or someone who still has to set a
+  // password. Everyone else, support agents included, may be; /profile stays
+  // open to a support-only account for this reason.
   if (shouldPromptForTimezoneMismatch(auth)) {
     // A link to their profile already lands there, with whatever it opens.
     await router.replace(returnTo?.startsWith('/profile') ? returnTo : '/profile')
     return
   }
 
-  const destination = returnTo || '/dashboard'
+  const destination = returnTo || home(auth)
   try {
     await router.replace(destination)
   } catch {

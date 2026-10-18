@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.groups',
     'apps.chat',
+    'apps.tickets',
     'apps.resources',
     'apps.announcements',
     'apps.audit',
@@ -237,6 +238,11 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # Ticket submission only; the GET on the same view is exempt via
+        # WriteOnlyScopedThrottle. Each submission puts an email on the same
+        # four-worker pool as login codes, so the cap is really about keeping
+        # one looping account from delaying everyone else's sign-in.
+        'ticket_create': '30/hour',
         # The public consent page, per IP: generous for a family sharing a
         # connection, tight enough to make guessing links pointless.
         'guardian_consent': '60/hour',
@@ -373,8 +379,25 @@ AUTH_EMAIL_DISPATCH_SYNC = config(
 EMAIL_FROM_ADDRESS = "info@biotechfutures.org"
 DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{EMAIL_FROM_ADDRESS}>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
-# Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
+# Inbound mailbox users write to. Automated mail still goes out from
+# EMAIL_FROM_ADDRESS, with one exception below.
 SUPPORT_EMAIL = "support@biotechfutures.org"
+# The exception: the three emails about a support enquiry go out from
+# SUPPORT_EMAIL, because the client asked for enquiry mail to come from
+# support@ and not info@ (apps/tickets/services/emails.py). Nothing else
+# moves; login codes, announcements and the rest keep DEFAULT_FROM_EMAIL.
+#
+# No second SMTP account for this, unlike connect@ below. The client confirmed
+# on Slack that support@ is an alias of the info@ mailbox, so the same
+# EMAIL_HOST_USER login may send as it. If that alias is ever removed, expect
+# the relay to refuse these sends, and nothing raises when it does: the only
+# trace is an auth_email.send_failed log line (plus an internal note on the
+# ticket for the resolution email). Check the logs after changing either one.
+TICKET_FROM_EMAIL = f"{BRAND_NAME} <{SUPPORT_EMAIL}>"
+# Where the two emails about the queue go: a new enquiry, and the morning count
+# of what is still open (apps/tickets/services/emails.py, C-17 and C-18). The
+# designer's draft names support@; set this to send them somewhere else.
+TICKET_SUPPORT_INBOX = config("TICKET_SUPPORT_INBOX", default=SUPPORT_EMAIL)
 
 # Second mailbox — the "unread messages" digest sends from here, NOT the default
 # transactional account, so it can live under its own 3000/day send quota and
@@ -763,14 +786,53 @@ LINK_PREVIEW_DISPATCH_SYNC = config(
     "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )
 
+# --- Support tickets ---------------------------------------------------------
+# How long a ticket may sit WITH SUPPORT before the queue flags it as overdue.
+#
+# Not "without a first response", which is what this used to mean. The client
+# was asked on 2026-09-04 whether a first-reply test was right and answered:
+# "instead of making it just the first response, include follow up responses".
+# So the clock restarts every time the requester answers and stops every time
+# support does. It is measured from Ticket.awaiting_support_since; the rule
+# itself is written once, in apps/tickets/services/queue.overdue_condition.
+#
+# Plain wall-clock hours, confirmed by the client as the right reading. A
+# high-priority ticket raised at 22:00 on a Friday is therefore flagged at
+# 02:00 on the Saturday. That is intended, not a bug to fix: the platform has
+# no business-day helper, and building one — a calendar, a timezone per agent,
+# public holidays — is work the client has not asked for.
+#
+# The submission email deliberately does NOT quote these numbers. It says
+# "one business day" (apps/tickets/services/emails.EXPECTED_REPLY), which is
+# softer than the internal target and is not derived from it. That is a
+# decision, not drift: these hours are a triage target for the queue, and
+# putting "four hours" in front of a fourteen-year-old would turn it into a
+# promise we have just said we do not keep at weekends.
+TICKET_SLA_HIGH_HOURS = config("TICKET_SLA_HIGH_HOURS", default=4, cast=int)
+TICKET_SLA_NORMAL_HOURS = config("TICKET_SLA_NORMAL_HOURS", default=24, cast=int)
+TICKET_SLA_LOW_HOURS = config("TICKET_SLA_LOW_HOURS", default=72, cast=int)
+
+# The morning count of open enquiries (C-18) is started by
+# .github/workflows/ticket-digest.yml at POST /api/v1/admin/tickets/digest/send/,
+# with EMAIL_JOBS_TOKEN in the X-Email-Jobs-Token header, the same as the
+# platform's other scheduled emails. It needs nothing configured of its own.
+
 # QuickEmailVerification (apps.users.email_verification). The key comes only from
 # the environment; with none set, every check reports "error" and nothing is blocked.
 QEV_API_KEY = config("QEV_API_KEY", default="")
 QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
 QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
 QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
-QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=600, cast=int)
+# Lookups allowed per UTC day; 0 (the default) means no limit.
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
 QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
 # Email checks run on a background thread after commit; tests run them inline.
 EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Tried when QEV_API_KEY (the free key) is out of credit; set only in the
+# deployment's environment. Low-credit alerts follow this key's balance.
+QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
+# Minutes before a key that ran out of credit is tried again (a new UTC day
+# also allows a retry).
+QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)

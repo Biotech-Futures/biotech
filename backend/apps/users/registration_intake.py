@@ -45,7 +45,7 @@ JOURNEY = "student_individual"
 GROUP_JOURNEYS = {"student_team", "supervisor_group"}
 SUPERVISOR_JOURNEYS = {"supervisor_individual", "supervisor_group", "supervisor_csv"}
 STUDENT_JOURNEYS = [JOURNEY, "student_team", *sorted(SUPERVISOR_JOURNEYS)]
-MAX_CSV_ROWS = 500
+MAX_CSV_ROWS = 1000
 # A group's most students: a student group may start with one (its creator),
 # the rest joining by its code.
 GROUP_MAX_STUDENTS = 5

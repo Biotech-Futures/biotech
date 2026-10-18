@@ -9,7 +9,7 @@ import * as adminApi from '@/utils/adminAPI'
 
 const mockPush = vi.fn()
 vi.mock('vue-router', () => ({
-  useRoute: vi.fn(() => ({ params: {}, name: 'resources' })),
+  useRoute: vi.fn(() => ({ params: {}, query: {}, name: 'resources' })),
   useRouter: vi.fn(() => ({ push: mockPush }))
 }))
 
