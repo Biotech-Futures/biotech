@@ -796,3 +796,8 @@ EMAIL_PRECHECK_MAX_ADDRESSES = config("EMAIL_PRECHECK_MAX_ADDRESSES", default=20
 EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES = config("EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES", default=20, cast=int)
 EMAIL_PRECHECK_IP_HOURLY_LOOKUPS = config("EMAIL_PRECHECK_IP_HOURLY_LOOKUPS", default=200, cast=int)
 EMAIL_PRECHECK_STALL_SECONDS = config("EMAIL_PRECHECK_STALL_SECONDS", default=60, cast=int)
+
+# Threads checking registration addresses before submission, one address
+# each (QEV's bulk API isn't open to the free key). Backoff on HTTP 429
+# protects against QEV's unpublished rate limit.
+QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=16, cast=int)
