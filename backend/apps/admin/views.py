@@ -34,6 +34,12 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services import guardian_consent
+from apps.admin.services.email_verification import get_credit_balance
+from apps.admin.services.known_university import (
+    add_known_university,
+    delete_known_university,
+    list_known_universities,
+)
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -1783,5 +1789,36 @@ class SystemEmailSettingsView(APIView):
         return Response(result)
 
 
+class EmailVerificationCreditsView(APIView):
+    """GET /api/v1/admin/email-verification/credits/ — the QuickEmailVerification
+    balance, its low-credit alert levels and today's lookups. Read-only."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_credit_balance())
 
 
+class KnownUniversityListCreateView(APIView):
+    """GET/POST /api/v1/admin/known-university/ — the names the registration
+    school check treats as universities (optional ``?search=`` on name)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_known_universities(request.query_params.get("search")))
+
+    def post(self, request):
+        name = request.data.get("name") if isinstance(request.data, dict) else None
+        result, code = add_known_university(name, actor=request.user)
+        return Response(result, status=code)
+
+
+class KnownUniversityDetailView(APIView):
+    """DELETE /api/v1/admin/known-university/<id>/ — take a name off the list."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def delete(self, request, university_id):
+        result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)
