@@ -253,11 +253,12 @@ def _ask(email: str, name: str, key: str):
 
 def _reserve_lookup() -> bool:
     """Count one paid lookup against today's cap (QEV_DAILY_LOOKUP_CAP), if
-    there's room. Sandbox lookups are free, so they aren't counted. False when
-    the cap is reached or the count can't be kept."""
-    if _sandbox():
+    there's room. With no cap (0, the default) nothing is counted, and
+    sandbox lookups are free, so they aren't either. False when the cap is
+    reached or the count can't be kept."""
+    cap = int(getattr(settings, "QEV_DAILY_LOOKUP_CAP", 0))
+    if cap <= 0 or _sandbox():
         return True
-    cap = int(getattr(settings, "QEV_DAILY_LOOKUP_CAP", 600))
     today = timezone.now().date()
     try:
         with transaction.atomic():
@@ -314,7 +315,7 @@ def verify_emails(emails: Iterable[str]) -> dict[str, VerificationResult]:
     """Check each address, keyed by its normalised form (stripped, lower case)
     in the order given. Blank addresses are left out and repeats checked once.
     Makes one API call per address that has no recent valid or invalid answer
-    on file, up to the daily cap. Never raises."""
+    on file, up to the daily cap if one is set. Never raises."""
     addresses = []
     for email in emails:
         address = EmailVerification.normalise(email)

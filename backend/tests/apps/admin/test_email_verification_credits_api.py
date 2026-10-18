@@ -133,6 +133,13 @@ class EmailVerificationCreditsApiTests(APITestCase):
 
         self.assertEqual((data["thresholds"], data["dailyCap"], data["sandbox"]), ([1000, 100], 50, True))
 
+    def test_with_the_cap_setting_missing_it_reports_no_limit(self):
+        from django.conf import settings
+
+        with override_settings():
+            del settings.QEV_DAILY_LOOKUP_CAP
+            self.assertEqual(self.data()["dailyCap"], 0)
+
     def test_it_is_read_only(self):
         self.client.force_authenticate(self.admin)
 

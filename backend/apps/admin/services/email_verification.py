@@ -68,7 +68,8 @@ def get_credit_balance() -> dict:
             ),
             "lookupsToday": credits.lookups_today if counted_today else 0,
             "lookupsOn": _iso(credits.lookups_on) if credits else None,
-            "dailyCap": int(getattr(settings, "QEV_DAILY_LOOKUP_CAP", 600)),
+            # 0: no daily limit.
+            "dailyCap": int(getattr(settings, "QEV_DAILY_LOOKUP_CAP", 0)),
             "sandbox": bool(getattr(settings, "QEV_USE_SANDBOX", False)),
         },
     }

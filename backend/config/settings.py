@@ -769,7 +769,8 @@ QEV_API_KEY = config("QEV_API_KEY", default="")
 QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
 QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
 QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
-QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=600, cast=int)
+# Lookups allowed per UTC day; 0 (the default) means no limit.
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
 QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
 # Email checks run on a background thread after commit; tests run them inline.
