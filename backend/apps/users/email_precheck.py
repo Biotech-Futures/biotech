@@ -239,7 +239,7 @@ def job_status(job_id) -> tuple[dict, int]:
 
 
 def workers() -> int:
-    return max(1, _setting("QEV_PRECHECK_WORKERS", 16))
+    return max(1, _setting("QEV_PRECHECK_WORKERS", 8))
 
 
 def estimate_seconds(job: EmailCheckJob):

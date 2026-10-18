@@ -800,7 +800,7 @@ EMAIL_PRECHECK_STALL_SECONDS = config("EMAIL_PRECHECK_STALL_SECONDS", default=60
 # Threads checking registration addresses before submission, one address
 # each (QEV's bulk API isn't open to the free key). Backoff on HTTP 429
 # protects against QEV's unpublished rate limit.
-QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=16, cast=int)
+QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=8, cast=int)
 
 # Seconds a queued pre-submission check (waiting behind earlier ones) may go
 # without starting before it counts as stalled and the page submits anyway.
