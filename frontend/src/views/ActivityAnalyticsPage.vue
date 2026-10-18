@@ -3225,12 +3225,12 @@ tbody tr:hover td {
 
 .activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong {
   width: 100%;
-  text-align: center;
+  text-align: left;
 }
 
 .activity-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 @media (max-width: 1279px) {

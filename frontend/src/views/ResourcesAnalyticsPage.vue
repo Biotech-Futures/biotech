@@ -1118,12 +1118,12 @@ tbody tr:hover td {
 
 .resources-analytics-page .kpi-card > div:not(.kpi-icon) > strong:not(.resource-name) {
   width: 100%;
-  text-align: center;
+  text-align: left;
 }
 
 .resources-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 /* Use identical title/value/helper tracks across every resource KPI, including
@@ -1134,7 +1134,7 @@ tbody tr:hover td {
   flex: 1 1 0% !important;
   align-self: stretch;
   grid-template-rows: 34px auto 34px !important;
-  align-content: center;
+  align-content: start;
 }
 
 .resources-analytics-page .kpi-grid .kpi-card .kpi-label {

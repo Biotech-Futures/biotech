@@ -1550,7 +1550,7 @@ h2 {
 
 .mentors-analytics-page .kpi-copy > .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .mentors-analytics-page .kpi-label {

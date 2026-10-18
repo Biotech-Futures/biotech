@@ -2680,7 +2680,7 @@ tbody tr:hover {
 /* All six summary cards share the same title, value and helper tracks. */
 .messages-analytics-page .kpi-grid .kpi-card {
   display: flex !important;
-  align-items: center !important;
+  align-items: flex-start !important;
   min-height: 0 !important;
 }
 
@@ -2690,7 +2690,7 @@ tbody tr:hover {
   flex: 1 1 0% !important;
   align-self: stretch;
   grid-template-rows: 34px auto 34px !important;
-  align-content: center;
+  align-content: start;
 }
 
 .messages-analytics-page .kpi-grid .kpi-card .kpi-label {
