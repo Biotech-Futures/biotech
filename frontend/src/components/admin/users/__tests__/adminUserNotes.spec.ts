@@ -66,6 +66,7 @@ describe('Admin User Notes: Detail Content Component', () => {
     })
 
     expect(wrapper.find('[data-test="admin-notes-section"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="admin-notes-section"] h3').text()).toBe('Internal Admin Notes')
     const display = wrapper.find('[data-test="admin-notes-display"]')
     expect(display.exists()).toBe(true)
     expect(display.text()).toBe('Special dietary and accessibility context.')
@@ -155,7 +156,7 @@ describe('Admin User Notes: Form Sheet Component', () => {
   it('submits admin notes when creating a new user', async () => {
     vi.mocked(createAdminUser).mockResolvedValueOnce({
       msg: 'ok',
-      data: [{ input: {}, msg: null, data: { id: 99 } }]
+      data: sampleUser({ id: 99 })
     })
 
     const wrapper = mount(AdminUserFormSheet, {

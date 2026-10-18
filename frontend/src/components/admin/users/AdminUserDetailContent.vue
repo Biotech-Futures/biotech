@@ -53,7 +53,7 @@
     </section>
 
     <section v-if="user" class="admin-users-detail__section" data-test="admin-notes-section">
-      <h3>Admin Notes</h3>
+      <h3>Internal Admin Notes</h3>
       <div v-if="user.adminNotes" class="admin-users-detail__notes-box" data-test="admin-notes-display">
         <p class="admin-users-detail__notes-text">{{ user.adminNotes }}</p>
       </div>

@@ -225,7 +225,7 @@
         </label>
       </div>
       <div class="form-field form-field--full">
-        <label class="form-label" for="f-admin-notes">Admin notes (visible only to admins)</label>
+        <label class="form-label" for="f-admin-notes">Internal admin notes (visible only to admins)</label>
         <textarea
           id="f-admin-notes"
           v-model="form.adminNotes"
