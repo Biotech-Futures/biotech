@@ -154,7 +154,7 @@
       <div class="section-heading-row logs-heading">
         <div>
           <h2>Email Logs</h2>
-          <p>Recent sends of every email type, newest first.</p>
+          <p>The latest 100 sends of each email type, newest first.</p>
         </div>
 
         <div class="log-actions">

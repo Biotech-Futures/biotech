@@ -281,6 +281,40 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
         self.assertEqual(sends[1]["initiated_by_email"], self.admin.email)
         self.assertEqual(sends[2]["source_mailbox"], self.secondary_mailbox)
 
+    @patch("apps.admin.services.analytics.RECENT_SENDS_PER_TYPE", 2)
+    def test_recent_sends_keep_each_types_latest_sends(self):
+        self.delivery(
+            started_at=self.snapshot_at - timedelta(days=10),
+            recipients=4,
+            delivered=4,
+            failed=0,
+            delivery_status=AnnouncementDelivery.Status.SUCCESS,
+        )
+        for hours in (1, 2, 3):
+            EmailDeliveryMetric.objects.create(
+                email_type="login_code",
+                source_mailbox=self.primary_mailbox,
+                attempted_count=1,
+                delivered_count=1,
+                failed_count=0,
+                status=EmailDeliveryMetric.Status.SUCCESS,
+                started_at=self.snapshot_at - timedelta(hours=hours),
+                completed_at=self.snapshot_at - timedelta(hours=hours),
+            )
+
+        sends = self.get_as_admin()["recent_sends"]
+
+        # Newer login codes beyond their own limit do not crowd out the announcement.
+        self.assertEqual(
+            [(row["email_type"], datetime.fromisoformat(row["started_at"])) for row in sends],
+            [
+                ("login_code", self.snapshot_at - timedelta(hours=1)),
+                ("login_code", self.snapshot_at - timedelta(hours=2)),
+                ("announcement", self.snapshot_at - timedelta(days=10)),
+            ],
+        )
+        self.assertEqual(sends[2]["title"], "Analytics update")
+
     def test_response_serializer_allows_null_opened_and_rejects_negative_counts(self):
         payload = {
             "msg": "Email delivery analytics retrieved successfully",

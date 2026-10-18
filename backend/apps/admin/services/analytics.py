@@ -2,8 +2,8 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone as datetime_timezone
 
 from django.conf import settings
-from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Sum, Value
-from django.db.models.functions import Coalesce, TruncDate, TruncHour
+from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, Window
+from django.db.models.functions import Coalesce, RowNumber, TruncDate, TruncHour
 from django.utils import timezone
 
 from apps.announcements.models import (
@@ -526,7 +526,9 @@ def get_resource_analytics(
     }
 
 
-RECENT_SENDS_LIMIT = 100
+# Kept per email type, so frequent sends (login codes) cannot push rarer ones
+# (announcements) out of the list or out of its type filter.
+RECENT_SENDS_PER_TYPE = 100
 
 
 def _email_type_label(key: str) -> str:
@@ -537,7 +539,7 @@ def _email_type_label(key: str) -> str:
 
 
 def _recent_email_sends() -> list[dict]:
-    """The latest sends of every email type, newest first.
+    """The latest ``RECENT_SENDS_PER_TYPE`` sends of each email type, newest first.
 
     ``EmailDeliveryMetric`` records one row per real send operation for system
     emails, announcements, chat digests and management bulk sends, so it is the
@@ -546,7 +548,15 @@ def _recent_email_sends() -> list[dict]:
     """
     rows = list(
         EmailDeliveryMetric.objects.select_related("initiated_by")
-        .order_by("-started_at", "-id")[:RECENT_SENDS_LIMIT]
+        .annotate(
+            type_rank=Window(
+                RowNumber(),
+                partition_by=[F("email_type")],
+                order_by=[F("started_at").desc(), F("id").desc()],
+            )
+        )
+        .filter(type_rank__lte=RECENT_SENDS_PER_TYPE)
+        .order_by("-started_at", "-id")
     )
     announcement_starts = [row.started_at for row in rows if row.email_type == "announcement"]
     announcements_by_start = {
