@@ -40,8 +40,10 @@ def response(body=None, *, status=200, bad_json=False, headers=None):
     return answer
 
 
+# Only the free key, unless a test says otherwise (two-key behaviour is in
+# test_email_verification_keys).
 @override_settings(
-    QEV_API_KEY=KEY, QEV_USE_SANDBOX=False, QEV_TIMEOUT_SECONDS=5, QEV_RESULT_MAX_AGE_DAYS=180,
+    QEV_API_KEY=KEY, QEV_PAID_API_KEY="", QEV_USE_SANDBOX=False, QEV_TIMEOUT_SECONDS=5, QEV_RESULT_MAX_AGE_DAYS=180,
     QEV_DAILY_LOOKUP_CAP=600, EMAIL_VERIFICATION_DISPATCH_SYNC=True,
 )
 class QevTestCase(TestCase):
@@ -237,7 +239,8 @@ class FailOpenTests(QevTestCase):
         self.assertFailedOpen("request_failed")
 
     def test_each_error_status(self):
-        for status in (400, 401, 402, 403, 404, 429, 500, 502, 503):
+        # 402 (out of credit) is its own case: test_email_verification_keys.
+        for status in (400, 401, 403, 404, 429, 500, 502, 503):
             with self.subTest(status=status):
                 self.answer(response(qev(), status=status))
                 self.assertFailedOpen(f"http_{status}")
@@ -489,11 +492,34 @@ class DailyCapTests(QevTestCase):
         self.assertEqual(self.lookups()[1], 0)
 
     @override_settings(QEV_DAILY_LOOKUP_CAP=0)
-    def test_a_cap_of_zero_makes_no_lookups(self):
-        result = ev.verify_email("kid@example.com")
+    def test_a_cap_of_zero_means_no_limit_and_nothing_is_counted(self):
+        self.answer_always()
 
-        self.assertEqual((result.status, result.reason), ("error", "daily_cap_reached"))
-        self.http.assert_not_called()
+        results = ev.verify_emails([f"kid{index}@example.com" for index in range(25)])
+
+        self.assertEqual(self.http.call_count, 25)
+        self.assertEqual({r.status for r in results.values()}, {"valid"})
+        credits = EmailVerificationCredits.objects.filter(pk=1).first()
+        self.assertTrue(credits is None or (credits.lookups_on, credits.lookups_today) == (None, 0))
+
+    @override_settings(QEV_DAILY_LOOKUP_CAP=0)
+    def test_with_no_cap_reserving_a_lookup_never_touches_the_database(self):
+        with self.assertNumQueries(0):
+            self.assertTrue(ev._reserve_lookup())
+
+    def test_with_the_setting_missing_there_is_no_cap(self):
+        from django.conf import settings
+
+        with override_settings():
+            del settings.QEV_DAILY_LOOKUP_CAP
+            with self.assertNumQueries(0):
+                self.assertTrue(ev._reserve_lookup())
+
+    @override_settings(QEV_DAILY_LOOKUP_CAP=-1)
+    def test_a_negative_cap_is_treated_as_no_cap(self):
+        self.answer_always()
+
+        self.assertEqual(ev.verify_email("kid@example.com").status, "valid")
 
     def test_without_a_count_no_paid_lookup_is_made(self):
         with mock.patch.object(EmailVerificationCredits, "get", side_effect=DatabaseError("x")):
