@@ -34,6 +34,7 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services import guardian_consent
+from apps.admin.services.email_verification import get_credit_balance
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -1777,5 +1778,11 @@ class SystemEmailSettingsView(APIView):
         return Response(result)
 
 
+class EmailVerificationCreditsView(APIView):
+    """GET /api/v1/admin/email-verification/credits/ — the QuickEmailVerification
+    balance, its low-credit alert levels and today's lookups. Read-only."""
 
+    permission_classes = [IsAuthenticated, IsAdminScoped]
 
+    def get(self, request):
+        return Response(get_credit_balance())

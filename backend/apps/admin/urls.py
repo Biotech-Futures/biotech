@@ -140,4 +140,9 @@ urlpatterns = [
     path('view/<int:view_id>/', views.AdminViewDetailView.as_view(), name='view-detail'),
     path('view/<int:view_id>/run/', views.AdminViewRunView.as_view(), name='view-run'),
     path('view/<int:view_id>/export-csv/', views.AdminViewExportCsvView.as_view(), name='view-export-csv'),
+
+    # ========================================================================
+    # EMAIL VERIFICATION ROUTES
+    # ========================================================================
+    path('email-verification/credits/', views.EmailVerificationCreditsView.as_view(), name='email-verification-credits'),
 ]
