@@ -345,7 +345,11 @@ import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { markingFullWidth } from '@/composables/markingLayout'
-import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import {
+  isSupervisorHiddenPath,
+  loadSupervisorPages,
+  useSupervisorPages,
+} from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { landingPath } from '@/utils/landing'
@@ -506,13 +510,15 @@ watch(
   { immediate: true },
 )
 
-// The top-level links every role sees; supervisors only once Management >
-// Supervisor Pages Visibility shows them. A support agent who is not an
-// admin gets the queue and none of these: the guard sends them back from
-// these anyway, so offering the links would only be a detour.
+// The top-level links every role sees. A support agent who is not an admin
+// gets the queue and none of these: the guard sends them back from these
+// anyway, so offering the links would only be a detour. A supervisor goes
+// without the pages Management > Supervisor Pages Visibility hides until it
+// shows them, and keeps the rest: Support is not one of them, so a supervisor
+// can always find it. The list is the router guard's own, so the menu never
+// offers a page the guard refuses or hides one it allows.
 const mainNavLinks = computed(() => {
   if (auth.isSupportOnly) return []
-  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]
@@ -523,6 +529,9 @@ const mainNavLinks = computed(() => {
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
     { to: '/support', label: 'Support', icon: 'fa-life-ring', active: route.path.startsWith('/support') },
   )
+  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) {
+    return links.filter((link) => !isSupervisorHiddenPath(link.to))
+  }
   return links
 })
 

@@ -4,6 +4,7 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import App from '@/App.vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import {
   mentorWithAccess,
   pureAgent,
@@ -70,7 +71,7 @@ const analyticsSubLinks = [
 let wrapper: VueWrapper | null = null
 let pinia: ReturnType<typeof createPinia>
 
-const mountApp = async (options: { viewport?: 'mobile' | 'desktop' } = {}) => {
+const mountApp = async (options: { viewport?: 'mobile' | 'desktop'; start?: string } = {}) => {
   vi.stubGlobal('scrollTo', vi.fn())
   globalThis.fetch = vi
     .fn()
@@ -101,7 +102,7 @@ const mountApp = async (options: { viewport?: 'mobile' | 'desktop' } = {}) => {
   })
   await router.isReady()
   // Now authenticated, drive into the app shell so the sidebar renders.
-  await router.push('/dashboard')
+  await router.push(options.start ?? '/dashboard')
   await router.isReady()
   await flushPromises()
   return mediaQuery
@@ -300,6 +301,52 @@ describe('App sidebar support entries', () => {
       expect(router.currentRoute.value.path).toBe(path)
       expect(wrapper!.find('.sidebar-nav a[href="#/admin/tickets"]').classes(), `on ${path}`).toContain('active')
     }
+  })
+
+  describe('a supervisor, by Management > Supervisor Pages Visibility', () => {
+    const supervisor = {
+      id: 31,
+      email: 'supervisor@example.com',
+      first_name: 'Sue',
+      last_name: 'Park',
+      current_role_name: 'supervisor',
+      timezone: 'UTC',
+      must_change_password: false,
+      isAdmin: false,
+      isSupport: false
+    }
+    // The pages the switch hides from a supervisor until an admin shows them.
+    const switchedPages = ['/dashboard', '/groups', '/events', '/announcements', '/resources']
+
+    afterEach(() => setSupervisorPages({ shown: false }))
+
+    it('off, as it starts: keeps Support, which the switch does not hide, and drops the rest', async () => {
+      // Support used to sit in the same run of links as the switched pages
+      // and went with them, so a supervisor had no way to it in the menu
+      // while /support itself stayed open to them.
+      setSupervisorPages({ shown: false })
+      useAuthStore().loginWithUser(supervisor as never)
+      // Started on Support, which the guard lets them open. /dashboard would
+      // send them on to /profile, whose loads outlive the test and sign the
+      // next one out.
+      await mountApp({ viewport: 'desktop', start: '/support' })
+
+      expect(router.currentRoute.value.path).toBe('/support')
+      expect(sidebarHas('/support'), 'Support').toBe(true)
+      for (const path of switchedPages) {
+        expect(sidebarHas(path), `switched page ${path}`).toBe(false)
+      }
+    })
+
+    it('on: every member item, Support among them', async () => {
+      setSupervisorPages({ shown: true })
+      useAuthStore().loginWithUser(supervisor as never)
+      await mountApp({ viewport: 'desktop' })
+
+      for (const path of memberLinks) {
+        expect(sidebarHas(path), `member link ${path}`).toBe(true)
+      }
+    })
   })
 
   it('names a support account "Support access" in the account menu, not "Student access"', async () => {

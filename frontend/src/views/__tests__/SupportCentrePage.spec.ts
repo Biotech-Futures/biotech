@@ -1,6 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SupportCentrePage from '../SupportCentrePage.vue'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
+import { useAuthStore } from '@/stores/auth'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -14,9 +17,24 @@ vi.mock('@/utils/supportAPI', async () => {
   return { ...actual, fetchMyTickets: vi.fn() }
 })
 
+vi.mock('@/utils/resourcesAPI', async () => {
+  const actual = await vi.importActual<typeof import('@/utils/resourcesAPI')>(
+    '@/utils/resourcesAPI'
+  )
+  return { ...actual, fetchResourceLabels: vi.fn(async () => []) }
+})
+
 import { fetchMyTickets } from '@/utils/supportAPI'
+import { fetchResourceLabels } from '@/utils/resourcesAPI'
 
 const fetchMock = vi.mocked(fetchMyTickets)
+const labelsMock = vi.mocked(fetchResourceLabels)
+
+// The page reads who is signed in (the help panel below), so every mount
+// needs a store, signed in or not.
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 import type { TicketRow } from '@/utils/supportAPI'
 
@@ -213,3 +231,66 @@ describe('the page header', () => {
     expect(wrapper.get('.support__selfserve-lede').text()).toBe('Quick answers to common questions.')
   })
 })
+
+/**
+ * The help panel links each topic to its shelf in Resources. Resources is one
+ * of the pages Management > Supervisor Pages Visibility keeps from a
+ * supervisor until it shows them (the router guard sends them to their
+ * profile), so while it is off a supervisor gets the topics as text.
+ */
+describe('SupportCentrePage help panel', () => {
+  const supervisor = {
+    id: 31,
+    email: 'supervisor@example.com',
+    first_name: 'Sue',
+    last_name: 'Park',
+    current_role_name: 'supervisor',
+    timezone: 'UTC',
+    must_change_password: false,
+    isAdmin: false,
+    isSupport: false
+  }
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(pageOf([], { total: 0, hasMore: false }))
+    // A shelf for one topic, so that topic is offered as a link.
+    labelsMock.mockResolvedValue([{ id: 7, name: 'Registration' }])
+  })
+
+  afterEach(() => {
+    setSupervisorPages({ shown: false })
+    labelsMock.mockResolvedValue([])
+  })
+
+  async function panelFor(user: object, pagesShown: boolean) {
+    setSupervisorPages({ shown: pagesShown })
+    useAuthStore().loginWithUser(user as never)
+    const wrapper = mount(SupportCentrePage)
+    await flushPromises()
+    return wrapper.get('.support__selfserve').text()
+  }
+
+  it('names the topics without linking a supervisor to Resources while it is hidden', async () => {
+    const panel = await panelFor(supervisor, false)
+
+    expect(panel).toContain('Registration')
+    expect(panel).not.toContain('Read the guides')
+    expect(panel).not.toContain('View all help articles in Resources')
+  })
+
+  it('links them for a supervisor once the pages are shown', async () => {
+    const panel = await panelFor(supervisor, true)
+
+    expect(panel).toContain('Read the guides')
+    expect(panel).toContain('View all help articles in Resources')
+  })
+
+  it('links them for a student whatever the switch says', async () => {
+    const panel = await panelFor({ ...supervisor, id: 32, current_role_name: 'student' }, false)
+
+    expect(panel).toContain('Read the guides')
+    expect(panel).toContain('View all help articles in Resources')
+  })
+})
+
