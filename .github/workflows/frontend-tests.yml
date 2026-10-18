@@ -1,8 +1,14 @@
 name: Frontend unit tests
 
-# Runs the portal's vitest suite on every push and PR. A separate
-# file on purpose: the existing deploy and typecheck workflows belong to
-# other teams and stay untouched (plan Phase 8-4).
+# Runs the portal's vitest suite with pnpm. A separate file on purpose: the
+# existing deploy and typecheck workflows belong to other teams and stay
+# untouched (plan Phase 8-4).
+#
+# Started by hand only (Actions > Frontend unit tests > Run workflow). The
+# email editor imports @tiptap/pm without declaring it in package.json; npm
+# hoists it and pnpm does not, so under pnpm three test files fail to load.
+# "Frontend Checks" (frontend-typecheck.yml) already runs the same suite with
+# npm, the way production installs, on every PR and push to main.
 #
 # E2E is deliberately NOT here yet. The Playwright suite needs a running
 # backend with Postgres and seeded accounts; wiring that into CI is its own
@@ -13,14 +19,7 @@ name: Frontend unit tests
 # at the end of week 9, the ticket agent side now lives in the portal, and this
 # branch no longer changes a file under adminweb/.
 on:
-  push:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-tests.yml"
-  pull_request:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-tests.yml"
+  workflow_dispatch:
 
 jobs:
   portal:
