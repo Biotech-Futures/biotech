@@ -69,9 +69,14 @@ class EmailVerification(models.Model):
 
 
 class EmailVerificationCredits(models.Model):
-    """How many QuickEmailVerification credits are left, as the service last
-    reported it, which low-credit alerts have gone out since the last top-up,
-    and how many lookups have been made today. Always a single row (pk=1)."""
+    """How many QuickEmailVerification credits each key has left, as the
+    service last reported it, which low-credit alerts have gone out since the
+    last top-up, which keys are out of credit, and how many lookups have been
+    made today. Always a single row (pk=1).
+
+    ``remaining``, ``updated_at`` and ``alerted_thresholds`` are the paid key's
+    (QEV_PAID_API_KEY), the one alerts follow; the free key's balance is kept
+    for display only."""
 
     SINGLETON_PK = 1
 
@@ -82,6 +87,10 @@ class EmailVerificationCredits(models.Model):
     # The thresholds whose alert has been sent, e.g. [500]. A threshold is
     # dropped again once the balance is back at or above it (a top-up).
     alerted_thresholds = models.JSONField(default=list, blank=True)
+    # The free key's (QEV_API_KEY) balance and when it was read: for display
+    # only, never alerted on. None until it's first reported.
+    free_remaining = models.PositiveIntegerField(null=True, blank=True)
+    free_updated_at = models.DateTimeField(null=True, blank=True)
     # Paid lookups made on ``lookups_on`` (a UTC date), for the daily cap.
     # The count starts again on a new day.
     lookups_on = models.DateField(null=True, blank=True)

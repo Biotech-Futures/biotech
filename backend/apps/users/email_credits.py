@@ -40,8 +40,14 @@ def credits_in(headers):
         return None
 
 
-def record_remaining(headers) -> None:
-    """Store the balance from one QEV answer's ``headers``. Never raises."""
+# The keys whose balance is kept: the paid one (QEV_PAID_API_KEY), which
+# alerts follow, and the free one (QEV_API_KEY), kept for display only.
+FREE, PAID = "free", "paid"
+
+
+def record_remaining(headers, key: str = PAID) -> None:
+    """Store the balance one QEV answer's ``headers`` give for ``key``. Only
+    the paid key's is checked against the alert levels. Never raises."""
     global _unreadable_logged
     remaining = credits_in(headers)
     if remaining is None:
@@ -52,6 +58,13 @@ def record_remaining(headers) -> None:
     _unreadable_logged = False
 
     try:
+        if key == FREE:
+            EmailVerificationCredits.get()
+            EmailVerificationCredits.objects.filter(pk=EmailVerificationCredits.SINGLETON_PK).update(
+                free_remaining=remaining, free_updated_at=timezone.now(),
+            )
+            logger.info("email_credits.recorded key=free remaining=%s", remaining)
+            return
         with transaction.atomic():
             EmailVerificationCredits.get()
             credits = EmailVerificationCredits.objects.select_for_update().get(

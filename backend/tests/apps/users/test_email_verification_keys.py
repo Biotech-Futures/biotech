@@ -228,23 +228,47 @@ class RetryTests(KeyTestCase):
 
 
 class BalanceTests(KeyTestCase):
-    def test_only_the_paid_keys_balance_is_kept_and_alerted_on(self):
+    def test_each_keys_balance_is_kept_and_only_the_paid_one_alerted_on(self):
         self.answer(response(headers={HEADER: "40"}), out_of_credit(), response(headers={HEADER: "450"}))
 
         ev.verify_emails(["a@example.com", "b@example.com"])
 
-        self.assertEqual(EmailVerificationCredits.get().remaining, 450)
+        credits = EmailVerificationCredits.get()
+        # The 402 gave no balance, so the free key keeps its last reading;
+        # it's out of credit all the same (free_exhausted_at).
+        self.assertEqual((credits.free_remaining, credits.remaining), (40, 450))
+        self.assertIsNotNone(credits.free_updated_at)
+        self.assertIsNotNone(credits.free_exhausted_at)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("alert level of 500", mail.outbox[0].body)
 
+    def test_a_low_free_balance_never_alerts(self):
+        self.answer(response(headers={HEADER: "3"}), response(headers={HEADER: "1"}))
+
+        ev.verify_emails(["a@example.com", "b@example.com"])
+
+        credits = EmailVerificationCredits.get()
+        self.assertEqual((credits.free_remaining, credits.remaining, credits.alerted_thresholds), (1, None, []))
+        self.assertEqual(mail.outbox, [])
+
     @override_settings(QEV_PAID_API_KEY="")
-    def test_with_only_the_free_key_there_are_no_alerts(self):
+    def test_with_only_the_free_key_its_balance_is_kept_without_alerts(self):
         self.answer(response(headers={HEADER: "3"}))
 
         ev.verify_email("kid@example.com")
 
-        self.assertIsNone(EmailVerificationCredits.objects.filter(pk=1).values_list("remaining", flat=True).first())
+        credits = EmailVerificationCredits.get()
+        self.assertEqual((credits.free_remaining, credits.remaining), (3, None))
         self.assertEqual(mail.outbox, [])
+
+    @override_settings(QEV_USE_SANDBOX=True)
+    def test_the_sandbox_changes_neither_balance(self):
+        self.answer(response(headers={HEADER: "999"}), response(headers={HEADER: "999"}))
+
+        ev.verify_emails(["valid@example.com", "rejected-email@example.com"])
+
+        credits = EmailVerificationCredits.objects.filter(pk=1).first()
+        self.assertTrue(credits is None or (credits.free_remaining, credits.remaining) == (None, None))
 
 
 class SecretTests(KeyTestCase):

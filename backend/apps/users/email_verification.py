@@ -23,8 +23,8 @@ again next time.
 There are two keys: the free QEV_API_KEY (100 checks a day) is tried first,
 and the paid QEV_PAID_API_KEY when it's out of credit (HTTP 402, or none left
 after an answer). A key out of credit is skipped until its retry
-(``retry_at``). Either key may be set alone. Only the paid key's balance is
-kept, and alerted on.
+(``retry_at``). Either key may be set alone. Both keys' balances are kept;
+only the paid key's is alerted on.
 
 The API keys are sent as a query parameter, so request URLs and the text of
 ``requests`` exceptions (which include the URL) are never logged; logs name a
@@ -48,7 +48,8 @@ from django.utils import timezone
 
 from apps.common.pii import email_log_tag
 
-from .email_credits import credits_in, record_remaining
+# The two keys, by the names logs and the credit balance use (never the keys).
+from .email_credits import FREE, PAID, credits_in, record_remaining
 from .models import EmailVerification, EmailVerificationCredits
 
 logger = logging.getLogger(__name__)
@@ -81,10 +82,6 @@ class VerificationResult:
     @property
     def passed(self) -> bool:
         return self.status != INVALID
-
-
-# The two keys, by the names logs and the credit balance use (never the keys).
-FREE, PAID = "free", "paid"
 
 
 def _keys() -> list[tuple[str, str]]:
@@ -218,10 +215,10 @@ def _ask(email: str, name: str, key: str):
     except Exception as exc:  # noqa: BLE001 - an outage must never stop a registration
         return _failed(email, "request_failed", exc, name), None
 
-    if name == PAID and not _sandbox():
-        # Every real answer, error statuses included, may say how many paid
-        # credits are left. Only the paid balance is kept and alerted on.
-        record_remaining(response.headers)
+    if not _sandbox():
+        # Every real answer, error statuses included, may say how many credits
+        # the key has left. Only the paid key's balance is alerted on.
+        record_remaining(response.headers, key=name)
     if response.status_code == 402:
         return OUT_OF_CREDIT
     if response.status_code != 200:
