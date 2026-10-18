@@ -358,6 +358,16 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 # Django defaults this to None, i.e. no socket timeout at all — a stalled relay
 # (Azure SNAT exhaustion is the usual cause) then pins the worker indefinitely.
 EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=20, cast=int)
+
+# Hostinger's Mail API, which check_bounced_emails reads the sending
+# mailboxes' bounce notices with (read-only). Made in hPanel under the email
+# domain's Agentic Mail > API access. Blank turns the check off.
+HOSTINGER_MAIL_API_KEY = config("HOSTINGER_MAIL_API_KEY", default="")
+HOSTINGER_MAIL_API_URL = config("HOSTINGER_MAIL_API_URL", default="https://api.mail.hostinger.com")
+HOSTINGER_MAIL_TIMEOUT_SECONDS = config("HOSTINGER_MAIL_TIMEOUT_SECONDS", default=15, cast=float)
+# How far back a check looks for bounce notices, and for the sends they match:
+# about 3 months (only its first run, or one after a gap, reads that far).
+BOUNCE_LOOKBACK_DAYS = config("BOUNCE_LOOKBACK_DAYS", default=90, cast=int)
 # Synchronous dispatch (used by tests) sends auth mail inline instead of on the
 # pool, so assertions can observe msg.send() without racing a thread.
 AUTH_EMAIL_DISPATCH_SYNC = config(

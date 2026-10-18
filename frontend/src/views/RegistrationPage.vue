@@ -1,14 +1,28 @@
 <template>
-  <!-- A supervisor's, in the portal: laid out as its other pages are. -->
+  <!-- A supervisor's, in the portal: laid out as its other pages are; or
+       within Management > Registration (embedded), as its cards are. -->
   <main
     class="registration-page"
-    :class="{ 'registration-page--supervisor content-area': isSupervisorMode }"
+    :class="{
+      'registration-page--supervisor': isSupervisorMode,
+      'content-area': isSupervisorMode && !embedded,
+      'registration-page--embedded': embedded,
+    }"
   >
 
     <!-- Registered: as the steps before it, every step done, with what was
          saved (public or a supervisor's alike). -->
     <div v-if="success" class="work-layout">
       <aside class="journey-context">
+        <!-- A supervisor's: back to the options, as on the steps. -->
+        <button
+          v-if="isSupervisorMode"
+          type="button"
+          class="btn btn-outline back-button change-journey"
+          @click="resetRegistration"
+        >
+          <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
+        </button>
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
           <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
@@ -32,7 +46,11 @@
         <!-- What Review showed, then when it was registered. -->
         <div class="success-body">
           <div class="success-intro">
-            <h3>{{ successHeading }}</h3>
+            <!-- Registration Complete, or a mentor's Application received, ticked. -->
+            <h3>
+              {{ successHeading }}
+              <i class="fas fa-circle-check success-check" aria-hidden="true"></i>
+            </h3>
             <p class="success-note">{{ successNote }}</p>
           </div>
           <div class="review-step">
@@ -77,15 +95,18 @@
             </div>
           </div>
 
-          <!-- A supervisor's: back to the dashboard, or another registration.
-               Someone registering themselves: what happens next, and sign in. -->
+          <!-- A supervisor's: another of the same (Back above goes to the
+               options). Someone registering themselves: what happens next,
+               and sign in. -->
           <footer class="form-footer">
-            <template v-if="isSupervisorMode">
-              <RouterLink to="/dashboard" class="secondary-action">Return to dashboard</RouterLink>
-              <button type="button" class="primary-action" @click="startAnotherRegistration">
-                {{ journey === 'supervisor_individual' ? 'Register another student' : 'Start another journey' }}
-              </button>
-            </template>
+            <button
+              v-if="isSupervisorMode"
+              type="button"
+              class="primary-action"
+              @click="startAnotherRegistration"
+            >
+              {{ anotherLabel }}
+            </button>
             <template v-else>
               <p class="form-footer-note">
                 We will contact you after we set up and activate your account
@@ -97,16 +118,21 @@
       </section>
     </div>
 
-    <!-- Closed to the public (Management > Registration): a late link, or a
-         supervisor, still registers. -->
+    <!-- Closed by its dates (Management > Registration): to the
+         public, but for a late link; to a supervisor, unless let register
+         after them. -->
     <section v-else-if="registrationClosed" class="setup-layout" aria-labelledby="closed-title">
-      <RouterLink to="/login" class="btn btn-outline back-button setup-back">
+      <RouterLink v-if="!isSupervisorMode" to="/login" class="btn btn-outline back-button setup-back">
         <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
       </RouterLink>
       <header class="page-header">
         <h1 id="closed-title" class="page-title">Registration is closed</h1>
       </header>
-      <p class="supervisor-guidance">
+      <p v-if="isSupervisorMode" class="supervisor-guidance">
+        Registration has closed, so students can't be registered here. If you need to register
+        more students, contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
+      </p>
+      <p v-else class="supervisor-guidance">
         Registration isn't open at the moment. If you have a late link, use it to register, or
         contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
       </p>
@@ -241,7 +267,6 @@
         <button
           type="button"
           class="btn btn-outline back-button change-journey"
-          :disabled="isCsvEditing"
           @click="changeJourney"
         >
           <i class="fas fa-arrow-left" aria-hidden="true"></i> Back
@@ -251,13 +276,20 @@
         <header class="page-header">
           <h1 class="page-title">{{ selectedJourney?.title }}</h1>
           <p v-if="isSupervisorMode" class="page-subtitle">{{ selectedJourney?.description }}</p>
+          <!-- Register one student: who was just registered, the form empty
+               again for the next. -->
+          <p v-if="registeredNote" class="registered-note" role="status" data-test="registered-note">
+            <i class="fas fa-circle-check" aria-hidden="true"></i>
+            {{ registeredNote }}
+          </p>
         </header>
       </aside>
 
       <section class="form-surface">
         <!-- The steps, with what * means at the right. -->
         <div class="step-bar">
-          <nav class="step-navigation" aria-label="Registration progress">
+          <!-- Register one student on its own has a single step: nothing to show. -->
+          <nav v-if="steps.length > 1" class="step-navigation" aria-label="Registration progress">
             <ol>
               <li v-for="(step, index) in steps" :key="step.label">
                 <button
@@ -268,7 +300,7 @@
                     current: currentStep === index,
                     complete: index < currentStep,
                   }"
-                  :disabled="index > maxReachedStep || isCsvEditing"
+                  :disabled="index > maxReachedStep"
                   :aria-current="currentStep === index ? 'step' : undefined"
                   @click="goToStep(index)"
                 >
@@ -279,7 +311,7 @@
             </ol>
           </nav>
           <!-- Not on Review, which has no fields. -->
-          <p v-if="steps[currentStep]?.label !== 'Review'" class="form-required-note">
+          <p v-if="!isReviewStep" class="form-required-note">
             Fields marked <span class="required-mark">*</span> are required.
           </p>
         </div>
@@ -330,6 +362,23 @@
             <h2 :id="stepHeadingId" ref="stepHeadingRef" class="sr-only" tabindex="-1">
               {{ currentStepDefinition.title }}
             </h2>
+
+            <!-- An admin (Management > Registration): their students'
+                 supervisor first, if they have one, before the students: an
+                 existing supervisor, found by email. -->
+            <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
+              <div class="section-divider section-divider--first">
+                <h3>Supervisor</h3>
+                <p>If the students have a supervisor, search for them by email.</p>
+              </div>
+              <SupervisorSearchField
+                id="admin-supervisor-email"
+                v-model="forms.adminSupervisorEmail"
+                label="Supervisor email"
+                :supervisors="registrationSupervisors"
+                :error="errors.supervisorEmail"
+              />
+            </div>
 
             <template v-if="journey === 'student_individual'">
               <RegistrationStudentEditor
@@ -573,14 +622,16 @@
             <template v-else-if="journey === 'supervisor_individual'">
               <!-- With students added (Add student), each in turn, all in one group. -->
               <div v-if="currentStep === 0" class="step-stack">
+                <!-- Headed Student 1 once students are added, or under an
+                     admin's Supervisor (its line between them). -->
                 <div
                   :class="{
                     'student-entry student-entry--first':
-                      forms.supervisorIndividual.extraStudents.length,
+                      forms.supervisorIndividual.extraStudents.length || adminChoosesSupervisor,
                   }"
                 >
                   <div
-                    v-if="forms.supervisorIndividual.extraStudents.length"
+                    v-if="forms.supervisorIndividual.extraStudents.length || adminChoosesSupervisor"
                     class="student-entry__heading"
                   >
                     <h3>Student 1</h3>
@@ -669,23 +720,45 @@
 
             <template v-else-if="journey === 'supervisor_csv'">
               <div v-if="currentStep === 0" class="upload-step">
+                <!-- What the file needs, as Upload Guardian Details on My Students words it:
+                     the heading with the template beside it, then the rules at full width. -->
                 <div class="template-download">
-                  <div>
-                    <h3>Use the prescribed CSV template</h3>
-                    <p>
-                      Keep the column names unchanged. Separate multiple interests with commas in
-                      one quoted CSV cell. Guardian fields may be left blank.
-                    </p>
+                  <div class="template-download__head">
+                    <h3>Upload student details</h3>
+                    <!-- The app's own outline button, on one line. -->
+                    <button
+                      type="button"
+                      class="btn btn-outline template-download__button"
+                      @click="downloadCsvTemplate"
+                    >
+                      <i class="fas fa-download" aria-hidden="true"></i> Download example template
+                    </button>
                   </div>
-                  <button type="button" class="secondary-action" @click="downloadCsvTemplate">
-                    Download example template
-                  </button>
+                  <p>
+                    .xlsx or .csv, one row per student<br />
+                    <code>first_name</code>, <code>last_name</code>, <code>email</code>,<br />
+                    <code>school</code>, <code>year_level</code>, <code>country</code>,<br />
+                    <code>state</code>, <code>interests</code>,<br />
+                    <code>guardian_first_name</code>, <code>guardian_last_name</code>,
+                    <code>guardian_email</code>
+                  </p>
+                  <p>
+                    Column headers must match exactly and need to be in order.<br />
+                    If <code>country</code> is Australia, <code>state</code> is mandatory.<br />
+                    Otherwise <code>state</code> is optional.<br />
+                    Fields <code>interests</code>, <code>guardian_first_name</code>,
+                    <code>guardian_last_name</code> and <code>guardian_email</code> are optional.<br />
+                    Extra columns and rows are ignored.
+                  </p>
                 </div>
                 <label class="csv-upload">
-                  <span>Choose completed CSV <span class="required-mark" aria-hidden="true">*</span></span>
+                  <span
+                    >Choose completed .xlsx or .csv
+                    <span class="required-mark" aria-hidden="true">*</span></span
+                  >
                   <input
                     type="file"
-                    accept=".csv,text/csv"
+                    accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     :aria-invalid="Boolean(errors['supervisorCsv.file'])"
                     @change="handleCsvUpload"
                   />
@@ -693,7 +766,6 @@
                     Loaded {{ forms.supervisorCsv.fileName }} ·
                     {{ forms.supervisorCsv.rows.length }} student rows
                   </small>
-                  <small v-else>CSV only, up to 2 MB.</small>
                   <strong v-if="errors['supervisorCsv.file']" class="inline-error">
                     {{ errors['supervisorCsv.file'] }}
                   </strong>
@@ -724,9 +796,9 @@
                   </div>
                 </div>
                 <p class="preview-guidance">
-                  Choose Edit row to correct any student details here. Validation updates as you
+                  Choose Edit to correct any student details here. Validation updates as you
                   type, without re-uploading. Review-required rows can be included for authoritative
-                  review; invalid rows must be fixed or explicitly excluded.
+                  review. Invalid rows must be fixed or explicitly excluded.
                 </p>
                 <section
                   v-if="editingCsvRow"
@@ -737,9 +809,6 @@
                   <h3 id="csv-row-editor-title" ref="csvEditorHeadingRef" tabindex="-1">
                     Edit row {{ editingCsvRow.rowNumber }}
                   </h3>
-                  <p class="preview-guidance">
-                    Changes are kept in this upload and included when you submit the registration.
-                  </p>
                   <p v-if="isCsvRowExcluded(editingCsvRow.rowNumber)" class="preview-guidance">
                     This row is still excluded. Clear its exclusion checkbox to include it after
                     correcting the details.
@@ -747,7 +816,6 @@
                   <RegistrationCsvRowEditor
                     :key="editingCsvRow.rowNumber"
                     :row="editingCsvRow"
-                    :excluded="isCsvRowExcluded(editingCsvRow.rowNumber)"
                     :errors="{
                       ...editingCsvRow.fieldErrors,
                       ...csvServerFieldsByRow[editingCsvRow.rowNumber],
@@ -755,68 +823,58 @@
                     @update:values="updateCsvRow(editingCsvRow, $event)"
                   />
                   <footer class="csv-editor-footer">
-                    <p id="csv-editor-confirmation-hint" class="preview-guidance">
-                      Choose Done editing below to confirm your row changes before continuing.
-                    </p>
                     <button type="button" class="primary-action" @click="closeCsvEditor">
                       Done editing
                     </button>
                   </footer>
                 </section>
-                <div class="table-scroll">
-                  <table>
-                    <caption>
-                      Parsed student rows
-                    </caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Row</th>
-                        <th scope="col">Student</th>
-                        <th scope="col">Email</th>
-                        <th scope="col">Status and action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="row in forms.supervisorCsv.rows"
-                        :key="row.rowNumber"
-                        :class="{ 'is-excluded': isCsvRowExcluded(row.rowNumber) }"
+                <!-- The file's rows, as the portal's other tables: each row's status
+                     (and what's wrong), then Edit and Exclude. -->
+                <AppDataTable
+                  class="csv-table"
+                  :columns="CSV_TABLE_COLUMNS"
+                  :rows="csvTableRows"
+                  row-key="rowNumber"
+                  :selectable="false"
+                  :default-sort="{ key: 'rowNumber', direction: 'asc' }"
+                  :row-class="(row) => ({ 'is-excluded': isCsvRowExcluded(toCsvRow(row).rowNumber) })"
+                  :action-headings="['Actions']"
+                  search-placeholder="Name or email"
+                  empty-message="No student rows in this file."
+                >
+                  <template #cell-status="{ row }">
+                    <strong :class="`csv-status csv-status--${toCsvRow(row).category}`">
+                      {{ csvCategoryLabel(toCsvRow(row).category) }}
+                    </strong>
+                    <ul v-if="csvRowIssues(toCsvRow(row)).length" class="csv-issues">
+                      <li v-for="issue in csvRowIssues(toCsvRow(row))" :key="issue">{{ issue }}</li>
+                    </ul>
+                  </template>
+                  <template #actions="{ row }">
+                    <div class="csv-row-actions">
+                      <button
+                        type="button"
+                        :id="`csv-edit-${toCsvRow(row).rowNumber}`"
+                        class="btn btn-sm btn-outline"
+                        :aria-label="`Edit row ${toCsvRow(row).rowNumber}`"
+                        :aria-expanded="editingCsvRowNumber === toCsvRow(row).rowNumber"
+                        aria-controls="csv-row-editor"
+                        @click="editCsvRow(toCsvRow(row).rowNumber)"
                       >
-                        <td>{{ row.rowNumber }}</td>
-                        <td>{{ row.values.first_name }} {{ row.values.last_name }}</td>
-                        <td>{{ row.values.email || 'Missing' }}</td>
-                        <td>
-                          <strong :class="`csv-status csv-status--${row.category}`">
-                            {{ csvCategoryLabel(row.category) }}
-                          </strong>
-                          <ul v-if="csvRowIssues(row).length">
-                            <li v-for="issue in csvRowIssues(row)" :key="issue">{{ issue }}</li>
-                          </ul>
-                          <button
-                            type="button"
-                            :id="`csv-edit-${row.rowNumber}`"
-                            class="csv-edit-action"
-                            :aria-label="`Edit row ${row.rowNumber}`"
-                            :aria-expanded="editingCsvRowNumber === row.rowNumber"
-                            aria-controls="csv-row-editor"
-                            @click="editCsvRow(row.rowNumber)"
-                          >
-                            Edit row
-                          </button>
-                          <label class="exclude-row">
-                            <input
-                              type="checkbox"
-                              :aria-label="`Exclude row ${row.rowNumber}`"
-                              :checked="isCsvRowExcluded(row.rowNumber)"
-                              @change="toggleCsvRow(row.rowNumber)"
-                            />
-                            Exclude this row
-                          </label>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                        Edit
+                      </button>
+                      <label class="exclude-row">
+                        <input
+                          type="checkbox"
+                          :aria-label="`Exclude row ${toCsvRow(row).rowNumber}`"
+                          :checked="isCsvRowExcluded(toCsvRow(row).rowNumber)"
+                          @change="toggleCsvRow(toCsvRow(row).rowNumber)"
+                        />
+                        Exclude
+                      </label>
+                    </div>
+                  </template>
+                </AppDataTable>
               </div>
             </template>
 
@@ -1016,7 +1074,7 @@
 
             </template>
 
-            <div v-if="currentStep === steps.length - 1" class="review-step">
+            <div v-if="isReviewStep" class="review-step">
               <div v-for="section in reviewSections" :key="section.title" class="review-section">
                 <h3>{{ section.title }}</h3>
                 <dl>
@@ -1053,8 +1111,15 @@
           <!-- On the right; the steps above go back, and Back to the
                options. A group's students are added here. -->
           <footer class="form-footer">
-            <!-- On Register one student: the student and another, in one group. -->
-            <p v-if="journey === 'supervisor_individual' && currentStep === 0" class="form-footer-note">
+            <!-- Before Add student: on Register one student, and on Register a
+                 student group's Students step. -->
+            <p
+              v-if="
+                (journey === 'supervisor_individual' && currentStep === 0) ||
+                (journey === 'supervisor_group' && currentStep === 1)
+              "
+              class="form-footer-note"
+            >
               Adding a student will put them in the same group
             </p>
             <button
@@ -1089,8 +1154,7 @@
               v-if="!(journey === 'student_team' && currentStep === 2 && joiningGroup)"
               type="submit"
               class="primary-action"
-              :disabled="isSubmitting || isCsvEditing"
-              :aria-describedby="isCsvEditing ? 'csv-editor-confirmation-hint' : undefined"
+              :disabled="isSubmitting"
             >
               <span v-if="isSubmitting" class="spinner" aria-hidden="true"></span>
               {{
@@ -1114,7 +1178,10 @@ import { RouterLink } from 'vue-router'
 
 import RegistrationAvailabilityField from '@/components/registration/RegistrationAvailabilityField.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
+import SupervisorSearchField from '@/components/registration/SupervisorSearchField.vue'
+import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
@@ -1165,6 +1232,7 @@ import {
   type SupervisorDetails,
   type SupervisorGroupForm,
 } from '@/registration/registration'
+import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
 
 interface StepDefinition {
   label: string
@@ -1316,16 +1384,14 @@ const journeyOptions: JourneyOption[] = [
     role: 'Supervisor / teacher',
     title: 'Register one student',
     description: 'Add one student and review their registration details.',
+    // Registered straight from the one step: no Review, and no confirmation
+    // page (see registeredNote). With students added, Review and the
+    // confirmation page as a group's (see steps).
     steps: [
       {
         label: 'Student',
         title: 'Add the student',
         description: 'Guardian contact may be supplied now or deferred.',
-      },
-      {
-        label: 'Review',
-        title: 'Review the student registration',
-        description: 'Check the record before saving.',
       },
     ],
   },
@@ -1355,7 +1421,7 @@ const journeyOptions: JourneyOption[] = [
   {
     value: 'supervisor_csv',
     role: 'Supervisor / teacher',
-    title: 'Upload students by CSV',
+    title: 'Upload student details',
     description:
       'Use the prescribed template, parse it locally and resolve row issues before save.',
     steps: [
@@ -1427,14 +1493,36 @@ const props = withDefaults(
   defineProps<{
     mode?: 'canonical' | 'supervisor'
     invitationToken?: string | null
+    /** Within another page (Management > Registration): its own padding,
+     *  background and height, not a page's. */
+    embedded?: boolean
   }>(),
-  { mode: 'canonical' },
+  { mode: 'canonical', embedded: false },
 )
 const isSupervisorMode = computed(() => props.mode === 'supervisor')
-// Management > Registration: closed, the public can't register themselves
-// (a late link still can, and supervisors register their students as ever).
-const { open: publicRegistrationOpen } = useRegistrationOpen()
-if (props.mode !== 'supervisor') void loadRegistrationOpen(true)
+// An admin registering students (Management > Registration) chooses their
+// students' supervisor, from every supervisor.
+const SUPERVISOR_JOURNEYS: RegistrationJourney[] = ['supervisor_individual', 'supervisor_group', 'supervisor_csv']
+const adminChoosesSupervisor = computed(
+  () => props.embedded && Boolean(journey.value && SUPERVISOR_JOURNEYS.includes(journey.value)),
+)
+const registrationSupervisors = ref<RegistrationSupervisor[]>([])
+if (props.embedded) {
+  fetchRegistrationSupervisors()
+    .then((supervisors) => (registrationSupervisors.value = supervisors))
+    .catch(() => {
+      // Left to the server to check the email, then.
+    })
+}
+const chosenSupervisor = computed(() => {
+  const email = forms.adminSupervisorEmail.trim().toLowerCase()
+  return email ? registrationSupervisors.value.find((item) => item.email.toLowerCase() === email) : undefined
+})
+// Management > Registration: closed by the year's dates, the public
+// can't register themselves (a late link still can), nor supervisors register
+// their students, unless let register after them.
+const { openNow: publicRegistrationOpen, canRegisterStudents } = useRegistrationOpen()
+void loadRegistrationOpen(true)
 const invitationToken = computed(() =>
   props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
 )
@@ -1500,6 +1588,9 @@ const warningOverrides = ref<Record<string, boolean>>({})
 const warningSummaryRef = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 const success = ref<RegistrationReceipt | null>(null)
+// Register one student, once registered: "Registration successful: Amy Chen
+// (amy@example.com) is registered." Gone when they leave it.
+const registeredNote = ref('')
 
 // Create a student group, or join one by the code its creator shared:
 // checked as it's typed. Joining, the group's own details aren't asked for.
@@ -1593,7 +1684,9 @@ const selectedJourney = computed(() =>
   journey.value ? journeyOptions.find((option) => option.value === journey.value) : undefined,
 )
 const registrationClosed = computed(
-  () => !isSupervisorMode.value && !invitationToken.value && !publicRegistrationOpen.value,
+  () =>
+    !invitationToken.value &&
+    (isSupervisorMode.value ? !canRegisterStudents.value : !publicRegistrationOpen.value),
 )
 const visibleRoleOptions = computed(() =>
   roleOptions.filter(
@@ -1613,7 +1706,22 @@ const successNote = computed(() =>
     ? 'Your application is pending administrator review.'
     : 'Guardian consent is still required before full registration.',
 )
-const steps = computed(() => selectedJourney.value?.steps || [])
+// Register one student with students added: reviewed, then confirmed on
+// the saved registration's page, until they're removed again.
+const ADDED_STUDENTS_REVIEW = {
+  label: 'Review',
+  title: 'Review the student registration',
+  description: 'Check the record before saving.',
+}
+const steps = computed(() => {
+  const own = selectedJourney.value?.steps || []
+  return journey.value === 'supervisor_individual' && forms.supervisorIndividual.extraStudents.length
+    ? [...own, ADDED_STUDENTS_REVIEW]
+    : own
+})
+// Every journey's last step is Review, but Register one student's on its own.
+const isReviewStepIndex = (index: number) => steps.value[index]?.label === 'Review'
+const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
 const roleJourneyOptions = computed(() => {
   if (selectedRole.value === 'student') {
     return journeyOptions.filter((option) =>
@@ -1624,10 +1732,9 @@ const roleJourneyOptions = computed(() => {
     )
   }
   if (selectedRole.value === 'supervisor') {
-    // Upload students by CSV (supervisor_csv) is hidden for now; its flow is
-    // kept, to offer again by adding it back here.
+    // One student, a group, or a CSV upload of many.
     return journeyOptions.filter((option) =>
-      ['supervisor_individual', 'supervisor_group'].includes(option.value),
+      ['supervisor_individual', 'supervisor_group', 'supervisor_csv'].includes(option.value),
     )
   }
   return journeyOptions.filter((option) => option.value === 'mentor')
@@ -1693,9 +1800,6 @@ const warningSubject = (warning: RegistrationWarning) => {
 const editingCsvRow = computed(() =>
   forms.supervisorCsv.rows.find((row) => row.rowNumber === editingCsvRowNumber.value),
 )
-const isCsvEditing = computed(
-  () => journey.value === 'supervisor_csv' && Boolean(editingCsvRow.value),
-)
 const csvRequestPaths: Record<CsvHeader, string> = {
   first_name: 'firstName',
   last_name: 'lastName',
@@ -1708,9 +1812,6 @@ const csvRequestPaths: Record<CsvHeader, string> = {
   guardian_first_name: 'guardian.firstName',
   guardian_last_name: 'guardian.lastName',
   guardian_email: 'guardian.email',
-  guardian_relationship: 'guardian.relationship',
-  guardian_relationship_other: 'guardian.relationshipOther',
-  grouping_preference: 'groupingPreference',
 }
 const csvServerFieldsByRow = computed(() => {
   const result: Record<number, Partial<Record<CsvHeader, string>>> = {}
@@ -1761,7 +1862,27 @@ const availabilitySummary = (slots: AvailabilitySlot[]) =>
 const filledTeammates = computed(() =>
   forms.studentTeam.teammates.filter((student) => !isBlankStudent(student)),
 )
-const reviewSections = computed<ReviewSection[]>(() => {
+// An admin's (Management > Registration): their students' supervisor, first.
+const reviewSections = computed<ReviewSection[]>(() =>
+  adminChoosesSupervisor.value
+    ? [
+        {
+          title: 'Supervisor',
+          items: [
+            {
+              label: 'Supervisor',
+              value: chosenSupervisor.value
+                ? `${chosenSupervisor.value.name} · ${chosenSupervisor.value.email}`
+                : forms.adminSupervisorEmail.trim() || 'None',
+            },
+          ],
+        },
+        ...journeyReviewSections.value,
+      ]
+    : journeyReviewSections.value,
+)
+
+const journeyReviewSections = computed<ReviewSection[]>(() => {
   switch (journey.value) {
     case 'student_individual': {
       const form = forms.studentIndividual
@@ -1904,20 +2025,25 @@ const reviewSections = computed<ReviewSection[]>(() => {
           })),
         },
       ]
+    // As Register a student group's: each student registered (not those
+    // excluded), with their email and whether their guardian's given. A
+    // guardian is only kept with all three of their columns.
     case 'supervisor_csv':
       return [
         {
-          title: 'Import owner',
-          items: [{ label: 'File', value: forms.supervisorCsv.fileName }],
-        },
-        {
-          title: 'Rows',
-          items: [
-            { label: 'Included', value: String(includedCsvRows.value.length) },
-            { label: 'Valid', value: String(csvCounts.value.valid) },
-            { label: 'Pending review', value: String(csvCounts.value.review) },
-            { label: 'Explicitly excluded', value: String(csvCounts.value.excluded) },
-          ],
+          title: 'Students',
+          items: includedCsvRows.value.map(({ values }, index) => {
+            const parts = [
+              `${values.first_name} ${values.last_name}`.trim() || 'Not provided',
+              values.email,
+              `Guardian ${
+                values.guardian_first_name && values.guardian_last_name && values.guardian_email
+                  ? 'provided'
+                  : 'deferred'
+              }`,
+            ]
+            return { label: `Student ${index + 1}`, value: parts.join(' · '), parts }
+          }),
         },
       ]
     case 'mentor':
@@ -2055,6 +2181,15 @@ const validateCurrentStep = () => {
   clearErrors()
   if (!journey.value) return false
   const step = currentStep.value
+  // An admin's students' supervisor, on the first step: one of the list, if any.
+  if (
+    adminChoosesSupervisor.value &&
+    step === 0 &&
+    forms.adminSupervisorEmail.trim() &&
+    registrationSupervisors.value.length &&
+    !chosenSupervisor.value
+  )
+    clientErrors.supervisorEmail = 'Choose a supervisor from the list.'
 
   if (journey.value === 'student_individual') {
     if (step === 0)
@@ -2260,7 +2395,8 @@ const backToRoleSelection = () => {
 }
 
 const changeJourney = () => {
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
+  registeredNote.value = ''
   journey.value = null
   currentStep.value = 0
   maxReachedStep.value = 0
@@ -2277,7 +2413,7 @@ const changeJourney = () => {
 }
 
 const goToStep = (index: number) => {
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   if (index > maxReachedStep.value || index === currentStep.value) return
   currentStep.value = index
   clearErrors()
@@ -2286,7 +2422,7 @@ const goToStep = (index: number) => {
 }
 
 const continueJourney = async () => {
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   if (!validateCurrentStep()) {
     await focusErrors()
     return
@@ -2304,8 +2440,10 @@ const continueJourney = async () => {
 }
 
 const validateJourneyBeforeSubmit = async () => {
-  const reviewStep = steps.value.length - 1
-  for (let index = 0; index < reviewStep; index += 1) {
+  const lastStep = steps.value.length - 1
+  // Every step with fields: all but Review, or all of them with no Review.
+  const fieldSteps = isReviewStepIndex(lastStep) ? lastStep : lastStep + 1
+  for (let index = 0; index < fieldSteps; index += 1) {
     currentStep.value = index
     if (!validateCurrentStep()) {
       await nextTick()
@@ -2313,7 +2451,7 @@ const validateJourneyBeforeSubmit = async () => {
       return false
     }
   }
-  currentStep.value = reviewStep
+  currentStep.value = lastStep
   clearErrors()
   return true
 }
@@ -2464,20 +2602,26 @@ const handleCsvUpload = async (event: Event) => {
   delete clientErrors['supervisorCsv.file']
   if (!file) return
   if (file.size > MAX_CSV_BYTES) {
-    clientErrors['supervisorCsv.file'] = 'Choose a CSV no larger than 2 MB.'
+    clientErrors['supervisorCsv.file'] = 'Choose a file no larger than 2 MB.'
     return
   }
+  // An .xlsx comes back from the server as CSV text, then is checked as a CSV is.
+  const xlsx = isXlsx(file)
   try {
-    const result = parseRegistrationCsv(await file.text())
+    const result = parseRegistrationCsv(xlsx ? await sheetAsCsv(file) : await file.text())
     if (result.errors.length) {
       csvFileErrors.value = result.errors
       return
     }
     forms.supervisorCsv.fileName = file.name
     forms.supervisorCsv.rows = result.rows
-  } catch {
+  } catch (error) {
     csvFileErrors.value = [
-      'The browser could not read this CSV. Try saving and uploading it again.',
+      xlsx
+        ? error instanceof Error
+          ? error.message
+          : 'This .xlsx could not be read. Try saving and uploading it again.'
+        : 'The browser could not read this CSV. Try saving and uploading it again.',
     ]
   }
 }
@@ -2552,19 +2696,14 @@ const editCsvRow = async (rowNumber: number) => {
 const closeCsvEditor = async () => {
   const rowNumber = editingCsvRowNumber.value
   editingCsvRowNumber.value = null
-  delete clientErrors['supervisorCsv.editor']
   await nextTick()
   document.getElementById(`csv-edit-${rowNumber}`)?.focus()
 }
 
-const blockCsvEditorAction = () => {
-  const row = editingCsvRow.value
-  if (!isCsvEditing.value || !row) return false
-  clientErrors['supervisorCsv.editor'] =
-    'Choose Done editing below the row fields before continuing.'
-  currentStep.value = 1
-  void editCsvRow(row.rowNumber)
-  return true
+// Leaving Preview (Back, a step, Continue or Submit) with a row open closes
+// it: its changes are already in the row, made as they're typed.
+const leaveCsvEditor = () => {
+  editingCsvRowNumber.value = null
 }
 
 const updateCsvRow = (row: CsvRow, values: CsvRow['values']) => {
@@ -2576,9 +2715,28 @@ const updateCsvRow = (row: CsvRow, values: CsvRow['values']) => {
 const csvCategoryLabel = (category: CsvCategory) =>
   category === 'review-required' ? 'Review required' : category === 'invalid' ? 'Invalid' : 'Valid'
 
+// The file's rows on Preview, by row number; the status column has what's wrong too.
+const CSV_TABLE_COLUMNS: DataTableColumn[] = [
+  { key: 'rowNumber', label: 'Row', type: 'number' },
+  { key: 'student', label: 'Student' },
+  { key: 'email', label: 'Email' },
+  // Only as wide as it needs: "Valid" on its own is narrow (see .csv-issues).
+  { key: 'status', label: 'Status' },
+]
+const csvTableRows = computed(() =>
+  forms.supervisorCsv.rows.map((row) => ({
+    rowNumber: row.rowNumber,
+    student: `${row.values.first_name} ${row.values.last_name}`.trim() || 'Missing',
+    email: row.values.email || 'Missing',
+    status: csvCategoryLabel(row.category),
+    row,
+  })),
+)
+const toCsvRow = (row: Record<string, unknown>) => row.row as CsvRow
+
 const submitRegistration = async () => {
   if (!journey.value || isSubmitting.value) return
-  if (blockCsvEditorAction()) return
+  leaveCsvEditor()
   if (!(await validateJourneyBeforeSubmit())) return
   if (
     registrationWarnings.value.some((warning) => !warningAcknowledgements[warning.overrideField])
@@ -2589,6 +2747,7 @@ const submitRegistration = async () => {
   for (const warning of registrationWarnings.value)
     warningOverrides.value[warning.overrideField] = true
   serverError.value = ''
+  registeredNote.value = ''
   isSubmitting.value = true
   try {
     const asGroup =
@@ -2600,7 +2759,9 @@ const submitRegistration = async () => {
           supervisorGroup: oneStudentAsGroup(),
         })
       : buildRegistrationRequest(journey.value, forms)
-    const signature = JSON.stringify({ request, overrides: warningOverrides.value })
+    // An admin's students' supervisor goes with it (Management > Registration).
+    const supervisorEmail = adminChoosesSupervisor.value ? forms.adminSupervisorEmail.trim() : ''
+    const signature = JSON.stringify({ request, overrides: warningOverrides.value, supervisorEmail })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
     const attachments: Record<string, File> = {}
@@ -2627,6 +2788,7 @@ const submitRegistration = async () => {
       invitationToken: invitationToken.value,
       idempotencyKey: submissionKey,
       overrides: { ...warningOverrides.value },
+      supervisorEmail: supervisorEmail || undefined,
     })
     clearServerErrors()
     if (!result.ok) {
@@ -2666,6 +2828,14 @@ const submitRegistration = async () => {
       await focusErrors()
       return
     }
+    if (journey.value === 'supervisor_individual' && !asGroup) {
+      // On its own: straight back to an empty form, saying who was registered.
+      const { student } = forms.supervisorIndividual
+      const who = `${studentName(student)} (${student.email.trim()})`
+      startAnotherRegistration()
+      registeredNote.value = `Registration successful: ${who} is registered.`
+      return
+    }
     success.value = result.receipt
     scrollToTop()
   } catch (error) {
@@ -2679,11 +2849,15 @@ const submitRegistration = async () => {
 }
 
 const scrollToTop = () => {
+  // Within Management > Registration (Back, another registration): the page
+  // stays where it is, under the Registration Dates card.
+  if (props.embedded) return
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' })
 }
 
 const resetRegistration = () => {
+  registeredNote.value = ''
   submissionKey = ''
   submissionSignature = ''
   Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
@@ -2703,11 +2877,19 @@ const resetRegistration = () => {
   scrollToTop()
 }
 
+// A supervisor's next registration of the same kind, from its first step.
 const startAnotherRegistration = () => {
-  const registerStudent = isSupervisorMode.value && journey.value === 'supervisor_individual'
+  const again = isSupervisorMode.value ? journey.value : null
   resetRegistration()
-  if (registerStudent) selectJourney('supervisor_individual')
+  if (again) selectJourney(again)
 }
+
+const ANOTHER_LABELS: Partial<Record<RegistrationJourney, string>> = {
+  supervisor_individual: 'Register Another Student',
+  supervisor_group: 'Register Another Group',
+  supervisor_csv: 'Upload Another CSV',
+}
+const anotherLabel = computed(() => (journey.value && ANOTHER_LABELS[journey.value]) || 'Register Another')
 
 watch(invitationToken, resetRegistration)
 
@@ -2821,6 +3003,34 @@ onBeforeUnmount(() => {
   font-family: inherit;
 }
 
+/* Within Management > Registration: in its card, as tall as it needs. */
+.registration-page--embedded {
+  min-height: 0;
+  background: transparent;
+}
+
+/* Headed as Management's cards below a page's first: a plain title with its
+   hint under it, not a page's. */
+.registration-page--embedded .page-header {
+  margin-bottom: 1rem;
+}
+
+.registration-page--embedded .page-title {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.registration-page--embedded .page-subtitle {
+  font-size: 0.9rem;
+}
+
+/* Not held at the top of the screen, inside a card. */
+.registration-page--embedded .journey-context {
+  position: static;
+  padding-top: 0;
+}
+
 /* From the page's top left corner and its full width, as the portal's
    other pages are. */
 .registration-page--supervisor .setup-layout,
@@ -2848,10 +3058,6 @@ onBeforeUnmount(() => {
   padding: 18px 22px;
 }
 
-.registration-page--supervisor .pathway-choice:hover,
-.registration-page--supervisor .pathway-choice:focus-visible {
-  background: var(--light-green, #e9f5ef);
-}
 
 .work-layout {
   position: relative;
@@ -3015,10 +3221,10 @@ onBeforeUnmount(() => {
   border-bottom: 0;
 }
 
+/* As the sign-up page's cards: the row stays as it is, its Continue fills. */
 .pathway-choice:hover,
 .pathway-choice:focus-visible {
   outline: none;
-  background: #edf5f0;
 }
 
 .pathway-choice:focus-visible {
@@ -3035,7 +3241,6 @@ onBeforeUnmount(() => {
 }
 
 .pathway-choice__copy small {
-  max-width: 62ch;
   color: var(--registration-muted);
   font-size: 0.88rem;
   line-height: 1.5;
@@ -3281,10 +3486,16 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
+/* A step that can't be gone to yet faded; the open one keeps its green (its
+   white label would vanish on a clear background), faded too while a CSV
+   row is being edited. */
 .step-navigation button:disabled {
-  background: transparent;
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+.step-navigation button:disabled:not(.active) {
+  background: transparent;
 }
 
 form,
@@ -3301,6 +3512,14 @@ form,
   color: var(--registration-ink);
   font-size: 1.25rem;
   font-weight: 600;
+}
+
+/* A little taller than the heading's capitals, on its baseline. */
+.success-check {
+  margin-left: 0.4rem;
+  color: var(--success);
+  font-size: 0.8em;
+  vertical-align: 0;
 }
 
 .success-note {
@@ -3374,7 +3593,6 @@ form,
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
-  margin-top: 2px;
   accent-color: var(--registration-green);
 }
 
@@ -3487,12 +3705,36 @@ form,
   line-height: 1.52;
 }
 
+/* The file's columns and rules, as Grading's Upload marks words them: each
+   column name as code. */
+.template-download p + p {
+  margin-top: 0.75rem;
+}
+
+.template-download code {
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: var(--bg-light);
+  font-size: 0.82rem;
+}
+
 .section-divider--with-action,
-.template-download {
+.template-download__head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
+}
+
+/* The heading, with the template on the right (below it when narrow). */
+.template-download__head {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.template-download__button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .small-action {
@@ -3538,6 +3780,14 @@ form,
   border-top: 0;
 }
 
+/* An admin's students' supervisor (Management > Registration), then a line
+   and the rest of the step, as far apart as its sections are. */
+.admin-supervisor {
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--registration-line);
+}
+
 .student-entry__heading {
   display: flex;
   align-items: center;
@@ -3560,11 +3810,6 @@ form,
 .upload-step {
   display: grid;
   gap: 30px;
-}
-
-.template-download {
-  padding-bottom: 28px;
-  border-bottom: 1px solid var(--registration-line);
 }
 
 .csv-upload {
@@ -3660,82 +3905,43 @@ form,
   border-block: 1px solid var(--registration-line);
 }
 
+/* Headed as Register one student's sections are. */
 .csv-row-editor h3 {
   margin: 0;
-  font-size: 1.1rem;
+  color: var(--registration-ink);
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
+/* Done editing, on the right as the form's own buttons are. */
 .csv-editor-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px;
+  justify-content: flex-end;
 }
 
-.csv-edit-action {
-  display: block;
-  margin-top: 10px;
-  padding: 5px 0;
-  min-height: 44px;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-weight: 750;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  min-width: 780px;
-  border-collapse: collapse;
-  color: var(--registration-ink);
-  font-size: 0.8rem;
-}
-
-caption {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-th,
-td {
-  padding: 13px 12px;
-  border-bottom: 1px solid var(--registration-line);
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  background: #f2f6f2;
-  color: #3c5c54;
-  font-size: 0.75rem;
-}
-
-td ul {
+/* What's wrong with a row, under its status: wrapping at 16rem, so the
+   column is only wider than its status when a row has something wrong. */
+.csv-issues {
+  max-width: 16rem;
+  white-space: normal;
   margin: 6px 0 0;
   padding-left: 16px;
   color: var(--registration-muted);
+  font-size: 0.8rem;
   line-height: 1.4;
 }
 
-tr.is-excluded {
+/* An excluded row, faded and struck through. */
+.csv-table :deep(tr.is-excluded) {
   opacity: 0.52;
   text-decoration: line-through;
 }
 
-.csv-status {
-  font-size: 0.76rem;
+/* Edit, then Exclude, on one line. */
+.csv-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .csv-status--valid {
@@ -3751,12 +3957,12 @@ tr.is-excluded {
 }
 
 .exclude-row {
-  margin-top: 9px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 7px;
   color: #803530;
-  font-weight: 750;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -3935,6 +4141,17 @@ dd {
   line-height: 1.35;
 }
 
+/* Register one student's, under its description. */
+.registered-note {
+  margin: 0.75rem 0 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  color: var(--success);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .form-required-note {
   margin: 0 0 0 auto;
   color: var(--registration-muted);
@@ -3943,7 +4160,7 @@ dd {
 }
 
 /* On the right: Continue or Submit, with Add student before it on a
-   group's Students step (and a note before that on Register one student). */
+   group's Students step and on Register one student, with a note before it. */
 .form-footer {
   margin-top: 46px;
   display: flex;

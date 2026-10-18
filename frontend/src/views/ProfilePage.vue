@@ -212,17 +212,34 @@
 
         <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
           <div class="guardian-heading">
-            <h3 class="profile-section-title">Guardian Details</h3>
+            <h3 class="profile-section-title">Guardian Details <span v-if="guardianLocked" class="registration-lock" role="img" :aria-label="GUARDIAN_LOCK_REASON" :data-tooltip="GUARDIAN_LOCK_REASON" data-test="guardian-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
             <button
-              v-if="!guardianEditing"
+              v-if="!guardianEditing && !guardianLocked"
               class="btn btn-outline"
               type="button"
               data-test="guardian-edit"
-              @click="startGuardianEdit"
+              @click="guardianWarningOpen = true"
             >
               Edit guardian
             </button>
           </div>
+
+          <!-- Locked once their guardian has given permission: changes go through support. -->
+          <p v-if="guardianLocked" class="profile-note guardian-locked-note" data-test="guardian-locked">
+            Your guardian has given permission, so their details can't be changed here. If they need to
+            change, contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
+          </p>
+
+          <!-- A warning before editing: a new guardian clears permission given. -->
+          <ConfirmDialog
+            v-model="guardianWarningOpen"
+            title="Change your guardian's details?"
+            :message="guardianWarning"
+            confirm-label="Continue"
+            variant="warning"
+            data-test="guardian-warning"
+            @confirm="startGuardianEdit"
+          />
 
           <form
             v-if="guardianEditing"
@@ -232,7 +249,7 @@
             @submit.prevent="saveGuardian"
           >
             <p v-if="user.guardian.consentReceived" class="consent-hint guardian-form-hint">
-              {{ user.guardian.consentingName }} has already given consent and stays on file
+              Saving a new guardian clears the permission {{ user.guardian.consentingName }} gave,
               until your new guardian completes the consent form.
             </p>
             <div class="profile-field guardian-form-field">
@@ -419,6 +436,8 @@ import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
   formatDayMonth,
   formatDayMonthTime,
@@ -552,6 +571,10 @@ const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
 // changes these details. A student who registered themselves (or through a
 // peer) changes their own. Guardian details are the student's either way.
 const detailsLocked = computed(() => Boolean(auth.user?.details_locked))
+// Their guardian too, once permission is given: changes then go through support.
+const guardianLocked = computed(() => Boolean(auth.user?.guardian_locked))
+const GUARDIAN_LOCK_REASON =
+  'Your guardian has given permission. Contact BIOTech Support if their details need to change.'
 const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !detailsLocked.value)
 const lockReason = computed(() => {
   const name = String(auth.user?.supervisor_name || '').trim()
@@ -938,6 +961,16 @@ const reminderLine = computed(() => {
   return `${last} They'll be emailed again ${when}.`
 })
 
+// The warning before editing the guardian: what changing them does.
+const guardianWarningOpen = ref(false)
+const guardianWarning = computed(() =>
+  user.value.guardian.consentReceived
+    ? `Changing your guardian's details clears the permission ${user.value.guardian.consentingName} gave. ` +
+      "Your new guardian will be emailed the consent form, and until they complete it you won't be able to " +
+      'take part in most of the program.'
+    : 'Your new guardian will be emailed the consent form to complete.',
+)
+
 const startGuardianEdit = () => {
   const { guardian } = user.value
   // Editing a pending change picks up where the student left off.
@@ -980,8 +1013,8 @@ const saveGuardian = async () => {
   try {
     await auth.updateGuardian({ ...guardianForm.value })
     guardianEditing.value = false
-    noteGuardian(true, hadConsent && user.value.guardian.pending
-      ? 'Saved. Your new guardian needs to complete the consent form.'
+    noteGuardian(true, hadConsent && !user.value.guardian.consentReceived
+      ? 'Saved. Your guardian permission is cleared until your new guardian completes the consent form.'
       : 'Your guardian details have been updated.')
   } catch (saveError) {
     const fields = saveError?.fields || {}
@@ -1371,6 +1404,7 @@ onMounted(async () => {
 .registration-lock::after { content:attr(data-tooltip); position:absolute; z-index:10; bottom:calc(100% + .5rem); left:50%; width:max-content; max-width:min(18rem, 70vw); padding:.45rem .6rem; border-radius:4px; background:#26332d; color:#fff; font-size:.75rem; font-weight:400; line-height:1.35; text-align:left; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%, .2rem); transition:opacity .15s ease, transform .15s ease; }
 .registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
 .profile-edit-button { margin:0; font-size:.85rem; }
+.guardian-locked-note { margin:.25rem 0 1rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
 .student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }

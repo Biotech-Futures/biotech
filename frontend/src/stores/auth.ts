@@ -43,6 +43,8 @@ interface User {
   supervisor_id?: number | null
   /** The student's own details are their supervisor's to change. */
   details_locked?: boolean
+  /** Their guardian, once permission is given, for a student their supervisor manages. */
+  guardian_locked?: boolean
   guardian_reminder?: {
     last_sent_at: string | null
     next_due_at: string | null

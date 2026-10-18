@@ -1,0 +1,48 @@
+name: Bounced email check
+
+# Starts the backend's check of the sending mailboxes for bounce notices about
+# every 10 minutes, so the Management pages and the System Emails log show who
+# our emails bounced back from soon after it happens. The backend reads only
+# what's new since its last check, never changes a mailbox, and runs one check
+# at a time, so an overlapping or repeated trigger is harmless.
+#
+# Required configuration:
+#   secret  EMAIL_JOBS_TOKEN         shared by every email job; must match the
+#                                    backend env of the same name
+#   backend HOSTINGER_MAIL_API_KEY   on the Azure app (biotechBe); until it's
+#                                    set the check answers "off" and does nothing
+#
+# Odd minutes (3,13,...) dodge GitHub's top-of-hour scheduler spike. Scheduled
+# runs can still lag a few minutes under load.
+on:
+  schedule:
+    - cron: "3,13,23,33,43,53 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: bounce-check
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger bounced email check
+        env:
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
+        run: |
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so auth or server
+          # failures surface. The endpoint answers 202 at once and checks on a
+          # background thread; its counts are in the backend logs (bounce_check).
+          curl -fsS --max-time 60 -X POST \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/management/bounce-check/"
+          echo

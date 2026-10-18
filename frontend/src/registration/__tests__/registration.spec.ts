@@ -13,12 +13,25 @@ import {
 import { buildRegistrationRequest } from '@/registration/registrationGateway'
 
 const studentCsv = () =>
-  `${registrationCsvTemplate()}Alex,Morgan,alex.morgan@example.edu.au,Example Secondary College,10,Australia,NSW,"Biomedical Innovations, AI & Robotics and Smart Systems",Taylor,Morgan,taylor.morgan@example.com,Parent,,\r\n`
+  `${registrationCsvTemplate()}Alex,Morgan,alex.morgan@example.edu.au,Example Secondary College,10,Australia,NSW,"Biomedical Innovations, AI & Robotics and Smart Systems",Taylor,Morgan,taylor.morgan@example.com\r\n`
 
 describe('registration form factories', () => {
   it('does not assign the deferred grouping preference in the form or CSV template', () => {
     expect(createRegistrationForms().supervisorIndividual.groupingPreference).toBe('')
-    expect(parseRegistrationCsv(studentCsv()).rows[0].values.grouping_preference).toBe('')
+    expect(registrationCsvTemplate()).not.toContain('grouping_preference')
+    expect(parseRegistrationCsv(studentCsv()).rows[0].values).not.toHaveProperty('grouping_preference')
+  })
+
+  it("leaves out the guardian's relationship, and ignores extra columns and the rows only they fill", () => {
+    expect(registrationCsvTemplate()).toBe(
+      'first_name,last_name,email,school,year_level,country,state,interests,guardian_first_name,guardian_last_name,guardian_email\r\n',
+    )
+    const extra = `${CSV_HEADERS.join(',')},guardian_relationship,notes\r\nAlex,Morgan,alex@example.edu.au,Example Secondary College,10,Australia,NSW,Biomedical Innovations,Taylor,Morgan,taylor@example.com,Parent,Keen\r\n,,,,,,,,,,,,Just a note\r\n`
+    const result = parseRegistrationCsv(extra)
+    expect(result.errors).toEqual([])
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]!.category).toBe('valid')
+    expect(result.rows[0]!.values).not.toHaveProperty('guardian_relationship')
   })
 
   it('starts every group member as Member 1, with their guardian optional', () => {
@@ -144,9 +157,21 @@ describe('parseRegistrationCsv', () => {
     )
     expect(revalidateRegistrationCsvRows([row, peer], [3])[0].category).toBe('valid')
     row.values.guardian_email = 'guardian@example.test'
+    // Interests are optional, but each one of the options (in any case).
     row.values.interests = 'Unknown interest'
-    expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('review-required')
-    row.values.interests = 'Biomedical Innovations'
+    const unknown = revalidateRegistrationCsvRows([row, peer])[0]
+    expect(unknown.category).toBe('invalid')
+    expect(unknown.fieldErrors?.interests).toBe('Not an Areas of Interest option: Unknown interest.')
+    row.values.interests = 'biomedical innovations'
+    expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
+    row.values.interests = ''
+    expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
+    // A State in Australia, as on the student form; a Region elsewhere is optional.
+    row.values.state = ''
+    expect(revalidateRegistrationCsvRows([row, peer])[0].fieldErrors?.state).toBe(
+      'Enter the Australian state or territory.',
+    )
+    row.values.country = 'New Zealand'
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
   })
 
@@ -200,7 +225,6 @@ describe('parseRegistrationCsv', () => {
       country: 'Australia',
       state: 'NSW',
       interests: 'Space & Astrobiology',
-      grouping_preference: 'cross_school',
     }
     const invalid = { ...review, email: 'not-an-email', year_level: '8' }
     const encode = (row: typeof review) =>
@@ -217,20 +241,23 @@ describe('parseRegistrationCsv', () => {
   })
 
   it('rejects files that do not use the prescribed headers', () => {
-    const result = parseRegistrationCsv('name,email\nAlex,alex@example.com')
+    const result = parseRegistrationCsv('first_name,email\nAlex,alex@example.com')
 
     expect(result.rows).toEqual([])
-    expect(result.errors[0]).toContain('Missing columns')
+    expect(result.errors[0]).toBe('Column 2 must be last_name, not email.')
+    expect(result.errors.at(-1)).toBe('Column 11 must be guardian_email.')
   })
 
-  it('rejects duplicate expected headers while allowing flexible header order', () => {
-    const reorderedHeaders = [...CSV_HEADERS].reverse()
-    const duplicateEmailHeaders = [...reorderedHeaders, 'email']
-    const result = parseRegistrationCsv(duplicateEmailHeaders.join(','))
+  it('needs the headers in their order', () => {
+    const swapped = [...CSV_HEADERS]
+    ;[swapped[0], swapped[1]] = [swapped[1]!, swapped[0]!]
+    const result = parseRegistrationCsv(swapped.join(','))
 
     expect(result.rows).toEqual([])
-    expect(result.errors).toContain('Duplicate columns: email.')
-    expect(result.errors.some((error) => error.startsWith('Missing columns'))).toBe(false)
+    expect(result.errors).toEqual([
+      'Column 1 must be first_name, not last_name.',
+      'Column 2 must be last_name, not first_name.',
+    ])
   })
 })
 

@@ -72,15 +72,8 @@ const router = createRouter({
 import { useAuthStore } from '../stores/auth'
 import { landingPath, SUPPORT_ACCESS_PATH } from '@/utils/landing'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
-import {
-  isSupervisorHiddenPath,
-  loadSupervisorPages,
-  loadSupervisorRegistration,
-} from '../composables/useSupervisorPages'
-import {
-  isSupervisorRegistrationRoute,
-  resolveSupervisorRegistrationRouteAccess,
-} from './registrationAccess'
+import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
+import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 // Pages a support-only account may open besides the ticket routes: its own
 // profile (the timezone prompt after sign-in sends people there) and the page
@@ -151,11 +144,8 @@ router.beforeEach((to, from, next) => {
     // landingPath() answers the set-password case first, as this branch did.
     next(landingPath(auth))
   } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
-    // Hidden from supervisors until Management > Supervisor Visibility shows them.
+    // Hidden from supervisors until Management > Supervisor Pages Visibility shows them.
     void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
-  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorRegistrationRoute(to)) {
-    // Their Registration page, unless Management > Supervisor Visibility hides it.
-    void loadSupervisorRegistration().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

@@ -3,9 +3,13 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import SupervisorResultsPage from '@/views/SupervisorResultsPage.vue'
 import {
+  downloadAllResultsCertificate,
+  downloadAllResultsCertificates,
+  downloadAllResultsSheet,
   downloadSupervisorResultsCertificate,
   downloadSupervisorResultsCertificates,
   downloadSupervisorResultsSheet,
+  fetchAllResults,
   fetchSupervisorResults,
   type SupervisorResults,
   type SupervisorResultsPerson
@@ -15,10 +19,15 @@ vi.mock('@/utils/managementAPI', () => ({
   fetchSupervisorResults: vi.fn(),
   downloadSupervisorResultsSheet: vi.fn(),
   downloadSupervisorResultsCertificate: vi.fn(),
-  downloadSupervisorResultsCertificates: vi.fn()
+  downloadSupervisorResultsCertificates: vi.fn(),
+  fetchAllResults: vi.fn(),
+  downloadAllResultsSheet: vi.fn(),
+  downloadAllResultsCertificate: vi.fn(),
+  downloadAllResultsCertificates: vi.fn()
 }))
 
 const fetchMock = vi.mocked(fetchSupervisorResults)
+const fetchAllMock = vi.mocked(fetchAllResults)
 
 const person = (over: Partial<SupervisorResultsPerson>): SupervisorResultsPerson => ({
   user_id: 1,
@@ -85,6 +94,36 @@ describe('SupervisorResultsPage', () => {
     expect(wrapper.text()).toContain('Will be Released Separately')
   })
 
+  it("shows admins every group's, released or not, from Management's own endpoints", async () => {
+    fetchAllMock.mockResolvedValue(
+      results({
+        marks_released: false,
+        certificates_released: false,
+        sheet_file_name: '2026_BTF_Student_Marks_All_Groups.xlsx',
+        zip_file_name: '2026_BTF_Certificates_All_Groups.zip',
+        people: [person({}), person({ user_id: 3, name: 'Fin Al', group_id: 11, group_name: 'BTF02' })],
+      }),
+    )
+    const wrapper = mount(SupervisorResultsPage, { props: { admin: true } })
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.find('.card-title').text()).toBe('Results')
+    // Both, though neither is released, each saying so.
+    expect(tabNames(wrapper)).toEqual(['Marks', 'Certificates'])
+    expect(wrapper.find('[data-test="marks-unreleased"]').exists()).toBe(true)
+    await button(wrapper, 'Download Marks Spreadsheet')!.trigger('click')
+    expect(downloadAllResultsSheet).toHaveBeenCalledWith('2026_BTF_Student_Marks_All_Groups.xlsx')
+
+    await wrapper.findAll('[role="tab"]')[1]!.trigger('click')
+    expect(wrapper.find('[data-test="certificates-unreleased"]').exists()).toBe(true)
+    await button(wrapper, 'Download All Certificates')!.trigger('click')
+    expect(downloadAllResultsCertificates).toHaveBeenCalledWith('2026_BTF_Certificates_All_Groups.zip')
+    await button(wrapper, 'Download')!.trigger('click')
+    expect(downloadAllResultsCertificate).toHaveBeenCalledWith(expect.objectContaining({ name: 'Amy Chen' }))
+    expect(downloadSupervisorResultsCertificate).not.toHaveBeenCalled()
+  })
+
   it('shows the marks spreadsheet highest total first, and downloads it', async () => {
     const wrapper = await mountPage(results())
 
@@ -97,6 +136,39 @@ describe('SupervisorResultsPage', () => {
 
     await button(wrapper, 'Download Marks Spreadsheet')!.trigger('click')
     expect(downloadSupervisorResultsSheet).toHaveBeenCalledWith('2026_BTF_Student_Marks_Sam_Lee.xlsx')
+  })
+
+  it('shows only Group and the marks, then every column again, still searching them all', async () => {
+    const wrapper = await mountPage(results())
+    const headings = () => wrapper.findAll('th.data-table-head').map((th) => th.text())
+
+    await button(wrapper, 'Show marks only')!.trigger('click')
+    expect(headings()).toEqual(['Group', 'PM1', 'MTotal'])
+    // A hidden column's text is still found.
+    await wrapper.find('input[type="search"]').setValue('Mo Mentor')
+    expect(rowTexts(wrapper)).toHaveLength(1)
+    expect(rowTexts(wrapper)[0]).toContain('BTF01')
+
+    await button(wrapper, 'Show all columns')!.trigger('click')
+    expect(headings()).toEqual(['Group', 'Students', 'Mentor', 'PM1', 'Poster Comment 1', 'MTotal'])
+  })
+
+  it("colours each criterion's mark from red (0) to green (5), but not the total", async () => {
+    const wrapper = await mountPage(results({
+      groups: [
+        { group_id: 10, TeamCode: 'BTF01', Students: 'Amy Chen', Mentor: '', PM1: '0', MTotal: '40' },
+        { group_id: 11, TeamCode: 'BTF02', Students: 'Fin Al', Mentor: '', PM1: '5', MTotal: '55' },
+        { group_id: 12, TeamCode: 'BTF03', Students: 'Cara Ng', Mentor: '', PM1: '', MTotal: '30' },
+      ],
+    }))
+    await button(wrapper, 'Show marks only')!.trigger('click')
+    // Group, PM1, MTotal: highest total first.
+    const cells = wrapper.findAll('tbody tr.data-table-row').map((row) => row.findAll('td'))
+    expect(cells[0]![1]!.classes()).toContain('mark-score-5')
+    expect(cells[1]![1]!.classes()).toContain('mark-score-0')
+    // No mark, no colour; nor the total.
+    expect(cells[2]![1]!.classes().some((name) => name.startsWith('mark-score-'))).toBe(false)
+    expect(cells[0]![2]!.classes().some((name) => name.startsWith('mark-score-'))).toBe(false)
   })
 
   it("lists students' and mentors' certificates, a finalist's released separately", async () => {

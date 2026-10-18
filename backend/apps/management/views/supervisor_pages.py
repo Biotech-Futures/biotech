@@ -1,7 +1,7 @@
-"""Management's Supervisor Visibility switches: whether supervisors see Home, Groups,
-Events, Announcements and Resources (off until an admin turns it on, so a
-supervisor sees only their own pages: My Profile, My Students, My Groups), and
-whether they see their Registration page (on until an admin hides it)."""
+"""Management's Supervisor Pages Visibility switch: whether supervisors see
+Home, Groups, Events, Announcements and Resources (off until an admin turns it
+on, so a supervisor sees only their own pages: My Profile, Registration,
+Students, Groups)."""
 from __future__ import annotations
 
 from rest_framework import permissions, status
@@ -13,8 +13,8 @@ from apps.common.rbac import is_admin
 from ..models import SupervisorPagesSetting
 
 
-# The switches, as GET and PUT name them.
-SWITCHES = ("shown", "registration_shown")
+# The switch, as GET and PUT name it.
+SWITCHES = ("shown",)
 
 
 def state(setting):
@@ -22,9 +22,8 @@ def state(setting):
 
 
 class SupervisorPagesView(APIView):
-    """GET ``{"shown": bool, "registration_shown": bool}`` for anyone signed
-    in, so a supervisor's menu can follow them; PUT either or both, for admins
-    only."""
+    """GET ``{"shown": bool}`` for anyone signed in, so a supervisor's menu can
+    follow it; PUT it, for admins only."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -37,7 +36,7 @@ class SupervisorPagesView(APIView):
         changes = {name: request.data[name] for name in SWITCHES if name in request.data}
         if not changes or not all(isinstance(value, bool) for value in changes.values()):
             return Response(
-                {"detail": "Give shown or registration_shown, as true or false."},
+                {"detail": "Give shown, as true or false."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         setting = SupervisorPagesSetting.load()

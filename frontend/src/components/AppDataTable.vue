@@ -68,7 +68,7 @@
                 v-for="column in columns"
                 :key="column.key"
                 class="data-table-head"
-                :class="column.align && `data-table-head--${column.align}`"
+                :class="[column.align && `data-table-head--${column.align}`, column.headClass]"
                 scope="col"
                 :title="column.title"
                 :aria-sort="canSort(column) ? ariaSort(column.key) : undefined"
@@ -292,6 +292,8 @@ export type DataTableColumn = {
   title?: string
   // Text alignment for the heading and cells; left when not given.
   align?: 'left' | 'center' | 'right'
+  // Classes for the heading.
+  headClass?: string
   // Classes for a cell, worked out from its row.
   cellClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
@@ -310,6 +312,9 @@ const props = withDefaults(
   defineProps<{
     columns: DataTableColumn[]
     rows: Record<string, unknown>[]
+    // The columns the search looks through, when more than those shown (some
+    // hidden for now); the shown columns otherwise.
+    searchColumns?: DataTableColumn[]
     rowKey?: string
     // How many columns the actions slot fills; the slot is told which one.
     actionColumns?: number
@@ -465,7 +470,7 @@ const filteredRows = computed(() => {
   const source = !query
     ? [...props.rows]
     : props.rows.filter((row) =>
-        props.columns.some((column) =>
+        (props.searchColumns ?? props.columns).some((column) =>
           displayCell(row, column).toLowerCase().includes(query),
         ),
       )

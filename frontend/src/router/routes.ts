@@ -200,16 +200,28 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/management/submission-deadline' },
       { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
-      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SetDeadlinePage.vue') },
-      { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/management/DeadlineExtensionPage.vue') },
+      // The deadline, then extending it for some groups (Extend Deadline's
+      // old path still leads here).
+      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SubmissionDeadlineTabPage.vue') },
+      { path: 'extend-deadline', redirect: '/management/submission-deadline' },
+      // Every group's marks and certificates, released or not: the supervisor Results page's.
+      { path: 'results', name: 'management-results', component: () => import('@/views/SupervisorResultsPage.vue'), props: { admin: true } },
       { path: 'release-results', name: 'management-release-results', component: () => import('@/views/management/ReleaseResultsPage.vue') },
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
-      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
-      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
+      // The finalists' email, then the nonfinalists' and nonsubmissions' (Notify
+      // Nonfinalist's old path still leads here).
+      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyTabPage.vue') },
+      { path: 'email-nonfinalist', redirect: '/management/notify-finalists' },
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
-      // Registration Visibility: Registration and Supervisor Visibility as one.
-      { path: 'registration-visibility', name: 'management-registration-visibility', component: () => import('@/views/management/RegistrationVisibilityPage.vue') },
-      { path: 'supervisor-visibility', redirect: '/management/registration-visibility' }
+      // The registration dates, then registering students as a supervisor does.
+      { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
+      // Late Registration: late links, Supervisor Pages Visibility and
+      // supervisors after close. Its old paths still lead to it.
+      { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
+      { path: 'registration-visibility', redirect: '/management/late-registration' },
+      // The day this year's challenge starts, for the supervisors' daily email.
+      { path: 'challenge-start', name: 'management-challenge-start', component: () => import('@/views/management/ChallengeStartPage.vue') },
+      { path: 'supervisor-visibility', redirect: '/management/late-registration' }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

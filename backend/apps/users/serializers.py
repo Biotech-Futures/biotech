@@ -20,10 +20,10 @@ from zoneinfo import available_timezones
 
 
 # What the form's ``RegisteredBy`` says when someone else registered the
-# student (the same answers UserRegisterView reads as peer or supervisor).
-# Their guardian can be added later. A student registering individually, or a
-# form that doesn't say who filled it in, has to name one.
-_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher"}
+# student (the same answers UserRegisterView reads as peer, supervisor or
+# admin). Their guardian can be added later. A student registering
+# individually, or a form that doesn't say who filled it in, has to name one.
+_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher", "admin"}
 REGISTRATION_OVERRIDES = {"ConfirmSchoolOverride", "ConfirmNameEmailOverride"}
 
 
@@ -280,6 +280,8 @@ class UserSerializer(serializers.ModelSerializer):
     supervisor_id = serializers.SerializerMethodField()
     # The student's own details are their supervisor's to change (see StudentProfile.details_locked).
     details_locked = serializers.SerializerMethodField()
+    # Their guardian too, once permission is given (see StudentProfile.guardian_locked).
+    guardian_locked = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -325,6 +327,7 @@ class UserSerializer(serializers.ModelSerializer):
             "guardian_reminder",
             "supervisor_id",
             "details_locked",
+            "guardian_locked",
             "must_change_password",
             "timezone",
             "pronouns",
@@ -363,6 +366,10 @@ class UserSerializer(serializers.ModelSerializer):
     def get_details_locked(self, obj):
         profile = self._student_profile(obj)
         return bool(profile and profile.details_locked)
+
+    def get_guardian_locked(self, obj):
+        profile = self._student_profile(obj)
+        return bool(profile and profile.guardian_locked)
 
     def get_guardian_reminder(self, obj):
         from .guardian_reminders import reminder_info
@@ -667,6 +674,8 @@ class SupervisedStudentSerializer(serializers.Serializer):
     # No signature: fetched when a consent form is opened (SupervisedStudentSignaturesView).
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
+    # Their group from registering, where My Groups' Waiting Area keeps them.
+    registration_group_id = serializers.IntegerField(allow_null=True, required=False)
 
 
 class SupervisedGroupMemberSerializer(serializers.Serializer):
@@ -682,6 +691,10 @@ class SupervisedGroupSerializer(serializers.Serializer):
     group_name = serializers.CharField()
     members = SupervisedGroupMemberSerializer(many=True)
     interests = serializers.ListField(child=serializers.CharField())
+    # "supervisor" or "members" for a group formed while registering, else "".
+    registered_by = serializers.CharField(allow_blank=True)
+    # Made a BIOTech group from My Groups' Waiting Area (Create all groups).
+    placed = serializers.BooleanField(default=False)
 
 
 class SupervisedGroupNameSerializer(serializers.Serializer):

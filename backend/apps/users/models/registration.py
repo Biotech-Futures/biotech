@@ -9,6 +9,11 @@ class RegistrationWindow(models.Model):
     year = models.PositiveSmallIntegerField(unique=True)
     opens_at = models.DateTimeField(null=True, blank=True)
     closes_at = models.DateTimeField(null=True, blank=True)
+    # Who last saved the dates (Management > Registration), and when.
+    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
 
     class Meta:
         constraints = [

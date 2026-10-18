@@ -493,8 +493,7 @@ type MainNavEntry =
       collapsed: boolean
     }
 
-const { shown: supervisorPagesShown, registrationShown: supervisorRegistrationShown } =
-  useSupervisorPages()
+const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
@@ -508,9 +507,9 @@ watch(
 )
 
 // The top-level links every role sees; supervisors only once Management >
-// Supervisor Visibility shows them. A support agent who is not an admin gets
-// the queue and none of these: the guard sends them back from these anyway,
-// so offering the links would only be a detour.
+// Supervisor Pages Visibility shows them. A support agent who is not an
+// admin gets the queue and none of these: the guard sends them back from
+// these anyway, so offering the links would only be a detour.
 const mainNavLinks = computed(() => {
   if (auth.isSupportOnly) return []
   if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
@@ -548,12 +547,9 @@ const sidebarSections = computed(() => {
       active: false,
       links: [
         { label: 'My Profile', to: '/profile', active: path === '/profile' },
-        // Unless Management > Supervisor Visibility hides it (admins always see it).
-        ...(auth.isAdmin || supervisorRegistrationShown.value
-          ? [{ label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' }]
-          : []),
-        { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
-        { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
+        { label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' },
+        { label: 'Students', to: '/my-students', active: path.startsWith('/my-students') },
+        { label: 'Groups', to: '/my-groups', active: path === '/my-groups' },
         ...(supervisorResultsShown.value
           ? [{ label: 'Results', to: '/my-results', active: path === '/my-results' }]
           : []),
