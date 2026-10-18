@@ -787,3 +787,12 @@ QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, 
 # QuickEmailVerification answered as not existing (the user can confirm past
 # it). Off unless set.
 EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
+
+# Limits on checking addresses before a registration is submitted: addresses
+# in one request (fewer for anyone not signed in), new lookups one IP address
+# may cause an hour (the rest are left unchecked), and the seconds after which
+# a job that stops moving counts as stalled (the page then submits anyway).
+EMAIL_PRECHECK_MAX_ADDRESSES = config("EMAIL_PRECHECK_MAX_ADDRESSES", default=2000, cast=int)
+EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES = config("EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES", default=20, cast=int)
+EMAIL_PRECHECK_IP_HOURLY_LOOKUPS = config("EMAIL_PRECHECK_IP_HOURLY_LOOKUPS", default=200, cast=int)
+EMAIL_PRECHECK_STALL_SECONDS = config("EMAIL_PRECHECK_STALL_SECONDS", default=60, cast=int)
