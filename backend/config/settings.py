@@ -782,3 +782,8 @@ QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
 # Minutes before a key that ran out of credit is tried again (a new UTC day
 # also allows a retry).
 QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)
+
+# Check addresses before a registration is submitted, and warn about any
+# QuickEmailVerification answered as not existing (the user can confirm past
+# it). Off unless set.
+EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
