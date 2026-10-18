@@ -9,14 +9,20 @@ inquiries open"; every day, DEC-051). Both in the designer's M-27 and M-28.
 import json
 import re
 from datetime import datetime, timedelta, timezone as dt_timezone
+from pathlib import Path
 from types import SimpleNamespace
+
+import yaml
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
+
+from apps.common import email_jobs
 
 from apps.tickets.models import (
     SupportScope,
@@ -240,21 +246,24 @@ class OpenEnquiriesDigestTests(TestCase):
         self.assertIn("Open the support queue", plain(html))
 
 
-@override_settings(TICKET_DIGEST_TOKEN="digest-secret")
+@override_settings(EMAIL_JOBS_TOKEN="jobs-secret", RSVP_REMINDER_TOKEN="")
 class DigestTriggerTests(TestCase):
+    """Started the way the platform's other scheduled emails are: the email
+    jobs' shared token in the X-Email-Jobs-Token header (apps.common.email_jobs)."""
+
     def setUp(self):
         user = User.objects.create_user(email="stella@example.com", password="pass1234")
         with self.captureOnCommitCallbacks(execute=True):
             lifecycle.create_ticket(user=user, category=TicketCategory.OTHER, subject="s", body="b")
         mail.outbox = []
 
-    def call(self, token=None):
-        headers = {"HTTP_X_REMINDER_TOKEN": token} if token is not None else {}
+    def call(self, token=None, header="HTTP_X_EMAIL_JOBS_TOKEN"):
+        headers = {header: token} if token is not None else {}
         with self.captureOnCommitCallbacks(execute=True):
             return self.client.post(DIGEST, **headers)
 
     def test_the_right_token_sends_the_count(self):
-        response = self.call("digest-secret")
+        response = self.call("jobs-secret")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["sent"], True)
         self.assertEqual([m.to for m in mail.outbox], [[settings.TICKET_SUPPORT_INBOX]])
@@ -266,7 +275,14 @@ class DigestTriggerTests(TestCase):
                 self.assertEqual(response.status_code, 401)
         self.assertEqual(mail.outbox, [])
 
-    @override_settings(TICKET_DIGEST_TOKEN="")
+    def test_the_header_it_used_before_is_refused(self):
+        # X-Reminder-Token, from before the trigger joined the shared jobs.
+        # The right value in the wrong header must not send.
+        response = self.call("jobs-secret", header="HTTP_X_REMINDER_TOKEN")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(mail.outbox, [])
+
+    @override_settings(EMAIL_JOBS_TOKEN="", RSVP_REMINDER_TOKEN="")
     def test_no_token_configured_is_a_closed_door_not_an_open_one(self):
         response = self.call("")
         self.assertEqual(response.status_code, 503)
@@ -277,3 +293,28 @@ class DigestTriggerTests(TestCase):
         SupportScope.objects.create(user=agent)
         self.client.force_login(agent)
         self.assertEqual(self.call().status_code, 401)
+
+
+class DigestWorkflowTests(SimpleTestCase):
+    """The schedule and the endpoint have to agree, and nothing in between
+    checks it: a workflow reading a setting nobody sets fails every morning
+    on GitHub and nowhere else. Its first version read a repository variable
+    that main had already stopped using."""
+
+    def setUp(self):
+        path = Path(settings.BASE_DIR).parent / ".github" / "workflows" / "ticket-digest.yml"
+        self.workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        (self.step,) = self.workflow["jobs"]["dispatch"]["steps"]
+
+    def test_it_calls_the_endpoint_with_the_email_jobs_token(self):
+        env = self.step["env"]
+        self.assertEqual(env["JOBS_TOKEN"], "${{ secrets.EMAIL_JOBS_TOKEN }}")
+        self.assertIn(f'-H "{email_jobs.HEADER}: ${{JOBS_TOKEN}}"', self.step["run"])
+        self.assertIn(reverse("tickets_admin:digest-send"), self.step["run"])
+
+    def test_it_reads_no_repository_variable(self):
+        # main's scheduled jobs call the backend at its fixed address; the
+        # repository has no variables to read.
+        self.assertEqual(self.step["env"]["BACKEND_URL"], "https://api.biotechfutures.org")
+        self.assertNotIn("vars.", yaml.safe_dump(self.workflow))
+

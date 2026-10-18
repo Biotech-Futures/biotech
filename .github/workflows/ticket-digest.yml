@@ -8,10 +8,11 @@ name: Open support enquiries, morning count
 # A second run the same day sends a second count. That is left as it is: it
 # goes to one shared inbox, and the numbers it carries are true when sent.
 #
-# Required configuration:
-#   secret  TICKET_DIGEST_TOKEN         must match backend env of same name
-#   var     RSVP_REMINDER_BACKEND_URL   shared backend base URL, e.g.
-#                                        https://biotechbe.azurewebsites.net
+# It is called the way the platform's other scheduled emails are: the backend
+# at its fixed address, with the email jobs' shared token in the
+# X-Email-Jobs-Token header (backend/apps/common/email_jobs.py). So the one
+# thing it needs is the EMAIL_JOBS_TOKEN repository secret, which those jobs
+# already use, matching the backend setting of the same name.
 #
 # 22:07 UTC is 9:07 in Sydney while daylight saving is on (October to April)
 # and 8:07 outside it: before the working day, so the count is waiting when
@@ -29,20 +30,16 @@ jobs:
     steps:
       - name: Trigger the open-enquiry count
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
-          DIGEST_TOKEN: ${{ secrets.TICKET_DIGEST_TOKEN }}
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set (repository variable)." >&2
-            exit 1
-          fi
-          if [ -z "${DIGEST_TOKEN}" ]; then
-            echo "TICKET_DIGEST_TOKEN is not set (repository secret)." >&2
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
             exit 1
           fi
           # -f makes curl exit non-zero on HTTP >=400 so a refused token or a
           # server error fails the run instead of passing quietly.
           curl -fsS -X POST \
-            -H "X-Reminder-Token: ${DIGEST_TOKEN}" \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
             -H "Content-Type: application/json" \
             "${BACKEND_URL%/}/api/v1/admin/tickets/digest/send/"

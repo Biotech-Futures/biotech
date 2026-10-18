@@ -11,10 +11,8 @@ admin can work the queue. The exception is granting and revoking the support
 role itself, which only admins may do.
 """
 
-import hmac
 import re
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Count, Q
@@ -32,6 +30,7 @@ from rest_framework.views import APIView
 from apps.admin.permissions import IsAdminScoped
 from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
+from apps.common import email_jobs
 from apps.common.rbac import user_has_role
 from apps.common.role_names import ROLE_STUDENT
 from apps.common.storage import serve_managed_file
@@ -869,26 +868,22 @@ class TicketSupportMessageView(APIView):
 class TicketDigestSendView(APIView):
     """The morning count of open enquiries, called by a scheduler (C-18).
 
-    .github/workflows/ticket-digest.yml calls this once a day with a shared
-    token, the way the platform's other reminders are run; the token is the
-    whole of its access control, so it answers 503 while none is configured
-    rather than standing open. What it sends, and when it sends nothing, is
-    emails.send_open_tickets_digest's business.
+    .github/workflows/ticket-digest.yml calls this once a day with the email
+    jobs' shared token, in the same header as the platform's other scheduled
+    emails (apps.common.email_jobs), so it needs nothing configured that they
+    do not already have. The token is the whole of its access control: with
+    none set the endpoint answers 503 rather than standing open. What it
+    sends, and when it sends nothing, is emails.send_open_tickets_digest's
+    business.
     """
 
     authentication_classes = []
     permission_classes = []
 
     def post(self, request):
-        expected = getattr(settings, "TICKET_DIGEST_TOKEN", "") or ""
-        if not expected:
-            return Response(
-                {"detail": "The ticket digest trigger is not configured."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        provided = request.headers.get("X-Reminder-Token", "")
-        if not hmac.compare_digest(provided, expected):
-            return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
+        refusal = email_jobs.refused(request)
+        if refusal:
+            return refusal
         from .services import emails
 
         return Response(emails.send_open_tickets_digest(), status=status.HTTP_200_OK)

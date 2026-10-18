@@ -670,12 +670,6 @@ EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="")
 # backend stops reading it; removed after.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 
-# Shared secret for POST /api/v1/admin/tickets/digest/send/, the morning count
-# of open enquiries sent to TICKET_SUPPORT_INBOX (.github/workflows/
-# ticket-digest.yml). Same fail-loud contract as EMAIL_JOBS_TOKEN: unset means
-# the endpoint answers 503 rather than standing open.
-TICKET_DIGEST_TOKEN = config("TICKET_DIGEST_TOKEN", default="")
-
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
 )
@@ -817,6 +811,11 @@ LINK_PREVIEW_DISPATCH_SYNC = config(
 TICKET_SLA_HIGH_HOURS = config("TICKET_SLA_HIGH_HOURS", default=4, cast=int)
 TICKET_SLA_NORMAL_HOURS = config("TICKET_SLA_NORMAL_HOURS", default=24, cast=int)
 TICKET_SLA_LOW_HOURS = config("TICKET_SLA_LOW_HOURS", default=72, cast=int)
+
+# The morning count of open enquiries (C-18) is started by
+# .github/workflows/ticket-digest.yml at POST /api/v1/admin/tickets/digest/send/,
+# with EMAIL_JOBS_TOKEN in the X-Email-Jobs-Token header, the same as the
+# platform's other scheduled emails. It needs nothing configured of its own.
 
 # QuickEmailVerification (apps.users.email_verification). The key comes only from
 # the environment; with none set, every check reports "error" and nothing is blocked.
