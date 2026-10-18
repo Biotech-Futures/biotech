@@ -964,6 +964,15 @@ select {
   padding: 1rem 0.85rem 0;
 }
 
+.sidebar-nav,
+.sidebar-list {
+  flex: 0 0 auto;
+}
+
+.sidebar-group-switcher {
+  flex-shrink: 0;
+}
+
 .sidebar.is-collapsed .sidebar-group-switcher {
   display: none;
 }
@@ -1311,31 +1320,32 @@ select {
 
   .main-layout {
     display: flex;
+    flex-direction: column;
     flex: 1;
+    width: 100%;
     max-width: 1680px;
     margin: 0 auto;
-    width: 100%;
     height: calc(100vh - 64px);
+    min-height: 0;
     overflow: hidden;
     background-color: var(--white);
   }
 
   .sidebar {
-    --sidebar-toggle-offset: 250px;
+    --sidebar-toggle-offset: 0px;
 
     display: flex;
     flex-direction: column;
-    width: 250px;
-    min-width: 250px;
-    flex-shrink: 0;
-    height: 100%;
-    overflow: hidden;
-    padding: 1.5rem 0;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    max-height: 45vh;
+    flex: 0 0 auto;
+    overflow-y: auto;
+    padding: 0.75rem 0;
     background-color: var(--white);
-    border-right: 1px solid var(--border-light);
-    transition:
-      width 0.2s ease,
-      min-width 0.2s ease;
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .sidebar.is-collapsed {
@@ -1381,9 +1391,11 @@ select {
   }
 
   .main-content {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
-    height: 100%;
+    min-height: 0;
+    width: 100%;
+    height: auto;
     overflow-y: auto;
     padding: 1rem;
   }

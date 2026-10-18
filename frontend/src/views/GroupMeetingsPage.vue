@@ -31,7 +31,7 @@
       v-if="showCreateForm && auth.isMentor"
       class="create-form"
     >
-    <h2>Schedule Meeting</h2>
+    <h2>{{ editingMeetingId !== null ? 'Edit Meeting' : 'Schedule Meeting' }}</h2>
 
       <label>
         <span>Title <span class="required-mark">*</span></span>
@@ -127,7 +127,13 @@
         :disabled="creatingMeeting"
         @click="submitMeeting"
         >
-        {{ creatingMeeting ? 'Scheduling...' : 'Schedule Meeting' }}
+        {{
+          creatingMeeting
+            ? 'Saving...'
+            : editingMeetingId !== null
+              ? 'Save Changes'
+              : 'Schedule Meeting'
+        }}
         </button>
     </div>
     </section>
@@ -233,7 +239,9 @@ import { useAuthStore } from '@/stores/auth'
 
 import {
   fetchMeetings,
+  fetchMeetingById,
   createMeeting,
+  updateMeeting,
   type GroupMeeting,
   type MeetingWhen,
 } from '@/utils/meetingsAPI'
@@ -270,6 +278,7 @@ const selectedWhen = ref<MeetingWhen>('upcoming')
 const isLoading = ref(false)
 const errorMessage = ref('')
 const showCreateForm = ref(false)
+const editingMeetingId = ref<number | null>(null)
 const creatingMeeting = ref(false)
 const createMessage = ref('')
 
@@ -298,6 +307,35 @@ const getGroupId = (): number | undefined => {
   const id = Number(rawId)
 
   return Number.isFinite(id) ? id : undefined
+}
+
+const openEditMeeting = async (id: number) => {
+  try {
+    const meeting = await fetchMeetingById(id)
+
+    const start = new Date(meeting.start_datetime)
+    const end = new Date(meeting.ends_datetime)
+
+    const offset = start.getTimezoneOffset()
+    const localStart = new Date(start.getTime() - offset * 60000)
+
+    editingMeetingId.value = id
+
+    newTitle.value = meeting.title
+    newDescription.value = meeting.description || ''
+    newStart.value = localStart.toISOString().slice(0, 16)
+    newDuration.value = String(
+      Math.round((end.getTime() - start.getTime()) / 60000)
+    )
+    newTimezone.value = meeting.timezone_name || 'UTC'
+    newJoinLink.value = meeting.join_link || ''
+
+    showCreateForm.value = true
+    createMessage.value = ''
+  } catch (error) {
+    console.error('Failed to load meeting:', error)
+    createMessage.value = 'Unable to load meeting for editing.'
+  }
 }
 
 const loadMeetings = async () => {
@@ -405,11 +443,39 @@ const submitMeeting = async () => {
   createMessage.value = ''
 
   try {
+    const startISO = new Date(newStart.value).toISOString()
+
+    if (editingMeetingId.value !== null) {
+      const editId = editingMeetingId.value
+
+      await updateMeeting(editId, {
+        title: newTitle.value,
+        description: newDescription.value,
+        start_datetime: startISO,
+        ends_datetime: new Date(
+          new Date(newStart.value).getTime() +
+          Number(newDuration.value) * 60_000
+        ).toISOString(),
+        timezone_name: newTimezone.value,
+        join_link: newJoinLink.value,
+      })
+
+      await router.push({
+        name: 'group-meeting-detail',
+        params: {
+          id: route.params.id,
+          meetingId: editId,
+        },
+      })
+
+      return
+    }
+
     await createMeeting({
       group: groupId,
       title: newTitle.value,
       description: newDescription.value,
-      start_datetime: new Date(newStart.value).toISOString(),
+      start_datetime: startISO,
       duration_minutes: Number(newDuration.value),
       timezone_name: newTimezone.value,
       join_link: newJoinLink.value,
@@ -485,6 +551,11 @@ watch(selectedWhen, () => {
 
 onMounted(() => {
   loadMeetings()
+  const editId = Number(route.query.editMeeting)
+
+  if (Number.isInteger(editId) && editId > 0) {
+    void openEditMeeting(editId)
+  }
 })
 </script>
 

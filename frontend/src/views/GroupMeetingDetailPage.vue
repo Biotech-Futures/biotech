@@ -15,6 +15,91 @@
     </div>
 
     <div v-else-if="meeting" class="meeting-card">
+
+        <section v-if="editingMeeting" class="edit-section">
+        <h2>Edit Meeting</h2>
+
+        <label>
+          Title
+          <input
+            v-model="editTitle"
+            class="edit-input"
+            type="text"
+          />
+        </label>
+
+        <label>
+          Description
+          <textarea
+            v-model="editDescription"
+            class="note-textarea"
+            rows="4"
+          />
+        </label>
+
+        <label>
+          Start
+          <input
+            v-model="editStart"
+            class="edit-input"
+            type="datetime-local"
+          />
+        </label>
+
+        <label>
+          Duration
+          <div class="duration-input-wrapper">
+            <input
+              v-model.number="editDuration"
+              class="edit-input duration-input"
+              type="number"
+              min="5"
+              max="480"
+              step="5"
+            />
+            <span class="duration-unit">min</span>
+          </div>
+        </label>
+
+        <label>
+          Timezone
+          <input
+            v-model="editTimezone"
+            class="edit-input"
+            type="text"
+          />
+        </label>
+
+        <label>
+          Join Link
+          <input
+            v-model="editJoinLink"
+            class="edit-input"
+            type="url"
+          />
+        </label>
+
+        <div class="edit-actions">
+          <button
+            class="secondary-button"
+            :disabled="savingMeeting"
+            @click="cancelEditing"
+          >
+            Cancel
+          </button>
+
+          <button
+            class="secondary-button"
+            :disabled="savingMeeting"
+            @click="saveMeeting"
+          >
+            {{ savingMeeting ? 'Saving...' : 'Save Changes' }}
+          </button>
+        </div>
+      </section>
+
+      <!-- Keep Notes mounted while editing so CodeMirror/Yjs stays connected. -->
+      <div v-show="!editingMeeting">
       <div class="meeting-header">
         <div>
           <h1>{{ meeting.title }}</h1>
@@ -142,87 +227,9 @@
 
         </div>
       </div>    
-        <section v-if="editingMeeting" class="edit-section">
-        <h2>Edit Meeting</h2>
 
-        <label>
-          Title
-          <input
-            v-model="editTitle"
-            class="edit-input"
-            type="text"
-          />
-        </label>
 
-        <label>
-          Description
-          <textarea
-            v-model="editDescription"
-            class="note-textarea"
-            rows="4"
-          />
-        </label>
-
-        <label>
-          Start
-          <input
-            v-model="editStart"
-            class="edit-input"
-            type="datetime-local"
-          />
-        </label>
-
-        <label>
-          Duration
-          <div class="duration-input-wrapper">
-            <input
-              v-model.number="editDuration"
-              class="edit-input duration-input"
-              type="number"
-              min="5"
-              max="480"
-              step="5"
-            />
-            <span class="duration-unit">min</span>
-          </div>
-        </label>
-
-        <label>
-          Timezone
-          <input
-            v-model="editTimezone"
-            class="edit-input"
-            type="text"
-          />
-        </label>
-
-        <label>
-          Join Link
-          <input
-            v-model="editJoinLink"
-            class="edit-input"
-            type="url"
-          />
-        </label>
-
-        <div class="edit-actions">
-          <button
-            class="secondary-button"
-            :disabled="savingMeeting"
-            @click="cancelEditing"
-          >
-            Cancel
-          </button>
-
-          <button
-            class="secondary-button"
-            :disabled="savingMeeting"
-            @click="saveMeeting"
-          >
-            {{ savingMeeting ? 'Saving...' : 'Save Changes' }}
-          </button>
-        </div>
-      </section>
+      </div>
 
       <p v-if="meetingMessage" class="small-message">
         {{ meetingMessage }}
@@ -573,12 +580,11 @@ const toLocalDateTimeInput = (dateString: string) => {
 }
 
 const startEditing = () => {
-  if (!meeting.value?.can_manage) {
-    return
-  }
+  if (!meeting.value?.can_manage) return
 
   editTitle.value = meeting.value.title
   editDescription.value = meeting.value.description || ''
+
   editStart.value = toLocalDateTimeInput(meeting.value.start_datetime)
 
   const startMs = new Date(meeting.value.start_datetime).getTime()
@@ -807,9 +813,22 @@ onBeforeUnmount(() => {
 .meeting-header {
   display: flex;
   justify-content: space-between;
-  gap: 24px;
   align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 28px;
+}
+
+.meeting-header > div:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.meeting-header .meeting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 100%;
 }
 
 .meeting-header h1 {
@@ -841,10 +860,15 @@ onBeforeUnmount(() => {
 
 .meeting-content-grid {
   display: grid;
-  grid-template-columns: 34% 1fr;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 1.7fr);
   gap: 18px;
   align-items: stretch;
   margin-top: 20px;
+}
+
+.meeting-left-column,
+.meeting-right-column {
+  min-width: 0;
 }
 
 .meeting-left-column,
@@ -883,17 +907,38 @@ onBeforeUnmount(() => {
 }
 
 /* CodeMirror builds its DOM at runtime, so scoped styles need :deep(). */
-.note-editor :deep(.cm-editor) {
-  min-height: 250px;
-  padding: 6px 4px;
+/* Shared Meeting Notes: fixed initial height, resizable */
+.note-editor {
+  height: 250px;
+  min-height: 180px;
+  max-height: 70vh;
+  resize: vertical;
+  overflow: hidden;
+  box-sizing: border-box;
   border: 1px solid #cccccc;
+  border-radius: 8px;
+}
+
+.note-editor :deep(.cm-editor) {
+  height: 100%;
+  min-height: 0;
+  padding: 6px 4px;
+  border: none;
   border-radius: 8px;
   font: inherit;
 }
 
+.note-editor :deep(.cm-scroller) {
+  overflow: auto;
+  height: 100%;
+}
+
+.note-editor:focus-within {
+  border-color: #888888;
+}
+
 .note-editor :deep(.cm-editor.cm-focused) {
   outline: none;
-  border-color: #888888;
 }
 
 .note-editor :deep(.cm-content) {
@@ -908,9 +953,34 @@ onBeforeUnmount(() => {
   min-height: 90px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .meeting-content-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .meeting-card {
+    padding: 16px;
+  }
+
+  .meeting-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .meeting-header > div:first-child {
+    flex: 0 1 auto;
+    width: 100%;
+  }
+
+  .meeting-header .meeting-actions {
+    width: 100%;
+  }
+
+  .meeting-header .meeting-actions button {
+    flex: 1 1 140px;
+    min-width: 0;
   }
 }
 
@@ -1003,6 +1073,7 @@ onBeforeUnmount(() => {
 .meeting-actions .secondary-button,
 .meeting-actions .danger-button {
   width: 160px;
+  max-width: 100%;
   height: 48px;
   padding: 0 12px;
   display: inline-flex;
@@ -1129,5 +1200,118 @@ onBeforeUnmount(() => {
 
 :global(html[data-theme='dark'] .back-button:hover) {
   color: #ffffff !important;
+}
+
+/* Responsive meeting detail layout */
+.meeting-detail-page,
+.meeting-card {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.meeting-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.meeting-header > div:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.meeting-header h1 {
+  overflow-wrap: anywhere;
+}
+
+.meeting-header .meeting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 100%;
+}
+
+.meeting-content-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 1.7fr);
+  gap: 18px;
+  min-width: 0;
+}
+
+.meeting-left-column,
+.meeting-right-column,
+.detail-section {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.meeting-description,
+.note-textarea,
+.summary-textarea {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1100px) {
+  .meeting-content-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .meeting-card {
+    padding: 16px;
+  }
+
+  .meeting-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .meeting-header > div:first-child {
+    flex: 0 1 auto;
+    width: 100%;
+  }
+
+  .meeting-header .meeting-actions {
+    width: 100%;
+  }
+
+  .meeting-header .meeting-actions button {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .meeting-header .meeting-actions {
+    flex-direction: column;
+  }
+
+  .meeting-header .meeting-actions button {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 700px) {
+  .meeting-header .meeting-actions .secondary-button,
+  .meeting-header .meeting-actions .danger-button {
+    width: auto;
+    max-width: 100%;
+    flex: 1 1 140px;
+  }
+}
+
+@media (max-width: 480px) {
+  .meeting-header .meeting-actions .secondary-button,
+  .meeting-header .meeting-actions .danger-button {
+    width: 100%;
+    flex: 0 0 auto;
+  }
 }
 </style>
