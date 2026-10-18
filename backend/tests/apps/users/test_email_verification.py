@@ -40,8 +40,10 @@ def response(body=None, *, status=200, bad_json=False, headers=None):
     return answer
 
 
+# Only the free key, unless a test says otherwise (two-key behaviour is in
+# test_email_verification_keys).
 @override_settings(
-    QEV_API_KEY=KEY, QEV_USE_SANDBOX=False, QEV_TIMEOUT_SECONDS=5, QEV_RESULT_MAX_AGE_DAYS=180,
+    QEV_API_KEY=KEY, QEV_PAID_API_KEY="", QEV_USE_SANDBOX=False, QEV_TIMEOUT_SECONDS=5, QEV_RESULT_MAX_AGE_DAYS=180,
     QEV_DAILY_LOOKUP_CAP=600, EMAIL_VERIFICATION_DISPATCH_SYNC=True,
 )
 class QevTestCase(TestCase):
@@ -237,7 +239,8 @@ class FailOpenTests(QevTestCase):
         self.assertFailedOpen("request_failed")
 
     def test_each_error_status(self):
-        for status in (400, 401, 402, 403, 404, 429, 500, 502, 503):
+        # 402 (out of credit) is its own case: test_email_verification_keys.
+        for status in (400, 401, 403, 404, 429, 500, 502, 503):
             with self.subTest(status=status):
                 self.answer(response(qev(), status=status))
                 self.assertFailedOpen(f"http_{status}")

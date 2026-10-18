@@ -774,3 +774,10 @@ QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
 # Email checks run on a background thread after commit; tests run them inline.
 EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Tried when QEV_API_KEY (the free key) is out of credit; set only in the
+# deployment's environment. Low-credit alerts follow this key's balance.
+QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
+# Minutes before a key that ran out of credit is tried again (a new UTC day
+# also allows a retry).
+QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)

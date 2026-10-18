@@ -86,6 +86,11 @@ class EmailVerificationCredits(models.Model):
     # The count starts again on a new day.
     lookups_on = models.DateField(null=True, blank=True)
     lookups_today = models.PositiveIntegerField(default=0)
+    # When each key (the free QEV_API_KEY, the paid QEV_PAID_API_KEY) was last
+    # found out of credit; None while it has credit. Checks skip it until it's
+    # due a retry (apps.users.email_verification).
+    free_exhausted_at = models.DateTimeField(null=True, blank=True)
+    paid_exhausted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "email_verification_credits"

@@ -31,13 +31,19 @@ def _credits(value):
     return int(text) if text.isdigit() else None
 
 
+def credits_in(headers):
+    """The credits left according to one QEV answer's ``headers``, or None if
+    they don't say (missing, unreadable or not a whole number)."""
+    try:
+        return _credits(headers.get(CREDITS_HEADER))
+    except Exception:  # noqa: BLE001 - headers that can't be read are just unusable
+        return None
+
+
 def record_remaining(headers) -> None:
     """Store the balance from one QEV answer's ``headers``. Never raises."""
     global _unreadable_logged
-    try:
-        remaining = _credits(headers.get(CREDITS_HEADER))
-    except Exception:  # noqa: BLE001 - headers that can't be read are just unusable
-        remaining = None
+    remaining = credits_in(headers)
     if remaining is None:
         if not _unreadable_logged:
             logger.warning("email_credits.header_unusable header=%s", CREDITS_HEADER)
