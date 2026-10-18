@@ -224,16 +224,16 @@
           Active (displays in the list immediately)
         </label>
       </div>
-      <div class="form-field form-field--full">
+      <div class="form-field form-field--full" data-test="admin-notes-field">
         <label class="form-label" for="f-admin-notes">Internal admin notes (visible only to admins)</label>
-        <textarea
+        <RichTextEditor
           id="f-admin-notes"
+          :key="editorKey"
           v-model="form.adminNotes"
-          class="form-input admin-users-form__textarea"
-          rows="3"
           placeholder="Add private context or notes about this user..."
+          compact
           data-test="form-admin-notes"
-        ></textarea>
+        />
       </div>
 
       <div class="admin-users-form__footer">
@@ -261,9 +261,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
+const RichTextEditor = RichEditor
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
@@ -378,6 +383,11 @@ const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+const editorSessionKey = ref(0)
+const editorKey = computed(() => {
+  const userId = props.user?.id ? `edit-user-${props.user.id}` : 'new-user'
+  return `${userId}-${editorSessionKey.value}`
+})
 // What the guardian fields held when the form opened; only changes are sent,
 // so saving a student's year level can't discard a pending guardian change
 // or revoke consent.
@@ -424,6 +434,7 @@ const onInterestToggle = (option: string, event: Event) => {
 
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
+  editorSessionKey.value++
   if (!editingUser) {
     Object.assign(form, defaultForm())
     editingOriginalActive.value = false

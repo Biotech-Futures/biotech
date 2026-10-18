@@ -54,8 +54,8 @@
 
     <section v-if="user" class="admin-users-detail__section" data-test="admin-notes-section">
       <h3>Internal Admin Notes</h3>
-      <div v-if="user.adminNotes" class="admin-users-detail__notes-box" data-test="admin-notes-display">
-        <p class="admin-users-detail__notes-text">{{ user.adminNotes }}</p>
+      <div v-if="hasAdminNotes" class="admin-users-detail__notes-box" data-test="admin-notes-display">
+        <div class="admin-users-detail__notes-text" data-test="admin-notes-content" v-html="adminNotesHtml"></div>
       </div>
       <p v-else class="admin-users-detail__notes-empty" data-test="admin-notes-empty">
         No private notes recorded.
@@ -283,6 +283,7 @@ import {
   superviseesLabel,
   supervisorLabel
 } from '@/utils/userFormat'
+import { sanitizeRichText } from '@/composables/useAnnouncements'
 
 const props = defineProps<{
   user: AdminUser | null
@@ -291,6 +292,17 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'updated', user: AdminUser): void
 }>()
+
+const hasAdminNotes = computed(() => {
+  const notes = props.user?.adminNotes
+  if (!notes) return false
+  return notes.replace(/<[^>]*>/g, '').trim().length > 0
+})
+
+const adminNotesHtml = computed(() => {
+  if (!props.user?.adminNotes) return ''
+  return sanitizeRichText(props.user.adminNotes)
+})
 
 const guardian = computed(() => {
   const user = props.user
@@ -585,8 +597,15 @@ const sendConsentRequest = async () => {
 
 .admin-users-detail__notes-text {
   margin: 0;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.admin-users-detail__notes-text :deep(p) {
+  margin: 0 0 0.5rem;
+}
+
+.admin-users-detail__notes-text :deep(p:last-child) {
+  margin-bottom: 0;
 }
 
 .admin-users-detail__notes-empty {

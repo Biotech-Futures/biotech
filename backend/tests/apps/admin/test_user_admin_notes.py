@@ -34,14 +34,16 @@ class AdminUserNotesTests(TestCase):
             "firstName": "Sam",
             "lastName": "Student",
             "role": "student",
+            "country": "Australia",
             "schoolName": "Sydney Grammar",
             "yearLevel": 11,
             "interests": ["Biotechnology"],
             "adminNotes": "Requires special accommodations for exams.",
         }]
-        result = add_users_by_role(payload, initiated_by=self.admin)
+        result = add_users_by_role(payload)
         self.assertEqual(len(result), 1)
-        self.assertIsNone(result[0]["msg"])
+        self.assertEqual(result[0]["msg"], "User created successfully")
+        self.assertIsNotNone(result[0]["data"])
 
         user_id = result[0]["data"]["id"]
         user = User.objects.get(id=user_id)
@@ -57,10 +59,14 @@ class AdminUserNotesTests(TestCase):
             last_name="Mentor",
             admin_notes="Initial note.",
         )
+        AdminScope.objects.create(user=user)
 
         update_result = update_user(
             user.id,
-            {"adminNotes": "Updated confidential context."},
+            {
+                "role": "admin",
+                "adminNotes": "Updated confidential context.",
+            },
             initiated_by=self.admin,
         )
         self.assertEqual(update_result["msg"], "User updated successfully")
@@ -72,7 +78,8 @@ class AdminUserNotesTests(TestCase):
         # Verify audit log was recorded
         audit = AuditLog.objects.filter(entity_id=user.id, action="update").last()
         self.assertIsNotNone(audit)
-        self.assertIn("admin_notes", audit.changes)
+        self.assertEqual(audit.before_state["adminNotes"], "Initial note.")
+        self.assertEqual(audit.after_state["adminNotes"], "Updated confidential context.")
 
     def test_update_user_without_changing_notes_does_not_log_notes_change(self):
         user = User.objects.create_user(
@@ -81,16 +88,21 @@ class AdminUserNotesTests(TestCase):
             last_name="Supervisor",
             admin_notes="Same note.",
         )
+        AdminScope.objects.create(user=user)
 
-        update_user(
-            user.id,
-            {"adminNotes": "Same note."},
-            initiated_by=self.admin,
-        )
-        # No change to admin_notes -> audit log not created for this unchanged field
-        audit = AuditLog.objects.filter(entity_id=user.id, action="update").last()
-        if audit:
-            self.assertNotIn("admin_notes", audit.changes)
+        payload = {
+            "role": "admin",
+            "adminNotes": "Same note.",
+        }
+        update_user(user.id, payload, initiated_by=self.admin)
+        count_before = AuditLog.objects.filter(entity_id=user.id, action="update").count()
+
+        # Update again with identical values
+        update_user(user.id, payload, initiated_by=self.admin)
+        count_after = AuditLog.objects.filter(entity_id=user.id, action="update").count()
+
+        # No change to user details -> update audit log count unchanged
+        self.assertEqual(count_before, count_after)
 
     def test_query_users_includes_admin_notes_and_filters(self):
         User.objects.create_user(

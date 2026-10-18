@@ -100,6 +100,14 @@ describe('Admin User Notes: Detail Content Component', () => {
   })
 })
 
+const RichEditorStub = {
+  name: 'RichEditor',
+  props: ['modelValue'],
+  emits: ['update:modelValue'],
+  template:
+    '<textarea data-test="form-admin-notes" class="rich-editor-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea>'
+}
+
 describe('Admin User Notes: Form Sheet Component', () => {
   beforeEach(() => {
     vi.mocked(updateAdminUser).mockClear()
@@ -118,9 +126,19 @@ describe('Admin User Notes: Form Sheet Component', () => {
         states: [],
         supervisors: []
       },
-      global: { stubs: { teleport: true } }
+      global: {
+        stubs: {
+          teleport: true,
+          RichEditor: RichEditorStub,
+          RichTextEditor: RichEditorStub
+        }
+      }
     })
     await wrapper.setProps({ modelValue: true })
+
+    const editor = wrapper.findComponent({ name: 'RichEditor' })
+    expect(editor.exists()).toBe(true)
+    expect(editor.props('modelValue')).toBe('Existing admin note for user.')
 
     const textarea = wrapper.find('[data-test="form-admin-notes"]')
     expect(textarea.exists()).toBe(true)
@@ -139,7 +157,13 @@ describe('Admin User Notes: Form Sheet Component', () => {
         states: [],
         supervisors: []
       },
-      global: { stubs: { teleport: true } }
+      global: {
+        stubs: {
+          teleport: true,
+          RichEditor: RichEditorStub,
+          RichTextEditor: RichEditorStub
+        }
+      }
     })
     await wrapper.setProps({ modelValue: true })
 
@@ -169,7 +193,13 @@ describe('Admin User Notes: Form Sheet Component', () => {
         states: [],
         supervisors: []
       },
-      global: { stubs: { teleport: true } }
+      global: {
+        stubs: {
+          teleport: true,
+          RichEditor: RichEditorStub,
+          RichTextEditor: RichEditorStub
+        }
+      }
     })
     await wrapper.setProps({ modelValue: true })
 
