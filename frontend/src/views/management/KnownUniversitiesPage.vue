@@ -258,9 +258,10 @@ onMounted(load)
   gap: 0.5rem;
 }
 
+/* Wide enough for its whole placeholder. */
 .known-universities__add .known-universities__input {
-  flex: 1 1 14rem;
-  min-width: 0;
+  flex: 0 0 15rem;
+  max-width: 100%;
 }
 
 .known-universities__add .btn {

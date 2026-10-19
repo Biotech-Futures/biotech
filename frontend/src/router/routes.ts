@@ -198,6 +198,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'registration-visibility', redirect: '/management/late-registration' },
       // The names registration treats as a university, not a school.
       { path: 'known-universities', name: 'management-known-universities', component: () => import('@/views/management/KnownUniversitiesPage.vue') },
+      // How much email-checking credit is left, and today's lookups.
+      { path: 'email-checks', name: 'management-email-checks', component: () => import('@/views/management/EmailChecksPage.vue') },
       // The day this year's challenge starts, for the supervisors' daily email.
       { path: 'challenge-start', name: 'management-challenge-start', component: () => import('@/views/management/ChallengeStartPage.vue') },
       { path: 'supervisor-visibility', redirect: '/management/late-registration' }

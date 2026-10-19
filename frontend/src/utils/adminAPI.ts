@@ -550,6 +550,38 @@ export const fetchAdminStates = (): Promise<AdminUserState[]> =>
   adminGet<AdminEnvelope<AdminUserState[]>>('/user/states/').then((env) => env.data)
 
 // ---------------------------------------------------------------------------
+// Email checks: QuickEmailVerification's credit, for Management > Email Checks
+// ---------------------------------------------------------------------------
+
+/** One key's state: set or not (never the key), its balance as last
+ *  reported, and whether it's out of credit until ``retryAt``. */
+export interface EmailCheckKey {
+  configured: boolean
+  remaining: number | null
+  updatedAt: string | null
+  exhausted: boolean
+  exhaustedAt: string | null
+  retryAt: string | null
+}
+
+export interface EmailCheckCredits {
+  free: EmailCheckKey
+  /** The paid key, with the alert levels already sent for it. */
+  paid: EmailCheckKey & { alertedThresholds: number[] }
+  /** The low-credit alert levels, highest first. */
+  thresholds: number[]
+  lookupsToday: number
+  lookupsOn: string | null
+  /** 0: no daily limit. */
+  dailyCap: number
+  /** Checks against the test service, using no real credit. */
+  sandbox: boolean
+}
+
+export const fetchEmailCheckCredits = () =>
+  adminGet<AdminEnvelope<EmailCheckCredits>>('/email-verification/credits/').then((env) => env.data)
+
+// ---------------------------------------------------------------------------
 // Known universities: names registration treats as a university, not a school
 // ---------------------------------------------------------------------------
 
