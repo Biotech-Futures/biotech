@@ -6,18 +6,19 @@
  * The backend contract is uneven, so everything snake_case or inconsistent is
  * absorbed here and the UI only ever sees `MatchingWeights` / `MatchingConfig`:
  *
- * - Config fields are snake_case and weights arrive as decimal strings ("20.00").
- * - `active/` returns `{ data, weights, requiredTotal, defaults }` at the top
- *   level, with `weights` under different camelCase names
- *   (`timezoneMaxPenalty`).
+ * - Config fields are snake_case and weights arrive as decimal strings ("8.00").
+ * - `active/` returns `{ data, weights, baseScore, maxTotalPenalty, defaults }`
+ *   at the top level, with `weights` under different camelCase names
+ *   (`yearMaxPenalty`, `timezoneMaxPenalty`).
  * - `defaults/` returns the same defaults block, but wrapped in `{ data }`.
  *
  * Country is deliberately absent: it stopped scoring in MA4 and now only breaks
  * ties by its cross-country pair count, so it has no tunable weight here.
  *
- * Weights are never rescaled here. A saved config must total exactly
- * `requiredTotal` (100) and the backend rejects anything else, so the UI has to
- * show the admin their real total rather than a silently corrected one.
+ * Weights are raw points, not percentages, and are never rescaled here. They
+ * may total anything; what the backend rejects is a pair of penalty caps adding
+ * up to more than `maxTotalPenalty`, since past that the worst pairings all
+ * score 0 and stop being rankable.
  */
 import { z } from 'zod'
 import { ApiError } from './apiError'
@@ -27,9 +28,10 @@ import type { ParseResult } from './adminMatching'
 // Public types
 // ---------------------------------------------------------------------------
 
-/** The four scoring weights, as percentages of the 100-point base score. */
+/** The five scoring weights, in points off the 100-point base score. */
 export interface MatchingWeights {
   yearWeight: number
+  yearMaxWeight: number
   timezoneWeight: number
   timezoneMaxWeight: number
   sizeBonusWeight: number
@@ -40,28 +42,39 @@ export type MatchingWeightKey = keyof MatchingWeights
 /** Display order for the weight inputs. */
 export const MATCHING_WEIGHT_KEYS: readonly MatchingWeightKey[] = [
   'yearWeight',
+  'yearMaxWeight',
   'timezoneWeight',
   'timezoneMaxWeight',
   'sizeBonusWeight'
+]
+
+/** The weights that cap a penalty, which `maxTotalPenalty` is measured over. */
+export const MATCHING_PENALTY_CAP_KEYS: readonly MatchingWeightKey[] = [
+  'yearMaxWeight',
+  'timezoneMaxWeight'
 ]
 
 /** A saved weight set (the one `MatchingConfig` row). */
 export interface MatchingConfig {
   id: number
   weights: MatchingWeights
-  /** Server-computed sum of `weights`. */
+  /** Server-computed sum of `weights`. Informational: no rule is stated on it. */
   totalWeight: number
+  /** Server-computed worst case: what the caps together can take off a score. */
+  maxTotalPenalty: number
   /** User id of the last admin to save it, or null. */
   updatedBy: number | null
   createdAt: string
   updatedAt: string
 }
 
-/** A complete, valid starting split for a new config. */
+/** Starting weights for a new config, plus the limits the backend enforces. */
 export interface MatchingConfigDefaults {
   weights: MatchingWeights
-  /** What a saved config must total exactly — 100. */
-  requiredTotal: number
+  /** The scale the points come off — 100. */
+  baseScore: number
+  /** The most the two penalty caps may add up to — 100. */
+  maxTotalPenalty: number
 }
 
 /** What matching is scored with right now, from `GET /matching/configs/active/`. */
@@ -70,7 +83,7 @@ export interface ActiveMatchingConfig {
   config: MatchingConfig | null
   /**
    * The weights a run would use today. With no saved config these are the
-   * built-in legacy values, which do not total `requiredTotal`.
+   * built-in legacy values.
    */
   appliedWeights: MatchingWeights
   /** True when no config is saved and the built-in weights apply. */
@@ -83,14 +96,14 @@ export interface CreateMatchingConfigPayload {
 }
 
 export interface UpdateMatchingConfigPayload {
-  /** Partial is allowed; the server checks the total against stored values. */
+  /** Partial is allowed; the server checks the ceiling against stored values. */
   weights?: Partial<MatchingWeights>
 }
 
 /** Validation messages from a rejected save, keyed for the form. */
 export interface MatchingConfigFieldErrors {
-  /** The "must total exactly 100%" message (backend `weight_total`). */
-  weightTotal?: string
+  /** The penalty-ceiling message (backend `penalty_ceiling`). */
+  penaltyCeiling?: string
   /** Per-weight messages, e.g. out of range or too many decimal places. */
   weights: Partial<Record<MatchingWeightKey, string>>
   /** Anything not tied to a field the form shows (e.g. `non_field_errors`). */
@@ -104,6 +117,7 @@ export interface MatchingConfigFieldErrors {
 /** Frontend weight key -> config field on the backend serializer. */
 const CONFIG_FIELD: Record<MatchingWeightKey, string> = {
   yearWeight: 'year_weight',
+  yearMaxWeight: 'year_max_weight',
   timezoneWeight: 'timezone_weight',
   timezoneMaxWeight: 'timezone_max_weight',
   sizeBonusWeight: 'size_bonus_weight'
@@ -115,6 +129,7 @@ const CONFIG_FIELD: Record<MatchingWeightKey, string> = {
  */
 const APPLIED_WEIGHT_FIELD: Record<MatchingWeightKey, string> = {
   yearWeight: 'yearWeight',
+  yearMaxWeight: 'yearMaxPenalty',
   timezoneWeight: 'timezoneWeight',
   timezoneMaxWeight: 'timezoneMaxPenalty',
   sizeBonusWeight: 'sizeBonusWeight'
@@ -157,6 +172,7 @@ const configSchema = z
   .object({
     id: z.number().int().positive(),
     total_weight: decimal,
+    max_total_penalty: decimal,
     updated_by: z.number().int().nullable().default(null),
     created_at: z.string(),
     updated_at: z.string(),
@@ -167,22 +183,29 @@ const configSchema = z
       id: raw.id,
       weights: pickWeights(raw, CONFIG_FIELD),
       totalWeight: raw.total_weight,
+      maxTotalPenalty: raw.max_total_penalty,
       updatedBy: raw.updated_by,
       createdAt: raw.created_at,
       updatedAt: raw.updated_at
     })
   )
 
-/** `{ requiredTotal, defaults }` — shared by `active/` and `defaults/`. */
+/** `{ baseScore, maxTotalPenalty, defaults }` — shared by `active/` and `defaults/`. */
 const defaultsBlockShape = {
-  requiredTotal: decimal,
+  baseScore: decimal,
+  maxTotalPenalty: decimal,
   defaults: weightsSchema(CONFIG_FIELD)
 }
 
 const toDefaults = (raw: {
-  requiredTotal: number
+  baseScore: number
+  maxTotalPenalty: number
   defaults: MatchingWeights
-}): MatchingConfigDefaults => ({ weights: raw.defaults, requiredTotal: raw.requiredTotal })
+}): MatchingConfigDefaults => ({
+  weights: raw.defaults,
+  baseScore: raw.baseScore,
+  maxTotalPenalty: raw.maxTotalPenalty
+})
 
 /** `GET defaults/` wraps the block in `data`. */
 const defaultsResponseSchema = z
@@ -234,8 +257,8 @@ export const parseMatchingConfigDefaults = (
 
 /**
  * Weights in backend field names. Values are sent exactly as entered — no
- * rounding and no rescaling — so the server's 100% and 2-decimal-place rules
- * judge what the admin actually typed.
+ * rounding and no rescaling — so the server's penalty-ceiling and
+ * 2-decimal-place rules judge what the admin actually typed.
  */
 const toConfigFields = (weights: Partial<MatchingWeights>): Record<string, number> =>
   Object.fromEntries(
@@ -275,7 +298,7 @@ export const matchingConfigFieldErrors = (error: unknown): MatchingConfigFieldEr
   const result: MatchingConfigFieldErrors = { weights: {}, other: [] }
   for (const [field, messages] of Object.entries(error.fields)) {
     const message = messages.join(' ')
-    if (field === 'weight_total') result.weightTotal = message
+    if (field === 'penalty_ceiling') result.penaltyCeiling = message
     else if (WEIGHT_KEY_BY_FIELD[field]) result.weights[WEIGHT_KEY_BY_FIELD[field]] = message
     else result.other.push(message)
   }

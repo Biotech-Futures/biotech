@@ -10,21 +10,27 @@ import {
   type MatchingConfigFieldErrors,
   type MatchingWeightKey,
   type MatchingWeights,
+  MATCHING_PENALTY_CAP_KEYS,
   MATCHING_WEIGHT_KEYS,
   matchingConfigFieldErrors
 } from '@/utils/matchingConfig'
 
-/** Labels and help copy for the four weight inputs, in display order. */
+/** Labels and help copy for the five weight inputs, in display order. */
 export const MATCHING_WEIGHT_FIELDS: { key: MatchingWeightKey; label: string; help: string }[] = [
   {
     key: 'yearWeight',
     label: 'Year',
-    help: 'Taken off the score for each year of year-level difference between students.'
+    help: 'Points taken off the score for each year of year-level difference between students.'
+  },
+  {
+    key: 'yearMaxWeight',
+    label: 'Year cap',
+    help: 'The most the year penalty can take off a score, however far apart students are.'
   },
   {
     key: 'timezoneWeight',
     label: 'Timezone',
-    help: 'Taken off the score for each hour of timezone difference between students.'
+    help: 'Points taken off the score for each hour of timezone difference between students.'
   },
   {
     key: 'timezoneMaxWeight',
@@ -34,7 +40,7 @@ export const MATCHING_WEIGHT_FIELDS: { key: MatchingWeightKey; label: string; he
   {
     key: 'sizeBonusWeight',
     label: 'Group size bonus',
-    help: 'Added to the score for forming a full-sized group.'
+    help: 'Points added to the score for forming a full-sized group.'
   }
 ]
 
@@ -53,9 +59,9 @@ const errorMessage = (error: unknown, fallback: string) =>
 
 /**
  * The value in hundredths, or null when it is not a usable weight. Hundredths
- * keep the total exact: 33.33 + 33.33 + 33.34 is 100 here, not
- * 100.00000000000001, and more than two decimal places is rejected rather than
- * rounded, matching the backend's DecimalField(decimal_places=2).
+ * keep sums exact: 33.33 + 33.34 is 66.67 here, not 66.67000000000001, and more
+ * than two decimal places is rejected rather than rounded, matching the
+ * backend's DecimalField(decimal_places=2).
  */
 const toHundredths = (value: WeightInput): number | null => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
@@ -64,16 +70,18 @@ const toHundredths = (value: WeightInput): number | null => {
   return Math.abs(value * 100 - hundredths) < 1e-6 ? hundredths : null
 }
 
-const formatPercent = (hundredths: number) =>
+/** Hundredths as a plain point figure: 4200 -> '42', 4250 -> '42.50'. */
+const formatPoints = (hundredths: number) =>
   hundredths % 100 === 0 ? String(hundredths / 100) : (hundredths / 100).toFixed(2)
 
 /**
  * State for the student matching weights editor (MA1).
  *
  * Edits the active config only: with one saved, saving PATCHes it; with none,
- * saving POSTs a new config, which the backend makes active. Weights are sent
- * exactly as entered — a total other than `requiredTotal` blocks saving
- * rather than being rebalanced.
+ * saving POSTs a new config, which the backend makes active. Weights are raw
+ * points sent exactly as entered: they may total anything, and nothing is
+ * rebalanced. What blocks saving is penalty caps adding up to more than the
+ * base score, which would flatten every worst-case pairing to 0.
  */
 export function useMatchingConfig() {
   const status = ref<LoadStatus>('loading')
@@ -82,6 +90,7 @@ export function useMatchingConfig() {
 
   const weights = ref<Record<MatchingWeightKey, WeightInput>>({
     yearWeight: '',
+    yearMaxWeight: '',
     timezoneWeight: '',
     timezoneMaxWeight: '',
     sizeBonusWeight: ''
@@ -94,8 +103,8 @@ export function useMatchingConfig() {
   const notice = ref('')
 
   const fillForm = (state: ActiveMatchingConfig) => {
-    // With no saved config the built-in weights are not a valid percentage
-    // split (they total 34), so the form starts from the suggested defaults.
+    // With no saved config the built-in weights apply, and they are also what
+    // the defaults block suggests, so either source starts the form correctly.
     const source = state.config?.weights ?? state.defaults.weights
     weights.value = { ...source }
   }
@@ -121,34 +130,55 @@ export function useMatchingConfig() {
 
   // -- Derived ----------------------------------------------------------------
 
-  const requiredTotal = computed(() => active.value?.defaults.requiredTotal ?? 100)
+  const baseScore = computed(() => active.value?.defaults.baseScore ?? 100)
+
+  /** The ceiling the caps are held to, as the backend reports it. */
+  const maxTotalPenalty = computed(() => active.value?.defaults.maxTotalPenalty ?? 100)
 
   /** Keys whose input is empty, out of range or has too many decimals. */
   const invalidWeightKeys = computed(() =>
     MATCHING_WEIGHT_KEYS.filter((key) => toHundredths(weights.value[key]) === null)
   )
 
-  const totalHundredths = computed(() =>
-    MATCHING_WEIGHT_KEYS.reduce((sum, key) => sum + (toHundredths(weights.value[key]) ?? 0), 0)
+  /** What the two caps together would take off a score, in hundredths. */
+  const penaltyHundredths = computed(() =>
+    MATCHING_PENALTY_CAP_KEYS.reduce((sum, key) => sum + (toHundredths(weights.value[key]) ?? 0), 0)
   )
 
-  const requiredHundredths = computed(() => Math.round(requiredTotal.value * 100))
+  const ceilingHundredths = computed(() => Math.round(maxTotalPenalty.value * 100))
 
-  const totalLabel = computed(
-    () => `${formatPercent(totalHundredths.value)} / ${formatPercent(requiredHundredths.value)}%`
-  )
-
-  const totalMatches = computed(
+  /** True once the caps could wipe out more than the whole base score. */
+  const ceilingExceeded = computed(
     () =>
       invalidWeightKeys.value.length === 0 &&
-      totalHundredths.value === requiredHundredths.value
+      penaltyHundredths.value > ceilingHundredths.value
+  )
+
+  /** The score of the worst pairing these weights allow, floored at 0. */
+  const worstCaseLabel = computed(() => {
+    const remaining = Math.round(baseScore.value * 100) - penaltyHundredths.value
+    return formatPoints(Math.max(0, remaining))
+  })
+
+  /** Just the caps' total: "42". */
+  const penaltyTotalLabel = computed(() => formatPoints(penaltyHundredths.value))
+
+  /** "42 of 100 points" — what the configured caps can actually take off. */
+  const penaltyLabel = computed(
+    () => `${penaltyTotalLabel.value} of ${formatPoints(ceilingHundredths.value)}`
+  )
+
+  /** How far over the ceiling the caps are, for a message that says what to do. */
+  const overshootLabel = computed(() =>
+    formatPoints(Math.max(0, penaltyHundredths.value - ceilingHundredths.value))
   )
 
   const canSave = computed(
     () =>
       status.value === 'ready' &&
       !saving.value &&
-      totalMatches.value
+      invalidWeightKeys.value.length === 0 &&
+      !ceilingExceeded.value
   )
 
   /** Server message for a field, else a local one once the input is unusable. */
@@ -169,7 +199,7 @@ export function useMatchingConfig() {
     () => {
       notice.value = ''
       if (fieldErrors.value) {
-        fieldErrors.value = { ...fieldErrors.value, weights: {}, weightTotal: undefined }
+        fieldErrors.value = { ...fieldErrors.value, weights: {}, penaltyCeiling: undefined }
       }
     },
     { deep: true, flush: 'sync' }
@@ -236,9 +266,12 @@ export function useMatchingConfig() {
     saveError,
     fieldErrors,
     notice,
-    requiredTotal,
-    totalLabel,
-    totalMatches,
+    baseScore,
+    maxTotalPenalty,
+    penaltyLabel,
+    overshootLabel,
+    worstCaseLabel,
+    ceilingExceeded,
     canSave,
     weightError,
     load,

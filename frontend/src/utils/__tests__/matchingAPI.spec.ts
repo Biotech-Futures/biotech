@@ -18,27 +18,32 @@ import { matchingConfigFieldErrors } from '@/utils/matchingConfig'
 const configRow = {
   id: 7,
   year_weight: '30.00',
+  year_max_weight: '20.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
   size_bonus_weight: '30.00',
-  total_weight: '100.00',
+  total_weight: '90.00',
+  max_total_penalty: '45.00',
   updated_by: 1,
   created_at: '2026-10-06T10:00:00Z',
   updated_at: '2026-10-06T10:05:00Z'
 }
 
 const defaultsBlock = {
-  requiredTotal: '100.00',
+  baseScore: 100,
+  maxTotalPenalty: 100,
   defaults: {
-    year_weight: 20.0,
-    timezone_weight: 30.0,
-    timezone_max_weight: 25.0,
-    size_bonus_weight: 25.0
+    year_weight: 8.0,
+    year_max_weight: 24.0,
+    timezone_weight: 2.0,
+    timezone_max_weight: 18.0,
+    size_bonus_weight: 6.0
   }
 }
 
 const weights = {
   yearWeight: 30,
+  yearMaxWeight: 20,
   timezoneWeight: 15,
   timezoneMaxWeight: 25,
   sizeBonusWeight: 30
@@ -94,6 +99,7 @@ describe('reads', () => {
         data: null,
         weights: {
           yearWeight: 8.0,
+          yearMaxPenalty: 24.0,
           timezoneWeight: 2.0,
           timezoneMaxPenalty: 18.0,
           sizeBonusWeight: 6.0
@@ -114,7 +120,7 @@ describe('reads', () => {
 
     expect(active.usingBuiltInWeights).toBe(true)
     expect(active.appliedWeights.sizeBonusWeight).toBe(6)
-    expect(active.defaults.requiredTotal).toBe(100)
+    expect(active.defaults.maxTotalPenalty).toBe(100)
   })
 
   it('fetches the defaults', async () => {
@@ -123,12 +129,13 @@ describe('reads', () => {
     const defaults = await fetchMatchingConfigDefaults()
 
     expect(apiCall(fetchMock).url).toMatch(/\/matching\/configs\/defaults\/$/)
-    expect(defaults.weights.timezoneWeight).toBe(30)
-    expect(defaults.requiredTotal).toBe(100)
+    expect(defaults.weights.timezoneWeight).toBe(2)
+    expect(defaults.baseScore).toBe(100)
+    expect(defaults.maxTotalPenalty).toBe(100)
   })
 
   it('throws rather than returning defaults when the response shape is wrong', async () => {
-    stubFetch(() => jsonResponse({ requiredTotal: '100.00' }))
+    stubFetch(() => jsonResponse({ maxTotalPenalty: '100.00' }))
 
     await expect(fetchMatchingConfigDefaults()).rejects.toThrow(/unexpected format/)
   })
@@ -149,12 +156,13 @@ describe('writes', () => {
     expect(csrfFetches(fetchMock)).toBe(1)
     expect(body).toEqual({
       year_weight: 30,
+      year_max_weight: 20,
       timezone_weight: 15,
       timezone_max_weight: 25,
       size_bonus_weight: 30
     })
 
-    expect(created).toMatchObject({ id: 7, totalWeight: 100, weights })
+    expect(created).toMatchObject({ id: 7, totalWeight: 90, maxTotalPenalty: 45, weights })
   })
 
   it('updates a config with PATCH, sending only the given fields', async () => {
@@ -194,17 +202,19 @@ describe('validation errors', () => {
       400
     )
 
-  it('surfaces the weight total message from a rejected create', async () => {
-    const message = 'Matching weights must total exactly 100.00% (currently 90.00%, 10.00% under).'
-    stubFetch(rejected({ weight_total: [message] }))
+  it('surfaces the penalty ceiling message from a rejected create', async () => {
+    const message =
+      'Please lower a cap by at least 10.00: at 110 points against a ' +
+      '100-point score, the worst pairing would fall below 0.'
+    stubFetch(rejected({ penalty_ceiling: [message] }))
 
     const error = await createMatchingConfig({
-      weights: { ...weights, yearWeight: 20 }
+      weights: { ...weights, yearMaxWeight: 85 }
     }).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).status).toBe(400)
     expect((error as ApiError).message).toBe(message)
-    expect(matchingConfigFieldErrors(error)?.weightTotal).toBe(message)
+    expect(matchingConfigFieldErrors(error)?.penaltyCeiling).toBe(message)
   })
 })
