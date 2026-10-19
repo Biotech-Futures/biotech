@@ -1,0 +1,42 @@
+name: Daily system log prune
+
+# Deletes System Logs rows older than SYSTEM_LOG_RETENTION_DAYS (backend
+# setting, 30 by default) so the table doesn't grow forever. The same work can
+# be run by hand with `python manage.py prune_system_logs [--days N]`.
+#
+# Required configuration:
+#   secret  EMAIL_JOBS_TOKEN   shared by every scheduled job; must match the
+#                              backend env of the same name
+#
+# 17:41 UTC is early morning in Sydney, and off the top of the hour, which
+# GitHub's scheduler delays the most.
+on:
+  schedule:
+    - cron: "41 17 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: system-log-prune
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger system log prune
+        env:
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
+        run: |
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # Deletes in batches; a large backlog the first time still finishes
+          # well inside Azure's ~230s gateway limit. -f fails the run on HTTP >= 400.
+          curl -fsS --max-time 200 -X POST \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/admin/system-logs/prune/"

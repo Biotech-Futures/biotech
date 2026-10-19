@@ -545,6 +545,7 @@ const sidebarSections = computed(() => {
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
+        { label: 'System Logs', to: '/admin/logs', active: path === '/admin/logs' },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
       ],

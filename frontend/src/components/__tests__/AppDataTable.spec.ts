@@ -153,3 +153,19 @@ describe('the bottom bar', () => {
     expect(box.style.minHeight).toBe('')
   })
 })
+
+describe('rows per page', () => {
+  const pageSizeOptions = (wrapper: ReturnType<typeof mountTable>) =>
+    wrapper.findAll('.data-table-page-size option').map((option) => option.text())
+
+  it('offers All by default, as every other table does', () => {
+    expect(pageSizeOptions(mountTable())).toContain('All Entries')
+  })
+
+  it('leaves All out when a page turns it off', () => {
+    const options = pageSizeOptions(mountTable({ allowAllRows: false }))
+
+    expect(options).not.toContain('All Entries')
+    expect(options.length).toBeGreaterThan(0)
+  })
+})
