@@ -800,7 +800,14 @@ def register(request):
             # A supervisor's confirmation too, never an admin's (registering
             # students for a supervisor or for none).
             registering = request.user if journey in SUPERVISOR_JOURNEYS and not supervisor.get("admin") else None
-            transaction.on_commit(lambda: send_registration_emails(journey, users, supervisor=registering))
+            # An admin's students hear who their supervisor is (the one the admin chose).
+            admin_for = (
+                f"{supervisor['firstName']} {supervisor['lastName']}".strip()
+                if journey in SUPERVISOR_JOURNEYS and supervisor.get("admin") else None
+            )
+            transaction.on_commit(lambda: send_registration_emails(
+                journey, users, supervisor=registering, admin_for=admin_for,
+            ))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:

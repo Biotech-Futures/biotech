@@ -73,13 +73,37 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
                 self.assertEqual(context["First_Name"], "Current")
                 self.assertTrue(context["STUDENTS_URL"].endswith("/#/my-students"))
 
-    def test_none_when_an_admin_registers_students(self):
-        body = batch("supervisor_individual")
-        body["payload"]["supervisorEmail"] = "manager@example.test"
-        with patch(SEND) as send, self.captureOnCommitCallbacks(execute=True):
-            response = self.submit(body=body, client=self.staff_client)
-        self.assertEqual(response.status_code, 201, response.data)
-        send.assert_not_called()
+    def test_each_student_an_admin_registers_gets_the_admin_one_naming_their_supervisor(self):
+        for offset, journey in enumerate(("supervisor_individual", "supervisor_group", "supervisor_csv")):
+            with self.subTest(journey):
+                body = batch(journey, offset=offset * 10)
+                body["payload"]["supervisorEmail"] = "manager@example.test"
+                with patch(SEND) as send, self.captureOnCommitCallbacks(execute=True):
+                    response = self.submit(body=body, client=self.staff_client)
+                self.assertEqual(response.status_code, 201, response.data)
+                # Only the students: no supervisor's confirmation for an admin's registration.
+                self.assertEqual(
+                    [
+                        (call.args[0], call.args[1], call.args[2]["First_Name"], call.args[2]["SUPERVISOR_NAME"])
+                        for call in send.call_args_list
+                    ],
+                    [
+                        ("registration_by_admin", student["email"], student["firstName"], "Current Supervisor")
+                        for student in body["payload"]["students"]
+                    ],
+                )
+
+    def test_the_admin_one_names_the_supervisor_they_chose(self):
+        rendered = render_system_email(
+            "registration_by_admin", {"First_Name": "Amy", "YEAR": "2026", "SUPERVISOR_NAME": "Sam Lee"},
+        )
+        self.assertEqual(rendered.subject, "BIOTech Futures: Registration")
+        for text in (
+            "Hi Amy,", "been registered for",
+            "The BIOTech Futures team has registered you for the 2026 BIOTech Futures Challenge, "
+            "with Sam Lee as your supervisor.",
+        ):
+            self.assertIn(text, rendered.html)
 
     def test_the_registered_by_supervisor_one_names_their_supervisor(self):
         rendered = render_system_email(

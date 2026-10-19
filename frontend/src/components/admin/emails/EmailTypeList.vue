@@ -105,7 +105,12 @@ const GROUPS: [string, string[]][] = [
   ['Self registration', ['registration_student', 'registration_group', 'registration_mentor']],
   [
     'Supervisor registration',
-    ['registration_by_supervisor', 'registration_supervisor', 'supervisor_registration_status']
+    [
+      'registration_by_supervisor',
+      'registration_by_admin',
+      'registration_supervisor',
+      'supervisor_registration_status'
+    ]
   ],
   [
     'Guardians',

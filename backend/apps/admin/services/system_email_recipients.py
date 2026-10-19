@@ -476,6 +476,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "registration_student": Recipients(_students, _registration_context),
     "registration_group": Recipients(_students, _registration_context),
     "registration_by_supervisor": Recipients(_students, _registered_by_supervisor_context),
+    "registration_by_admin": Recipients(_students, _registered_by_supervisor_context),
     "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
     "registration_mentor": Recipients(_mentors, _registration_context),
     "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),

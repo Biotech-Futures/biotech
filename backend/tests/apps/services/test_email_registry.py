@@ -23,6 +23,7 @@ EXPECTED_KEYS = {
     "registration_group",
     "registration_mentor",
     "registration_by_supervisor",
+    "registration_by_admin",
     "registration_supervisor",
     "supervisor_registration_status",
     "unread_messages",
