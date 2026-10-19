@@ -1446,6 +1446,7 @@ function EventPage() {
                 eventTimezone: BROWSER_TZ,
                 startAt: "",
                 endsAt: "",
+                targetGroupIds: [],
                 targetRoleIds: [],
             });
           }

@@ -1,5 +1,4 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ForceDeleteNotice } from "@/components/people/ForceDeleteNotice";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +32,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   USER_ROLES,
-  roleHasGeography,
   type UserAccount,
   type UserFormValues,
   type UserRole,
@@ -45,7 +43,6 @@ import { UserEditorSheet } from "@/components/user/UserEditorSheet";
 import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 import type { SortState } from "@/components/ui/sortable-table";
 import { toast } from "sonner";
-import { serverMessage } from "@/lib/queryError";
 
 const DEFAULT_PAGE_SIZE = 25;
 type UserStatusFilter = "all" | "active" | "inactive";
@@ -186,7 +183,8 @@ function UserManagementPage() {
   } | null>(null);
   // Mass "select all matching" delete requires typing DELETE to confirm.
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  // What force delete destroys is written once, in ForceDeleteNotice.
+  // Force delete also purges records that PROTECT the user (chat messages,
+  // resources, workshops, match runs) — needed to remove accounts with activity.
   const [forceDelete, setForceDelete] = useState(false);
 
   const clearSelection = () => {
@@ -329,13 +327,13 @@ function UserManagementPage() {
           email: values.email,
           role: values.role,
           country:
-            !roleHasGeography(values.role)
+            values.role === "admin"
               ? undefined
               : values.countryId != null
                 ? countryNameById.get(values.countryId)
                 : undefined,
           state:
-            !roleHasGeography(values.role)
+            values.role === "admin"
               ? undefined
               : values.stateId != null
                 ? stateNameById.get(values.stateId)
@@ -378,10 +376,8 @@ function UserManagementPage() {
         }
 
         setEditorOpen(false);
-      } catch (error) {
-        toast.error(
-          serverMessage(error) ?? "Unable to create the user right now.",
-        );
+      } catch {
+        toast.error("Unable to create the user right now.");
       }
       return;
     }
@@ -395,8 +391,8 @@ function UserManagementPage() {
           firstName: values.firstName,
           lastName: values.lastName,
           role: values.role,
-          countryId: roleHasGeography(values.role) ? values.countryId : null,
-          stateId: roleHasGeography(values.role) ? values.stateId : null,
+          countryId: values.role === "admin" ? null : values.countryId,
+          stateId: values.role === "admin" ? null : values.stateId,
           schoolName: values.role === "student" ? values.schoolName : null,
           supervisorSchoolName:
             values.role === "supervisor" ? values.supervisorSchoolName : null,
@@ -437,12 +433,8 @@ function UserManagementPage() {
       }
 
       setEditorOpen(false);
-    } catch (error) {
-      // The server's own words when it has any. A 400 carrying "Country
-      // cannot be cleared" reaches this catch because axios rejects on 4xx,
-      // and the generic fallback used to hide it — leaving an admin with a
-      // dialog that would not save and no way to find out why.
-      toast.error(serverMessage(error) ?? "Unable to update the user right now.");
+    } catch {
+      toast.error("Unable to update the user right now.");
     }
   };
 
@@ -726,7 +718,11 @@ function UserManagementPage() {
                 checked={forceDelete}
                 onChange={(event) => setForceDelete(event.target.checked)}
               />
-              <ForceDeleteNotice subject="user" />
+              <span>
+                Force delete — also permanently delete each user's chat messages,
+                uploaded resources, workshops, and match runs. Required to remove
+                accounts that have any activity.
+              </span>
             </label>
             {forceDelete ? (
               <p className="text-sm font-medium text-destructive">
