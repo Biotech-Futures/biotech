@@ -182,9 +182,6 @@
           </span>
         </button>
       </div>
-      <p class="setup-signin">
-        Already have an account? <RouterLink to="/login">Sign in</RouterLink>
-      </p>
       <p v-if="!invitationToken" class="supervisor-guidance">
         If you are a supervisor, please
         contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
@@ -3173,18 +3170,8 @@ onBeforeUnmount(() => {
 }
 
 /* Lined up under the cards, as the rest of the page is. */
-.setup-signin {
-  margin: 30px 0 0;
-  color: var(--registration-muted);
-}
-
-.setup-signin a {
-  color: var(--registration-green-dark);
-  font-weight: 700;
-}
-
 .supervisor-guidance {
-  margin: 12px 0 0;
+  margin: 30px 0 0;
   color: var(--registration-muted);
   font-size: 0.9rem;
 }
