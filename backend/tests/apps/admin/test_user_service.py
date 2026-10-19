@@ -1763,3 +1763,127 @@ class AdminUserTypedStateTests(TestCase):
         update_user(self.user.id, {"stateName": "Auckland"})
         update_user(self.user.id, {"stateName": ""})
         self.assertIsNone(self._state())
+
+
+class AdminMentorDetailsTests(TestCase):
+    """A mentor's panel: what they registered with, their weekly times and
+    groups, and an admin changing them as registering checks them."""
+
+    def setUp(self):
+        from apps.users.models import AreasOfInterest, UserInterest
+
+        self.au = Countries.objects.create(country_name="Australia")
+        self.mentor = User.objects.create_user(email="mia@example.com", first_name="Mia", last_name="Ng")
+        self.mentor.country = self.au
+        self.mentor.save()
+        role, _ = Roles.objects.get_or_create(role_name="mentor")
+        RoleAssignmentHistory.objects.create(user=self.mentor, role=role, valid_from=timezone.now() - timedelta(days=1))
+        self.profile = MentorProfile.objects.create(
+            user=self.mentor, background="postgraduate", institution="Uni", university_year="2",
+            field_of_study="Biology", mentor_reason="To help", relevant_background="Lab work",
+            mentoring_approach="Weekly calls", max_group_count=3,
+        )
+        UserInterest.objects.create(user=self.mentor, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def _profile(self):
+        self.profile.refresh_from_db()
+        return self.profile
+
+    def test_payload_gives_their_details_weekly_times_and_every_group(self):
+        from datetime import time
+
+        from apps.users.models.mentor_availability import MentorAvailability
+
+        MentorAvailability.objects.create(mentor_user=self.mentor, weekday=2, start_time=time(17), end_time=time(19))
+        MentorAvailability.objects.create(mentor_user=self.mentor, weekday=0, start_time=time(18), end_time=time(20))
+        for name, students in (("BTF10", 1), ("BTF2", 3)):
+            group = Groups.objects.create(group_name=name)
+            GroupMembership.objects.create(user=self.mentor, group=group, membership_role="mentor")
+            for index in range(students):
+                student = User.objects.create_user(email=f"{name}-{index}@example.com")
+                GroupMembership.objects.create(user=student, group=group, membership_role="student")
+
+        detail = fetch_user_by_id(self.mentor.id)
+        listed = next(item for item in query_users(role="mentor")["data"]["items"] if item["id"] == self.mentor.id)
+        for data in (detail, listed):
+            with self.subTest(source="detail" if data is detail else "list"):
+                self.assertEqual(data["mentorBackground"], "postgraduate")
+                self.assertEqual(data["mentorUniversityYear"], "2")
+                self.assertEqual(data["mentorFieldOfStudy"], "Biology")
+                self.assertEqual(data["mentorRelevantBackground"], "Lab work")
+                self.assertEqual(data["mentorMentoringApproach"], "Weekly calls")
+                self.assertEqual(data["mentorAvailability"], [
+                    {"weekday": 0, "start": "18:00", "end": "20:00"},
+                    {"weekday": 2, "start": "17:00", "end": "19:00"},
+                ])
+                self.assertEqual(
+                    [(group["name"], group["studentCount"]) for group in data["mentorGroups"]],
+                    [("BTF2", 3), ("BTF10", 1)],
+                )
+
+    def test_an_industry_mentor_needs_a_company_not_an_institution(self):
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "industry", "mentorCompany": "", "mentorInstitution": "",
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "",
+        })
+        self.assertEqual(result["msg"], "Company is required for industry mentors")
+
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "",
+        })
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual((self._profile().company, self._profile().institution), ("Acme Bio", ""))
+
+        # Later edits elsewhere no longer ask an industry mentor for an institution.
+        result = update_user(self.mentor.id, {"firstName": "Maya"})
+        self.assertIsNotNone(result["data"], result["msg"])
+
+    def test_a_student_background_needs_its_year_and_field(self):
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "undergraduate", "mentorInstitution": "Uni", "mentorUniversityYear": "",
+            "mentorFieldOfStudy": "Biology", "mentorCompany": "",
+        })
+        self.assertEqual(result["msg"], "Year of study is required for university students")
+
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "academic", "mentorInstitution": "Uni", "mentorUniversityYear": "",
+            "mentorFieldOfStudy": "", "mentorCompany": "",
+        })
+        self.assertEqual(result["msg"], "Field of study is required for this background")
+
+    def test_answers_are_kept_to_150_words(self):
+        result = update_user(self.mentor.id, {"mentorMentoringApproach": "word " * 151})
+        self.assertEqual(result["msg"], "Keep each answer to 150 words or fewer")
+
+        result = update_user(self.mentor.id, {
+            "mentorReason": "To share what I know", "mentorRelevantBackground": "Ten years in labs",
+            "mentorMentoringApproach": "word " * 150,
+        })
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(self._profile().mentor_reason, "To share what I know")
+
+    def test_weekly_times_are_replaced_and_checked(self):
+        from apps.users.models.mentor_availability import MentorAvailability
+
+        result = update_user(self.mentor.id, {"mentorAvailability": [{"weekday": 1, "start": "19:00", "end": "18:00"}]})
+        self.assertEqual(result["msg"], "Each weekly time must end after it starts")
+
+        result = update_user(self.mentor.id, {"mentorAvailability": [
+            {"weekday": 1, "start": "18:00", "end": "19:30"},
+            {"weekday": 1, "start": "18:00", "end": "19:30"},
+            {"weekday": 4, "start": "09:00", "end": "10:00"},
+        ]})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(result["data"]["mentorAvailability"], [
+            {"weekday": 1, "start": "18:00", "end": "19:30"},
+            {"weekday": 4, "start": "09:00", "end": "10:00"},
+        ])
+
+        update_user(self.mentor.id, {"mentorAvailability": []})
+        self.assertFalse(MentorAvailability.objects.filter(mentor_user=self.mentor).exists())
+
+    def test_capacity_can_be_zero(self):
+        result = update_user(self.mentor.id, {"mentorMaxGroupCount": 0})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(self._profile().max_group_count, 0)

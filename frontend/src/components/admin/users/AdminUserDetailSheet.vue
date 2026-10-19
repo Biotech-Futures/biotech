@@ -16,8 +16,8 @@
       @updated="(u) => emit('updated', u)"
     />
 
-    <!-- A student's parts each have their own Edit, and the x closes. -->
-    <div v-if="user?.role !== 'student'" class="admin-users-detail__footer">
+    <!-- A student's or mentor's parts each have their own Edit, and the x closes. -->
+    <div v-if="user?.role !== 'student' && user?.role !== 'mentor'" class="admin-users-detail__footer">
       <button type="button" class="btn btn-outline" @click="onDismiss">Close</button>
       <button v-if="user && showEdit" type="button" class="btn btn-primary" @click="emit('edit', user)">Edit</button>
     </div>

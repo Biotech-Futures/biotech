@@ -234,6 +234,18 @@ export interface AdminUser {
   mentorInstitution: string | null
   mentorReason: string | null
   mentorMaxGroupCount: number | null
+  /** From registering: an industry mentor's company; a student mentor's year
+   *  ("1" to "4", "5+"); a student's or academic's field of study. */
+  mentorCompany?: string | null
+  mentorUniversityYear?: string | null
+  mentorFieldOfStudy?: string | null
+  /** Their application's answers, beside mentorReason. */
+  mentorRelevantBackground?: string | null
+  mentorMentoringApproach?: string | null
+  /** When they're free each week: Monday is 0, times "HH:MM". */
+  mentorAvailability?: { weekday: number; start: string; end: string }[]
+  /** Every group they mentor, by name, with its students counted. */
+  mentorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
   guardianFirstName: string | null
   guardianLastName: string | null

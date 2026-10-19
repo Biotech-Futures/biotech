@@ -4,7 +4,7 @@
       <div class="admin-users-detail__heading">
         <h3>Account</h3>
         <button
-          v-if="user.role === 'student' && editable && editing !== 'account'"
+          v-if="(user.role === 'student' || user.role === 'mentor') && editable && editing !== 'account'"
           type="button"
           class="btn btn-outline btn-sm"
           data-test="admin-edit-account"
@@ -13,8 +13,7 @@
           Edit
         </button>
       </div>
-      <p v-if="savedPart === 'account'" class="admin-users-detail__saved">Saved.</p>
-      <!-- A student's email, country and state; the rest isn't edited here. -->
+      <!-- A student's or mentor's email, country, state and status. -->
       <form v-if="editing === 'account'" data-test="admin-account-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Email</span>
@@ -141,7 +140,6 @@
           Edit
         </button>
       </div>
-      <p v-if="savedPart === 'supervisor'" class="admin-users-detail__saved">Saved.</p>
       <!-- Each picked from a list; replacing one they have asks first. -->
       <form v-if="editing === 'supervisor'" data-test="admin-supervisor-form" @submit.prevent="save">
         <div class="admin-users-detail__item">
@@ -209,7 +207,6 @@
           Edit
         </button>
       </div>
-      <p v-if="savedPart === 'details'" class="admin-users-detail__saved">Saved.</p>
       <form v-if="editing === 'details'" data-test="admin-details-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
@@ -282,7 +279,6 @@
           Edit
         </button>
       </div>
-      <p v-if="savedPart === 'guardian'" class="admin-users-detail__saved">Saved.</p>
       <form v-if="editing === 'guardian'" data-test="admin-guardian-form" @submit.prevent="save">
         <p v-if="user.pendingGuardian" class="admin-users-detail__note">
           The student asked to change their guardian to
@@ -426,32 +422,270 @@
       </ul>
     </section>
 
-    <section v-if="user?.role === 'mentor'" class="admin-users-detail__section">
-      <h3>Mentor Profile</h3>
-      <dl class="admin-users-detail__list">
-        <div class="admin-users-detail__item">
-          <dt>Interests / Expertise</dt>
-          <dd>{{ joinInterests(user.interests) }}</dd>
+    <!-- A mentor's parts, each edited in place as a student's are: their
+         groups, what they registered with, and their application's answers. -->
+    <section v-if="user?.role === 'mentor'" class="admin-users-detail__section" data-test="admin-mentor-groups">
+      <div class="admin-users-detail__heading">
+        <h3>Groups</h3>
+        <button
+          v-if="editable && editing !== 'mentorGroups'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-mentor-groups"
+          @click="startEdit('mentorGroups')"
+        >
+          Edit
+        </button>
+      </div>
+      <!-- Group 1, 2, …: the next one once the last is picked, up to their
+           capacity. Taking one off, or one with another mentor, asks first. -->
+      <form v-if="editing === 'mentorGroups'" data-test="admin-mentor-groups-form" @submit.prevent="save">
+        <div v-for="(groupId, index) in mentorGroupSlots" :key="index" class="admin-users-detail__item">
+          <label class="admin-users-detail__label" :for="`admin-mentor-group-${index}`">Group {{ index + 1 }}</label>
+          <AppSelect
+            :id="`admin-mentor-group-${index}`"
+            size="large"
+            :model-value="groupId"
+            class="admin-users-detail__input"
+            :data-test="`admin-mentor-group-${index}`"
+            :options="mentorGroupOptions(index)"
+            :loading="picksLoading"
+            searchable
+            placeholder="Choose a group"
+            empty-text="No group matches"
+            @update:model-value="(value) => pickMentorGroup(index, value)"
+          />
         </div>
+        <p v-if="!mentorGroupSlots.length || form.mentorGroupIds.length >= mentorCapacity" class="admin-users-detail__note admin-users-detail__note--after">
+          {{ mentorCapacityNote }}
+        </p>
+        <p v-if="picksError" class="admin-users-detail__save-error" role="alert">{{ picksError }}</p>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
         <div class="admin-users-detail__item">
-          <dt>Institution</dt>
-          <dd>{{ user.mentorInstitution || '—' }}</dd>
+          <dt>Groups</dt>
+          <dd data-test="admin-mentor-group-names">{{ mentorGroupNames || '—' }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section v-if="user?.role === 'mentor'" class="admin-users-detail__section" data-test="admin-mentor-details">
+      <div class="admin-users-detail__heading">
+        <h3>Mentor Details</h3>
+        <button
+          v-if="editable && editing !== 'mentorDetails'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-mentor-details"
+          @click="startEdit('mentorDetails')"
+        >
+          Edit
+        </button>
+      </div>
+      <!-- As the registration form asks: where they work or study depends on
+           their background. -->
+      <form v-if="editing === 'mentorDetails'" data-test="admin-mentor-details-form" @submit.prevent="save">
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">First name</span>
+          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="150" />
+        </label>
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Last name</span>
+          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="150" />
+        </label>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-mentor-background">Background</label>
+          <AppSelect
+            id="admin-mentor-background"
+            v-model="form.mentorBackground"
+            size="large"
+            class="admin-users-detail__input"
+            data-test="admin-mentor-background"
+            :options="mentorBackgroundOptions"
+            placeholder="Choose a background"
+          />
+        </div>
+        <label v-if="form.mentorBackground === 'industry'" class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Company</span>
+          <input v-model.trim="form.mentorCompany" class="admin-users-detail__input" data-test="admin-mentor-company" maxlength="255" />
+        </label>
+        <label v-else class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Institution</span>
+          <input v-model.trim="form.mentorInstitution" class="admin-users-detail__input" data-test="admin-mentor-institution" maxlength="255" />
+        </label>
+        <div v-if="mentorStudying" class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-mentor-year">Year of study</label>
+          <AppSelect
+            id="admin-mentor-year"
+            v-model="form.mentorUniversityYear"
+            size="large"
+            class="admin-users-detail__input"
+            data-test="admin-mentor-year"
+            :options="STUDY_YEAR_OPTIONS"
+            placeholder="Choose a year"
+          />
+        </div>
+        <label v-if="form.mentorBackground !== 'industry'" class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Field of study</span>
+          <input v-model.trim="form.mentorFieldOfStudy" class="admin-users-detail__input" data-test="admin-mentor-field" maxlength="255" />
+        </label>
+        <fieldset class="admin-users-detail__item admin-users-detail__options">
+          <legend class="admin-users-detail__label">Interests</legend>
+          <label v-for="interest in mentorInterestOptions" :key="interest">
+            <input v-model="form.interests" type="checkbox" :value="interest" />
+            {{ interest }}
+          </label>
+        </fieldset>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-mentor-capacity">Capacity</label>
+          <AppSelect
+            id="admin-mentor-capacity"
+            v-model="form.mentorCapacity"
+            size="large"
+            class="admin-users-detail__input"
+            data-test="admin-mentor-capacity"
+            :options="mentorCapacityOptions"
+          />
+        </div>
+        <!-- Weekly activity: a day and the times they're free, as many as they like. -->
+        <div class="admin-users-detail__item admin-users-detail__item--stacked">
+          <span class="admin-users-detail__label">Weekly activity</span>
+          <div
+            v-for="(slot, index) in form.mentorAvailability"
+            :key="index"
+            class="admin-users-detail__slot"
+            :data-test="`admin-mentor-slot-${index}`"
+          >
+            <AppSelect
+              v-model="slot.weekday"
+              size="large"
+              class="admin-users-detail__input"
+              :aria-label="`Day ${index + 1}`"
+              :options="WEEKDAY_OPTIONS"
+              placeholder="Day"
+            />
+            <input v-model="slot.start" type="time" class="admin-users-detail__input" :aria-label="`From, time ${index + 1}`" />
+            <span class="admin-users-detail__slot-to">to</span>
+            <input v-model="slot.end" type="time" class="admin-users-detail__input" :aria-label="`To, time ${index + 1}`" />
+            <button
+              type="button"
+              class="admin-users-detail__slot-remove"
+              :aria-label="`Remove time ${index + 1}`"
+              @click="form.mentorAvailability.splice(index, 1)"
+            >
+              <i class="fas fa-xmark" aria-hidden="true"></i>
+            </button>
+          </div>
+          <button
+            v-if="form.mentorAvailability.length < 21"
+            type="button"
+            class="btn btn-outline btn-sm admin-users-detail__slot-add"
+            data-test="admin-mentor-add-slot"
+            @click="form.mentorAvailability.push({ weekday: null, start: '', end: '' })"
+          >
+            Add a time
+          </button>
+        </div>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
+        <div class="admin-users-detail__item">
+          <dt>Name</dt>
+          <dd>{{ [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' }}</dd>
         </div>
         <div class="admin-users-detail__item">
           <dt>Background</dt>
-          <dd>{{ user.mentorBackground || '—' }}</dd>
+          <dd data-test="admin-mentor-background-label">{{ mentorBackgroundLabel(user.mentorBackground) }}</dd>
+        </div>
+        <div v-if="user.mentorBackground === 'industry'" class="admin-users-detail__item">
+          <dt>Company</dt>
+          <dd>{{ user.mentorCompany || '—' }}</dd>
+        </div>
+        <div v-else class="admin-users-detail__item">
+          <dt>Institution</dt>
+          <dd>{{ user.mentorInstitution || '—' }}</dd>
+        </div>
+        <div v-if="isStudyingBackground(user.mentorBackground)" class="admin-users-detail__item">
+          <dt>Year of study</dt>
+          <dd>{{ studyYearLabel(user.mentorUniversityYear) }}</dd>
+        </div>
+        <div v-if="user.mentorBackground !== 'industry'" class="admin-users-detail__item">
+          <dt>Field of study</dt>
+          <dd>{{ user.mentorFieldOfStudy || '—' }}</dd>
         </div>
         <div class="admin-users-detail__item">
-          <dt>Mentor reason</dt>
-          <dd>{{ user.mentorReason || '—' }}</dd>
+          <dt>Interests</dt>
+          <dd>{{ joinInterests(user.interests) }}</dd>
         </div>
         <div class="admin-users-detail__item">
-          <dt>Max groups</dt>
-          <dd>{{ user.mentorMaxGroupCount ?? '—' }}</dd>
+          <dt>Capacity</dt>
+          <dd>{{ capacityLabel(user.mentorMaxGroupCount) }}</dd>
         </div>
         <div class="admin-users-detail__item">
-          <dt>Group</dt>
-          <dd>{{ user.groupName || '—' }}</dd>
+          <dt>Weekly activity</dt>
+          <dd data-test="admin-mentor-weekly">{{ weeklyLabel(user.mentorAvailability) }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section v-if="user?.role === 'mentor'" class="admin-users-detail__section" data-test="admin-mentor-application">
+      <div class="admin-users-detail__heading">
+        <h3>Application Form</h3>
+        <button
+          v-if="editable && editing !== 'application'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-application"
+          @click="startEdit('application')"
+        >
+          Edit
+        </button>
+      </div>
+      <!-- The three questions registering asks, 150 words each at most. -->
+      <form v-if="editing === 'application'" data-test="admin-application-form" @submit.prevent="save">
+        <label
+          v-for="question in APPLICATION_QUESTIONS"
+          :key="question.key"
+          class="admin-users-detail__item admin-users-detail__item--stacked admin-users-detail__item--boxed"
+        >
+          <span class="admin-users-detail__label">{{ question.label }}</span>
+          <textarea
+            v-model="form[question.key]"
+            v-auto-grow
+            class="admin-users-detail__input admin-users-detail__textarea"
+            :data-test="`admin-answer-${question.key}`"
+            rows="9"
+          ></textarea>
+          <span
+            class="admin-users-detail__words"
+            :class="{ 'is-over': wordCount(form[question.key]) > MAX_ANSWER_WORDS }"
+          >
+            {{ wordCount(form[question.key]) }}/{{ MAX_ANSWER_WORDS }} words
+          </span>
+        </label>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
+        <div
+          v-for="question in APPLICATION_QUESTIONS"
+          :key="question.key"
+          class="admin-users-detail__item admin-users-detail__item--stacked admin-users-detail__item--boxed"
+        >
+          <dt>{{ question.label }}</dt>
+          <dd class="admin-users-detail__answer" :data-test="`admin-answer-view-${question.key}`">{{ user[question.field] || '—' }}</dd>
         </div>
       </dl>
     </section>
@@ -489,16 +723,20 @@
 
     <ConfirmDialog
       v-model="confirmOpen"
-      title="Replace supervisor or group?"
-      :message="`${userName(user)} already has one. Saving will:`"
+      :title="editing === 'mentorGroups' ? 'Change their groups?' : 'Replace supervisor or group?'"
+      :message="
+        editing === 'mentorGroups'
+          ? `This changes the groups ${userName(user)} mentors. Saving will:`
+          : `${userName(user)} already has one. Saving will:`
+      "
       confirm-label="Save"
       busy-label="Saving…"
       variant="warning"
       :busy="saving"
-      @confirm="commitSupervisorAndGroup"
+      @confirm="editing === 'mentorGroups' ? commitMentorGroups() : commitSupervisorAndGroup()"
     >
       <ul class="admin-users-detail__replacing" data-test="admin-replacing">
-        <li v-for="line in replacing" :key="line">{{ line }}.</li>
+        <li v-for="line in editing === 'mentorGroups' ? mentorGroupReplacing : replacing" :key="line">{{ line }}.</li>
       </ul>
     </ConfirmDialog>
   </div>
@@ -509,6 +747,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
+  confirmMentorAssignments,
   confirmStudentAssignments,
   downloadGuardianConsentRecord,
   fetchAdminCountries,
@@ -520,6 +759,7 @@ import {
   removeGroupMember,
   sendGuardianConsentRequest,
   setAdminUserActive,
+  unassignMentors,
   updateAdminUser
 } from '@/utils/adminAPI'
 import type {
@@ -595,7 +835,6 @@ const requestFailed = ref(false)
 
 watch(() => props.user?.id, () => {
   editing.value = null
-  savedPart.value = null
   requestMessage.value = ''
   requestFailed.value = false
   consents.value = []
@@ -606,13 +845,11 @@ watch(() => props.user?.id, () => {
 
 // --- a student's parts, each edited in place ----------------------------------
 
-type Part = 'account' | 'details' | 'guardian' | 'supervisor'
+type Part = 'account' | 'details' | 'guardian' | 'supervisor' | 'mentorGroups' | 'mentorDetails' | 'application'
 
 const YEAR_OPTIONS: AppSelectOption[] = [9, 10, 11, 12].map((year) => ({ value: year, label: String(year) }))
 
 const editing = ref<Part | null>(null)
-// The part just saved, to say so above it.
-const savedPart = ref<Part | null>(null)
 const saving = ref(false)
 const saveError = ref('')
 
@@ -639,7 +876,18 @@ const blankForm = () => ({
   mediaGiven: false,
   pendingConsentGiven: false,
   supervisorEmail: '',
-  groupId: null as number | null
+  groupId: null as number | null,
+  mentorGroupIds: [] as number[],
+  mentorBackground: null as AppSelectOption['value'],
+  mentorCompany: '',
+  mentorInstitution: '',
+  mentorUniversityYear: null as AppSelectOption['value'],
+  mentorFieldOfStudy: '',
+  mentorCapacity: null as AppSelectOption['value'],
+  mentorAvailability: [] as MentorSlot[],
+  mentorRelevantBackground: '',
+  mentorReason: '',
+  mentorMentoringApproach: ''
 })
 const form = reactive(blankForm())
 
@@ -656,7 +904,11 @@ const startEdit = (part: Part) => {
     lastName: user.lastName || '',
     schoolName: user.schoolName || '',
     yearLevel: user.yearLevel ?? null,
-    interests: (user.interests || []).filter((interest) => INTEREST_OPTIONS.includes(interest)),
+    // A mentor keeps expertise from outside the list; a student picks from it.
+    interests:
+      user.role === 'mentor'
+        ? [...(user.interests || [])]
+        : (user.interests || []).filter((interest) => INTEREST_OPTIONS.includes(interest)),
     // A placeholder guardian (the student's own name) is no guardian at all.
     guardianFirstName: guardian.value.name ? user.guardianFirstName || '' : '',
     guardianLastName: guardian.value.name ? user.guardianLastName || '' : '',
@@ -664,13 +916,24 @@ const startEdit = (part: Part) => {
     consentGiven: Boolean(user.joinPermissionReceived),
     mediaGiven: Boolean(user.joinPermissionReceived) && user.mediaConsent === true,
     supervisorEmail: (user.supervisorEmail || '').toLowerCase(),
-    groupId: user.groupId ?? null
+    groupId: user.groupId ?? null,
+    mentorGroupIds: (user.mentorGroups || []).map((group) => group.id),
+    mentorBackground: user.mentorBackground || null,
+    mentorCompany: user.mentorCompany || '',
+    mentorInstitution: user.mentorInstitution || '',
+    mentorUniversityYear: user.mentorUniversityYear || null,
+    mentorFieldOfStudy: user.mentorFieldOfStudy || '',
+    mentorCapacity: user.mentorMaxGroupCount ?? null,
+    mentorAvailability: (user.mentorAvailability || []).map((slot) => ({ ...slot })),
+    mentorRelevantBackground: user.mentorRelevantBackground || '',
+    mentorReason: user.mentorReason || '',
+    mentorMentoringApproach: user.mentorMentoringApproach || ''
   })
   saveError.value = ''
-  savedPart.value = null
   editing.value = part
   if (part === 'supervisor') loadPicks()
   if (part === 'account') loadPlaces()
+  if (part === 'mentorGroups') loadGroups()
 }
 
 const cancelEdit = () => {
@@ -701,6 +964,8 @@ const payloadFor = (part: Part): Record<string, unknown> | string => {
     if ('countryId' in account && form.countryId === null) return 'Choose a country.'
     return account
   }
+  if (part === 'mentorDetails') return mentorDetailsPayload()
+  if (part === 'application') return applicationPayload()
   if (part === 'details') {
     if (form.yearLevel === null) return 'Choose a year level.'
     if (!form.interests.length) return 'Choose at least one interest.'
@@ -745,6 +1010,10 @@ const save = async () => {
     saveSupervisorAndGroup()
     return
   }
+  if (part === 'mentorGroups') {
+    saveMentorGroups()
+    return
+  }
   const payload = payloadFor(part)
   if (typeof payload === 'string') {
     saveError.value = payload
@@ -771,7 +1040,6 @@ const save = async () => {
     }
     if (statusChanged) updated = (await setAdminUserActive(user.id, active)).data
     editing.value = null
-    savedPart.value = part
   } catch (error) {
     saveError.value = apiErrorFromUnknown(error, 'The change could not be saved.').message
   } finally {
@@ -850,6 +1118,19 @@ const fetchAllGroups = async () => {
     if (!data.has_more) break
   }
   return groups
+}
+
+// Every group, fresh each time a mentor's Groups Edit is pressed.
+const loadGroups = async () => {
+  picksLoading.value = true
+  picksError.value = ''
+  try {
+    groupList.value = await fetchAllGroups()
+  } catch (error) {
+    picksError.value = apiErrorFromUnknown(error, 'Could not load the groups.').message
+  } finally {
+    picksLoading.value = false
+  }
 }
 
 // Every supervisor and group, fresh each time Edit is pressed so the seats
@@ -974,12 +1255,255 @@ const commitSupervisorAndGroup = async () => {
       updated = await fetchAdminUser(user.id)
     }
     editing.value = null
-    savedPart.value = 'supervisor'
   } catch (error) {
     saveError.value = apiErrorFromUnknown(error, 'The change could not be saved.').message
   } finally {
     // What did save shows, even when the group move after it didn't.
     if (updated) emit('updated', updated)
+    saving.value = false
+    confirmOpen.value = false
+  }
+}
+
+// --- a mentor's parts ----------------------------------------------------------
+
+interface MentorSlot {
+  weekday: AppSelectOption['value']
+  start: string
+  end: string
+}
+
+// As the registration form offers them (apps.users.mentor_registration).
+const MENTOR_BACKGROUNDS: AppSelectOption[] = [
+  { value: 'undergraduate', label: 'University Student - Undergraduate' },
+  { value: 'postgraduate', label: 'University Student - Postgraduate' },
+  { value: 'hdr', label: 'University Student - HDR' },
+  { value: 'academic', label: 'Academic / research staff' },
+  { value: 'industry', label: 'Industry' }
+]
+const STUDY_YEAR_OPTIONS: AppSelectOption[] = [
+  { value: '1', label: 'Year 1' },
+  { value: '2', label: 'Year 2' },
+  { value: '3', label: 'Year 3' },
+  { value: '4', label: 'Year 4' },
+  { value: '5+', label: 'Year 5 or later' }
+]
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const WEEKDAY_OPTIONS: AppSelectOption[] = WEEKDAYS.map((day, index) => ({ value: index, label: day }))
+const MAX_ANSWER_WORDS = 150
+const APPLICATION_QUESTIONS = [
+  { key: 'mentorRelevantBackground', field: 'mentorRelevantBackground', label: 'Relevant background' },
+  { key: 'mentorReason', field: 'mentorReason', label: 'Why would you like to mentor?' },
+  { key: 'mentorMentoringApproach', field: 'mentorMentoringApproach', label: 'How would you mentor BIOTech groups?' }
+] as const
+
+const isStudyingBackground = (background: AppSelectOption['value'] | undefined) =>
+  background === 'undergraduate' || background === 'postgraduate'
+const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
+
+// Older mentors' backgrounds were typed; they show, and stay a choice, as written.
+const mentorBackgroundLabel = (background: string | null | undefined) =>
+  MENTOR_BACKGROUNDS.find((option) => option.value === background)?.label ?? (background || '—')
+const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
+  const current = props.user?.mentorBackground
+  return current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
+    ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
+    : MENTOR_BACKGROUNDS
+})
+const studyYearLabel = (year: string | null | undefined) =>
+  STUDY_YEAR_OPTIONS.find((option) => option.value === year)?.label ?? (year || '—')
+
+const mentorCapacity = computed(() => props.user?.mentorMaxGroupCount ?? 0)
+const capacityLabel = (count: number | null | undefined) =>
+  count == null ? '—' : `${count} ${count === 1 ? 'group' : 'groups'}`
+// 1 to 5 as registering offers, and whatever they have now.
+const mentorCapacityOptions = computed<AppSelectOption[]>(() => {
+  const counts = new Set([1, 2, 3, 4, 5])
+  if (props.user?.mentorMaxGroupCount != null) counts.add(props.user.mentorMaxGroupCount)
+  return [...counts].sort((a, b) => a - b).map((count) => ({ value: count, label: capacityLabel(count) }))
+})
+
+// The standard interests, and any expertise they have from outside them.
+const mentorInterestOptions = computed(() => [
+  ...INTEREST_OPTIONS,
+  ...(props.user?.interests || []).filter((interest) => !INTEREST_OPTIONS.includes(interest))
+])
+
+const weeklyLabel = (slots: AdminUser['mentorAvailability']) =>
+  slots?.length
+    ? slots.map((slot) => `${WEEKDAYS[slot.weekday]?.slice(0, 3)} ${slot.start}–${slot.end}`).join(', ')
+    : '—'
+
+// An answer's box grows with what's written, from its 9 rows, rather than
+// scrolling.
+const growToFit = (box: HTMLTextAreaElement) => {
+  box.style.height = ''
+  if (box.scrollHeight > box.clientHeight) {
+    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`
+  }
+}
+const vAutoGrow = { mounted: growToFit, updated: growToFit }
+
+const wordCount = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
+
+const mentorDetailsPayload = (): Record<string, unknown> | string => {
+  const background = form.mentorBackground as string | null
+  if (!background) return 'Choose a background.'
+  const industry = background === 'industry'
+  const listed = MENTOR_BACKGROUNDS.some((option) => option.value === background)
+  if (industry && !form.mentorCompany) return 'Enter their company or organisation.'
+  if (!industry && !form.mentorInstitution) return 'Enter their university or institution.'
+  if (!industry && listed && !form.mentorFieldOfStudy) return 'Enter their field of study or research.'
+  if (mentorStudying.value && !form.mentorUniversityYear) return 'Choose their year of study.'
+  if (!form.interests.length) return 'Choose at least one interest.'
+  if (form.mentorCapacity === null) return 'Choose their capacity.'
+  const availability = []
+  for (const slot of form.mentorAvailability) {
+    if (slot.weekday === null && !slot.start && !slot.end) continue
+    if (slot.weekday === null || !slot.start || !slot.end) return 'Give each weekly time a day and both times.'
+    if (slot.end <= slot.start) return 'Each weekly time must end after it starts.'
+    availability.push({ weekday: slot.weekday, start: slot.start, end: slot.end })
+  }
+  // What the background doesn't ask for is cleared, as registering does.
+  return {
+    firstName: form.firstName,
+    lastName: form.lastName,
+    mentorBackground: background,
+    mentorCompany: industry ? form.mentorCompany : '',
+    mentorInstitution: industry ? '' : form.mentorInstitution,
+    mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',
+    mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
+    interests: form.interests,
+    mentorMaxGroupCount: form.mentorCapacity,
+    mentorAvailability: availability
+  }
+}
+
+const applicationPayload = (): Record<string, unknown> | string => {
+  if (!form.mentorReason.trim()) return 'Say why they would like to mentor.'
+  for (const question of APPLICATION_QUESTIONS) {
+    if (wordCount(form[question.key]) > MAX_ANSWER_WORDS) {
+      return `Keep each answer to ${MAX_ANSWER_WORDS} words or fewer.`
+    }
+  }
+  return {
+    mentorRelevantBackground: form.mentorRelevantBackground.trim(),
+    mentorReason: form.mentorReason.trim(),
+    mentorMentoringApproach: form.mentorMentoringApproach.trim()
+  }
+}
+
+// Groups: what they mentor now, and each Group N's choice.
+const mentorGroupNames = computed(() => (props.user?.mentorGroups || []).map((group) => group.name).join(', '))
+const mentorGroupSlots = computed<(number | null)[]>(() =>
+  form.mentorGroupIds.length < mentorCapacity.value ? [...form.mentorGroupIds, null] : [...form.mentorGroupIds]
+)
+const mentorCapacityNote = computed(() =>
+  mentorCapacity.value
+    ? `That's their capacity of ${capacityLabel(mentorCapacity.value)}; raise it in Mentor Details for more.`
+    : 'Their capacity is 0 groups; raise it in Mentor Details to give them one.'
+)
+
+const mentorOf = (group: AdminGroupDetail) => group.mentor && Number(group.mentor.id) !== props.user?.id ? group.mentor : null
+
+// Every group not picked in another slot: its students and its mentor under it.
+// A filled slot can be emptied ("No group").
+const mentorGroupOptions = (index: number): AppSelectOption[] => {
+  const pickedElsewhere = new Set(form.mentorGroupIds.filter((_, at) => at !== index))
+  const groups = [...groupList.value]
+    .filter((group) => !pickedElsewhere.has(group.id))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    .map((group) => {
+      const other = mentorOf(group)
+      const taken = studentCount(group)
+      return {
+        value: group.id,
+        label: group.name,
+        detail: `${taken} ${taken === 1 ? 'student' : 'students'} · ${other ? `mentor: ${other.name}` : group.mentor ? 'theirs' : 'no mentor'}`
+      }
+    })
+  // Theirs stays a choice even before the list loads.
+  for (const group of props.user?.mentorGroups || []) {
+    if (!pickedElsewhere.has(group.id) && !groups.some((option) => option.value === group.id)) {
+      groups.unshift({ value: group.id, label: group.name, detail: 'theirs' })
+    }
+  }
+  const filled = form.mentorGroupIds[index] !== undefined
+  return filled ? [{ value: null, label: 'No group', detail: 'Take them off this group' }, ...groups] : groups
+}
+
+const pickMentorGroup = (index: number, value: AppSelectOption['value']) => {
+  if (value === null) form.mentorGroupIds.splice(index, 1)
+  else form.mentorGroupIds[index] = value as number
+}
+
+const mentorGroupChanges = computed(() => {
+  const had = (props.user?.mentorGroups || []).map((group) => group.id)
+  return {
+    removed: had.filter((id) => !form.mentorGroupIds.includes(id)),
+    added: form.mentorGroupIds.filter((id) => !had.includes(id))
+  }
+})
+
+const groupNameOf = (id: number) =>
+  groupList.value.find((group) => group.id === id)?.name ??
+  props.user?.mentorGroups?.find((group) => group.id === id)?.name ??
+  `group ${id}`
+
+// What Save would take away, for the popup: a group they had, or one's other mentor.
+const mentorGroupReplacing = computed(() => {
+  const { removed, added } = mentorGroupChanges.value
+  const lines = removed.map((id) => `Take them off ${groupNameOf(id)}`)
+  for (const id of added) {
+    const group = groupList.value.find((candidate) => candidate.id === id)
+    const other = group ? mentorOf(group) : null
+    if (other) lines.push(`Replace ${other.name} as ${groupNameOf(id)}'s mentor`)
+  }
+  return lines
+})
+
+const saveMentorGroups = () => {
+  const { removed, added } = mentorGroupChanges.value
+  if (!removed.length && !added.length) {
+    cancelEdit()
+    return
+  }
+  if (mentorGroupReplacing.value.length) {
+    confirmOpen.value = true
+    return
+  }
+  commitMentorGroups()
+}
+
+// Off the old ones first, so their capacity has room for the new.
+const commitMentorGroups = async () => {
+  const user = props.user
+  if (!user || saving.value) return
+  const { removed, added } = mentorGroupChanges.value
+  saving.value = true
+  saveError.value = ''
+  let changed = false
+  try {
+    if (removed.length) {
+      await unassignMentors(removed)
+      changed = true
+    }
+    if (added.length) {
+      await confirmMentorAssignments(added.map((groupId) => ({ groupId, mentorUserId: user.id })))
+      changed = true
+    }
+    editing.value = null
+  } catch (error) {
+    saveError.value = apiErrorFromUnknown(error, 'The change could not be saved.').message
+  } finally {
+    // What did save shows, even when a later step didn't.
+    if (changed) {
+      try {
+        emit('updated', await fetchAdminUser(user.id))
+      } catch {
+        // The page shows what it had; a reload brings the rest.
+      }
+    }
     saving.value = false
     confirmOpen.value = false
   }
@@ -1116,6 +1640,87 @@ const sendConsentRequest = async () => {
   background: var(--surface-elevated);
 }
 
+/* A label over its field, for long answers and the weekly times. */
+.admin-users-detail__item--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.admin-users-detail__item.admin-users-detail__item--stacked dd {
+  text-align: left;
+}
+
+/* The application's answers, shown and edited: 15px. */
+.admin-users-detail__answer {
+  white-space: pre-wrap;
+  font-size: 0.75rem;
+  /* In a box, as its edit box is drawn. */
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--surface-elevated);
+}
+
+.admin-users-detail__item--stacked .admin-users-detail__input {
+  max-width: none;
+}
+
+.admin-users-detail__textarea {
+  /* Its own height, not the row's flex: it grows with what's written. */
+  flex: none;
+  resize: vertical;
+  min-height: 6rem;
+  font-size: 0.75rem;
+}
+
+.admin-users-detail__words {
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.admin-users-detail__words.is-over {
+  color: var(--danger);
+}
+
+/* A weekly time: day, from, to, and its ×. */
+.admin-users-detail__slot {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1.4fr) minmax(6rem, 1fr) auto minmax(6rem, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-users-detail__slot .admin-users-detail__input {
+  min-width: 0;
+}
+
+.admin-users-detail__slot-to {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.admin-users-detail__slot-remove {
+  padding: 0.25rem 0.4rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.admin-users-detail__slot-remove:hover {
+  color: var(--danger);
+}
+
+.admin-users-detail__slot-add {
+  align-self: flex-start;
+}
+
+.admin-users-detail__note--after {
+  margin: 0.5rem 0 0;
+}
+
 .admin-users-detail__replacing {
   margin: 0.5rem 0 0;
   padding-left: 1.2rem;
@@ -1123,6 +1728,16 @@ const sendConsentRequest = async () => {
 
 .admin-users-detail__item:has(.admin-users-detail__input) {
   align-items: center;
+}
+
+/* An answer in its box needs no line under it as well. */
+.admin-users-detail__item.admin-users-detail__item--boxed {
+  border-bottom: none;
+}
+
+/* Except a label over its field, which runs the row's full width. */
+.admin-users-detail__item.admin-users-detail__item--stacked {
+  align-items: stretch;
 }
 
 /* Interests, or consents, to tick: one per line. */
@@ -1189,10 +1804,6 @@ const sendConsentRequest = async () => {
   margin-top: 0.75rem;
 }
 
-.admin-users-detail__saved {
-  margin: 0 0 0.4rem;
-  color: var(--dark-green);
-}
 
 .admin-users-detail__save-error {
   margin: 0.5rem 0 0;
@@ -1252,7 +1863,6 @@ const sendConsentRequest = async () => {
 
 .admin-users-detail__flag {
   color: var(--danger);
-  font-weight: 600;
 }
 
 .admin-users-detail__consent-actions {
