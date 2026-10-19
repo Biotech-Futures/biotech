@@ -153,7 +153,6 @@ describe('Admin User Notes: Form Sheet Component', () => {
         stubs: {
           teleport: true,
           RichEditor: RichEditorStub,
-          RichTextEditor: RichEditorStub,
         },
       },
     })
@@ -184,7 +183,6 @@ describe('Admin User Notes: Form Sheet Component', () => {
         stubs: {
           teleport: true,
           RichEditor: RichEditorStub,
-          RichTextEditor: RichEditorStub,
         },
       },
     })
@@ -220,7 +218,6 @@ describe('Admin User Notes: Form Sheet Component', () => {
         stubs: {
           teleport: true,
           RichEditor: RichEditorStub,
-          RichTextEditor: RichEditorStub,
         },
       },
     })

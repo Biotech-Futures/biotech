@@ -226,7 +226,7 @@
       </div>
       <div class="form-field form-field--full" data-test="admin-notes-field">
         <label class="form-label">Internal admin notes (visible only to admins)</label>
-        <RichTextEditor
+        <RichEditor
           :key="editorKey"
           v-model="form.adminNotes"
           placeholder="Add private context or notes about this user..."
@@ -267,7 +267,6 @@ import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } f
 const RichEditor = defineAsyncComponent(
   () => import('@/components/admin/RichEditor.vue')
 )
-const RichTextEditor = RichEditor
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
