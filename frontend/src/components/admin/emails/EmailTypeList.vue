@@ -101,15 +101,11 @@ const query = ref('')
 // Each email's group, with a heading above it, in the order the list shows them.
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
+  // Someone registering themselves, then a supervisor registering students.
+  ['Self registration', ['registration_student', 'registration_group', 'registration_mentor']],
   [
-    'Registration',
-    [
-      'registration_student',
-      'registration_group',
-      'registration_supervisor',
-      'registration_mentor',
-      'supervisor_registration_status'
-    ]
+    'Supervisor registration',
+    ['registration_by_supervisor', 'registration_supervisor', 'supervisor_registration_status']
   ],
   [
     'Guardians',
