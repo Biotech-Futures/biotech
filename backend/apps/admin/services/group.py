@@ -5,28 +5,38 @@ from django.db.models import Q, F, Exists, OuterRef, Value, CharField, BooleanFi
 from django.db.models.functions import Concat
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction, IntegrityError
+from django.db import transaction
 
 from apps.groups.models import (
     GroupAutoNameUnavailable,
+    GroupNameTaken,
     Groups,
     GroupMembership,
+    duplicate_group_name_error,
     generate_group_name,
     group_name_sort_key,
     next_group_number,
+    saving_group_name,
 )
+from apps.groups.models.groups import default_group_year
 from apps.chat.models import Messages
-from apps.users.models import User, MentorProfile, StudentProfile
+from apps.users.models import User, StudentProfile, UserInterest
 from apps.audit.services import log_audit_event
 
 
 # Type definitions
+class MutualInterestDict(TypedDict):
+    name: str
+    count: int
+
+
 class GroupMemberDict(TypedDict):
     id: str
     name: str
     email: str
     role: str  # "student" or "mentor"
     membershipId: Optional[int]
+    interests: Optional[List[str]]
 
 
 class GroupSenderDict(TypedDict):
@@ -50,14 +60,20 @@ class GroupDict(TypedDict):
     name: str
     members: List[GroupMemberDict]
     mentor: Optional[GroupMemberDict]
+    mutualInterests: Optional[List[MutualInterestDict]]
     createdAt: str
     updatedAt: str
+    # Who formed it: ``kind`` (members, supervisor, admin, or "" when not
+    # recorded) and the supervisor's or admin's name.
+    formedBy: dict
 
 
 class GroupBaseRow(TypedDict):
     id: int
     name: str
     created_at: datetime
+    formed_by: str
+    created_by_name: str
 
 
 class PaginatedResponse(TypedDict):
@@ -68,13 +84,40 @@ class PaginatedResponse(TypedDict):
     has_more: bool
 
 
-def _get_member_role(user_id: int) -> Optional[str]:
-    """Determine if a user is a mentor or student."""
-    if MentorProfile.objects.filter(user_id=user_id).exists():
+def _get_member_role(user) -> Optional[str]:
+    """Determine if a user is a mentor or student.
+
+    Reads the reverse one-to-one profiles off the user object — callers must
+    select_related("user__mentorprofile", "user__studentprofile") so this
+    stays query-free (a missing profile surfaces as an AttributeError, which
+    getattr absorbs without hitting the database).
+    """
+    if getattr(user, "mentorprofile", None) is not None:
         return "mentor"
-    if StudentProfile.objects.filter(user_id=user_id).exists():
+    if getattr(user, "studentprofile", None) is not None:
         return "student"
     return None
+
+
+def _person_name(first: Optional[str], last: Optional[str], email: Optional[str]) -> str:
+    """Someone's name, or their email without one; "" for no one."""
+    return f"{first or ''} {last or ''}".strip() or (email or "")
+
+
+def compute_mutual_interests(members: List[dict]) -> List[MutualInterestDict]:
+    """Compute overlapping interests shared by 2 or more members."""
+    interest_counts = {}
+    for m in members:
+        for interest in set(m.get("interests") or []):
+            interest_counts[interest] = interest_counts.get(interest, 0) + 1
+
+    mutual = [
+        {"name": interest, "count": count}
+        for interest, count in interest_counts.items()
+        if count >= 2
+    ]
+    mutual.sort(key=lambda x: (-x["count"], x["name"].lower()))
+    return mutual
 
 
 def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
@@ -93,15 +136,30 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     group_ids = [row["id"] for row in base_rows]
     
     # Fetch all active members for these groups
-    members_qs = (
+    members_qs = list(
         GroupMembership.objects
         .filter(
             group_id__in=group_ids,
             left_at__isnull=True
         )
-        .select_related("user", "user__mentorprofile", "user__studentprofile")
+        .select_related("user")
         .order_by("group_id", "id")
     )
+    
+    # Fetch interests for all users in these groups
+    user_ids = [m.user_id for m in members_qs]
+    interests_by_user = {}
+    if user_ids:
+        user_interests = (
+            UserInterest.objects
+            .filter(user_id__in=user_ids)
+            .select_related("interest")
+        )
+        for ui in user_interests:
+            if getattr(ui, "interest", None) and ui.interest.interest_desc:
+                desc = ui.interest.interest_desc.strip()
+                if desc:
+                    interests_by_user.setdefault(ui.user_id, []).append(desc)
     
     # Organize members by group and role
     members_by_group_id = {}
@@ -109,17 +167,23 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     
     for membership in members_qs:
         user = membership.user
-        role = _get_member_role(user.id)
+        # Group roles describe this assignment, independently of account profiles.
+        role = membership.membership_role
         
-        if not role:
+        if role not in (
+            GroupMembership.MembershipRoleChoices.MENTOR,
+            GroupMembership.MembershipRoleChoices.STUDENT,
+        ):
             continue
         
+        user_ints = sorted(list(dict.fromkeys(interests_by_user.get(user.id, []))), key=str.lower)
         member = {
             "id": str(user.id),
             "name": f"{user.first_name} {user.last_name}".strip(),
             "email": user.email,
             "role": role,
             "membershipId": membership.id,
+            "interests": user_ints,
         }
         
         if role == "mentor":
@@ -133,13 +197,24 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     result = []
     for row in base_rows:
         group_id = row["id"]
+        group_members = members_by_group_id.get(group_id, [])
+        mentor = mentor_by_group_id.get(group_id, None)
+
+        all_group_members = list(group_members)
+        if mentor:
+            all_group_members.append(mentor)
+
+        mutual_interests = compute_mutual_interests(all_group_members)
+
         result.append({
             "id": str(group_id),
             "name": row["name"],
-            "members": members_by_group_id.get(group_id, []),
-            "mentor": mentor_by_group_id.get(group_id, None),
+            "members": group_members,
+            "mentor": mentor,
+            "mutualInterests": mutual_interests,
             "createdAt": row["created_at"].isoformat(),
             "updatedAt": row["created_at"].isoformat(),
+            "formedBy": {"kind": row["formed_by"], "name": row["created_by_name"]},
         })
     
     return result
@@ -210,14 +285,19 @@ def _fetch_group_base_by_id(group_id: int) -> Optional[GroupBaseRow]:
         GroupBaseRow if found, None otherwise
     """
     try:
-        group = Groups.objects.get(
+        group = Groups.objects.select_related("created_by").get(
             id=group_id,
             deleted_at__isnull=True
         )
+        creator = group.created_by
         return {
             "id": group.id,
             "name": group.group_name,
             "created_at": group.created_at,
+            "formed_by": group.formed_by,
+            "created_by_name": _person_name(
+                creator.first_name, creator.last_name, creator.email,
+            ) if creator else "",
         }
     except Groups.DoesNotExist:
         return None
@@ -273,7 +353,7 @@ def query_groups(
                 "groupmembership",
                 filter=Q(
                     groupmembership__left_at__isnull=True,
-                    groupmembership__user__studentprofile__isnull=False,
+                    groupmembership__membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
                 ),
                 distinct=True,
             ),
@@ -286,12 +366,15 @@ def query_groups(
                 ),
                 filter=Q(
                     groupmembership__left_at__isnull=True,
-                    groupmembership__user__mentorprofile__isnull=False,
+                    groupmembership__membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
                 ),
             ),
         )
         .order_by(*order_by)
-        .values("id", "group_name", "created_at")[offset:offset + limit]
+        .values(
+            "id", "group_name", "created_at", "formed_by",
+            "created_by__first_name", "created_by__last_name", "created_by__email",
+        )[offset:offset + limit]
     )
 
     # Convert to GroupBaseRow format
@@ -300,6 +383,10 @@ def query_groups(
             "id": row["id"],
             "name": row["group_name"],
             "created_at": row["created_at"],
+            "formed_by": row["formed_by"],
+            "created_by_name": _person_name(
+                row["created_by__first_name"], row["created_by__last_name"], row["created_by__email"],
+            ),
         }
         for row in base_rows
     ]
@@ -376,7 +463,8 @@ def query_group_messages(
     # Get total count
     total = Messages.objects.filter(
         group_id=gid,
-        deleted_at__isnull=True
+        deleted_at__isnull=True,
+        is_suppressed=False,
     ).count()
     
     # Fetch paginated messages
@@ -384,7 +472,8 @@ def query_group_messages(
         Messages.objects
         .filter(
             group_id=gid,
-            deleted_at__isnull=True
+            deleted_at__isnull=True,
+            is_suppressed=False,
         )
         .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
         .prefetch_related("attachments")
@@ -394,7 +483,7 @@ def query_group_messages(
     items = []
     for msg in message_records:
         sender_user = msg.sender_user
-        role = _get_member_role(sender_user.id)
+        role = _get_member_role(sender_user)
 
         attachments = []
         for att in msg.attachments.all():
@@ -468,19 +557,11 @@ def _clean_group_name(name) -> str:
         raise ValueError("Group name is required")
 
     # save() skips field validators, so an over-length name would otherwise reach
-    # Postgres as a DataError -- which `except IntegrityError` cannot catch.
+    # Postgres as a DataError.
     if len(cleaned) > GROUP_NAME_MAX_LENGTH:
         raise ValueError(f"Group name must be {GROUP_NAME_MAX_LENGTH} characters or fewer")
 
     return cleaned
-
-
-def _active_name_taken(name: str, exclude_pk: Optional[int] = None) -> bool:
-    """Whether another active group already holds this name."""
-    qs = Groups.objects.filter(group_name=name, deleted_at__isnull=True)
-    if exclude_pk is not None:
-        qs = qs.exclude(pk=exclude_pk)
-    return qs.exists()
 
 
 def _is_blank_name(name) -> bool:
@@ -504,13 +585,14 @@ def query_next_group_name() -> dict:
 
 
 @transaction.atomic
-def create_group(name: Optional[str] = None) -> dict:
+def create_group(name: Optional[str] = None, created_by=None) -> dict:
     """
     Create a new (empty) group.
 
     Args:
         name: The group name. Optional — when blank, the next sequential
-            ``BTF<n>`` name is used. Must be unique among active groups.
+            ``BTF<n>`` name is used. Refused if another active group in this
+            year already has it (ignoring case and extra spaces).
 
     Returns:
         Dictionary with the created group data or an error message
@@ -526,17 +608,18 @@ def create_group(name: Optional[str] = None) -> dict:
         except ValueError as exc:
             return {"msg": str(exc), "data": None}
 
-        if _active_name_taken(cleaned):
-            return {"msg": "A group with this name already exists", "data": None}
-
+        year = default_group_year()
+        taken = duplicate_group_name_error(cleaned, year)
+        if taken:
+            return {"msg": taken, "data": None}
         try:
-            # Inner atomic so a name that raced past the check above only rolls back
-            # to a savepoint, rather than poisoning the transaction we were called in.
-            with transaction.atomic():
+            with saving_group_name(cleaned, year):
                 group = Groups.objects.create(group_name=cleaned)
-        except IntegrityError:
-            return {"msg": "A group with this name already exists", "data": None}
+        except GroupNameTaken as exc:
+            return {"msg": str(exc), "data": None}
 
+    # Formed by an admin: the one creating it.
+    group.mark_formed(Groups.FormedBy.ADMIN, created_by)
     base_row = _fetch_group_base_by_id(group.id)
     groups = _build_groups([base_row]) if base_row else []
     return {
@@ -552,7 +635,8 @@ def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -
 
     Args:
         group_id: The group ID as string
-        name: New group name (must be unique among active groups)
+        name: New group name; refused if another active group in the same year
+            already has it (ignoring case and extra spaces)
         initiated_by: Admin performing the update, recorded on the audit event
 
     Returns:
@@ -577,18 +661,16 @@ def update_group(group_id: str, name: Optional[str] = None, initiated_by=None) -
             return {"msg": str(exc), "data": None}
 
         if cleaned != group.group_name:
-            if _active_name_taken(cleaned, exclude_pk=gid):
-                return {"msg": "A group with this name already exists", "data": None}
-
+            taken = duplicate_group_name_error(cleaned, group.year, exclude_id=gid)
+            if taken:
+                return {"msg": taken, "data": None}
             before_state = {"name": group.group_name}
             group.group_name = cleaned
             try:
-                # Inner atomic so a name that raced past the check above only rolls back
-                # to a savepoint, rather than poisoning the transaction we were called in.
-                with transaction.atomic():
+                with saving_group_name(cleaned, group.year):
                     group.save(update_fields=["group_name"])
-            except IntegrityError:
-                return {"msg": "A group with this name already exists", "data": None}
+            except GroupNameTaken as exc:
+                return {"msg": str(exc), "data": None}
 
             log_audit_event(
                 actor=initiated_by,
@@ -693,6 +775,7 @@ def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> d
             id=message_id,
             group_id=gid,
             deleted_at__isnull=True,
+            is_suppressed=False,
         )
     except Messages.DoesNotExist:
         return {"msg": "Group message not found", "data": None}

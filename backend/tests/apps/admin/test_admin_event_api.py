@@ -45,6 +45,26 @@ class AdminEventApiTests(APITestCase):
         self.assertEqual(response.data["data"]["hostName"], "Event Admin")
         self.assertEqual(response.data["data"]["hostEmail"], self.admin.email)
 
+    def test_admin_can_create_in_person_event_with_google_maps_link(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            self.url,
+            {
+                "eventName": "Maps Linked Event",
+                "startAt": (timezone.now() + timezone.timedelta(days=1)).isoformat(),
+                "endsAt": (timezone.now() + timezone.timedelta(days=1, hours=2)).isoformat(),
+                "eventFormat": "in_person",
+                "location": "Building 10",
+                "locationLink": "https://maps.google.com/?q=Building+10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        event = Events.objects.get(event_name="Maps Linked Event")
+        self.assertEqual(event.location_link, "https://maps.google.com/?q=Building+10")
+
     def test_create_event_returns_400_for_missing_datetimes(self):
         self.client.force_authenticate(user=self.admin)
 

@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { myFetch } from "@/lib/myFetch";
+import axios from "axios";
+import { apiFetch } from "@/lib/myFetch";
 import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/setup-password")({
@@ -34,8 +35,13 @@ function SetupPasswordPage() {
 
     setIsPending(true);
     try {
-      const res = await myFetch.post<{ msg: string; data: boolean | null }>(
-        "/auth/set-password/",
+      // The role-agnostic endpoint, not the admin-scoped twin at
+      // /api/v1/admin/auth/set-password/. That one is behind IsAdminScoped, so
+      // it answered 403 to exactly the people this page exists for: a support
+      // agent whose account was just created and has no password yet. The
+      // portal hit the same wall once and this endpoint is the fix it got.
+      const res = await apiFetch.post<{ msg: string; data: boolean | null }>(
+        "/set-password/",
         { password },
       );
       if (!res.data.data) {
@@ -45,8 +51,17 @@ function SetupPasswordPage() {
       sessionStorage.setItem("pwChecked", "1");
       await queryClient.invalidateQueries({ queryKey: ["auth-user"] });
       void navigate({ to: "/" });
-    } catch {
-      setError("Failed to set password. Please try again.");
+    } catch (err) {
+      // What the server said, when it said anything. "Please try again" is a
+      // lie for every refusal this endpoint makes — none of them get better on
+      // a second attempt — and it was what a support agent saw on the 403 that
+      // sent them here in the first place.
+      const body = axios.isAxiosError(err)
+        ? (err.response?.data as { msg?: string; error?: string } | undefined)
+        : undefined;
+      setError(
+        body?.msg ?? body?.error ?? "Failed to set password. Please try again.",
+      );
     } finally {
       setIsPending(false);
     }

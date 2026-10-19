@@ -84,6 +84,10 @@
         </div>
 
         <div class="legacy-links">
+          <!-- Unless Management > Registration has closed it. -->
+          <RouterLink v-if="registrationOpen" class="legacy-website-button" to="/register">
+            Register now
+          </RouterLink>
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -105,19 +109,6 @@
           <!--            <span class="top-badge">{{ t('secureAccess') }}</span>-->
           <!--            <span class="top-badge">{{ t('enterpriseReady') }}</span>-->
           <!--          </div>-->
-
-          <div class="language-switcher" role="tablist" aria-label="Language switcher">
-            <button
-              v-for="item in languageOptions"
-              :key="item.value"
-              type="button"
-              class="language-option"
-              :class="{ active: locale === item.value }"
-              @click="switchLanguage(item.value)"
-            >
-              {{ item.label }}
-            </button>
-          </div>
         </div>
 
         <!-- Auth card container. -->
@@ -168,16 +159,8 @@
               <!-- Email submission form. -->
               <form class="auth-form" @submit.prevent="handleLogin" novalidate>
                 <div class="login-mode-switch" role="tablist" :aria-label="t('loginMethod')">
-                  <button
-                    type="button"
-                    class="login-mode-button"
-                    :class="{ active: loginMode === 'password' }"
-                    role="tab"
-                    :aria-selected="loginMode === 'password'"
-                    @click="setLoginMode('password')"
-                  >
-                    {{ t('passwordSignIn') }}
-                  </button>
+                  <!-- Magic link first: it is the default mode, so it reads
+                       left-to-right in the same order as the selection. -->
                   <button
                     type="button"
                     class="login-mode-button"
@@ -187,6 +170,16 @@
                     @click="setLoginMode('code')"
                   >
                     {{ t('emailCodeSignIn') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="login-mode-button"
+                    :class="{ active: loginMode === 'password' }"
+                    role="tab"
+                    :aria-selected="loginMode === 'password'"
+                    @click="setLoginMode('password')"
+                  >
+                    {{ t('passwordSignIn') }}
                   </button>
                 </div>
 
@@ -443,14 +436,13 @@
   Imports and external modules.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import { isValidEmail, maskEmail } from '@/utils/string'
 import {
-  LOGIN_LANGUAGE_KEY,
   LOGIN_SEND_COOLDOWN_KEY,
   safeLocalStorageGet,
   safeLocalStorageRemove,
@@ -459,7 +451,8 @@ import {
 
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
-import { LOGIN_LANGUAGE_OPTIONS, LOGIN_MESSAGES } from '@/data/login_language'
+import { LOGIN_MESSAGES } from '@/data/login_language'
+import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 
 /*
   Page-level instances.
@@ -494,7 +487,6 @@ const MAGIC_LINK_ERROR_KEYS = {
 /*
   Shared page data.
 */
-const languageOptions = LOGIN_LANGUAGE_OPTIONS
 const messages = LOGIN_MESSAGES
 
 /*
@@ -526,7 +518,7 @@ const otpErrorActive = ref(false)
 /*
   UI presentation state.
 */
-const locale = ref('en')
+const t = (key) => messages.en?.[key] || key
 
 /*
   DOM refs.
@@ -543,15 +535,11 @@ let otpErrorTimer = null
 let otpAutoSubmitTimer = null
 let codeExpiryTimer = null
 
-/*
-  Translation accessor.
-*/
-const t = (key) => messages[locale.value]?.[key] || messages.en?.[key] || key
 
 /*
   Basic derived values.
 */
-const currentDir = computed(() => (locale.value === 'ar' ? 'rtl' : 'ltr'))
+const currentDir = computed(() => 'ltr')
 const maskedEmail = computed(() => maskEmail(email.value))
 const isOtpComplete = computed(() => otpDigits.value.every((digit) => /^\d$/.test(digit)))
 const authHeading = computed(() => t('signIn'))
@@ -672,14 +660,6 @@ const togglePasswordVisibility = () => {
   nextTick(() => passwordInputRef.value?.focus())
 }
 
-/*
-  Language switching and persistence.
-*/
-const switchLanguage = (lang) => {
-  locale.value = lang
-  clearMessages()
-  safeLocalStorageSet(LOGIN_LANGUAGE_KEY, lang)
-}
 
 /*
   OTP ref collection.
@@ -1166,7 +1146,6 @@ const verifyOTP = async () => {
       return
     }
 
-    await auth.syncDeviceTimeZone()
     await redirectAfterLogin(auth, router)
   } catch (requestError) {
     logApiError('verify-login-code', requestError)
@@ -1228,15 +1207,8 @@ const resendCode = async () => {
 /*
   Document language and direction sync.
 */
-watch(
-  locale,
-  (nextLocale) => {
-    const direction = nextLocale === 'ar' ? 'rtl' : 'ltr'
-    document.documentElement.lang = nextLocale
-    document.documentElement.dir = direction
-  },
-  { immediate: true },
-)
+document.documentElement.lang = 'en'
+document.documentElement.dir = 'ltr'
 
 /*
   Step focus sync.
@@ -1268,15 +1240,15 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
 /*
   Restore saved language.
 */
-const savedLanguage = safeLocalStorageGet(LOGIN_LANGUAGE_KEY, 'en')
-if (savedLanguage && languageOptions.some((item) => item.value === savedLanguage)) {
-  locale.value = savedLanguage
-}
 
 /*
   Lifecycle: initial focus.
 */
+// Within the year's registration dates (Management > Registration).
+const { openNow: registrationOpen } = useRegistrationOpen()
+
 onMounted(async () => {
+  void loadRegistrationOpen(true)
   // Magic-link rejections land here as a redirect from the callback view.
   const linkError = Array.isArray(route.query.error) ? route.query.error[0] : route.query.error
 
@@ -1424,7 +1396,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-logo-icon {
@@ -1446,7 +1418,7 @@ onBeforeUnmount(() => {
 .legacy-info-title {
   margin: 0 0 0.75rem;
   font-size: 1.75rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-custom-content p {
@@ -1457,15 +1429,20 @@ onBeforeUnmount(() => {
 
 .legacy-info-list {
   margin: 0.75rem 0 1rem 1.25rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-info-list li + li {
   margin-top: 0.35rem;
 }
 
+/* Register now and Visit Website side by side, apart; one under the other
+   when there isn't room. */
 .legacy-links {
   margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .legacy-website-button {

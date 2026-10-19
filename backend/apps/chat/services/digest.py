@@ -16,21 +16,29 @@ genuinely newer ones arrive.
 """
 
 import logging
-import threading
 from datetime import timedelta
+from functools import partial
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import EmailMultiAlternatives, get_connection
-from django.db import connection as db_connection
 from django.db.models import Count, Max, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.html import format_html, format_html_join
 
 from apps.chat.models import ChatDigestState, Messages, MessageStatus
 from apps.groups.models import GroupMembership
-from apps.services.email_branding import attach_inline_logo, brand_context
+from apps.services.email_branding import brand_context
+from apps.services.email_log import UNREACHABLE, note_send, reason_for
+from apps.services.retry import RetryLater, reset
+from apps.services.system_email import (
+    build_message,
+    is_email_enabled,
+    render_system_email,
+    sender_connection,
+    sender_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +154,12 @@ def _compute_unread(candidate):
         group_scope |= Q(group_id=gid, sent_at__gte=joined_at)
 
     rows = (
-        Messages.objects.filter(group_scope, deleted_at__isnull=True, id__gt=hwm)
+        Messages.objects.filter(
+            group_scope,
+            deleted_at__isnull=True,
+            is_suppressed=False,
+            id__gt=hwm,
+        )
         .exclude(sender_user_id=user_id)
         # BOTH conditions in ONE exclude() -> a single NOT EXISTS(read row for
         # this user). MessageStatus rows are created lazily, so a message with no
@@ -180,7 +193,10 @@ def _group_max_ids():
     """
     return {
         r["group_id"]: r["max_id"]
-        for r in Messages.objects.filter(deleted_at__isnull=True)
+        for r in Messages.objects.filter(
+            deleted_at__isnull=True,
+            is_suppressed=False,
+        )
         .values("group_id")
         .annotate(max_id=Max("id"))
     }
@@ -217,33 +233,39 @@ def _claim_user(user_id, new_hwm, cutoff, now) -> bool:
     return bool(claimed)
 
 
-def _render_and_send(connection, candidate, summary):
+def _group_list_html(per_group) -> str:
+    """Unread counts as an HTML list, for an admin's edited wording. Escaped."""
+    items = format_html_join("", "<li>{}: {}</li>", per_group)
+    return format_html("<ul>{}</ul>", items)
+
+
+def _render_and_send(connection, candidate, summary, sender):
     total, per_group, _new_hwm = summary
+    plural = "" if total == 1 else "s"
     ctx = {
         **brand_context(),
         # Digest sends from connect@, so the "add to address book" copy must show
         # connect@, not the default info@ that brand_context() supplies.
-        "SENDER_EMAIL": settings.CONNECT_FROM_ADDRESS,
+        "SENDER_EMAIL": sender.address,
         "First_Name": candidate["first_name"],
         "TOTAL_UNREAD": total,
         "GROUP_COUNT": len(per_group),
         "GROUPS": [{"name": n, "count": c} for n, c in per_group],
         "PLATFORM_URL": _platform_url(),
+        # Unedited subject: "You have {{ unread_summary }} on {{ brand_connect }}".
+        "UNREAD_SUMMARY": f"{total} unread message{plural}",
+        "UNREAD_GROUP_LIST": _group_list_html(per_group),
     }
-    plural = "" if total == 1 else "s"
-    subject = f"You have {total} unread message{plural} on {ctx['BRAND_CONNECT']}"
     text_body = render_to_string("emails/unread_messages.txt", ctx)
-    html_body = render_to_string("emails/unread_messages.html", ctx)
+    rendered = render_system_email("unread_messages", ctx, default_text=text_body)
 
-    msg = EmailMultiAlternatives(
-        subject=subject,
-        body=text_body,
-        from_email=settings.CONNECT_DEFAULT_FROM_EMAIL,
-        to=[candidate["email"]],
+    # From the mailbox picked for it (connect@ by default), over its connection.
+    msg = build_message(
+        rendered,
+        candidate["email"],
+        from_email=sender.from_email,
         connection=connection,
     )
-    msg.attach_alternative(html_body, "text/html")
-    attach_inline_logo(msg)
     msg.send(fail_silently=False)
 
 
@@ -253,6 +275,11 @@ def send_unread_message_digests(*, dry_run=False):
     Returns ``(users_considered, emails_sent, emails_failed)``. ``dry_run``
     reports who would be emailed without claiming state or sending anything.
     """
+    # Before any claim, so switching the digest off never marks users notified.
+    if not is_email_enabled("unread_messages"):
+        logger.info("unread_digest.disabled_skip")
+        return 0, 0, 0
+
     now = timezone.now()
     if not dry_run and _in_quiet_hours(now):
         logger.info("unread_digest.quiet_hours_skip")
@@ -288,21 +315,28 @@ def send_unread_message_digests(*, dry_run=False):
         return 0, 0, 0
 
     try:
-        connection = get_connection(
-            host=settings.EMAIL_CONNECT_HOST,
-            port=settings.EMAIL_CONNECT_PORT,
-            username=settings.EMAIL_CONNECT_HOST_USER,
-            password=settings.EMAIL_CONNECT_HOST_PASSWORD,
-            use_ssl=settings.EMAIL_CONNECT_USE_SSL,
-            fail_silently=False,
-        )
+        # From the mailbox picked on System Emails (connect@ by default),
+        # signed in as it.
+        sender = sender_for("unread_messages")
+        connection = sender_connection(sender, fail_silently=False)
         connection.open()
     except Exception:
         logger.exception("unread_digest.connection_failed")
+        note_send(
+            "unread_messages",
+            missed={candidate["email"]: UNREACHABLE for candidate, _ in pending},
+            attempted=considered,
+            delivered=0,
+            failed=considered,
+            source_mailbox=sender_for("unread_messages").address,
+        )
         return considered, 0, len(pending)
 
     sent = 0
     failed = 0
+    missed = {}
+    # Those that fail, kept to try once more once everyone has been tried.
+    later = RetryLater(connection)
     try:
         for candidate, summary in pending:
             _total, _groups, new_hwm = summary
@@ -311,73 +345,74 @@ def send_unread_message_digests(*, dry_run=False):
             # (a newer message) — acceptable for a low-stakes reminder.
             if not _claim_user(candidate["user_id"], new_hwm, cutoff, now):
                 continue
+            resend = partial(_render_and_send, connection, candidate, summary, sender)
             try:
-                _render_and_send(connection, candidate, summary)
+                resend()
             except Exception as exc:
+                # Reset the SMTP transaction so a per-address failure doesn't
+                # poison the next recipient on the shared connection.
+                reset(connection)
+                if later.keep(exc, candidate, resend):
+                    continue
                 failed += 1
+                missed[candidate["email"]] = reason_for(exc)
                 logger.warning(
                     "unread_digest.send_failed user=%s error=%s",
                     candidate["user_id"], exc,
                 )
-                # Reset the SMTP transaction so a per-address failure doesn't
-                # poison the next recipient on the shared connection.
-                try:
-                    if getattr(connection, "connection", None):
-                        connection.connection.rset()
-                except Exception:
-                    pass
             else:
                 sent += 1
+        # Once more, a few seconds on, over a fresh connection (see ``retry``).
+        for candidate, exc in later.run():
+            if exc is None:
+                sent += 1
+                continue
+            failed += 1
+            missed[candidate["email"]] = reason_for(exc)
+            logger.warning(
+                "unread_digest.send_failed user=%s error=%s",
+                candidate["user_id"], exc,
+            )
     finally:
         try:
             connection.close()
         except Exception:
             logger.exception("unread_digest.connection_close_failed")
 
+    if sent or missed:
+        note_send(
+            "unread_messages",
+            missed=missed,
+            attempted=sent + failed,
+            delivered=sent,
+            failed=failed,
+            source_mailbox=sender.address,
+        )
     return considered, sent, failed
 
 
-_dispatch_lock = threading.Lock()
-
-
-def _run_digest_in_thread() -> None:
-    try:
-        considered, sent, failed = send_unread_message_digests()
-        logger.info(
-            "unread_digest.completed considered=%s sent=%s failed=%s",
-            considered, sent, failed,
-        )
-    except Exception:
-        logger.exception("unread_digest.worker_crashed")
-    finally:
-        _dispatch_lock.release()
-        try:
-            db_connection.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
+def digest_job(actor, options):
+    """The queued digest run (``send_guard.JOBS``)."""
+    considered, sent, failed = send_unread_message_digests()
+    logger.info(
+        "unread_digest.completed considered=%s sent=%s failed=%s",
+        considered, sent, failed,
+    )
+    return {"sent": sent, "failed": failed}
 
 
 def dispatch_unread_digest() -> str:
-    """Fire-and-forget the digest run so the trigger request returns instantly.
+    """Queue the digest run so the trigger request returns instantly.
 
     The full run (one unread query per candidate + one SMTP round trip per
     email) outgrew Azure's ~230s gateway cap, 504-ing the cron while the work
-    completed anyway. Mirrors ``apps.chat.tasks.dispatch_og``; the lock is
-    per-process only — double-send across workers is already prevented by the
-    ``ChatDigestState`` claim. Returns ``"started"`` or ``"already_running"``.
+    completed anyway. It sends in its turn, after any bulk email going from
+    the same mailbox, one run at a time across every worker (``send_guard``);
+    a run queued while another still waits is dropped, and the
+    ``ChatDigestState`` claim stops anyone being emailed twice. Returns
+    ``"queued"``.
     """
-    if getattr(settings, "UNREAD_DIGEST_DISPATCH_SYNC", False):
-        send_unread_message_digests()
-        return "started"
+    from apps.management.services.send_guard import queue_job
 
-    if not _dispatch_lock.acquire(blocking=False):
-        logger.info("unread_digest.already_running")
-        return "already_running"
-    try:
-        threading.Thread(
-            target=_run_digest_in_thread, name="unread-digest", daemon=True
-        ).start()
-    except Exception:
-        _dispatch_lock.release()
-        raise
-    return "started"
+    queue_job("unread_messages")
+    return "queued"

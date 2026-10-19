@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Countries, GroupMembership, Groups
+from .models import Countries, GroupMembership, Groups, duplicate_group_name_error
+from .models.groups import default_group_year
 from apps.users.models import User
 
 
@@ -12,15 +13,58 @@ class CountrySerializer(serializers.ModelSerializer):
 class GroupMembershipSerializer(serializers.ModelSerializer):
   user_name = serializers.SerializerMethodField()
   has_logged_in = serializers.SerializerMethodField()
+  student_details = serializers.SerializerMethodField()
+  interests = serializers.SerializerMethodField()
 
   class Meta:
     model = GroupMembership
     fields = [
       'id', 'group', 'user', 'user_name', 'membership_role',
       'joined_at', 'left_at', 'has_logged_in',
+      'student_details', 'interests',
     ]
-    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in']
+    read_only_fields = ['id', 'user_name', 'joined_at', 'left_at', 'has_logged_in', 'interests']
     validators = []
+
+  def get_interests(self, obj) -> list[str]:
+    user = getattr(obj, 'user', None)
+    if user is None:
+      return []
+    if hasattr(user, 'userinterest_set'):
+      return sorted(
+        {
+          ui.interest.interest_desc.strip()
+          for ui in user.userinterest_set.all()
+          if getattr(ui, 'interest', None) and ui.interest.interest_desc
+        },
+        key=str.lower,
+      )
+    from apps.users.models import UserInterest
+    return sorted(
+      {
+        desc.strip()
+        for desc in UserInterest.objects.filter(user_id=obj.user_id)
+        .select_related('interest')
+        .values_list('interest__interest_desc', flat=True)
+        if desc and desc.strip()
+      },
+      key=str.lower,
+    )
+
+  def get_student_details(self, obj):
+    from apps.users.models import StudentProfile
+    try:
+      profile = obj.user.studentprofile
+    except StudentProfile.DoesNotExist:
+      return None
+    supervisor = profile.supervisor.user if profile.supervisor_id else None
+    return {
+      'first_name': obj.user.first_name,
+      'last_name': obj.user.last_name,
+      'year_level': profile.year_lvl,
+      'school': profile.school_name,
+      'supervisor': f'{supervisor.first_name} {supervisor.last_name}'.strip() if supervisor else None,
+    }
 
   def get_has_logged_in(self, obj) -> bool | None:
     # A boolean, never the raw last_login: staff need "have they started?",
@@ -89,13 +133,9 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
   class Meta:
     model = Groups
-    fields = ['id', 'group_name', 'created_at', 'deleted_at']
-    read_only_fields = ['id', 'created_at', 'deleted_at']
+    fields = ['id', 'group_name', 'year', 'created_at', 'deleted_at', 'formed_by']
+    read_only_fields = ['id', 'year', 'created_at', 'deleted_at', 'formed_by']
     validators = []
-    # Suppress the auto-derived field-level UniqueValidator so the duplicate-name
-    # check flows through validate() and surfaces as non_field_errors (the shape
-    # the frontend expects), not a group_name field error.
-    # Optional on write: a blank name means "auto-generate BTF<n>" (see perform_create).
     extra_kwargs = {
       'group_name': {'validators': [], 'required': False, 'allow_blank': True},
     }
@@ -109,17 +149,17 @@ class GroupSerializer(serializers.ModelSerializer):
       if 'group_name' in attrs and not attrs['group_name'].strip():
         raise serializers.ValidationError({'group_name': ['This field may not be blank.']})
 
-    group_name = attrs.get('group_name', getattr(self.instance, 'group_name', None))
-    deleted_at = attrs.get('deleted_at', getattr(self.instance, 'deleted_at', None))
-
-    if group_name and deleted_at is None:
-      qs = Groups.objects.filter(group_name=group_name, deleted_at__isnull=True)
+    # A blank name on create gets an auto name instead; anything typed must be
+    # free in the group's year (a new group's year is this year).
+    name = (attrs.get('group_name') or '').strip()
+    if name:
       if self.instance is not None:
-        qs = qs.exclude(pk=self.instance.pk)
-      if qs.exists():
-        raise serializers.ValidationError({
-          'non_field_errors': ['An active group with this name already exists.']
-        })
+        taken = duplicate_group_name_error(name, self.instance.year, exclude_id=self.instance.pk)
+      else:
+        taken = duplicate_group_name_error(name, default_group_year())
+      if taken:
+        raise serializers.ValidationError({'group_name': [taken]})
+
     return attrs
 
 

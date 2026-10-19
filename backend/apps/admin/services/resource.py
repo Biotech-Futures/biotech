@@ -6,14 +6,21 @@ import os
 import tempfile
 
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Q, F, Exists, OuterRef, Value, CharField
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
+from rest_framework.exceptions import ValidationError
 
 from apps.resources.models import Resources, ResourceAudience, Roles, ResourceType, ResourceLabel
-from apps.resources.services.storage import RESOURCE_FILE_SERVICE
+from apps.resources.services.storage import (
+    RESOURCE_FILE_SERVICE,
+    get_resource_storage,
+    is_managed_storage_key,
+)
+from apps.common.upload_validation import is_truthy_flag, validate_uploaded_file
 from apps.groups.models import Groups
 from apps.users.models import User
 from azure_blob_utils import (
@@ -68,6 +75,11 @@ class ResourceRowDict(TypedDict):
     file_mime_type: Optional[str]
     file_size: Optional[int]
     storage_key: Optional[str]
+    slides_file_name: Optional[str]
+    slides_mime_type: Optional[str]
+    slides_file_size: Optional[int]
+    slides_storage_key: Optional[str]
+    has_slides: Optional[bool]
     group_id: Optional[int]
     resource_type_id: Optional[int]
 
@@ -178,6 +190,53 @@ def normalize_visibility_scope(
     return resolve_visibility_scope(role_ids)
 
 
+NO_ROLES_SELECTED_MSG = (
+    "Select at least one role. Select every role to make the resource visible to everyone."
+)
+
+
+def selected_non_admin_role_ids(
+    requested_role_ids: Optional[List[Any]],
+    available_roles: List[RoleDict],
+) -> List[int]:
+    """Role IDs the admin actually picked: known roles only, admin role excluded.
+
+    Must run on the raw request, before ``normalize_role_ids`` adds the admin
+    role, otherwise the list is never empty.
+    """
+    admin_ids = {r['id'] for r in available_roles if r['slug'] == ADMIN_ROLE_SLUG}
+    known_ids = {r['id'] for r in available_roles}
+    selected = []
+    for rid in requested_role_ids or []:
+        try:
+            rid = int(rid)
+        except (TypeError, ValueError):
+            continue
+        if rid in known_ids and rid not in admin_ids:
+            selected.append(rid)
+    return selected
+
+
+def validate_role_based_write(
+    visibility_value: Optional[str],
+    requested_role_ids: Optional[List[Any]],
+    available_roles: List[RoleDict],
+) -> str:
+    """Write-path visibility check: role-based only, with at least one chosen role.
+
+    The read path (``normalize_visibility_scope``) still tolerates legacy
+    ``global`` values; this is only for saves. Returns the canonical model
+    value, never the ``role_based`` API token.
+    """
+    if visibility_value in (VISIBILITY_GLOBAL, Resources.VisibilityScope.PUBLIC):
+        raise ValidationError({
+            'visibility_scope': "Global visibility is no longer supported. Select the roles that can view this resource.",
+        })
+    if not selected_non_admin_role_ids(requested_role_ids, available_roles):
+        raise ValidationError({'role_ids': NO_ROLES_SELECTED_MSG})
+    return Resources.VisibilityScope.ROLE
+
+
 def build_storage_key(resource_id: int, file_name: Optional[str] = None) -> str:
     """Build a unique storage key for blob storage."""
     stamp = int(timezone.now().timestamp() * 1000)
@@ -191,10 +250,10 @@ def extract_file_name_from_storage_key(storage_key: Optional[str]) -> Optional[s
         return None
     parts = storage_key.split("/")
     raw = parts[-1] if parts else ""
-    dash_index = raw.find("-", raw.find("-") + 1)
-    if dash_index == -1:
-        return raw or None
-    return raw[dash_index + 1:] or None
+    match = re.match(r"^\d+-\d+-(.+)$", raw)
+    if match:
+        return match.group(1) or None
+    return raw or None
 
 
 def stream_blob_chunks(download_stream):
@@ -277,10 +336,15 @@ def resource_to_row(resource: Resources, include_page_content: bool = False) -> 
         'resource_type_id': resource.type_id,
         'resource_type': resource.type.type_name if resource.type else None,
         'content_html': get_page_content_html(resource) if include_page_content else None,
-        'file_name': None,
+        'file_name': extract_file_name_from_storage_key(resource.storage_key) if resource.storage_key else None,
         'file_mime_type': resource.file_mime_type,
         'file_size': resource.file_size,
         'storage_key': resource.storage_key,
+        'slides_file_name': extract_file_name_from_storage_key(resource.slides_storage_key) if resource.slides_storage_key else None,
+        'slides_mime_type': resource.slides_mime_type,
+        'slides_file_size': resource.slides_file_size,
+        'slides_storage_key': resource.slides_storage_key,
+        'has_slides': bool(resource.slides_storage_key),
     }
 
 
@@ -354,7 +418,11 @@ def fetch_resources_from_db(params: QueryResourcesInput, requesting_user=None) -
     
     if params.get('resource_kind'):
         queryset = queryset.filter(kind=params['resource_kind'])
-    
+    else:
+        # Attachments (files embedded in page/announcement/event content) are
+        # hidden unless a caller asks for them with resource_kind=attachment.
+        queryset = queryset.exclude(kind=Resources.ResourceKind.ATTACHMENT)
+
     if params.get('resource_type_id'):
         queryset = queryset.filter(type_id=params['resource_type_id'])
     
@@ -617,8 +685,13 @@ def create_resource(
     available_roles = get_roles_from_db()
     
     requested_role_ids = payload.get('role_ids', [])
+    visibility_scope = validate_role_based_write(
+        payload.get('visibility_scope'),
+        requested_role_ids,
+        available_roles,
+    )
     role_ids = normalize_role_ids(requested_role_ids, available_roles)
-    
+
     requested_resource_type = payload.get('resource_type')
     resource_type_id = payload.get('resource_type_id')
     
@@ -628,12 +701,12 @@ def create_resource(
             resource_type_id = rt.id
         except ResourceType.DoesNotExist:
             resource_type_id = None
-    
-    visibility_scope = normalize_visibility_scope(
-        payload.get('visibility_scope'),
-        requested_role_ids,
-    )
-    
+
+    if resource_type_id:
+        rt = ResourceType.objects.filter(id=resource_type_id).first()
+        if rt and rt.type_name == "Recorded Session" and payload.get('resource_kind') == RESOURCE_KIND_PAGE:
+            raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+
     resource = Resources.objects.create(
         name=payload['resource_name'],
         description=payload.get('resource_description', ''),
@@ -679,6 +752,17 @@ def create_resource(
     return query_resource_by_id(resource.id)
 
 
+def _first_error_message(detail: Any) -> str:
+    """First human-readable message from a DRF ValidationError detail."""
+    if isinstance(detail, dict):
+        detail = next(iter(detail.values()), '')
+    if isinstance(detail, (list, tuple)):
+        detail = detail[0] if detail else ''
+    if isinstance(detail, (dict, list, tuple)):
+        return _first_error_message(detail)
+    return str(detail) or 'The file could not be accepted.'
+
+
 @transaction.atomic
 def replace_resource_file(
     resource_id: int,
@@ -698,32 +782,102 @@ def replace_resource_file(
             'msg': 'HTML page resource cannot replace file',
             'data': None,
         }
-    
+
     resource = Resources.objects.get(id=resource_id)
-    next_storage_key = build_storage_key(resource_id, payload.get('file_name', 'file'))
-    
-    # Upload new file
-    file_bytes = payload.get('file_bytes', b'')
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        if isinstance(file_bytes, bytes):
-            tmp.write(file_bytes)
-        else:
-            tmp.write(bytes(file_bytes))
-        tmp.flush()
+
+    # Primary file replacement
+    has_primary_file = bool(payload.get('file_bytes') or payload.get('uploaded_file'))
+    if has_primary_file:
+        file_bytes = payload.get('file_bytes', b'')
+        if not isinstance(file_bytes, bytes):
+            file_bytes = bytes(file_bytes)
+
+        uploaded_file = payload.get('uploaded_file') or SimpleUploadedFile(
+            payload.get('file_name') or 'file',
+            file_bytes,
+            content_type=payload.get('file_mime_type') or 'application/octet-stream',
+        )
         try:
-            upload_file(tmp.name, next_storage_key)
-        finally:
-            os.unlink(tmp.name)
-    
-    resource.storage_key = next_storage_key
-    resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
-    resource.file_size = payload.get('file_size', 0)
+            validate_uploaded_file(
+                uploaded_file,
+                max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+                allowed_extensions=settings.RESOURCE_FILE_ALLOWED_EXTENSIONS,
+                allowed_mime_types=settings.RESOURCE_FILE_ALLOWED_MIME_TYPES,
+                field_label="Resource file",
+                acknowledged_oversized=is_truthy_flag(payload.get('acknowledged_oversized')),
+            )
+        except ValidationError as exc:
+            return {'msg': _first_error_message(exc.detail), 'data': None}
+
+        next_storage_key = get_resource_storage().save(
+            build_storage_key(resource_id, payload.get('file_name', 'file')),
+            ContentFile(file_bytes),
+        )
+        if resource.storage_key and is_managed_storage_key(resource.storage_key):
+            try:
+                get_resource_storage().delete(resource.storage_key)
+            except Exception:
+                pass
+
+        resource.storage_key = next_storage_key
+        resource.file_mime_type = payload.get('file_mime_type', 'application/octet-stream')
+        resource.file_size = payload.get('file_size', len(file_bytes))
+
+    # Slides file replacement
+    has_slides_file = bool(payload.get('slides_file_bytes') or payload.get('slides_file'))
+    if has_slides_file:
+        is_recorded_session = bool(
+            resource.type and resource.type.type_name and resource.type.type_name.strip().lower() == "recorded session"
+        )
+        if not is_recorded_session and resource.type_id:
+            rt = ResourceType.objects.filter(id=resource.type_id).first()
+            if rt and rt.type_name and rt.type_name.strip().lower() == "recorded session":
+                is_recorded_session = True
+
+        if not is_recorded_session:
+            return {'msg': 'Slides files are only supported for Recorded Session resources.', 'data': None}
+
+        slides_bytes = payload.get('slides_file_bytes', b'')
+        if not isinstance(slides_bytes, bytes):
+            slides_bytes = bytes(slides_bytes)
+
+        slides_mime = payload.get('slides_file_mime_type') or payload.get('slides_mime_type') or 'application/pdf'
+        slides_uploaded_file = payload.get('slides_file') or SimpleUploadedFile(
+            payload.get('slides_file_name') or 'slides.pdf',
+            slides_bytes,
+            content_type=slides_mime,
+        )
+        try:
+            validate_uploaded_file(
+                slides_uploaded_file,
+                max_size=settings.RESOURCE_FILE_MAX_UPLOAD_SIZE,
+                allowed_extensions=('pdf',),
+                allowed_mime_types=('application/pdf',),
+                field_label="Slides file",
+                acknowledged_oversized=is_truthy_flag(payload.get('acknowledged_oversized')),
+            )
+        except ValidationError as exc:
+            return {'msg': _first_error_message(exc.detail), 'data': None}
+
+        next_slides_key = get_resource_storage().save(
+            build_storage_key(resource_id, payload.get('slides_file_name', 'slides.pdf')),
+            ContentFile(slides_bytes),
+        )
+        if resource.slides_storage_key and is_managed_storage_key(resource.slides_storage_key):
+            try:
+                get_resource_storage().delete(resource.slides_storage_key)
+            except Exception:
+                pass
+
+        resource.slides_storage_key = next_slides_key
+        resource.slides_mime_type = slides_mime
+        resource.slides_file_size = payload.get('slides_file_size', len(slides_bytes))
+
     resource.save()
-    
     return query_resource_by_id(resource_id)
 
 
-def download_resource(resource_id: int) -> Dict[str, Any]:
+def download_resource(resource_id: int, field: str = 'file') -> Dict[str, Any]:
     """Download resource file."""
     try:
         resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
@@ -733,43 +887,55 @@ def download_resource(resource_id: int) -> Dict[str, Any]:
             'data': None,
         }
 
-    if not resource.storage_key:
+    target_key = resource.slides_storage_key if field == 'slides' else resource.storage_key
+    target_mime = resource.slides_mime_type if field == 'slides' else resource.file_mime_type
+
+    if not target_key:
         return {
-            'msg': 'This resource has no uploaded file',
+            'msg': 'This resource has no slides file' if field == 'slides' else 'This resource has no uploaded file',
             'data': None,
         }
 
     try:
+        content = None
         try:
-            content = download_file_bytes(resource.storage_key)
+            with RESOURCE_FILE_SERVICE.open(target_key) as fp:
+                content = fp.read()
         except Exception:
-            content = None
-            for blob_client in iter_resource_blob_clients(resource.storage_key):
-                try:
-                    if blob_client.exists():
-                        content = blob_client.download_blob().readall()
-                        break
-                except Exception:
-                    continue
-            if content is None:
-                raise
+            pass
 
+        if content is None:
+            try:
+                content = download_file_bytes(target_key)
+            except Exception:
+                for blob_client in iter_resource_blob_clients(target_key):
+                    try:
+                        if blob_client.exists():
+                            content = blob_client.download_blob().readall()
+                            break
+                    except Exception:
+                        continue
+
+        if content is None:
+            raise ValueError("File not found in storage")
+
+        default_name = f"slides-{resource_id}.pdf" if field == 'slides' else f"resource-{resource_id}"
         return {
             'msg': 'Resource download ready',
             'data': {
-                'file_name': extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}",
-                'mime_type': resource.file_mime_type or 'application/octet-stream',
+                'file_name': extract_file_name_from_storage_key(target_key) or default_name,
+                'mime_type': target_mime or ('application/pdf' if field == 'slides' else 'application/octet-stream'),
                 'content': content,
             },
         }
-    except Exception as e:
+    except Exception:
         return {
             'msg': 'File not found in storage',
             'data': None,
         }
 
 
-def access_resource(resource_id: int) -> Dict[str, Any]:
+def access_resource(resource_id: int, field: str = 'file') -> Dict[str, Any]:
     """Open a resource blob for inline streaming."""
     try:
         resource = Resources.objects.get(id=resource_id, deleted_at__isnull=True)
@@ -779,16 +945,47 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
             'data': None,
         }
 
-    if not resource.storage_key:
+    target_key = resource.slides_storage_key if field == 'slides' else resource.storage_key
+    target_mime = resource.slides_mime_type if field == 'slides' else resource.file_mime_type
+    target_size = resource.slides_file_size if field == 'slides' else resource.file_size
+
+    if not target_key:
         return {
-            'msg': 'This resource has no uploaded file',
+            'msg': 'This resource has no slides file' if field == 'slides' else 'This resource has no uploaded file',
             'data': None,
         }
 
-    file_name = extract_file_name_from_storage_key(resource.storage_key) or f"resource-{resource_id}"
+    default_name = f"slides-{resource_id}.pdf" if field == 'slides' else f"resource-{resource_id}"
+    file_name = extract_file_name_from_storage_key(target_key) or default_name
 
     try:
-        for blob_client in iter_resource_blob_clients(resource.storage_key):
+        try:
+            file_handle = RESOURCE_FILE_SERVICE.open(target_key)
+            def file_chunk_generator(handle, chunk_size=64 * 1024):
+                try:
+                    while True:
+                        chunk = handle.read(chunk_size)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    handle.close()
+
+            return {
+                'msg': 'Resource stream ready',
+                'data': {
+                    'resource_id': resource.id,
+                    'access_type': 'stream',
+                    'file_name': file_name,
+                    'mime_type': target_mime or ('application/pdf' if field == 'slides' else 'application/octet-stream'),
+                    'file_size': target_size,
+                    'stream': file_chunk_generator(file_handle),
+                },
+            }
+        except Exception:
+            pass
+
+        for blob_client in iter_resource_blob_clients(target_key):
             try:
                 if blob_client.exists():
                     break
@@ -804,12 +1001,12 @@ def access_resource(resource_id: int) -> Dict[str, Any]:
         content_settings = getattr(properties, "content_settings", None)
         storage_content_type = getattr(content_settings, "content_type", None)
         mime_type = (
-            resource.file_mime_type
+            target_mime
             or storage_content_type
-            or 'application/octet-stream'
+            or ('application/pdf' if field == 'slides' else 'application/octet-stream')
         )
         download_stream = blob_client.download_blob()
-        file_size = resource.file_size or getattr(properties, "size", None)
+        file_size = target_size or getattr(properties, "size", None)
 
         return {
             'msg': 'Resource stream ready',
@@ -841,39 +1038,69 @@ def update_resource(
     
     resource_data = existing['data']
     resource = Resources.objects.get(id=resource_id)
-    
+
+    # Visibility is role-based only. Validate before anything is saved; when
+    # only visibility_scope is sent, the resource's current roles must qualify.
+    if 'visibility_scope' in updates or 'role_ids' in updates:
+        if 'role_ids' in updates:
+            requested_role_ids = updates['role_ids'] or []
+        else:
+            requested_role_ids = list(
+                ResourceAudience.objects.filter(resource_id=resource_id)
+                .values_list('role_id', flat=True)
+            )
+        resource.visibility_scope = validate_role_based_write(
+            updates.get('visibility_scope'),
+            requested_role_ids,
+            get_roles_from_db(),
+        )
+
     # Update basic fields
     if 'resource_name' in updates:
         resource.name = updates['resource_name']
     if 'resource_description' in updates:
         resource.description = updates['resource_description'] or ''
-    if 'visibility_scope' in updates:
-        resource.visibility_scope = updates['visibility_scope']
     if 'group_id' in updates:
         resource.group_id = updates['group_id']
     if 'resource_kind' in updates:
         resource.kind = updates['resource_kind']
     
     # Update resource type
+    target_type_id = resource.type_id
     if 'resource_type' in updates:
         if updates['resource_type']:
             try:
                 rt = ResourceType.objects.get(type_name=updates['resource_type'])
                 resource.type_id = rt.id
+                target_type_id = rt.id
             except ResourceType.DoesNotExist:
                 pass
     elif 'resource_type_id' in updates:
         resource.type_id = updates['resource_type_id']
-    
+        target_type_id = updates['resource_type_id']
+
+    target_kind = updates.get('resource_kind', resource.kind)
+    if target_type_id:
+        rt_obj = ResourceType.objects.filter(id=target_type_id).first()
+        if rt_obj and rt_obj.type_name == "Recorded Session" and target_kind == RESOURCE_KIND_PAGE:
+            raise ValidationError({'resource_kind': "Recorded Session resources cannot be pages."})
+
     resource.save()
     
     # Handle page content update
-    if updates.get('resource_kind') == RESOURCE_KIND_PAGE and 'content_html' in updates:
+    if target_kind == RESOURCE_KIND_PAGE and 'content_html' in updates and updates['content_html'] is not None:
+        old_storage_key = resource.storage_key
         html_text = updates['content_html'] or ''
         file_name = f"{(updates.get('resource_name') or resource_data['resource_name']) or 'resource'}.html"
         html_bytes = html_text.encode('utf-8')
         storage_key = RESOURCE_FILE_SERVICE.save_content(file_name, ContentFile(html_bytes))
-        
+
+        if old_storage_key and old_storage_key != storage_key and is_managed_storage_key(old_storage_key):
+            try:
+                RESOURCE_FILE_SERVICE.delete(old_storage_key)
+            except Exception:
+                pass
+
         resource.storage_key = storage_key
         resource.file_mime_type = 'text/html'
         resource.file_size = len(html_bytes)
@@ -975,7 +1202,17 @@ def remove_role_from_resource(resource_id: int, role_id: int) -> Dict[str, Any]:
         Resources.objects.get(id=resource_id, deleted_at__isnull=True)
     except Resources.DoesNotExist:
         return {'msg': 'Resource not found', 'data': None}
-    
+
+    remaining_role_ids = (
+        ResourceAudience.objects.filter(resource_id=resource_id)
+        .exclude(role_id=role_id)
+        .values_list('role_id', flat=True)
+    )
+    if not selected_non_admin_role_ids(list(remaining_role_ids), available_roles):
+        raise ValidationError({
+            'role_ids': "A resource must stay visible to at least one role. Add another role before removing this one.",
+        })
+
     ResourceAudience.objects.filter(
         resource_id=resource_id,
         role_id=role_id,

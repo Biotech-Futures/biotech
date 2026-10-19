@@ -1,136 +1,110 @@
-# BIOTech Futures — Web Platform
+# BIOTech Connect
 
-A Django and Vue-based platform supporting student groups, mentors, resources, events, and collaborative group work. This repository also contains mentor-management and matching functionality.
+The mentoring platform for **BIOTech Futures** — connecting student teams with mentors, and supporting the full programme lifecycle: groups, chat, tasks, events, resources, announcements, competition submissions, and grading.
 
-## Project Structure
+## Repository layout
 
-- `backend/` — Django API, database models, migrations, and server-side functionality.
-- `frontend/` — Vue frontend, pages, and interactive group workspace.
-- `backend/requirements.txt` — Python dependencies.
-- `frontend/package.json` and `frontend/package-lock.json` — JavaScript dependencies and locked versions.
+| Directory | What it is |
+|---|---|
+| `backend/` | Django 5.2 + Django REST Framework API. PostgreSQL, Channels (WebSocket chat) with Redis, Azure Blob Storage for files, session-cookie auth with email OTP / magic-link login. |
+| `frontend/` | Member-facing SPA (Vue 3 + Pinia + Vite). Students, mentors, supervisors, and in-app admin + grading tooling. |
+| `adminweb/` | Standalone admin console (React + TanStack Router). Feature-frozen; active admin work happens in `frontend/`. |
+| `resources/` | Workstream planning docs (largely historical). |
 
-## Prerequisites
+Deployment is Azure: the backend to App Service, both SPAs to Static Web Apps (see `.github/workflows/`). Scheduled workflows trigger token-protected backend endpoints for RSVP reminders, submission reminders, and unread-chat digests.
 
-Install Python, Node.js/npm, and the database required by your local Django configuration. The current BIOTech development setup uses PostgreSQL; check your local environment configuration for the correct connection details. Obtain any required environment variables and test credentials from the team through an approved private channel. Do not commit passwords or `.env` files.
+## Local development
 
-## Quick Start (Local Development)
-
-Run the backend and frontend in **separate terminals**. Commands below start from the repository root.
-
-### 1. Clone or update the repository
+### Database
 
 ```bash
-git clone <repository-url>
-cd biotech
+docker compose -f docker-compose.dev.yml up -d   # Postgres 16 on localhost:5433 (POSTGRES_HOST_PORT overrides)
 ```
-
-If you already have the repository, pull the appropriate team branch instead of cloning again.
-
-### 2. Backend setup
-
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate       # Linux / macOS / WSL
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
-```
-
-The development backend normally runs at `http://127.0.0.1:8000/`. Make sure your database is running and your local Django settings are configured before applying migrations. If the project already has a virtual environment, activate it instead of creating another.
-
-### 3. Frontend setup (new terminal)
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-Open the local URL shown by Vite in the terminal (for example, `http://localhost:5173/`; your port may differ).
-
-**Important:** `npm ci` installs **all** frontend dependencies listed in `package-lock.json`, including `y-protocols`. You do **not** need to install `y-protocols` separately or add it to Python's `requirements.txt`.
-
-If `npm ci` fails because the lockfile is out of sync with `package.json`, ask the team to correct and commit the lockfile. Do not manually edit `node_modules`.
-
-## Updating Your Local Copy
-
-After pulling changes from GitHub, refresh dependencies when the dependency files have changed:
-
-```bash
-# From the repository root
-cd frontend
-npm ci
-npm run dev
-```
-
-For backend dependency changes, activate the Python virtual environment and rerun `python -m pip install -r requirements.txt`. Apply any new Django migrations with `python manage.py migrate`.
-
-> **Note:** `git pull` downloads code and dependency manifests, but does not install new npm or Python packages automatically. The first install (and reinstall after dependency changes) must still be run locally.
-
-## Main Features
-
-- Authentication and sign-in flow.
-- Group workspace with Tasks and Meetings views.
-- Group meeting details and collaborative meeting notes.
-- Group discussion and member collaboration.
-- Resource management and document previews.
-- Event content and banner display.
-- Mentor/student management and matching functionality.
-
-Some functionality may still be under development. Availability depends on the branch, user role, and configured services.
-
-## Testing and Verification
-
-### Frontend
-
-```bash
-cd frontend
-npm run dev
-```
-
-Check the available scripts in `frontend/package.json` for build, type-checking, and test commands before running them.
-
-For the group meetings interface, sign in with an account assigned to a group, open the group page, select **Meetings**, open a meeting, and use **Back to Meetings** to return to the group's Meetings view.
 
 ### Backend
 
 ```bash
 cd backend
-source .venv/bin/activate
-python manage.py check
-python manage.py test
+python -m venv venv
+venv\Scripts\activate          # Windows (source venv/bin/activate on macOS/Linux)
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver     # http://127.0.0.1:8000
 ```
 
-The exact tests available depend on the checked-out branch and your local test database configuration.
+Local settings live in `config/settings_local.py`; production configuration is environment-variable driven (see `config/settings.py` — Azure storage, SMTP, Redis, frontend base URLs are all env-gated and fail loud when missing outside DEBUG).
 
-## Troubleshooting
+API docs (DEBUG only): `/api/docs/` (Swagger) and `/api/redoc/`.
 
-| Problem | What to check |
-| --- | --- |
-| `Failed to resolve import "y-protocols/awareness"` | Run `npm ci` inside `frontend/`, then restart Vite. |
-| `Module not found` in frontend | Confirm you are in `frontend/` and have installed dependencies with `npm ci`. |
-| Frontend cannot reach the API | Confirm Django is running and the frontend API base URL points to the correct backend address. |
-| Database connection or SSL error | Check PostgreSQL service, credentials, port, and local SSL settings. |
-| Unapplied migrations | Run `python manage.py migrate` in `backend/`. |
-| Port already in use | Stop the existing development server or use another available port. |
-| No group visible | Check that the signed-in user has a group membership; some views require an assigned group. |
+### Student profile and guardian invitations
 
-## Working as a Team
+Students without a linked supervisor can edit their name, school, year, country,
+region and interests from their profile. Guardian editing uses the separate
+Guardian Details section, which warns first: a new guardian replaces the old one
+straight away, and clears the permission already given (media consent too) until
+the new guardian signs the platform's consent form, which is emailed to them.
 
-1. Work on the agreed branch and pull updates before starting new work.
-2. Commit source code and dependency manifests when adding packages; do not commit `node_modules/` or Python virtual environments.
-3. Keep secrets and machine-specific settings out of commits.
-4. Use pull requests and team review procedures before merging shared changes.
-5. Update this README whenever setup steps or required dependencies change.
+The resend button uses the same `guardian_consent_request` email service as the
+admin page, including its ten-minute cooldown and single-use consent link.
+Links use `FRONTEND_BASE_URL` and open `/#/consent/<token>`; the earlier
+`GUARDIAN_CONSENT_URL` placeholder is no longer needed. Signatures are stored
+with the consent record, and its PDF is made from it whenever an admin views
+or downloads it, as Mark Summaries and certificates are; no PDF is stored.
+With `config.settings_local`, outgoing emails are saved under
+`backend/sent_emails/`, not delivered to real inboxes.
 
-## Legacy Mentor-Management Operations
+Automatic reminders are disabled by default. After arranging a regular scheduler
+for `python manage.py send_guardian_reminders`, set
+`GUARDIAN_REMINDER_INTERVAL_DAYS` (for example, `7`). Successfully sent invitations
+then record a next reminder due date. The command only processes due reminders
+for active students who still need permission or have a pending guardian change; it doesn't send an initial email
+to every existing student. No scheduler is created by these code changes.
 
-The original mentor-management documentation described Excel import, automated grouping, mentor assignment, replacement, account deactivation, and email notifications. These workflows may belong to older modules or branches; **verify the current API routes and management commands in the checked-out code before using them**. In particular, avoid running reset/delete-all operations against shared or production data.
+Bounced emails are found by a check of the sending mailboxes through Hostinger's
+Mail API (read-only, nothing in a mailbox is changed). It opens only bounce
+notices and notes who each one says didn't get our email: on the Management page
+it came from (listed as missed, so Resend Email To Missed Individuals emails them
+again) and on the System Emails log under Bounced emails. GitHub's
+`.github/workflows/bounce-check.yml` starts it about every 10 minutes through
+`POST /api/v1/management/bounce-check/`, with the `EMAIL_JOBS_TOKEN` the other
+email jobs use. `python manage.py check_bounced_emails` runs it by hand.
 
-For current admin functionality, consult the Django admin routes and the backend's application-specific documentation. Configure email and other external services through approved environment settings, not hard-coded credentials.
+To switch it on, set `HOSTINGER_MAIL_API_KEY` on the backend (in production, the
+Azure app's Settings > Environment variables > App settings), made in hPanel >
+Emails > the domain > Agentic Mail > API access. Never commit it. Without the key
+the check answers "off" and does nothing. `BOUNCE_LOOKBACK_DAYS` (default 90, about
+3 months) limits how far back its first run, or one after a gap, reads.
+
+### Frontend
+
+```bash
+cd frontend
+npm ci
+npm run dev                    # http://localhost:5173
+```
+
+Set `VITE_API_BASE_URL` (see `frontend/.env.example`); it defaults to `http://localhost:8000`.
+
+## Testing
+
+```bash
+# Backend (same command CI runs, with coverage gate >= 60%)
+# All suites live under backend/tests/, mirrored per app.
+cd backend
+python manage.py test tests --settings=config.settings_test
+
+# Frontend unit tests
+cd frontend
+npm run test:unit
+npm run type-check
+```
+
+## Contributing
+
+- Work on feature branches; merge to `main` via Pull Request.
+- Pre-commit hooks type-check `frontend/` and `adminweb/` when files in those trees are staged.
+- Backend deploys are gated on the test suite in `.github/workflows/main_biotechbe.yml`.
 
 ## License
 
-See the repository's license information, if provided, or contact the project maintainers.
+This project is licensed under the Apache License 2.0. See [LICENSE.md](LICENSE.md) for details.

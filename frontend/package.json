@@ -20,14 +20,27 @@
   "dependencies": {
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.14",
+    "@tiptap/core": "^3.30.6",
+    "@tiptap/extension-image": "^3.30.6",
+    "@tiptap/extension-link": "^3.30.6",
+    "@tiptap/extension-placeholder": "^3.30.6",
+    "@tiptap/extension-table": "^3.30.6",
+    "@tiptap/extension-table-cell": "^3.30.6",
+    "@tiptap/extension-table-header": "^3.30.6",
+    "@tiptap/extension-table-row": "^3.30.6",
+    "@tiptap/extension-underline": "^3.30.6",
+    "@tiptap/starter-kit": "^3.30.6",
+    "@tiptap/vue-3": "^3.30.6",
     "codemirror": "^6.0.2",
     "naive-ui": "^2.42.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1",
+    "vuedraggable": "^4.1.0",
     "y-codemirror.next": "^0.3.6",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.33"
+    "yjs": "^13.6.33",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",

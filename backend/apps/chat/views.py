@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common import email_jobs
 from apps.common.storage import serve_managed_file
 from apps.audit.services import log_audit_event
 from .management.permissions import (
@@ -42,6 +43,7 @@ from .serializers import (
     aggregate_reactions,
 )
 from .services.storage import CHAT_FILE_SERVICE, stored_chat_file
+from .services.screening import schedule_message_screening
 from .tasks import dispatch_og
 from .utils import contains_blacklisted, parse_mentions
 from apps.groups.models import Groups, GroupMembership
@@ -83,6 +85,45 @@ def _broadcast(group_id: int, event: str, message_payload: dict) -> None:
         async_to_sync(channel_layer.group_send)(f"group_{group_id}", envelope)
 
     transaction.on_commit(_send)
+
+
+def broadcast_message_suppressed(message: Messages) -> None:
+    """Tell live clients to hide a flagged message without leaking its text.
+
+    The group-wide event intentionally carries only ids and moderation state.
+    Non-senders remove the row; the sender keeps their local copy and changes
+    it to the muted pending-review presentation.
+    """
+    channel_layer = get_channel_layer()
+    envelope = {
+        "type": "chat.message",
+        "payload": {
+            "event": "message.suppressed",
+            "type": "message.suppressed",
+            "group_id": message.group_id,
+            "message_id": message.pk,
+            "sender_user_id": message.sender_user_id,
+            "is_suppressed": True,
+            "suppressed_at": message.suppressed_at.isoformat()
+            if message.suppressed_at else None,
+        },
+    }
+
+    def _send():
+        async_to_sync(channel_layer.group_send)(
+            f"group_{message.group_id}", envelope
+        )
+
+    transaction.on_commit(_send)
+
+
+def broadcast_message_approved(message: Messages) -> None:
+    """Restore an approved message to every current group participant."""
+    _broadcast(
+        message.group_id,
+        "message.moderation_approved",
+        serialize_message_for_broadcast(message),
+    )
 
 
 def _broadcast_read(group_id: int, reader_id: int, up_to_id: int) -> None:
@@ -294,7 +335,12 @@ def mark_delivered_cursor(user, group_id: int, up_to_id: int) -> int:
     """
     scope_ids = list(
         Messages.objects
-        .filter(group_id=group_id, id__lte=up_to_id, deleted_at__isnull=True)
+        .filter(
+            group_id=group_id,
+            id__lte=up_to_id,
+            deleted_at__isnull=True,
+            is_suppressed=False,
+        )
         .exclude(sender_user_id=user.id)
         .values_list("id", flat=True)
     )
@@ -390,6 +436,14 @@ class MessageViewSet(viewsets.ModelViewSet):
         user_id = getattr(user_id, "id", None)
         # Restore/deleted admin paths opt into tombstoned rows; normal chat stays active-only.
         base_qs = Messages.objects.all() if include_deleted else Messages.objects.filter(deleted_at__isnull=True)
+        # A suppressed row is evidence, not group content. Only its author may
+        # keep seeing it while support reviews the linked ticket.
+        if user_id is None:
+            base_qs = base_qs.filter(is_suppressed=False)
+        else:
+            base_qs = base_qs.filter(
+                Q(is_suppressed=False) | Q(sender_user_id=user_id)
+            )
         return (
             base_qs
             .select_related("sender_user", "deleted_by", "reply_to", "preview")
@@ -706,6 +760,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         apply_mentions(msg)
         _broadcast(gid, "message.created", self._serialize_broadcast_message(msg))
         self._dispatch_link_previews(msg)
+        schedule_message_screening(msg)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -747,6 +802,7 @@ class MessageViewSet(viewsets.ModelViewSet):
                 # uniform with the plain-text POST path. Dispatch is on_commit,
                 # so a failed transaction still cleans up cleanly.
                 self._dispatch_link_previews(message)
+                schedule_message_screening(message)
         return Response(self._serialize_public_message(message), status=status.HTTP_201_CREATED)
 
     # PATCH /chat/groups/{gid}/messages/{id}/
@@ -777,6 +833,7 @@ class MessageViewSet(viewsets.ModelViewSet):
         _broadcast(
             instance.group_id, "message.edited", self._serialize_broadcast_message(instance)
         )
+        schedule_message_screening(instance)
         return Response(self._serialize_public_message(instance))
 
     # DELETE /chat/groups/{gid}/messages/{id}/
@@ -840,7 +897,12 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         scope_ids = list(
             Messages.objects
-            .filter(group_id=gid, id__lte=target.id, deleted_at__isnull=True)
+            .filter(
+                group_id=gid,
+                id__lte=target.id,
+                deleted_at__isnull=True,
+                is_suppressed=False,
+            )
             .exclude(sender_user_id=request.user.id)
             .values_list("id", flat=True)
         )
@@ -1089,7 +1151,10 @@ class MentionViewSet(viewsets.GenericViewSet):
     def get_queryset(self):
         return (
             MessageMention.objects
-            .filter(mentioned_user=self.request.user)
+            .filter(
+                mentioned_user=self.request.user,
+                message__is_suppressed=False,
+            )
             .select_related("message", "message__sender_user")
             .order_by("-message__sent_at", "-id")
         )
@@ -1126,7 +1191,11 @@ class MentionViewSet(viewsets.GenericViewSet):
         items = list(qs[:limit])
         unread_count = (
             MessageMention.objects
-            .filter(mentioned_user=request.user, read_at__isnull=True)
+            .filter(
+                mentioned_user=request.user,
+                read_at__isnull=True,
+                message__is_suppressed=False,
+            )
             .count()
         )
         data = MentionSerializer(items, many=True).data
@@ -1178,10 +1247,9 @@ class UnreadDigestTriggerView(APIView):
     service, not here. Auth is a shared-secret header, not a user session —
     there is no human caller. Mirrors ``RsvpReminderTriggerView``:
 
-    * ``UNREAD_DIGEST_TOKEN`` must be set; if blank the endpoint returns 503 so a
-      misconfigured deploy fails loud instead of silently exposing an
-      unauthenticated trigger.
-    * The header value is compared with ``hmac.compare_digest`` (constant time).
+    * The email jobs' shared token (``apps.common.email_jobs``) must be set;
+      if blank the endpoint returns 503 so a misconfigured deploy fails loud
+      instead of silently exposing an unauthenticated trigger.
 
     Responds 202 immediately; the run itself happens on a background thread
     (it can exceed Azure's ~230s gateway cap) and logs its counts as
@@ -1195,13 +1263,34 @@ class UnreadDigestTriggerView(APIView):
     def post(self, request):
         from .services.digest import dispatch_unread_digest
 
-        expected = getattr(settings, "UNREAD_DIGEST_TOKEN", "") or ""
-        if not expected:
+        refusal = email_jobs.refused(request)
+        if refusal:
+            return refusal
+
+        return Response(
+            {"status": dispatch_unread_digest()},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class AiScreeningTriggerView(APIView):
+    """HMAC-protected fallback trigger for queued moderation work."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        from .services.screening import dispatch_suspicious_message_screening
+
+        expected = getattr(settings, "AI_SCREENING_TRIGGER_TOKEN", "") or ""
+        api_key = getattr(settings, "OPENAI_API_KEY", "") or ""
+        if not expected or not api_key:
             return Response(
-                {"detail": "Unread digest trigger is not configured."},
+                {"detail": "AI screening trigger is not configured."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        provided = request.headers.get("X-Digest-Token", "")
+        provided = request.headers.get("X-AI-Screening-Token", "")
         if not hmac.compare_digest(provided, expected):
             return Response(
                 {"detail": "Invalid token."},
@@ -1209,7 +1298,6 @@ class UnreadDigestTriggerView(APIView):
             )
 
         return Response(
-            {"status": dispatch_unread_digest()},
+            {"status": dispatch_suspicious_message_screening()},
             status=status.HTTP_202_ACCEPTED,
         )
-

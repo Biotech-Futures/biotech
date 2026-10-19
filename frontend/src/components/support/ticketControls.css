@@ -1,0 +1,20 @@
+/* The chevron a ticket <select> draws once the browser's own arrow is
+   switched off with appearance: none, as the first redesign round (October
+   2026) asks, and the paperclip on the detail panel's file buttons, which
+   are the browser's own button restyled and cannot hold an element. An SVG
+   inside a data URI cannot inherit the text colour, so there is one of each
+   per theme, in the colour of the text beside it.
+
+   Only names starting --ticket- are defined here, so nothing outside the
+   ticket screens reads them. */
+:root {
+  --ticket-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23174243' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ticket-paperclip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath d='M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48' fill='none' stroke='%23174243' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ticket-clear-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath d='M18 6L6 18M6 6l12 12' fill='none' stroke='%235a6268' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+:root[data-theme='dark'] {
+  --ticket-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23e6efed' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ticket-paperclip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath d='M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48' fill='none' stroke='%23e6efed' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --ticket-clear-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24'%3E%3Cpath d='M18 6L6 18M6 6l12 12' fill='none' stroke='%238a9a96' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+}

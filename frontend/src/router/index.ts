@@ -55,46 +55,97 @@ normalizeDirectAuthRedirect()
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: routes
+  routes: routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (to.hash) {
+      return { el: to.hash, top: 80, behavior: 'smooth' }
+    }
+
+    if (to.path.startsWith('/analytics') && to.path !== from.path && !to.hash) {
+      return { left: 0, top: 0 }
+    }
+
+    return savedPosition ?? undefined
+  },
 })
 
 import { useAuthStore } from '../stores/auth'
+import { landingPath, SUPPORT_ACCESS_PATH } from '@/utils/landing'
+import { rememberReturnTo } from '../utils/postLoginRedirect'
+import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
+import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
+
+// Pages a support-only account may open besides the ticket routes: its own
+// profile (the timezone prompt after sign-in sends people there) and the page
+// that explains a missing queue grant.
+const SUPPORT_ONLY_EXTRA_PATHS = ['/profile', SUPPORT_ACCESS_PATH]
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
+  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password', '/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
+  const requiresAdmin = to.meta.requiresAdmin === true
+  // meta.requiresSupport sits on the /admin/tickets parent and Vue Router
+  // merges it into every child's meta, so this covers the whole section.
+  const isTicketRoute = to.meta.requiresSupport === true
+  const supervisorRegistrationAccess = resolveSupervisorRegistrationRouteAccess(to, auth)
 
-  if (isPasswordSetupPath && !auth.isAuthenticated) {
+  if (to.meta.public === true) {
+    // Open to anyone, signed in or not, and never redirected away.
+    next()
+
+  } else if (isPasswordSetupPath && !auth.isAuthenticated) {
     next('/login')
 
   } else if (auth.isAuthenticated && auth.mustChangePassword && !isPasswordSetupPath) {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next(auth.isAdmin ? '/login' : '/dashboard')
+    next(landingPath(auth))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
+    // Signing in brings them back here, e.g. to the page an email linked to.
+    rememberReturnTo(to.fullPath)
     next('/login')
 
-  } else if (!isPublicPath && auth.isAuthenticated && auth.isAdmin) {
-    next('/login')
+  } else if (isTicketRoute && !auth.canWorkTickets) {
+    // Queue access is the server's isSupport flag, not the role: a student
+    // goes home, a role-support account without access goes to the page that
+    // says why.
+    next(landingPath(auth))
+
+  } else if (
+    auth.isSupportOnly &&
+    !isPublicPath &&
+    !isTicketRoute &&
+    !SUPPORT_ONLY_EXTRA_PATHS.includes(to.path) &&
+    !to.path.startsWith('/auth/')
+  ) {
+    // A support agent who is not an admin gets the queue and nothing else.
+    // Hiding the rest is a courtesy, not the control: the member and admin
+    // endpoints refuse them at the server (adminweb Nav.tsx). The /auth
+    // clause is load-bearing: an agent who still owes a password is sent to
+    // /auth/set-password by the rules above, and without it this rule would
+    // send them straight back to the landing, which sends them there again.
+    next(landingPath(auth))
+
+  } else if ((requiresAdmin || to.meta.adminOnly) && !auth.isAdmin) {
+    // Admin-only routes are off-limits to non-admins; send them to their own
+    // start page (members home, a support agent to the queue).
+    next(landingPath(auth))
+
+  } else if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
 
   } else if (to.path === '/login' && auth.isAuthenticated) {
-    if (auth.mustChangePassword) {
-      next(passwordSetupPath)
-      return
-    }
-
-    if (auth.isAdmin) {
-      next()
-      return
-    }
-
-    next('/dashboard')
+    // landingPath() answers the set-password case first, as this branch did.
+    next(landingPath(auth))
+  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from supervisors until Management > Supervisor Pages Visibility shows them.
+    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

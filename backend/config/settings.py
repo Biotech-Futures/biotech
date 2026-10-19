@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -36,6 +37,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.groups',
     'apps.chat',
+    'apps.tickets',
     'apps.resources',
     'apps.announcements',
     'apps.audit',
@@ -47,8 +49,10 @@ INSTALLED_APPS = [
     'apps.meetings',
     'apps.workshops',
     'apps.certificates',
+    'apps.submissions',
+    'apps.grading',
+    'apps.management',
     'apps.services',
-    'matching',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
@@ -68,15 +72,57 @@ AZURE_CONNECTION_STRING = config(
 )
 AZURE_RESOURCE_CONTAINER = config("AZURE_RESOURCE_CONTAINER", default=AZURE_CONTAINER or "resources")
 AZURE_CHAT_CONTAINER = config("AZURE_CHAT_CONTAINER", default="chat")
+# Competition entries live apart from the general resource library, with one
+# container per attachment slot, so posters, reports and prototypes are
+# separated at the storage-account level rather than mixed in one namespace.
+AZURE_POSTER_CONTAINER = config("AZURE_POSTER_CONTAINER", default="posters")
+AZURE_REPORT_CONTAINER = config("AZURE_REPORT_CONTAINER", default="reports")
+AZURE_PROTOTYPE_CONTAINER = config("AZURE_PROTOTYPE_CONTAINER", default="prototypes")
+# Keep profile photos separate from general media and user submissions. The
+# container is private; the application returns time-limited URLs when a
+# profile is serialized.
+AZURE_PROFILE_IMAGE_CONTAINER = config("AZURE_PROFILE_IMAGE_CONTAINER", default="profile-images")
+# Finalists' presentation slides for the Symposium, apart from their entries.
+AZURE_SLIDES_CONTAINER = config("AZURE_SLIDES_CONTAINER", default="slides")
 AZURE_URL_EXPIRATION_SECS = config("AZURE_URL_EXPIRATION_SECS", default=3600, cast=int)
 AZURE_CUSTOM_DOMAIN = config(
     "AZURE_CUSTOM_DOMAIN",
     default=f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net" if AZURE_ACCOUNT_NAME else "",
 )
 
-# Azure Blob is the only supported file backend.
-USE_AZURE_BLOB_STORAGE = True
-DEFAULT_FILE_STORAGE = "storages.backends.azure_storage.AzureStorage"
+# Azure Blob is the supported cloud file backend whenever credentials are configured.
+# In local development without Azure credentials, fall back to local disk storage under MEDIA_ROOT.
+# Production (DEBUG=False) must never write to ephemeral disk: missing Azure credentials
+# or disabling Azure Blob Storage raises ImproperlyConfigured at startup.
+_AZURE_CONFIGURED = bool(
+    AZURE_CONNECTION_STRING or (AZURE_ACCOUNT_NAME and AZURE_ACCOUNT_KEY)
+)
+USE_AZURE_BLOB_STORAGE = _AZURE_CONFIGURED or config(
+    "USE_AZURE_BLOB_STORAGE",
+    default=False if DEBUG else True,
+    cast=env_bool,
+)
+if not DEBUG and not (_AZURE_CONFIGURED and USE_AZURE_BLOB_STORAGE):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Azure Blob Storage must be enabled and credentials configured when DEBUG is false. "
+        "Set USE_AZURE_BLOB_STORAGE=true and provide Azure credentials."
+    )
+# Django 5.1 removed DEFAULT_FILE_STORAGE — STORAGES is the only setting read
+# now, so naming the backend here is what actually routes plain FileFields
+# (the grading templates and director signatures). django-storages picks up
+# the account and AZURE_CONTAINER from the settings above on its own.
+STORAGES = {
+    "default": {
+        "BACKEND": (
+            "storages.backends.azure_storage.AzureStorage"
+            if USE_AZURE_BLOB_STORAGE
+            else "django.core.files.storage.FileSystemStorage"
+        )
+    },
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 
@@ -95,11 +141,32 @@ CHAT_ATTACHMENT_MAX_UPLOAD_SIZE = config(
     default=10 * 1024 * 1024,
     cast=int,
 )
+# Figures set by the programme after checking last year's entries: the largest
+# poster they received was 18MB, so 20MB is the deliberate headroom above a
+# known real maximum rather than a guess. Reports share that ceiling; both are
+# PDFs of the same kind of thing.
+#
+# The prototype's 50MB is above the request body limit some hosts impose in
+# front of the application (IIS defaults to roughly 28.6MB). Where that applies
+# the upload is rejected before it ever reaches this check, and the student sees
+# the host's error rather than ours — so the platform limit has to be raised to
+# match, or this ceiling is fiction. The two PDF slots share one setting;
+# giving them different limits would need a second.
+SUBMISSION_FILE_MAX_UPLOAD_SIZE = config(
+    "SUBMISSION_FILE_MAX_UPLOAD_SIZE",
+    default=50 * 1024 * 1024,
+    cast=int,
+)
+SUBMISSION_PDF_MAX_UPLOAD_SIZE = config(
+    "SUBMISSION_PDF_MAX_UPLOAD_SIZE",
+    default=20 * 1024 * 1024,
+    cast=int,
+)
 RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
     str(value).strip().lower().lstrip(".")
     for value in config(
         "RESOURCE_FILE_ALLOWED_EXTENSIONS",
-        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx,mp4,webm,mov",
         cast=Csv(),
     )
     if str(value).strip()
@@ -112,8 +179,9 @@ RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
             "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
             "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
             "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
-            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ), 
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+            "video/mp4,video/webm,video/quicktime"
+        ),
         cast=Csv(),
     )
     if str(value).strip()
@@ -171,6 +239,14 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'event_bulk_invite': '30/min',
+        # Ticket submission only; the GET on the same view is exempt via
+        # WriteOnlyScopedThrottle. Each submission puts an email on the same
+        # four-worker pool as login codes, so the cap is really about keeping
+        # one looping account from delaying everyone else's sign-in.
+        'ticket_create': '30/hour',
+        # The public consent page, per IP: generous for a family sharing a
+        # connection, tight enough to make guessing links pointless.
+        'guardian_consent': '60/hour',
     },
 }
 
@@ -229,7 +305,10 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# Database — local PostgreSQL for development
+# Database — local PostgreSQL for development. Local Docker/Postgres installs
+# commonly do not have TLS enabled, so default to disabled in DEBUG and allow
+# explicit override via DB_SSLMODE for production-like environments.
+_DB_SSLMODE = config("DB_SSLMODE", default="disable" if DEBUG else "require")
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -239,7 +318,7 @@ DATABASES = {
         "HOST": config("DB_HOST", default="127.0.0.1"),
         "PORT": config("DB_PORT", default="5432"),
         "OPTIONS": {
-            "sslmode": config("DB_SSLMODE", default="require"),
+            "sslmode": _DB_SSLMODE,
             "connect_timeout": 5,
         },
         # Persistent connections — avoids a TLS handshake (100-300ms on Azure
@@ -268,7 +347,10 @@ USE_I18N = True
 USE_TZ = True
 
 # Email
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_BACKEND = config(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.smtp.EmailBackend",
+)
 EMAIL_HOST = config("EMAIL_HOST", default="sandbox.smtp.mailtrap.io")
 EMAIL_PORT = config("EMAIL_PORT", default=2525, cast=int)
 EMAIL_USE_SSL = config("EMAIL_USE_SSL", default="true", cast=env_bool)
@@ -277,6 +359,16 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 # Django defaults this to None, i.e. no socket timeout at all — a stalled relay
 # (Azure SNAT exhaustion is the usual cause) then pins the worker indefinitely.
 EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=20, cast=int)
+
+# Hostinger's Mail API, which check_bounced_emails reads the sending
+# mailboxes' bounce notices with (read-only). Made in hPanel under the email
+# domain's Agentic Mail > API access. Blank turns the check off.
+HOSTINGER_MAIL_API_KEY = config("HOSTINGER_MAIL_API_KEY", default="")
+HOSTINGER_MAIL_API_URL = config("HOSTINGER_MAIL_API_URL", default="https://api.mail.hostinger.com")
+HOSTINGER_MAIL_TIMEOUT_SECONDS = config("HOSTINGER_MAIL_TIMEOUT_SECONDS", default=15, cast=float)
+# How far back a check looks for bounce notices, and for the sends they match:
+# about 3 months (only its first run, or one after a gap, reads that far).
+BOUNCE_LOOKBACK_DAYS = config("BOUNCE_LOOKBACK_DAYS", default=90, cast=int)
 # Synchronous dispatch (used by tests) sends auth mail inline instead of on the
 # pool, so assertions can observe msg.send() without racing a thread.
 AUTH_EMAIL_DISPATCH_SYNC = config(
@@ -288,8 +380,25 @@ AUTH_EMAIL_DISPATCH_SYNC = config(
 EMAIL_FROM_ADDRESS = "info@biotechfutures.org"
 DEFAULT_FROM_EMAIL = f"{BRAND_NAME} <{EMAIL_FROM_ADDRESS}>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
-# Inbound mailbox users write to; automated mail still goes out from EMAIL_FROM_ADDRESS.
+# Inbound mailbox users write to. Automated mail still goes out from
+# EMAIL_FROM_ADDRESS, with one exception below.
 SUPPORT_EMAIL = "support@biotechfutures.org"
+# The exception: the three emails about a support enquiry go out from
+# SUPPORT_EMAIL, because the client asked for enquiry mail to come from
+# support@ and not info@ (apps/tickets/services/emails.py). Nothing else
+# moves; login codes, announcements and the rest keep DEFAULT_FROM_EMAIL.
+#
+# No second SMTP account for this, unlike connect@ below. The client confirmed
+# on Slack that support@ is an alias of the info@ mailbox, so the same
+# EMAIL_HOST_USER login may send as it. If that alias is ever removed, expect
+# the relay to refuse these sends, and nothing raises when it does: the only
+# trace is an auth_email.send_failed log line (plus an internal note on the
+# ticket for the resolution email). Check the logs after changing either one.
+TICKET_FROM_EMAIL = f"{BRAND_NAME} <{SUPPORT_EMAIL}>"
+# Where the two emails about the queue go: a new enquiry, and the morning count
+# of what is still open (apps/tickets/services/emails.py, C-17 and C-18). The
+# designer's draft names support@; set this to send them somewhere else.
+TICKET_SUPPORT_INBOX = config("TICKET_SUPPORT_INBOX", default=SUPPORT_EMAIL)
 
 # Second mailbox — the "unread messages" digest sends from here, NOT the default
 # transactional account, so it can live under its own 3000/day send quota and
@@ -307,6 +416,27 @@ EMAIL_CONNECT_HOST_USER = config(
 EMAIL_CONNECT_HOST_PASSWORD = config("EMAIL_CONNECT_HOST_PASSWORD", default="")
 CONNECT_FROM_ADDRESS = "connect@biotechfutures.org"
 CONNECT_DEFAULT_FROM_EMAIL = f"{BRAND_CONNECT} <{CONNECT_FROM_ADDRESS}>"
+
+# The mailboxes the site can send from, picked per email on System Emails
+# (``apps.services.system_email.sender_for``). Hostinger rejects an email whose
+# From doesn't match the signed-in mailbox or one of its aliases, so each
+# carries its own SMTP login: adding a sender means adding its login settings
+# (its password in the environment) and an entry here. Each names the
+# settings it's read from when sending: its address, its From header, and the
+# prefix of its EMAIL_*_HOST, _PORT, _HOST_USER, _HOST_PASSWORD and _USE_SSL
+# login settings (none for the default account, EMAIL_HOST_USER above).
+EMAIL_SENDERS = {
+    "info": {
+        "address": "EMAIL_FROM_ADDRESS",
+        "from_email": "DEFAULT_FROM_EMAIL",
+        "login": None,
+    },
+    "connect": {
+        "address": "CONNECT_FROM_ADDRESS",
+        "from_email": "CONNECT_DEFAULT_FROM_EMAIL",
+        "login": "EMAIL_CONNECT_",
+    },
+}
 
 REDIS_URL = config("REDIS_URL", default="")
 
@@ -386,6 +516,17 @@ CORS_ALLOWED_ORIGINS = config(
 )
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    *default_headers,
+    "idempotency-key",
+    "x-registration-invitation",
+]
+
+# Response headers the SPA is allowed to read on cross-origin fetches.
+# Browsers hide everything but a small safelist otherwise: without this the
+# download filename in Content-Disposition (job exports) and the X-Request-ID
+# that apiError.ts attaches to error reports both read as null in JS.
+CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID"]
 
 # Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
 # app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's
@@ -431,16 +572,12 @@ CSRF_TRUSTED_ORIGINS = config(
     cast=Csv()
 )
 
-# Public base URLs of the SPAs. Used to build the user-visible links in
+# Public base URL of the SPA. Used to build the user-visible links in
 # password-reset and magic-link emails (apps/services/auth_service). MUST
 # be set explicitly in any non-DEBUG deploy — a missing env var would
-# otherwise silently email reset/magic links pointing at
-# http://localhost:5173 (or, worse for ADMIN_FRONTEND_BASE_URL, at the
-# production admin portal from a staging deploy), breaking login and
-# leaking infra info. In DEBUG (local dev) we keep the localhost default
-# for FRONTEND_BASE_URL so `runserver` works out of the box; the admin
-# portal has no public dev URL so it falls back to the canonical prod
-# host only under DEBUG.
+# otherwise silently email reset/magic links pointing at http://localhost:5173,
+# breaking login and leaking infra info. In DEBUG (local dev) we keep the
+# localhost default so `runserver` works out of the box.
 _FRONTEND_BASE_URL_RAW = config("FRONTEND_BASE_URL", default="")
 if not _FRONTEND_BASE_URL_RAW:
     if DEBUG:
@@ -453,24 +590,17 @@ if not _FRONTEND_BASE_URL_RAW:
         )
 FRONTEND_BASE_URL = _FRONTEND_BASE_URL_RAW.rstrip("/")
 
-_ADMIN_FRONTEND_BASE_URL_RAW = config("ADMIN_FRONTEND_BASE_URL", default="")
-if not _ADMIN_FRONTEND_BASE_URL_RAW:
-    if DEBUG:
-        _ADMIN_FRONTEND_BASE_URL_RAW = "https://mentoringadmin.biotechfutures.org"
-    else:
-        from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured(
-            "ADMIN_FRONTEND_BASE_URL must be set (e.g. https://mentoringadmin.biotechfutures.org) "
-            "outside DEBUG. Admin password-reset and magic-link emails are built from it."
-        )
-ADMIN_FRONTEND_BASE_URL = _ADMIN_FRONTEND_BASE_URL_RAW.rstrip("/")
+# Since the interface merge, admins sign in to the same unified SPA as students
+# and mentors. ADMIN_FRONTEND_BASE_URL is retained as an optional fallback
+# defaulting to FRONTEND_BASE_URL for backward compatibility.
+ADMIN_FRONTEND_BASE_URL = config("ADMIN_FRONTEND_BASE_URL", default=FRONTEND_BASE_URL).rstrip("/")
 
 # Magic link still uses hash routing while the others use path routing —
 # unify in a follow-up once the SPA serves /auth/callback without a hash.
 MAGIC_LINK_REDIRECT_URL             = f"{FRONTEND_BASE_URL}/#/auth/callback"
-ADMIN_MAGIC_LINK_REDIRECT_URL       = f"{ADMIN_FRONTEND_BASE_URL}/auth/callback"
+ADMIN_MAGIC_LINK_REDIRECT_URL       = MAGIC_LINK_REDIRECT_URL
 PASSWORD_RESET_REDIRECT_URL         = f"{FRONTEND_BASE_URL}/#/auth/reset-password"
-ADMIN_PASSWORD_RESET_REDIRECT_URL   = f"{ADMIN_FRONTEND_BASE_URL}/reset-password"
+ADMIN_PASSWORD_RESET_REDIRECT_URL   = PASSWORD_RESET_REDIRECT_URL
 
 # Django's admin LoginView reads LOGIN_REDIRECT_URL after a successful login
 # when no ?next= is present. Keep it on a Django-side URL so an engineer who
@@ -499,10 +629,11 @@ if not _BACKEND_URL_RAW:
         )
 BACKEND_URL = _BACKEND_URL_RAW.rstrip("/")
 
-# --- Chat sanitiser ----------------------------------------------------------
-# Sanitisation policy is sourced from environment variables so moderation
-# changes do not require a code deploy. See apps/chat/utils.py for the full
-# stem / whole-word grammar.
+# --- Chat blocklist ----------------------------------------------------------
+# The blocklist policy is sourced from environment variables so moderation
+# changes do not require a code deploy. Chat messages that match are rejected;
+# the replacement token remains in use for unsafe attachment filenames. See
+# apps/chat/utils.py for the full stem / whole-word grammar.
 #
 #   CHAT_SANITIZER_BLACKLIST    comma-separated entries. Each entry is one of:
 #                                 - a stem (trailing ``*``), e.g. ``fuck*`` —
@@ -528,18 +659,81 @@ CHAT_SANITIZER_BLACKLIST = config(
 
 CHAT_SANITIZER_REPLACEMENT = config("CHAT_SANITIZER_REPLACEMENT", default="***")
 
-# Shared secret for POST /api/v1/events/admin/send-rsvp-reminders/. The legacy
-# /events/v1/admin/send-rsvp-reminders/ route also resolves for existing
-# schedulers. The endpoint returns 503 if it's unset, so a misconfigured deploy
-# fails loud instead of silently exposing an unauthenticated trigger.
+# Messages that pass the deterministic blocklist are queued for OpenAI's
+# standalone Moderations endpoint. The in-process worker provides low latency;
+# the authenticated scheduler endpoint is the durable retry/backfill path.
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+AI_SCREENING_OPENAI_MODEL = config(
+    "AI_SCREENING_OPENAI_MODEL", default="omni-moderation-latest"
+)
+AI_SCREENING_OPENAI_URL = config(
+    "AI_SCREENING_OPENAI_URL",
+    default="https://api.openai.com/v1/moderations",
+)
+AI_SCREENING_OPENAI_TIMEOUT_SECONDS = config(
+    "AI_SCREENING_OPENAI_TIMEOUT_SECONDS", default=15, cast=float
+)
+AI_SCREENING_MAX_INPUT_CHARS = config(
+    "AI_SCREENING_MAX_INPUT_CHARS", default=4000, cast=int
+)
+AI_SCREENING_BATCH_LIMIT = config(
+    "AI_SCREENING_BATCH_LIMIT", default=100, cast=int
+)
+AI_SCREENING_TRIGGER_TOKEN = config("AI_SCREENING_TRIGGER_TOKEN", default="")
+AI_SCREENING_DISPATCH_SYNC = config(
+    "AI_SCREENING_DISPATCH_SYNC", default="false", cast=env_bool
+)
+
+# Shared secret for the scheduled email jobs GitHub runs (apps.common.email_jobs):
+# POST /api/v1/events/admin/send-rsvp-reminders/ (and its legacy
+# /events/v1/... route), /api/v1/submissions/admin/send-reminders/,
+# /api/v1/chat/admin/send-unread-digest/,
+# /api/v1/admin/send-guardian-details-reminders/ and
+# /api/v1/admin/send-guardian-consent-reminders/. Each workflow sends it in the
+# X-Email-Jobs-Token header. Unset means the endpoints answer 503, so a
+# misconfigured deploy fails loud instead of exposing unauthenticated triggers.
+EMAIL_JOBS_TOKEN = config("EMAIL_JOBS_TOKEN", default="")
+# The jobs' old token, still accepted alongside EMAIL_JOBS_TOKEN until the
+# backend stops reading it; removed after.
 RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
+
+SUBMISSION_POSTER_CHECKS_ENABLED = config(
+    "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
+)
+SUBMISSION_COEDITING_ENABLED = config("SUBMISSION_COEDITING_ENABLED", default=False, cast=bool)
 
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
 # ``X-Join-Permission-Token`` header. Same fail-loud contract as
-# ``RSVP_REMINDER_TOKEN``: empty value => 503 from the endpoint, so a
+# ``EMAIL_JOBS_TOKEN``: empty value => 503 from the endpoint, so a
 # misconfigured deploy can't silently expose an unauthenticated webhook.
 JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default="")
+
+# Days between the consent form reminders to a guardian who hasn't signed
+# (the daily guardian-consent-reminders workflow runs them). 0 switches them off.
+GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", default=1, cast=int)
+
+# --- Grading platform --------------------------------------------------------
+# GRADING_JOB_DISPATCH_SYNC mirrors the *_DISPATCH_SYNC convention used by
+# link previews / unread digests / auth emails: bulk-zip jobs normally run on
+# a daemon thread after transaction.on_commit, but tests set this true to
+# execute inline so assertions can observe the job row and result URL.
+GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
+# The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
+# on the server once started, over this many mail server connections at once.
+# Raise it only as far as the mailbox's sending limits allow. Tests set the
+# sync flag to send inline, one at a time.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
+# Once a run has tried every email, it waits this many seconds, then tries
+# once more the ones that failed: Management's bulk emails, announcements, the
+# RSVP reminders and the unread digest. A single email is tried again at once
+# (apps.services.retry).
+BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
+# Bulk email runs (with announcements and the scheduled emails) send one at a
+# time from each mailbox; each starts this many seconds after the one before
+# it finished.
+BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -547,16 +741,13 @@ JOIN_PERMISSION_WEBHOOK_TOKEN = config("JOIN_PERMISSION_WEBHOOK_TOKEN", default=
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# Shared secret for POST /api/v1/chat/admin/send-unread-digest/, hit every 15
-# minutes by .github/workflows/unread-digest.yml so the first notification is
-# fast. Same fail-loud contract as RSVP_REMINDER_TOKEN: empty value => 503, so
-# a misconfigured deploy can't silently expose an unauthenticated trigger.
-# MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
+# The unread messages digest, run every 15 minutes by
+# .github/workflows/unread-digest.yml (with EMAIL_JOBS_TOKEN) so the first
+# notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
 # user per day; QUIET hours (evaluated in QUIET_TZ; start == end disables)
 # hold all sends overnight and re-anchor them to daytime. The quiet block is
 # what makes a sub-24h interval safe — without it, delivery times walk
 # around the clock into the small hours (20h => -4h/day).
-UNREAD_DIGEST_TOKEN = config("UNREAD_DIGEST_TOKEN", default="")
 UNREAD_DIGEST_MIN_INTERVAL_HOURS = config(
     "UNREAD_DIGEST_MIN_INTERVAL_HOURS", default=8, cast=int
 )
@@ -567,11 +758,9 @@ UNREAD_DIGEST_QUIET_END_HOUR = config(
     "UNREAD_DIGEST_QUIET_END_HOUR", default=7, cast=int
 )
 UNREAD_DIGEST_QUIET_TZ = config("UNREAD_DIGEST_QUIET_TZ", default="Australia/Sydney")
-# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and runs
-# on a background thread. Sync dispatch (tests) runs it inline instead.
-UNREAD_DIGEST_DISPATCH_SYNC = config(
-    "UNREAD_DIGEST_DISPATCH_SYNC", default="false", cast=env_bool,
-)
+# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and
+# the run is queued, to send in its turn (BULK_EMAIL_DISPATCH_SYNC runs it
+# inline under tests).
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h
@@ -583,10 +772,10 @@ RSVP_REMINDER_24H_WINDOW_HOURS = config(
     "RSVP_REMINDER_24H_WINDOW_HOURS", default=1, cast=int
 )
 RSVP_REMINDER_1H_HOURS_AHEAD = config(
-    "RSVP_REMINDER_1H_HOURS_AHEAD", default=1, cast=int
+    "RSVP_REMINDER_1H_HOURS_AHEAD", default=0.5, cast=float
 )
 RSVP_REMINDER_1H_WINDOW_HOURS = config(
-    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=int
+    "RSVP_REMINDER_1H_WINDOW_HOURS", default=1, cast=float
 )
 
 # --- Link previews -----------------------------------------------------------
@@ -623,3 +812,54 @@ LINK_PREVIEW_USER_AGENT = config(
 LINK_PREVIEW_DISPATCH_SYNC = config(
     "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )
+
+# --- Support tickets ---------------------------------------------------------
+# How long a ticket may sit WITH SUPPORT before the queue flags it as overdue.
+#
+# Not "without a first response", which is what this used to mean. The client
+# was asked on 2026-09-04 whether a first-reply test was right and answered:
+# "instead of making it just the first response, include follow up responses".
+# So the clock restarts every time the requester answers and stops every time
+# support does. It is measured from Ticket.awaiting_support_since; the rule
+# itself is written once, in apps/tickets/services/queue.overdue_condition.
+#
+# Plain wall-clock hours, confirmed by the client as the right reading. A
+# high-priority ticket raised at 22:00 on a Friday is therefore flagged at
+# 02:00 on the Saturday. That is intended, not a bug to fix: the platform has
+# no business-day helper, and building one — a calendar, a timezone per agent,
+# public holidays — is work the client has not asked for.
+#
+# The submission email deliberately does NOT quote these numbers. It says
+# "one business day" (apps/tickets/services/emails.EXPECTED_REPLY), which is
+# softer than the internal target and is not derived from it. That is a
+# decision, not drift: these hours are a triage target for the queue, and
+# putting "four hours" in front of a fourteen-year-old would turn it into a
+# promise we have just said we do not keep at weekends.
+TICKET_SLA_HIGH_HOURS = config("TICKET_SLA_HIGH_HOURS", default=4, cast=int)
+TICKET_SLA_NORMAL_HOURS = config("TICKET_SLA_NORMAL_HOURS", default=24, cast=int)
+TICKET_SLA_LOW_HOURS = config("TICKET_SLA_LOW_HOURS", default=72, cast=int)
+
+# The morning count of open enquiries (C-18) is started by
+# .github/workflows/ticket-digest.yml at POST /api/v1/admin/tickets/digest/send/,
+# with EMAIL_JOBS_TOKEN in the X-Email-Jobs-Token header, the same as the
+# platform's other scheduled emails. It needs nothing configured of its own.
+
+# QuickEmailVerification (apps.users.email_verification). The key comes only from
+# the environment; with none set, every check reports "error" and nothing is blocked.
+QEV_API_KEY = config("QEV_API_KEY", default="")
+QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
+QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
+QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
+# Lookups allowed per UTC day; 0 (the default) means no limit.
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
+QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
+QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
+# Email checks run on a background thread after commit; tests run them inline.
+EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Tried when QEV_API_KEY (the free key) is out of credit; set only in the
+# deployment's environment. Low-credit alerts follow this key's balance.
+QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
+# Minutes before a key that ran out of credit is tried again (a new UTC day
+# also allows a retry).
+QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)

@@ -9,6 +9,7 @@ from apps.admin.services.group import (
     update_group, remove_group_member, remove_group_message,
     delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
+from apps.admin.services.page_reports import build_page_report
 from apps.audit.models import AuditLog
 from apps.chat.models import Messages
 from apps.groups.models import GroupAutoNameUnavailable, Groups, GroupMembership
@@ -49,6 +50,53 @@ class AdminGroupServiceTests(TestCase):
         self.assertNotIn("created_at", group)
         self.assertEqual(group["mentor"]["membershipId"], self.membership.id)
         self.assertNotIn("membership_id", group["mentor"])
+
+    def test_group_mentor_coverage_matches_csv_for_membership_roles(self):
+        for role, departed in (("student", False), ("supervisor", False), ("", False), ("mentor", True)):
+            with self.subTest(role=role, departed=departed):
+                self.membership.membership_role = role
+                self.membership.left_at = timezone.now() if departed else None
+                self.membership.save(update_fields=["membership_role", "left_at"])
+
+                group = query_groups(requesting_user=self.admin_user)["data"]["items"][0]
+                self.assertIsNone(group["mentor"])
+                self.assertEqual(
+                    [member["id"] for member in group["members"]],
+                    [str(self.mentor.id)] if role == "student" else [],
+                )
+                self.assertEqual(query_groups(mentor_status="unmatched")["data"]["total"], 1)
+
+                _, rows, _ = build_page_report({"report": "groups", "year": timezone.now().year})
+                self.assertIn(["Groups with Mentor", 0], rows)
+                self.assertIn(["Groups without Mentor", 1], rows)
+
+    def test_group_mentor_membership_does_not_require_a_mentor_profile(self):
+        self.mentor.mentorprofile.delete()
+
+        group = query_group_by_id(str(self.group.id))["data"]
+
+        self.assertEqual(group["mentor"]["id"], str(self.mentor.id))
+        self.assertEqual(group["mentor"]["role"], "mentor")
+        self.assertEqual(group["members"], [])
+
+    def test_query_groups_sorts_by_assigned_mentor_only(self):
+        other = Groups.objects.create(group_name="Group Two")
+        for first_name, group, role in (
+            ("Aaron", self.group, "supervisor"),
+            ("Charlie", other, "mentor"),
+        ):
+            user = User.objects.create_user(
+                email=f"{first_name.lower()}@example.com", first_name=first_name,
+            )
+            MentorProfile.objects.create(user=user, institution="UNSW", mentor_reason="Testing")
+            GroupMembership.objects.create(group=group, user=user, membership_role=role)
+
+        result = query_groups(sort_by="mentor", sort_order="asc")
+
+        self.assertEqual(
+            [group["id"] for group in result["data"]["items"]],
+            [str(other.id), str(self.group.id)],
+        )
 
     def test_query_groups_orders_by_created_at_desc(self):
         older = self.group
@@ -149,31 +197,30 @@ class AdminGroupServiceTests(TestCase):
         self.group.refresh_from_db()
         self.assertEqual(self.group.group_name, "Group One")
 
-    def test_update_group_rejects_duplicate_name(self):
-        Groups.objects.create(group_name="Group Two")
+    def test_update_group_refuses_a_name_taken_this_year(self):
+        other = Groups.objects.create(group_name="Group Two")
 
-        result = update_group(str(self.group.id), name="Group Two")
-
-        self.assertEqual(result["msg"], "A group with this name already exists")
-        self.assertIsNone(result["data"])
+        for typed in ("Group Two", "  group   TWO "):
+            with self.subTest(typed=typed):
+                result = update_group(str(self.group.id), name=typed)
+                self.assertIsNone(result["data"])
+                self.assertEqual(
+                    result["msg"], f"A group named {typed.strip()} already exists in {other.year}."
+                )
         self.group.refresh_from_db()
         self.assertEqual(self.group.group_name, "Group One")
 
-    def test_update_group_rejects_duplicate_that_races_past_the_precheck(self):
-        # Drives the IntegrityError fallback: the pre-check is what normally catches
-        # a duplicate, so only a forced miss exercises the DB constraint behind it.
-        Groups.objects.create(group_name="Group Two")
+    def test_update_group_allows_a_name_used_in_another_year_or_by_a_deleted_group(self):
+        Groups.objects.create(group_name="Old Team", year=self.group.year - 1)
+        gone = Groups.objects.create(group_name="Gone Team")
+        Groups.objects.filter(pk=gone.pk).update(deleted_at=gone.created_at)
 
-        with mock.patch("apps.admin.services.group._active_name_taken", return_value=False):
-            result = update_group(
-                str(self.group.id), name="Group Two", initiated_by=self.admin_user,
-            )
+        self.assertEqual(update_group(str(self.group.id), name="Old Team")["data"]["name"], "Old Team")
+        self.assertEqual(update_group(str(self.group.id), name="Gone Team")["data"]["name"], "Gone Team")
 
-        self.assertEqual(result["msg"], "A group with this name already exists")
-        self.assertIsNone(result["data"])
-        self.group.refresh_from_db()
-        self.assertEqual(self.group.group_name, "Group One")
-        self.assertFalse(AuditLog.objects.filter(entity_type="group").exists())
+    def test_update_group_can_change_the_case_of_its_own_name(self):
+        result = update_group(str(self.group.id), name="GROUP ONE")
+        self.assertEqual(result["data"]["name"], "GROUP ONE")
 
     def test_update_group_rejects_non_string_name(self):
         result = update_group(str(self.group.id), name=123)
@@ -235,17 +282,27 @@ class AdminGroupServiceTests(TestCase):
         result = create_group("  Fresh Group  ")
         self.assertEqual(result["data"]["name"], "Fresh Group")
 
-    def test_create_group_rejects_duplicate_name(self):
+    def test_create_group_refuses_a_name_taken_this_year(self):
+        for typed in ("Group One", " group  one "):
+            with self.subTest(typed=typed):
+                result = create_group(typed)
+                self.assertIsNone(result["data"])
+                self.assertEqual(
+                    result["msg"], f"A group named {typed.strip()} already exists in {self.group.year}."
+                )
+        self.assertEqual(Groups.objects.filter(group_name__iexact="Group One").count(), 1)
+
+    def test_create_group_allows_a_name_used_in_another_year(self):
+        Groups.objects.filter(pk=self.group.pk).update(year=self.group.year - 1)
         result = create_group("Group One")
-        self.assertEqual(result["msg"], "A group with this name already exists")
-        self.assertIsNone(result["data"])
+        self.assertEqual(result["msg"], "Group created successfully")
 
     def test_create_group_auto_names_when_name_blank(self):
         for number, blank in enumerate((None, "", "   "), start=1):
             with self.subTest(name=blank):
                 result = create_group(blank)
                 self.assertEqual(result["msg"], "Group created successfully")
-                self.assertEqual(result["data"]["name"], f"BTF{number}")
+                self.assertEqual(result["data"]["name"], f"BTF{number:02d}")
 
     def test_create_group_explicit_name_wins_over_auto(self):
         result = create_group("Human Chosen")
@@ -257,7 +314,7 @@ class AdminGroupServiceTests(TestCase):
         result = create_group(None)
 
         self.assertEqual(result["msg"], "Group created successfully")
-        self.assertEqual(result["data"]["name"], "BTF6")
+        self.assertEqual(result["data"]["name"], "BTF06")
 
     def test_create_group_never_reuses_a_soft_deleted_number(self):
         create_group(None)
@@ -267,7 +324,16 @@ class AdminGroupServiceTests(TestCase):
             created_at=now - timedelta(days=1), deleted_at=now,
         )
 
-        self.assertEqual(create_group(None)["data"]["name"], "BTF3")
+        self.assertEqual(create_group(None)["data"]["name"], "BTF02")
+
+    def test_create_group_keeps_counting_after_all_are_deleted(self):
+        ids = [create_group(None)["data"]["id"] for _ in range(3)]
+        now = timezone.now()
+        Groups.objects.filter(id__in=ids).update(
+            created_at=now - timedelta(days=1), deleted_at=now,
+        )
+
+        self.assertEqual(create_group(None)["data"]["name"], "BTF01")
 
     def test_create_group_reports_an_exhausted_auto_name(self):
         # Only reachable now by losing every retry, so drive it directly.

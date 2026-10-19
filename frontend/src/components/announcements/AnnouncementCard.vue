@@ -2,7 +2,9 @@
   <article
     class="announcement"
     :class="{
-      'announcement--with-media': hasImages
+      'announcement--with-media': hasImages,
+      'has-open-menu': isMenuOpen,
+      'announcement--expanded': expanded
     }"
     role="link"
     tabindex="0"
@@ -20,45 +22,155 @@
 
     <div class="announcement__body">
       <header class="announcement__header">
-        <div class="announcement__author">
-          <div class="announcement__avatar" :aria-hidden="true">
-            {{ authorInitial(announcement.author) }}
+        <div class="announcement__header-left">
+          <div
+            v-if="isAdmin"
+            class="announcement__select-wrapper"
+            @click.stop
+          >
+            <input
+              type="checkbox"
+              class="announcement__checkbox"
+              :checked="selected"
+              :aria-label="`Select announcement ${announcement.title}`"
+              @change.stop="emit('toggle-select', announcement.id)"
+            />
           </div>
-          <div class="announcement__author-text">
-            <span class="announcement__author-name">{{ announcement.author }}</span>
-            <time
-              class="announcement__date"
-              :datetime="announcement.date || undefined"
-              :title="fullDate"
-            >
-              {{ overviewDateTime }}
-            </time>
+          <div class="announcement__author">
+            <div class="announcement__avatar" :aria-hidden="true">
+              {{ authorInitial(announcement.author) }}
+            </div>
+            <div class="announcement__author-text">
+              <span class="announcement__author-name">{{ announcement.author }}</span>
+              <time
+                class="announcement__date"
+                :datetime="announcement.date || undefined"
+              >
+                {{ postedAt }}
+              </time>
+            </div>
           </div>
         </div>
-        <span
-          class="status-badge announcement__badge"
-          :class="getAudienceClass(announcement.audience)"
-        >
-          {{ getAudienceLabel(announcement.audience) }}
-        </span>
+        <div class="announcement__header-right">
+          <!-- Not opened yet by whoever's reading it. -->
+          <span v-if="showsNew" class="status-badge status-danger announcement__badge announcement__new">New</span>
+          <span
+            v-if="announcement.isArchived"
+            class="status-badge announcement__badge announcement__badge--archived"
+          >
+            Archived
+          </span>
+          <span
+            class="status-badge announcement__badge"
+            :class="getAudienceClass(announcement.audience)"
+          >
+            {{ getAudienceLabel(announcement.audience) }}
+          </span>
+          <!-- Admin Actions Dropdown -->
+          <div
+            v-if="isAdmin"
+            class="announcement__menu-container"
+            @click.stop
+          >
+            <button
+              type="button"
+              class="announcement__more-btn"
+              :class="{ active: isMenuOpen }"
+              aria-label="More announcement options"
+              aria-haspopup="true"
+              :aria-expanded="isMenuOpen"
+              @click.stop="toggleMenu"
+            >
+              <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+            </button>
+            <div
+              v-if="isMenuOpen"
+              class="announcement__dropdown"
+              role="menu"
+              @click.stop
+            >
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('view')"
+              >
+                <i class="fas fa-eye" aria-hidden="true"></i>
+                <span>View Details</span>
+              </button>
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('edit')"
+              >
+                <i class="fas fa-pen" aria-hidden="true"></i>
+                <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('notify')"
+              >
+                <i class="fas fa-paper-plane" aria-hidden="true"></i>
+                <span>Send Notification</span>
+              </button>
+              <button
+                type="button"
+                class="announcement__dropdown-item"
+                role="menuitem"
+                @click.stop="handleAction('archive')"
+              >
+                <i class="fas fa-box-archive" aria-hidden="true"></i>
+                <span>Archive</span>
+              </button>
+              <div class="announcement__dropdown-divider"></div>
+              <button
+                type="button"
+                class="announcement__dropdown-item announcement__dropdown-item--danger"
+                role="menuitem"
+                @click.stop="handleAction('delete')"
+              >
+                <i class="fas fa-trash-can" aria-hidden="true"></i>
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </header>
 
       <h2 class="announcement__title">
         <RouterLink
           :to="{ name: 'announcement-detail', params: { id: announcement.id } }"
           class="announcement__title-link"
+          @click="markSeen"
         >
           {{ announcement.title }}
         </RouterLink>
       </h2>
 
       <div
+        :id="contentId"
+        ref="contentEl"
         class="announcement__content"
+        :class="{
+          'announcement__content--clipped': clipped && !expanded,
+          'announcement__content--open': expanded,
+          'announcement__content--above-expand': expanded && !hasLink,
+          'announcement__content--to-edge': clipped && !expanded && !hasLink
+        }"
       >
         <div class="announcement__rich" v-html="announcement.bodyHtml"></div>
       </div>
 
-      <div class="announcement__footer">
+      <!-- Only for its Open or External link: without one, the text runs to
+           the bottom of the card. -->
+      <div
+        v-if="hasLink"
+        class="announcement__footer"
+        :class="{ 'announcement__footer--beside-expand': clipped || expanded }"
+      >
         <div class="announcement__actions">
           <RouterLink
             v-if="announcement.route"
@@ -76,59 +188,123 @@
           >
             External link
           </a>
-          <RouterLink
-            :to="{ name: 'announcement-detail', params: { id: announcement.id } }"
-            class="btn btn-text btn-sm"
-          >
-            View details
-            <span class="announcement__arrow" aria-hidden="true">&rarr;</span>
-          </RouterLink>
         </div>
       </div>
+      <!-- More than fits: the rest here, and back again. In the card's corner,
+           over the fade, so it takes no room from the text. -->
+      <button
+        v-if="clipped || expanded"
+        type="button"
+        class="announcement__expand"
+        :aria-expanded="expanded"
+        :aria-controls="contentId"
+        :aria-label="expanded ? 'Show less' : 'Show more'"
+        :title="expanded ? 'Show less' : 'Show more'"
+        @click="toggleExpanded"
+      >
+        <i class="fas" :class="expanded ? 'fa-chevron-up' : 'fa-chevron-down'" aria-hidden="true"></i>
+      </button>
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AnnouncementGallery from './AnnouncementGallery.vue'
 import {
+  markAnnouncementSeen,
   authorInitial,
-  formatFullDate,
-  formatOverviewDateTime,
+  formatPostedAt,
   getAudienceClass,
   getAudienceLabel,
   type Announcement
 } from '@/composables/useAnnouncements'
 
-const props = defineProps<{
+interface Props {
   announcement: Announcement
-}>()
+  isAdmin?: boolean
+  selected?: boolean
+  activeMenuId?: Announcement['id'] | null
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  isAdmin: false,
+  selected: false,
+  activeMenuId: null
+})
 
 const emit = defineEmits<{
   (e: 'image-error', payload: { id: Announcement['id']; url: string }): void
+  (e: 'edit', announcement: Announcement): void
+  (e: 'notify', announcement: Announcement): void
+  (e: 'archive', announcement: Announcement): void
+  (e: 'delete', announcement: Announcement): void
+  (e: 'toggle-select', id: Announcement['id']): void
+  (e: 'toggle-menu', id: Announcement['id']): void
 }>()
 
 const router = useRouter()
 
+const localMenuOpen = ref(false)
+const isMenuOpen = computed(() => {
+  if (props.activeMenuId !== undefined && props.activeMenuId !== null) {
+    return props.activeMenuId === props.announcement.id
+  }
+  return localMenuOpen.value
+})
+
+function toggleMenu() {
+  if (props.activeMenuId !== undefined) {
+    emit('toggle-menu', props.announcement.id)
+  } else {
+    localMenuOpen.value = !localMenuOpen.value
+  }
+}
+
+function handleAction(action: 'view' | 'edit' | 'notify' | 'archive' | 'delete') {
+  localMenuOpen.value = false
+  emit('toggle-menu', null as unknown as Announcement['id'])
+  if (action === 'view') {
+    openDetails()
+  } else if (action === 'edit') {
+    emit('edit', props.announcement)
+  } else if (action === 'notify') {
+    emit('notify', props.announcement)
+  } else if (action === 'archive') {
+    emit('archive', props.announcement)
+  } else if (action === 'delete') {
+    emit('delete', props.announcement)
+  }
+}
+
 const hasImages = computed(() => props.announcement.images.length > 0)
-const overviewDateTime = computed(() => formatOverviewDateTime(props.announcement.date))
-const fullDate = computed(() => formatFullDate(props.announcement.date))
+const postedAt = computed(() => formatPostedAt(props.announcement.date) || 'Recently posted')
 
 const detailRoute = computed(() => ({
   name: 'announcement-detail',
   params: { id: props.announcement.id }
 }))
 
+// New until opened: its card, its title, or expanded. Hidden here at once,
+// and recorded so it stays seen.
+const seenNow = ref(false)
+const showsNew = computed(() => Boolean(props.announcement.isNew) && !seenNow.value)
+const markSeen = () => {
+  if (!showsNew.value) return
+  seenNow.value = true
+  void markAnnouncementSeen(props.announcement.id)
+}
+
 const openDetails = () => {
+  markSeen()
   router.push(detailRoute.value)
 }
 
 const shouldIgnoreCardOpen = (event?: Event) => {
   const target = event?.target
   if (!(target instanceof Element)) return false
-  return Boolean(target.closest('a, button, input, select, textarea'))
+  return Boolean(target.closest('a, button, input, select, textarea, .announcement__menu-container'))
 }
 
 const openDetailsFromCard = (event: MouseEvent | KeyboardEvent) => {
@@ -140,6 +316,39 @@ const openDetailsFromCard = (event: MouseEvent | KeyboardEvent) => {
 const onImageError = (url: string) => {
   emit('image-error', { id: props.announcement.id, url })
 }
+
+// Its text is cut off after a few lines; the chevron shows the rest in the
+// card, when there's more than fits.
+const contentEl = ref<HTMLElement | null>(null)
+const expanded = ref(false)
+const clipped = ref(false)
+
+// Expanding it opens it, as clicking it does.
+const toggleExpanded = () => {
+  expanded.value = !expanded.value
+  if (expanded.value) markSeen()
+}
+const contentId = computed(() => `announcement-content-${props.announcement.id}`)
+// An Open or External link, which the footer is for.
+const hasLink = computed(() => Boolean(props.announcement.route || props.announcement.link))
+
+const measureClipped = () => {
+  const el = contentEl.value
+  if (el && !expanded.value) clipped.value = el.scrollHeight > el.clientHeight + 1
+}
+
+onMounted(() => {
+  void nextTick(measureClipped)
+  window.addEventListener('resize', measureClipped)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', measureClipped))
+watch(
+  () => props.announcement.bodyHtml,
+  () => {
+    expanded.value = false
+    void nextTick(measureClipped)
+  }
+)
 </script>
 
 <style scoped>
@@ -192,11 +401,146 @@ const onImageError = (url: string) => {
   gap: 1rem;
 }
 
+.announcement.has-open-menu {
+  overflow: visible;
+  z-index: 40;
+}
+
 .announcement__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.announcement__header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.announcement__header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.announcement__select-wrapper {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.announcement__checkbox {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--dark-green);
+  cursor: pointer;
+}
+
+.announcement__badge--archived {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.announcement__menu-container {
+  position: relative;
+}
+
+.announcement__more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.announcement__more-btn:hover,
+.announcement__more-btn.active {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #e5e7eb;
+}
+
+.announcement__dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  z-index: 50;
+  min-width: 11.5rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 0.375rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.announcement__dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #374151;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.announcement__dropdown-item:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.announcement__dropdown-item i {
+  font-size: 0.875rem;
+  width: 1rem;
+  text-align: center;
+  color: #6b7280;
+}
+
+.announcement__dropdown-item:hover i {
+  color: #111827;
+}
+
+.announcement__dropdown-item--danger {
+  color: #dc2626;
+}
+
+.announcement__dropdown-item--danger i {
+  color: #dc2626;
+}
+
+.announcement__dropdown-item--danger:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.announcement__dropdown-item--danger:hover i {
+  color: #b91c1c;
+}
+
+.announcement__dropdown-divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0.25rem 0;
 }
 
 .announcement__author {
@@ -227,7 +571,7 @@ const onImageError = (url: string) => {
 }
 
 .announcement__author-name {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
   font-size: 0.92rem;
   text-overflow: ellipsis;
@@ -256,7 +600,7 @@ const onImageError = (url: string) => {
 
 .announcement__title-link {
   display: -webkit-box;
-  color: var(--charcoal);
+  color: var(--teal);
   text-decoration: none;
   background-image: linear-gradient(currentColor, currentColor);
   background-size: 0 1px;
@@ -276,18 +620,19 @@ const onImageError = (url: string) => {
   outline: none;
 }
 
+/* As much of the text as the card has room for, down to its bottom edge. */
 .announcement__content {
   position: relative;
   flex: 1;
   min-height: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.7;
-  max-height: 6.9em;
   overflow: hidden;
   overflow-wrap: anywhere;
 }
 
-.announcement__content::after {
+/* The fade over the last lines, while more is cut off. */
+.announcement__content--clipped::after {
   content: '';
   position: absolute;
   inset: auto 0 0 0;
@@ -301,6 +646,35 @@ const onImageError = (url: string) => {
 .announcement__content :deep(table),
 .announcement__content :deep(pre) {
   display: none;
+}
+
+/* Expanded: the whole announcement, its images and tables too, and the card
+   as tall as it needs. */
+.announcement--expanded {
+  height: auto;
+  min-height: 300px;
+}
+
+.announcement__content--open {
+  max-height: none;
+}
+
+/* Expanded with no footer: room under the text for the chevron. */
+.announcement__content--above-expand {
+  padding-bottom: 2.5rem;
+}
+
+/* Cut off with no footer: the text runs on into the card's bottom padding,
+   beside the chevron, fading there. */
+.announcement__content--to-edge {
+  margin-bottom: -0.9rem;
+}
+
+.announcement__content--open :deep(img),
+.announcement__content--open :deep(figure),
+.announcement__content--open :deep(table),
+.announcement__content--open :deep(pre) {
+  display: revert;
 }
 
 .announcement__rich :deep(*) {
@@ -427,30 +801,41 @@ const onImageError = (url: string) => {
   align-items: center;
 }
 
-.announcement__arrow {
-  margin-left: 0.25rem;
-  transition: transform 0.2s ease;
-  display: inline-block;
+/* Not opened yet: an outlined red badge, in bold, with no fill; its
+   outline the light red a danger badge is filled with. */
+.announcement__new {
+  border: 1px solid rgba(220, 53, 69, 0.2);
+  background-color: transparent;
+  font-weight: 700;
 }
 
-.announcement__actions a:hover .announcement__arrow {
-  transform: translateX(3px);
-}
-
-.btn-text {
-  background: transparent;
-  border: 0;
-  color: var(--dark-green);
-  font-weight: 600;
-  padding: 0.35rem 0.6rem;
+/* The expand/collapse chevron, in the card's bottom-right corner. */
+.announcement__expand {
+  position: absolute;
+  right: 1.75rem;
+  bottom: 1.5rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  text-decoration: none;
-  font-size: 0.9rem;
+  background: var(--white);
+  color: var(--dark-green);
+  cursor: pointer;
   transition: background-color 0.18s ease;
 }
 
-.btn-text:hover,
-.btn-text:focus-visible {
+/* Open or External link left of the chevron, not under it. */
+.announcement__footer--beside-expand {
+  padding-right: 2.75rem;
+}
+
+.announcement__expand:hover,
+.announcement__expand:focus-visible {
   background-color: rgba(1, 113, 81, 0.08);
   outline: none;
 }

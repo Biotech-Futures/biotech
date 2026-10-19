@@ -1,0 +1,980 @@
+<template>
+  <FormSheet
+    v-model="open"
+    :title="isEditing ? 'Edit Resource' : 'Add Resource'"
+    :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file or page to the resource library.'"
+    width="min(100vw, 760px)"
+  >
+    <form ref="formRef" class="admin-resource-form" novalidate @submit.prevent="submitForm">
+      <p v-if="formError" class="admin-resource-form__error" role="alert">
+        {{ formError }}
+      </p>
+
+      <div class="admin-resource-form__grid">
+        <!-- Resource Kind -->
+        <div class="form-field form-field--full">
+          <label class="form-label" for="res-kind">Resource Kind *</label>
+          <select
+            id="res-kind"
+            v-model="form.kind"
+            class="form-input filter-select"
+            :disabled="isEditing"
+          >
+            <option value="file">File Upload</option>
+            <option value="page">Rich Content Page</option>
+          </select>
+          <p v-if="isEditing" class="admin-resource-form__hint">
+            Resource kind cannot be changed after creation.
+          </p>
+        </div>
+
+        <!-- Resource Name -->
+        <div class="form-field form-field--full">
+          <label class="form-label" for="res-name">Resource Name *</label>
+          <input
+            id="res-name"
+            v-model.trim="form.name"
+            type="text"
+            class="form-input"
+            placeholder="e.g. Mentor Handbook 2026"
+            required
+            maxlength="255"
+          />
+        </div>
+
+        <!-- Description -->
+        <div class="form-field form-field--full">
+          <label class="form-label" for="res-desc">Description *</label>
+          <textarea
+            id="res-desc"
+            v-model.trim="form.description"
+            class="form-input"
+            rows="3"
+            placeholder="Short description for admins and users."
+            required
+          ></textarea>
+        </div>
+
+        <!-- Visible Roles (visibility is role-based only) -->
+        <div class="form-field form-field--full">
+          <label class="form-label">Visible Roles *</label>
+          <div v-if="loadingDetail" class="admin-resource-form__detail-loading">
+            <span class="admin-resource-form__spinner" aria-hidden="true"></span>
+            <span>Loading roles...</span>
+          </div>
+          <fieldset v-if="!loadingDetail" class="admin-resource-form__checkbox-grid">
+            <legend class="sr-only">Select visible roles</legend>
+            <label
+              v-for="role in availableRoles"
+              :key="role.id"
+              class="admin-resource-form__checkbox-label"
+            >
+              <input
+                type="checkbox"
+                :value="role.id"
+                :checked="form.roleIds.includes(role.id)"
+                :disabled="loadingDetail || saving"
+                @change="toggleRole(role.id)"
+              />
+              <span>{{ formatRoleName(role) }}</span>
+            </label>
+          </fieldset>
+          <p class="admin-resource-form__hint">
+            Only users with the selected roles can view this resource.
+          </p>
+        </div>
+
+        <!-- Resource Labels -->
+        <div class="form-field form-field--full">
+          <label class="form-label" for="res-labels">Resource Labels</label>
+          <input
+            id="res-labels"
+            v-model.trim="form.labelInput"
+            type="text"
+            class="form-input"
+            placeholder="e.g. Do's and Don'ts, Group tips"
+          />
+          <p class="admin-resource-form__hint">
+            Enter comma-separated labels (e.g. Do's and Don'ts, Group tips).
+          </p>
+        </div>
+
+        <!-- Type -->
+        <div class="form-field form-field--full">
+          <label class="form-label" for="res-type">Type</label>
+          <select
+            id="res-type"
+            v-model="form.typeId"
+            class="form-input filter-select"
+          >
+            <option :value="null">Uncategorized</option>
+            <option
+              v-for="typeItem in resourceTypes"
+              :key="typeItem.id"
+              :value="typeItem.id"
+            >
+              {{ typeItem.type_name }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <!-- File Upload section for file/attachment kinds -->
+      <div v-if="form.kind !== 'page'" class="admin-resource-form__section-wrap">
+        <div class="admin-resource-form__section">File Attachment</div>
+        <AdminRecordedSessionFields
+          v-if="isRecordedSession"
+          v-model:video-file="selectedFile"
+          v-model:slides-file="selectedSlidesFile"
+          v-model:acknowledged-oversized="acknowledgedOversized"
+          :current-video-name="currentFileName"
+          :current-video-size="currentFileSize"
+          :current-slides-name="currentSlidesName"
+          :current-slides-size="currentSlidesSize"
+          :saving="saving"
+          :is-editing="isEditing"
+          @update:video-file="selectedFile = $event"
+          @update:slides-file="selectedSlidesFile = $event"
+          @update:acknowledged-oversized="acknowledgedOversized = $event"
+        />
+        <div v-else class="admin-resource-file-upload">
+            <div class="admin-resource-file-upload__controls">
+              <input
+                ref="fileInputRef"
+                type="file"
+                class="admin-resource-file-input"
+                @change="onFileChange"
+              />
+              <button
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="triggerFileInput"
+              >
+                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                <span>{{ selectedFile || currentFileName ? 'Change File' : 'Browse Files' }}</span>
+              </button>
+              <button
+                v-if="selectedFile"
+                type="button"
+                class="btn btn-outline btn-sm"
+                @click="clearSelectedFile"
+              >
+                <i class="fas fa-times" aria-hidden="true"></i>
+                <span>Clear</span>
+              </button>
+            </div>
+
+            <div v-if="selectedFile" class="admin-resource-file-badge">
+              <i class="fas fa-file" aria-hidden="true"></i>
+              <span class="admin-resource-file-name">{{ selectedFile.name }}</span>
+              <span class="admin-resource-file-size">({{ formatFileSize(selectedFile.size) }})</span>
+            </div>
+            <div v-else-if="currentFileName" class="admin-resource-file-badge admin-resource-file-badge--existing">
+              <i class="fas fa-file-check" aria-hidden="true"></i>
+              <span class="admin-resource-file-name">Current: {{ currentFileName }}</span>
+              <span v-if="currentFileSize" class="admin-resource-file-size">({{ formatFileSize(currentFileSize) }})</span>
+            </div>
+
+            <!-- Large files are allowed once the admin confirms -->
+            <div v-if="isOversized && selectedFile" class="admin-resource-form__oversize" role="alert">
+              <p class="admin-resource-form__oversize-text">
+                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                This file is {{ formatFileSize(selectedFile.size) }}, over the 25 MB guideline. Large files
+                take longer to upload and open.
+              </p>
+              <label class="admin-resource-form__checkbox-label">
+                <input
+                  id="res-oversize-ack"
+                  v-model="acknowledgedOversized"
+                  type="checkbox"
+                  :disabled="saving"
+                />
+                <span>I understand this file is large</span>
+              </label>
+            </div>
+
+            <p class="admin-resource-form__hint">
+              Accepted: PDF, Word, Excel, PowerPoint, Images, Videos, Text &bull; Files over 25 MB need confirmation
+            </p>
+          </div>
+      </div>
+
+      <!-- Rich Page Content for page kind -->
+      <div v-else class="admin-resource-form__section-wrap">
+        <div class="admin-resource-form__section">Page Content *</div>
+        <div class="form-field form-field--full">
+          <RichEditor
+            :key="editorKey"
+            v-model="form.contentHtml"
+            placeholder="Write resource page content…"
+            @update:needs-oversize-ack="pageNeedsOversizeAck = $event"
+          />
+          <p class="admin-resource-form__hint">
+            Content will be displayed directly when users view this resource page.
+          </p>
+        </div>
+      </div>
+
+      <!-- Footer Actions -->
+      <div class="admin-resource-form__footer-wrap">
+        <div class="admin-resource-form__footer">
+          <button
+            v-if="isEditing"
+            type="button"
+            class="btn btn-danger"
+            :disabled="saving || busy"
+            @click="emit('delete')"
+          >
+            <i class="fas fa-trash-can" aria-hidden="true"></i>
+            Delete
+          </button>
+          <span v-if="isEditing" class="admin-resource-form__footer-spacer"></span>
+          <button
+            type="button"
+            class="btn btn-outline"
+            :disabled="saving || busy"
+            @click="onCancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="saving || busy || loadingDetail || (form.kind !== 'page' ? needsOversizeAck : pageNeedsOversizeAck)"
+          >
+            <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
+            {{ isEditing ? 'Save Changes' : 'Add Resource' }}
+          </button>
+        </div>
+      </div>
+    </form>
+  </FormSheet>
+</template>
+
+<script setup lang="ts">
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import FormSheet from '@/components/admin/FormSheet.vue'
+import AdminRecordedSessionFields from './AdminRecordedSessionFields.vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
+import type {
+  AdminResourceDetail,
+  AdminResourceRoleItem,
+  CreateAdminResourcePayload,
+  UpdateAdminResourcePayload
+} from '@/utils/adminAPI'
+import {
+  createAdminResource,
+  fetchAdminResource,
+  fetchAdminResourceRoles,
+  replaceAdminResourceFile,
+  updateAdminResource,
+  uploadAdminResource
+} from '@/utils/adminAPI'
+import type { Resource, ResourceKind, ResourceType } from '@/utils/resourcesAPI'
+import { fetchResourceTypes } from '@/utils/resourcesAPI'
+
+const props = defineProps<{
+  modelValue: boolean
+  resource?: Resource | AdminResourceDetail | null
+  busy?: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: boolean): void
+  (e: 'close'): void
+  (e: 'saved'): void
+  (e: 'delete'): void
+}>()
+
+const open = computed({
+  get: () => props.modelValue,
+  set: (value: boolean) => emit('update:modelValue', value)
+})
+
+const isEditing = computed(() => Boolean(props.resource?.id))
+
+interface ResourceFormState {
+  name: string
+  description: string
+  kind: ResourceKind
+  typeId: number | null
+  roleIds: number[]
+  labelInput: string
+  contentHtml: string
+}
+
+const defaultFormState = (): ResourceFormState => ({
+  name: '',
+  description: '',
+  kind: 'file',
+  typeId: null,
+  roleIds: [],
+  labelInput: '',
+  contentHtml: ''
+})
+
+const form = reactive<ResourceFormState>(defaultFormState())
+const formRef = ref<HTMLFormElement | null>(null)
+const formError = ref('')
+const saving = ref(false)
+const loadingDetail = ref(false)
+const adminDetail = ref<AdminResourceDetail | null>(null)
+const editorKey = ref(0)
+
+const availableRoles = ref<AdminResourceRoleItem[]>([])
+const resourceTypes = ref<ResourceType[]>([])
+
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const selectedFile = ref<File | null>(null)
+const selectedSlidesFile = ref<File | null>(null)
+
+// Files over this size are allowed, but only after the admin confirms they
+// know it's large; the backend rejects them without that confirmation.
+const LARGE_FILE_BYTES = 25 * 1024 * 1024
+const acknowledgedOversized = ref(false)
+const pageNeedsOversizeAck = ref(false)
+const isOversized = computed(() => (selectedFile.value?.size ?? 0) > LARGE_FILE_BYTES)
+const needsOversizeAck = computed(() => isOversized.value && !acknowledgedOversized.value)
+
+const currentFileName = computed(() => {
+  if (adminDetail.value?.file_name) return adminDetail.value.file_name
+  if (!props.resource) return null
+  const raw = props.resource as any
+  return raw.file_name || null
+})
+
+const currentFileSize = computed(() => {
+  if (adminDetail.value?.file_size) return adminDetail.value.file_size
+  if (!props.resource) return null
+  const raw = props.resource as any
+  return raw.file_size || null
+})
+
+const currentSlidesName = computed(() => {
+  if (adminDetail.value?.slides_file_name) return adminDetail.value.slides_file_name
+  if (!props.resource) return null
+  const raw = props.resource as any
+  return raw.slides_file_name || null
+})
+
+const currentSlidesSize = computed(() => {
+  if (adminDetail.value?.slides_file_size) return adminDetail.value.slides_file_size
+  if (!props.resource) return null
+  const raw = props.resource as any
+  return raw.slides_file_size || null
+})
+
+const isRecordedSession = computed(() => {
+  const t = resourceTypes.value.find((item) => item.id === form.typeId)
+  return t?.type_name === 'Recorded Session'
+})
+
+watch(isRecordedSession, (val) => {
+  if (val && form.kind !== 'file') {
+    form.kind = 'file'
+  }
+})
+
+const formatRoleName = (role: AdminResourceRoleItem): string => {
+  if (role.type_name) return role.type_name
+  if (role.slug) {
+    return role.slug
+      .split(/[-_]+/)
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join(' ')
+  }
+  return `Role #${role.id}`
+}
+
+const formatFileSize = (bytes?: number | null): string => {
+  if (!bytes || bytes <= 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = bytes
+  let idx = 0
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024
+    idx++
+  }
+  return `${size.toFixed(size >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`
+}
+
+const loadLookups = async () => {
+  try {
+    const [rolesData, typesData] = await Promise.all([
+      fetchAdminResourceRoles(),
+      fetchResourceTypes()
+    ])
+    // Filter out 'admin' role because admins always have access
+    availableRoles.value = (rolesData || []).filter((r) => r.slug !== 'admin')
+    resourceTypes.value = typesData || []
+  } catch (err) {
+    console.warn('Failed to load resource metadata:', err)
+  }
+}
+
+const parseLabels = (labelInput: string): string[] => {
+  return labelInput
+    .split(',')
+    .map((l) => l.trim())
+    .filter(Boolean)
+}
+
+const applyResourceData = (raw: any) => {
+  let roleIds: number[] = []
+  if (Array.isArray(raw.audiences)) {
+    roleIds = raw.audiences
+      .map((a: any) => (typeof a.role === 'number' ? a.role : (a.role_id ?? a.role?.id)))
+      .filter((id: any): id is number => typeof id === 'number')
+  }
+  if (roleIds.length === 0 && Array.isArray(raw.visible_roles)) {
+    roleIds = raw.visible_roles
+      .map((r: any) => r.id)
+      .filter((id: any): id is number => typeof id === 'number')
+  }
+
+  let labelStr = ''
+  if (Array.isArray(raw.labels)) {
+    labelStr = raw.labels.map((l: any) => l.name).filter(Boolean).join(', ')
+  }
+
+  let rawTypeId = raw.type_id ?? raw.resource_type_id ?? raw.resource_type_detail?.id ?? null
+  if (rawTypeId === null && (raw.type_name || raw.resource_type)) {
+    const typeName = (raw.type_name || raw.resource_type || '').toLowerCase().trim()
+    const match = resourceTypes.value.find(
+      (t) => t.type_name?.toLowerCase().trim() === typeName
+    )
+    if (match) {
+      rawTypeId = match.id
+    }
+  }
+
+  const hasVisibilityInfo = raw.visibility_scope !== undefined || roleIds.length > 0
+  if (hasVisibilityInfo && (roleIds.length > 0 || form.roleIds.length === 0)) {
+    form.roleIds = roleIds
+  }
+
+  if (raw.name || raw.resource_name) {
+    form.name = raw.name || raw.resource_name || ''
+  }
+  if (raw.description !== undefined || raw.resource_description !== undefined) {
+    form.description = raw.description || raw.resource_description || ''
+  }
+  if (raw.kind || raw.resource_kind) {
+    form.kind = raw.kind || raw.resource_kind || 'file'
+  }
+  if (rawTypeId !== undefined && rawTypeId !== null) {
+    form.typeId = rawTypeId
+  }
+  if (labelStr) {
+    form.labelInput = labelStr
+  }
+  if (raw.content_html !== undefined && raw.content_html !== null) {
+    form.contentHtml = raw.content_html || ''
+  }
+}
+
+watch(resourceTypes, (types) => {
+  if (form.typeId === null && props.resource) {
+    const raw: any = props.resource
+    const typeName = (raw.type_name || raw.resource_type || '').toLowerCase().trim()
+    if (typeName) {
+      const match = types.find((t) => t.type_name?.toLowerCase().trim() === typeName)
+      if (match) {
+        form.typeId = match.id
+      }
+    }
+  }
+})
+
+const initForm = async (currentResource?: Resource | AdminResourceDetail | null) => {
+  formError.value = ''
+  selectedFile.value = null
+  selectedSlidesFile.value = null
+  acknowledgedOversized.value = false
+  pageNeedsOversizeAck.value = false
+  adminDetail.value = null
+  editorKey.value++
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+
+  const lookupsPromise = loadLookups()
+
+  if (!currentResource) {
+    await lookupsPromise
+    Object.assign(form, defaultFormState())
+    loadingDetail.value = false
+    return
+  }
+
+  // Pre-fill immediately with known resource fields
+  Object.assign(form, defaultFormState())
+  applyResourceData(currentResource)
+
+  // If editing an existing resource with an ID, fetch authoritative admin detail (visibility scope, audience roles, html content)
+  if (currentResource.id) {
+    loadingDetail.value = true
+    try {
+      const [detail] = await Promise.all([
+        fetchAdminResource(currentResource.id),
+        lookupsPromise
+      ])
+      if (detail && open.value && (!props.resource || props.resource.id === currentResource.id)) {
+        adminDetail.value = detail
+        applyResourceData(detail)
+        if (detail.content_html !== undefined) {
+          editorKey.value++
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch admin resource detail:', err)
+    } finally {
+      loadingDetail.value = false
+    }
+  } else {
+    await lookupsPromise
+  }
+}
+
+watch(
+  [() => props.modelValue, () => props.resource],
+  ([isOpening, res], [wasOpening, prevRes]) => {
+    if (isOpening) {
+      if (!wasOpening || res?.id !== prevRes?.id) {
+        void initForm(res)
+      }
+    }
+  },
+  { immediate: true }
+)
+
+const triggerFileInput = () => {
+  fileInputRef.value?.click()
+}
+
+const onFileChange = (e: Event) => {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  // Large files aren't blocked; the template asks for confirmation instead.
+  // A new file always needs its own confirmation.
+  selectedFile.value = file
+  acknowledgedOversized.value = false
+  formError.value = ''
+}
+
+const clearSelectedFile = () => {
+  selectedFile.value = null
+  acknowledgedOversized.value = false
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
+const toggleRole = (roleId: number) => {
+  const idx = form.roleIds.indexOf(roleId)
+  if (idx > -1) {
+    form.roleIds.splice(idx, 1)
+  } else {
+    form.roleIds.push(roleId)
+  }
+}
+
+const onCancel = () => {
+  open.value = false
+  emit('close')
+}
+
+const validateForm = (): boolean => {
+  if (!form.name.trim()) {
+    formError.value = 'Resource name is required.'
+    return false
+  }
+  if (!form.description.trim()) {
+    formError.value = 'Description is required.'
+    return false
+  }
+  if (form.roleIds.length === 0) {
+    formError.value = 'Please select at least one visible role.'
+    return false
+  }
+  if (!isEditing.value && form.kind !== 'page' && !selectedFile.value) {
+    formError.value = isRecordedSession.value
+      ? 'Please select a video file for this recorded session.'
+      : 'Please select a file to upload.'
+    return false
+  }
+  if (form.kind !== 'page' && needsOversizeAck.value) {
+    formError.value = 'Please confirm you understand this file is large before uploading it.'
+    return false
+  }
+  if (form.kind === 'page' && pageNeedsOversizeAck.value) {
+    formError.value = 'Please confirm you understand this file is large before uploading it.'
+    return false
+  }
+  if (form.kind === 'page') {
+    const strippedContent = form.contentHtml.replace(/<[^>]*>/g, '').trim()
+    if (!strippedContent && !form.contentHtml.includes('<img') && !form.contentHtml.includes('<table')) {
+      formError.value = 'Page content is required for page resources.'
+      return false
+    }
+  }
+  return true
+}
+
+const scrollToError = () => {
+  if (typeof formRef.value?.scrollIntoView === 'function') {
+    formRef.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+}
+
+const submitForm = async () => {
+  formError.value = ''
+  if (!validateForm()) {
+    scrollToError()
+    return
+  }
+
+  saving.value = true
+  const labelsList = parseLabels(form.labelInput)
+
+  try {
+    if (!isEditing.value) {
+      // -------------------------------------------------------------
+      // Create Workflow
+      // -------------------------------------------------------------
+      if (form.kind === 'page') {
+        const payload: CreateAdminResourcePayload = {
+          resource_name: form.name.trim(),
+          resource_description: form.description.trim(),
+          resource_kind: 'page',
+          visibility_scope: 'role_based',
+          role_ids: form.roleIds,
+          resource_type_id: form.typeId,
+          label_names: labelsList,
+          content_html: form.contentHtml
+        }
+        await createAdminResource(payload)
+      } else {
+        // Multipart upload for file / attachment
+        const formData = new FormData()
+        if (selectedFile.value) {
+          formData.append('file', selectedFile.value)
+        }
+        if (selectedSlidesFile.value) {
+          formData.append('slides_file', selectedSlidesFile.value)
+        }
+        formData.append('name', form.name.trim())
+        formData.append('description', form.description.trim())
+        formData.append('kind', form.kind)
+        formData.append('visibility_scope', 'role_based')
+        formData.append('acknowledged_oversized', String(acknowledgedOversized.value))
+
+        if (form.typeId) {
+          formData.append('resource_type_id', String(form.typeId))
+        }
+
+        for (const roleId of form.roleIds) {
+          formData.append('role_ids', String(roleId))
+        }
+
+        for (const label of labelsList) {
+          formData.append('label_names', label)
+        }
+
+        await uploadAdminResource(formData)
+      }
+    } else if (props.resource?.id) {
+      // -------------------------------------------------------------
+      // Edit Workflow
+      // -------------------------------------------------------------
+      const updatePayload: UpdateAdminResourcePayload = {
+        resource_name: form.name.trim(),
+        resource_description: form.description.trim(),
+        visibility_scope: 'role_based',
+        role_ids: form.roleIds,
+        resource_type_id: form.typeId,
+        label_names: labelsList,
+        content_html: form.kind === 'page' ? form.contentHtml : null
+      }
+
+      await updateAdminResource(props.resource.id, updatePayload)
+
+      // If a new physical file or slides file was chosen in edit mode for a file resource, replace it
+      if ((selectedFile.value || selectedSlidesFile.value) && form.kind !== 'page') {
+        try {
+          if (selectedSlidesFile.value) {
+            await replaceAdminResourceFile(
+              props.resource.id,
+              selectedFile.value,
+              acknowledgedOversized.value,
+              selectedSlidesFile.value
+            )
+          } else {
+            await replaceAdminResourceFile(
+              props.resource.id,
+              selectedFile.value,
+              acknowledgedOversized.value
+            )
+          }
+        } catch (err: unknown) {
+          // The details above are already saved; only the file was refused.
+          // Keep the sheet open so the admin can pick another file, and
+          // refresh the list so it shows the saved details.
+          const reason = err instanceof Error && err.message ? err.message : 'unknown error'
+          formError.value = `Details were saved, but the new file was rejected: ${reason}`
+          scrollToError()
+          emit('saved')
+          return
+        }
+      }
+    }
+
+    open.value = false
+    emit('saved')
+  } catch (err: any) {
+    console.error('Failed to save resource:', err)
+    formError.value = err?.message || 'Failed to save resource. Please check your inputs.'
+    scrollToError()
+  } finally {
+    saving.value = false
+  }
+}
+</script>
+
+<style scoped>
+.admin-resource-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.admin-resource-form__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-field--full {
+  width: 100%;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: var(--teal);
+}
+
+.form-input {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background-color: var(--white);
+  color: var(--teal);
+  font: inherit;
+  font-size: 0.92rem;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
+}
+
+.filter-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+  cursor: pointer;
+}
+
+.admin-resource-form__section-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.admin-resource-form__section {
+  margin: 0.5rem 0 0.2rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dark-green);
+}
+
+.admin-resource-form__checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.55rem;
+  border: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
+}
+
+.admin-resource-form__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--teal);
+  cursor: pointer;
+}
+
+.admin-resource-form__checkbox-label input {
+  accent-color: var(--dark-green);
+  width: 16px;
+  height: 16px;
+}
+
+.admin-resource-file-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.admin-resource-file-upload__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-resource-file-input {
+  display: none;
+}
+
+.admin-resource-file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  background-color: var(--bg-light);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--teal);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.admin-resource-file-badge--existing {
+  background-color: rgba(1, 113, 81, 0.06);
+  border-color: rgba(1, 113, 81, 0.2);
+  color: var(--dark-green);
+}
+
+.admin-resource-file-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-resource-file-size {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.admin-resource-form__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.admin-resource-form__oversize {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.admin-resource-form__oversize-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #92400e;
+}
+
+.admin-resource-form__error {
+  margin: 0 0 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-left: 4px solid var(--danger);
+  border-radius: 6px;
+  background-color: rgba(220, 53, 69, 0.08);
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.admin-resource-form__footer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.admin-resource-form__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.admin-resource-form__footer-spacer {
+  flex: 1;
+}
+
+.admin-resource-form__spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 0.4rem;
+  vertical-align: -2px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: var(--white);
+  border-radius: 50%;
+  animation: admin-spin 0.8s linear infinite;
+}
+
+.admin-resource-form__detail-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.admin-resource-form__detail-loading .admin-resource-form__spinner {
+  border-color: rgba(1, 113, 81, 0.25);
+  border-top-color: var(--dark-green);
+  margin-right: 0;
+}
+
+@keyframes admin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

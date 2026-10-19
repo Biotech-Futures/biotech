@@ -51,9 +51,18 @@ LINK_PREVIEW_DISPATCH_SYNC = True
 # Same reason for auth mail: tests assert on msg.send(), which the pool would race.
 AUTH_EMAIL_DISPATCH_SYNC = True
 
-# And for the unread digest: run inline so mail.outbox is populated when the
-# trigger view returns instead of racing a worker thread.
-UNREAD_DIGEST_DISPATCH_SYNC = True
+# The email jobs' tokens: tests set the ones they mean.
+EMAIL_JOBS_TOKEN = ""
+RSVP_REMINDER_TOKEN = ""
+BULK_EMAIL_DISPATCH_SYNC = True
+BULK_EMAIL_RETRY_SECONDS = 0
+BULK_EMAIL_QUEUE_GAP_SECONDS = 0
+
+# Dummy QuickEmailVerification keys, so no test can pick up a real one from the
+# environment (its HTTP is mocked anyway), and its checks run inline.
+QEV_API_KEY = "test-dummy-key"
+QEV_PAID_API_KEY = "test-dummy-paid-key"
+EMAIL_VERIFICATION_DISPATCH_SYNC = True
 
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,
 # which then tries to parse an AZURE_CONNECTION_STRING that CI doesn't set.
@@ -61,4 +70,11 @@ UNREAD_DIGEST_DISPATCH_SYNC = True
 # repo's .gitignore excludes settings_local.py, so CI's checked-in copy may
 # not have the override.
 USE_AZURE_BLOB_STORAGE = False
-DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+# Same reason the flag above is forced: settings.py points STORAGES at Azure,
+# and only replacing the dict keeps CI off a backend it has no credentials for.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+# Pinned on, so turning it off in a local .env cannot stop the suite testing it.
+SUBMISSION_POSTER_CHECKS_ENABLED = True

@@ -1,4 +1,15 @@
-export type UserRole = "student" | "mentor" | "supervisor" | "admin";
+// "support" was added on 2026-09-04. Asked where support agents come from,
+// the client answered: "The admin would create a new account for the support
+// agent, similar to how they can currently create a new admin user, but rather
+// assign the support role to them." So it is a role in this dropdown, and its
+// side effect on the server is a SupportScope row rather than an AdminScope
+// one — a support agent can work the ticket queue and nothing else.
+export type UserRole =
+  | "student"
+  | "mentor"
+  | "supervisor"
+  | "admin"
+  | "support";
 export type UserSource = "server" | "local";
 
 export type CountryOption = {
@@ -109,7 +120,19 @@ export const USER_ROLES: UserRole[] = [
   "mentor",
   "supervisor",
   "admin",
+  "support",
 ];
+
+// The roles that carry no geography, so the editor hides the country and state
+// fields for them and the create call sends neither. Support is here for the
+// same reason admin is: nothing reads an agent's country — Ticket.region
+// snapshots the requester's, taken at submission — so asking for one would be
+// asking for a fact no code looks at.
+export const ROLES_WITHOUT_GEOGRAPHY: UserRole[] = ["admin", "support"];
+
+export function roleHasGeography(role: UserRole) {
+  return !ROLES_WITHOUT_GEOGRAPHY.includes(role);
+}
 
 export type StudentUser = {
   id: number;

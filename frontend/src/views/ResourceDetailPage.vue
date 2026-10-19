@@ -33,6 +33,10 @@
               <dt>File size</dt>
               <dd>{{ fileSizeLabel }}</dd>
             </div>
+            <div v-if="hasSlides">
+              <dt>Slides</dt>
+              <dd>PDF ({{ slidesSizeLabel }})</dd>
+            </div>
           </dl>
           <div v-if="resource.labels?.length" class="label-list">
             <span v-for="label in resource.labels" :key="label.id" class="label-chip">
@@ -43,14 +47,24 @@
             {{ accessError }}
           </p>
         </div>
-        <button
-          v-if="downloadTarget"
-          type="button"
-          class="btn btn-primary"
-          @click="downloadResource"
-        >
-          <i class="fas fa-download" aria-hidden="true"></i> Download
-        </button>
+        <div class="detail-actions">
+          <button
+            v-if="downloadTarget"
+            type="button"
+            class="btn btn-primary"
+            @click="downloadResource"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Download
+          </button>
+          <button
+            v-if="slidesDownloadTarget"
+            type="button"
+            class="btn btn-outline"
+            @click="downloadSlides"
+          >
+            <i class="fas fa-file-pdf" aria-hidden="true"></i> Download Slides
+          </button>
+        </div>
       </header>
 
       <section class="detail-layout">
@@ -101,6 +115,13 @@
           ></iframe>
 
           <iframe
+            v-else-if="previewMode === 'pdf' && previewUrl"
+            class="preview-frame"
+            title="PDF preview"
+            :src="previewUrl"
+          ></iframe>
+
+          <iframe
             v-else-if="previewMode === 'frame' && previewUrl"
             class="preview-frame"
             title="Resource preview"
@@ -120,6 +141,9 @@
             class="preview-media"
             :src="previewUrl"
             controls
+            preload="metadata"
+            playsinline
+            @loadedmetadata="onVideoLoadedMetadata"
           ></video>
 
           <audio
@@ -160,7 +184,7 @@ import {
   type ResourceAccess
 } from '../utils/resourcesAPI'
 
-type PreviewMode = 'none' | 'html' | 'frame' | 'image' | 'video' | 'audio' | 'text'
+type PreviewMode = 'none' | 'html' | 'frame' | 'pdf' | 'image' | 'video' | 'audio' | 'text'
 type ResourceAccessMode =
   | 'inline_html'
   | 'external_page'
@@ -243,6 +267,43 @@ const downloadTarget = computed(() => {
   return null
 })
 
+const hasSlides = computed(() => Boolean(access.value?.has_slides ?? resource.value?.has_slides))
+
+const slidesSizeLabel = computed(() =>
+  formatFileSize(access.value?.slides_file_size ?? resource.value?.slides_file_size),
+)
+
+const slidesDownloadEndpoint = computed(() => {
+  if (!hasSlides.value || !access.value || access.value.access_mode === 'unavailable') return null
+  return (
+    access.value.slides_download_url ||
+    resource.value?.slides_download_url ||
+    `/resources/resource-files/${access.value.resource_id}/download/?field=slides`
+  )
+})
+
+const slidesDownloadTarget = computed(() => {
+  if (!hasSlides.value || !access.value || accessError.value) return null
+
+  if (accessMode.value === 'managed_file' || accessMode.value === 'managed_page') {
+    return slidesDownloadEndpoint.value ? buildResourceUrl(slidesDownloadEndpoint.value) : null
+  }
+
+  return null
+})
+
+const cacheBustQuery = computed(() => {
+  if (!access.value) return ''
+  const versionToken = [
+    access.value.file_name || '',
+    access.value.file_size ?? '',
+    resource.value?.uploaded_at || '',
+  ]
+    .filter(Boolean)
+    .join('-')
+  return versionToken ? `v=${encodeURIComponent(versionToken)}` : ''
+})
+
 const pdfPreviewTarget = computed(() => {
   if (!access.value || accessError.value || !isPdfResource.value) return null
   if ((accessMode.value === 'external_file' || accessMode.value === 'external_page') && access.value.external_url) {
@@ -253,13 +314,18 @@ const pdfPreviewTarget = computed(() => {
   // ``?inline=1`` tells the backend to return ``Content-Disposition: inline``
   // so window.open renders the PDF in the browser instead of forcing a save.
   const separator = target.includes('?') ? '&' : '?'
-  return buildResourceUrl(`${target}${separator}inline=1`)
+  const suffix = cacheBustQuery.value ? `&${cacheBustQuery.value}` : ''
+  return buildResourceUrl(`${target}${separator}inline=1${suffix}`)
 })
 
 const isTextLike = computed(() => {
   const mime = mimeType.value
   return mime.startsWith('text/') || mime.includes('json') || mime.includes('xml') || mime.includes('csv')
 })
+
+const isOfficeDocument = computed(() =>
+  mimeType.value.includes('officedocument') || mimeType.value.includes('opendocument'),
+)
 
 const canFrameMime = computed(() => {
   const mime = mimeType.value
@@ -310,14 +376,15 @@ const preparePreview = async (): Promise<void> => {
 
   if (accessMode.value === 'external_file' && access.value.external_url) {
     if (isPdfResource.value) {
-      previewError.value = 'Preview this PDF in a new window.'
+      previewUrl.value = pdfPreviewTarget.value || ''
+      previewMode.value = 'pdf'
       return
     }
     previewUrl.value = buildResourceUrl(access.value.external_url)
     if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
     else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
     else if (mimeType.value.startsWith('audio/')) previewMode.value = 'audio'
-    else if (canFrameMime.value || isTextLike.value) previewMode.value = 'frame'
+    else if (!isOfficeDocument.value && (canFrameMime.value || isTextLike.value)) previewMode.value = 'frame'
     else previewError.value = 'This file type cannot be displayed in the browser.'
     return
   }
@@ -334,11 +401,21 @@ const preparePreview = async (): Promise<void> => {
   }
 
   if (isPdfResource.value) {
-    previewError.value = 'Preview this PDF in a new window.'
+    previewUrl.value = pdfPreviewTarget.value || ''
+    previewMode.value = 'pdf'
     return
   }
 
-  previewError.value = 'Open or download this file to view it.'
+  const suffix = cacheBustQuery.value ? `&${cacheBustQuery.value}` : ''
+  previewUrl.value = buildResourceUrl(`${target}${target.includes('?') ? '&' : '?'}inline=1${suffix}`)
+  if (mimeType.value.startsWith('image/')) previewMode.value = 'image'
+  else if (mimeType.value.startsWith('video/')) previewMode.value = 'video'
+  else if (mimeType.value.startsWith('audio/')) previewMode.value = 'audio'
+  else if (!isOfficeDocument.value && (canFrameMime.value || isTextLike.value)) previewMode.value = 'frame'
+  else {
+    previewUrl.value = ''
+    previewError.value = 'Open or download this file to view it.'
+  }
 }
 
 const loadResource = async (): Promise<void> => {
@@ -391,9 +468,37 @@ const downloadResource = (): void => {
   link.remove()
 }
 
+const downloadSlides = (): void => {
+  if (!slidesDownloadTarget.value || !resource.value) return
+  const link = document.createElement('a')
+  link.href = slidesDownloadTarget.value
+  link.rel = 'noopener noreferrer'
+  const baseName = resource.value.file_name || resource.value.name
+  const nameWithoutExt = baseName.replace(/\.[^/.]+$/, '')
+  link.download = `${nameWithoutExt}-slides.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
 const previewPdfResource = (): void => {
   if (!pdfPreviewTarget.value || !resource.value) return
   window.open(pdfPreviewTarget.value, '_blank', 'noopener,noreferrer')
+}
+
+const onVideoLoadedMetadata = (event: Event): void => {
+  const video = event.target as HTMLVideoElement
+  if (!video) return
+  // If the video container reports an invalid/incomplete duration (1s or Infinity) on initial load,
+  // seeking to a high timestamp causes the browser to parse the true duration header, then resets to 0.
+  if (video.duration === Infinity || (video.duration <= 1 && video.duration > 0)) {
+    video.currentTime = 1e10
+    const onTimeUpdate = () => {
+      video.currentTime = 0
+      video.removeEventListener('timeupdate', onTimeUpdate)
+    }
+    video.addEventListener('timeupdate', onTimeUpdate, { once: true })
+  }
 }
 
 const formatTypeName = (value?: string | null): string => {
@@ -422,13 +527,6 @@ onBeforeUnmount(clearPreview)
 </script>
 
 <style scoped>
-.back-button {
-  align-items: center;
-  display: inline-flex;
-  gap: 0.45rem;
-  margin-bottom: 1rem;
-}
-
 .detail-state {
   align-items: center;
   display: flex;
@@ -447,6 +545,13 @@ onBeforeUnmount(clearPreview)
   gap: 1.25rem;
   justify-content: space-between;
   margin-bottom: 1.25rem;
+}
+
+.detail-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .detail-header h1 {
@@ -489,7 +594,7 @@ onBeforeUnmount(clearPreview)
 }
 
 .detail-file-facts dd {
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -558,7 +663,7 @@ onBeforeUnmount(clearPreview)
 }
 
 .preview-text {
-  color: var(--charcoal);
+  color: var(--teal);
   font-family: Consolas, 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.5;
@@ -571,7 +676,7 @@ onBeforeUnmount(clearPreview)
 
 .resource-page-preview {
   background: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .resource-page-body {

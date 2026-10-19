@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -11,7 +13,14 @@ from uuid import uuid4
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.storage import FileSystemStorage
-from django.http import FileResponse, HttpResponseRedirect, JsonResponse
+from django.http import (
+    FileResponse,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseRedirect,
+    JsonResponse,
+    StreamingHttpResponse,
+)
 from django.utils import timezone
 
 from apps.common.filenames import sanitize_upload_filename
@@ -26,6 +35,23 @@ except ImportError:  # pragma: no cover - only raised when deps are missing.
     AzureStorage = type("AzureStorage", (), {})
 else:
     AzureStorage = _REAL_AZURE_STORAGE
+
+try:
+    from azure.core.exceptions import ResourceNotFoundError as _AzureNotFound
+except ImportError:  # pragma: no cover - only raised when deps are missing.
+    class _AzureNotFound(Exception):
+        pass
+
+
+class StoredFileMissing(Exception):
+    """Storage has nothing under a key that a database row still points at."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        # The backend's own name for it: "BlobNotFound" and "ContainerNotFound"
+        # from Azure, "FileNotFoundError" from local disk. Never the key, which
+        # ends in the uploader's own file name.
+        self.reason = reason
 
 
 class _BaseAzureContainerStorage(AzureStorage):
@@ -56,6 +82,26 @@ class ChatAzureStorage(_BaseAzureContainerStorage):
     container_setting_name = "AZURE_CHAT_CONTAINER"
 
 
+class PosterAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_POSTER_CONTAINER"
+
+
+class ReportAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_REPORT_CONTAINER"
+
+
+class PrototypeAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_PROTOTYPE_CONTAINER"
+
+
+class ProfileImageAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_PROFILE_IMAGE_CONTAINER"
+
+
+class SlidesAzureStorage(_BaseAzureContainerStorage):
+    container_setting_name = "AZURE_SLIDES_CONTAINER"
+
+
 class LocalContainerStorage(FileSystemStorage):
     def __init__(self, namespace: str):
         media_root = Path(getattr(settings, "MEDIA_ROOT", Path(settings.BASE_DIR) / "media"))
@@ -67,8 +113,14 @@ class LocalContainerStorage(FileSystemStorage):
 
 
 class ManagedContainerStorage:
-    def __init__(self, namespace: str, azure_storage_cls):
+    def __init__(self, namespace: str, azure_storage_cls, *, azure_prefix: str = ""):
         self.namespace = namespace
+        # Local storage already keeps callers apart by giving each namespace its
+        # own directory. The Azure backend does not: several callers can share
+        # one container, and without a prefix their keys land side by side.
+        # Empty by default so existing callers keep the exact key shapes they
+        # have today.
+        self.azure_prefix = azure_prefix.strip("/")
         self._azure_storage_cls = azure_storage_cls
         self._storage = self._build_storage()
 
@@ -89,8 +141,17 @@ class ManagedContainerStorage:
             _REAL_AZURE_STORAGE is not None and isinstance(self._storage, _REAL_AZURE_STORAGE)
         )
 
+    def _prefixed(self, name: str) -> str:
+        if not self.azure_prefix or not self.is_remote:
+            return name
+        return f"{self.azure_prefix}/{name}"
+
     def save(self, name, content):
-        return self._storage.save(name, content)
+        # Only the write side prefixes. What save() returns is the real blob
+        # name and is what callers persist, so reads, deletes and signed URLs
+        # go on passing the key straight through -- prefixing there as well
+        # would apply it twice.
+        return self._storage.save(self._prefixed(name), content)
 
     def exists(self, name: str) -> bool:
         return self._storage.exists(name)
@@ -149,8 +210,11 @@ class ManagedFileService:
         content_type_field: str,
         size_field: str,
         original_filename_field: str | None = None,
+        storage_name: str | None = None,
     ) -> dict:
-        storage_name = self.build_storage_name(getattr(uploaded_file, "name", ""))
+        # A caller can name the file itself (e.g. "2026_BTF01_Poster.pdf");
+        # otherwise it goes under the day and a random folder.
+        storage_name = storage_name or self.build_storage_name(getattr(uploaded_file, "name", ""))
         saved_name = self._storage().save(storage_name, uploaded_file)
         file_data = {
             "storage_key": saved_name,
@@ -175,6 +239,7 @@ class ManagedFileService:
         content_type_field: str,
         size_field: str,
         original_filename_field: str | None = None,
+        storage_name: str | None = None,
     ):
         # Storage writes are not part of the surrounding DB transaction, so any
         # DB error after the upload would leave a blob with no row pointing at
@@ -185,6 +250,7 @@ class ManagedFileService:
             content_type_field=content_type_field,
             size_field=size_field,
             original_filename_field=original_filename_field,
+            storage_name=storage_name,
         )
         try:
             yield file_data
@@ -235,6 +301,49 @@ class ManagedFileService:
     def open(self, storage_key: str, mode: str = "rb"):
         return self._storage().open(storage_key, mode)
 
+    def open_present(self, storage_key: str, mode: str = "rb"):
+        """open(), plus proof that the file is there, before anything is sent.
+
+        Raises StoredFileMissing when storage has nothing under the key. Every
+        other failure propagates untouched: a permission error or an Azure
+        outage is not "missing" and has to reach the caller as a 500.
+        """
+        try:
+            handle = self.open(storage_key, mode)
+            # Local storage opens eagerly, so a missing file has raised by now.
+            # django-storages' AzureStorageFile does not: open() makes no
+            # network call, and the blob is downloaded on the first touch of
+            # .file. Left to FileResponse, that touch is the hasattr(..., "seek")
+            # in its set_headers(), outside any try around open(), which is how
+            # a missing blob became a 500. Touching it here costs nothing extra:
+            # it is the one download the response would have made, into a local
+            # spool the response then streams from.
+            handle.file
+        except FileNotFoundError as exc:
+            raise StoredFileMissing(type(exc).__name__) from exc
+        except _AzureNotFound as exc:
+            raise StoredFileMissing(str(getattr(exc, "error_code", type(exc).__name__))) from exc
+        return handle
+
+
+def _determine_content_size(file_handle, provided_size: int | None = None) -> int | None:
+    if provided_size and provided_size > 0:
+        return provided_size
+    try:
+        if hasattr(file_handle, "size") and isinstance(file_handle.size, int) and file_handle.size > 0:
+            return file_handle.size
+        if hasattr(file_handle, "fileno"):
+            return os.fstat(file_handle.fileno()).st_size
+        if hasattr(file_handle, "seek") and hasattr(file_handle, "tell"):
+            cur = file_handle.tell()
+            file_handle.seek(0, os.SEEK_END)
+            total = file_handle.tell()
+            file_handle.seek(cur)
+            return total
+    except Exception:
+        pass
+    return provided_size
+
 
 def serve_managed_file(
     *,
@@ -245,18 +354,32 @@ def serve_managed_file(
     mime_type: str | None,
     size: int | None,
     as_attachment: bool,
+    prefer_stream: bool = False,
     on_open_failure_status: int = 404,
     on_open_failure_detail: str = "The stored file could not be opened for download.",
+    request: HttpRequest | None = None,
 ):
     safe_filename = sanitize_upload_filename(filename)
-    managed_url = resolve_url(
-        storage_key,
-        filename=safe_filename,
-        content_type=mime_type,
-        as_attachment=as_attachment,
-    )
+    managed_url = None
+    if not prefer_stream:
+        managed_url = resolve_url(
+            storage_key,
+            filename=safe_filename,
+            content_type=mime_type,
+            as_attachment=as_attachment,
+        )
     # Remote Azure storage returns a signed URL, while local/test storage
     # falls back to app-streamed bytes through Django.
+    #
+    # prefer_stream turns the redirect off for callers whose client is a
+    # fetch() rather than a link click, and is off by default so that every
+    # other caller keeps the exact path it has today. A cross-origin redirect
+    # is fine for a navigation and fatal for a fetch: the browser re-applies
+    # CORS at the Azure hop, the blob container publishes no
+    # Access-Control-Allow-Origin, and the download fails with a bare
+    # TypeError that carries no status to report. Streaming keeps the answer
+    # on our own origin, where the caller can read a status code and say
+    # something useful about it.
     if managed_url:
         parsed_url = urlparse(managed_url)
         if parsed_url.scheme and parsed_url.netloc:
@@ -270,6 +393,67 @@ def serve_managed_file(
             status=on_open_failure_status,
         )
 
+    total_size = _determine_content_size(file_handle, size)
+    range_header = request.META.get("HTTP_RANGE") if request else None
+
+    # Handle HTTP Byte-Range requests (crucial for video seeking and progress bar duration calculation)
+    if range_header and total_size and total_size > 0:
+        match = re.match(r"^bytes=(\d*)-(\d*)$", range_header.strip())
+        if match:
+            start_str, end_str = match.groups()
+            if start_str and end_str:
+                start = int(start_str)
+                end = int(end_str)
+            elif start_str:
+                start = int(start_str)
+                end = total_size - 1
+            elif end_str:
+                suffix_len = int(end_str)
+                start = max(0, total_size - suffix_len)
+                end = total_size - 1
+            else:
+                start = 0
+                end = total_size - 1
+
+            if start > end or start >= total_size:
+                resp = HttpResponse(status=416)
+                resp["Content-Range"] = f"bytes */{total_size}"
+                return resp
+
+            end = min(end, total_size - 1)
+            content_length = end - start + 1
+
+            def file_range_iterator(fh, offset, length, chunk_size=64 * 1024):
+                try:
+                    fh.seek(offset)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = fh.read(min(chunk_size, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+                finally:
+                    if hasattr(fh, "close"):
+                        try:
+                            fh.close()
+                        except Exception:
+                            pass
+
+            response = StreamingHttpResponse(
+                file_range_iterator(file_handle, start, content_length),
+                status=206,
+            )
+            if mime_type:
+                response["Content-Type"] = mime_type
+            response["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+            response["Content-Length"] = str(content_length)
+            response["Accept-Ranges"] = "bytes"
+            response["Cache-Control"] = "private, no-cache"
+            disposition = "attachment" if as_attachment else "inline"
+            response["Content-Disposition"] = f'{disposition}; filename="{safe_filename}"'
+            return response
+
     response = FileResponse(
         file_handle,
         as_attachment=as_attachment,
@@ -277,9 +461,14 @@ def serve_managed_file(
     )
     if mime_type:
         response["Content-Type"] = mime_type
-    # FileResponse sets Content-Length from the underlying file's stat when it
-    # can. The recorded `size` is kept in the signature for callers but not
-    # forced here — overriding with a stale value diverges from actual bytes.
+    response["Accept-Ranges"] = "bytes"
+    response["Cache-Control"] = "private, no-cache"
+    # FileResponse sets Content-Length from the bytes it is about to send
+    # when it can measure them. Only fill it in when it could not: the
+    # recorded `size` can be stale, and a length that disagrees with the
+    # body truncates the download (b58860ba).
+    if total_size and total_size > 0 and "Content-Length" not in response:
+        response["Content-Length"] = str(total_size)
     return response
 
 
@@ -293,9 +482,51 @@ def get_chat_storage() -> ManagedContainerStorage:
     return ManagedContainerStorage("chat", ChatAzureStorage)
 
 
+@lru_cache(maxsize=2)
+def get_ticket_storage() -> ManagedContainerStorage:
+    # Ticket attachments live in the chat container rather than one of their
+    # own, behind a "tickets/" prefix. A container per feature means a
+    # container name per feature to configure, and a mismatch between the one
+    # written to and the one read from is exactly the bug that makes resource
+    # downloads fail with BlobNotFound today. Retention rules can be scoped by
+    # prefix if they are ever wanted.
+    return ManagedContainerStorage("tickets", ChatAzureStorage, azure_prefix="tickets")
+
+
+@lru_cache(maxsize=2)
+def get_poster_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("posters", PosterAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_report_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("reports", ReportAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_prototype_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("prototypes", PrototypeAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_profile_image_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("profile-images", ProfileImageAzureStorage)
+
+
+@lru_cache(maxsize=2)
+def get_slides_storage() -> ManagedContainerStorage:
+    return ManagedContainerStorage("slides", SlidesAzureStorage)
+
+
 def reset_managed_storage_caches() -> None:
     # Developer note: prod never flips USE_AZURE_BLOB_STORAGE at runtime, but tests
     # do. Exposing an explicit cache reset keeps override_settings-based storage
     # tests from getting a stale backend instance.
     get_resource_storage.cache_clear()
     get_chat_storage.cache_clear()
+    get_ticket_storage.cache_clear()
+    get_poster_storage.cache_clear()
+    get_report_storage.cache_clear()
+    get_prototype_storage.cache_clear()
+    get_profile_image_storage.cache_clear()
+    get_slides_storage.cache_clear()

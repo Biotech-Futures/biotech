@@ -1304,6 +1304,8 @@ class ResourceTypeAPITests(TestCase):
             type_name='template',
             defaults={'type_description': 'Template resources'}
         )
+        # Resources are role-scoped only, so creates need an audience role.
+        self.student_role = Roles.objects.create(role_name='Student')
 
         self.client.force_authenticate(user=self.admin_user)
 
@@ -1313,7 +1315,8 @@ class ResourceTypeAPITests(TestCase):
         data = {
             'name': 'Python Guide',
             'description': 'A comprehensive Python programming guide',
-            'type_id': self.guide_type.id
+            'type_id': self.guide_type.id,
+            'role_ids': [self.student_role.id]
         }
 
         response = self.client.post(url, data, format='json')
@@ -1332,7 +1335,8 @@ class ResourceTypeAPITests(TestCase):
         url = reverse('resource-files-list')
         data = {
             'name': 'Untitled Resource',
-            'description': 'A resource without type'
+            'description': 'A resource without type',
+            'role_ids': [self.student_role.id]
         }
 
         response = self.client.post(url, data, format='json')
@@ -1503,7 +1507,7 @@ class ResourceTypeIntegrationTests(TestCase):
         )
         AdminScope.objects.create(user=self.admin_user)
 
-        # Get or create all 4 resource types (migration may have already created them)
+        # Get or create all 5 resource types (migration may have already created them)
         self.document_type, _ = ResourceType.objects.get_or_create(
             type_name='document',
             defaults={'type_description': 'Document resources such as PDFs, guides, and written materials'}
@@ -1519,6 +1523,10 @@ class ResourceTypeIntegrationTests(TestCase):
         self.template_type, _ = ResourceType.objects.get_or_create(
             type_name='template',
             defaults={'type_description': 'Templates and boilerplate files'}
+        )
+        self.recorded_session_type, _ = ResourceType.objects.get_or_create(
+            type_name='Recorded Session',
+            defaults={'type_description': 'Recorded session video and presentation slides'}
         )
 
         # Create test roles
@@ -1542,7 +1550,8 @@ class ResourceTypeIntegrationTests(TestCase):
             data = {
                 'name': name,
                 'description': description,
-                'type_id': type_id
+                'type_id': type_id,
+                'role_ids': [self.student_role.id]
             }
 
             response = self.client.post(url, data, format='json')
@@ -1576,16 +1585,17 @@ class ResourceTypeIntegrationTests(TestCase):
         )
 
     def test_data_migration_populated_types(self):
-        """Test that data migration has populated the 4 types"""
+        """Test that data migration has populated the 5 types"""
         # This test verifies that the data migration has run
         # In a fresh database, the migration should create these types
 
         types = ResourceType.objects.all().order_by('type_name')
         type_names = [t.type_name for t in types]
 
-        # We expect exactly 4 types
-        self.assertEqual(len(type_names), 4)
+        # We expect exactly 5 types (document, guide, video, template, Recorded Session)
+        self.assertEqual(len(type_names), 5)
         self.assertIn('document', type_names)
         self.assertIn('guide', type_names)
         self.assertIn('video', type_names)
         self.assertIn('template', type_names)
+        self.assertIn('Recorded Session', type_names)

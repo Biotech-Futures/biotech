@@ -5,6 +5,25 @@ const API_BASE_URL =
 
 let cachedCsrfToken: string | null = null;
 
+/**
+ * Who this tab believes it is signed in as.
+ *
+ * Lives in module memory, which is per-tab. Deliberately not localStorage or a
+ * cookie: both are shared across tabs, and the thing this is used to detect is
+ * precisely somebody signing in as a different person in another tab.
+ *
+ * AuthProvider keeps it in step with the /users/me/ query.
+ */
+let sessionUserId: number | null = null;
+
+export function rememberSessionUser(id: number | null) {
+  sessionUserId = id;
+}
+
+export function knownSessionUser(): number | null {
+  return sessionUserId;
+}
+
 function getCsrfEndpoint() {
   return new URL("/services/csrf/", API_BASE_URL).toString();
 }
