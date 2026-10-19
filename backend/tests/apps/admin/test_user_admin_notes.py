@@ -40,7 +40,7 @@ class AdminUserNotesTests(TestCase):
             "schoolName": "Sydney Grammar",
             "yearLevel": 11,
             "interests": ["Biotechnology"],
-            "adminNotes": "Requires special accommodations for exams.",
+            "adminNotes": "  Requires special accommodations for exams.  ",
         }]
         result = add_users_by_role(payload)
         self.assertEqual(len(result), 1)

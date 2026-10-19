@@ -1197,7 +1197,9 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 is_active = input_data.get("active", True)
                 account_status = STATUS_ACTIVE if is_active else STATUS_INVITED
                 
-                admin_notes = (input_data.get("adminNotes") if "adminNotes" in input_data else input_data.get("admin_notes")) or ""
+                admin_notes = (
+                    (input_data.get("adminNotes") if "adminNotes" in input_data else input_data.get("admin_notes")) or ""
+                ).strip()
 
                 # Create user
                 user = User.objects.create_user(
