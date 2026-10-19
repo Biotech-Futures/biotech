@@ -225,9 +225,8 @@
         </label>
       </div>
       <div class="form-field form-field--full" data-test="admin-notes-field">
-        <label class="form-label" for="f-admin-notes">Internal admin notes (visible only to admins)</label>
+        <label class="form-label">Internal admin notes (visible only to admins)</label>
         <RichTextEditor
-          id="f-admin-notes"
           :key="editorKey"
           v-model="form.adminNotes"
           placeholder="Add private context or notes about this user..."
