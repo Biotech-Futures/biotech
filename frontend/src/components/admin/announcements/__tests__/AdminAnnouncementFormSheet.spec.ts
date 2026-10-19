@@ -163,7 +163,7 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(groupBox('Team Alpha').checked).toBe(false)
   })
 
-  it('populates fields in edit mode and fetches full detail if body is missing', async () => {
+  it('populates fields in edit mode and fetches the full detail, ticking its roles', async () => {
     wrapper = mount(AdminAnnouncementFormSheet, {
       props: {
         modelValue: true,
@@ -193,6 +193,13 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(adminApi.fetchAdminAnnouncement).toHaveBeenCalledWith(302)
     const titleInput = wrapper.find<HTMLInputElement>('#ann-title')
     expect(titleInput.element.value).toBe('Preloaded Title')
+
+    // The saved role (Mentor, id 2) is ticked.
+    const mentorCheckbox = wrapper
+      .findAll('label')
+      .find((l) => l.text() === 'Mentor')!
+      .find<HTMLInputElement>('input')
+    expect(mentorCheckbox.element.checked).toBe(true)
   })
 
   it('validates required fields before submitting', async () => {

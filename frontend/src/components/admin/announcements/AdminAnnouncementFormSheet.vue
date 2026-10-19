@@ -358,77 +358,49 @@ function insertMergeTag(tag: AdminAnnouncementMergeTag) {
 }
 
 async function populateFromAnnouncement(item: AdminAnnouncement) {
-  title.value = item.title || ''
-  body.value = item.body || ''
-  
-  if (item.audiences && item.audiences.length > 0) {
-    roleIds.value = item.audiences
-      .map((a) => a.roleId)
-      .filter((id): id is number => id !== null && id !== undefined)
-    groupIds.value = item.audiences
-      .map((a) => a.groupId)
-      .filter((id): id is number => id !== null && id !== undefined)
-  } else {
-    roleIds.value = []
-    groupIds.value = []
-  }
-
-  // If body is missing (e.g. from list view), fetch full detail
-  if (item.id && !item.body) {
+  applyAnnouncement(item)
+  if (item.id) {
     try {
       const fullDetail = await fetchAdminAnnouncement(item.id)
-      if (fullDetail) {
-        title.value = fullDetail.title || ''
-        body.value = fullDetail.body || ''
-        if (fullDetail.audiences) {
-          roleIds.value = fullDetail.audiences
-            .map((a) => a.roleId)
-            .filter((id): id is number => id !== null && id !== undefined)
-          groupIds.value = fullDetail.audiences
-            .map((a) => a.groupId)
-            .filter((id): id is number => id !== null && id !== undefined)
-        }
-      }
+      if (fullDetail) applyAnnouncement(fullDetail)
     } catch (err) {
       console.error('Failed to load announcement details:', err)
     }
   }
 }
 
+function applyAnnouncement(item: AdminAnnouncement) {
+  title.value = item.title || ''
+  body.value = item.body || ''
+  roleIds.value = (item.audiences || [])
+    .map((a) => a.roleId)
+    .filter((id): id is number => id !== null && id !== undefined)
+  groupIds.value = (item.audiences || [])
+    .map((a) => a.groupId)
+    .filter((id): id is number => id !== null && id !== undefined)
+}
+
+function resetForm() {
+  title.value = ''
+  body.value = ''
+  roleIds.value = []
+  groupIds.value = []
+}
+
 watch(
   () => props.modelValue,
   async (isOpen) => {
     confirmNotifyOpen.value = false
-    if (isOpen) {
-      formError.value = null
-      await loadMeta()
-      if (props.announcement) {
-        await populateFromAnnouncement(props.announcement)
-      } else {
-        title.value = ''
-        body.value = ''
-        roleIds.value = []
-        groupIds.value = []
-      }
+    if (!isOpen) return
+    formError.value = null
+    await loadMeta()
+    if (props.announcement) {
+      await populateFromAnnouncement(props.announcement)
+    } else {
+      resetForm()
     }
   },
   { immediate: true }
-)
-
-watch(
-  () => props.announcement,
-  async (newAnn) => {
-    if (props.modelValue) {
-      if (newAnn) {
-        await populateFromAnnouncement(newAnn)
-      } else {
-        title.value = ''
-        body.value = ''
-        roleIds.value = []
-        groupIds.value = []
-      }
-    }
-  }
 )
 
 function toggleRole(id: number) {
