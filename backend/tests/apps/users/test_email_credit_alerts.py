@@ -19,7 +19,11 @@ from .test_email_verification import KEY, QevTestCase, response
 HEADER = "X-QEV-Remaining-Credits"
 
 
-@override_settings(QEV_LOW_CREDIT_THRESHOLDS=(500, 100), QEV_ALERT_EMAIL="info@biotechfutures.org")
+# The paid key only: alerts follow its balance.
+@override_settings(
+    QEV_LOW_CREDIT_THRESHOLDS=(500, 100), QEV_ALERT_EMAIL="info@biotechfutures.org",
+    QEV_API_KEY="", QEV_PAID_API_KEY=KEY,
+)
 class AlertTestCase(QevTestCase):
     def read(self, remaining):
         """One QEV answer reporting ``remaining`` credits."""

@@ -1,0 +1,33 @@
+{# Keep the wording in step with finalist_submission_confirmation.html. #}Hi Group {{ GROUP_NAME }},
+
+THANK YOU FOR SUBMITTING YOUR PRESENTATION
+
+Thank you for submitting your presentation for {{ BRAND_NAME }} {{ YEAR }}. We have received your submission. A summary of what is currently
+recorded for your team is below.
+
+PRESENTATION
+{% for item in COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}{% if AVAILABLE_TIMES %}
+TIMES YOU SELECTED
+{% for label in AVAILABLE_TIMES %}
+  {{ label }}{% endfor %}
+
+{% if SYMPOSIUM_DATE %}All times are on the symposium day, {{ SYMPOSIUM_DATE }}, in Sydney time ({{ SYDNEY_CLOCK }}).{% else %}All times are in Sydney time.{% endif %}
+{% endif %}
+{% if SLIDES_DUE %}You can continue to update your slides and available times up until slides
+are due on {{ SLIDES_DUE }}.{% else %}You can continue to update your slides and available times from your
+finalist page.{% endif %}
+
+Thank you for the work you and your team have put into the {{ BRAND_NAME }}
+Challenge. We are looking forward to your presentation!
+
+Kind regards,
+The {{ BRAND_NAME }} Team
+
+--
+{{ BRAND_NAME }}, NSW 2006 Australia
+Add {{ SENDER_EMAIL }} to your address book to keep receiving submission
+confirmations.

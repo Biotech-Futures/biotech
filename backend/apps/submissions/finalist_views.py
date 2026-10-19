@@ -14,6 +14,7 @@ from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 from config.errors import GroupAccessDenied
 
+from .emails import send_finalist_confirmation
 from .errors import (
     AvailabilityRequired,
     FileNotUploadedYet,
@@ -245,6 +246,8 @@ class FinalistSubmitView(APIView):
         # Outside the transaction, since a blob delete cannot be rolled back.
         if superseded and superseded != (entry.presentation or {}).get("storage_key"):
             _storage.delete(superseded)
+        # Never raises, so a failed email cannot fail the submission.
+        send_finalist_confirmation(entry)
         return _write_result(entry)
 
 

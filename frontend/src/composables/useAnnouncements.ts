@@ -10,6 +10,15 @@ export interface AnnouncementImage {
   alt?: string
 }
 
+// The targeting rules an announcement was saved with, keyed by id so the
+// edit form can tick the right roles and groups.
+export interface AnnouncementAudienceRule {
+  roleId: number | null
+  groupId: number | null
+  roleName: string | null
+  groupName: string | null
+}
+
 export interface Announcement {
   id: number | string
   title: string
@@ -20,6 +29,8 @@ export interface Announcement {
   audience: string
   // Normalized role set (e.g. ['student','mentor']) used by chip filters.
   audienceRoles: string[]
+  // The raw targeting rules, so editing can pre-select them.
+  audiences: AnnouncementAudienceRule[]
   // True when scope is public or no specific role/group audience exists.
   isPublic: boolean
   // Group ids this announcement is scoped to via audience rules.
@@ -44,6 +55,7 @@ const DETAIL_ENDPOINT = (id: string | number) => `${API_BASE_URL}/announcements/
 const ANNOUNCEMENT_AUTHOR_LABEL = 'Administrator'
 
 interface AnnouncementAudience {
+  role?: number | null
   role_name?: string | null
   group?: number | null
   group_name?: string | null
@@ -77,6 +89,16 @@ interface AnnouncementListResponse {
 
 const normalizeAudienceValue = (value?: string | null) =>
   String(value || '').trim().toLowerCase().replace(/\s+/g, '_')
+
+// The order roles are shown in, so a multi-role audience reads the same
+// regardless of the order the API returns its audience rows in.
+const ROLE_ORDER = ['student', 'mentor', 'supervisor', 'admin']
+const orderRoles = (roles: string[]) =>
+  [...roles].sort((a, b) => {
+    const ai = ROLE_ORDER.indexOf(a)
+    const bi = ROLE_ORDER.indexOf(b)
+    return (ai === -1 ? ROLE_ORDER.length : ai) - (bi === -1 ? ROLE_ORDER.length : bi)
+  })
 
 const stripHtml = (value?: string | null) => {
   const source = String(value || '')
@@ -263,28 +285,40 @@ const buildBodyText = (value?: string | null) => {
 
 export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
   const body = a?.body || a?.content || a?.summary || ''
-  const rawRoles = Array.isArray(a?.audiences)
-    ? a.audiences.map(r => r?.role_name).filter(Boolean)
-    : []
-  const groupIds = Array.isArray(a?.audiences)
-    ? Array.from(
-        new Set(
-          a.audiences
-            .map((r) => (typeof r?.group === 'number' ? r.group : null))
-            .filter((v): v is number => v !== null),
-        ),
-      )
-    : []
+  const rawAudiences = Array.isArray(a?.audiences) ? a.audiences : []
+  const audiences: AnnouncementAudienceRule[] = rawAudiences
+    .map((r) => ({
+      roleId: typeof r?.role === 'number' ? r.role : null,
+      groupId: typeof r?.group === 'number' ? r.group : null,
+      roleName: r?.role_name ?? null,
+      groupName: r?.group_name ?? null
+    }))
+    .filter((r) => r.roleId !== null || r.groupId !== null)
+  const rawRoles = rawAudiences.map(r => r?.role_name).filter(Boolean)
+  const groupIds = Array.from(
+    new Set(
+      rawAudiences
+        .map((r) => (typeof r?.group === 'number' ? r.group : null))
+        .filter((v): v is number => v !== null),
+    ),
+  )
   const scope = normalizeAudienceValue(a?.visibility_scope)
   // Normalized, deduped role set for chip-filter matching. Plural names
-  // collapse so 'Students' and 'student' resolve the same.
-  const audienceRoles = Array.from(
-    new Set(rawRoles.map((r) => normalizeAudienceValue(r).replace(/s$/, ''))),
+  // collapse so 'Students' and 'student' resolve the same. Ordered so the
+  // badge reads the same way whatever order the audience rows arrive in.
+  const audienceRoles = orderRoles(
+    Array.from(
+      new Set(rawRoles.map((r) => normalizeAudienceValue(r).replace(/s$/, ''))),
+    ),
   )
+  // All targeted roles, so an announcement sent to students, mentors and
+  // supervisors shows all three rather than whichever row came back first.
   const audience =
     scope === 'public'
       ? 'all'
-      : normalizeAudienceValue(rawRoles[0] || scope || 'all')
+      : audienceRoles.length
+        ? audienceRoles.join(',')
+        : normalizeAudienceValue(scope || 'all')
 
   return {
     id: a?.id,
@@ -295,6 +329,7 @@ export const normalizeAnnouncement = (a: AnnouncementApiItem): Announcement => {
     bodyHtml: renderAnnouncementBody(body),
     audience,
     audienceRoles,
+    audiences,
     isPublic:
       scope === 'public' ||
       (audienceRoles.length === 0 && groupIds.length === 0),
@@ -461,6 +496,7 @@ export const AUDIENCE_FILTERS_FOR_ROLE = (
 const AUDIENCE_LABELS: Record<string, string> = {
   all: 'All Users',
   public: 'All Users',
+  global: 'All Users',
   student: 'Student',
   students: 'Student',
   mentor: 'Mentor',
@@ -476,6 +512,7 @@ const AUDIENCE_LABELS: Record<string, string> = {
 const AUDIENCE_CLASSES: Record<string, string> = {
   all: 'status-active',
   public: 'status-active',
+  global: 'status-active',
   student: 'status-info',
   students: 'status-info',
   mentor: 'status-warning',
@@ -488,12 +525,27 @@ const AUDIENCE_CLASSES: Record<string, string> = {
   scoped: 'status-warning'
 }
 
+// An audience may be one role or several ('student,mentor,supervisor'); each
+// part is labelled and they're joined back, so a multi-role announcement
+// shows every role it targets.
 export const getAudienceLabel = (audience: string) =>
-  AUDIENCE_LABELS[audience] ||
-  audience.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  String(audience || '')
+    .split(',')
+    .map((token) => {
+      const key = token.trim()
+      if (!key) return ''
+      return (
+        AUDIENCE_LABELS[key] ||
+        key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      )
+    })
+    .filter(Boolean)
+    .join(', ')
 
-export const getAudienceClass = (audience: string) =>
-  AUDIENCE_CLASSES[audience] || 'status-active'
+export const getAudienceClass = (audience: string) => {
+  const first = String(audience || '').split(',')[0].trim()
+  return AUDIENCE_CLASSES[first] || 'status-active'
+}
 
 // 'all' shows everything; a role chip matches any announcement whose
 // audience targets that role (alone or combined). Public/global

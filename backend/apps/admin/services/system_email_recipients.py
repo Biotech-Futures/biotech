@@ -342,6 +342,37 @@ def _reminder_context(value: str) -> dict:
     return _submission_context(group, *components_for(_submission_of(group)))
 
 
+def _finalist_submitted_teams() -> list[dict]:
+    return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_entry__submitted_at__isnull=False))
+
+
+def _finalist_confirmation_context(value: str) -> dict:
+    from apps.submissions.emails import finalist_confirmation_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    # A team yet to submit previews as nothing received.
+    entry = FinalistEntry.objects.filter(group=group).first() or FinalistEntry(group=group)
+    return finalist_confirmation_context(entry)
+
+
+def _finalist_reminder_teams() -> list[dict]:
+    # Reminders go to this year's notified finalists until they submit.
+    return _groups(
+        _this_years_teams()
+        .filter(finalist_flag__notified=True)
+        .exclude(finalist_entry__submitted_at__isnull=False)
+    )
+
+
+def _finalist_reminder_context(value: str) -> dict:
+    from apps.submissions.finalist_reminders import reminder_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    return reminder_context(group, FinalistEntry.objects.filter(group=group).first())
+
+
 def _finalist_teams() -> list[dict]:
     return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_flag__isnull=False))
 
@@ -490,6 +521,8 @@ RECIPIENTS: dict[str, Recipients] = {
     "guardian_consent_received": Recipients(_guardians, _consent_received_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
+    "finalist_submission_confirmation": Recipients(_finalist_submitted_teams, _finalist_confirmation_context),
+    "finalist_submission_reminder": Recipients(_finalist_reminder_teams, _finalist_reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
     "nonfinalist_invitation": Recipients(*_symposium("NONFINALIST")),
     "nonsubmission_notice": Recipients(*_symposium("NONSUBMISSION")),

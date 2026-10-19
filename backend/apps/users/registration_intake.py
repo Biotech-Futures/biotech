@@ -37,7 +37,7 @@ from .models import (
 from .profile_images import save_profile_image, validate_profile_image
 from .serializers import (
     REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
-    registration_warnings,
+    registration_warnings, stored_email_answers,
 )
 
 
@@ -45,7 +45,7 @@ JOURNEY = "student_individual"
 GROUP_JOURNEYS = {"student_team", "supervisor_group"}
 SUPERVISOR_JOURNEYS = {"supervisor_individual", "supervisor_group", "supervisor_csv"}
 STUDENT_JOURNEYS = [JOURNEY, "student_team", *sorted(SUPERVISOR_JOURNEYS)]
-MAX_CSV_ROWS = 500
+MAX_CSV_ROWS = 1000
 # A group's most students: a student group may start with one (its creator),
 # the rest joining by its code.
 GROUP_MAX_STUDENTS = 5
@@ -728,6 +728,10 @@ def register(request):
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
             joining = joinable_group(join_code, len(students)) if join_code else None
             errors, warnings, provenance = {}, [], []
+            # Every address's email check on file, in one query for the submission.
+            email_answers = stored_email_answers(
+                address for student in students for address in (student["email"], student["guardian"].get("email"))
+            )
             for index, student in enumerate(students):
                 registered_by = (
                     (
@@ -756,7 +760,7 @@ def register(request):
                 warnings.extend([{
                     **warning, "field": registration_field(warning["field"], index),
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
-                } for warning in registration_warnings(validator.validated_data)])
+                } for warning in registration_warnings(validator.validated_data, email_answers)])
             if errors:
                 raise serializers.ValidationError(errors)
             if warnings:
