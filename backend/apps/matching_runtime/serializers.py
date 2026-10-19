@@ -29,29 +29,40 @@ class BulkRecommendationAcceptSerializer(serializers.Serializer):
 
 class MatchingConfigSerializer(serializers.ModelSerializer):
     total_weight = serializers.DecimalField(max_digits=7, decimal_places=2, read_only=True)
+    #: The worst case the caps allow, so the panel can show what the configured
+    #: penalties can actually take off a score.
+    max_total_penalty = serializers.DecimalField(max_digits=7, decimal_places=2, read_only=True)
 
     class Meta:
         model = MatchingConfig
         fields = [
             "id",
             "year_weight",
+            "year_max_weight",
             "timezone_weight",
             "timezone_max_weight",
             "size_bonus_weight",
             "total_weight",
+            "max_total_penalty",
             "updated_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "total_weight", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "total_weight",
+            "max_total_penalty",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate(self, attrs):
-        # Check the sum against the merged instance, so a PATCH that only sends
-        # one weight is still validated against the whole set.
+        # Check the ceiling against the merged instance, so a PATCH that only
+        # raises one cap is still validated against the other one as stored.
         instance = MatchingConfig(**{**self._stored_weights(), **attrs})
-        error = instance.weight_total_error()
+        error = instance.penalty_ceiling_error()
         if error:
-            raise serializers.ValidationError({"weight_total": error})
+            raise serializers.ValidationError({"penalty_ceiling": error})
         return attrs
 
     def _stored_weights(self) -> dict:

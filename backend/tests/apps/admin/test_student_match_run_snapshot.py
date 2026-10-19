@@ -10,6 +10,7 @@ from apps.users.models import AreasOfInterest, StudentProfile, UserInterest
 
 WEIGHTS = {
     "year_weight": "30.00",
+    "year_max_weight": "30.00",
     "timezone_weight": "25.00",
     "timezone_max_weight": "25.00",
     "size_bonus_weight": "20.00",
@@ -52,7 +53,10 @@ class StudentMatchRunSnapshotTests(TestCase):
         self.assertEqual(snapshot["mode"], "coverage")
         self.assertNotIn("configId", snapshot)
         self.assertNotIn("configName", snapshot)
-        self.assertEqual(snapshot["totalWeight"], "100.0")
+        # Points, so the total is whatever the weights happen to add up to.
+        self.assertEqual(snapshot["totalWeight"], "130.0")
+        # The caps are what the ceiling is measured over: 30 + 25.
+        self.assertEqual(snapshot["maxTotalPenalty"], "55.0")
         self.assertEqual(snapshot["weights"]["yearWeight"], 30.0)
         # The existing payload is preserved alongside the rules block.
         self.assertEqual(snapshot["strategy"], "form-only")
@@ -81,6 +85,7 @@ class StudentMatchRunSnapshotTests(TestCase):
         self._isolate_student_pair()
         MatchingConfig.objects.create(
             year_weight="60.00",
+            year_max_weight="60.00",
             timezone_weight="15.00",
             timezone_max_weight="15.00",
             size_bonus_weight="10.00",
@@ -91,8 +96,11 @@ class StudentMatchRunSnapshotTests(TestCase):
 
         group = snapshot["finalForm"]["groups"][0]
         self.assertEqual(snapshot["weights"]["yearWeight"], 60.0)
-        self.assertEqual(group["scoreBreakdown"]["yearPenalty"], 120.0)
-        self.assertEqual(group["groupScore"], 0.0)
+        # Two years at 60 points each would be 120, more than the whole base
+        # score. The cap holds it to 60, so the pair still has a rankable score
+        # instead of bottoming out at zero.
+        self.assertEqual(group["scoreBreakdown"]["yearPenalty"], 60.0)
+        self.assertEqual(group["groupScore"], 40.0)
 
     def test_legacy_weights_are_used_when_no_config_exists(self):
         self._isolate_student_pair()

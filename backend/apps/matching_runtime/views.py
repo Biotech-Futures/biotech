@@ -52,9 +52,10 @@ class MatchingConfigViewSet(
 ):
     """Admin CRUD for the matching scoring weights.
 
-    Weights are percentages that must total exactly 100; the serializer rejects
-    anything else rather than normalising it. ``active`` and ``defaults`` are
-    read-only shortcuts for the admin panel.
+    Weights are raw points and may total anything; what the serializer rejects
+    is a pair of penalty caps that together exceed the base score, since past
+    that the worst pairings all score 0 and stop being rankable. ``active`` and
+    ``defaults`` are read-only shortcuts for the admin panel.
     """
 
     queryset = MatchingConfig.objects.select_related("updated_by").all()
@@ -126,14 +127,15 @@ class MatchingConfigViewSet(
         responses={200: inline_serializer(
             name="MatchingConfigDefaults",
             fields={
-                "requiredTotal": serializers.CharField(),
+                "baseScore": serializers.IntegerField(),
+                "maxTotalPenalty": serializers.IntegerField(),
                 "defaults": serializers.DictField(child=serializers.DecimalField(max_digits=5, decimal_places=2)),
             },
         )}
     )
     @action(detail=False, methods=["get"], url_path="defaults")
     def defaults(self, request):
-        """A complete, valid weight split for an admin form to start from."""
+        """Starting weights for an admin form, plus the limits it enforces."""
         return Response({"data": matching_config_defaults()})
 
 
