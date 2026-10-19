@@ -9,12 +9,31 @@ import {
 } from './registration'
 import type { RegistrationRequest } from './registrationGateway'
 
-export const REGISTRATION_OVERRIDE_NAMES = [
-  'ConfirmSchoolOverride',
-  'ConfirmNameEmailOverride',
-] as const
+/** Each warning's override, and the student field (under students.N) its
+ *  warning is about. */
+export const REGISTRATION_OVERRIDE_FIELDS = {
+  ConfirmSchoolOverride: 'school',
+  ConfirmNameEmailOverride: 'email',
+  // An address the email check found doesn't exist: the student's or their guardian's.
+  ConfirmEmailInvalidOverride: 'email',
+  ConfirmGuardianEmailInvalidOverride: 'guardian.email',
+} as const
+
+export const REGISTRATION_OVERRIDE_NAMES = Object.keys(REGISTRATION_OVERRIDE_FIELDS) as Array<
+  keyof typeof REGISTRATION_OVERRIDE_FIELDS
+>
 
 type OverrideName = (typeof REGISTRATION_OVERRIDE_NAMES)[number]
+
+/** A warning's override path, students.N.overrides.<name>: the student's
+ *  index and the override's name, or null if it isn't one. */
+export const parseOverridePath = (path: string): { index: number; name: OverrideName } | null => {
+  const match = /^students\.(\d+)\.overrides\.(\w+)$/.exec(path)
+  // Own keys only: `in` would also accept inherited names like "toString".
+  if (!match || !Object.prototype.hasOwnProperty.call(REGISTRATION_OVERRIDE_FIELDS, match[2]!))
+    return null
+  return { index: Number(match[1]), name: match[2] as OverrideName }
+}
 type SubmittedStudent = Omit<StudentDetails, 'emailConfirm'> & {
   groupingPreference?: string
   overrides?: Partial<Record<OverrideName, boolean>>
@@ -137,12 +156,11 @@ export const buildProductionRegistrationRequest = (
     overrides: {},
   }))
   for (const [path, flag] of Object.entries(overrideFlags)) {
-    const match =
-      /^students\.(\d+)\.overrides\.(ConfirmSchoolOverride|ConfirmNameEmailOverride)$/.exec(path)
-    const student = match ? students[Number(match[1])] : undefined
-    if (!match || !student || typeof flag !== 'boolean')
+    const override = parseOverridePath(path)
+    const student = override ? students[override.index] : undefined
+    if (!override || !student || typeof flag !== 'boolean')
       throw new Error('Invalid registration warning override.')
-    student.overrides = { ...student.overrides, [match[2]!]: flag }
+    student.overrides = { ...student.overrides, [override.name]: flag }
   }
   const source =
     request.journey === 'supervisor_csv'

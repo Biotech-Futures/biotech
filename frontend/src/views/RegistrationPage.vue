@@ -340,6 +340,7 @@
               >
             </label>
           </section>
+          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
@@ -1195,6 +1196,8 @@ import {
 } from '@/registration/groupCode'
 import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
+import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
 import { formatDayMonthTime } from '@/utils/date'
 import {
   buildRegistrationRequest,
@@ -1527,6 +1530,8 @@ const invitationToken = computed(() =>
   props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
 )
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
+// Checking the email addresses before submitting, when the gateway can.
+const { progress: emailCheckProgress, check: checkEmails } = useEmailPrecheck()
 const unavailableGateway: RegistrationGateway = {
   async submit() {
     return {
@@ -1781,7 +1786,11 @@ const includedCsvRows = computed(() =>
   ),
 )
 const warningSubject = (warning: RegistrationWarning) => {
-  const field = warning.field.endsWith('.school') ? 'School' : 'Student email'
+  const field = warning.field.endsWith('.school')
+    ? 'School'
+    : warning.field.endsWith('.guardian.email')
+      ? 'Guardian email'
+      : 'Student email'
   const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
@@ -2783,6 +2792,13 @@ const submitRegistration = async () => {
       forms.supervisorGroup.students.forEach((student, index) =>
         attach(student, `supervisorGroup.students.${index}`),
       )
+    // Any address found not to exist then comes back as a warning to correct
+    // or confirm. Skipped whenever it can't be done; never holds this up.
+    await checkEmails(registrationGateway, request, {
+      invitationToken: invitationToken.value,
+      overrides: { ...warningOverrides.value },
+      supervisorEmail: supervisorEmail || undefined,
+    })
     const result = await registrationGateway.submit(request, {
       attachments,
       invitationToken: invitationToken.value,

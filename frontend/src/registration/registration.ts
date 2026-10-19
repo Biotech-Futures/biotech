@@ -46,7 +46,7 @@ export const CSV_HEADERS = [
 ] as const
 
 
-export const MAX_CSV_ROWS = 500
+export const MAX_CSV_ROWS = 1000
 
 export type CsvHeader = (typeof CSV_HEADERS)[number]
 export type CsvCategory = 'valid' | 'review-required' | 'invalid'
