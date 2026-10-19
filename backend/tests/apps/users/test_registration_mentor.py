@@ -23,6 +23,7 @@ def mentor_body(**changes):
         "universityYear": "2", "fieldOfStudy": "Bioengineering",
         "interests": ["Biomedical Innovations", "AI & Robotics and Smart Systems"],
         "capacity": "3",
+        "weeklyHours": "4",
         "background": "Two years of lab work on tissue scaffolds.",
         "motivation": "I'd like to help students find their way into research.",
         "mentoringApproach": "Weekly check-ins and pointing them to good sources.",
@@ -61,8 +62,8 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         profile = MentorProfile.objects.get(user=user)
         self.assertEqual(
             (profile.background, profile.institution, profile.company, profile.university_year,
-             profile.field_of_study, profile.max_group_count),
-            ("postgraduate", "University of Sydney", "", "2", "Bioengineering", 3),
+             profile.field_of_study, profile.max_group_count, profile.weekly_hours),
+            ("postgraduate", "University of Sydney", "", "2", "Bioengineering", 3, 4),
         )
         self.assertEqual(profile.mentor_reason, "I'd like to help students find their way into research.")
         self.assertEqual(profile.relevant_background, "Two years of lab work on tissue scaffolds.")
@@ -71,7 +72,8 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
             sorted(UserInterest.objects.filter(user=user).values_list("interest__interest_desc", flat=True)),
             ["AI & Robotics and Smart Systems", "Biomedical Innovations"],
         )
-        # The empty row is dropped.
+        # Weekly times the form no longer asks for are still kept when given;
+        # the empty row is dropped.
         self.assertEqual(
             sorted(MentorAvailability.objects.filter(mentor_user=user).values_list("weekday", "start_time", "end_time")),
             [(0, time(17, 0), time(18, 30)), (3, time(9, 0), time(10, 0))],
@@ -102,6 +104,7 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
             "mentor.state": mentor_body(state=""),
             "mentor.interests": mentor_body(interests=[]),
             "mentor.capacity": mentor_body(capacity="6"),
+            "mentor.weeklyHours": mentor_body(weeklyHours="0"),
             "mentor.affiliation": mentor_body(affiliation="retired"),
             "mentor.mentoringApproach": mentor_body(mentoringApproach=long),
             "mentor.availability.0": mentor_body(availability=[{"weekday": "1", "start": "10:00", "end": ""}]),
@@ -116,6 +119,24 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         response = self.register(ends_first)
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(email="jordan.ng@uni.example.test").exists())
+
+    def test_hours_per_week_are_needed_and_a_whole_number_up_to_40(self):
+        for hours in ("", "41", "2.5"):
+            with self.subTest(hours=hours):
+                response = self.register(mentor_body(weeklyHours=hours))
+                self.assertEqual(response.status_code, 400, response.data)
+        body = mentor_body()
+        del body["payload"]["mentor"]["weeklyHours"]
+        self.assertEqual(self.register(body).status_code, 400)
+
+    def test_the_form_without_weekly_times_registers(self):
+        body = mentor_body(weeklyHours="40")
+        del body["payload"]["mentor"]["availability"]
+        response = self.register(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        user = User.objects.get(email="jordan.ng@uni.example.test")
+        self.assertEqual(MentorProfile.objects.get(user=user).weekly_hours, 40)
+        self.assertFalse(MentorAvailability.objects.filter(mentor_user=user).exists())
 
     def test_closed_dates_an_email_with_an_account_and_a_late_link_are_refused(self):
         User.objects.create_user(email="taken@example.test")

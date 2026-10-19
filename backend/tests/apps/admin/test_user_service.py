@@ -1883,6 +1883,21 @@ class AdminMentorDetailsTests(TestCase):
         update_user(self.mentor.id, {"mentorAvailability": []})
         self.assertFalse(MentorAvailability.objects.filter(mentor_user=self.mentor).exists())
 
+    def test_hours_per_week_are_given_and_changed(self):
+        self.profile.weekly_hours = 4
+        self.profile.save()
+        self.assertEqual(fetch_user_by_id(self.mentor.id)["mentorWeeklyHours"], 4)
+
+        result = update_user(self.mentor.id, {"mentorWeeklyHours": 41})
+        self.assertEqual(result["msg"], "Hours per week must be from 1 to 40")
+        result = update_user(self.mentor.id, {"mentorWeeklyHours": 6})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(self._profile().weekly_hours, 6)
+        # A mentor from before it was asked can be left without.
+        result = update_user(self.mentor.id, {"mentorWeeklyHours": None})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertIsNone(self._profile().weekly_hours)
+
     def test_capacity_can_be_zero(self):
         result = update_user(self.mentor.id, {"mentorMaxGroupCount": 0})
         self.assertIsNotNone(result["data"], result["msg"])

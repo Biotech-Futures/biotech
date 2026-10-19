@@ -19,7 +19,7 @@ import {
   updateAdminUser
 } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
-import { appSelectLabels, openAppSelect, pickAppSelect } from '@/__tests__/appSelect'
+import { appSelectLabels, appSelectText, openAppSelect, pickAppSelect } from '@/__tests__/appSelect'
 import type { AdminGroupDetail, AdminUser } from '@/utils/adminAPI'
 
 vi.mock('@/utils/adminAPI', () => ({
@@ -565,7 +565,7 @@ describe('admin user detail: a student edited part by part', () => {
     const wrapper = openDetail(inNsw())
     await editAccount(wrapper)
 
-    expect(await appSelectLabels(wrapper, '[data-test="admin-state-select"]')).toEqual(['No state', 'NSW', 'VIC'])
+    expect(await appSelectLabels(wrapper, '[data-test="admin-state-select"]')).toEqual(['NSW', 'VIC'])
     await wrapper.find('[data-test="admin-state-select"] input').trigger('blur')
 
     // A new country clears the state, now typed.
@@ -864,6 +864,7 @@ describe('admin user detail: a mentor edited part by part', () => {
       mentorRelevantBackground: 'Lab work',
       mentorMentoringApproach: 'Weekly calls',
       mentorMaxGroupCount: 3,
+      mentorWeeklyHours: 4,
       mentorAvailability: [
         { weekday: 0, start: '18:00', end: '20:00' },
         { weekday: 2, start: '17:00', end: '19:00' }
@@ -899,14 +900,20 @@ describe('admin user detail: a mentor edited part by part', () => {
   it('shows Account, Groups, Mentor Details and Application Form, each with Edit, and nothing at the bottom', () => {
     const wrapper = openDetail(mentor())
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Groups', 'Mentor Details', 'Application Form'])
-    for (const edit of ['account', 'mentor-groups', 'mentor-details', 'application']) {
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Account',
+      'Groups',
+      'Mentor Details',
+      'Weekly Availability',
+      'Application Form'
+    ])
+    for (const edit of ['account', 'mentor-groups', 'mentor-details', 'availability', 'application']) {
       expect(wrapper.find(`[data-test="admin-edit-${edit}"]`).exists(), edit).toBe(true)
     }
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
   })
 
-  it('shows their groups in one row, what their background asks, and when they are free', () => {
+  it('shows their groups in one row, what their background asks, and their hours per week', () => {
     const wrapper = openDetail(mentor({ mentorGroups: [{ id: 2, name: 'BTF2', studentCount: 3 }, { id: 10, name: 'BTF10', studentCount: 1 }] }))
 
     expect(wrapper.find('[data-test="admin-mentor-group-names"]').text()).toBe('BTF2, BTF10')
@@ -915,7 +922,8 @@ describe('admin user detail: a mentor edited part by part', () => {
       expect(details).toContain(text)
     }
     expect(details).not.toContain('Company')
-    expect(wrapper.find('[data-test="admin-mentor-weekly"]').text()).toBe('Mon 18:00–20:00, Wed 17:00–19:00')
+    expect(wrapper.find('[data-test="admin-mentor-hours"]').text()).toBe('4 hours')
+    expect(openDetail(mentor({ mentorWeeklyHours: null })).find('[data-test="admin-mentor-hours"]').text()).toBe('—')
     expect(wrapper.find('[data-test="admin-answer-view-mentorMentoringApproach"]').text()).toBe('Weekly calls')
 
     const industry = openDetail(mentor({ mentorBackground: 'industry', mentorCompany: 'Acme Bio', mentorInstitution: '' }))
@@ -1003,13 +1011,7 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(updateAdminUser).not.toHaveBeenCalled()
 
     await form().find('[data-test="admin-mentor-company"]').setValue('Acme Bio')
-    // A third weekly time, and the first taken away.
-    await wrapper.find('[data-test="admin-mentor-add-slot"]').trigger('click')
-    await pickAppSelect(wrapper, '[data-test="admin-mentor-slot-2"]', 'Friday')
-    const [start, end] = form().find('[data-test="admin-mentor-slot-2"]').findAll('input[type="time"]')
-    await start.setValue('09:00')
-    await end.setValue('10:30')
-    await form().find('[data-test="admin-mentor-slot-0"] .admin-users-detail__slot-remove').trigger('click')
+    await form().find('[data-test="admin-mentor-hours-input"]').setValue('6')
     await form().trigger('submit')
     await flushPromises()
 
@@ -1023,21 +1025,71 @@ describe('admin user detail: a mentor edited part by part', () => {
       mentorFieldOfStudy: '',
       interests: ['Biomedical Innovations', 'Structural Biology'],
       mentorMaxGroupCount: 3,
-      mentorAvailability: [
-        { weekday: 2, start: '17:00', end: '19:00' },
-        { weekday: 4, start: '09:00', end: '10:30' }
-      ]
+      mentorWeeklyHours: 6
     })
   })
 
-  it("won't save a weekly time that ends before it starts", async () => {
-    const wrapper = openDetail(mentor({ mentorAvailability: [{ weekday: 1, start: '19:00', end: '18:00' }] }))
+  it('takes hours per week as a whole number from 1 to 40', async () => {
+    const wrapper = openDetail(mentor())
     await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
+    const hours = wrapper.find('[data-test="admin-mentor-hours-input"]')
+    // A number box with its arrows that refuses e, +, - and ., two digits at most.
+    expect(hours.attributes('type')).toBe('number')
+    const press = new KeyboardEvent('keydown', { key: 'e', cancelable: true })
+    hours.element.dispatchEvent(press)
+    expect(press.defaultPrevented).toBe(true)
+    await hours.setValue('412')
+    expect((hours.element as HTMLInputElement).value).toBe('41')
     await wrapper.find('[data-test="admin-mentor-details-form"]').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Each weekly time must end after it starts.')
+    expect(wrapper.text()).toContain('Hours per week must be a whole number from 1 to 40.')
     expect(updateAdminUser).not.toHaveBeenCalled()
+  })
+
+  it('shows each weekly time, and edits them as day and times', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: mentor() })
+    const wrapper = openDetail(mentor())
+    const times = wrapper.find('[data-test="admin-mentor-times"]')
+    expect(times.findAll('dt').map((day) => day.text())).toEqual(['Monday', 'Wednesday'])
+    expect(times.findAll('dd').map((time) => time.text())).toEqual(['18:00 – 20:00', '17:00 – 19:00'])
+    expect(openDetail(mentor({ mentorAvailability: [] })).find('[data-test="admin-mentor-times"]').text()).toContain('—')
+
+    await wrapper.find('[data-test="admin-edit-availability"]').trigger('click')
+    const form = () => wrapper.find('[data-test="admin-availability-form"]')
+    // A third time, then the first taken away.
+    await wrapper.find('[data-test="admin-mentor-add-slot"]').trigger('click')
+    await pickAppSelect(wrapper, '[data-test="admin-mentor-slot-2"]', 'Friday')
+    // Each time as its hour and its minutes, the minutes in 5-minute steps.
+    const slot = (part: string) => `[data-test="admin-mentor-slot-2-${part}"]`
+    expect(await appSelectLabels(wrapper, slot('start-minute'))).toEqual([
+      '00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'
+    ])
+    await wrapper.find(`${slot('start-minute')} input`).trigger('blur')
+    expect((await appSelectLabels(wrapper, slot('start-hour'))).length).toBe(24)
+    await wrapper.find(`${slot('start-hour')} input`).trigger('blur')
+    // An hour picked first takes :00.
+    await pickAppSelect(wrapper, slot('start-hour'), '10')
+    expect(appSelectText(wrapper, slot('start-minute'))).toBe('00')
+    await pickAppSelect(wrapper, slot('start-minute'), '30')
+    await pickAppSelect(wrapper, slot('end-hour'), '09')
+    await form().trigger('submit')
+    await flushPromises()
+    expect(form().text()).toContain('Each weekly time must end after it starts.')
+    expect(updateAdminUser).not.toHaveBeenCalled()
+
+    await pickAppSelect(wrapper, slot('end-hour'), '12')
+    // A saved time shows as its hour and minutes.
+    expect(appSelectText(wrapper, '[data-test="admin-mentor-slot-0-start-hour"]')).toBe('18')
+    await form().find('[data-test="admin-mentor-slot-0"] .admin-users-detail__slot-remove').trigger('click')
+    await form().trigger('submit')
+    await flushPromises()
+    expect(updateAdminUser).toHaveBeenCalledWith(5, {
+      mentorAvailability: [
+        { weekday: 2, start: '17:00', end: '19:00' },
+        { weekday: 4, start: '10:30', end: '12:00' }
+      ]
+    })
   })
 
   it('edits the three answers, each kept to 150 words', async () => {

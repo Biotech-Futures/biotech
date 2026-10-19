@@ -25,6 +25,9 @@ class MentorProfile(models.Model):
     # words at most each, as the form asks).
     relevant_background = models.TextField(blank=True, default="")
     mentoring_approach = models.TextField(blank=True, default="")
+    # How many hours a week they can give a group, as registering asks (1 to
+    # 40). None for mentors from before it was asked.
+    weekly_hours = models.PositiveSmallIntegerField(blank=True, null=True)
 
     class Meta:
         db_table = 'mentor_profile'

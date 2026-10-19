@@ -56,6 +56,8 @@
             :options="stateOptions"
             :loading="placesLoading"
             :searchable="false"
+            placeholder="Choose a state"
+            required
           />
         </div>
         <div class="admin-users-detail__item">
@@ -552,45 +554,22 @@
             :options="mentorCapacityOptions"
           />
         </div>
-        <!-- Weekly activity: a day and the times they're free, as many as they like. -->
-        <div class="admin-users-detail__item admin-users-detail__item--stacked">
-          <span class="admin-users-detail__label">Weekly activity</span>
-          <div
-            v-for="(slot, index) in form.mentorAvailability"
-            :key="index"
-            class="admin-users-detail__slot"
-            :data-test="`admin-mentor-slot-${index}`"
-          >
-            <AppSelect
-              v-model="slot.weekday"
-              size="large"
-              class="admin-users-detail__input"
-              :aria-label="`Day ${index + 1}`"
-              :options="WEEKDAY_OPTIONS"
-              placeholder="Day"
-            />
-            <input v-model="slot.start" type="time" class="admin-users-detail__input" :aria-label="`From, time ${index + 1}`" />
-            <span class="admin-users-detail__slot-to">to</span>
-            <input v-model="slot.end" type="time" class="admin-users-detail__input" :aria-label="`To, time ${index + 1}`" />
-            <button
-              type="button"
-              class="admin-users-detail__slot-remove"
-              :aria-label="`Remove time ${index + 1}`"
-              @click="form.mentorAvailability.splice(index, 1)"
-            >
-              <i class="fas fa-xmark" aria-hidden="true"></i>
-            </button>
-          </div>
-          <button
-            v-if="form.mentorAvailability.length < 21"
-            type="button"
-            class="btn btn-outline btn-sm admin-users-detail__slot-add"
-            data-test="admin-mentor-add-slot"
-            @click="form.mentorAvailability.push({ weekday: null, start: '', end: '' })"
-          >
-            Add a time
-          </button>
-        </div>
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Hours per week</span>
+          <input
+            :value="form.mentorWeeklyHours"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            :max="MAX_WEEKLY_HOURS"
+            step="1"
+            class="admin-users-detail__input"
+            data-test="admin-mentor-hours-input"
+            @input="onHoursInput"
+            @keydown="refuseNonDigitKey"
+            @paste="refuseNonDigitPaste"
+          />
+        </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
           <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
@@ -631,8 +610,127 @@
           <dd>{{ capacityLabel(user.mentorMaxGroupCount) }}</dd>
         </div>
         <div class="admin-users-detail__item">
-          <dt>Weekly activity</dt>
-          <dd data-test="admin-mentor-weekly">{{ weeklyLabel(user.mentorAvailability) }}</dd>
+          <dt>Hours per week</dt>
+          <dd data-test="admin-mentor-hours">{{ hoursLabel(user.mentorWeeklyHours) }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section v-if="user?.role === 'mentor'" class="admin-users-detail__section" data-test="admin-mentor-availability">
+      <div class="admin-users-detail__heading">
+        <h3>Weekly Availability</h3>
+        <button
+          v-if="editable && editing !== 'availability'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-availability"
+          @click="startEdit('availability')"
+        >
+          Edit
+        </button>
+      </div>
+      <!-- When they're free each week: a day and its times, as many as they like. -->
+      <form v-if="editing === 'availability'" data-test="admin-availability-form" @submit.prevent="save">
+        <div
+          v-for="(slot, index) in form.mentorAvailability"
+          :key="index"
+          class="admin-users-detail__item admin-users-detail__slot"
+          :data-test="`admin-mentor-slot-${index}`"
+        >
+          <AppSelect
+            v-model="slot.weekday"
+            size="large"
+            class="admin-users-detail__input"
+            :aria-label="`Day ${index + 1}`"
+            :options="WEEKDAY_OPTIONS"
+            placeholder="Day"
+          />
+          <!-- Each time as its hour and its minutes, in 5-minute steps (a time
+               box's own picker lists every minute). -->
+          <span class="admin-users-detail__time" :data-test="`admin-mentor-slot-${index}-start`">
+            <AppSelect
+              :model-value="slot.startHour"
+              size="large"
+              class="admin-users-detail__input admin-users-detail__time-part"
+              :data-test="`admin-mentor-slot-${index}-start-hour`"
+              :aria-label="`From, hour, time ${index + 1}`"
+              :options="HOUR_OPTIONS"
+              :searchable="false"
+              placeholder="--"
+              @update:model-value="(value) => pickHour(slot, 'start', value)"
+            />
+            <span class="admin-users-detail__time-colon">:</span>
+            <AppSelect
+              v-model="slot.startMinute"
+              size="large"
+              class="admin-users-detail__input admin-users-detail__time-part"
+              :data-test="`admin-mentor-slot-${index}-start-minute`"
+              :aria-label="`From, minutes, time ${index + 1}`"
+              :options="minuteOptions(slot.startMinute)"
+              :searchable="false"
+              placeholder="--"
+            />
+          </span>
+          <span class="admin-users-detail__slot-to">to</span>
+          <span class="admin-users-detail__time" :data-test="`admin-mentor-slot-${index}-end`">
+            <AppSelect
+              :model-value="slot.endHour"
+              size="large"
+              class="admin-users-detail__input admin-users-detail__time-part"
+              :data-test="`admin-mentor-slot-${index}-end-hour`"
+              :aria-label="`To, hour, time ${index + 1}`"
+              :options="HOUR_OPTIONS"
+              :searchable="false"
+              placeholder="--"
+              @update:model-value="(value) => pickHour(slot, 'end', value)"
+            />
+            <span class="admin-users-detail__time-colon">:</span>
+            <AppSelect
+              v-model="slot.endMinute"
+              size="large"
+              class="admin-users-detail__input admin-users-detail__time-part"
+              :data-test="`admin-mentor-slot-${index}-end-minute`"
+              :aria-label="`To, minutes, time ${index + 1}`"
+              :options="minuteOptions(slot.endMinute)"
+              :searchable="false"
+              placeholder="--"
+            />
+          </span>
+          <button
+            type="button"
+            class="admin-users-detail__slot-remove"
+            :aria-label="`Remove time ${index + 1}`"
+            @click="form.mentorAvailability.splice(index, 1)"
+          >
+            <i class="fas fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p v-if="!form.mentorAvailability.length" class="admin-users-detail__note admin-users-detail__note--after">
+          No weekly times.
+        </p>
+        <button
+          v-if="form.mentorAvailability.length < 21"
+          type="button"
+          class="btn btn-outline btn-sm admin-users-detail__slot-add"
+          data-test="admin-mentor-add-slot"
+          @click="form.mentorAvailability.push(blankSlot())"
+        >
+          Add a time
+        </button>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list" data-test="admin-mentor-times">
+        <div v-for="(slot, index) in user.mentorAvailability || []" :key="index" class="admin-users-detail__item">
+          <dt>{{ WEEKDAYS[slot.weekday] }}</dt>
+          <dd>{{ slot.start }} – {{ slot.end }}</dd>
+        </div>
+        <div v-if="!user.mentorAvailability?.length" class="admin-users-detail__item">
+          <dt>Times</dt>
+          <dd>—</dd>
         </div>
       </dl>
     </section>
@@ -772,6 +870,7 @@ import type {
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatShortDateTime } from '@/utils/date'
+import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import {
   formatFullDate,
@@ -845,7 +944,15 @@ watch(() => props.user?.id, () => {
 
 // --- a student's parts, each edited in place ----------------------------------
 
-type Part = 'account' | 'details' | 'guardian' | 'supervisor' | 'mentorGroups' | 'mentorDetails' | 'application'
+type Part =
+  | 'account'
+  | 'details'
+  | 'guardian'
+  | 'supervisor'
+  | 'mentorGroups'
+  | 'mentorDetails'
+  | 'availability'
+  | 'application'
 
 const YEAR_OPTIONS: AppSelectOption[] = [9, 10, 11, 12].map((year) => ({ value: year, label: String(year) }))
 
@@ -884,6 +991,7 @@ const blankForm = () => ({
   mentorUniversityYear: null as AppSelectOption['value'],
   mentorFieldOfStudy: '',
   mentorCapacity: null as AppSelectOption['value'],
+  mentorWeeklyHours: '' as string | number,
   mentorAvailability: [] as MentorSlot[],
   mentorRelevantBackground: '',
   mentorReason: '',
@@ -924,7 +1032,8 @@ const startEdit = (part: Part) => {
     mentorUniversityYear: user.mentorUniversityYear || null,
     mentorFieldOfStudy: user.mentorFieldOfStudy || '',
     mentorCapacity: user.mentorMaxGroupCount ?? null,
-    mentorAvailability: (user.mentorAvailability || []).map((slot) => ({ ...slot })),
+    mentorWeeklyHours: user.mentorWeeklyHours ?? '',
+    mentorAvailability: (user.mentorAvailability || []).map(splitSlot),
     mentorRelevantBackground: user.mentorRelevantBackground || '',
     mentorReason: user.mentorReason || '',
     mentorMentoringApproach: user.mentorMentoringApproach || ''
@@ -953,6 +1062,7 @@ const payloadFor = (part: Part): Record<string, unknown> | string => {
     // Australia's picked, elsewhere's typed.
     const countryChanged = form.countryId !== (user.country?.id ?? null)
     if (inAustralia.value) {
+      if (form.stateId === null) return 'Choose a state or territory.'
       if (countryChanged || form.stateId !== (user.state?.id ?? null)) {
         account.countryId = form.countryId
         account.stateId = form.stateId
@@ -966,6 +1076,7 @@ const payloadFor = (part: Part): Record<string, unknown> | string => {
   }
   if (part === 'mentorDetails') return mentorDetailsPayload()
   if (part === 'application') return applicationPayload()
+  if (part === 'availability') return availabilityPayload()
   if (part === 'details') {
     if (form.yearLevel === null) return 'Choose a year level.'
     if (!form.interests.length) return 'Choose at least one interest.'
@@ -1086,14 +1197,13 @@ const countryName = computed(
 )
 const inAustralia = computed(() => countryName.value === 'Australia')
 
-// Australia's states, after "No state".
-const stateOptions = computed<AppSelectOption[]>(() => {
-  const states = stateList.value
+// Australia's states: one is needed, as registering asks.
+const stateOptions = computed<AppSelectOption[]>(() =>
+  stateList.value
     .filter((state) => state.countryName === countryName.value)
     .map((state) => ({ value: state.id, label: state.stateName }))
     .sort(byLabel)
-  return [{ value: null, label: 'No state' }, ...states]
-})
+)
 
 // A new country clears the state, which belonged to the old one.
 const pickCountry = (value: AppSelectOption['value']) => {
@@ -1267,12 +1377,6 @@ const commitSupervisorAndGroup = async () => {
 
 // --- a mentor's parts ----------------------------------------------------------
 
-interface MentorSlot {
-  weekday: AppSelectOption['value']
-  start: string
-  end: string
-}
-
 // As the registration form offers them (apps.users.mentor_registration).
 const MENTOR_BACKGROUNDS: AppSelectOption[] = [
   { value: 'undergraduate', label: 'University Student - Undergraduate' },
@@ -1288,8 +1392,75 @@ const STUDY_YEAR_OPTIONS: AppSelectOption[] = [
   { value: '4', label: 'Year 4' },
   { value: '5+', label: 'Year 5 or later' }
 ]
+// Hours a week they can give, as registering asks: 1 to 40.
+const MAX_WEEKLY_HOURS = 40
+
+// A weekly time they're free (Monday is 0), each end as its hour and its
+// minutes, put back together as "HH:MM" to save.
+interface MentorSlot {
+  weekday: AppSelectOption['value']
+  startHour: AppSelectOption['value']
+  startMinute: AppSelectOption['value']
+  endHour: AppSelectOption['value']
+  endMinute: AppSelectOption['value']
+}
+const blankSlot = (): MentorSlot => ({
+  weekday: null,
+  startHour: null,
+  startMinute: null,
+  endHour: null,
+  endMinute: null
+})
+const splitSlot = (slot: { weekday: number; start: string; end: string }): MentorSlot => ({
+  weekday: slot.weekday,
+  startHour: slot.start.slice(0, 2),
+  startMinute: slot.start.slice(3, 5),
+  endHour: slot.end.slice(0, 2),
+  endMinute: slot.end.slice(3, 5)
+})
+
+const twoDigits = (count: number) => String(count).padStart(2, '0')
+const HOUR_OPTIONS: AppSelectOption[] = Array.from({ length: 24 }, (_, hour) => ({
+  value: twoDigits(hour),
+  label: twoDigits(hour)
+}))
+// 00 to 55 in 5-minute steps; minutes saved between them stay a choice.
+const FIVE_MINUTES: AppSelectOption[] = Array.from({ length: 12 }, (_, step) => ({
+  value: twoDigits(step * 5),
+  label: twoDigits(step * 5)
+}))
+const minuteOptions = (current: AppSelectOption['value']): AppSelectOption[] =>
+  typeof current === 'string' && current && !FIVE_MINUTES.some((option) => option.value === current)
+    ? [...FIVE_MINUTES, { value: current, label: current }].sort((a, b) => a.label.localeCompare(b.label))
+    : FIVE_MINUTES
+
+// An hour picked first takes :00 until its minutes are picked.
+const pickHour = (slot: MentorSlot, end: 'start' | 'end', hour: AppSelectOption['value']) => {
+  if (end === 'start') {
+    slot.startHour = hour
+    slot.startMinute ??= '00'
+  } else {
+    slot.endHour = hour
+    slot.endMinute ??= '00'
+  }
+}
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const WEEKDAY_OPTIONS: AppSelectOption[] = WEEKDAYS.map((day, index) => ({ value: index, label: day }))
+
+// Each time given in full and ending after it starts; a row left empty is dropped.
+const availabilityPayload = (): Record<string, unknown> | string => {
+  const availability = []
+  for (const slot of form.mentorAvailability) {
+    const parts = [slot.weekday, slot.startHour, slot.startMinute, slot.endHour, slot.endMinute]
+    if (parts.every((part) => part === null)) continue
+    if (parts.some((part) => part === null)) return 'Give each weekly time a day and both times.'
+    const start = `${slot.startHour}:${slot.startMinute}`
+    const end = `${slot.endHour}:${slot.endMinute}`
+    if (end <= start) return 'Each weekly time must end after it starts.'
+    availability.push({ weekday: slot.weekday, start, end })
+  }
+  return { mentorAvailability: availability }
+}
 const MAX_ANSWER_WORDS = 150
 const APPLICATION_QUESTIONS = [
   { key: 'mentorRelevantBackground', field: 'mentorRelevantBackground', label: 'Relevant background' },
@@ -1329,10 +1500,13 @@ const mentorInterestOptions = computed(() => [
   ...(props.user?.interests || []).filter((interest) => !INTEREST_OPTIONS.includes(interest))
 ])
 
-const weeklyLabel = (slots: AdminUser['mentorAvailability']) =>
-  slots?.length
-    ? slots.map((slot) => `${WEEKDAYS[slot.weekday]?.slice(0, 3)} ${slot.start}–${slot.end}`).join(', ')
-    : '—'
+// Hours per week: a number box taking two digits at most.
+const onHoursInput = (event: Event) => {
+  form.mentorWeeklyHours = keptDigits(event.target as HTMLInputElement, 2)
+}
+
+const hoursLabel = (hours: number | null | undefined) =>
+  hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : '—'
 
 // An answer's box grows with what's written, from its 9 rows, rather than
 // scrolling.
@@ -1357,12 +1531,10 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
   if (mentorStudying.value && !form.mentorUniversityYear) return 'Choose their year of study.'
   if (!form.interests.length) return 'Choose at least one interest.'
   if (form.mentorCapacity === null) return 'Choose their capacity.'
-  const availability = []
-  for (const slot of form.mentorAvailability) {
-    if (slot.weekday === null && !slot.start && !slot.end) continue
-    if (slot.weekday === null || !slot.start || !slot.end) return 'Give each weekly time a day and both times.'
-    if (slot.end <= slot.start) return 'Each weekly time must end after it starts.'
-    availability.push({ weekday: slot.weekday, start: slot.start, end: slot.end })
+  // Hours a week: a whole number from 1 to 40, or left empty.
+  const hours = String(form.mentorWeeklyHours ?? '').trim()
+  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
+    return `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
   }
   // What the background doesn't ask for is cleared, as registering does.
   return {
@@ -1375,7 +1547,7 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
     mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
     interests: form.interests,
     mentorMaxGroupCount: form.mentorCapacity,
-    mentorAvailability: availability
+    mentorWeeklyHours: hours ? Number(hours) : null
   }
 }
 
@@ -1685,15 +1857,37 @@ const sendConsentRequest = async () => {
 }
 
 /* A weekly time: day, from, to, and its ×. */
-.admin-users-detail__slot {
-  display: grid;
-  grid-template-columns: minmax(8rem, 1.4fr) minmax(6rem, 1fr) auto minmax(6rem, 1fr) auto;
+.admin-users-detail__item.admin-users-detail__slot {
+  flex-wrap: wrap;
+  justify-content: flex-start;
   align-items: center;
   gap: 0.5rem;
 }
 
-.admin-users-detail__slot .admin-users-detail__input {
+.admin-users-detail__slot > .admin-users-detail__input {
+  flex: 1 1 7rem;
+  min-width: 7rem;
+  max-width: none;
+}
+
+/* A time: its hour and its minutes, together. */
+.admin-users-detail__time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+/* Just wide enough for two digits and the arrow. */
+.admin-users-detail__input.admin-users-detail__time-part {
+  flex: none;
+  width: 3.5rem;
   min-width: 0;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.admin-users-detail__time-colon {
+  color: var(--text-muted);
 }
 
 .admin-users-detail__slot-to {
@@ -1714,7 +1908,7 @@ const sendConsentRequest = async () => {
 }
 
 .admin-users-detail__slot-add {
-  align-self: flex-start;
+  margin-top: 0.6rem;
 }
 
 .admin-users-detail__note--after {

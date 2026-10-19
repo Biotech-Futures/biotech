@@ -131,6 +131,7 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     company: 'Bio Labs',
     interests: ['Biomedical Innovations'],
     capacity: '2',
+    weeklyHours: '3',
     background: 'Biotechnology product development.',
     motivation: 'Support the next generation of researchers.',
     mentoringApproach: 'Weekly check-ins and feedback on each milestone.',

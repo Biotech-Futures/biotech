@@ -584,7 +584,9 @@ MENTOR_FIELDS = {
     "mentorRelevantBackground": "relevant_background",
     "mentorMentoringApproach": "mentoring_approach",
     "mentorMaxGroupCount": "max_group_count",
+    "mentorWeeklyHours": "weekly_hours",
 }
+MENTOR_MAX_WEEKLY_HOURS = 40
 
 
 def _natural_key(name: str) -> list:
@@ -1527,7 +1529,11 @@ def _next_mentor_values(user_id: int, input_data: Dict[str, Any]) -> tuple:
                 return f"{key} is not valid", {}
             values[field] = value.strip() if isinstance(value, str) else value
         else:
-            values[field] = getattr(existing, field) if existing else DEFAULT_MENTOR_PROFILE.get(field, "")
+            values[field] = (
+                getattr(existing, field) if existing
+                else None if field == "weekly_hours"
+                else DEFAULT_MENTOR_PROFILE.get(field, "")
+            )
     for field in ("institution", "company", "university_year", "field_of_study", "mentor_reason",
                   "relevant_background", "mentoring_approach"):
         values[field] = values[field] or ""
@@ -1554,6 +1560,21 @@ def _next_mentor_values(user_id: int, input_data: Dict[str, Any]) -> tuple:
     for key in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
         if key in input_data and len(values[MENTOR_FIELDS[key]].split()) > MENTOR_MAX_WORDS:
             return f"Keep each answer to {MENTOR_MAX_WORDS} words or fewer", {}
+
+    # Hours a week: a whole number from 1 to 40, or none given.
+    hours = values["weekly_hours"]
+    if hours == "":
+        hours = None
+    if hours is not None:
+        if isinstance(hours, bool):
+            return "Hours per week is not valid", {}
+        try:
+            hours = int(hours)
+        except (TypeError, ValueError):
+            return "Hours per week is not valid", {}
+        if not 1 <= hours <= MENTOR_MAX_WEEKLY_HOURS:
+            return f"Hours per week must be from 1 to {MENTOR_MAX_WEEKLY_HOURS}", {}
+    values["weekly_hours"] = hours
 
     max_count = values["max_group_count"]
     if max_count is None or isinstance(max_count, bool):

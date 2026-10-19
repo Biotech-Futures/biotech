@@ -1030,11 +1030,17 @@
                     {{ errors['mentor.capacity'] }}
                   </span>
                 </label>
-                <RegistrationAvailabilityField
-                  id="mentor-availability"
-                  v-model="forms.mentor.availability"
-                  prefix="mentor.availability"
-                  :errors="errors"
+                <RegistrationTextField
+                  id="mentor-hours"
+                  v-model="forms.mentor.weeklyHours"
+                  label="Hours per week"
+                  class="mentor-hours"
+                  digits
+                  :max-length="2"
+                  :min="1"
+                  :max="MAX_WEEKLY_HOURS"
+                  :error="errors['mentor.weeklyHours']"
+                  required
                 />
                 <RegistrationTextField
                   id="mentor-background"
@@ -1173,7 +1179,6 @@
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import RegistrationAvailabilityField from '@/components/registration/RegistrationAvailabilityField.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
@@ -1218,8 +1223,7 @@ import {
   revalidateRegistrationCsvRows,
   stateLabel,
   supervisorSummary,
-  WEEKDAY_NAMES,
-  type AvailabilitySlot,
+  MAX_WEEKLY_HOURS,
   type CsvCategory,
   type CsvHeader,
   type CsvRow,
@@ -1459,7 +1463,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'Mentoring',
         title: 'How you would mentor',
-        description: 'Choose interests, capacity, availability and tell us about yourself.',
+        description: 'Choose interests, capacity and hours, and tell us about yourself.',
       },
       {
         label: 'Review',
@@ -1847,21 +1851,6 @@ const guardianName = (guardian: GuardianDetails) =>
     : 'Deferred or not provided'
 const interestSummary = (interests: string[]) => interests.join(', ') || 'Not provided'
 // "09:30" as "9:30 am".
-const clockTime = (time: string) => {
-  const [hours = 0, minutes = 0] = time.split(':').map(Number)
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'am' : 'pm'}`
-}
-
-// A mentor's weekly times on Review: each one given in full.
-const availabilitySummary = (slots: AvailabilitySlot[]) =>
-  slots
-    .filter((slot) => slot.weekday && slot.start && slot.end)
-    .map(
-      (slot) =>
-        `${WEEKDAY_NAMES[Number(slot.weekday)]} ${clockTime(slot.start)} – ${clockTime(slot.end)}`,
-    )
-    .join(' · ')
-
 // A student group's teammates as registered: those left empty aren't.
 const filledTeammates = computed(() =>
   forms.studentTeam.teammates.filter((student) => !isBlankStudent(student)),
@@ -2096,7 +2085,10 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
               label: 'Capacity',
               value: `${forms.mentor.capacity} group${forms.mentor.capacity === '1' ? '' : 's'}`,
             },
-            { label: 'Availability', value: availabilitySummary(forms.mentor.availability) },
+            {
+              label: 'Hours per week',
+              value: `${forms.mentor.weeklyHours} hour${forms.mentor.weeklyHours === '1' ? '' : 's'}`,
+            },
           ],
         },
       ]
@@ -2327,14 +2319,12 @@ const validateCurrentStep = () => {
         if (countWords(forms.mentor[field]) > MENTOR_MAX_WORDS)
           clientErrors[`mentor.${field}`] = `Keep this to ${MENTOR_MAX_WORDS} words or fewer.`
       }
-      // A time given in full (day, from, to), ending after it starts.
-      forms.mentor.availability.forEach((slot, index) => {
-        const given = [slot.weekday, slot.start, slot.end].filter(Boolean).length
-        if (!given) return
-        if (given < 3) clientErrors[`mentor.availability.${index}`] = 'Choose a day and both times.'
-        else if (slot.end <= slot.start)
-          clientErrors[`mentor.availability.${index}`] = 'End after it starts.'
-      })
+      // Hours a week: a whole number from 1 to 40.
+      const hours = String(forms.mentor.weeklyHours ?? '').trim()
+      if (!hours) clientErrors['mentor.weeklyHours'] = 'Enter how many hours a week you can give.'
+      else if (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)
+        clientErrors['mentor.weeklyHours'] =
+          `Enter a whole number of hours from 1 to ${MAX_WEEKLY_HOURS}.`
     }
   }
 
@@ -2950,6 +2940,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* A mentor's hours per week: a number, so a third of the row. */
+.mentor-hours {
+  width: calc(100% / 3);
+  min-width: 10rem;
+}
+
 .registration-warnings {
   margin-block: 1rem;
   padding: 1rem;

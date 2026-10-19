@@ -35,7 +35,7 @@
       v-else
       :id="id"
       :value="modelValue"
-      :type="type"
+      :type="digits ? 'number' : type"
       :autocomplete="autocomplete"
       :placeholder="placeholder"
       :aria-invalid="Boolean(error)"
@@ -44,7 +44,14 @@
       :required="required"
       :disabled="disabled"
       :readonly="readonly"
-      @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+      :inputmode="digits ? 'numeric' : undefined"
+      :maxlength="digits ? undefined : maxLength"
+      :min="min"
+      :max="max"
+      :step="digits ? 1 : undefined"
+      @input="onInput"
+      @keydown="digits && refuseNonDigitKey($event)"
+      @paste="digits && refuseNonDigitPaste($event)"
     />
     <span v-if="hint" :id="`${id}-hint`" class="registration-field__hint">{{ hint }}</span>
     <span
@@ -64,6 +71,7 @@ import { computed } from 'vue'
 
 import AppSelect from '@/components/AppSelect.vue'
 import { countWords } from '@/registration/registration'
+import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 
 const props = withDefaults(
   defineProps<{
@@ -85,6 +93,12 @@ const props = withDefaults(
     options?: { value: string; label: string }[]
     /** A word limit, counted as it's typed. */
     maxWords?: number
+    /** A number box, with its arrows, taking whole numbers alone (at most
+     *  `maxLength` digits, from `min` to `max` by its arrows). */
+    digits?: boolean
+    maxLength?: number
+    min?: number
+    max?: number
   }>(),
   {
     type: 'text',
@@ -101,10 +115,20 @@ const props = withDefaults(
     readonly: false,
     options: undefined,
     maxWords: undefined,
+    digits: false,
+    maxLength: undefined,
+    min: undefined,
+    max: undefined,
   },
 )
 
-defineEmits<{ 'update:modelValue': [value: string] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+
+// What's typed; a number box's digits alone, cut to its length.
+const onInput = (event: Event) => {
+  const field = event.target as HTMLInputElement
+  emit('update:modelValue', props.digits ? keptDigits(field, props.maxLength) : field.value)
+}
 
 const describedBy = computed(
   () =>
