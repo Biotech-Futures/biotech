@@ -105,16 +105,19 @@ const fetchMock = (options: { match?: unknown; matchStatus?: number } = {}) =>
         data: null,
         weights: {
           yearWeight: 8.0,
+          yearMaxPenalty: 24.0,
           timezoneWeight: 2.0,
           timezoneMaxPenalty: 18.0,
           sizeBonusWeight: 6.0
         },
-        requiredTotal: '100.00',
+        baseScore: 100,
+        maxTotalPenalty: 100,
         defaults: {
-          year_weight: 20.0,
-          timezone_weight: 30.0,
-          timezone_max_weight: 25.0,
-          size_bonus_weight: 25.0
+          year_weight: 8.0,
+          year_max_weight: 24.0,
+          timezone_weight: 2.0,
+          timezone_max_weight: 18.0,
+          size_bonus_weight: 6.0
         }
       })
     }

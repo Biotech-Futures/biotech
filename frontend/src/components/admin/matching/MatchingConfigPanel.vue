@@ -62,7 +62,7 @@
               :aria-invalid="Boolean(weightError(field.key))"
               :aria-describedby="describedBy(field.key)"
             />
-            <span class="matching-config__suffix" aria-hidden="true">%</span>
+            <span class="matching-config__suffix" aria-hidden="true">pts</span>
           </div>
           <p
             v-if="weightError(field.key)"
@@ -89,22 +89,29 @@
         <div
           id="matching-config-total"
           class="matching-config__total"
-          :class="{ 'matching-config__total--invalid': !totalMatches }"
+          :class="{ 'matching-config__total--invalid': ceilingExceeded }"
         >
           <p class="matching-config__total-value" aria-live="polite">
             <i
-              v-if="!totalMatches"
+              v-if="ceilingExceeded"
               class="fas fa-triangle-exclamation"
               aria-hidden="true"
             ></i>
-            Total: <strong>{{ totalLabel }}</strong>
+            Penalty caps: <strong>{{ penaltyLabel }}</strong> points
           </p>
-          <p class="matching-config__total-hint">
-            Weights must total exactly {{ requiredTotal }}%. They are not adjusted
-            automatically.
+          <!-- Over the ceiling, the hint says what to change rather than
+               restating the rule. -->
+          <p v-if="ceilingExceeded" class="matching-config__total-hint">
+            Please lower a cap by at least <strong>{{ overshootLabel }}</strong>,
+            otherwise the worst pairing would fall below 0.
           </p>
-          <p v-if="fieldErrors?.weightTotal" class="matching-config__field-error" role="alert">
-            {{ fieldErrors.weightTotal }}
+          <p v-else class="matching-config__total-hint">
+            The two caps may total at most {{ maxTotalPenalty }}, so the worst
+            pairing still scores <strong>{{ worstCaseLabel }}</strong> of
+            {{ baseScore }} rather than going negative.
+          </p>
+          <p v-if="fieldErrors?.penaltyCeiling" class="matching-config__field-error" role="alert">
+            {{ fieldErrors.penaltyCeiling }}
           </p>
         </div>
 
@@ -142,9 +149,12 @@ const {
   saveError,
   fieldErrors,
   notice,
-  requiredTotal,
-  totalLabel,
-  totalMatches,
+  baseScore,
+  maxTotalPenalty,
+  penaltyLabel,
+  overshootLabel,
+  worstCaseLabel,
+  ceilingExceeded,
   canSave,
   weightError,
   load,
@@ -304,8 +314,9 @@ onMounted(() => {
   position: relative;
 }
 
+/* Room for the "pts" suffix, which is wider than the "%" it replaced. */
 .matching-config__input-wrap .form-input {
-  padding-right: 1.8rem;
+  padding-right: 2.6rem;
 }
 
 .matching-config__suffix {

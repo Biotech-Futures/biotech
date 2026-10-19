@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/utils/apiError'
 import {
+  MATCHING_PENALTY_CAP_KEYS,
   MATCHING_WEIGHT_KEYS,
   matchingConfigFieldErrors,
   parseActiveMatchingConfig,
@@ -18,32 +19,38 @@ import {
 const configRow = {
   id: 3,
   year_weight: '30.00',
+  year_max_weight: '20.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
   size_bonus_weight: '30.00',
-  total_weight: '100.00',
+  total_weight: '90.00',
+  max_total_penalty: '45.00',
   updated_by: 1,
   created_at: '2026-10-06T10:00:00Z',
   updated_at: '2026-10-06T10:05:00Z'
 }
 
 const defaultsBlock = {
-  requiredTotal: '100.00',
+  baseScore: 100,
+  maxTotalPenalty: 100,
   defaults: {
-    year_weight: 20.0,
-    timezone_weight: 30.0,
-    timezone_max_weight: 25.0,
-    size_bonus_weight: 25.0
+    year_weight: 8.0,
+    year_max_weight: 24.0,
+    timezone_weight: 2.0,
+    timezone_max_weight: 18.0,
+    size_bonus_weight: 6.0
   }
 }
 
 const expectedDefaults = {
-  requiredTotal: 100,
+  baseScore: 100,
+  maxTotalPenalty: 100,
   weights: {
-    yearWeight: 20,
-    timezoneWeight: 30,
-    timezoneMaxWeight: 25,
-    sizeBonusWeight: 25
+    yearWeight: 8,
+    yearMaxWeight: 24,
+    timezoneWeight: 2,
+    timezoneMaxWeight: 18,
+    sizeBonusWeight: 6
   }
 }
 
@@ -53,14 +60,21 @@ const expectOk = <T>(result: { ok: true; data: T } | { ok: false; message: strin
 }
 
 describe('weight keys', () => {
-  it('has exactly the four scoring weights, in display order', () => {
+  it('has exactly the five scoring weights, in display order', () => {
     // Country only breaks ties (MA4), so it is not one of the weights.
     expect(MATCHING_WEIGHT_KEYS).toEqual([
       'yearWeight',
+      'yearMaxWeight',
       'timezoneWeight',
       'timezoneMaxWeight',
       'sizeBonusWeight'
     ])
+  })
+
+  it('counts only the caps towards the penalty ceiling', () => {
+    // The per-unit weights are bounded by the caps, so the ceiling is stated
+    // over the caps alone.
+    expect(MATCHING_PENALTY_CAP_KEYS).toEqual(['yearMaxWeight', 'timezoneMaxWeight'])
   })
 })
 
@@ -70,11 +84,13 @@ describe('parseMatchingConfig', () => {
       id: 3,
       weights: {
         yearWeight: 30,
+        yearMaxWeight: 20,
         timezoneWeight: 15,
         timezoneMaxWeight: 25,
         sizeBonusWeight: 30
       },
-      totalWeight: 100,
+      totalWeight: 90,
+      maxTotalPenalty: 45,
       updatedBy: 1,
       createdAt: '2026-10-06T10:00:00Z',
       updatedAt: '2026-10-06T10:05:00Z'
@@ -83,10 +99,10 @@ describe('parseMatchingConfig', () => {
 
   it('keeps fractional decimals exactly', () => {
     const parsed = expectOk(
-      parseMatchingConfig({ ...configRow, year_weight: '33.33', total_weight: '99.99' })
+      parseMatchingConfig({ ...configRow, year_weight: '33.33', total_weight: '93.33' })
     )
     expect(parsed.weights.yearWeight).toBe(33.33)
-    expect(parsed.totalWeight).toBe(99.99)
+    expect(parsed.totalWeight).toBe(93.33)
   })
 
   it('accepts weights that are already numbers', () => {
@@ -127,6 +143,7 @@ describe('parseActiveMatchingConfig', () => {
         // ScoringWeights.as_dict() names one weight differently.
         weights: {
           yearWeight: 30.0,
+          yearMaxPenalty: 20.0,
           timezoneWeight: 15.0,
           timezoneMaxPenalty: 25.0,
           sizeBonusWeight: 30.0
@@ -140,6 +157,7 @@ describe('parseActiveMatchingConfig', () => {
     expect(parsed.config?.weights.yearWeight).toBe(30)
     expect(parsed.appliedWeights).toEqual({
       yearWeight: 30,
+      yearMaxWeight: 20,
       timezoneWeight: 15,
       timezoneMaxWeight: 25,
       sizeBonusWeight: 30
@@ -153,6 +171,7 @@ describe('parseActiveMatchingConfig', () => {
         data: null,
         weights: {
           yearWeight: 8.0,
+          yearMaxPenalty: 24.0,
           timezoneWeight: 2.0,
           timezoneMaxPenalty: 18.0,
           sizeBonusWeight: 6.0
@@ -163,10 +182,10 @@ describe('parseActiveMatchingConfig', () => {
 
     expect(parsed.config).toBeNull()
     expect(parsed.usingBuiltInWeights).toBe(true)
-    // The legacy values total 34, not 100, and are reported as they are rather
-    // than rescaled into a split they never were.
+    // Points, reported exactly as they are: the total is nobody's business.
     expect(parsed.appliedWeights).toEqual({
       yearWeight: 8,
+      yearMaxWeight: 24,
       timezoneWeight: 2,
       timezoneMaxWeight: 18,
       sizeBonusWeight: 6
@@ -195,6 +214,7 @@ describe('parseMatchingConfigDefaults', () => {
 describe('config request bodies', () => {
   const weights = {
     yearWeight: 30,
+    yearMaxWeight: 20,
     timezoneWeight: 15,
     timezoneMaxWeight: 25,
     sizeBonusWeight: 30
@@ -203,6 +223,7 @@ describe('config request bodies', () => {
   it('builds a create body in backend field names', () => {
     expect(toCreateConfigBody({ weights })).toEqual({
       year_weight: 30,
+      year_max_weight: 20,
       timezone_weight: 15,
       timezone_max_weight: 25,
       size_bonus_weight: 30
@@ -213,11 +234,12 @@ describe('config request bodies', () => {
     expect(toCreateConfigBody({ weights })).not.toHaveProperty('is_active')
   })
 
-  it('sends weights exactly as entered, without rescaling to 100', () => {
+  it('sends weights exactly as entered, without rounding', () => {
     const body = toCreateConfigBody({
       weights: { ...weights, yearWeight: 20, timezoneWeight: 15.555 }
     })
-    // Totals 90 and has three decimal places: both are the server's to reject.
+    // The total is no rule at all now; the third decimal place is the server's
+    // to reject.
     expect(body.year_weight).toBe(20)
     expect(body.timezone_weight).toBe(15.555)
   })
@@ -244,19 +266,20 @@ describe('matchingConfigFieldErrors', () => {
       400
     )
 
-  it('exposes the weight total and per-weight messages under frontend keys', () => {
-    const totalMessage =
-      'Matching weights must total exactly 100.00% (currently 90.00%, 10.00% under).'
+  it('exposes the penalty ceiling and per-weight messages under frontend keys', () => {
+    const ceilingMessage =
+      'Please lower a cap by at least 10.00: at 110 points against a ' +
+      '100-point score, the worst pairing would fall below 0.'
     expect(
       matchingConfigFieldErrors(
         validationError({
-          weight_total: [totalMessage],
+          penalty_ceiling: [ceilingMessage],
           year_weight: ['Ensure this value is less than or equal to 100.'],
           non_field_errors: ['Something else.']
         })
       )
     ).toEqual({
-      weightTotal: totalMessage,
+      penaltyCeiling: ceilingMessage,
       weights: { yearWeight: 'Ensure this value is less than or equal to 100.' },
       other: ['Something else.']
     })

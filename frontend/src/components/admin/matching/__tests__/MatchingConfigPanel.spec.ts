@@ -12,22 +12,26 @@ import { resetCsrfToken } from '@/utils/csrf'
 const savedRow = {
   id: 7,
   year_weight: '30.00',
+  year_max_weight: '20.00',
   timezone_weight: '15.00',
   timezone_max_weight: '25.00',
   size_bonus_weight: '30.00',
-  total_weight: '100.00',
+  total_weight: '90.00',
+  max_total_penalty: '45.00',
   updated_by: 1,
   created_at: '2026-10-06T10:00:00Z',
   updated_at: '2026-10-06T10:05:00Z'
 }
 
 const defaultsBlock = {
-  requiredTotal: '100.00',
+  baseScore: 100,
+  maxTotalPenalty: 100,
   defaults: {
-    year_weight: 20.0,
-    timezone_weight: 30.0,
-    timezone_max_weight: 25.0,
-    size_bonus_weight: 25.0
+    year_weight: 8.0,
+    year_max_weight: 24.0,
+    timezone_weight: 2.0,
+    timezone_max_weight: 18.0,
+    size_bonus_weight: 6.0
   }
 }
 
@@ -35,6 +39,7 @@ const builtInActive = {
   data: null,
   weights: {
     yearWeight: 8.0,
+    yearMaxPenalty: 24.0,
     timezoneWeight: 2.0,
     timezoneMaxPenalty: 18.0,
     sizeBonusWeight: 6.0
@@ -46,6 +51,7 @@ const savedActive = {
   data: savedRow,
   weights: {
     yearWeight: 30.0,
+    yearMaxPenalty: 20.0,
     timezoneWeight: 15.0,
     timezoneMaxPenalty: 25.0,
     sizeBonusWeight: 30.0
@@ -145,6 +151,7 @@ describe('MatchingConfigPanel', () => {
 
       for (const key of [
         'yearWeight',
+        'yearMaxWeight',
         'timezoneWeight',
         'timezoneMaxWeight',
         'sizeBonusWeight'
@@ -163,19 +170,30 @@ describe('MatchingConfigPanel', () => {
       }
     })
 
-    it('offers exactly the four scoring weights, in order', async () => {
+    it('offers exactly the five scoring weights, in order', async () => {
       stubFetch({})
       wrapper = await mountPanel()
 
       const grid = wrapper.find('.matching-config__grid')
-      expect(grid.findAll('input')).toHaveLength(4)
+      expect(grid.findAll('input')).toHaveLength(5)
       expect(grid.findAll('label').map((label) => label.text())).toEqual([
         'Year',
+        'Year cap',
         'Timezone',
         'Timezone cap',
         'Group size bonus'
       ])
       expect(grid.text()).not.toMatch(/country/i)
+    })
+
+    it('labels the inputs as points rather than percentages', async () => {
+      stubFetch({})
+      wrapper = await mountPanel()
+
+      const suffixes = wrapper.findAll('.matching-config__suffix')
+      expect(suffixes).toHaveLength(5)
+      expect(suffixes.map((suffix) => suffix.text())).toEqual(Array(5).fill('pts'))
+      expect(wrapper.find('.matching-config__grid').text()).not.toContain('%')
     })
 
     it('renders no country weight input at all', async () => {
@@ -194,6 +212,7 @@ describe('MatchingConfigPanel', () => {
       wrapper = await mountPanel()
 
       expect(weightInput(wrapper, 'yearWeight').element.value).toBe('30')
+      expect(weightInput(wrapper, 'yearMaxWeight').element.value).toBe('20')
       expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('15')
       expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
       expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('30')
@@ -204,10 +223,11 @@ describe('MatchingConfigPanel', () => {
       stubFetch({})
       wrapper = await mountPanel()
 
-      expect(weightInput(wrapper, 'yearWeight').element.value).toBe('20')
-      expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('30')
-      expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
-      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('25')
+      expect(weightInput(wrapper, 'yearWeight').element.value).toBe('8')
+      expect(weightInput(wrapper, 'yearMaxWeight').element.value).toBe('24')
+      expect(weightInput(wrapper, 'timezoneWeight').element.value).toBe('2')
+      expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('18')
+      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('6')
     })
 
     it('shows a general error with a retry when loading fails', async () => {
@@ -239,46 +259,93 @@ describe('MatchingConfigPanel', () => {
     })
   })
 
-  describe('total', () => {
-    it('shows a live total against the required total', async () => {
+  describe('the penalty ceiling', () => {
+    it('shows what the caps can take off, and the worst case that leaves', async () => {
       stubFetch({})
       wrapper = await mountPanel()
-      expect(wrapper.text()).toContain('Total: 100 / 100%')
+      // The shipped defaults cap year at 24 and timezone at 18.
+      expect(wrapper.text()).toContain('Penalty caps: 42 of 100')
+      expect(wrapper.find('.matching-config__total-hint').text()).toContain('58')
 
-      await weightInput(wrapper, 'yearWeight').setValue('5')
+      await weightInput(wrapper, 'yearMaxWeight').setValue('40')
 
-      expect(wrapper.text()).toContain('Total: 85 / 100%')
-      expect(wrapper.text()).toContain('must total exactly 100%')
+      expect(wrapper.text()).toContain('Penalty caps: 58 of 100')
+      expect(wrapper.find('.matching-config__total-hint').text()).toContain('42')
     })
 
-    it('totals only the four weights', async () => {
+    it('says what to change once the ceiling is exceeded', async () => {
       stubFetch({ active: () => jsonResponse(savedActive) })
       wrapper = await mountPanel()
 
-      for (const key of ['yearWeight', 'timezoneWeight', 'timezoneMaxWeight', 'sizeBonusWeight']) {
-        await weightInput(wrapper, key).setValue('25')
+      // Caps of 20 and 25; 90 puts them 15 past the ceiling.
+      await weightInput(wrapper, 'yearMaxWeight').setValue('90')
+
+      const hint = wrapper.find('.matching-config__total-hint').text()
+      expect(hint).toContain('lower a cap by at least 15')
+      expect(hint).toContain('fall below 0')
+      // The instruction replaces the copy that merely restates the rule.
+      expect(hint).not.toContain('may total at most')
+    })
+
+    it('counts only the caps, not the per-unit weights', async () => {
+      stubFetch({ active: () => jsonResponse(savedActive) })
+      wrapper = await mountPanel()
+
+      // Huge per-unit weights: bounded by the caps, so the ceiling is untouched
+      // and saving stays open.
+      await weightInput(wrapper, 'yearWeight').setValue('90')
+      await weightInput(wrapper, 'timezoneWeight').setValue('90')
+
+      expect(wrapper.text()).toContain('Penalty caps: 45 of 100')
+      expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    })
+
+    it('lets the weights total anything at all', async () => {
+      stubFetch({ active: () => jsonResponse(savedActive) })
+      wrapper = await mountPanel()
+
+      // 5 + 20 + 5 + 25 + 5 = 60, nowhere near 100, and perfectly saveable:
+      // the old "must total exactly 100" rule is gone.
+      for (const [key, value] of [
+        ['yearWeight', '5'],
+        ['timezoneWeight', '5'],
+        ['sizeBonusWeight', '5']
+      ] as const) {
+        await weightInput(wrapper, key).setValue(value)
       }
 
-      expect(wrapper.text()).toContain('Total: 100 / 100%')
+      expect(wrapper.text()).not.toMatch(/must total/i)
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
-    it('blocks saving until the total is exactly 100, without rebalancing', async () => {
+    it('blocks saving once the caps could wipe out the whole base score', async () => {
       stubFetch({ active: () => jsonResponse(savedActive) })
       wrapper = await mountPanel()
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
 
-      await weightInput(wrapper, 'yearWeight').setValue('35')
-      expect(wrapper.text()).toContain('Total: 105 / 100%')
+      // 90 + 25 = 115, past the 100-point ceiling.
+      await weightInput(wrapper, 'yearMaxWeight').setValue('90')
+      expect(wrapper.text()).toContain('Penalty caps: 115 of 100')
       expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
       // Nothing else moved to compensate.
-      expect(weightInput(wrapper, 'sizeBonusWeight').element.value).toBe('30')
+      expect(weightInput(wrapper, 'timezoneMaxWeight').element.value).toBe('25')
 
-      await weightInput(wrapper, 'sizeBonusWeight').setValue('25')
+      await weightInput(wrapper, 'timezoneMaxWeight').setValue('10')
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
-    it('flags an invalid total in the footer and ties it to the Save button', async () => {
+    it('allows caps that land exactly on the ceiling', async () => {
+      stubFetch({ active: () => jsonResponse(savedActive) })
+      wrapper = await mountPanel()
+
+      await weightInput(wrapper, 'yearMaxWeight').setValue('75')
+      await weightInput(wrapper, 'timezoneMaxWeight').setValue('25')
+
+      expect(wrapper.text()).toContain('Penalty caps: 100 of 100')
+      expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
+    })
+
+    it('flags an exceeded ceiling in the footer and ties it to the Save button', async () => {
       stubFetch({ active: () => jsonResponse(savedActive) })
       wrapper = await mountPanel()
 
@@ -287,23 +354,22 @@ describe('MatchingConfigPanel', () => {
       expect(total.classes()).not.toContain('matching-config__total--invalid')
       expect(total.find('.fa-triangle-exclamation').exists()).toBe(false)
 
-      await weightInput(wrapper, 'yearWeight').setValue('35')
+      await weightInput(wrapper, 'yearMaxWeight').setValue('90')
 
       expect(total.classes()).toContain('matching-config__total--invalid')
       expect(total.find('.fa-triangle-exclamation').exists()).toBe(true)
-      expect(total.text()).toContain('Total: 105 / 100%')
-      expect(total.text()).toContain('must total exactly 100%')
+      expect(total.text()).toContain('Penalty caps: 115 of 100')
       expect(saveButton(wrapper).attributes('disabled')).toBeDefined()
     })
 
-    it('adds fractional weights exactly', async () => {
+    it('adds fractional caps exactly', async () => {
       stubFetch({ active: () => jsonResponse(savedActive) })
       wrapper = await mountPanel()
 
-      await weightInput(wrapper, 'yearWeight').setValue('33.33')
-      await weightInput(wrapper, 'sizeBonusWeight').setValue('26.67')
+      await weightInput(wrapper, 'yearMaxWeight').setValue('33.33')
+      await weightInput(wrapper, 'timezoneMaxWeight').setValue('66.67')
 
-      expect(wrapper.text()).toContain('Total: 100 / 100%')
+      expect(wrapper.text()).toContain('Penalty caps: 100 of 100')
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
@@ -328,8 +394,8 @@ describe('MatchingConfigPanel', () => {
       stubFetch({})
       wrapper = await mountPanel()
 
-      // A config has no display name: the form starts on a valid defaults split
-      // and can be saved immediately.
+      // A config has no display name: the form starts on the shipped defaults,
+      // which sit inside the ceiling, and can be saved immediately.
       expect(saveButton(wrapper).attributes('disabled')).toBeUndefined()
     })
 
@@ -340,10 +406,11 @@ describe('MatchingConfigPanel', () => {
             {
               ...savedRow,
               id: 9,
-              year_weight: '20.00',
-              timezone_weight: '30.00',
-              timezone_max_weight: '25.00',
-              size_bonus_weight: '25.00'
+              year_weight: '8.00',
+              year_max_weight: '24.00',
+              timezone_weight: '2.00',
+              timezone_max_weight: '18.00',
+              size_bonus_weight: '6.00'
             },
             201
           )
@@ -356,10 +423,11 @@ describe('MatchingConfigPanel', () => {
       expect(request.url).toMatch(/\/matching\/configs\/$/)
       expect(request.headers.get('X-CSRFToken')).toBe('csrf-test')
       expect(request.body).toEqual({
-        year_weight: 20,
-        timezone_weight: 30,
-        timezone_max_weight: 25,
-        size_bonus_weight: 25
+        year_weight: 8,
+        year_max_weight: 24,
+        timezone_weight: 2,
+        timezone_max_weight: 18,
+        size_bonus_weight: 6
       })
 
       // The saved config is now the one in force.
@@ -384,6 +452,7 @@ describe('MatchingConfigPanel', () => {
       expect(request.headers.get('X-CSRFToken')).toBe('csrf-test')
       expect(request.body).toEqual({
         year_weight: 33.33,
+        year_max_weight: 20,
         timezone_weight: 15,
         timezone_max_weight: 25,
         size_bonus_weight: 26.67
@@ -402,10 +471,12 @@ describe('MatchingConfigPanel', () => {
       await submit(wrapper)
     }
 
-    it('shows a total error beside the total', async () => {
+    it('shows a penalty ceiling error beside the caps', async () => {
       const message =
-        'Matching weights must total exactly 100.00% (currently 90.00%, 10.00% under).'
-      await saveWith(() => validationError({ weight_total: [message] }))
+        'Please lower a cap by at least 15: at 115 points against a 100-point ' +
+        'score, the worst pairing would fall below 0 and floor there instead ' +
+        'of ranking.'
+      await saveWith(() => validationError({ penalty_ceiling: [message] }))
 
       expect(wrapper!.find('.matching-config__total').text()).toContain(message)
     })
