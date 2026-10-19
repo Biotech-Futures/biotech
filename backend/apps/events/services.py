@@ -717,7 +717,8 @@ def _send_audience_reminders(event, audience):
             until=event.start_datetime,
         )
         try:
-            if resend() is WAITING:
+            # The run tries it again at its end, so only then is a failure kept for Resend.
+            if resend(later=True) is WAITING:
                 waiting += 1
             else:
                 sent += 1
@@ -769,7 +770,7 @@ def rsvp_reminder_job(actor, options):
     return {"sent": sent, "failed": failed}
 
 
-def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None, until=None):
+def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None, until=None, later=False):
     # Extracted so resilience tests can patch a single seam.
     plain_body = _build_plain_reminder_body(ctx)
     # The unedited subject is just {{ reminder_subject }}, i.e. ``subject``.
@@ -782,7 +783,7 @@ def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None, 
     # A dropped connection is opened again and the email sent once more; when
     # the server can't be reached, it's kept to send later, until the event
     # starts (``WAITING``).
-    return send_or_wait(msg, key="rsvp_reminder", until=until)
+    return send_or_wait(msg, key="rsvp_reminder", until=until, later=later)
 
 
 def _build_plain_reminder_body(ctx):

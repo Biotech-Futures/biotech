@@ -8,6 +8,7 @@ import {
   fetchSystemEmailLog,
   fetchSystemEmailUnseenFailures,
   markSystemEmailFailuresSeen,
+  resendSystemEmail,
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
   fetchSystemEmailTestRecipients,
@@ -24,6 +25,7 @@ vi.mock('@/utils/adminAPI', () => ({
   fetchSystemEmailLog: vi.fn(),
   fetchSystemEmailUnseenFailures: vi.fn(),
   markSystemEmailFailuresSeen: vi.fn(),
+  resendSystemEmail: vi.fn(),
   fetchSystemEmailTemplates: vi.fn(),
   fetchSystemEmailSettings: vi.fn(),
   updateSystemEmailTemplate: vi.fn(),
@@ -299,6 +301,7 @@ describe('AdminEmailsPage', () => {
       missed: [],
       bounced: [],
       waiting: [],
+      resendable: false,
       ...overrides
     })
     const unreachable = "couldn't reach the mail server"
@@ -463,6 +466,73 @@ describe('AdminEmailsPage', () => {
       // And on the email's own page.
       await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
       expect(wrapper.find('[data-test="log-missed"] [data-test="log-waiting"]').exists()).toBe(true)
+    })
+
+    it('gives each email it can resend its own Resend, beside its heading', async () => {
+      vi.mocked(resendSystemEmail).mockResolvedValue(
+        'Resending. It can take a few minutes: open the log again to see who it reached.'
+      )
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'announcement',
+          name: 'Announcement',
+          lastSentAt: '2026-10-18T23:39:00Z',
+          resendable: true,
+          missed: [{ at: '2026-10-18T23:39:00Z', people: [{ who: 'amy@seed.test', reason: 'mail server refused it' }] }]
+        }),
+        logEntry({
+          key: 'submission_reminder',
+          name: 'Submission reminder',
+          lastSentAt: '2026-10-18T09:00:00Z',
+          resendable: true,
+          missed: [{ at: '2026-10-18T09:00:00Z', people: [{ who: 'ben@seed.test', reason: 'address refused' }] }]
+        }),
+        // Missed someone, but nobody it can resend to.
+        logEntry({
+          key: 'password_reset',
+          lastSentAt: '2026-10-18T09:00:00Z',
+          missed: [{ at: '2026-10-18T09:00:00Z', people: [{ who: 'cat@seed.test', reason: 'address refused' }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      const [announcement, reminder, reset] = wrapper.findAll('[data-test="log-email"]')
+      expect(announcement.find('.email-log__head [data-test="log-resend"]').text()).toBe('Resend')
+      expect(reminder.find('[data-test="log-resend"]').exists()).toBe(true)
+      expect(reset.find('[data-test="log-resend"]').exists()).toBe(false)
+
+      // Each its own: only the announcement is resent, and says so.
+      await announcement.find('[data-test="log-resend"]').trigger('click')
+      await flushPromises()
+      expect(resendSystemEmail).toHaveBeenCalledWith('announcement')
+      expect(resendSystemEmail).toHaveBeenCalledTimes(1)
+      expect(announcement.find('[data-test="log-resend-note"]').text()).toContain('Resending.')
+      expect(announcement.find('[data-test="log-resend"]').attributes('disabled')).toBeDefined()
+      expect(reminder.find('[data-test="log-resend"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('says why a Resend could not go, and lets it be pressed again', async () => {
+      vi.mocked(resendSystemEmail).mockRejectedValue(new Error('Submissions are open until Friday.'))
+      vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+        buildTemplate({ key: 'announcement', name: 'Announcement' })
+      ])
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'announcement',
+          name: 'Announcement',
+          resendable: true,
+          missed: [{ at: '2026-10-18T23:39:00Z', people: [{ who: 'amy@seed.test', reason: 'mail server refused it' }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      // On the email's own page, beside Couldn't be emailed.
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+      const button = wrapper.find('[data-test="log-missed"] .email-log__head [data-test="log-resend"]')
+      await button.trigger('click')
+      await flushPromises()
+      const note = wrapper.find('[data-test="log-resend-note"]')
+      expect(note.text()).toBe('Submissions are open until Friday.')
+      expect(note.classes()).toContain('email-log__error')
+      expect(button.attributes('disabled')).toBeUndefined()
     })
 
     it('shows one email as Notify Finalists does', async () => {

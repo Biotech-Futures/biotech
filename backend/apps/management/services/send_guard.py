@@ -47,6 +47,7 @@ from apps.services.email_registry import get_email_type
 from apps.services.email_metrics import record_email_delivery
 from apps.services.system_email import is_email_enabled, sender_connection, sender_for, senders
 from apps.services.waiting_email import JOB as WAITING_JOB
+from apps.services.resend import JOB as RESEND_JOB
 from apps.services.waiting_email import WAITING_NOTE, WAITING_REASON
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
@@ -94,13 +95,15 @@ JOBS: dict[str, str] = {
         f"{WAITING_JOB}:{mailbox}": "apps.services.waiting_email:waiting_job"
         for mailbox in settings.EMAIL_SENDERS
     },
+    # Resend on System Emails' Log, one run per mailbox ("resend:info").
+    **{f"{RESEND_JOB}:{mailbox}": "apps.services.resend:resend_job" for mailbox in settings.EMAIL_SENDERS},
 }
 
 
 def lane(key: str) -> str:
     """The mailbox ``key``'s email goes from, whose queue it waits in. A run
-    of waiting emails names its mailbox: "waiting_emails:info"."""
-    if key.startswith(f"{WAITING_JOB}:"):
+    of waiting emails, or of a Resend, names its mailbox: "waiting_emails:info"."""
+    if key.startswith((f"{WAITING_JOB}:", f"{RESEND_JOB}:")):
         return key.split(":", 1)[1]
     return sender_for(key).key
 
@@ -671,6 +674,8 @@ def _email_name(key: str) -> str:
     """"Finalist notification", as System Emails names it."""
     if key.startswith(f"{WAITING_JOB}:"):
         return "Emails waiting to send"
+    if key.startswith(f"{RESEND_JOB}:"):
+        return "Resend"
     try:
         return get_email_type(key).name
     except Exception:  # noqa: BLE001

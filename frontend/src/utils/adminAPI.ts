@@ -1530,6 +1530,12 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
 
+/** Resend on the Log: the email again to the people it missed, queued to
+ *  send in its turn. Resolves to what to tell the admin; rejects with why
+ *  it can't go. */
+export const resendSystemEmail = (key: string): Promise<string> =>
+  adminPost<AdminEnvelope<unknown>>(`/email-log/${encodeURIComponent(key)}/resend/`).then((env) => env.msg)
+
 // ---------------------------------------------------------------------------
 // Admin User Views
 // ---------------------------------------------------------------------------

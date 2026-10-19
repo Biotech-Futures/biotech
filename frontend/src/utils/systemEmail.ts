@@ -147,7 +147,9 @@ export const systemEmailLogSchema = z.array(
       .default([]),
     // Who it's waiting to reach while the mail server can't be reached: each
     // is tried again every 10 minutes until `until`, then given up on.
-    waiting: z.array(z.object({ who: z.string(), until: z.string() })).default([])
+    waiting: z.array(z.object({ who: z.string(), until: z.string() })).default([]),
+    // Whether its Resend has anyone to email again.
+    resendable: z.boolean().default(false)
   })
 )
 

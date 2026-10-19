@@ -436,9 +436,15 @@ class EmailDeliveryMetric(models.Model):
 
 
 class WaitingEmail(models.Model):
-    """An email the mail server couldn't be reached to send, kept as it was
-    built and tried again every 10 minutes until ``give_up_at`` (3 days on, or
-    sooner for one that would be out of date by then). See ``waiting_email``."""
+    """An email kept as it was built (see ``waiting_email``). Waiting: the mail
+    server couldn't be reached, so it's tried again every 10 minutes until
+    ``give_up_at`` (3 days on, or sooner for one that would be out of date by
+    then). Missed: it failed, so it's kept for Resend on System Emails' Log
+    until ``give_up_at`` (30 days on, or sooner)."""
+
+    class State(models.TextChoices):
+        WAITING = "waiting", "Waiting for the mail server"
+        MISSED = "missed", "Kept for Resend"
 
     # Matches a key in apps.services.email_registry, e.g. "announcement".
     key = models.SlugField(max_length=64)
@@ -460,8 +466,12 @@ class WaitingEmail(models.Model):
         on_delete=models.SET_NULL,
         related_name='+',
     )
+    state = models.CharField(max_length=16, choices=State.choices, default=State.WAITING)
     created_at = models.DateTimeField(default=timezone.now)
     give_up_at = models.DateTimeField()
+    # When its content goes out of date (an event reminder at the event, say),
+    # if it does: it's never sent after that.
+    stale_at = models.DateTimeField(null=True, blank=True)
     tries = models.PositiveIntegerField(default=0)
     tried_at = models.DateTimeField(null=True, blank=True)
     # Held while a run sends it, so two runs can't send it twice.

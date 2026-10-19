@@ -163,12 +163,13 @@ class SendWaitingTests(TestCase):
         send_waiting("info")
         self.assertEqual(mail.outbox, [])
 
-    def test_after_3_days_it_is_given_up_on_and_listed_as_missed(self):
+    def test_after_3_days_it_is_given_up_on_listed_as_missed_and_kept_for_resend(self):
         log = SystemEmailLog.objects.filter(key="registration_student").first()
         last_sent = log.last_sent_at if log else None
         send_waiting("info", now=self.kept.give_up_at + timedelta(minutes=1))
         self.assertEqual(mail.outbox, [])
-        self.assertFalse(WaitingEmail.objects.exists())
+        # Waiting no more: kept, as missed, for Resend on the Log.
+        self.assertEqual(WaitingEmail.objects.get().state, WaitingEmail.State.MISSED)
         log = SystemEmailLog.objects.get(key="registration_student")
         self.assertEqual(log.missed[0]["missed"], [{"address": "amy@example.test", "reason": UNREACHABLE}])
         # It never went, so when the email last went out stays as it was.

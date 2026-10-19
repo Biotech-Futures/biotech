@@ -56,11 +56,14 @@ def note_send(
     source_mailbox: str | None = None,
     started_at=None,
     last_sent: bool = True,
+    ref: dict | None = None,
 ) -> None:
     """Note a send of ``key`` now: ``missed`` ({address: reason}) for those it
     didn't reach, ``by`` the signed-in person who sent it, if anyone. Without
     ``last_sent`` (an email kept to send later, given up on), when it last
-    went out stays as it was."""
+    went out stays as it was. ``ref`` is what the send was of, kept with who
+    it missed, for Resend: an announcement's, ``{"announcement_id",
+    "delivery_id"}``."""
     by_id = by.pk if getattr(by, "is_authenticated", False) else None
     now = timezone.now()
     try:
@@ -75,6 +78,8 @@ def note_send(
                     "at": now.isoformat(),
                     "missed": [{"address": address, "reason": reason} for address, reason in missed.items()],
                 }
+                if ref:
+                    entry["ref"] = ref
                 log.missed = [entry, *log.missed][:MISSED_KEPT]
             log.save()
     except Exception:  # noqa: BLE001
@@ -90,6 +95,25 @@ def note_send(
             initiated_by=by,
             started_at=started_at,
         )
+
+
+def forget_missed(key: str, addresses) -> None:
+    """Take ``addresses`` off ``key``'s missed list in the Log: Resend sent
+    them again (and notes any it missed again as a send of its own)."""
+    lowered = {address.lower() for address in addresses}
+    if not lowered:
+        return
+    with transaction.atomic():
+        log = SystemEmailLog.objects.select_for_update().filter(key=key).first()
+        if log is None:
+            return
+        entries = []
+        for entry in log.missed:
+            left = [person for person in entry["missed"] if person["address"].lower() not in lowered]
+            if left:
+                entries.append({**entry, "missed": left})
+        log.missed = entries
+        log.save(update_fields=["missed"])
 
 
 def unseen_failures() -> int:
@@ -191,13 +215,17 @@ def email_log() -> list[dict]:
     to, who its latest sends couldn't reach, newest first, as
     ``{"at", "people": [{"who", "reason"}]}``, who it bounced back from
     (``check_bounced_emails``), grouped by when they were found, newest first,
-    in the same shape, and who it's waiting to reach while the mail server
-    can't be reached, ``[{"who", "until"}]`` (see ``waiting_email``)."""
+    in the same shape, who it's waiting to reach while the mail server
+    can't be reached, ``[{"who", "until"}]`` (see ``waiting_email``), and
+    whether its Resend has anyone to email (see ``resend``)."""
     from apps.management.models import EmailSendRun
     from apps.management.services.send_guard import JOBS, _missed_entry, _with_addresses
 
+    from apps.admin.services.announcement import missed_by_announcement
+
+    from .resend import resendable
     from .system_email import sender_for
-    from .waiting_email import waiting_for
+    from .waiting_email import kept_for_resend, waiting_for
 
     logs = {log.key: log for log in SystemEmailLog.objects.select_related("last_sent_by")}
     runs = {
@@ -205,6 +233,7 @@ def email_log() -> list[dict]:
         for run in EmailSendRun.objects.filter(started_at__isnull=False).select_related("started_by")
     }
     waiting = waiting_for()
+    kept = kept_for_resend()
     labels = _labels({
         *(missed["address"] for log in logs.values() for entry in log.missed for missed in entry["missed"]),
         *(item["address"] for items in waiting.values() for item in items),
@@ -260,6 +289,10 @@ def email_log() -> list[dict]:
             "toGroups": bool(email_type.delivery),
             "missed": missed,
             "bounced": bounced.get(key, []),
+            "resendable": resendable(
+                key, run=run, kept=kept,
+                announcements=missed_by_announcement() if key == "announcement" else None,
+            ),
             "waiting": [
                 {"who": labels.get(item["address"], item["address"]), "until": item["until"].isoformat()}
                 for item in waiting.get(key, [])

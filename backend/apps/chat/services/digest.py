@@ -232,7 +232,7 @@ def _group_list_html(per_group) -> str:
     return format_html("<ul>{}</ul>", items)
 
 
-def _render_and_send(connection, candidate, summary, sender):
+def _render_and_send(connection, candidate, summary, sender, later=False):
     total, per_group, _new_hwm = summary
     plural = "" if total == 1 else "s"
     ctx = {
@@ -261,7 +261,7 @@ def _render_and_send(connection, candidate, summary, sender):
     )
     # A dropped connection is opened again and the email sent once more; when
     # the server can't be reached, it's kept to send later (``WAITING``).
-    return send_or_wait(msg, key="unread_messages")
+    return send_or_wait(msg, key="unread_messages", later=later)
 
 
 def send_unread_message_digests(*, dry_run=False):
@@ -344,7 +344,8 @@ def send_unread_message_digests(*, dry_run=False):
                 continue
             resend = partial(_render_and_send, connection, candidate, summary, sender)
             try:
-                outcome = resend()
+                # The run tries it again at its end, so only then is a failure kept for Resend.
+                outcome = resend(later=True)
             except Exception as exc:
                 # Reset the SMTP transaction so a per-address failure doesn't
                 # poison the next recipient on the shared connection.

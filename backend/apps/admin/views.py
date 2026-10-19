@@ -74,6 +74,7 @@ from apps.admin.services.mentor_match import (
 )
 from apps.admin.services.system_email import (
     get_email_log,
+    resend_email,
     get_email_settings,
     get_unseen_failures,
     see_failures,
@@ -1740,6 +1741,19 @@ class SystemEmailLogView(APIView):
 
     def get(self, request):
         return Response(get_email_log())
+
+
+class SystemEmailResendView(APIView):
+    """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
+    email again to the people it missed, queued to send in its turn (202),
+    or 400 with why it can't go."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = resend_email(key, requested_by=request.user)
+        code = status.HTTP_202_ACCEPTED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class SystemEmailUnseenFailuresView(APIView):

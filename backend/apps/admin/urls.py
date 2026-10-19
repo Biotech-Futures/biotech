@@ -131,6 +131,7 @@ urlpatterns = [
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
     path('email-log/', views.SystemEmailLogView.as_view(), name='email-log'),
     path('email-log/unseen/', views.SystemEmailUnseenFailuresView.as_view(), name='email-log-unseen'),
+    path('email-log/<str:key>/resend/', views.SystemEmailResendView.as_view(), name='email-log-resend'),
 
     # ========================================================================
     # USER VIEW ROUTES
