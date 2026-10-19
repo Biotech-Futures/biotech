@@ -684,6 +684,10 @@ BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=fl
 # time from each mailbox; each starts this many seconds after the one before
 # it finished.
 BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
+# Once a mailbox's server can't be reached, the emails sent from it for this
+# many seconds are kept to send later at once (apps.services.waiting_email),
+# rather than each waiting on the server in turn.
+MAIL_SERVER_DOWN_SECONDS = config("MAIL_SERVER_DOWN_SECONDS", default=60, cast=int)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the

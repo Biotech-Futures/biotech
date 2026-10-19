@@ -625,6 +625,11 @@ def register(request):
         raise serializers.ValidationError({"detail": "Provide only the legacy body wrapper."})
     if not legacy:
         SessionAuthentication().enforce_csrf(request)
+    # A mentor registers on a path of their own (apps.users.mentor_registration).
+    if not legacy and raw.get("journey") == "mentor":
+        from .mentor_registration import register_mentor
+
+        return register_mentor(request, raw)
     envelope = legacy_request(raw["body"]) if legacy else raw
     parser = IntakeInput(data=envelope, context={"legacy": legacy})
     if not parser.is_valid():
@@ -799,7 +804,14 @@ def register(request):
             # A supervisor's confirmation too, never an admin's (registering
             # students for a supervisor or for none).
             registering = request.user if journey in SUPERVISOR_JOURNEYS and not supervisor.get("admin") else None
-            transaction.on_commit(lambda: send_registration_emails(journey, users, supervisor=registering))
+            # An admin's students hear who their supervisor is (the one the admin chose).
+            admin_for = (
+                f"{supervisor['firstName']} {supervisor['lastName']}".strip()
+                if journey in SUPERVISOR_JOURNEYS and supervisor.get("admin") else None
+            )
+            transaction.on_commit(lambda: send_registration_emails(
+                journey, users, supervisor=registering, admin_for=admin_for,
+            ))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:

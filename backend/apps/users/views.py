@@ -847,6 +847,8 @@ def _account_fields(user, consent):
             None if consent is None
             else consent.media_consent and consent.media_withdrawn_at is None
         ),
+        # When that answer was given: the form's signing, or the withdrawal.
+        "media_consent_at": None if consent is None else consent.media_withdrawn_at or consent.signed_at,
     }
 
 

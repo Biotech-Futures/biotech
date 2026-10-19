@@ -1,28 +1,19 @@
 <template>
   <label class="table-options">
     <span class="table-options__label">Options</span>
-    <select class="table-options__select" :value="choice" @change="onOption">
-      <option value="">Select</option>
-      <optgroup label="Export">
-        <option value="csv-all">Export all matching (CSV)</option>
-        <option value="csv-page">Export this page (CSV)</option>
-        <option value="csv-selected" :disabled="!selectedRows.length">Export selected (CSV)</option>
-      </optgroup>
-      <optgroup label="Clipboard">
-        <option value="copy-table">Copy table</option>
-        <option value="copy-emails">Copy emails</option>
-        <option value="copy-selected" :disabled="!selectedRows.length">Copy selected rows</option>
-      </optgroup>
-      <optgroup label="View">
-        <option value="print">Print table</option>
-      </optgroup>
-    </select>
+    <AppSelect
+      class="table-options__select"
+      :model-value="choice"
+      :options="menuOptions"
+      @update:model-value="onOption"
+    />
   </label>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { DataTableColumn } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { printHtmlDocument } from '@/utils/consentDocument'
 import { cellText } from '@/utils/dataTable'
 
@@ -40,6 +31,22 @@ const props = defineProps<{
 }>()
 
 const choice = ref('')
+
+// "Select" while nothing's chosen, then each action under its heading; the
+// ones for ticked rows only once some are ticked.
+const menuOptions = computed<AppSelectOption[]>(() => {
+  const noneTicked = !props.selectedRows.length
+  return [
+    { value: '', label: 'Select' },
+    { value: 'csv-all', label: 'Export all matching (CSV)', group: 'Export' },
+    { value: 'csv-page', label: 'Export this page (CSV)', group: 'Export' },
+    { value: 'csv-selected', label: 'Export selected (CSV)', group: 'Export', disabled: noneTicked },
+    { value: 'copy-table', label: 'Copy table', group: 'Clipboard' },
+    { value: 'copy-emails', label: 'Copy emails', group: 'Clipboard' },
+    { value: 'copy-selected', label: 'Copy selected rows', group: 'Clipboard', disabled: noneTicked },
+    { value: 'print', label: 'Print table', group: 'View' }
+  ]
+})
 
 const csvEscape = (value: string) => `"${value.replace(/"/g, '""')}"`
 
@@ -100,8 +107,8 @@ const printRows = (rows: Record<string, unknown>[]) => {
   )
 }
 
-const onOption = async (event: Event) => {
-  const value = (event.target as HTMLSelectElement).value
+// Each choice does its action, and the box goes back to "Select".
+const onOption = async (value: AppSelectValue) => {
   choice.value = ''
   if (value === 'csv-all') downloadCsv(props.rows)
   if (value === 'csv-page') downloadCsv(props.pageRows, '-page')

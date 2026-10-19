@@ -133,10 +133,7 @@
 
       <label v-if="myGroups.length" class="announcements__group-filter">
         <span class="sr-only">Filter by group</span>
-        <select v-model.number="groupFilter" class="announcements__group-select">
-          <option :value="0">All groups</option>
-          <option v-for="g in myGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
-        </select>
+        <AppSelect v-model="groupFilter" class="announcements__group-select" :options="groupFilterOptions" />
       </label>
     </div>
 
@@ -219,6 +216,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AnnouncementCard from '@/components/announcements/AnnouncementCard.vue'
 import AnnouncementSkeleton from '@/components/announcements/AnnouncementSkeleton.vue'
 import AdminAnnouncementFormSheet from '@/components/admin/announcements/AdminAnnouncementFormSheet.vue'
@@ -249,6 +247,10 @@ const q = ref('')
 const audienceFilter = ref<string>('all')
 const groupFilter = ref<number>(0) // 0 = "All groups"
 const myGroups = ref<UserGroupOption[]>([])
+const groupFilterOptions = computed<AppSelectOption[]>(() => [
+  { value: 0, label: 'All groups' },
+  ...myGroups.value.map((g) => ({ value: g.id, label: g.name }))
+])
 
 // Admin states
 const selectedAnnouncementIds = ref<Array<number | string>>([])
@@ -711,8 +713,6 @@ onBeforeUnmount(() => {
 }
 
 .announcements__group-select {
-  appearance: none;
-  -webkit-appearance: none;
   /* As tall as the tab pills (e.g. a group's Tasks and Chat): their 2.125rem,
      so it grows with the browser's text size as theirs does. */
   box-sizing: border-box;
@@ -725,14 +725,9 @@ onBeforeUnmount(() => {
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, #6c757d 50%),
-                    linear-gradient(135deg, #6c757d 50%, transparent 50%);
-  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
 }
 
-.announcements__group-select:focus {
+.announcements__group-select:focus-within {
   outline: none;
   border-color: var(--dark-green, #017151);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);

@@ -12,6 +12,7 @@ from .views import (
     FinalistNotifyAllView,
     GradingSettingsView,
     BounceCheckTriggerView,
+    SendWaitingEmailsView,
     ChallengeStartView,
     RegistrationOpenView,
     RegistrationSupervisorsView,
@@ -81,6 +82,8 @@ urlpatterns = [
         name="registration-supervisor",
     ),
     path("bounce-check/", BounceCheckTriggerView.as_view(), name="bounce-check"),
+    # Every 10 minutes: the emails kept while the mail server couldn't be reached.
+    path("send-waiting-emails/", SendWaitingEmailsView.as_view(), name="send-waiting-emails"),
     # Which placeholders the active template actually contains.
     path(
         "settings/template-scan/<str:kind>/",

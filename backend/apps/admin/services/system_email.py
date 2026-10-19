@@ -557,6 +557,24 @@ def get_email_log() -> dict:
     return {"msg": "System email log retrieved successfully", "data": email_log()}
 
 
+def resend_email(key: str, *, requested_by) -> dict:
+    """Resend on the Log: ``key``'s email again to who it missed. ``data`` is
+    None when it can't go, ``msg`` saying why."""
+    from apps.services.resend import QUEUED, start_resend
+
+    refused = start_resend(key, requested_by)
+    if refused:
+        return {"msg": refused, "data": None}
+    return {"msg": QUEUED, "data": {"key": key, "status": "queued"}}
+
+
+def get_mail_api_state() -> dict:
+    """Whether bounced emails can be checked, for the top of Failed Sending Emails."""
+    from apps.services.email_log import mail_api_state
+
+    return {"msg": "Mail API state retrieved", "data": mail_api_state()}
+
+
 def get_unseen_failures() -> dict:
     """The count on the Failed Sending Emails button."""
     return {"msg": "Unseen failed emails counted", "data": {"unseen": unseen_failures()}}

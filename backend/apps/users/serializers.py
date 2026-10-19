@@ -719,6 +719,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     state_name = serializers.CharField(allow_blank=True)
     account_status = serializers.CharField()
     media_consent = serializers.BooleanField(allow_null=True)
+    media_consent_at = serializers.DateTimeField(allow_null=True)
     school_name = serializers.CharField(allow_blank=True)
     year_lvl = serializers.CharField(allow_blank=True)
     interests = serializers.ListField(child=serializers.CharField())

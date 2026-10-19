@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const activeGroup = {
   membershipId: 100,
@@ -216,9 +217,8 @@ describe('MatchedGroupsPanel', () => {
     expect(replaceButton).toBeDefined()
     await replaceButton!.trigger('click')
 
-    const select = wrapper.find('select')
-    expect(select.exists()).toBe(true)
-    await select.setValue('__unassign__')
+    expect(wrapper.find('.matched-groups__replace-select').exists()).toBe(true)
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', '— Unassign (leave unmatched)')
 
     const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
     await confirmButton!.trigger('click')
@@ -240,8 +240,7 @@ describe('MatchedGroupsPanel', () => {
     const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
     await replaceButton!.trigger('click')
 
-    const select = wrapper.find('select')
-    await select.setValue('23')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Rosalind Franklin')
 
     const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
     await confirmButton!.trigger('click')
@@ -265,7 +264,7 @@ describe('MatchedGroupsPanel', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')!.trigger('click')
-    await wrapper.find('select').setValue('23')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Rosalind Franklin')
     await wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')!.trigger('click')
     await flushPromises()
 
@@ -311,8 +310,7 @@ describe('MatchedGroupsPanel', () => {
 
     // Full mentors are hidden by default — reveal Ada King (mentorId 22, 2/2).
     await wrapper.find('input[type="checkbox"]').setValue(true)
-    const select = wrapper.find('select')
-    await select.setValue('22')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Ada King (full)')
 
     const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
     await confirmButton!.trigger('click')
@@ -321,7 +319,7 @@ describe('MatchedGroupsPanel', () => {
     expect(wrapper.text()).toContain('Mentor is at capacity (2/2).')
     // The inline form must stay open on failure so the admin can pick again,
     // not silently reset as if nothing happened.
-    expect(wrapper.find('select').exists()).toBe(true)
+    expect(wrapper.find('.matched-groups__replace-select').exists()).toBe(true)
   })
 
   it('replaces an inactive mentor via the bulk "Replace Inactive Mentors" dialog', async () => {
@@ -382,19 +380,22 @@ describe('MatchedGroupsPanel', () => {
     expect(dialog.querySelector('.admin-sheet__title')?.textContent).toBe('Ada Lovelace')
     expect(dialog.querySelector('.admin-sheet__description')?.textContent).toBe('Account details')
 
-    // Contains Account, Student Profile, and Guardian & Consent details
+    // Contains Account, Student Details, Guardian Details, and Supervisor and Group
     expect(dialog.textContent).toContain('Account')
     expect(dialog.textContent).toContain('ada@example.com')
-    expect(dialog.textContent).toContain('Student Profile')
+    expect(dialog.textContent).toContain('Student Details')
     expect(dialog.textContent).toContain('Science High')
-    expect(dialog.textContent).toContain('Guardian & Consent')
+    expect(dialog.textContent).toContain('Guardian Details')
+    expect(dialog.textContent).toContain('Supervisor and Group')
     expect(dialog.textContent).toContain('Lord Byron')
     expect(dialog.textContent).toContain('byron@example.com')
 
-    // Close the sheet
-    const closeBtn = Array.from(dialog.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Close'
-    ) as HTMLButtonElement
+    // Matched Groups only views a student: no Edit, and no buttons at the bottom
+    expect(Array.from(dialog.querySelectorAll('button')).map((b) => b.textContent?.trim())).not.toContain('Edit')
+    expect(dialog.querySelector('.admin-users-detail__footer')).toBeNull()
+
+    // Close the sheet with its x
+    const closeBtn = dialog.querySelector('.admin-sheet__close') as HTMLButtonElement
     expect(closeBtn).toBeTruthy()
     closeBtn.click()
     await flushPromises()

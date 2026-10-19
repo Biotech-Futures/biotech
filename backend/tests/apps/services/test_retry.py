@@ -9,7 +9,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.services.models import SystemEmailLog
-from apps.services.retry import RetryLater, send_with_retry
+from apps.services.retry import WAITING, RetryLater, send_with_retry
 from apps.services.system_email import FAILED, SENT, send_system_email
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
@@ -77,15 +77,15 @@ class RetryLaterTests(SimpleTestCase):
             self.assertEqual(later.run(), [])
         sleep.assert_not_called()
 
-    def test_none_go_when_the_server_cannot_be_reached_again(self):
+    def test_when_the_server_cannot_be_reached_again_each_resend_still_decides(self):
         connection = mock.Mock()
         connection.open.side_effect = DROPPED
         later = RetryLater(connection)
-        resend = mock.Mock()
-        later.keep(DROPPED, "a", resend)
+        # One fails again; the other keeps its email to send later.
+        later.keep(DROPPED, "a", mock.Mock(side_effect=DROPPED))
+        later.keep(DROPPED, "b", mock.Mock(return_value=WAITING))
         with mock.patch("apps.services.retry.time.sleep"):
-            self.assertEqual(later.run(), [("a", DROPPED)])
-        resend.assert_not_called()
+            self.assertEqual(later.run(), [("a", DROPPED), ("b", WAITING)])
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)

@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminViewsDirectoryPage from '@/views/admin/AdminViewsDirectoryPage.vue'
 import * as adminAPI from '@/utils/adminAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const mockPush = vi.fn()
 
@@ -186,7 +187,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#view-type-filter').setValue('custom')
+    await pickAppSelect(wrapper, '#view-type-filter', 'Custom')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('All Mentors')
@@ -213,7 +214,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#view-role-filter').setValue('mentor')
+    await pickAppSelect(wrapper, '#view-role-filter', 'Mentor')
     await flushPromises()
 
     expect(adminAPI.fetchAdminViews).toHaveBeenLastCalledWith(
@@ -513,7 +514,7 @@ describe('AdminViewsDirectoryPage', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('1 view selected')
 
-    await wrapper.find<HTMLSelectElement>('#view-role-filter').setValue('mentor')
+    await pickAppSelect(wrapper, '#view-role-filter', 'Mentor')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('view selected')

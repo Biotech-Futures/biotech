@@ -232,7 +232,6 @@
       :open="viewOpen"
       :user="detailUser"
       @close="onViewClose"
-      @edit="openEditFromView"
       @updated="onDetailUpdated"
     />
 
@@ -379,12 +378,6 @@ const openEdit = (user: AdminUser) => {
   formOpen.value = true
 }
 
-const openEditFromView = () => {
-  const user = detailUser.value
-  if (!user) return
-  onViewClose()
-  openEdit(user)
-}
 
 const onFormSaved = () => {
   void load()

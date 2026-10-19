@@ -140,4 +140,24 @@ describe('Supervisors After Close', () => {
     expect(saveRegistrationSupervisor).toHaveBeenCalledWith(7, true)
     expect((wrapper.get('input[role="switch"]').element as HTMLInputElement).checked).toBe(true)
   })
+
+  it('lists the supervisors with the most students first', async () => {
+    const supervisor = (user_id: number, name: string, students: number) => ({
+      user_id, name, email: `${user_id}@school.test`, school: '', students, register_after_close: false,
+    })
+    vi.mocked(fetchRegistrationSupervisors).mockResolvedValue([
+      supervisor(1, 'Few Students', 2),
+      supervisor(2, 'Most Students', 30),
+      supervisor(3, 'Some Students', 9),
+    ])
+    const wrapper = mount(SupervisorsAfterClosePage)
+    await flushPromises()
+
+    const names = wrapper.findAll('tbody tr.data-table-row').map((row) => row.text())
+    expect(names.map((text) => text.match(/\w+ Students/)![0])).toEqual([
+      'Most Students',
+      'Some Students',
+      'Few Students',
+    ])
+  })
 })
