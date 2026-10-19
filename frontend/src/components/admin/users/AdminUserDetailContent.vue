@@ -9,7 +9,9 @@
         </div>
         <div class="admin-users-detail__item">
           <dt>Role</dt>
-          <dd><span class="admin-users__role-badge">{{ roleLabel(user.role) }}</span></dd>
+          <dd>
+            <span class="admin-users__role-badge">{{ roleLabel(user.role) }}</span>
+          </dd>
         </div>
         <div class="admin-users-detail__item">
           <dt>Country</dt>
@@ -22,7 +24,10 @@
         <div class="admin-users-detail__item">
           <dt>Status</dt>
           <dd>
-            <span class="admin-users__status-badge" :class="{ 'admin-users__status-badge--inactive': !user.isActive }">
+            <span
+              class="admin-users__status-badge"
+              :class="{ 'admin-users__status-badge--inactive': !user.isActive }"
+            >
               {{ user.isActive ? 'Active' : 'Inactive' }}
             </span>
           </dd>
@@ -30,7 +35,10 @@
         <div class="admin-users-detail__item">
           <dt>Has logged in</dt>
           <dd>
-            <span class="admin-users__logged-in-badge" :class="{ 'admin-users__logged-in-badge--yes': user.hasLoggedIn }">
+            <span
+              class="admin-users__logged-in-badge"
+              :class="{ 'admin-users__logged-in-badge--yes': user.hasLoggedIn }"
+            >
               {{ user.hasLoggedIn ? 'Yes' : 'No' }}
             </span>
           </dd>
@@ -54,8 +62,16 @@
 
     <section v-if="user" class="admin-users-detail__section" data-test="admin-notes-section">
       <h3>Internal Admin Notes</h3>
-      <div v-if="hasAdminNotes" class="admin-users-detail__notes-box" data-test="admin-notes-display">
-        <div class="admin-users-detail__notes-text" data-test="admin-notes-content" v-html="adminNotesHtml"></div>
+      <div
+        v-if="hasAdminNotes"
+        class="admin-users-detail__notes-box"
+        data-test="admin-notes-display"
+      >
+        <div
+          class="admin-users-detail__notes-text"
+          data-test="admin-notes-content"
+          v-html="adminNotesHtml"
+        ></div>
       </div>
       <p v-else class="admin-users-detail__notes-empty" data-test="admin-notes-empty">
         No private notes recorded.
@@ -88,7 +104,11 @@
       </dl>
     </section>
 
-    <section v-if="user?.role === 'student'" class="admin-users-detail__section" data-test="admin-guardian">
+    <section
+      v-if="user?.role === 'student'"
+      class="admin-users-detail__section"
+      data-test="admin-guardian"
+    >
       <h3>Guardian &amp; Consent</h3>
       <dl class="admin-users-detail__list">
         <div class="admin-users-detail__item">
@@ -110,22 +130,40 @@
             </span>
           </dd>
         </div>
-        <div v-if="user.joinPermissionReceived && user.joinPermissionGrantedAt" class="admin-users-detail__item">
+        <div
+          v-if="user.joinPermissionReceived && user.joinPermissionGrantedAt"
+          class="admin-users-detail__item"
+        >
           <dt>Recorded</dt>
           <dd>{{ formatFullDate(user.joinPermissionGrantedAt) }}</dd>
         </div>
-        <div v-if="user.joinPermissionReceived" class="admin-users-detail__item" data-test="admin-media-consent">
+        <div
+          v-if="user.joinPermissionReceived"
+          class="admin-users-detail__item"
+          data-test="admin-media-consent"
+        >
           <dt>Media consent</dt>
-          <dd :class="{ 'admin-users-detail__flag': user.mediaConsent === false }">{{ mediaConsentLabel }}</dd>
-        </div>
-        <div v-if="user.pendingGuardian" class="admin-users-detail__item" data-test="admin-pending-guardian">
-          <dt>Requested change</dt>
-          <dd>
-            {{ user.pendingGuardian.firstName }} {{ user.pendingGuardian.lastName }}
-            ({{ user.pendingGuardian.email || 'no email' }}), waiting for their consent
+          <dd :class="{ 'admin-users-detail__flag': user.mediaConsent === false }">
+            {{ mediaConsentLabel }}
           </dd>
         </div>
-        <div v-if="user.consentRequestSentAt" class="admin-users-detail__item" data-test="admin-consent-request-sent">
+        <div
+          v-if="user.pendingGuardian"
+          class="admin-users-detail__item"
+          data-test="admin-pending-guardian"
+        >
+          <dt>Requested change</dt>
+          <dd>
+            {{ user.pendingGuardian.firstName }} {{ user.pendingGuardian.lastName }} ({{
+              user.pendingGuardian.email || 'no email'
+            }}), waiting for their consent
+          </dd>
+        </div>
+        <div
+          v-if="user.consentRequestSentAt"
+          class="admin-users-detail__item"
+          data-test="admin-consent-request-sent"
+        >
           <dt>Consent requested</dt>
           <dd>{{ formatFullDate(user.consentRequestSentAt) }}</dd>
         </div>
@@ -138,7 +176,13 @@
           :disabled="sendingRequest"
           @click="sendConsentRequest"
         >
-          {{ sendingRequest ? 'Sending…' : user.consentRequestSentAt ? 'Resend consent request' : 'Send consent request' }}
+          {{
+            sendingRequest
+              ? 'Sending…'
+              : user.consentRequestSentAt
+                ? 'Resend consent request'
+                : 'Send consent request'
+          }}
         </button>
         <p
           v-if="requestMessage"
@@ -149,10 +193,15 @@
         >
           {{ requestMessage }}
         </p>
-        <p v-else class="admin-users-detail__consent-hint">Emails the consent form to {{ consentRequestTo }}.</p>
+        <p v-else class="admin-users-detail__consent-hint">
+          Emails the consent form to {{ consentRequestTo }}.
+        </p>
       </div>
 
-      <div v-if="user.joinPermissionReceived && signedOnPlatform" class="admin-users-detail__consent-actions">
+      <div
+        v-if="user.joinPermissionReceived && signedOnPlatform"
+        class="admin-users-detail__consent-actions"
+      >
         <button
           type="button"
           class="btn btn-outline btn-sm"
@@ -173,20 +222,33 @@
         {{ consentsMessage }}
       </p>
 
-      <ul v-if="consentsOpen && consents.length" class="admin-users-detail__consents" data-test="admin-signed-consents">
+      <ul
+        v-if="consentsOpen && consents.length"
+        class="admin-users-detail__consents"
+        data-test="admin-signed-consents"
+      >
         <li v-for="consent in consents" :key="consent.id" class="admin-users-detail__consent">
           <p class="admin-users-detail__consent-head">
             <strong>{{ consent.reference }}</strong>
-            <span v-if="consent.withdrawnAt" class="admin-users-detail__flag">Withdrawn {{ formatFullDate(consent.withdrawnAt) }}</span>
+            <span v-if="consent.withdrawnAt" class="admin-users-detail__flag"
+              >Withdrawn {{ formatFullDate(consent.withdrawnAt) }}</span
+            >
           </p>
           <p>
             Signed by {{ consent.guardianFullName }} ({{ consent.guardianEmail }}) on
             {{ formatFullDate(consent.signedAt) }}, form version {{ consent.consentVersion }}.
           </p>
           <p>
-            Media consent: {{ consent.mediaConsent ? 'Yes' : 'No' }}<template v-if="consent.mediaWithdrawnAt">, withdrawn {{ formatFullDate(consent.mediaWithdrawnAt) }}</template>
+            Media consent: {{ consent.mediaConsent ? 'Yes' : 'No'
+            }}<template v-if="consent.mediaWithdrawnAt"
+              >, withdrawn {{ formatFullDate(consent.mediaWithdrawnAt) }}</template
+            >
           </p>
-          <img :src="consent.signature" :alt="`Signature of ${consent.guardianFullName}`" class="admin-users-detail__signature" />
+          <img
+            :src="consent.signature"
+            :alt="`Signature of ${consent.guardianFullName}`"
+            class="admin-users-detail__signature"
+          />
           <button
             type="button"
             class="btn btn-outline btn-sm admin-users-detail__record"
@@ -268,7 +330,7 @@ import { computed, ref, watch } from 'vue'
 import {
   downloadGuardianConsentRecord,
   fetchGuardianConsents,
-  sendGuardianConsentRequest
+  sendGuardianConsentRequest,
 } from '@/utils/adminAPI'
 import type { AdminGuardianConsent, AdminUser } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -281,7 +343,7 @@ import {
   mentorBackgroundLabel,
   roleLabel,
   superviseesLabel,
-  supervisorLabel
+  supervisorLabel,
 } from '@/utils/userFormat'
 import { sanitizeRichText } from '@/composables/useAnnouncements'
 
@@ -294,9 +356,15 @@ const emit = defineEmits<{
 }>()
 
 const hasAdminNotes = computed(() => {
-  const notes = props.user?.adminNotes
-  if (!notes) return false
-  return notes.replace(/<[^>]*>/g, '').trim().length > 0
+  const notesHtml = adminNotesHtml.value
+  if (!notesHtml) return false
+
+  const container = document.createElement('div')
+  container.innerHTML = notesHtml
+  return (
+    Boolean(container.textContent?.trim()) ||
+    Boolean(container.querySelector('img, video, audio, iframe, object, embed, canvas, svg'))
+  )
 })
 
 const adminNotesHtml = computed(() => {
@@ -306,20 +374,34 @@ const adminNotesHtml = computed(() => {
 
 const guardian = computed(() => {
   const user = props.user
-  const placeholder = isPlaceholderGuardian(user?.guardianFirstName, user?.guardianLastName, user?.firstName, user?.lastName)
+  const placeholder = isPlaceholderGuardian(
+    user?.guardianFirstName,
+    user?.guardianLastName,
+    user?.firstName,
+    user?.lastName,
+  )
   return {
-    name: placeholder ? '' : `${user?.guardianFirstName || ''} ${user?.guardianLastName || ''}`.trim(),
+    name: placeholder
+      ? ''
+      : `${user?.guardianFirstName || ''} ${user?.guardianLastName || ''}`.trim(),
     // Consent with no form response on record is what the old admin path
     // granted as a side effect — flag it rather than show it as received.
-    consent: !user?.joinPermissionReceived ? 'missing' : user.joinpermResponseId ? 'received' : 'unverified'
+    consent: !user?.joinPermissionReceived
+      ? 'missing'
+      : user.joinpermResponseId
+        ? 'received'
+        : 'unverified',
   }
 })
 
-const consentLabel = computed(() => ({
-  received: 'Received',
-  unverified: 'Marked received, no signed form on record',
-  missing: 'Not received'
-})[guardian.value.consent])
+const consentLabel = computed(
+  () =>
+    ({
+      received: 'Received',
+      unverified: 'Marked received, no signed form on record',
+      missing: 'Not received',
+    })[guardian.value.consent],
+)
 
 // Who a consent request would go to: a requested guardian change first, else
 // the guardian on file while consent is still missing. Mirrors the backend.
@@ -335,14 +417,17 @@ const sendingRequest = ref(false)
 const requestMessage = ref('')
 const requestFailed = ref(false)
 
-watch(() => props.user?.id, () => {
-  requestMessage.value = ''
-  requestFailed.value = false
-  consents.value = []
-  consentsOpen.value = false
-  consentsMessage.value = ''
-  consentsFailed.value = false
-})
+watch(
+  () => props.user?.id,
+  () => {
+    requestMessage.value = ''
+    requestFailed.value = false
+    consents.value = []
+    consentsOpen.value = false
+    consentsMessage.value = ''
+    consentsFailed.value = false
+  },
+)
 
 const mediaConsentLabel = computed(() => {
   const media = props.user?.mediaConsent
@@ -394,7 +479,10 @@ const downloadRecord = async (consent: AdminGuardianConsent) => {
   try {
     await downloadGuardianConsentRecord(user.id, consent)
   } catch (error) {
-    showConsentsMessage(apiErrorFromUnknown(error, 'Could not download the consent record.').message, true)
+    showConsentsMessage(
+      apiErrorFromUnknown(error, 'Could not download the consent record.').message,
+      true,
+    )
   } finally {
     downloadingId.value = null
   }

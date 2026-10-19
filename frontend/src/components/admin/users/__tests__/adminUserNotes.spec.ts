@@ -11,7 +11,7 @@ vi.mock('@/utils/adminAPI', () => ({
   setAdminUserActive: vi.fn(),
   sendGuardianConsentRequest: vi.fn(),
   fetchGuardianConsents: vi.fn(),
-  downloadGuardianConsentRecord: vi.fn()
+  downloadGuardianConsentRecord: vi.fn(),
 }))
 
 const sampleUser = (overrides: Partial<AdminUser> = {}): AdminUser => ({
@@ -51,7 +51,7 @@ const sampleUser = (overrides: Partial<AdminUser> = {}): AdminUser => ({
   supervisorEmail: null,
   supervisees: [],
   adminNotes: 'Confidential background information.',
-  ...overrides
+  ...overrides,
 })
 
 describe('Admin User Notes: Detail Content Component', () => {
@@ -62,7 +62,7 @@ describe('Admin User Notes: Detail Content Component', () => {
   it('renders existing admin notes in detail view', () => {
     const user = sampleUser({ adminNotes: 'Special dietary and accessibility context.' })
     const wrapper = mount(AdminUserDetailContent, {
-      props: { user }
+      props: { user },
     })
 
     expect(wrapper.find('[data-test="admin-notes-section"]').exists()).toBe(true)
@@ -76,7 +76,7 @@ describe('Admin User Notes: Detail Content Component', () => {
   it('displays empty state message when user has no admin notes', () => {
     const user = sampleUser({ adminNotes: '' })
     const wrapper = mount(AdminUserDetailContent, {
-      props: { user }
+      props: { user },
     })
 
     expect(wrapper.find('[data-test="admin-notes-section"]').exists()).toBe(true)
@@ -84,6 +84,29 @@ describe('Admin User Notes: Detail Content Component', () => {
     const empty = wrapper.find('[data-test="admin-notes-empty"]')
     expect(empty.exists()).toBe(true)
     expect(empty.text()).toBe('No private notes recorded.')
+  })
+
+  it('renders image-only notes instead of showing the empty state', () => {
+    const user = sampleUser({
+      adminNotes: '<p><img src="data:image/png;base64,abc" alt="Context image"></p>',
+    })
+    const wrapper = mount(AdminUserDetailContent, {
+      props: { user },
+    })
+
+    expect(wrapper.find('[data-test="admin-notes-display"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="admin-notes-content"] img').exists()).toBe(true)
+    expect(wrapper.find('[data-test="admin-notes-empty"]').exists()).toBe(false)
+  })
+
+  it('shows the empty state for markup without text or media', () => {
+    const user = sampleUser({ adminNotes: '<p><br></p>' })
+    const wrapper = mount(AdminUserDetailContent, {
+      props: { user },
+    })
+
+    expect(wrapper.find('[data-test="admin-notes-display"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="admin-notes-empty"]').exists()).toBe(true)
   })
 
   it('does not render an inline Add note or Edit note button when plainly viewing', () => {
@@ -105,7 +128,7 @@ const RichEditorStub = {
   props: ['modelValue'],
   emits: ['update:modelValue'],
   template:
-    '<textarea data-test="form-admin-notes" class="rich-editor-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea>'
+    '<textarea data-test="form-admin-notes" class="rich-editor-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea>',
 }
 
 describe('Admin User Notes: Form Sheet Component', () => {
@@ -124,15 +147,15 @@ describe('Admin User Notes: Form Sheet Component', () => {
         isSupervisorMode: false,
         countries: [{ id: 1, countryName: 'Australia' }],
         states: [],
-        supervisors: []
+        supervisors: [],
       },
       global: {
         stubs: {
           teleport: true,
           RichEditor: RichEditorStub,
-          RichTextEditor: RichEditorStub
-        }
-      }
+          RichTextEditor: RichEditorStub,
+        },
+      },
     })
     await wrapper.setProps({ modelValue: true })
 
@@ -155,15 +178,15 @@ describe('Admin User Notes: Form Sheet Component', () => {
         isSupervisorMode: false,
         countries: [{ id: 1, countryName: 'Australia' }],
         states: [],
-        supervisors: []
+        supervisors: [],
       },
       global: {
         stubs: {
           teleport: true,
           RichEditor: RichEditorStub,
-          RichTextEditor: RichEditorStub
-        }
-      }
+          RichTextEditor: RichEditorStub,
+        },
+      },
     })
     await wrapper.setProps({ modelValue: true })
 
@@ -173,14 +196,14 @@ describe('Admin User Notes: Form Sheet Component', () => {
 
     expect(updateAdminUser).toHaveBeenCalledWith(
       42,
-      expect.objectContaining({ adminNotes: 'Updated note from form' })
+      expect.objectContaining({ adminNotes: 'Updated note from form' }),
     )
   })
 
   it('submits admin notes when creating a new user', async () => {
     vi.mocked(createAdminUser).mockResolvedValueOnce({
       msg: 'ok',
-      data: sampleUser({ id: 99 })
+      data: sampleUser({ id: 99 }),
     })
 
     const wrapper = mount(AdminUserFormSheet, {
@@ -191,15 +214,15 @@ describe('Admin User Notes: Form Sheet Component', () => {
         isSupervisorMode: false,
         countries: [{ id: 1, countryName: 'Australia' }],
         states: [],
-        supervisors: []
+        supervisors: [],
       },
       global: {
         stubs: {
           teleport: true,
           RichEditor: RichEditorStub,
-          RichTextEditor: RichEditorStub
-        }
-      }
+          RichTextEditor: RichEditorStub,
+        },
+      },
     })
     await wrapper.setProps({ modelValue: true })
 
@@ -210,7 +233,9 @@ describe('Admin User Notes: Form Sheet Component', () => {
     await wrapper.find('#f-school').setValue('Sydney High')
     await wrapper.find('#f-year').setValue(10)
     await wrapper.find('.admin-users-form__interest input').setValue(true)
-    await wrapper.find('[data-test="form-admin-notes"]').setValue('Initial private admin note during creation.')
+    await wrapper
+      .find('[data-test="form-admin-notes"]')
+      .setValue('Initial private admin note during creation.')
 
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -218,8 +243,8 @@ describe('Admin User Notes: Form Sheet Component', () => {
     expect(createAdminUser).toHaveBeenCalledWith(
       expect.objectContaining({
         email: 'new.user@example.com',
-        adminNotes: 'Initial private admin note during creation.'
-      })
+        adminNotes: 'Initial private admin note during creation.',
+      }),
     )
   })
 })
