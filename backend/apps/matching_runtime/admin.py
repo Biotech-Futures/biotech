@@ -27,19 +27,21 @@ class MatchRecommendationAdmin(admin.ModelAdmin):
 class MatchingConfigAdmin(admin.ModelAdmin):
     """Django-admin fallback for the weights the API exposes.
 
-    ``clean()`` on the model applies the same "must total 100" rule, so a save
+    ``clean()`` on the model applies the same penalty-ceiling rule, so a save
     here is rejected exactly as the API would reject it.
     """
 
     list_display = (
         "id",
         "year_weight",
+        "year_max_weight",
         "timezone_weight",
         "timezone_max_weight",
         "size_bonus_weight",
         "total_weight",
+        "max_total_penalty",
         "updated_by",
     )
     search_fields = ("updated_by__email",)
-    readonly_fields = ("total_weight", "created_at", "updated_at")
+    readonly_fields = ("total_weight", "max_total_penalty", "created_at", "updated_at")
 

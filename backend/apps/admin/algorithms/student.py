@@ -404,15 +404,12 @@ def score_student_for_existing_group(
 
     for member in group_students:
         year_gap = abs(get_student_year_level(student) - get_member_year_level(member))
-        year_penalty_sum += year_gap * scoring.year_weight
+        year_penalty_sum += scoring.year_penalty(year_gap)
 
         timezone_gap = abs(get_student_timezone(student) - get_member_timezone(member))
         if get_student_country(student) != get_member_country(member):
             country_mismatch_count += 1
-        timezone_penalty_sum += min(
-            scoring.timezone_max_penalty,
-            timezone_gap * scoring.timezone_weight,
-        )
+        timezone_penalty_sum += scoring.timezone_penalty(timezone_gap)
         timezone_gap_sum += timezone_gap
 
     peer_count = len(group_students)
@@ -544,13 +541,10 @@ def score_group(
             a = group[i]
             b = group[j]
             year_gap = abs(get_student_year_level(a) - get_student_year_level(b))
-            year_penalty_sum += year_gap * scoring.year_weight
+            year_penalty_sum += scoring.year_penalty(year_gap)
 
             timezone_gap = abs(get_student_timezone(a) - get_student_timezone(b))
-            timezone_penalty_sum += min(
-                scoring.timezone_max_penalty,
-                timezone_gap * scoring.timezone_weight,
-            )
+            timezone_penalty_sum += scoring.timezone_penalty(timezone_gap)
 
     year_penalty = round2(year_penalty_sum / pair_count)
     timezone_penalty = round2(timezone_penalty_sum / pair_count)
@@ -599,13 +593,10 @@ def score_student_in_group(
 
     for peer in peers:
         year_gap = abs(get_student_year_level(student) - get_student_year_level(peer))
-        year_penalty_sum += year_gap * scoring.year_weight
+        year_penalty_sum += scoring.year_penalty(year_gap)
 
         timezone_gap = abs(get_student_timezone(student) - get_student_timezone(peer))
-        timezone_penalty_sum += min(
-            scoring.timezone_max_penalty,
-            timezone_gap * scoring.timezone_weight,
-        )
+        timezone_penalty_sum += scoring.timezone_penalty(timezone_gap)
 
     year_penalty = round2(year_penalty_sum / len(peers))
     timezone_penalty = round2(timezone_penalty_sum / len(peers))

@@ -8,7 +8,8 @@ from django.db import models
 from django.utils import timezone
 
 from apps.common.matching_weights import (
-    REQUIRED_WEIGHT_TOTAL,
+    MAX_TOTAL_PENALTY,
+    PENALTY_CAP_FIELDS,
     WEIGHT_FIELDS,
     ScoringWeights,
     weights_from_config,
@@ -69,11 +70,14 @@ class MatchRecommendation(models.Model):
 class MatchingConfig(models.Model):
     """Admin-tunable scoring weights for the matching algorithms (MA1).
 
-    Weights are percentages of the 100-point base score and must total exactly
-    100 — see ``apps.common.matching_weights``. The values are read once per
-    matching run and snapshotted onto ``MatchRun.rules_snapshot``, so changing
-    them never rewrites the rules a past run was scored under. Country is not
-    among them: it stopped scoring in MA4 and only ranks ties via its count.
+    Weights are raw points off the 100-point base score, under no obligation
+    to total anything — see ``apps.common.matching_weights``. What is enforced
+    is the penalty ceiling: the two caps may not together exceed the base
+    score, or the worst pairings all bottom out at zero and stop being
+    rankable. The values are read once per matching run and snapshotted onto
+    ``MatchRun.rules_snapshot``, so changing them never rewrites the rules a
+    past run was scored under. Country is not among them: it stopped scoring in
+    MA4 and only ranks ties via its count.
 
     There is exactly one config, ever: saving a new row replaces the stored
     one, so :meth:`get_singleton` is never ambiguous. The run snapshot freezes
@@ -85,25 +89,31 @@ class MatchingConfig(models.Model):
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
-        help_text="Percentage of the base score charged per year of year-level gap.",
+        help_text="Points charged per year of year-level gap between two students.",
+    )
+    year_max_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Cap on the year penalty, in points, however far apart two students are.",
     )
     timezone_weight = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
-        help_text="Percentage of the base score charged per hour of timezone gap.",
+        help_text="Points charged per hour of timezone gap between two students.",
     )
     timezone_max_weight = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
-        help_text="Cap on the timezone penalty, as a percentage of the base score.",
+        help_text="Cap on the timezone penalty, in points, however far apart two students are.",
     )
     size_bonus_weight = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
-        help_text="Bonus for a full-sized group, as a percentage of the base score.",
+        help_text="Points added for forming a full-sized group.",
     )
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -133,29 +143,45 @@ class MatchingConfig(models.Model):
                 total += Decimal(str(value))
         return total
 
-    def weight_total_error(self) -> Optional[str]:
-        """Validation message for the 100% rule, or ``None`` when it holds.
+    @property
+    def max_total_penalty(self) -> Decimal:
+        """The most the penalties can take off a score, both caps binding."""
+        total = Decimal("0")
+        for field_name, _ in PENALTY_CAP_FIELDS:
+            value = getattr(self, field_name, None)
+            if value is not None:
+                total += Decimal(str(value))
+        return total
+
+    def penalty_ceiling_error(self) -> Optional[str]:
+        """Validation message for the penalty ceiling, or ``None`` when it holds.
+
+        Weights are raw points and may total anything, so there is no budget to
+        police. The one thing that does break scoring is penalties big enough to
+        wipe out the whole base score: past that, every distant pairing floors
+        at zero and the algorithm can no longer rank one above another. Only the
+        caps are counted, because they bound what the per-unit weights can
+        actually charge.
 
         Shared by ``clean()`` and the API serializer so both reject a config the
-        same way. Values are never normalised: an admin who mistypes a weight is
-        told the total, not silently corrected.
+        same way. Values are never normalised: an admin who sets the caps too
+        high is told by how much, not silently corrected.
         """
-        required = Decimal(REQUIRED_WEIGHT_TOTAL)
-        total = self.total_weight
-        if total == required:
+        ceiling = Decimal(str(MAX_TOTAL_PENALTY))
+        total = self.max_total_penalty
+        if total <= ceiling:
             return None
-        shortfall = required - total
-        direction = "under" if shortfall > 0 else "over"
         return (
-            f"Matching weights must total exactly {REQUIRED_WEIGHT_TOTAL}% "
-            f"(currently {total}%, {abs(shortfall)}% {direction})."
+            f"Please lower a cap by at least {total - ceiling}, otherwise the "
+            f"worst pairing would fall below 0 — the caps total {total} against "
+            f"a {ceiling}-point score."
         )
 
     def clean(self):
         super().clean()
-        error = self.weight_total_error()
+        error = self.penalty_ceiling_error()
         if error:
-            raise ValidationError({"weight_total": error})
+            raise ValidationError({"penalty_ceiling": error})
 
     def to_scoring_weights(self) -> ScoringWeights:
         return weights_from_config(self)

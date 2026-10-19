@@ -281,6 +281,9 @@ class ConfigurableScoringTests(SimpleTestCase):
     def test_configured_weights_replace_the_hardcoded_penalties(self):
         heavy_year = ScoringWeights(
             year_weight=40.0,
+            # Room for two years at 40, so this test measures the weight rather
+            # than the cap. 85 + 15 still sits inside the penalty ceiling.
+            year_max_penalty=85.0,
             timezone_weight=20.0,
             timezone_max_penalty=15.0,
             size_bonus_weight=15.0,
@@ -307,6 +310,89 @@ class ConfigurableScoringTests(SimpleTestCase):
         result = build_groups(members)
 
         self.assertEqual(result["groups"][0]["groupScore"], 84.0)
+
+    def test_the_year_cap_holds_a_runaway_year_weight(self):
+        # Weights are raw points with no budget to divide, so nothing stops an
+        # admin setting 60 per year. The cap is what stops two years of gap
+        # charging 120 against a 100-point base.
+        capped = ScoringWeights(year_weight=60.0, year_max_penalty=30.0)
+        members = [
+            student(1, "Australia", 10, year_level=10),
+            student(2, "Australia", 10, year_level=12),
+        ]
+
+        result = build_groups(members, weights=capped)
+
+        breakdown = result["groups"][0]["scoreBreakdown"]
+        self.assertEqual(breakdown["yearPenalty"], 30.0)
+        self.assertEqual(result["groups"][0]["groupScore"], 70.0)
+
+    def test_the_year_cap_survives_a_missing_year_level(self):
+        # A student with no year level reads as 0, so against a year 12 peer the
+        # gap is 12 -- far wider than the 3 real year levels allow. Uncapped at
+        # the default 8 points that is 96, nearly the whole base score.
+        members = [
+            student(1, "Australia", 10, year_level=0),
+            student(2, "Australia", 10, year_level=12),
+        ]
+
+        result = build_groups(members)
+
+        breakdown = result["groups"][0]["scoreBreakdown"]
+        self.assertEqual(breakdown["yearPenalty"], 24.0)
+        self.assertGreater(result["groups"][0]["groupScore"], 0.0)
+
+    def test_the_default_year_cap_leaves_real_year_gaps_alone(self):
+        # The default cap is exactly three years at the default weight, which is
+        # the widest gap year levels 9-12 can produce, so no registered pairing
+        # scores differently than it did before the cap existed.
+        for gap, expected in ((0, 0.0), (1, 8.0), (2, 16.0), (3, 24.0)):
+            with self.subTest(gap=gap):
+                members = [
+                    student(1, "Australia", 10, year_level=9),
+                    student(2, "Australia", 10, year_level=9 + gap),
+                ]
+
+                result = build_groups(members)
+
+                self.assertEqual(
+                    result["groups"][0]["scoreBreakdown"]["yearPenalty"], expected
+                )
+
+    def test_capped_penalties_still_rank_bad_pairings_against_each_other(self):
+        # The point of the ceiling: with both caps inside the base score, even
+        # heavy per-unit weights leave a worse pairing scoring below a merely
+        # bad one, instead of the two flattening onto the same zero. The caps
+        # here total 70, so the worst case any data can reach is 30.
+        weights = ScoringWeights(
+            year_weight=20.0,
+            year_max_penalty=40.0,
+            timezone_weight=10.0,
+            timezone_max_penalty=30.0,
+        )
+        # Two years and two hours apart: 40 of year, 20 of timezone.
+        bad = build_groups(
+            [
+                student(1, "Australia", 10, year_level=9),
+                student(2, "Australia", 12, year_level=11),
+            ],
+            weights=weights,
+        )
+        # Three years and twelve hours apart. Uncapped that is 60 + 120, well
+        # past the base score; capped it is 40 + 30.
+        worse = build_groups(
+            [
+                student(3, "Australia", 10, year_level=9),
+                student(4, "Japan", 22, year_level=12),
+            ],
+            weights=weights,
+        )
+
+        self.assertEqual(bad["groups"][0]["groupScore"], 40.0)
+        self.assertEqual(worse["groups"][0]["groupScore"], 30.0)
+        self.assertGreater(
+            bad["groups"][0]["groupScore"], worse["groups"][0]["groupScore"]
+        )
 
     def test_size_bonus_weight_scales_the_objective_ceiling(self):
         generous = ScoringWeights(

@@ -9,8 +9,9 @@ block to store on ``MatchRun.rules_snapshot``.
 from typing import Any, Dict, NamedTuple, Optional
 
 from apps.common.matching_weights import (
+    BASE_SCORE,
     DEFAULT_WEIGHT_VALUES,
-    REQUIRED_WEIGHT_TOTAL,
+    MAX_TOTAL_PENALTY,
     ScoringWeights,
 )
 
@@ -34,6 +35,7 @@ class ResolvedScoringRules(NamedTuple):
             "mode": mode,
             "weights": self.weights.as_dict(),
             "totalWeight": str(self.weights.total()),
+            "maxTotalPenalty": str(self.weights.max_total_penalty()),
         }
 
 
@@ -56,8 +58,14 @@ def build_scoring_rules_snapshot(mode: str, rules: ResolvedScoringRules) -> Dict
 
 
 def matching_config_defaults() -> Dict[str, Any]:
-    """A complete, valid weight split for an admin panel to start from."""
+    """Starting weights for an admin panel, plus the limits it should enforce.
+
+    ``baseScore`` is the scale the points come off, and ``maxTotalPenalty`` is
+    the ceiling the two caps are held to, so the panel can show the worst case
+    and warn before a save the API would reject.
+    """
     return {
-        "requiredTotal": REQUIRED_WEIGHT_TOTAL,
+        "baseScore": BASE_SCORE,
+        "maxTotalPenalty": MAX_TOTAL_PENALTY,
         "defaults": dict(DEFAULT_WEIGHT_VALUES),
     }
