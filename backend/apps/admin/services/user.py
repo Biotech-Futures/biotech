@@ -698,23 +698,26 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 
 def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
                                 state: Optional[str] = None, active: Optional[bool] = None,
-                                in_group: Optional[str] = None, country: Optional[str] = None):
+                                in_group: Optional[str] = None, country: Optional[str] = None,
+                                include_admin_notes: bool = False):
     """Filtered (unpaginated) user queryset shared by the list view and
-    filter-based bulk actions, so 'select all matching' hits exactly the rows
-    the list would show for the same filters."""
+    filter-based bulk actions. Admin notes are included only for the list view;
+    filter-based bulk actions must not select users based on private notes."""
     now = timezone.now()
     filters = Q()
 
     if search:
         normalized_search = search.strip()
-        filters &= (
+        search_filters = (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
             Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
-            Q(admin_notes__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
+        if include_admin_notes:
+            search_filters |= Q(admin_notes__icontains=normalized_search)
+        filters &= search_filters
 
     if role:
         filters &= Q(roleassignmenthistory__role__role_name=role) & (
@@ -750,7 +753,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     queryset = _build_user_filter_queryset(
         search=search, role=role, state=state, active=active, in_group=in_group,
-        country=country,
+        country=country, include_admin_notes=True,
     )
 
     # Get total count

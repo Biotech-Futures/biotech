@@ -7,6 +7,8 @@ from django.test import TestCase
 
 from apps.admin.services.user import (
     add_users_by_role,
+    bulk_delete_users_by_filter,
+    bulk_update_status_by_filter,
     fetch_user_by_id,
     query_users,
     update_user,
@@ -105,7 +107,7 @@ class AdminUserNotesTests(TestCase):
         self.assertEqual(count_before, count_after)
 
     def test_query_users_includes_admin_notes_and_filters(self):
-        User.objects.create_user(
+        user = User.objects.create_user(
             email="notable@example.com",
             first_name="Notable",
             last_name="User",
@@ -122,6 +124,23 @@ class AdminUserNotesTests(TestCase):
         search_res = query_users(search="DistinctiveKeyword123")
         search_emails = [item["email"] for item in search_res["data"]["items"]]
         self.assertIn("notable@example.com", search_emails)
+
+        # Private notes are searchable in the list, but must not expand
+        # filter-based bulk actions.
+        update_result = bulk_update_status_by_filter(
+            {"search": "DistinctiveKeyword123"}, False,
+            initiated_by=self.admin,
+        )
+        self.assertEqual(update_result["data"]["updatedIds"], [])
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+
+        delete_result = bulk_delete_users_by_filter(
+            {"search": "DistinctiveKeyword123"},
+            initiated_by=self.admin,
+        )
+        self.assertEqual(delete_result["data"]["deletedIds"], [])
+        self.assertTrue(User.objects.filter(id=user.id).exists())
 
     def test_user_serializer_does_not_expose_admin_notes(self):
         user = User.objects.create_user(
