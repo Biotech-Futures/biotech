@@ -298,6 +298,7 @@ describe('AdminEmailsPage', () => {
       toGroups: false,
       missed: [],
       bounced: [],
+      waiting: [],
       ...overrides
     })
     const unreachable = "couldn't reach the mail server"
@@ -431,6 +432,37 @@ describe('AdminEmailsPage', () => {
       ])
       expect(login.find('[data-test="log-bounced"]').exists()).toBe(true)
       expect(login.find('[data-test="log-failed"]').exists()).toBe(false)
+    })
+
+    it('lists who an email is waiting to reach while the mail server cannot be reached', async () => {
+      vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+        buildTemplate({ key: 'announcement', name: 'Announcement' })
+      ])
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'announcement',
+          name: 'Announcement',
+          lastSentAt: '2026-10-18T23:22:00Z',
+          waiting: [
+            { who: 'amy@seed.test (BTF06, Amy Chen)', until: '2026-10-21T23:39:00Z' },
+            { who: 'ben@seed.test', until: '2026-10-21T23:39:00Z' }
+          ]
+        })
+      ])
+      const wrapper = await openLog()
+      // Listed on All emails, though it missed nobody yet.
+      const [announcement] = wrapper.findAll('[data-test="log-email"]')
+      expect(announcement.find('[data-test="log-waiting"]').text()).toBe('Waiting to send:')
+      expect(announcement.text()).toContain('tried again every 10 minutes')
+      expect(announcement.findAll('li').map((item) => item.text())).toEqual([
+        `amy@seed.test (BTF06, Amy Chen) · until ${at('2026-10-21T23:39:00Z')}`,
+        `ben@seed.test · until ${at('2026-10-21T23:39:00Z')}`
+      ])
+      expect(announcement.find('[data-test="log-failed"]').exists()).toBe(false)
+
+      // And on the email's own page.
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+      expect(wrapper.find('[data-test="log-missed"] [data-test="log-waiting"]').exists()).toBe(true)
     })
 
     it('shows one email as Notify Finalists does', async () => {

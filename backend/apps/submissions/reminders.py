@@ -168,7 +168,8 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
             sent += 1
             continue
 
-        delivered, refused = send_messages(messages, kind="submission_reminder", sender=sender)
+        # Kept to send later only until the deadline: after it, the reminder is moot.
+        delivered, refused = send_messages(messages, kind="submission_reminder", sender=sender, until=closes_at)
         if refused:
             logger.error(
                 "submission_reminder.partial group=%s sent=%s failed=%s",

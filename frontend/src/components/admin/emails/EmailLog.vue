@@ -12,8 +12,22 @@
     <template v-else-if="email">
       <p class="email-log__line" data-test="log-last-emailed">{{ lastEmailed(email) }}</p>
       <p class="email-log__note">{{ deliveryNote(email.sentFrom, email.toGroups) }}</p>
-      <div v-if="email.missed.length || bouncedOf(email).length" class="email-log__missed" data-test="log-missed">
+      <div
+        v-if="email.missed.length || bouncedOf(email).length || waitingOf(email).length"
+        class="email-log__missed"
+        data-test="log-missed"
+      >
         <p class="email-log__missed-title">Couldn't be emailed:</p>
+        <!-- Kept until the mail server can be reached, each with when it's given up on. -->
+        <template v-if="waitingOf(email).length">
+          <p class="email-log__subtitle" data-test="log-waiting">Waiting to send:</p>
+          <p class="email-log__when">{{ WAITING_HINT }}</p>
+          <ul>
+            <li v-for="(person, i) in waitingOf(email)" :key="i">
+              <MissedPerson :who="person.who" /><span class="email-log__reason"> · until {{ formatWhen(person.until) }}</span>
+            </li>
+          </ul>
+        </template>
         <!-- Bounced back after the mail server took it, by when each was found. -->
         <template v-if="bouncedOf(email).length">
           <p class="email-log__subtitle" data-test="log-bounced">Bounced emails:</p>
@@ -58,6 +72,16 @@
           <!-- When it was sent. -->
           <span v-if="sentAt(item)" class="email-log__when">{{ formatWhen(sentAt(item)!) }}</span>
         </h3>
+        <!-- Kept until the mail server can be reached, each with when it's given up on. -->
+        <template v-if="waitingOf(item).length">
+          <p class="email-log__subtitle" data-test="log-waiting">Waiting to send:</p>
+          <p class="email-log__when">{{ WAITING_HINT }}</p>
+          <ul>
+            <li v-for="(person, i) in waitingOf(item)" :key="i">
+              <MissedPerson :who="person.who" /><span class="email-log__reason"> · until {{ formatWhen(person.until) }}</span>
+            </li>
+          </ul>
+        </template>
         <!-- Bounced back after the mail server took it, by when each was found. -->
         <template v-if="bouncedOf(item).length">
           <p class="email-log__subtitle" data-test="log-bounced">Bounced emails:</p>
@@ -110,8 +134,13 @@ const email = computed(() => props.emails.find((item) => item.key === props.sele
 // Its bounces, grouped by when they were found (none from an older server).
 const bouncedOf = (item: SystemEmailLogEntry) => item.bounced ?? []
 
+// Who it's waiting to reach while the mail server can't be reached.
+const waitingOf = (item: SystemEmailLogEntry) => item.waiting ?? []
+const WAITING_HINT =
+  "The mail server couldn't be reached. Each is tried again every 10 minutes until the time beside it."
+
 const withMissed = computed(() =>
-  props.emails.filter((item) => item.missed.length || bouncedOf(item).length),
+  props.emails.filter((item) => item.missed.length || bouncedOf(item).length || waitingOf(item).length),
 )
 
 // When it was sent: its last send, else its latest that missed someone.

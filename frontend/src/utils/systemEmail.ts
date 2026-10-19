@@ -144,7 +144,10 @@ export const systemEmailLogSchema = z.array(
           people: z.array(z.object({ who: z.string(), reason: z.string() }))
         })
       )
-      .default([])
+      .default([]),
+    // Who it's waiting to reach while the mail server can't be reached: each
+    // is tried again every 10 minutes until `until`, then given up on.
+    waiting: z.array(z.object({ who: z.string(), until: z.string() })).default([])
   })
 )
 

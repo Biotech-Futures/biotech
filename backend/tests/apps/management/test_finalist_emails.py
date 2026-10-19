@@ -1,5 +1,7 @@
 """The finalist email: its details, its preview, and Notify Finalists,
 which emails every finalist team not yet told."""
+import smtplib
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -316,12 +318,12 @@ class FinalistEmailTests(_GradingFixture):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
         # An earlier send reached the mentor; this one doesn't go at all.
         EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="men@example.com")
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             run = self.client.post(reverse("management:finalist-notify")).json()["run"]
         self.assertEqual(
             (run["due"], run["emailed"], run["failed"], run["missed"]),
-            (1, 0, 1, [{"who": f"stu@example.com ({self.group.group_name}, stu X)", "reason": "lost the mail server connection"}]),
+            (1, 0, 1, [{"who": f"stu@example.com ({self.group.group_name}, stu X)", "reason": "mail server refused it"}]),
         )
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
         # The mentor it reached counts as emailed; the student doesn't.
@@ -351,7 +353,7 @@ class FinalistEmailTests(_GradingFixture):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
         # An earlier send reached the mentor; this one doesn't go at all.
         EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="men@example.com")
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             self.client.post(reverse("management:finalist-notify"))
         # A team flagged after that send.

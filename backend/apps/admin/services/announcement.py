@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, TypedDict, Optional, List, Dict, Any, Tuple
 from datetime import datetime
 import logging
@@ -20,7 +21,8 @@ from apps.groups.models import GroupMembership
 from apps.users.models import User
 from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, UNREACHABLE, note_send, reason_for
-from apps.services.retry import RetryLater, reset
+from apps.services.retry import WAITING, RetryLater, reset
+from apps.services.waiting_email import WAITING_REASON, send_or_wait
 from apps.services.system_email import (
     RenderedEmail,
     build_message,
@@ -606,16 +608,20 @@ def _deliver_announcement_to_recipients(
     announcement_id: int,
     emails: List[str],
     render_for: Callable[[str], RenderedEmail],
-) -> Tuple[int, List[Dict[str, str]], Optional[str]]:
+    delivery_id: Optional[int] = None,
+) -> Tuple[int, List[Dict[str, str]], Optional[str], List[str]]:
     """Run the SMTP loop for a single send attempt.
 
     ``render_for`` returns the email as one recipient should read it: an
     announcement may greet each of them by name (``{{ first_name }}``), so
     the wording is per recipient rather than shared.
 
-    Returns ``(succeeded_count, failed_entries, connection_error)`` where
-    ``connection_error`` is non-None only when the connection itself never
-    opened (i.e. no recipient was actually attempted at the wire).
+    Returns ``(succeeded_count, failed_entries, connection_error, waiting)``
+    where ``connection_error`` is non-None only when the connection couldn't
+    be opened at the start, and ``waiting`` is who couldn't be emailed because
+    the mail server couldn't be reached: their emails are kept and sent once
+    it can be, every 10 minutes (see ``waiting_email``), each counted on
+    ``delivery_id``'s delivery as it goes.
 
     This is extracted from :func:`send_announcement_email` so the
     bookkeeping path (delivery row create + finalize) does not share a
@@ -641,33 +647,42 @@ def _deliver_announcement_to_recipients(
         )
         for addr in emails:
             failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
-        return 0, failed, connection_error
+        return 0, failed, connection_error, []
 
+    connection_error = None
     try:
         connection.open()
     except Exception as exc:  # network / TLS / auth failure
         connection_error = _sanitize_error(exc)
+        # Each send below tries again, and keeps its email to send later
+        # when the server still can't be reached.
         logger.exception(
             "announcement_email.connection_failed announcement_id=%s",
             announcement_id,
         )
-        # Mark every recipient as failed since none could be attempted.
-        for addr in emails:
-            failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
-        return 0, failed, connection_error
 
+    # Once a kept email goes, or is given up on, the delivery counts it.
+    on_sent = {
+        "sent": "apps.admin.services.announcement.waiting_sent",
+        "missed": "apps.admin.services.announcement.waiting_missed",
+        "delivery_id": delivery_id,
+    } if delivery_id else None
+    waiting: List[str] = []
     # Those that fail, kept to try once more once everyone has been tried.
     later = RetryLater(connection)
     try:
         for addr in emails:
             message = build_message(render_for(addr), addr, from_email=sender.from_email, connection=connection)
+            # A dropped connection is opened again and the email sent once
+            # more; when the server can't be reached, it's kept to send later.
+            send = partial(send_or_wait, message, key="announcement", on_sent=on_sent)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it
                 # raises on SMTP errors.
-                result = message.send(fail_silently=False)
+                result = send()
             except Exception as exc:
-                if later.keep(exc, addr, lambda message=message: message.send(fail_silently=False)):
+                if later.keep(exc, addr, send):
                     reset(connection)
                     continue
                 failed.append({
@@ -689,7 +704,9 @@ def _deliver_announcement_to_recipients(
                 except Exception:
                     pass
             else:
-                if result:
+                if result is WAITING:
+                    waiting.append(addr)
+                elif result:
                     succeeded += 1
                 else:
                     # Backend reported 0 sent without raising — treat as a
@@ -708,6 +725,9 @@ def _deliver_announcement_to_recipients(
         for addr, exc in later.run():
             if exc is None:
                 succeeded += 1
+                continue
+            if exc is WAITING:
+                waiting.append(addr)
                 continue
             failed.append({"email": addr, "error": _sanitize_error(exc), "reason": reason_for(exc)})
             logger.warning(
@@ -728,7 +748,7 @@ def _deliver_announcement_to_recipients(
                 announcement_id,
             )
 
-    return succeeded, failed, None
+    return succeeded, failed, connection_error, waiting
 
 
 def send_announcement_email(
@@ -846,8 +866,8 @@ def send_announcement_email(
     )
 
     try:
-        succeeded, failed, connection_error = _deliver_announcement_to_recipients(
-            announcement_id, emails, render_for,
+        succeeded, failed, connection_error, waiting = _deliver_announcement_to_recipients(
+            announcement_id, emails, render_for, delivery.pk,
         )
     except Exception as exc:  # belt-and-braces — anything truly unexpected
         connection_error = _sanitize_error(exc)
@@ -857,18 +877,22 @@ def send_announcement_email(
         )
         succeeded = 0
         failed = [{"email": addr, "error": connection_error, "reason": NOT_SENT} for addr in emails]
+        waiting = []
 
+    # Those waiting are noted once their emails go, or are given up on.
     note_send(
         "announcement",
         missed={item["email"]: item.get("reason", NOT_SENT) for item in failed},
         by=initiated_by,
-        attempted=len(emails),
+        attempted=len(emails) - len(waiting),
         delivered=succeeded,
         failed=len(failed),
         source_mailbox=sender_for("announcement").address,
         started_at=delivery.started_at,
     )
 
+    # Not delivered yet, so counted as failed until their emails go.
+    failed = failed + [{"email": addr, "error": WAITING_REASON, "reason": WAITING_REASON} for addr in waiting]
     failure_count = len(failed)
     if succeeded == 0:
         status_value = AnnouncementDelivery.Status.FAILED
@@ -885,6 +909,11 @@ def send_announcement_email(
         msg = (
             f"Announcement email partially sent "
             f"({succeeded}/{len(emails)} delivered)"
+        )
+    if waiting:
+        msg += (
+            f". {len(waiting)} couldn't be emailed because the mail server couldn't be "
+            f"reached: they're emailed once it can be, tried every 10 minutes"
         )
 
     capped_failed = failed[: AnnouncementDelivery.FAILED_RECIPIENTS_CAP]
@@ -928,6 +957,8 @@ def send_announcement_email(
         "attempted": len(emails),
         "succeeded": succeeded,
         "failed": failure_count,
+        # Of those failed, the ones whose emails are kept to send later.
+        "waiting": len(waiting),
         # API returns email strings only. The persisted shape on the model
         # is ``[{"email": ..., "error": ...}]`` — see the comment on
         # ``AnnouncementDelivery.failed_recipients``.
@@ -936,6 +967,46 @@ def send_announcement_email(
         # keep working.
         "sent": succeeded,
     }
+
+
+def waiting_sent(details: Dict[str, Any], addresses: List[str]) -> None:
+    """Kept announcement emails went (``waiting_email``): the delivery counts
+    them as delivered, and lists them as failed no more."""
+    _settle_waiting(details.get("delivery_id"), addresses, None)
+
+
+def waiting_missed(details: Dict[str, Any], missed: Dict[str, str]) -> None:
+    """Kept announcement emails were given up on, or turned away: the
+    delivery lists them with why."""
+    _settle_waiting(details.get("delivery_id"), list(missed), missed)
+
+
+def _settle_waiting(delivery_id, addresses: List[str], missed: Optional[Dict[str, str]]) -> None:
+    lowered = {address.lower() for address in addresses}
+    reasons = {address.lower(): reason for address, reason in (missed or {}).items()}
+    with transaction.atomic():
+        delivery = AnnouncementDelivery.objects.select_for_update().filter(pk=delivery_id).first()
+        if delivery is None:
+            return
+        entries = []
+        for entry in delivery.failed_recipients:
+            address = str(entry.get("email", "")).lower() if isinstance(entry, dict) else ""
+            if address in lowered and entry.get("reason") == WAITING_REASON:
+                if missed is None:
+                    continue
+                entry = {**entry, "error": reasons[address], "reason": reasons[address]}
+            entries.append(entry)
+        delivery.failed_recipients = entries
+        if missed is None:
+            delivery.success_count += len(addresses)
+            delivery.failure_count = max(0, delivery.failure_count - len(addresses))
+        if delivery.success_count == 0:
+            delivery.status = AnnouncementDelivery.Status.FAILED
+        elif delivery.failure_count == 0:
+            delivery.status = AnnouncementDelivery.Status.SUCCESS
+        else:
+            delivery.status = AnnouncementDelivery.Status.PARTIAL
+        delivery.save(update_fields=["status", "success_count", "failure_count", "failed_recipients"])
 
 
 def list_announcement_groups(requesting_user=None) -> Dict[str, Any]:

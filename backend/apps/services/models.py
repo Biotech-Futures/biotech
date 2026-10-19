@@ -433,3 +433,47 @@ class EmailDeliveryMetric(models.Model):
 
     def __str__(self):
         return f"{self.email_type}: {self.source_mailbox} ({self.status})"
+
+
+class WaitingEmail(models.Model):
+    """An email the mail server couldn't be reached to send, kept as it was
+    built and tried again every 10 minutes until ``give_up_at`` (3 days on, or
+    sooner for one that would be out of date by then). See ``waiting_email``."""
+
+    # Matches a key in apps.services.email_registry, e.g. "announcement".
+    key = models.SlugField(max_length=64)
+    # The mailbox it goes from: a key of settings.EMAIL_SENDERS, e.g. "info".
+    mailbox = models.CharField(max_length=32)
+    # The From header, e.g. "BIOTech Futures <info@biotechfutures.org>".
+    from_email = models.CharField(max_length=320)
+    # Everyone it goes to: its To and CC.
+    recipients = models.JSONField(default=list)
+    # The email as built, ready to send (RFC 822, CRLF line ends).
+    message = models.BinaryField()
+    # Hooks run as it goes or is given up on, and their details, e.g. the
+    # announcement delivery whose counts it changes (see ``waiting_email``).
+    on_sent = models.JSONField(default=dict, blank=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    give_up_at = models.DateTimeField()
+    tries = models.PositiveIntegerField(default=0)
+    tried_at = models.DateTimeField(null=True, blank=True)
+    # Held while a run sends it, so two runs can't send it twice.
+    held_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'waiting_email'
+        ordering = ['id']
+        indexes = [
+            models.Index(fields=['mailbox', 'id'], name='waiting_email_mailbox_idx'),
+            models.Index(fields=['key'], name='waiting_email_key_idx'),
+        ]
+
+    def __str__(self):
+        return f"WaitingEmail({self.key}, {len(self.recipients)} recipients)"
