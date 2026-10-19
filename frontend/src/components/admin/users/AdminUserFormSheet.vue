@@ -224,6 +224,16 @@
           Active (displays in the list immediately)
         </label>
       </div>
+      <div class="form-field form-field--full" data-test="admin-notes-field">
+        <label class="form-label">Internal admin notes (visible only to admins)</label>
+        <RichEditor
+          :key="editorKey"
+          v-model="form.adminNotes"
+          placeholder="Add private context or notes about this user..."
+          compact
+          data-test="form-admin-notes"
+        />
+      </div>
 
       <div class="admin-users-form__footer">
         <button
@@ -250,9 +260,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
@@ -289,6 +303,7 @@ interface UserForm {
   mediaGiven: boolean
   pendingConsentGiven: boolean
   active: boolean
+  adminNotes: string
 }
 
 type GuardianFields = Pick<UserForm, 'guardianFirstName' | 'guardianLastName' | 'guardianEmail'>
@@ -352,7 +367,8 @@ const defaultForm = (): UserForm => ({
   consentGiven: false,
   mediaGiven: false,
   pendingConsentGiven: false,
-  active: true
+  active: true,
+  adminNotes: ''
 })
 
 const blankGuardian = (): GuardianFields => ({
@@ -365,6 +381,11 @@ const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+const editorSessionKey = ref(0)
+const editorKey = computed(() => {
+  const userId = props.user?.id ? `edit-user-${props.user.id}` : 'new-user'
+  return `${userId}-${editorSessionKey.value}`
+})
 // What the guardian fields held when the form opened; only changes are sent,
 // so saving a student's year level can't discard a pending guardian change
 // or revoke consent.
@@ -411,6 +432,7 @@ const onInterestToggle = (option: string, event: Event) => {
 
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
+  editorSessionKey.value++
   if (!editingUser) {
     Object.assign(form, defaultForm())
     editingOriginalActive.value = false
@@ -447,7 +469,8 @@ const initForm = (editingUser: AdminUser | null) => {
     consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
     mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
     pendingConsentGiven: false,
-    active: editingUser.isActive
+    active: editingUser.isActive,
+    adminNotes: editingUser.adminNotes || ''
   })
 }
 
@@ -577,7 +600,8 @@ const submitForm = async () => {
         lastName: form.lastName,
         role,
         countryId: role === 'admin' ? null : form.countryId,
-        stateId: role === 'admin' ? null : form.stateId
+        stateId: role === 'admin' ? null : form.stateId,
+        adminNotes: form.adminNotes.trim()
       }
       if (!props.isSupervisorMode && form.email.trim().toLowerCase() !== (props.user.email || '').trim().toLowerCase()) {
         payload.email = form.email.trim().toLowerCase()
@@ -613,7 +637,8 @@ const submitForm = async () => {
         firstName: form.firstName,
         lastName: form.lastName,
         role,
-        active: form.active
+        active: form.active,
+        adminNotes: form.adminNotes.trim()
       }
       const countryName = resolveCountryName(form.countryId)
       const stateName = role === 'admin' ? undefined : resolveStateName(form.stateId)

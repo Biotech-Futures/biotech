@@ -612,6 +612,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        "adminNotes": user.admin_notes or "",
         **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
@@ -697,22 +698,26 @@ def get_admin_user_ids(user_ids: List[int]) -> set:
 
 def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str] = None,
                                 state: Optional[str] = None, active: Optional[bool] = None,
-                                in_group: Optional[str] = None, country: Optional[str] = None):
+                                in_group: Optional[str] = None, country: Optional[str] = None,
+                                include_admin_notes: bool = False):
     """Filtered (unpaginated) user queryset shared by the list view and
-    filter-based bulk actions, so 'select all matching' hits exactly the rows
-    the list would show for the same filters."""
+    filter-based bulk actions. Admin notes are included only for the list view;
+    filter-based bulk actions must not select users based on private notes."""
     now = timezone.now()
     filters = Q()
 
     if search:
         normalized_search = search.strip()
-        filters &= (
+        search_filters = (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
             Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
+        if include_admin_notes:
+            search_filters |= Q(admin_notes__icontains=normalized_search)
+        filters &= search_filters
 
     if role:
         filters &= Q(roleassignmenthistory__role__role_name=role) & (
@@ -748,7 +753,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     queryset = _build_user_filter_queryset(
         search=search, role=role, state=state, active=active, in_group=in_group,
-        country=country,
+        country=country, include_admin_notes=True,
     )
 
     # Get total count
@@ -927,6 +932,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            "adminNotes": user.admin_notes or "",
             **last_edit_map.get(uid, _NO_EDIT),
         })
 
@@ -1191,6 +1197,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 is_active = input_data.get("active", True)
                 account_status = STATUS_ACTIVE if is_active else STATUS_INVITED
                 
+                admin_notes = (
+                    (input_data.get("adminNotes") if "adminNotes" in input_data else input_data.get("admin_notes")) or ""
+                ).strip()
+
                 # Create user
                 user = User.objects.create_user(
                     email=email,
@@ -1205,6 +1215,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     is_superuser=role == "admin",
                     invited_at=now,
                     activated_at=now if is_active else None,
+                    admin_notes=admin_notes,
                 )
                 
                 new_user_id = user.id
@@ -1600,14 +1611,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
 
     try:
         with transaction.atomic():
-            # Update basic user fields
             if "email" in input_data:
                 user.email = new_email
             if "firstName" in input_data:
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName", "email"]):
+            if "adminNotes" in input_data:
+                user.admin_notes = (input_data["adminNotes"] or "").strip()
+            elif "admin_notes" in input_data:
+                user.admin_notes = (input_data["admin_notes"] or "").strip()
+            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName", "email", "adminNotes", "admin_notes"]):
                 user.save()
 
             if email_changed:

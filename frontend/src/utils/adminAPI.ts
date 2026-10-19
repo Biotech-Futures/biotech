@@ -257,6 +257,8 @@ export interface AdminUser {
   /** Who last changed this user's details (an admin, the user or their supervisor), and when. */
   lastEditedBy?: string | null
   lastEditedAt?: string | null
+  /** Private notes recorded by administrators, never visible to non-admins. */
+  adminNotes?: string | null
 }
 
 export interface UserListParams {
@@ -302,6 +304,7 @@ export type CreateUserPayload = Record<string, unknown> & {
   firstName: string
   lastName: string
   role: string
+  adminNotes?: string
 }
 
 export interface StudentImportSkippedRow {
