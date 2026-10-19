@@ -306,6 +306,11 @@ class SystemEmailSettings(models.Model):
     # When an admin last looked at Failed Sending Emails: the failures since
     # are the unseen count on its button. Set without touching updated_at.
     failures_seen_at = models.DateTimeField(null=True, blank=True)
+    # When the bounce check last couldn't read the mailboxes through
+    # Hostinger's Mail API, and the status it answered (none when it didn't
+    # answer); cleared by a check that could. Failed Sending Emails says so.
+    mail_api_failed_at = models.DateTimeField(null=True, blank=True)
+    mail_api_status = models.PositiveSmallIntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

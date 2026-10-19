@@ -17,6 +17,8 @@ import type { MentorImportRow } from './adminMentorCsv'
 import {
   systemEmailLogSchema,
   systemEmailUnseenSchema,
+  systemEmailMailApiSchema,
+  type SystemEmailMailApi,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -1529,6 +1531,10 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 /** Seen by every admin from now on; returns the count left, normally 0. */
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether bounced emails can be checked, for the top of the Log. */
+export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/mail-api/').then((env) => systemEmailMailApiSchema.parse(env.data))
 
 /** Resend on the Log: the email again to the people it missed, queued to
  *  send in its turn. Resolves to what to tell the admin; rejects with why

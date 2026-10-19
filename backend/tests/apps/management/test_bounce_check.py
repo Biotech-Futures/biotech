@@ -297,3 +297,55 @@ class TriggerTests(TestCase):
             _run_check()
         self.assertIsNone(cache.get(RUNNING))
 
+
+
+@override_settings(HOSTINGER_MAIL_API_KEY="test-key")
+class MailApiStateTests(TestCase):
+    """Failed Sending Emails says, at its top, when bounced emails can't be
+    checked: no key, a key Hostinger refuses, or a check that couldn't get
+    through. A check that can clears it."""
+
+    URL = "/api/v1/admin/email-log/mail-api/"
+
+    def _check(self, **mailboxes):
+        from apps.management.services.bounce_check import check_bounces
+
+        with patch.object(hostinger_mail, "mailboxes", **mailboxes):
+            check_bounces()
+
+    def _state(self):
+        from apps.services.email_log import mail_api_state
+
+        return mail_api_state()
+
+    def test_a_refused_key_is_said_until_a_check_gets_through(self):
+        with self.assertRaises(MailApiError):
+            self._check(side_effect=MailApiError("The Mail API answered 403.", status=403))
+        state = self._state()
+        self.assertEqual((state["problem"], state["status"]), ("rejected", 403))
+        self.assertIsNotNone(state["at"])
+
+        self._check(return_value=[])
+        self.assertEqual(self._state(), {"problem": "", "at": None, "status": None})
+
+    def test_a_check_that_couldnt_get_through_is_said_with_no_status(self):
+        with self.assertRaises(MailApiError):
+            self._check(side_effect=MailApiError("Couldn't reach the Mail API (ConnectTimeout)."))
+        self.assertEqual((self._state()["problem"], self._state()["status"]), ("failed", None))
+
+    @override_settings(HOSTINGER_MAIL_API_KEY="")
+    def test_no_key_is_said_too(self):
+        self.assertEqual(self._state()["problem"], "unset")
+
+    def test_admins_read_it_and_nobody_else_does(self):
+        from apps.users.models import User
+        from apps.users.models.admin_scope import AdminScope
+
+        admin = User.objects.create_user(email="admin@example.com", password="x")
+        AdminScope.objects.create(user=admin)
+        client = APIClient()
+        client.force_authenticate(admin)
+        self.assertEqual(client.get(self.URL).json()["data"]["problem"], "")
+        member = APIClient()
+        member.force_authenticate(User.objects.create_user(email="member@example.com", password="x"))
+        self.assertEqual(member.get(self.URL).status_code, 403)

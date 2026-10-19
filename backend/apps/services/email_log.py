@@ -97,6 +97,24 @@ def note_send(
         )
 
 
+def mail_api_state() -> dict:
+    """Whether the bounce check can read the sending mailboxes through
+    Hostinger's Mail API, for the top of Failed Sending Emails:
+    ``{"problem", "at", "status"}``. ``problem`` is "unset" (no key, so
+    bounces aren't checked), "rejected" (Hostinger refused the key, at
+    ``at``), "failed" (the last check couldn't get through, at ``at``, with
+    the ``status`` answered, none when nothing was), or "" when it can."""
+    from django.conf import settings
+
+    if not settings.HOSTINGER_MAIL_API_KEY:
+        return {"problem": "unset", "at": None, "status": None}
+    row = SystemEmailSettings.objects.filter(pk=SystemEmailSettings.SINGLETON_PK).first()
+    if row is None or row.mail_api_failed_at is None:
+        return {"problem": "", "at": None, "status": None}
+    problem = "rejected" if row.mail_api_status in (401, 403) else "failed"
+    return {"problem": problem, "at": row.mail_api_failed_at.isoformat(), "status": row.mail_api_status}
+
+
 def forget_missed(key: str, addresses) -> None:
     """Take ``addresses`` off ``key``'s missed list in the Log: Resend sent
     them again (and notes any it missed again as a send of its own)."""

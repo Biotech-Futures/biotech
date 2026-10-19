@@ -6,6 +6,7 @@ import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
 import {
   fetchSystemEmailLog,
+  fetchSystemEmailMailApi,
   fetchSystemEmailUnseenFailures,
   markSystemEmailFailuresSeen,
   resendSystemEmail,
@@ -23,6 +24,7 @@ import { formatShortDateTime, formatStatementTime } from '@/utils/date'
 
 vi.mock('@/utils/adminAPI', () => ({
   fetchSystemEmailLog: vi.fn(),
+  fetchSystemEmailMailApi: vi.fn(),
   fetchSystemEmailUnseenFailures: vi.fn(),
   markSystemEmailFailuresSeen: vi.fn(),
   resendSystemEmail: vi.fn(),
@@ -308,6 +310,7 @@ describe('AdminEmailsPage', () => {
     const unreachable = "couldn't reach the mail server"
 
     beforeEach(() => {
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: '', at: null, status: null })
       vi.mocked(fetchSystemEmailUnseenFailures).mockResolvedValue(0)
       vi.mocked(markSystemEmailFailuresSeen).mockResolvedValue(0)
       vi.mocked(fetchSystemEmailLog).mockResolvedValue([
@@ -509,6 +512,41 @@ describe('AdminEmailsPage', () => {
       expect(announcement.find('[data-test="log-resend-note"]').text()).toContain('Resending.')
       expect(announcement.find('[data-test="log-resend"]').attributes('disabled')).toBeDefined()
       expect(reminder.find('[data-test="log-resend"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('says first when bounced emails cannot be checked through the Mail API', async () => {
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({
+        problem: 'rejected',
+        at: '2026-10-19T23:03:00Z',
+        status: 403
+      })
+      const wrapper = await openLog()
+      const panel = wrapper.find('[data-test="emails-log-panel"]')
+      const note = panel.find('[data-test="log-mail-api"]')
+      // At the top, before the rest of the log.
+      expect(panel.find('section > *').attributes('data-test')).toBe('log-mail-api')
+      expect(note.text()).toBe(
+        `Bounced emails aren't being checked because Hostinger rejected the Mail API key at ${atInSentence('2026-10-19T23:03:00Z')}. ` +
+          'Make a new one in hPanel under Emails, Agentic Mail, API access, and set it as HOSTINGER_MAIL_API_KEY in Azure.'
+      )
+      expect(note.classes()).toContain('email-log__error')
+    })
+
+    it('says so with no key, or when a check could not get through, and nothing when it can', async () => {
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'unset', at: null, status: null })
+      let wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-mail-api"]').text()).toContain("the Hostinger Mail API key isn't set")
+
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'failed', at: '2026-10-19T23:03:00Z', status: null })
+      wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-mail-api"]').text()).toBe(
+        `Bounced emails couldn't be checked at ${atInSentence('2026-10-19T23:03:00Z')} because Hostinger's Mail API didn't answer. ` +
+          "It's tried again every 10 minutes."
+      )
+
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: '', at: null, status: null })
+      wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-mail-api"]').exists()).toBe(false)
     })
 
     it('says a login code or reset link cannot be resent, in place of Resend', async () => {

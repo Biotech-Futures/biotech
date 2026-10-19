@@ -163,6 +163,17 @@ export type SystemEmailLogEntry = z.infer<typeof systemEmailLogSchema>[number]
 // Sending Emails: the red count on its button.
 export const systemEmailUnseenSchema = z.object({ unseen: z.number() })
 
+// Whether bounced emails can be checked through Hostinger's Mail API: no key
+// ("unset"), a key Hostinger refused ("rejected"), or a check that couldn't
+// get through ("failed"), each at `at`; "" when it can.
+export const systemEmailMailApiSchema = z.object({
+  problem: z.enum(['', 'unset', 'rejected', 'failed']).catch(''),
+  at: z.string().nullable(),
+  status: z.number().nullable()
+})
+
+export type SystemEmailMailApi = z.infer<typeof systemEmailMailApiSchema>
+
 // ---------------------------------------------------------------------------
 // Request payloads
 // ---------------------------------------------------------------------------

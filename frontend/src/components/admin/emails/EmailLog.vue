@@ -1,5 +1,7 @@
 <template>
   <section class="email-log" aria-label="Failed sending emails">
+    <!-- First: when bounced emails can't be checked, as nobody would know. -->
+    <p v-if="mailApiNote" class="email-log__error" role="alert" data-test="log-mail-api">{{ mailApiNote }}</p>
     <p v-if="loading" class="email-log__state" role="status">
       <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
       Loading the log…
@@ -161,7 +163,7 @@ import { deliveryNote } from '@/composables/useEmailRun'
 import { resendSystemEmail } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { formatShortDateTime, formatStatementTime } from '@/utils/date'
-import { nameParts, type SystemEmailLogEntry } from '@/utils/systemEmail'
+import { nameParts, type SystemEmailLogEntry, type SystemEmailMailApi } from '@/utils/systemEmail'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 
 const props = defineProps<{
@@ -170,7 +172,28 @@ const props = defineProps<{
   selectedKey: string
   loading: boolean
   error: string
+  /** Whether bounced emails can be checked through Hostinger's Mail API. */
+  mailApi?: SystemEmailMailApi | null
 }>()
+
+// Where a key comes from, and where it goes.
+const makeKey = (which: string) =>
+  `Make ${which} in hPanel under Emails, Agentic Mail, API access, and set it as HOSTINGER_MAIL_API_KEY in Azure.`
+
+// Why bounced emails aren't being checked, or '' when they are.
+const mailApiNote = computed(() => {
+  const state = props.mailApi
+  if (!state?.problem) return ''
+  const when = state.at ? formatStatementTime(state.at) : ''
+  if (state.problem === 'unset') {
+    return `Bounced emails aren't being checked because the Hostinger Mail API key isn't set. ${makeKey('one')}`
+  }
+  if (state.problem === 'rejected') {
+    return `Bounced emails aren't being checked because Hostinger rejected the Mail API key at ${when}. ${makeKey('a new one')}`
+  }
+  const answer = state.status ? `answered ${state.status}` : "didn't answer"
+  return `Bounced emails couldn't be checked at ${when} because Hostinger's Mail API ${answer}. It's tried again every 10 minutes.`
+})
 
 const email = computed(() => props.emails.find((item) => item.key === props.selectedKey) ?? null)
 

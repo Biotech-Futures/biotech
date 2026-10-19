@@ -74,6 +74,7 @@ from apps.admin.services.mentor_match import (
 )
 from apps.admin.services.system_email import (
     get_email_log,
+    get_mail_api_state,
     resend_email,
     get_email_settings,
     get_unseen_failures,
@@ -1741,6 +1742,16 @@ class SystemEmailLogView(APIView):
 
     def get(self, request):
         return Response(get_email_log())
+
+
+class SystemEmailMailApiView(APIView):
+    """GET /api/v1/admin/email-log/mail-api/ — whether bounced emails can be
+    checked through Hostinger's Mail API (see ``email_log.mail_api_state``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_mail_api_state())
 
 
 class SystemEmailResendView(APIView):
