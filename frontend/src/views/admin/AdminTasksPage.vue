@@ -1,31 +1,11 @@
 <template>
   <div class="content-area admin-tasks">
-    <div class="admin-tasks__header">
-      <h1 class="admin-tasks__title">Tasks</h1>
-      <p class="admin-tasks__subtitle">Assign and track admin-managed tasks.</p>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">Tasks</h1>
+      <p class="page-subtitle">Assign and track admin-managed tasks.</p>
+    </header>
 
     <div class="admin-tasks__main">
-      <div class="admin-tasks__table-toolbar">
-        <label class="admin-tasks__filter" for="task-type-filter">
-          <span>Type</span>
-          <select
-            id="task-type-filter"
-            :value="taskTypeFilter"
-            :disabled="loading || taskActionBusy"
-            @change="onTaskTypeChange"
-          >
-            <option value="all">All</option>
-            <option value="group">Group</option>
-            <option value="individual">Individual</option>
-          </select>
-        </label>
-        <button type="button" class="btn btn-primary" :disabled="loading || saving || taskActionBusy" @click="openCreate">
-          <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Add Task</span>
-        </button>
-      </div>
-
       <p v-if="error" class="admin-tasks__error" role="alert">
         <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
         <span>{{ error }}</span>
@@ -40,44 +20,66 @@
       >
         <label class="admin-tasks__bulk-status" for="task-bulk-status">
           <span class="sr-only">Set selected task status</span>
-          <select
+          <!-- An action: it stays on "Set status" once a status is set. -->
+          <AppSelect
             id="task-bulk-status"
-            value=""
+            :model-value="null"
+            :options="STATUS_OPTIONS"
+            placeholder="Set status"
             :disabled="taskActionBusy"
             @change="onBulkStatusChange"
-          >
-            <option value="" disabled>Set status</option>
-            <option v-for="status in TASK_STATUSES" :key="status" :value="status">
-              {{ taskStatusLabel(status) }}
-            </option>
-          </select>
+          />
         </label>
         <button type="button" class="btn btn-sm btn-danger" :disabled="taskActionBusy" @click="openBulkDelete">
           Delete
         </button>
       </BulkActionsBar>
 
-      <AdminDataTable
+      <AppDataTable
         :columns="columns"
         :rows="tableRows"
         row-key="id"
         :loading="loading"
-        selectable
         :selected="selectedIds"
-        :sort-state="sortState"
-        :show-pagination="true"
+        :sort="sortState"
         :page="page"
         :page-size="limit"
         :total-count="totalCount"
-        :page-size-options="PAGE_SIZE_OPTIONS"
+        v-model:search="searchInput"
+        search-placeholder="Name or description"
+        two-line-rows
         empty-message="No tasks found."
-        pager-label="Tasks pagination"
-        select-all-label="Select all tasks on this page"
+        :action-columns="2"
         @update:selected="onSelectedChange"
         @update:sort="onSortChange"
-        @page-change="onPageChange"
-        @page-size-change="onPageSizeChange"
+        @update:page="onPageChange"
+        @update:page-size="onPageSizeChange"
       >
+        <!-- Type, beside Search. -->
+        <template #filters>
+          <div class="admin-tasks__filter">
+            <label class="admin-tasks__filter-label" for="task-type-filter">Type</label>
+            <AppSelect
+              id="task-type-filter"
+              :model-value="taskTypeFilter"
+              :options="TYPE_OPTIONS"
+              :disabled="loading || taskActionBusy"
+              @change="onTaskTypeChange"
+            />
+          </div>
+        </template>
+        <template #search-side>
+          <button
+            type="button"
+            class="btn btn-primary admin-tasks__add"
+            :disabled="loading || saving || taskActionBusy"
+            @click="openCreate"
+          >
+            <i class="fas fa-plus" aria-hidden="true"></i>
+            <span>Add Task</span>
+          </button>
+        </template>
+
         <template #cell-name="{ row }">
           <div class="admin-tasks__primary">
             <strong>{{ toTask(row).name }}</strong>
@@ -86,7 +88,7 @@
         </template>
 
         <template #cell-type="{ row }">
-          <span class="admin-tasks__badge">{{ taskTypeLabel(toTask(row).task_type) }}</span>
+          {{ taskTypeLabel(toTask(row).task_type) }}
         </template>
 
         <template #cell-target="{ row }">
@@ -106,27 +108,28 @@
           {{ formatDueDate(toTask(row).due_date) }}
         </template>
 
-        <template #cell-actions="{ row }">
-          <div class="admin-tasks__row-actions">
-            <button
-              type="button"
-              class="btn btn-sm btn-outline"
-              :disabled="loading || saving || taskActionBusy"
-              @click.stop="openEdit(toTask(row))"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline"
-              :disabled="loading || saving || taskActionBusy"
-              @click.stop="openSingleDelete(toTask(row))"
-            >
-              Delete
-            </button>
-          </div>
+        <!-- Edit | Delete, each in its own column. -->
+        <template #actions="{ row, column }">
+          <button
+            v-if="column === 0"
+            type="button"
+            class="btn btn-sm btn-outline"
+            :disabled="loading || saving || taskActionBusy"
+            @click.stop="openEdit(toTask(row))"
+          >
+            Edit
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn-sm btn-outline"
+            :disabled="loading || saving || taskActionBusy"
+            @click.stop="openSingleDelete(toTask(row))"
+          >
+            Delete
+          </button>
         </template>
-      </AdminDataTable>
+      </AppDataTable>
 
       <AdminTaskFormSheet
         v-model="formOpen"
@@ -180,11 +183,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import AdminDataTable, {
-  type AdminColumn,
-  type SortState
-} from '@/components/admin/AdminDataTable.vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminTaskFormSheet from '@/components/admin/tasks/AdminTaskFormSheet.vue'
@@ -206,9 +207,9 @@ import {
   type UpdateAdminTaskPayload
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { formatDateAU } from '@/utils/date'
+import { DATA_TABLE_TWO_LINE_ROW_HEIGHT, fitPageSize, serverPageLimit } from '@/utils/dataTable'
+import { formatShortDate } from '@/utils/date'
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
 type TaskTypeFilter = 'all' | AdminTaskType
 type RoleOption = { id?: number; roleName: string }
@@ -220,28 +221,38 @@ const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   blocked: 'Blocked'
 }
 const TASK_STATUSES = Object.keys(TASK_STATUS_LABELS) as AdminTaskStatus[]
+const STATUS_OPTIONS: AppSelectOption[] = TASK_STATUSES.map((status) => ({
+  value: status,
+  label: TASK_STATUS_LABELS[status]
+}))
+const TYPE_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All' },
+  { value: 'group', label: 'Group' },
+  { value: 'individual', label: 'Individual' }
+]
 
-const columns: AdminColumn[] = [
+const columns: DataTableColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'type', label: 'Type', sortable: true },
   { key: 'target', label: 'Target', sortable: true },
   { key: 'status', label: 'Status', sortable: true },
-  { key: 'due', label: 'Due', sortable: true },
-  { key: 'actions', label: 'Actions', align: 'right' }
+  { key: 'due', label: 'Due', sortable: true }
 ]
 
 const tasks = ref<AdminTask[]>([])
 const totalCount = ref(0)
 const page = ref(1)
-const limit = ref(25)
+const limit = ref(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT))
 const taskTypeFilter = ref<TaskTypeFilter>('all')
+const searchInput = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 const selectedIds = ref<Array<string | number>>([])
 const loading = ref(false)
 const saving = ref(false)
 const taskActionBusy = ref(false)
 const error = ref('')
 const formError = ref('')
-const sortState = ref<SortState>({ key: 'due', direction: 'asc' })
+const sortState = ref<DataTableSort>({ key: 'due', direction: 'asc' })
 const formOpen = ref(false)
 const editingTask = ref<AdminTask | null>(null)
 const groups = ref<AdminGroup[]>([])
@@ -291,8 +302,9 @@ const load = async () => {
   try {
     const data = await fetchAdminTasks({
       page: page.value,
-      limit: limit.value,
+      limit: serverPageLimit(limit.value),
       task_type: taskTypeFilter.value === 'all' ? undefined : taskTypeFilter.value,
+      search: searchInput.value.trim() || undefined,
       sortBy: sortState.value.key as AdminTaskSortBy,
       sortOrder: sortState.value.direction
     })
@@ -551,10 +563,8 @@ const updateTaskStatusPayload = (task: AdminTask, status: AdminTaskStatus): Upda
   parent: task.parent
 })
 
-const onBulkStatusChange = async (event: Event) => {
-  const select = event.target as HTMLSelectElement
-  const status = select.value as AdminTaskStatus
-  select.value = ''
+const onBulkStatusChange = async (value: AppSelectValue) => {
+  const status = value as AdminTaskStatus
   if (!status || taskActionBusy.value) return
   const targets = selectedTaskList.value
   if (!targets.length) return
@@ -578,13 +588,22 @@ const onBulkStatusChange = async (event: Event) => {
   }
 }
 
-const onTaskTypeChange = (event: Event) => {
-  taskTypeFilter.value = (event.target as HTMLSelectElement).value as TaskTypeFilter
+// A pause in typing searches again from the first page.
+watch(searchInput, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    clearSelection()
+    reloadFromFirstPage()
+  }, 350)
+})
+
+const onTaskTypeChange = (value: AppSelectValue) => {
+  taskTypeFilter.value = value as TaskTypeFilter
   clearSelection()
   reloadFromFirstPage()
 }
 
-const onSortChange = (next: SortState) => {
+const onSortChange = (next: DataTableSort) => {
   sortState.value = next
   clearSelection()
   reloadFromFirstPage()
@@ -616,7 +635,9 @@ const targetLabel = (task: AdminTask) => {
   return task.assigned_user ? `User #${task.assigned_user}` : '-'
 }
 
-const formatDueDate = (value: string | null) => value ? formatDateAU(value) : '-'
+// A due date is a picked day, saved as that day's UTC midnight, so it shows
+// as that day wherever the admin is.
+const formatDueDate = (value: string | null) => value ? formatShortDate(value, 'UTC') : '-'
 
 onMounted(() => {
   void load()
@@ -625,100 +646,64 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-tasks__header {
-  margin-bottom: 1.5rem;
-}
-
-.admin-tasks__title {
-  margin: 0 0 0.25rem;
-}
-
-.admin-tasks__subtitle {
-  margin: 0;
-  color: var(--text-muted);
-}
-
 .admin-tasks__main {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.admin-tasks__table-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.admin-tasks__table-toolbar .btn {
+.admin-tasks__add {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
 }
 
+/* Type, in the table's search card, drawn like Search. */
 .admin-tasks__filter {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  font-weight: 600;
+  flex-direction: column;
+  gap: 0.3rem;
 }
 
-.admin-tasks__filter select {
-  min-width: 160px;
-  height: 2rem;
-  padding: 0.25rem 0.5rem;
+.admin-tasks__filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-tasks__filter .app-select {
+  min-width: 9rem;
+  padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  background-color: var(--white);
-  color: var(--charcoal);
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
 }
 
-.admin-tasks__bulk-status select {
+/* Its text centred in the 2rem box, as a select's is. */
+.admin-tasks__bulk-status .app-select {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-width: 140px;
   height: 2rem;
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 
-.admin-tasks__bulk-status select:disabled {
+.admin-tasks__bulk-status .app-select.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
-}
-
-.admin-tasks__row-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.4rem;
-}
-
-@media (max-width: 640px) {
-  .admin-tasks__table-toolbar {
-    align-items: stretch;
-  }
-
-  .admin-tasks__filter {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .admin-tasks__filter select {
-    flex: 1;
-  }
-
-  .admin-tasks__table-toolbar .btn {
-    justify-content: center;
-    width: 100%;
-  }
+  opacity: 1;
 }
 
 .admin-tasks__error {
@@ -751,7 +736,7 @@ onMounted(() => {
   border-left: 3px solid var(--dark-green);
   border-radius: 8px;
   background-color: var(--light-green);
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -762,52 +747,25 @@ onMounted(() => {
   gap: 0.15rem;
 }
 
-.admin-tasks__primary strong,
-.admin-tasks__primary span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .admin-tasks__primary span,
 .admin-tasks__muted {
   color: var(--text-muted);
 }
 
-.admin-tasks__badge,
-.admin-tasks__status {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background-color: var(--bg-light);
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
+/* Status as coloured text. */
 .admin-tasks__status--todo {
-  border-color: var(--border-light);
   color: var(--text-muted);
 }
 
 .admin-tasks__status--in_progress {
-  border-color: rgba(1, 113, 81, 0.3);
-  background-color: rgba(1, 113, 81, 0.08);
   color: var(--dark-green);
 }
 
 .admin-tasks__status--done {
-  border-color: rgba(40, 167, 69, 0.35);
-  background-color: rgba(40, 167, 69, 0.08);
   color: var(--success);
 }
 
 .admin-tasks__status--blocked {
-  border-color: rgba(220, 53, 69, 0.35);
-  background-color: rgba(220, 53, 69, 0.08);
   color: var(--danger);
 }
 </style>

@@ -1,13 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminAnnouncementFormSheet from '@/components/admin/announcements/AdminAnnouncementFormSheet.vue'
-import RichEditor from '@/components/admin/announcements/RichEditor.vue'
+import RichEditor from '@/components/admin/RichEditor.vue'
 import * as adminApi from '@/utils/adminAPI'
+import * as managementApi from '@/utils/managementAPI'
 
 let wrapper: VueWrapper | null = null
 
 describe('AdminAnnouncementFormSheet & RichEditor', () => {
   beforeEach(() => {
+    // Until submissions close, the categories stay off.
+    vi.spyOn(managementApi, 'fetchAnnouncementCategories').mockResolvedValue({
+      available: false,
+      reason: 'Available once submissions close, on Friday, 17 October 2026, 11:59 PM (Sydney time).',
+      categories: [
+        { key: 'finalists', label: 'Finalist', group_ids: [] },
+        { key: 'nonfinalists', label: 'Nonfinalist', group_ids: [] },
+        { key: 'nonsubmissions', label: 'Nonsubmission', group_ids: [] }
+      ]
+    })
     vi.spyOn(adminApi, 'fetchAnnouncementRoles').mockResolvedValue([
       { id: 1, name: 'Student' },
       { id: 2, name: 'Mentor' }
@@ -15,6 +26,10 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     vi.spyOn(adminApi, 'fetchAnnouncementGroups').mockResolvedValue([
       { id: 10, name: 'Team Alpha' },
       { id: 20, name: 'Team Beta' }
+    ])
+    vi.spyOn(adminApi, 'fetchAnnouncementMergeTags').mockResolvedValue([
+      { name: 'first_name', description: "Reader's first name", sample: 'Alex', html: false },
+      { name: 'name', description: "Reader's full name", sample: 'Alex Chen', html: false }
     ])
     vi.spyOn(adminApi, 'createAdminAnnouncement').mockResolvedValue({
       id: 301,
@@ -79,13 +94,76 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
 
     // Check roles and groups checkboxes
     const checkboxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
-    expect(checkboxes.length).toBe(4) // 2 roles + 2 groups
+    expect(checkboxes.length).toBe(7) // 2 roles + 3 categories + 2 groups
 
     // Notice for global visibility
-    expect(wrapper.text()).toContain('No roles or groups selected — announcement will be visible to all users (Global)')
+    expect(wrapper.text()).toContain('No roles or groups selected - announcement will be visible to all users (Global)')
   })
 
-  it('populates fields in edit mode and fetches full detail if body is missing', async () => {
+  const mountCreate = async () => {
+    wrapper = mount(AdminAnnouncementFormSheet, {
+      props: { modelValue: true, announcement: null },
+      global: {
+        stubs: {
+          FormSheet: {
+            props: ['modelValue', 'title', 'description'],
+            template: '<div class="form-sheet-stub"><slot /><slot name="footer" /></div>'
+          },
+          RichEditor: true,
+          ConfirmDialog: true
+        }
+      }
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('puts Target Categories before Target Groups, off until submissions close', async () => {
+    const w = await mountCreate()
+    const sections = w.findAll('.admin-ann-form__section .font-semibold').map((s) => s.text())
+    expect(sections.indexOf('Target Categories')).toBe(sections.indexOf('Target Groups') - 1)
+    const boxes = w.find('[data-testid="target-categories"]').findAll('input')
+    expect(w.find('[data-testid="target-categories"]').findAll('label').map((l) => l.text())).toEqual([
+      'Finalist',
+      'Nonfinalist',
+      'Nonsubmission'
+    ])
+    for (const box of boxes) expect(box.attributes('disabled')).toBeDefined()
+    expect(w.text()).toContain('Available once submissions close, on Friday, 17 October 2026')
+    // The whole section greyed out, its reason in small italics.
+    expect(w.find('[data-testid="target-categories-section"]').classes()).toContain('admin-ann-form__categories--off')
+    expect(w.find('.admin-ann-form__categories-reason').exists()).toBe(true)
+  })
+
+  it('ticking a category selects its groups, and unticking clears them', async () => {
+    vi.spyOn(managementApi, 'fetchAnnouncementCategories').mockResolvedValue({
+      available: true,
+      reason: '',
+      categories: [
+        { key: 'finalists', label: 'Finalist', group_ids: [10] },
+        { key: 'nonfinalists', label: 'Nonfinalist', group_ids: [20] },
+        { key: 'nonsubmissions', label: 'Nonsubmission', group_ids: [] }
+      ]
+    })
+    const w = await mountCreate()
+    const category = (label: string) =>
+      w.find('[data-testid="target-categories"]').findAll('label').find((l) => l.text().startsWith(label))!
+    const groupBox = (name: string) =>
+      w.findAll('label').find((l) => l.text() === name)!.find<HTMLInputElement>('input').element
+    expect(category('Finalist').text()).toBe('Finalist (1)')
+    // None in it, so nothing to tick.
+    expect(category('Nonsubmission').find('input').attributes('disabled')).toBeDefined()
+
+    await category('Finalist').find('input').trigger('change')
+    expect(groupBox('Team Alpha').checked).toBe(true)
+    expect(groupBox('Team Beta').checked).toBe(false)
+    expect(category('Finalist').find<HTMLInputElement>('input').element.checked).toBe(true)
+
+    await category('Finalist').find('input').trigger('change')
+    expect(groupBox('Team Alpha').checked).toBe(false)
+  })
+
+  it('populates fields in edit mode and fetches the full detail, ticking its roles', async () => {
     wrapper = mount(AdminAnnouncementFormSheet, {
       props: {
         modelValue: true,
@@ -115,6 +193,13 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(adminApi.fetchAdminAnnouncement).toHaveBeenCalledWith(302)
     const titleInput = wrapper.find<HTMLInputElement>('#ann-title')
     expect(titleInput.element.value).toBe('Preloaded Title')
+
+    // The saved role (Mentor, id 2) is ticked.
+    const mentorCheckbox = wrapper
+      .findAll('label')
+      .find((l) => l.text() === 'Mentor')!
+      .find<HTMLInputElement>('input')
+    expect(mentorCheckbox.element.checked).toBe(true)
   })
 
   it('validates required fields before submitting', async () => {
@@ -278,6 +363,41 @@ describe('AdminAnnouncementFormSheet & RichEditor', () => {
     expect(confirmDialog.props('modelValue')).toBe(false)
     expect(wrapper.emitted('saved')).toBeTruthy()
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([false])
+  })
+
+  it('offers merge tags under the body and inserts the chosen one', async () => {
+    const insertText = vi.fn()
+    wrapper = mount(AdminAnnouncementFormSheet, {
+      props: { modelValue: true, announcement: null },
+      global: {
+        stubs: {
+          FormSheet: {
+            props: ['modelValue', 'title', 'description'],
+            template: '<div class="form-sheet-stub"><slot /><slot name="footer" /></div>'
+          },
+          RichEditor: {
+            name: 'RichEditor',
+            props: ['modelValue'],
+            emits: ['update:modelValue'],
+            template: '<div class="rich-editor-stub"></div>',
+            methods: { insertText }
+          },
+          ConfirmDialog: true
+        }
+      }
+    })
+    await flushPromises()
+
+    const palette = wrapper.find('[data-testid="merge-tags"]')
+    expect(palette.exists()).toBe(true)
+
+    const firstNameTag = palette
+      .findAll('.merge-tags__tag')
+      .find((tag) => tag.text().includes('first_name'))
+    expect(firstNameTag).toBeTruthy()
+
+    await firstNameTag!.trigger('click')
+    expect(insertText).toHaveBeenCalledWith('{{ first_name }}')
   })
 
   it('renders RichEditor toolbar buttons and supports raw mode toggle', async () => {

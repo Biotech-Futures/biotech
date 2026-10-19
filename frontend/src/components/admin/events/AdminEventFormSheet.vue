@@ -40,46 +40,34 @@
 
         <!-- Description -->
         <div class="form-field form-field--full">
-          <label class="form-label" for="ev-desc">Description</label>
-          <textarea
-            id="ev-desc"
-            v-model.trim="form.description"
-            class="form-input"
-            rows="3"
+          <label class="form-label">Description</label>
+          <RichEditor
+            :key="editorKey"
+            v-model="form.description"
             placeholder="Event overview, agenda, or prerequisites..."
-          ></textarea>
+          />
         </div>
 
         <!-- Event Format -->
         <div class="form-field">
           <label class="form-label" for="ev-format">Event Format *</label>
-          <select
+          <AppSelect
             id="ev-format"
             v-model="form.eventFormat"
             class="form-input filter-select"
-          >
-            <option value="in_person">In-person</option>
-            <option value="virtual">Virtual</option>
-            <option value="hybrid">Hybrid</option>
-          </select>
+            :options="FORMAT_OPTIONS"
+          />
         </div>
 
         <!-- Timezone -->
         <div class="form-field">
           <label class="form-label" for="ev-tz">Timezone *</label>
-          <select
+          <AppSelect
             id="ev-tz"
             v-model="form.eventTimezone"
             class="form-input filter-select"
-          >
-            <option
-              v-for="tz in timezoneOptions"
-              :key="tz.value"
-              :value="tz.value"
-            >
-              {{ tz.label }}
-            </option>
-          </select>
+            :options="timezoneOptions"
+          />
         </div>
 
         <!-- Location (if in-person or hybrid) -->
@@ -150,10 +138,10 @@
             @click="triggerFileInput"
           >
             <i class="fas fa-image" aria-hidden="true"></i>
-            <span>{{ previewUrl || form.eventImage ? 'Change Image' : 'Upload Image' }}</span>
+            <span>{{ hasImage ? 'Change Image' : 'Upload Image' }}</span>
           </button>
           <button
-            v-if="previewUrl || form.eventImage"
+            v-if="hasImage"
             type="button"
             class="btn btn-outline btn-sm admin-event-remove-btn"
             @click="clearImage"
@@ -164,9 +152,9 @@
         </div>
 
         <!-- Preview Thumbnail -->
-        <div v-if="previewUrl || form.eventImage" class="admin-event-image-preview">
+        <div v-if="hasImage" class="admin-event-image-preview">
           <img
-            :src="previewUrl || form.eventImage || ''"
+            :src="thumbnailSrc"
             alt="Event banner preview"
             class="admin-event-image-thumb"
           />
@@ -244,11 +232,27 @@
       </div>
     </form>
   </FormSheet>
+
+  <EventImageCropDialog
+    v-if="cropDialogOpen"
+    v-model="cropDialogOpen"
+    :file="pendingCropFile"
+    @confirm="onCropConfirm"
+    @cancel="onCropCancel"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
+const EventImageCropDialog = defineAsyncComponent(
+  () => import('@/components/admin/events/EventImageCropDialog.vue')
+)
 import { useAuthStore } from '@/stores/auth'
 import type {
   AdminEventDetail,
@@ -263,7 +267,7 @@ import {
   updateAdminEvent,
   uploadAdminEventImage
 } from '@/utils/adminAPI'
-import type { BackendEvent } from '@/utils/eventsAPI'
+import { resolveEventUrl, type BackendEvent } from '@/utils/eventsAPI'
 
 const props = defineProps<{
   modelValue: boolean
@@ -286,6 +290,12 @@ const open = computed({
 })
 
 const isEditing = computed(() => Boolean(props.event?.id))
+const editorSessionKey = ref(0)
+
+const editorKey = computed(() => {
+  const modeKey = props.event?.id ? `edit-event-${props.event.id}` : 'new-event'
+  return `${modeKey}-${editorSessionKey.value}`
+})
 
 interface EventFormData {
   eventName: string
@@ -324,7 +334,13 @@ const TIMEZONE_OPTIONS = [
   { value: 'UTC', label: 'UTC' }
 ]
 
-const timezoneOptions = computed(() => {
+const FORMAT_OPTIONS: AppSelectOption[] = [
+  { value: 'in_person', label: 'In-person' },
+  { value: 'virtual', label: 'Virtual' },
+  { value: 'hybrid', label: 'Hybrid' }
+]
+
+const timezoneOptions = computed<AppSelectOption[]>(() => {
   const current = form.eventTimezone
   if (current && !TIMEZONE_OPTIONS.some((t) => t.value === current)) {
     return [{ value: current, label: current }, ...TIMEZONE_OPTIONS]
@@ -362,6 +378,32 @@ const roles = ref<EventTargetRoleItem[]>([])
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
+const cropDialogOpen = ref(false)
+const pendingCropFile = ref<File | null>(null)
+
+// The event's current stored banner, kept separate from `form.eventImage`
+// (which is purely a "type a replacement URL" input, matching adminweb's
+// event.tsx: its Image URL field resets to blank on every open and the
+// existing banner is tracked/displayed via its own `existingImageUrl`,
+// never fed back into the field admins type into). Conflating the two here —
+// pre-filling form.eventImage with the current banner — was the root cause
+// of two bugs: saving with the banner untouched re-sent it verbatim
+// (see the PUT payload below), and Remove had no way to distinguish
+// "field is empty because untouched" from "field is empty because removed".
+const existingEventImage = ref('')
+// True only after an explicit Remove click — the equivalent of adminweb's
+// editImageRemoved. Cleared whenever a replacement is provided (new file
+// confirmed, or a URL typed into the fallback field), mirroring
+// handleEditImageSelected/handleCropConfirmed both calling
+// setEditImageRemoved(false) in adminweb/src/routes/_auth/event.tsx.
+const imageRemoved = ref(false)
+
+const hasImage = computed(
+  () => Boolean(previewUrl.value || form.eventImage || (!imageRemoved.value && existingEventImage.value))
+)
+const thumbnailSrc = computed(
+  () => previewUrl.value || form.eventImage || resolveEventUrl(existingEventImage.value) || ''
+)
 
 const hostDisplayName = computed(() => {
   if (isEditing.value && props.event) {
@@ -434,6 +476,8 @@ const initForm = async (currentEvent?: BackendEvent | AdminEventDetail | null) =
     URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = null
   }
+  existingEventImage.value = ''
+  imageRemoved.value = false
 
   await loadMeta()
 
@@ -447,6 +491,8 @@ const initForm = async (currentEvent?: BackendEvent | AdminEventDetail | null) =
   const startRaw = raw.start_datetime || raw.startDatetime
   const endRaw = raw.ends_datetime || raw.endsDatetime
 
+  existingEventImage.value = raw.event_image || raw.eventImage || ''
+
   Object.assign(form, {
     eventName: raw.event_name || raw.eventName || '',
     description: raw.description || '',
@@ -456,7 +502,11 @@ const initForm = async (currentEvent?: BackendEvent | AdminEventDetail | null) =
     eventTimezone: tz,
     startAt: toDatetimeLocalInTz(startRaw, tz),
     endsAt: toDatetimeLocalInTz(endRaw, tz),
-    eventImage: raw.event_image || raw.eventImage || '',
+    // Deliberately left blank rather than pre-filled with the existing
+    // banner — this field means "replace with this URL", not "here's the
+    // current one" (that's existingEventImage, display-only). Matches
+    // adminweb's edit-open reset: `eventImage: undefined` in event.tsx.
+    eventImage: '',
     targetRoleIds: raw.target_roles || []
   })
 
@@ -477,6 +527,7 @@ watch(
   () => props.modelValue,
   (isOpening) => {
     if (isOpening) {
+      editorSessionKey.value += 1
       void initForm(props.event)
     }
   }
@@ -491,17 +542,48 @@ const onFileChange = (e: Event) => {
   const file = target.files?.[0]
   if (!file) return
 
-  if (file.size > 5 * 1024 * 1024) {
-    formError.value = 'File is too large. Maximum allowed size is 5 MB.'
+  if (!file.type.startsWith('image/')) {
+    formError.value = 'Please select a valid image file.'
+    target.value = ''
     return
   }
 
-  selectedFile.value = file
+  if (file.size > 5 * 1024 * 1024) {
+    formError.value = 'File is too large. Maximum allowed size is 5 MB.'
+    target.value = ''
+    return
+  }
+
+  formError.value = ''
+  // The backend rejects anything that isn't exactly 1280x320, so every
+  // picked image must go through the crop dialog before it becomes the
+  // selected file — see backend/apps/admin/services/event_image.py.
+  pendingCropFile.value = file
+  cropDialogOpen.value = true
+}
+
+const onCropConfirm = (croppedFile: File) => {
+  selectedFile.value = croppedFile
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value)
   }
-  previewUrl.value = URL.createObjectURL(file)
-  formError.value = ''
+  previewUrl.value = URL.createObjectURL(croppedFile)
+  // A confirmed replacement supersedes any prior Remove click — mirrors
+  // adminweb's handleCropConfirmed calling setEditImageRemoved(false).
+  imageRemoved.value = false
+  cropDialogOpen.value = false
+  pendingCropFile.value = null
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
+const onCropCancel = () => {
+  cropDialogOpen.value = false
+  pendingCropFile.value = null
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
 }
 
 const clearImage = () => {
@@ -509,7 +591,14 @@ const clearImage = () => {
     URL.revokeObjectURL(previewUrl.value)
   }
   selectedFile.value = null
+  previewUrl.value = null
   form.eventImage = ''
+  existingEventImage.value = ''
+  // The explicit signal submitForm needs to actually send `eventImage: null`
+  // — distinct from "the field is empty because nothing was ever touched".
+  // Mirrors adminweb's handleEditImageRemove (setEditImageRemoved(true) +
+  // setValue("eventImage", null)).
+  imageRemoved.value = true
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
@@ -559,6 +648,26 @@ const validateForm = (): boolean => {
   return true
 }
 
+const normalizeDescriptionForSave = (value: string): string | null => {
+  const source = value.trim()
+  if (!source) return null
+
+  if (typeof document !== 'undefined') {
+    const template = document.createElement('template')
+    template.innerHTML = source
+    const text = (template.content.textContent || '').replace(/\u00a0/g, ' ').trim()
+    const hasVisualContent = Boolean(template.content.querySelector('img, table, hr'))
+    return text || hasVisualContent ? source : null
+  }
+
+  const text = source
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .trim()
+  return text ? source : null
+}
+
 const submitForm = async () => {
   formError.value = ''
   if (!validateForm()) return
@@ -571,7 +680,7 @@ const submitForm = async () => {
 
     const payload: CreateAdminEventPayload | UpdateAdminEventPayload = {
       eventName: form.eventName.trim(),
-      description: form.description.trim() || null,
+      description: normalizeDescriptionForSave(form.description),
       eventFormat: form.eventFormat,
       location: form.eventFormat !== 'virtual' ? form.location.trim() || null : null,
       locationLink: form.locationLink.trim() || null,
@@ -581,8 +690,19 @@ const submitForm = async () => {
       targetRoleIds: form.targetRoleIds
     }
 
-    if (!selectedFile.value && form.eventImage) {
+    // Mirrors adminweb's buildEventUpdateWithImageIntent (event-image-update.ts):
+    // omit `eventImage` unless the admin actually did something to it this
+    // save, so an edit that never touches the banner can never affect it.
+    if (selectedFile.value) {
+      // A newly cropped file is uploaded separately once this save succeeds
+      // (see uploadAdminEventImage below) — never folded into this payload,
+      // optimistically or otherwise.
+    } else if (form.eventImage.trim()) {
+      // A manually typed/pasted replacement URL wins over a prior Remove
+      // click (e.g. removed, then pasted a URL instead of uploading).
       payload.eventImage = form.eventImage.trim()
+    } else if (imageRemoved.value) {
+      payload.eventImage = null
     }
 
     let savedEventId: number | undefined
@@ -632,7 +752,7 @@ const submitForm = async () => {
   margin-bottom: 0.35rem;
   font-size: 0.825rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -641,13 +761,14 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
   font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-within {
   outline: none;
   border-color: var(--dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
@@ -660,14 +781,6 @@ const submitForm = async () => {
 }
 
 .filter-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 2rem;
   cursor: pointer;
 }
 
@@ -707,7 +820,7 @@ const submitForm = async () => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 

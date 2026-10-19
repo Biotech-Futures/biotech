@@ -39,3 +39,8 @@ export function isValidEmail(email: string): boolean {
   const value = String(email || '').trim()
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
+
+/** "1 team", "3 teams"; ``words`` for a plural that isn't just an s ("people"). */
+export function plural(n: number, word: string, words = `${word}s`): string {
+  return `${n} ${n === 1 ? word : words}`
+}

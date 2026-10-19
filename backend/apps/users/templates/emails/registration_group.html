@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{# The client's "Student - Group" registration email (sent from Power       #}
+{# Automate), in the shared layout. Sent to each student registered as a     #}
+{# team, and to a student joining a group by its code.                      #}
+
+{% block title %}{{ BRAND_NAME }}: Registration{% endblock %}
+
+{% block preheader %}Your {{ BRAND_NAME }} registration was successful.{% endblock %}
+
+{% block footer_reason %}emails about your registration{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 24px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ First_Name|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Your <span style="color:#307054;">{{ BRAND_NAME }}</span> registration was successful.
+              </h1>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                This email serves as confirmation of registering for the {{ YEAR }} {{ BRAND_NAME }} Challenge as a team.
+              </p>
+{% endblock %}

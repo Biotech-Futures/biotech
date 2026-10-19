@@ -96,6 +96,10 @@ class GradeBulkItemSerializer(serializers.Serializer):
     criterion = serializers.IntegerField()
     mark = serializers.DecimalField(max_digits=6, decimal_places=2, allow_null=True, required=False)
     comment = serializers.CharField(allow_blank=True, required=False, default="")
+    # The mark and comment the marker started from, sent together: the save is
+    # refused if what's stored has changed since (another marker's edit).
+    expected_mark = serializers.DecimalField(max_digits=6, decimal_places=2, allow_null=True, required=False)
+    expected_comment = serializers.CharField(allow_blank=True, required=False, trim_whitespace=False)
 
 
 class OverallCommentItemSerializer(serializers.Serializer):
@@ -109,6 +113,8 @@ class OverallCommentItemSerializer(serializers.Serializer):
     submission = serializers.IntegerField()
     component = serializers.CharField(allow_blank=True, required=False, default="")
     comment = serializers.CharField(allow_blank=True, default="")
+    # The comment the marker started from: refused if it has changed since.
+    expected_comment = serializers.CharField(allow_blank=True, required=False, trim_whitespace=False)
 
 
 class GradeBulkRequestSerializer(serializers.Serializer):

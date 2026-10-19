@@ -1,9 +1,4 @@
-{% comment %}
-Plain-text alternative, written as text rather than derived from the HTML — see
-the note in submission_confirmation.txt for why deriving it does not work.
-
-Keep the wording here in step with submission_reminder.html.
-{% endcomment %}Hi Group {{ GROUP_NAME }},
+{# Keep the wording in step with submission_reminder.html. #}Hi Group {{ GROUP_NAME }},
 
 This is a reminder to check your team's submission for {{ BRAND_NAME }} {{ YEAR }}.
 

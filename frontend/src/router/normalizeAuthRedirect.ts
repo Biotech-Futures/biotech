@@ -19,6 +19,11 @@ export const normalizeDirectAuthRedirect = () => {
     return
   }
 
+  if (pathname === '/reset-password') {
+    window.history.replaceState(null, '', `/#/auth/reset-password${search}`)
+    return
+  }
+
   if (DIRECT_AUTH_PATHS.includes(pathname)) {
     window.history.replaceState(null, '', `/#${pathname}${search}`)
     return

@@ -1,4 +1,6 @@
+import logging
 from django.contrib.auth import update_session_auth_hash
+from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -6,14 +8,37 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.admin.models import AdminView
 from apps.admin.permissions import IsAdminScoped
-from apps.admin.serializers import BulkUserRowSerializer, bulk_user_error_message
+
+logger = logging.getLogger(__name__)
+from apps.admin.serializers import (
+    BulkUserRowSerializer,
+    SystemEmailPreviewSerializer,
+    SystemEmailTestSendSerializer,
+    SystemEmailSettingsUpdateSerializer,
+    SystemEmailTemplateUpdateSerializer,
+    bulk_user_error_message,
+    serializer_error_message,
+)
+from apps.admin.services.views import (
+    execute_view_query,
+    export_view_csv,
+    serialize_admin_view,
+)
 
 from apps.admin.services.user import (
     query_users, query_user_by_id, query_countries, query_states,
     create_user, bulk_create_users, update_user, update_status,
     bulk_update_status, bulk_update_status_by_filter, delete_user,
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
+)
+from apps.admin.services import guardian_consent
+from apps.admin.services.email_verification import get_credit_balance
+from apps.admin.services.known_university import (
+    add_known_university,
+    delete_known_university,
+    list_known_universities,
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
@@ -34,13 +59,13 @@ from apps.admin.services.resource import (
     query_resources, query_resource_by_id, create_resource, update_resource,
     delete_resource, replace_resource_file, download_resource, access_resource,
     assign_role_to_resource, remove_role_from_resource,
-    list_resource_roles, list_resource_types,
+    list_resource_roles, list_resource_types, _first_error_message,
 )
 from apps.resources.services.upload import upload_resource_file
 from apps.admin.services.announcement import (
     list_announcements, get_announcement_by_id, create_announcement,
-    update_announcement, archive_announcement, delete_announcement, send_announcement_email,
-    list_announcement_groups, list_announcement_roles,
+    update_announcement, archive_announcement, delete_announcement, notify_announcement,
+    list_announcement_groups, list_announcement_roles, list_announcement_merge_tags,
 )
 from apps.admin.services.mentor import get_mentor_list, set_mentor_active
 from apps.admin.services.task import (
@@ -52,6 +77,22 @@ from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
     confirm_mentor_assignments, replace_mentor,
     unassign_mentors, recommend_mentors_for_group,
+)
+from apps.admin.services.system_email import (
+    get_email_log,
+    get_mail_api_state,
+    resend_email,
+    get_email_settings,
+    get_unseen_failures,
+    see_failures,
+    get_email_template,
+    list_email_templates,
+    preview_email_template,
+    restore_email_template,
+    send_test_email,
+    test_recipients,
+    update_email_settings,
+    update_email_template,
 )
 
 
@@ -148,6 +189,79 @@ class UserStatusUpdateView(APIView):
         return Response(result, status=code)
 
 
+class UserSuperviseesView(APIView):
+    """POST: add students to a supervisor or take them off, by student or by
+    group; with ``preview``, only say who would move."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        from apps.admin.services.supervisees import change_supervisees
+
+        result = change_supervisees(int(user_id), request.data, initiated_by=request.user)
+        if result.get("data") is not None:
+            return Response(result)
+        missing = result["msg"].endswith("not found")
+        return Response(result, status=status.HTTP_404_NOT_FOUND if missing else status.HTTP_400_BAD_REQUEST)
+
+
+GUARDIAN_CONSENT_STATUS_CODES = {
+    guardian_consent.SENT: status.HTTP_200_OK,
+    guardian_consent.OK: status.HTTP_200_OK,
+    guardian_consent.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    guardian_consent.INVALID: status.HTTP_400_BAD_REQUEST,
+    guardian_consent.THROTTLED: status.HTTP_429_TOO_MANY_REQUESTS,
+    guardian_consent.DISABLED: status.HTTP_409_CONFLICT,
+    guardian_consent.SEND_FAILED: status.HTTP_502_BAD_GATEWAY,
+}
+
+
+class UserGuardianConsentRequestView(APIView):
+    """POST: email the student's guardian the consent form."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.send_guardian_consent_request(int(user_id), initiated_by=request.user)
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
+
+
+class UserGuardianConsentsView(APIView):
+    """GET: the consents signed on the platform for a student, with signatures."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id):
+        result = guardian_consent.list_guardian_consents(int(user_id))
+        code = status.HTTP_200_OK if result["data"] is not None else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class UserGuardianConsentRecordView(APIView):
+    """GET: a signed consent's record as a PDF download, read through the
+    backend so no link to it ever leaves the admin page."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, user_id, consent_id):
+        record = guardian_consent.guardian_consent_record(int(user_id), int(consent_id))
+        if record is None:
+            return Response({"msg": "Consent not found.", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        filename, pdf = record
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
+
+
+class UserGuardianConsentWithdrawView(APIView):
+    """POST {mediaOnly}: record that the guardian withdrew consent, or only
+    media consent."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        result = guardian_consent.withdraw_guardian_consent(
+            int(user_id), media_only=request.data.get("mediaOnly") is True, initiated_by=request.user,
+        )
+        return Response(result, status=GUARDIAN_CONSENT_STATUS_CODES[result["status"]])
+
+
 class UserBulkStatusUpdateView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
@@ -236,7 +350,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -254,7 +368,7 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -289,7 +403,7 @@ class GroupListView(APIView):
     """POST /api/v1/group - Create a new group"""
 
     def post(self, request):
-        result = create_group(name=request.data.get("name"))
+        result = create_group(name=request.data.get("name"), created_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -471,7 +585,7 @@ class MatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_student_assignments(request.data)
+        result = confirm_student_assignments(request.data, created_by=request.user)
         return Response({"msg": "Assignments confirmed successfully", "data": result})
 
 
@@ -695,15 +809,21 @@ class ResourceDetailView(APIView):
     """PUT /api/v1/resource/{id} - Update resource"""
 
     def put(self, request, resource_id):
-        result = update_resource(resource_id, request.data)
-        code = status.HTTP_200_OK if result.get(
-            "data") else status.HTTP_400_BAD_REQUEST
-        return Response(result, status=code)
+        return self._update(request, resource_id)
 
     """PATCH /api/v1/resource/{id} - Update resource (partial)"""
 
     def patch(self, request, resource_id):
-        result = update_resource(resource_id, request.data)
+        return self._update(request, resource_id)
+
+    def _update(self, request, resource_id):
+        try:
+            result = update_resource(resource_id, request.data)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to update resource", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -722,7 +842,8 @@ class ResourceDownloadView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, resource_id):
-        result = download_resource(resource_id)
+        field = request.query_params.get("field", "file")
+        result = download_resource(resource_id, field=field)
         data = result.get("data")
         if not data:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
@@ -745,7 +866,8 @@ class ResourceAccessView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, resource_id):
-        result = access_resource(resource_id)
+        field = request.query_params.get("field", "file")
+        result = access_resource(resource_id, field=field)
         data = result.get("data")
         if not data:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
@@ -774,7 +896,10 @@ class ResourceUploadView(APIView):
             )
         except ValidationError as exc:
             return Response(
-                {"msg": exc.detail or "Failed to upload resource", "errors": exc.detail},
+                {
+                    "msg": _first_error_message(exc.detail) or "Failed to upload resource",
+                    "errors": exc.detail,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except ValueError as exc:
@@ -789,19 +914,53 @@ class ResourceFileReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
     def post(self, request, resource_id):
         uploaded_file = request.FILES.get("file")
-        if uploaded_file is None:
+        slides_file = request.FILES.get("slides_file") or request.FILES.get("slides")
+        if uploaded_file is None and slides_file is None:
             return Response(
                 {"msg": "No file was uploaded.", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        payload = {
-            **request.data.dict(),
-            "file_bytes": uploaded_file.read(),
-            "file_name": uploaded_file.name,
-            "file_mime_type": uploaded_file.content_type or "application/octet-stream",
-            "file_size": uploaded_file.size,
-        }
-        result = replace_resource_file(resource_id, payload)
+        data_dict = request.data.dict() if hasattr(request.data, "dict") else dict(request.data)
+        payload = {**data_dict}
+        if uploaded_file is not None:
+            file_bytes = uploaded_file.read()
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
+            payload.update({
+                "file_bytes": file_bytes,
+                "file_name": uploaded_file.name,
+                "file_mime_type": uploaded_file.content_type or "application/octet-stream",
+                "file_size": uploaded_file.size,
+                "uploaded_file": uploaded_file,
+            })
+        if slides_file is not None:
+            slides_bytes = slides_file.read()
+            try:
+                slides_file.seek(0)
+            except Exception:
+                pass
+            payload.update({
+                "slides_file_bytes": slides_bytes,
+                "slides_file_name": slides_file.name,
+                "slides_file_mime_type": slides_file.content_type or "application/pdf",
+                "slides_file_size": slides_file.size,
+                "slides_file": slides_file,
+            })
+        try:
+            result = replace_resource_file(resource_id, payload)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to replace resource file", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.exception("Failed to replace resource file: %s", exc)
+            return Response(
+                {"msg": str(exc) or "Failed to replace resource file", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -853,7 +1012,13 @@ class ResourceRemoveRoleView(APIView):
                 {"msg": "roleId is required", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = remove_role_from_resource(resource_id, role_id)
+        try:
+            result = remove_role_from_resource(resource_id, role_id)
+        except ValidationError as exc:
+            return Response(
+                {"msg": exc.detail or "Failed to remove role", "errors": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -954,25 +1119,11 @@ class AnnouncementNotifyView(APIView):
             if hasattr(request, "user") and request.user.is_authenticated
             else None
         )
-        result = send_announcement_email(
-            announcement_id, initiated_by=initiated_by,
-        )
-
-        delivery_status = result.get("status")
-        # 200 — every recipient accepted.
-        # 207 — at least one delivered, at least one failed (Multi-Status).
-        # 502 — mail backend was reached but no recipient accepted (or the
-        #       backend itself errored) — distinguishes "broken pipe to SMTP"
-        #       from a client-side validation problem.
-        # 400 — no recipients to send to, or the announcement does not exist.
-        if delivery_status == "success":
-            code = status.HTTP_200_OK
-        elif delivery_status == "partial":
-            code = status.HTTP_207_MULTI_STATUS
-        elif delivery_status == "failed":
-            code = status.HTTP_502_BAD_GATEWAY
-        else:  # "skipped" — no recipients / unknown announcement
-            code = status.HTTP_400_BAD_REQUEST
+        result = notify_announcement(announcement_id, initiated_by=initiated_by)
+        # 202 — queued, to send in its turn after any bulk email going from
+        #       the same mailbox (see ``send_guard``).
+        # 400 — the announcement does not exist.
+        code = status.HTTP_202_ACCEPTED if result["status"] == "queued" else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
 
 
@@ -991,6 +1142,15 @@ class AnnouncementRolesListView(APIView):
 
     def get(self, request):
         result = list_announcement_roles()
+        return Response(result)
+
+
+class AnnouncementMergeTagsView(APIView):
+    """GET /api/v1/announcement/merge-tags - The merge tags a composer offers"""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result = list_announcement_merge_tags()
         return Response(result)
 
 
@@ -1141,6 +1301,7 @@ class AdminTaskListCreateView(APIView):
             task_type=task_type,
             sort_by=request.query_params.get("sortBy", "createdAt"),
             sort_order=request.query_params.get("sortOrder", "desc"),
+            search=(request.query_params.get("search") or "").strip() or None,
         )
         return Response(result)
 
@@ -1239,5 +1400,459 @@ class AdminSetPasswordView(APIView):
         return Response({"msg": "Password set successfully", "data": True})
 
 
+# ============================================================================
+# USER VIEW ENDPOINTS
+# ============================================================================
+class AdminViewListCreateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        tab = request.query_params.get("tab", "all").lower().strip()
+        role = request.query_params.get("role")
+        search = request.query_params.get("search")
+
+        qs = AdminView.objects.all()
+        if tab == "default":
+            qs = qs.filter(is_default=True)
+        elif tab == "custom":
+            qs = qs.filter(is_default=False)
+
+        if role:
+            qs = qs.filter(target_roles__contains=role)
+
+        if search:
+            s = search.strip()
+            qs = qs.filter(Q(name__icontains=s) | Q(description__icontains=s))
+
+        items = [serialize_admin_view(v) for v in qs]
+        return Response({
+            "msg": "Views retrieved successfully",
+            "data": {
+                "items": items,
+                "total": len(items),
+            }
+        })
+
+    def post(self, request):
+        name = (request.data.get("name") or "").strip()
+        if not name:
+            return Response(
+                {"msg": "View name is required", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if AdminView.objects.filter(name__iexact=name).exists():
+            return Response(
+                {"msg": f"A view named '{name}' already exists", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        view = AdminView.objects.create(
+            name=name,
+            description=(request.data.get("description") or "").strip(),
+            created_by=request.user,
+            is_default=False,
+            target_roles=request.data.get("targetRoles", request.data.get("target_roles", [])),
+            account_status=request.data.get("accountStatus", request.data.get("account_status", "all")),
+            engagement_status=request.data.get("engagementStatus", request.data.get("engagement_status", "all")),
+            advanced_conditions=request.data.get("advancedConditions", request.data.get("advanced_conditions", [])),
+            visible_columns=request.data.get("visibleColumns", request.data.get("visible_columns", ["name", "email", "role", "status"])),
+        )
+
+        return Response(
+            {"msg": "View created successfully", "data": serialize_admin_view(view)},
+            status=status.HTTP_201_CREATED,
+        )
 
 
+class AdminViewDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({
+            "msg": "View retrieved successfully",
+            "data": serialize_admin_view(view),
+        })
+
+    def put(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if view.is_default:
+            return Response(
+                {"msg": "System default views cannot be modified", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = request.data.get("name")
+        if name is not None:
+            name = name.strip()
+            if not name:
+                return Response(
+                    {"msg": "View name cannot be empty", "data": None},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if AdminView.objects.filter(name__iexact=name).exclude(id=view.id).exists():
+                return Response(
+                    {"msg": f"A view named '{name}' already exists", "data": None},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            view.name = name
+
+        if "description" in request.data:
+            view.description = (request.data["description"] or "").strip()
+        if "targetRoles" in request.data or "target_roles" in request.data:
+            view.target_roles = request.data.get("targetRoles", request.data.get("target_roles", []))
+        if "accountStatus" in request.data or "account_status" in request.data:
+            view.account_status = request.data.get("accountStatus", request.data.get("account_status", "all"))
+        if "engagementStatus" in request.data or "engagement_status" in request.data:
+            view.engagement_status = request.data.get("engagementStatus", request.data.get("engagement_status", "all"))
+        if "advancedConditions" in request.data or "advanced_conditions" in request.data:
+            view.advanced_conditions = request.data.get("advancedConditions", request.data.get("advanced_conditions", []))
+        if "visibleColumns" in request.data or "visible_columns" in request.data:
+            view.visible_columns = request.data.get("visibleColumns", request.data.get("visible_columns", []))
+
+        view.save()
+        return Response({
+            "msg": "View updated successfully",
+            "data": serialize_admin_view(view),
+        })
+
+    def delete(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if view.is_default:
+            return Response(
+                {"msg": "System default views cannot be deleted", "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        view.delete()
+        return Response({"msg": "View deleted successfully", "data": True})
+
+
+class AdminViewBulkDeleteView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request):
+        view_ids = request.data.get("viewIds") or request.data.get("view_ids") or []
+        if not view_ids:
+            return Response(
+                {"msg": "No view IDs provided", "data": {"deletedCount": 0}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deleted_count, _ = AdminView.objects.filter(
+            id__in=view_ids,
+            is_default=False,
+        ).delete()
+
+        return Response({
+            "msg": "Views deleted successfully",
+            "data": {"deletedCount": deleted_count},
+        })
+
+
+class AdminViewRunView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        page = int(request.query_params.get("page", 1))
+        limit = int(request.query_params.get("limit", 25))
+        search = request.query_params.get("search")
+        sort_by = request.query_params.get("sortBy", "createdAt")
+        sort_order = request.query_params.get("sortOrder", "desc")
+
+        result = execute_view_query(
+            view=view,
+            page=page,
+            limit=limit,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+
+        return Response({
+            "msg": "View executed successfully",
+            "data": result,
+        })
+
+
+class AdminViewExportCsvView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, view_id):
+        try:
+            view = AdminView.objects.get(id=view_id)
+        except AdminView.DoesNotExist:
+            return Response(
+                {"msg": "View not found", "data": None},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        search = request.query_params.get("search")
+        sort_by = request.query_params.get("sortBy", "createdAt")
+        sort_order = request.query_params.get("sortOrder", "desc")
+        return export_view_csv(view, search=search, sort_by=sort_by, sort_order=sort_order)
+
+
+# ============================================================================
+# SYSTEM EMAIL ENDPOINTS
+# ============================================================================
+class SystemEmailTemplateListView(APIView):
+    """GET /api/v1/admin/email-template/ — every type, its tags and on/off state."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_email_templates())
+
+
+class SystemEmailTemplateDetailView(APIView):
+    """GET/PATCH /api/v1/admin/email-template/<key>/ — read or save one type.
+
+    PATCH is field-optional: send only ``subject``/``body`` to edit wording, or
+    only ``enabled`` to flip the switch, so the two never overwrite each other.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, key):
+        result = get_email_template(key)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+    def patch(self, request, key):
+        serializer = SystemEmailTemplateUpdateSerializer(
+            data=request.data, context={"key": key}
+        )
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = update_email_template(
+            key, dict(serializer.validated_data), requested_by=request.user
+        )
+        if result.get("data") is None:
+            # Unknown key is a 404; a rejected edit (locked type/tag) is a 400.
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if result.get("msg", "").startswith("Unknown email type")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(result, status=code)
+        return Response(result)
+
+
+class SystemEmailTemplatePreviewView(APIView):
+    """POST /api/v1/admin/email-template/<key>/preview/ — render sample data.
+
+    Accepts the editor's unsaved ``subject``/``body`` (optional) so the admin
+    can see changes before saving. Sends nothing.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        serializer = SystemEmailPreviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = preview_email_template(key, **serializer.validated_data)
+        if result.get("data") is None:
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if result.get("msg", "").startswith("Unknown email type")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(result, status=code)
+        return Response(result)
+
+
+class SystemEmailTemplateTestRecipientsView(APIView):
+    """GET /api/v1/admin/email-template/<key>/test-recipients/ — who a test
+    can be "of": the email's groups or people, or null when it has none."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, key):
+        result = test_recipients(key)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class SystemEmailTemplateTestSendView(APIView):
+    """POST /api/v1/admin/email-template/<key>/test-send/ — send a test.
+
+    To the address in ``to``, else the requesting admin, with the details of
+    ``of`` when one is picked; the enabled toggle is deliberately bypassed so
+    a disabled email can still be tested.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        serializer = SystemEmailTestSendSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = send_test_email(
+            key, requested_by=request.user, **serializer.validated_data
+        )
+        if result.get("data") is None:
+            code = (
+                status.HTTP_404_NOT_FOUND
+                if result.get("msg", "").startswith("Unknown email type")
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(result, status=code)
+        return Response(result)
+
+
+class SystemEmailTemplateRestoreView(APIView):
+    """POST /api/v1/admin/email-template/<key>/restore-default/ — drop edits.
+
+    Returns the type to its template-file wording while preserving whether it
+    is switched on, so restoring is never a hidden enable.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = restore_email_template(key, requested_by=request.user)
+        code = status.HTTP_200_OK if result.get("data") else status.HTTP_404_NOT_FOUND
+        return Response(result, status=code)
+
+
+class SystemEmailLogView(APIView):
+    """GET /api/v1/admin/email-log/ — each system email's last send, who
+    sent it, and who its latest sends couldn't reach."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_email_log())
+
+
+class SystemEmailMailApiView(APIView):
+    """GET /api/v1/admin/email-log/mail-api/ — whether bounced emails can be
+    checked through Hostinger's Mail API (see ``email_log.mail_api_state``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_mail_api_state())
+
+
+class SystemEmailResendView(APIView):
+    """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
+    email again to the people it missed, queued to send in its turn (202),
+    or 400 with why it can't go."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = resend_email(key, requested_by=request.user)
+        code = status.HTTP_202_ACCEPTED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
+class SystemEmailUnseenFailuresView(APIView):
+    """GET /api/v1/admin/email-log/unseen/ — how many people sends couldn't
+    reach since an admin last looked at Failed Sending Emails. POST marks
+    them seen, for every admin."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_unseen_failures())
+
+    def post(self, request):
+        return Response(see_failures())
+
+
+class SystemEmailSettingsView(APIView):
+    """GET/PATCH /api/v1/admin/email-settings/ — the global on/off switch."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_email_settings())
+
+    def patch(self, request):
+        serializer = SystemEmailSettingsUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"msg": serializer_error_message(serializer.errors), "data": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = update_email_settings(
+            serializer.validated_data["enabled"], requested_by=request.user
+        )
+        return Response(result)
+
+
+class EmailVerificationCreditsView(APIView):
+    """GET /api/v1/admin/email-verification/credits/ — the QuickEmailVerification
+    balance, its low-credit alert levels and today's lookups. Read-only."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_credit_balance())
+
+
+class KnownUniversityListCreateView(APIView):
+    """GET/POST /api/v1/admin/known-university/ — the names the registration
+    school check treats as universities (optional ``?search=`` on name)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_known_universities(request.query_params.get("search")))
+
+    def post(self, request):
+        name = request.data.get("name") if isinstance(request.data, dict) else None
+        result, code = add_known_university(name, actor=request.user)
+        return Response(result, status=code)
+
+
+class KnownUniversityDetailView(APIView):
+    """DELETE /api/v1/admin/known-university/<id>/ — take a name off the list."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def delete(self, request, university_id):
+        result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)

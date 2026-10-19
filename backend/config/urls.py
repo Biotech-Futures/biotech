@@ -78,6 +78,7 @@ _api_v1_patterns = [
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
     path("grading/", include("apps.grading.urls")),
+    path("management/", include("apps.management.urls")),
     # Submissions is v1-only: it has no legacy unprefixed callers to support,
     # so it is deliberately left out of _DUAL_MOUNTS.
     path("submissions/", include("apps.submissions.urls")),
@@ -104,7 +105,6 @@ urlpatterns = [
     path("announcements/", include("apps.announcements.urls")),
     path("audit/", include("apps.audit.urls")),
     path("matching/", include("apps.matching_runtime.urls")),
-    path("certificates/", include("apps.certificates.urls")),
 
     path("api-auth/", include("rest_framework.urls")),  # browsable API login
 
@@ -132,7 +132,6 @@ if settings.DEBUG:
             {"document_root": settings.MEDIA_ROOT},
         ),
     ]
-    
     # Local managed storage returns /media/... URLs. Development servers must
     # expose those files so event banners and other uploaded media can render.
     # Local development stores uploaded event banners under MEDIA_ROOT instead

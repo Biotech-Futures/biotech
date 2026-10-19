@@ -1,0 +1,24 @@
+{% extends "emails/base.html" %}
+{# The client's "parent/guardian permission received" email to the guardian  #}
+{# (sent from Power Automate), in the shared layout. Sent once they sign the  #}
+{# consent form on the platform.                                              #}
+
+{% block title %}{{ BRAND_NAME }}: Parent/Guardian Permission Received{% endblock %}
+
+{% block preheader %}Thank you for signing the permission form for {{ STUDENT_NAME }}.{% endblock %}
+
+{% block footer_reason %}emails about your student's participation{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 24px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ GUARDIAN_NAME|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Your <span style="color:#307054;">{{ BRAND_NAME }}</span> permission form has been received.
+              </h1>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Thank you for signing the permission form for {{ STUDENT_NAME }} to participate in the {{ BRAND_NAME }} Challenge. Should you have any questions please don't hesitate to reach out to our team at <a href="mailto:{{ SENDER_EMAIL }}" style="color:#307054; text-decoration:underline; font-weight:600;">{{ SENDER_EMAIL }}</a>
+              </p>
+{% endblock %}

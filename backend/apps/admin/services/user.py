@@ -2,24 +2,33 @@
 TypeScript User Module Conversion to Python
 Literal translation from admin/apps/server/src/module/user/
 """
+import re
+from datetime import datetime
+
 from django.db import transaction, IntegrityError
 from django.utils import timezone
-from django.db.models import Exists, OuterRef, Q, ProtectedError
+from django.db.models import Count, Exists, Max, OuterRef, Q, ProtectedError, Subquery, Value
+from django.db.models.functions import Concat
 from typing import List, Dict, Any, Optional
 
 # Import models
 from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
-    AreasOfInterest, UserInterest, StudentSupervisor
+    AreasOfInterest, UserInterest, StudentSupervisor, GuardianConsent
 )
 from apps.users.models.admin_scope import AdminScope
+from apps.users.models.mentor_availability import MentorAvailability
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
     group_name_sort_key,
 )
-from apps.groups.services import sync_supervisor_memberships_for_student
+from apps.groups.services import sync_supervisor_memberships, sync_supervisor_memberships_for_student
+from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
+from apps.services.models import LoginToken, PasswordResetToken
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 
 
 # ============================================================================
@@ -188,34 +197,106 @@ def upsert_student_profile(
     joinperm_response_id: Any = _UNSET,
     state_id: Optional[int] = None,
     country_id: Optional[int] = None,
+    media_consent: Any = _UNSET,
 ) -> None:
     """
     Create or update student profile.
 
-    Guardian names default to the student's own name when not supplied (keeps
-    the single-create behaviour). supervisor_email=_UNSET leaves the link
+    Guardian fields left as None keep what is on file; on a new profile the
+    names default to the student's own (the columns can't be blank). Supplying
+    any guardian field clears a pending guardian change. supervisor_email=_UNSET leaves the link
     untouched; a value looks up — or, with a supervisor name, get_or_creates —
     the supervisor and also records the StudentSupervisor join. joinperm_response_id
     =_UNSET keeps the current consent state; a value (or blank) sets
-    joinperm_responseID + has_join_permission.
+    joinperm_responseID + has_join_permission. Recording a new response id while
+    a guardian change is pending promotes the pending guardian, as the
+    join-permission webhook does.
     """
+    existing_profile = StudentProfile.objects.filter(user_id=user_id).first()
+
+    # A guardian's name is only defaulted to the student's own (the columns
+    # can't be blank) when creating a profile. Edits keep whoever is on file.
     profile_data = {
-        "pg_first_name": (guardian_first_name or first_name),
-        "pg_last_name": (guardian_last_name or last_name),
+        "pg_first_name": (
+            guardian_first_name
+            or (existing_profile.pg_first_name if existing_profile else first_name)
+        ),
+        "pg_last_name": (
+            guardian_last_name
+            or (existing_profile.pg_last_name if existing_profile else last_name)
+        ),
         "parent_guardian_flag": True,
         "school_name": (school_name or "").strip(),
         "year_lvl": str(year_level or ""),
     }
     if guardian_email is not None:
         profile_data["pg_email"] = (guardian_email or "").strip() or None
+    guardian_supplied = any(
+        v is not None for v in (guardian_first_name, guardian_last_name, guardian_email)
+    )
+    if guardian_supplied:
+        # An admin setting the guardian outright supersedes any change the
+        # student has pending.
+        profile_data.update(
+            pending_pg_first_name="",
+            pending_pg_last_name="",
+            pending_pg_email=None,
+            pending_pg_requested_at=None,
+        )
+
+    existing_granted_at = (
+        existing_profile.joinperm_granted_at
+        if existing_profile and existing_profile.has_join_permission
+        else None
+    )
 
     if joinperm_response_id is not _UNSET:
         response_id = (joinperm_response_id or "").strip() or None
         profile_data["joinperm_responseID"] = response_id
         profile_data["has_join_permission"] = response_id is not None
+        if (
+            response_id is not None
+            and not guardian_supplied
+            and existing_profile is not None
+            and existing_profile.has_join_permission
+            and existing_profile.has_pending_guardian
+            and response_id != existing_profile.joinperm_responseID
+        ):
+            # New consent while a guardian change is pending comes from the new
+            # guardian — same rule as the join-permission webhook.
+            profile_data.update(
+                pg_first_name=existing_profile.pending_pg_first_name,
+                pg_last_name=existing_profile.pending_pg_last_name,
+                pg_email=existing_profile.pending_pg_email,
+                pending_pg_first_name="",
+                pending_pg_last_name="",
+                pending_pg_email=None,
+                pending_pg_requested_at=None,
+            )
+            existing_granted_at = None
     else:
-        profile_data["has_join_permission"] = True
-        profile_data["joinperm_responseID"] = None
+        # _UNSET means "don't touch consent": keep whatever is on record (a
+        # brand-new profile has none). Consent is granted only by the external
+        # join-permission webhook or an explicit response id — never as a side
+        # effect of an admin editing a student's school / year / supervisor.
+        profile_data["has_join_permission"] = bool(
+            existing_profile and existing_profile.has_join_permission
+        )
+        profile_data["joinperm_responseID"] = (
+            existing_profile.joinperm_responseID if existing_profile else None
+        )
+
+    if profile_data["has_join_permission"]:
+        profile_data["joinperm_granted_at"] = existing_granted_at or timezone.now()
+    else:
+        profile_data["joinperm_granted_at"] = None
+
+    # A media choice only stands alongside consent to take part; revoking that
+    # consent clears it, as a withdrawal does.
+    if media_consent is not _UNSET and profile_data["has_join_permission"]:
+        profile_data["media_consent"] = bool(media_consent)
+    elif joinperm_response_id is not _UNSET and not profile_data["has_join_permission"]:
+        profile_data["media_consent"] = None
 
     if supervisor_email is not _UNSET:
         profile_data["supervisor_id"] = _resolve_supervisor_id(
@@ -230,6 +311,9 @@ def upsert_student_profile(
     student_profile, _ = StudentProfile.objects.update_or_create(
         user_id=user_id,
         defaults=profile_data,
+        # Added by an admin (one at a time or by import): the student can still
+        # edit their own details.
+        create_defaults={**profile_data, "registered_by": StudentProfile.RegisteredBy.ADMIN},
     )
 
     supervisor_id = profile_data.get("supervisor_id")
@@ -329,6 +413,236 @@ def _user_state_dict(user: User) -> Optional[Dict[str, Any]]:
     }
 
 
+def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
+    """Guardian, consent and pending-guardian fields for the admin user payload."""
+    sp = student_profile
+    pending = None
+    if sp and sp.has_pending_guardian:
+        pending = {
+            "firstName": sp.pending_pg_first_name,
+            "lastName": sp.pending_pg_last_name,
+            "email": sp.pending_pg_email,
+            "requestedAt": sp.pending_pg_requested_at.isoformat(),
+        }
+    return {
+        "guardianFirstName": sp.pg_first_name if sp else None,
+        "guardianLastName": sp.pg_last_name if sp else None,
+        "guardianEmail": sp.pg_email if sp else None,
+        "joinPermissionReceived": sp.has_join_permission if sp else False,
+        "joinpermResponseId": (sp.joinperm_responseID or None) if sp else None,
+        "joinPermissionGrantedAt": (
+            sp.joinperm_granted_at.isoformat() if sp and sp.joinperm_granted_at else None
+        ),
+        "pendingGuardian": pending,
+        "mediaConsent": sp.media_consent if sp else None,
+        # Only on profiles loaded with_consent_request_sent_at().
+        "mediaConsentAt": _media_consent_at(sp),
+        "consentRequestSentAt": _iso(getattr(sp, "last_consent_request_at", None)),
+    }
+
+
+def _media_consent_at(sp: Optional[StudentProfile]) -> Optional[str]:
+    """When the media answer on file was given: the signing of the standing
+    signed form, or its media withdrawal. None when an admin recorded an
+    answer the form doesn't give."""
+    if sp is None or sp.media_consent is None:
+        return None
+    signed_at = getattr(sp, "form_signed_at", None)
+    if signed_at is None:
+        return None
+    withdrawn_at = getattr(sp, "form_media_withdrawn_at", None)
+    if (bool(sp.form_media_consent) and withdrawn_at is None) != sp.media_consent:
+        return None
+    return _iso(withdrawn_at or signed_at)
+
+
+def _iso(value) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+def with_consent_request_sent_at(queryset):
+    """Student profiles with when a consent request was last sent, and their
+    standing signed form's media answer and its times, in the same query, for
+    the admin payload."""
+    form = GuardianConsent.objects.filter(student=OuterRef("pk"), withdrawn_at__isnull=True).order_by("-signed_at")
+    return queryset.annotate(
+        last_consent_request_at=Max("consent_requests__created_at"),
+        form_signed_at=Subquery(form.values("signed_at")[:1]),
+        form_media_consent=Subquery(form.values("media_consent")[:1]),
+        form_media_withdrawn_at=Subquery(form.values("media_withdrawn_at")[:1]),
+    )
+
+
+GUARDIAN_AUDIT_KEYS = (
+    "guardianFirstName",
+    "guardianLastName",
+    "guardianEmail",
+    "joinPermissionReceived",
+    "joinpermResponseId",
+    "mediaConsent",
+    "pendingGuardian",
+)
+
+
+def _consent_inputs(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """The admin form's consent tick boxes, as ``upsert_student_profile`` takes
+    what they give.
+
+    ``consentGiven: true`` records the guardian's consent to the student taking
+    part, under an ``ADMIN-`` reference so it isn't flagged as having no form
+    on record; a pending guardian who consents this way becomes the guardian.
+    ``mediaConsent`` goes with it, or ``mediaConsent: true`` on its own records
+    media consent given later. Unticking is a withdrawal (``_withdrawals``).
+    An explicit ``joinpermResponseId`` still wins: "" revokes consent.
+    """
+    inputs: Dict[str, Any] = {}
+    giving = input_data.get("consentGiven") is True
+    if "joinpermResponseId" in input_data:
+        inputs["joinperm_response_id"] = input_data["joinpermResponseId"]
+    elif giving:
+        inputs["joinperm_response_id"] = f"ADMIN-{timezone.now():%Y%m%d%H%M%S}"
+    media = input_data.get("mediaConsent")
+    if isinstance(media, bool) and (giving or media):
+        inputs["media_consent"] = media
+    return inputs
+
+
+def _withdrawals(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> None:
+    """Unticking a consent on the admin form records the guardian's
+    withdrawal, as the detail sheet's buttons do: a signed consent is marked
+    withdrawn rather than quietly cleared."""
+    from apps.users import guardian_consent
+
+    profile = StudentProfile.objects.filter(user_id=user_id).first()
+    if profile is None or not profile.has_join_permission:
+        return
+    if input_data.get("consentGiven") is False:
+        guardian_consent.withdraw(profile, media_only=False, initiated_by=initiated_by)
+    elif input_data.get("mediaConsent") is False and profile.media_consent is not False:
+        guardian_consent.withdraw(profile, media_only=True, initiated_by=initiated_by)
+
+
+def _guardian_audit_state(user_id: int) -> Dict[str, Any]:
+    guardian = _guardian_dict(StudentProfile.objects.filter(user_id=user_id).first())
+    return {key: guardian[key] for key in GUARDIAN_AUDIT_KEYS}
+
+
+# Audit actions that change a user's details, for "Last edited by": by an
+# admin, the user themselves or their supervisor.
+EDIT_ACTIONS = (
+    "update",
+    "role_change",
+    "status_change",
+    "guardian_update",
+    "guardian_consent_withdrawn",
+    "guardian_media_consent_withdrawn",
+    "profile_update",
+    "supervisees_update",
+)
+_NO_EDIT = {"lastEditedBy": None, "lastEditedAt": None}
+
+
+def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
+    """Who last changed each of ``user_ids``' details and when: their newest
+    edit in the audit log made by someone, not by the platform itself."""
+    latest = (
+        AuditLog.objects.filter(
+            entity_type="user",
+            entity_id__in=list(user_ids),
+            action__in=EDIT_ACTIONS,
+            actor_user__isnull=False,
+        )
+        .order_by()
+        .values("entity_id")
+        .annotate(latest=Max("id"))
+        .values_list("latest", flat=True)
+    )
+    edits: Dict[int, Dict[str, Any]] = {}
+    for entry in AuditLog.objects.filter(id__in=list(latest)).select_related("actor_user"):
+        actor = entry.actor_user
+        edits[entry.entity_id] = {
+            "lastEditedBy": f"{actor.first_name or ''} {actor.last_name or ''}".strip() or actor.email,
+            "lastEditedAt": entry.created_at.isoformat(),
+        }
+    return edits
+
+
+# What a mentor gives registering (apps.users.mentor_registration), checked
+# the same way when an admin changes it.
+MENTOR_BACKGROUNDS = tuple(choice for choice, _ in MentorProfile.BackgroundChoices.choices)
+MENTOR_STUDYING = ("undergraduate", "postgraduate")
+MENTOR_STUDY_YEARS = ("1", "2", "3", "4", "5+")
+MENTOR_MAX_WORDS = 150
+
+# Payload key: mentor profile field.
+MENTOR_FIELDS = {
+    "mentorBackground": "background",
+    "mentorInstitution": "institution",
+    "mentorCompany": "company",
+    "mentorUniversityYear": "university_year",
+    "mentorFieldOfStudy": "field_of_study",
+    "mentorReason": "mentor_reason",
+    "mentorRelevantBackground": "relevant_background",
+    "mentorMentoringApproach": "mentoring_approach",
+    "mentorMaxGroupCount": "max_group_count",
+    "mentorWeeklyHours": "weekly_hours",
+}
+MENTOR_MAX_WEEKLY_HOURS = 40
+
+
+def _natural_key(name: str) -> list:
+    """BTF2 before BTF10."""
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name or "")]
+
+
+def member_extras(user_ids) -> Dict[int, Dict[str, list]]:
+    """Each mentor's or supervisor's weekly availability (mentors have it)
+    and every group they're in, with its students counted, by user id: in a
+    few queries however many."""
+    user_ids = list(user_ids)
+    extras: Dict[int, Dict[str, list]] = {uid: {"availability": [], "groups": []} for uid in user_ids}
+    if not user_ids:
+        return extras
+    for slot in MentorAvailability.objects.filter(mentor_user_id__in=user_ids).order_by(
+        "weekday", "start_time", "end_time"
+    ):
+        extras[slot.mentor_user_id]["availability"].append({
+            "weekday": slot.weekday,
+            "start": slot.start_time.strftime("%H:%M"),
+            "end": slot.end_time.strftime("%H:%M"),
+        })
+    memberships = list(
+        GroupMembership.objects.filter(
+            user_id__in=user_ids, left_at__isnull=True, group__deleted_at__isnull=True,
+        ).select_related("group")
+    )
+    students = dict(
+        GroupMembership.objects.filter(
+            group_id__in={m.group_id for m in memberships},
+            left_at__isnull=True,
+            membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        ).values_list("group_id").annotate(count=Count("id"))
+    )
+    for membership in sorted(memberships, key=lambda m: _natural_key(m.group.group_name)):
+        extras[membership.user_id]["groups"].append({
+            "id": membership.group_id,
+            "name": membership.group.group_name,
+            "studentCount": students.get(membership.group_id, 0),
+        })
+    return extras
+
+
+def _mentor_dict(mp: Optional[MentorProfile], extra: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
+    """A mentor's details for the admin payload: their affiliation and where
+    they work or study, their answers, capacity, weekly availability and
+    groups."""
+    return {
+        **{key: (getattr(mp, field) if mp else None) for key, field in MENTOR_FIELDS.items()},
+        "mentorAvailability": (extra or {}).get("availability", []),
+        "mentorGroups": (extra or {}).get("groups", []),
+    }
+
+
 def build_user_dict(user: User, role_str: Optional[str] = None,
                    state: Optional[Dict[str, Any]] = None,
                    group_name: Optional[str] = None,
@@ -338,7 +652,8 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
                    is_admin: bool = False,
                    supervisor_name: Optional[str] = None,
                    supervisor_email_val: Optional[str] = None,
-                   supervisees: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                   supervisees: Optional[List[Dict[str, Any]]] = None,
+                   mentor_extra: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Build a user dictionary with all related data.
     """
@@ -384,12 +699,15 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "state": state,
         "groupName": group_name,
         "schoolName": school_name,
-        "mentorBackground": mentor_profile.background if mentor_profile else None,
-        "mentorInstitution": mentor_profile.institution if mentor_profile else None,
-        "mentorReason": mentor_profile.mentor_reason if mentor_profile else None,
-        "mentorMaxGroupCount": mentor_profile.max_group_count if mentor_profile else None,
+        **_mentor_dict(
+            mentor_profile,
+            mentor_extra if mentor_extra is not None or not mentor_profile
+            else member_extras([user.id]).get(user.id),
+        ),
+        # Every group a supervisor is in: their students' groups.
+        "supervisorGroups": member_extras([user.id])[user.id]["groups"] if supervisor_profile else [],
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
-        "joinPermissionReceived": student_profile.has_join_permission if student_profile else False,
+        **_guardian_dict(student_profile),
         "interests": interests,
         "isAdmin": is_admin,
         "isActive": user.is_active,
@@ -401,6 +719,7 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "supervisorName": supervisor_name,
         "supervisorEmail": supervisor_email_val,
         "supervisees": supervisees or [],
+        **last_edits([user.id]).get(user.id, _NO_EDIT),
     }
 
 
@@ -413,7 +732,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     except User.DoesNotExist:
         return None
 
-    student_profile = StudentProfile.objects.filter(user_id=user_id).first()
+    student_profile = with_consent_request_sent_at(StudentProfile.objects.filter(user_id=user_id)).first()
     supervisor_profile = SupervisorProfile.objects.filter(user_id=user_id).first()
     mentor_profile = MentorProfile.objects.filter(user_id=user_id).first()
     user_is_admin = is_admin_user(user_id)
@@ -449,6 +768,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
             supervisor_id=supervisor_profile.user_id
         ).select_related('user'):
             supervisees.append({
+                "id": sp.user_id,
                 "name": f"{sp.user.first_name} {sp.user.last_name}".strip(),
                 "email": sp.user.email,
             })
@@ -497,6 +817,7 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
         filters &= (
             Q(first_name__icontains=normalized_search) |
             Q(last_name__icontains=normalized_search) |
+            Q(search_full_name__icontains=normalized_search) |
             Q(email__icontains=normalized_search) |
             Q(groupmembership__group__group_name__icontains=normalized_search)
         )
@@ -517,10 +838,10 @@ def _build_user_filter_queryset(search: Optional[str] = None, role: Optional[str
     if active is not None:
         filters &= Q(is_active=active)
 
-    return _filter_by_active_group_membership(
-        User.objects.filter(filters),
-        in_group,
+    users = User.objects.annotate(
+        search_full_name=Concat("first_name", Value(" "), "last_name")
     )
+    return _filter_by_active_group_membership(users.filter(filters), in_group)
 
 
 def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
@@ -593,7 +914,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     }
 
     student_profiles = {
-        sp.user_id: sp for sp in StudentProfile.objects.filter(user_id__in=user_ids)
+        sp.user_id: sp
+        for sp in with_consent_request_sent_at(StudentProfile.objects.filter(user_id__in=user_ids))
     }
     supervisor_profiles = {
         sp.user_id: sp for sp in SupervisorProfile.objects.filter(user_id__in=user_ids)
@@ -601,6 +923,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     mentor_profiles = {
         mp.user_id: mp for mp in MentorProfile.objects.filter(user_id__in=user_ids)
     }
+    members_extra = member_extras([*mentor_profiles, *supervisor_profiles])
     admin_user_ids = get_admin_user_ids(user_ids)
 
     # Active role assignments
@@ -623,6 +946,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
                 "id": gm.group.id,
                 "name": gm.group.group_name,
             }
+
+    last_edit_map = last_edits(user_ids)
 
     # User interests — plain strings to match build_user_dict
     interests_map: Dict[int, List[str]] = {}
@@ -651,6 +976,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             supervisor_id__in=sup_profile_ids_on_page
         ).select_related('user'):
             supervisee_map.setdefault(student_sp.supervisor_id, []).append({
+                "id": student_sp.user_id,
                 "name": f"{student_sp.user.first_name} {student_sp.user.last_name}".strip(),
                 "email": student_sp.user.email,
             })
@@ -694,12 +1020,10 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "groupId": group_info["id"] if group_info else None,
             "groupName": group_info["name"] if group_info else None,
             "schoolName": school_name,
-            "mentorBackground": mp.background if mp else None,
-            "mentorInstitution": mp.institution if mp else None,
-            "mentorReason": mp.mentor_reason if mp else None,
-            "mentorMaxGroupCount": mp.max_group_count if mp else None,
+            **_mentor_dict(mp, members_extra.get(uid)),
+            "supervisorGroups": members_extra[uid]["groups"] if supervisor else [],
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
-            "joinPermissionReceived": sp.has_join_permission if sp else False,
+            **_guardian_dict(sp),
             "interests": interests_map.get(uid, []),
             "isAdmin": uid in admin_user_ids,
             "isActive": user.is_active,
@@ -711,6 +1035,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "supervisorName": supervisor_name,
             "supervisorEmail": supervisor_email_val,
             "supervisees": supervisees_for_user,
+            **last_edit_map.get(uid, _NO_EDIT),
         })
 
     return {
@@ -1002,11 +1327,9 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         guardian_first_name=input_data.get("guardianFirstName"),
                         guardian_last_name=input_data.get("guardianLastName"),
                         guardian_email=input_data.get("guardianEmail"),
-                        joinperm_response_id=input_data.get(
-                            "joinpermResponseId", _UNSET
-                        ),
                         state_id=state_id,
                         country_id=country_id,
+                        **_consent_inputs(input_data),
                     )
                 
                 if role == "supervisor":
@@ -1070,7 +1393,7 @@ def create_user(input_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _apply_co_registration(
-    users_input: List[Dict[str, Any]], created_student_emails: set
+    users_input: List[Dict[str, Any]], created_student_emails: set, created_by=None
 ) -> Dict[str, Any]:
     """Place students that share a group number (co-registered friends) into one group.
 
@@ -1107,6 +1430,8 @@ def _apply_co_registration(
             with transaction.atomic():
                 # Co-registered groups draw from the same BTF<n> series as every other auto-name.
                 group = Groups.create_auto_named()
+                # Formed by an admin: the one importing them.
+                group.mark_formed(Groups.FormedBy.ADMIN, created_by)
                 GroupMembership.objects.bulk_create([
                     GroupMembership(
                         group=group,
@@ -1137,7 +1462,9 @@ def _apply_co_registration(
     return {"groupsCreated": groups_created, "warnings": warnings}
 
 
-def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> Dict[str, Any]:
+def bulk_create_users(
+    users_input: List[Dict[str, Any]], admin_user_id: str, created_by=None
+) -> Dict[str, Any]:
     """
     Bulk create users from list.
     """
@@ -1180,7 +1507,7 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
 
     # Third pass: group co-registered students (shared group number) into one group.
     # Runs after the supervisor pass so supervisor links are set before syncing them.
-    co_registration = _apply_co_registration(users_input, created_student_emails)
+    co_registration = _apply_co_registration(users_input, created_student_emails, created_by)
 
     msg = f"Bulk import complete: {len(created)} created, {len(skipped)} skipped"
     data = {"created": created, "skipped": skipped}
@@ -1193,6 +1520,101 @@ def bulk_create_users(users_input: List[Dict[str, Any]], admin_user_id: str) -> 
         data["coRegistration"] = co_registration
 
     return {"msg": msg, "data": data}
+
+
+def _next_mentor_values(user_id: int, input_data: Dict[str, Any]) -> tuple:
+    """A mentor's profile as an update leaves it, checked as registering
+    checks it: (an error or None, the profile's values). Company is needed
+    for industry, an institution otherwise; a year of study and a field of
+    study when their background is changed to one that has them."""
+    existing = MentorProfile.objects.filter(user_id=user_id).first()
+    values: Dict[str, Any] = {}
+    for key, field in MENTOR_FIELDS.items():
+        if key in input_data:
+            value = input_data[key]
+            if value is not None and not isinstance(value, (str, int)):
+                return f"{key} is not valid", {}
+            values[field] = value.strip() if isinstance(value, str) else value
+        else:
+            values[field] = (
+                getattr(existing, field) if existing
+                else None if field == "weekly_hours"
+                else DEFAULT_MENTOR_PROFILE.get(field, "")
+            )
+    for field in ("institution", "company", "university_year", "field_of_study", "mentor_reason",
+                  "relevant_background", "mentoring_approach"):
+        values[field] = values[field] or ""
+    # One of registering's backgrounds, or free text from before (and the
+    # full Edit form, which still types it).
+    background = values["background"] or None
+    values["background"] = background
+
+    if background == "industry":
+        if not values["company"]:
+            return "Company is required for industry mentors", {}
+    elif not values["institution"]:
+        return "Institution is required for mentor users", {}
+    if "mentorBackground" in input_data and background in MENTOR_BACKGROUNDS and background != "industry":
+        if not values["field_of_study"]:
+            return "Field of study is required for this background", {}
+        if background in MENTOR_STUDYING and not values["university_year"]:
+            return "Year of study is required for university students", {}
+    if values["university_year"] and values["university_year"] not in MENTOR_STUDY_YEARS:
+        return "Year of study is not valid", {}
+
+    if not values["mentor_reason"]:
+        return "Mentor reason is required for mentor users", {}
+    for key in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
+        if key in input_data and len(values[MENTOR_FIELDS[key]].split()) > MENTOR_MAX_WORDS:
+            return f"Keep each answer to {MENTOR_MAX_WORDS} words or fewer", {}
+
+    # Hours a week: a whole number from 1 to 40, or none given.
+    hours = values["weekly_hours"]
+    if hours == "":
+        hours = None
+    if hours is not None:
+        if isinstance(hours, bool):
+            return "Hours per week is not valid", {}
+        try:
+            hours = int(hours)
+        except (TypeError, ValueError):
+            return "Hours per week is not valid", {}
+        if not 1 <= hours <= MENTOR_MAX_WEEKLY_HOURS:
+            return f"Hours per week must be from 1 to {MENTOR_MAX_WEEKLY_HOURS}", {}
+    values["weekly_hours"] = hours
+
+    max_count = values["max_group_count"]
+    if max_count is None or isinstance(max_count, bool):
+        return "Max group count is required for mentor users", {}
+    try:
+        values["max_group_count"] = int(max_count)
+    except (TypeError, ValueError):
+        return "Max group count is not valid", {}
+    if values["max_group_count"] < 0:
+        return "Max group count is not valid", {}
+    return None, values
+
+
+def _availability_slots(raw) -> tuple:
+    """A mentor's weekly times as given (Monday is 0, times "HH:MM"):
+    (an error or None, the distinct (weekday, start, end) times)."""
+    if not isinstance(raw, list) or len(raw) > 21:
+        return "Weekly availability is not valid", []
+    slots = []
+    for slot in raw:
+        try:
+            weekday = int(slot.get("weekday"))
+            start = datetime.strptime(slot.get("start") or "", "%H:%M").time()
+            end = datetime.strptime(slot.get("end") or "", "%H:%M").time()
+        except (AttributeError, TypeError, ValueError):
+            return "Give each weekly time a day, a start and an end", []
+        if not 0 <= weekday <= 6:
+            return "Give each weekly time a day, a start and an end", []
+        if end <= start:
+            return "Each weekly time must end after it starts", []
+        if (weekday, start, end) not in slots:
+            slots.append((weekday, start, end))
+    return None, slots
 
 
 def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> Dict[str, Any]:
@@ -1221,11 +1643,29 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     )
     next_role = input_data.get("role") or current_role or "student"
     
-    # Check email change
+    new_email = user.email
     if "email" in input_data:
+        if not isinstance(input_data["email"], str):
+            return {"msg": "Email is not a valid email address", "data": None}
         new_email = input_data["email"].strip().lower()
-        if new_email != user.email.lower():
-            return {"msg": "Email cannot be changed", "data": None}
+        try:
+            User._meta.get_field("email").clean(new_email, user)
+        except DjangoValidationError:
+            return {"msg": "Email is not a valid email address", "data": None}
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
+            return {"msg": "Account email already exists", "data": None}
+    email_changed = new_email != user.email.strip().lower()
+
+    if email_changed:
+        # A student's login must remain separate from either guardian address.
+        profile = StudentProfile.objects.filter(user_id=user_id).first()
+        if profile:
+            guardian_emails = (
+                input_data.get("guardianEmail", profile.pg_email),
+                profile.pending_pg_email,
+            )
+            if any(new_email == str(value or "").strip().lower() for value in guardian_emails):
+                return {"msg": "Student email cannot be the guardian's email", "data": None}
     
     # Validate role-specific requirements
     next_interests = input_data.get("interests") or (
@@ -1249,6 +1689,19 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "School is required for student users", "data": None}
         if not next_year:
             return {"msg": "Year level is required for student users", "data": None}
+
+        for key, label in (("guardianFirstName", "first name"), ("guardianLastName", "last name")):
+            if key in input_data and not str(input_data[key] or "").strip():
+                return {"msg": f"Guardian {label} cannot be blank", "data": None}
+        if "guardianEmail" in input_data:
+            guardian_email = str(input_data["guardianEmail"] or "").strip().lower()
+            if guardian_email:
+                try:
+                    validate_email(guardian_email)
+                except DjangoValidationError:
+                    return {"msg": "Guardian email is not a valid email address", "data": None}
+                if guardian_email == new_email.strip().lower():
+                    return {"msg": "Guardian email cannot be the student's own email", "data": None}
     
     if next_role in ["student", "mentor"] and not next_interests:
         return {
@@ -1256,32 +1709,24 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             "data": None
         }
     
+    mentor_values: Dict[str, Any] = {}
+    mentor_slots = None
     if next_role == "mentor":
-        next_institution = input_data.get("mentorInstitution") or (
-            MentorProfile.objects.filter(user_id=user_id).values_list(
-                'institution', flat=True
-            ).first()
-        )
-        next_reason = input_data.get("mentorReason") or (
-            MentorProfile.objects.filter(user_id=user_id).values_list(
-                'mentor_reason', flat=True
-            ).first()
-        )
-        next_max_count = input_data.get("mentorMaxGroupCount") or (
-            MentorProfile.objects.filter(user_id=user_id).values_list(
-                'max_group_count', flat=True
-            ).first()
-        )
-        
-        if not (next_institution or "").strip():
-            return {"msg": "Institution is required for mentor users", "data": None}
-        if not (next_reason or "").strip():
-            return {"msg": "Mentor reason is required for mentor users", "data": None}
-        if next_max_count is None:
-            return {"msg": "Max group count is required for mentor users", "data": None}
+        mentor_error, mentor_values = _next_mentor_values(user_id, input_data)
+        if mentor_error:
+            return {"msg": mentor_error, "data": None}
+        if "mentorAvailability" in input_data:
+            slots_error, mentor_slots = _availability_slots(input_data["mentorAvailability"])
+            if slots_error:
+                return {"msg": slots_error, "data": None}
 
     role_changed = "role" in input_data and input_data["role"] != current_role
-    before_user = fetch_user_by_id(user_id) if role_changed else None
+    before_user = fetch_user_by_id(user_id)
+    before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
+    supervisor_before = (
+        StudentProfile.objects.filter(user_id=user_id).values_list("supervisor_id", flat=True).first()
+        if "supervisorEmail" in input_data else None
+    )
 
     # Handle geography update. Country is the required half for non-admins; state
     # is sub-national and may always be cleared (most non-AU users have none).
@@ -1316,15 +1761,39 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             user.state_id = state_obj.id
             user.country_id = state_obj.country_id  # keep the pair coherent
 
+    # A state typed in, for a country with no list to pick from (outside
+    # Australia): found or added as registering does. Blank clears it.
+    if "stateName" in input_data:
+        region = input_data["stateName"]
+        if region is not None and not isinstance(region, str):
+            return {"msg": "State is not valid", "data": None}
+        region = (region or "").strip()[:255]
+        if not region:
+            user.state_id = None
+        elif not user.country_id:
+            return {"msg": "Choose a country before a state", "data": None}
+        else:
+            state_obj, _ = CountryStates.objects.get_or_create(
+                country_id=user.country_id, state_name__iexact=region, defaults={"state_name": region},
+            )
+            user.state_id = state_obj.id
+
     try:
         with transaction.atomic():
             # Update basic user fields
+            if "email" in input_data:
+                user.email = new_email
             if "firstName" in input_data:
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName"]):
+            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "email"]):
                 user.save()
+
+            if email_changed:
+                # These credentials were delivered to the previous mailbox.
+                LoginToken.objects.filter(user=user, used=False).update(used=True)
+                PasswordResetToken.objects.filter(user=user, used=False).update(used=True, used_at=now)
             
             # Handle role change
             if "role" in input_data and input_data["role"] != current_role:
@@ -1354,31 +1823,59 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     user_id,
                     input_data.get("firstName", user.first_name),
                     input_data.get("lastName", user.last_name),
-                    input_data.get("schoolName"),
-                    input_data.get("yearLevel"),
+                    # Validated above, falling back to what is on file, so a
+                    # partial update doesn't blank the school or year.
+                    next_school,
+                    next_year,
                     supervisor_email=input_data["supervisorEmail"] if "supervisorEmail" in input_data else _UNSET,
+                    guardian_first_name=(
+                        str(input_data["guardianFirstName"]).strip()
+                        if "guardianFirstName" in input_data else None
+                    ),
+                    guardian_last_name=(
+                        str(input_data["guardianLastName"]).strip()
+                        if "guardianLastName" in input_data else None
+                    ),
+                    # "" clears the email; absent leaves it alone.
+                    guardian_email=(
+                        str(input_data["guardianEmail"] or "").strip().lower()
+                        if "guardianEmail" in input_data else None
+                    ),
                     state_id=user.state_id,
                     country_id=user.country_id,
+                    **_consent_inputs(input_data),
                 )
+                _withdrawals(user_id, input_data, initiated_by)
+                # A new supervisor joins the student's group, and the old one
+                # leaves it when no student of theirs is left there.
+                if "supervisorEmail" in input_data:
+                    supervisor_after = StudentProfile.objects.filter(user_id=user_id).values_list(
+                        "supervisor_id", flat=True,
+                    ).first()
+                    if supervisor_after != supervisor_before:
+                        for changed in (supervisor_before, supervisor_after):
+                            sync_supervisor_memberships(changed)
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)
             
             if next_role == "supervisor":
                 upsert_supervisor_profile(
                     user_id,
-                    (input_data.get("supervisorSchoolName") or "").strip()
+                    input_data.get("supervisorSchoolName", SupervisorProfile.objects.filter(
+                        user_id=user_id
+                    ).values_list("school_name", flat=True).first())
                 )
             elif next_role != "supervisor":
                 SupervisorProfile.objects.filter(user_id=user_id).delete()
             
             if next_role == "mentor":
-                upsert_mentor_profile(
-                    user_id,
-                    background=input_data.get("mentorBackground"),
-                    institution=input_data.get("mentorInstitution"),
-                    mentor_reason=input_data.get("mentorReason"),
-                    max_group_count=input_data.get("mentorMaxGroupCount")
-                )
+                MentorProfile.objects.update_or_create(user_id=user_id, defaults=mentor_values)
+                if mentor_slots is not None:
+                    MentorAvailability.objects.filter(mentor_user_id=user_id).delete()
+                    MentorAvailability.objects.bulk_create([
+                        MentorAvailability(mentor_user_id=user_id, weekday=weekday, start_time=start, end_time=end)
+                        for weekday, start, end in mentor_slots
+                    ])
             elif next_role != "mentor":
                 MentorProfile.objects.filter(user_id=user_id).delete()
             
@@ -1388,6 +1885,11 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             else:
                 delete_user_interests(user_id)
     
+    except IntegrityError:
+        # Another request may have claimed the address after the first check.
+        if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
+            return {"msg": "Account email already exists", "data": None}
+        return {"msg": "Unable to update user: conflicting account details", "data": None}
     except Exception as e:
         return {
             "msg": f"Unable to update user: {str(e)}",
@@ -1411,7 +1913,33 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             before_state=before_user,
             after_state=updated_user,
         )
+    if before_guardian is not None:
+        after_guardian = _guardian_audit_state(user_id)
+        if after_guardian != before_guardian:
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_update",
+                before_state=before_guardian,
+                after_state=after_guardian,
+            )
+    # Any change at all, so the user's page can say who last edited it.
+    if _without_last_edit(updated_user) != _without_last_edit(before_user):
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="user",
+            entity_id=user_id,
+            action="update",
+            before_state=before_user,
+            after_state=updated_user,
+        )
+        updated_user = fetch_user_by_id(user_id)
     return {"msg": "User updated successfully", "data": updated_user}
+
+
+def _without_last_edit(user_dict: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    return {key: value for key, value in (user_dict or {}).items() if key not in _NO_EDIT}
 
 
 def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str, Any]:

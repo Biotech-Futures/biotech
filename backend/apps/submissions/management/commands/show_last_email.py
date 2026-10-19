@@ -1,13 +1,4 @@
-"""Open the most recently sent email in a browser.
-
-Local development writes mail to disk as raw MIME (see ``EMAIL_FILE_PATH`` in
-settings_local). That file is technically readable but impractical to check by
-eye: the headers, a plain-text part, an HTML part and a base64-encoded logo all
-sit in one file, and the logo alone runs to tens of thousands of characters.
-
-This pulls out the part you actually want to look at and opens it rendered.
-Development helper only — it does nothing outside the file-based backend.
-"""
+"""Open the most recent email written by the file-based mail backend (local development only)."""
 from __future__ import annotations
 
 import email
@@ -70,8 +61,7 @@ class Command(BaseCommand):
             self.stdout.write(body)
             return
 
-        # The logo travels as an inline cid: attachment, which a standalone
-        # file cannot resolve — hide it rather than show a broken-image icon.
+        # A standalone file cannot resolve the inline cid: logo, so hide it.
         body = body.replace('src="cid:btf-logo"', 'src="" style="display:none"')
 
         target = pathlib.Path(tempfile.gettempdir()) / "btf-last-email.html"

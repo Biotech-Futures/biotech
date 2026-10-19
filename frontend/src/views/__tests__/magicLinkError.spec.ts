@@ -27,6 +27,7 @@ const buildRouter = () =>
     routes: [
       { path: '/', redirect: '/login' },
       { path: '/login', name: 'login', component: LoginPage },
+      { path: '/register', name: 'register', component: stub },
       { path: '/auth/callback', name: 'auth-callback', component: AuthCallbackPage },
       { path: '/dashboard', name: 'dashboard', component: stub },
       { path: '/auth/set-password', name: 'set-password', component: stub },
@@ -87,6 +88,15 @@ afterEach(() => {
 })
 
 describe('magic-link error copy', () => {
+  it('renders English sign-in without a language switcher', async () => {
+    await mountLogin()
+
+    expect(wrapper?.text()).toContain(en.signIn)
+    expect(wrapper?.find('.language-switcher').exists()).toBe(false)
+    expect(wrapper?.text()).not.toContain('简体中文')
+    expect(wrapper?.get('.legacy-links a[href="#/register"]').text()).toBe('Register now')
+  })
+
   it('tells a throttled user to wait and blocks the submit button', async () => {
     await mountLogin('?error=too_many_attempts')
 
@@ -313,6 +323,12 @@ describe('auth redirect normalisation', () => {
 
     normalizeAt('/#/auth/callback?error=too_many_attempts')
     expect(window.location.hash).toBe('#/auth/callback?error=too_many_attempts')
+  })
+
+  it('rewrites a legacy admin reset-password path to the hash route', () => {
+    normalizeAt('/reset-password?token=legacy-token-123')
+    expect(window.location.hash).toBe('#/auth/reset-password?token=legacy-token-123')
+    expect(window.location.search).toBe('')
   })
 
   it('does not hijack an ordinary visit with no error param', () => {

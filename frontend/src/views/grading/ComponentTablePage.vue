@@ -1,13 +1,13 @@
 <template>
   <div>
-    <div class="component-table__switcher" role="tablist" aria-label="Component">
+    <div class="tab-bar" role="tablist" aria-label="Component">
       <button
         v-for="c in COMPONENTS"
         :key="c.code"
         type="button"
         role="tab"
         :aria-selected="c.code === code"
-        class="component-table__switch"
+        class="tab-pill"
         :class="{ active: c.code === code }"
         @click="switchComponent(c.code)"
       >
@@ -22,179 +22,170 @@
       <p class="component-table__error-detail">{{ loadError }}</p>
       <div class="component-table__error-actions">
         <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
-        <RouterLink to="/grading/by-component" class="btn btn-outline btn-sm">Back</RouterLink>
       </div>
     </div>
 
     <div v-else-if="payload" class="component-table">
-      <div class="component-table__header">
-        <h2 class="component-table__title">{{ payload.component.name }}</h2>
-        <div class="component-table__actions">
-          <p class="component-table__stats">
-            {{ submittedCount }}/{{ payload.rows.length }} submitted ·
-            {{ fullyMarkedCount }}/{{ submittedCount }} fully marked
-          </p>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('zip')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> Zip
-          </button>
-          <button
-            v-if="payload.component.code === 'SAQ'"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="job.isBusy.value"
-            @click="startJob('xlsx')"
-          >
-            <i class="fas fa-download" aria-hidden="true"></i> XLSX
-          </button>
-          <BulkUploadDialog :code="code" @applied="onUploadApplied" />
-        </div>
-      </div>
-
-      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--info">
-        {{ jobBusyLabel }}
+      <p v-if="job.isBusy.value" class="component-table__banner component-table__banner--ok">
+        Processing files for Download
       </p>
-      <p v-else-if="job.phase.value === 'done'" class="component-table__banner component-table__banner--ok">
-        Download ready — check your browser downloads.
-      </p>
-      <p v-else-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
+      <p v-if="job.phase.value === 'failed'" class="component-table__banner component-table__banner--error">
         {{ job.error.value }}
       </p>
       <p v-if="uploadMessage" class="component-table__banner component-table__banner--ok">
         {{ uploadMessage }}
       </p>
 
-      <div class="component-table__scroll">
-        <table class="component-table__table">
-          <thead>
-            <tr>
-              <th>
-                <button type="button" class="component-table__sort" @click="setSort('id')">
-                  ID <i :class="sortIcon('id')" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th>Group</th>
-              <th>Submitted</th>
-              <th>
-                <button type="button" class="component-table__sort" @click="setSort('time')">
-                  Time <i :class="sortIcon('time')" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th>Late</th>
-              <th>
-                <button type="button" class="component-table__sort" @click="setSort('progress')">
-                  Progress <i :class="sortIcon('progress')" aria-hidden="true"></i>
-                </button>
-              </th>
-              <th>Marks</th>
-              <th>
-                Marker
-                <i
-                  class="fas fa-circle-info component-table__marker-info"
-                  data-tip="Hover over a marker's name to see who marked each part."
-                  aria-hidden="true"
-                ></i>
-              </th>
-              <th class="component-table__cell--right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="displayRows.length === 0">
-              <td colspan="9" class="component-table__empty">No groups.</td>
-            </tr>
-            <tr v-for="r in displayRows" :key="r.group_id">
-              <td>{{ r.group_id }}</td>
-              <td class="component-table__cell--strong">{{ r.group_name }}</td>
-              <td>
-                <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleDateString() }}
-                </template>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td>
-                <template v-if="r.submission_id != null && r.submitted_at">
-                  {{ new Date(r.submitted_at).toLocaleTimeString() }}
-                </template>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td>
-                <span v-if="r.is_late" class="component-table__late">
-                  Late<template v-if="r.late_by"> by {{ r.late_by }}</template>
-                </span>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td>
-                <span v-if="r.submission_id != null" class="component-table__progress">
-                  <i
-                    :class="isDone(r) ? 'fas fa-circle-check component-table__done' : 'far fa-circle component-table__pending'"
-                    aria-hidden="true"
-                  ></i>
-                  {{ progressLabel(r) }}
-                </span>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td>
-                <span v-if="r.marks_total != null">{{ r.marks_total }}</span>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td>
-                <span
-                  v-if="r.last_grader_name"
-                  class="component-table__marker"
-                  :title="markerTooltip(r)"
-                >
-                  {{ r.last_grader_name }}
-                  <i
-                    v-if="r.grader_names.length > 1"
-                    class="fas fa-users component-table__marker-icon"
-                    aria-hidden="true"
-                  ></i>
-                </span>
-                <span v-else class="component-table__muted">—</span>
-              </td>
-              <td class="component-table__cell--right">
-                <RouterLink
-                  v-if="r.submission_id != null"
-                  :to="`/grading/components/${code}/${r.group_id}`"
-                  class="btn btn-outline btn-sm"
-                >
-                  Open
-                </RouterLink>
-                <span v-else class="component-table__muted">No submission</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Every group at once, searched and sorted here. -->
+      <AppDataTable
+        :columns="columns"
+        :rows="tableRows"
+        row-key="group_id"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        v-model:search="searchQuery"
+        search-placeholder="Group name"
+        :sort="tableSort"
+        :empty-message="searchQuery.trim() ? 'No groups match your search.' : 'No groups.'"
+        clickable-rows
+        :row-clickable="(row) => rowOf(row).submission_id != null"
+        @update:sort="setSort($event.key as SortKey)"
+        @row-click="router.push(`/grading/components/${code}/${rowOf($event).group_id}`)"
+      >
+        <template #stats>
+          {{ submittedCount }}/{{ payload.rows.length }} Submitted ·
+          {{ fullyMarkedCount }}/{{ submittedCount }} Fully Marked
+        </template>
+        <template #search-side>
+          <!-- SAQ asks which format; the others download their uploads. -->
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="job.isBusy.value"
+            @click="onDownload"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i> Download
+          </button>
+          <BulkUploadDialog :code="code" :year="payload.year" @applied="onUploadApplied" />
+        </template>
 
-      <div>
-        <RouterLink to="/grading/by-component" class="btn btn-outline btn-sm">Back</RouterLink>
-      </div>
+        <template #head-marker>
+          Marker
+          <i
+            class="fas fa-circle-info component-table__marker-info"
+            data-tip="Hover over a marker's name to see who marked each part."
+            aria-hidden="true"
+          ></i>
+        </template>
+
+        <template #cell-group="{ row }">
+          <span class="component-table__cell--strong">{{ rowOf(row).group_name }}</span>
+        </template>
+        <template #cell-time="{ row }">
+          <template v-if="rowOf(row).submission_id != null && rowOf(row).submitted_at">
+            {{ formatShortDateTime(rowOf(row).submitted_at) }}
+          </template>
+          <span v-else class="component-table__muted">—</span>
+        </template>
+        <template #cell-late="{ row }">
+          <span v-if="rowOf(row).is_late" class="component-table__late">
+            {{ rowOf(row).late_by || 'Late' }}
+          </span>
+          <span v-else class="component-table__muted">—</span>
+        </template>
+        <template #cell-progress="{ row }">
+          <span v-if="rowOf(row).submission_id != null" class="component-table__progress">
+            <i
+              :class="isDone(rowOf(row)) ? 'fas fa-circle-check component-table__done' : 'far fa-circle component-table__pending'"
+              aria-hidden="true"
+            ></i>
+            {{ progressLabel(rowOf(row)) }}
+          </span>
+          <span v-else class="component-table__muted">—</span>
+        </template>
+        <template #cell-marks="{ row }">
+          <span v-if="rowOf(row).marks_total != null">{{ rowOf(row).marks_total }}</span>
+          <span v-else class="component-table__muted">—</span>
+        </template>
+        <template #cell-marker="{ row }">
+          <span
+            v-if="rowOf(row).last_grader_name"
+            class="component-table__marker"
+            :title="markerTooltip(rowOf(row))"
+          >
+            {{ rowOf(row).last_grader_name }}
+            <i
+              v-if="rowOf(row).grader_names.length > 1"
+              class="fas fa-users component-table__marker-icon"
+              aria-hidden="true"
+            ></i>
+          </span>
+          <span v-else class="component-table__muted">—</span>
+        </template>
+
+        <template #actions="{ row }">
+          <RouterLink
+            v-if="rowOf(row).submission_id != null"
+            :to="`/grading/components/${code}/${rowOf(row).group_id}`"
+            class="btn btn-outline btn-sm"
+          >
+            Open
+          </RouterLink>
+          <span v-else class="component-table__muted">No sub.</span>
+        </template>
+      </AppDataTable>
     </div>
   </div>
+
+  <!-- SAQ's answers, in the format picked. Styled as Upload marks. -->
+  <Teleport to="body">
+    <div v-if="choosingFormat" class="component-table__overlay" @click.self="choosingFormat = false">
+      <div class="component-table__dialog" role="dialog" aria-modal="true" aria-label="Download SAQs">
+        <div class="component-table__dialog-head">
+          <h3 class="component-table__dialog-title">Download Short Answer Questions</h3>
+          <button
+            type="button"
+            class="component-table__dialog-close"
+            aria-label="Close"
+            @click="choosingFormat = false"
+          >
+            &times;
+          </button>
+        </div>
+        <ul class="component-table__formats">
+          <li v-for="option in SAQ_FORMATS" :key="option.format">
+            <button type="button" class="btn btn-outline btn-sm" @click="pickFormat(option.format)">
+              <i class="fas fa-download" aria-hidden="true"></i> {{ option.label }}
+            </button>
+            <span class="component-table__format-desc">{{ option.desc }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import BulkUploadDialog from '@/components/grading/BulkUploadDialog.vue'
 import { useJobPolling } from '@/composables/useJobPolling'
 import {
   fetchComponentRows,
+  type ComponentDownloadFormat,
   type ComponentListPayload,
   type ComponentRow
 } from '@/utils/gradingAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
+import { formatShortDateTime } from '@/utils/date'
 
 const route = useRoute()
 const router = useRouter()
 const code = computed(() => String(route.params.code || ''))
 
-// Same hard-coded list as the By-component landing (matches the seed migration).
+// Component codes are hard-coded to match the backend seed migration.
 const COMPONENTS: { code: string; name: string }[] = [
   { code: 'SAQ', name: 'Short Answer Questions' },
   { code: 'POSTER', name: 'A2 Poster' },
@@ -210,26 +201,56 @@ const switchComponent = (target: string) => {
 const payload = ref<ComponentListPayload | null>(null)
 const isLoading = ref(false)
 const loadError = ref('')
+const searchQuery = ref('')
 
 const job = useJobPolling()
 const uploadMessage = ref('')
 
-const jobBusyLabel = computed(() => {
-  if (job.phase.value === 'downloading') return 'Downloading…'
-  return 'Preparing export… this can take a moment for large cohorts.'
-})
-
-const startJob = (format: 'zip' | 'xlsx') => {
+const startJob = (format: ComponentDownloadFormat) => {
   uploadMessage.value = ''
   void job.start(code.value, format)
 }
 
-const onUploadApplied = async (written: number) => {
-  uploadMessage.value = `Marks applied — wrote ${written} row${written === 1 ? '' : 's'}.`
+// SAQ's answers come three ways; the other components' uploads one.
+const SAQ_FORMATS: { format: ComponentDownloadFormat; label: string; desc: string }[] = [
+  { format: 'xlsx', label: 'xlsx', desc: "Every group's answers and marks in one spreadsheet." },
+  { format: 'pdf', label: 'pdf', desc: "Each group's answers as its own PDF, zipped." },
+  { format: 'zip', label: 'txt', desc: "Each group's answers as its own text file, zipped." }
+]
+const choosingFormat = ref(false)
+
+const onDownload = () => {
+  if (payload.value?.component.code === 'SAQ') choosingFormat.value = true
+  else startJob('zip')
+}
+
+const pickFormat = (format: ComponentDownloadFormat) => {
+  choosingFormat.value = false
+  startJob(format)
+}
+
+const groupCount = (n: number) => `${n} group${n === 1 ? '' : 's'}`
+
+// "Marks applied. Overwrote existing records for 2 groups and wrote new
+// records for 1 group." Counted in groups, like the upload preview.
+const appliedMessage = ({ overwritten, created }: { overwritten: number; created: number }) => {
+  const parts: string[] = []
+  if (overwritten) parts.push(`overwrote existing records for ${groupCount(overwritten)}`)
+  if (created) parts.push(`wrote new records for ${groupCount(created)}`)
+  if (!parts.length) return 'Marks applied. No records changed.'
+  const detail = parts.join(' and ')
+  return `Marks applied. ${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`
+}
+
+const onUploadApplied = async (counts: { overwritten: number; created: number }) => {
+  uploadMessage.value = appliedMessage(counts)
   await load()
 }
 
-type SortKey = 'id' | 'time' | 'progress'
+type SortKey = 'group' | 'time' | 'progress'
+
+// Numeric-aware so "BTF-2" sorts before "BTF-10", matching the sidebar.
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const sortKey = ref<SortKey>('time')
 const sortDirection = ref<'asc' | 'desc'>('desc')
 
@@ -251,6 +272,7 @@ watch(
   code,
   () => {
     uploadMessage.value = ''
+    searchQuery.value = ''
     void load()
   },
   { immediate: true }
@@ -291,23 +313,31 @@ const setSort = (key: SortKey) => {
   }
 }
 
-const sortIcon = (key: SortKey) => {
-  if (sortKey.value !== key) return 'fas fa-sort component-table__sort-icon component-table__sort-icon--idle'
-  return sortDirection.value === 'asc'
-    ? 'fas fa-sort-up component-table__sort-icon'
-    : 'fas fa-sort-down component-table__sort-icon'
-}
+const tableSort = computed<DataTableSort>(() => ({ key: sortKey.value, direction: sortDirection.value }))
+
+const columns: DataTableColumn[] = [
+  { key: 'group', label: 'Group' },
+  { key: 'time', label: 'Submitted' },
+  { key: 'late', label: 'Late', sortable: false },
+  { key: 'progress', label: 'Progress' },
+  { key: 'marks', label: 'Marks', sortable: false },
+  { key: 'marker', label: 'Marker', sortable: false }
+]
 
 const sortValue = (r: ComponentRow): number | string | null => {
-  if (sortKey.value === 'id') return r.group_id
   if (sortKey.value === 'time') return r.submitted_at
   return r.submission_id != null ? r.criteria_graded : null
 }
 
 const displayRows = computed(() => {
-  const rows = [...(payload.value?.rows ?? [])]
+  const query = searchQuery.value.trim().toLowerCase()
+  let rows = [...(payload.value?.rows ?? [])]
+  if (query) {
+    rows = rows.filter((r) => r.group_name.toLowerCase().includes(query))
+  }
   const dir = sortDirection.value === 'asc' ? 1 : -1
   rows.sort((a, b) => {
+    if (sortKey.value === 'group') return nameCollator.compare(a.group_name, b.group_name) * dir
     const va = sortValue(a)
     const vb = sortValue(b)
     // Nulls (no submission / no timestamp) always sort last.
@@ -328,48 +358,12 @@ const displayRows = computed(() => {
   }
   return rows
 })
+
+const tableRows = computed(() => displayRows.value as unknown as Record<string, unknown>[])
+const rowOf = (row: Record<string, unknown>) => row as unknown as ComponentRow
 </script>
 
 <style scoped>
-/* Segmented pill switcher, matching the Events page view tabs. */
-.component-table__switcher {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1.75rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.component-table__switch {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.component-table__switch:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.component-table__switch.active {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
 .component-table__hint {
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -395,142 +389,123 @@ const displayRows = computed(() => {
   gap: 1rem;
 }
 
-.component-table__header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.component-table__title {
-  margin: 0;
-  font-size: 1.35rem;
-}
-
-.component-table__stats {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  margin: 0;
-}
-
-.component-table__actions {
+/* The format picker, as the Upload marks dialog. */
+.component-table__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
 }
 
+.component-table__dialog {
+  background: var(--surface-elevated);
+  color: var(--teal);
+  border-radius: 10px;
+  box-shadow: 0 10px 40px var(--shadow);
+  width: 100%;
+  max-width: 30rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.component-table__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.component-table__dialog-title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.component-table__dialog-close {
+  border: none;
+  background: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.component-table__dialog-close:hover {
+  color: var(--teal);
+}
+
+.component-table__formats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.component-table__formats li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The buttons line up, whatever their label. */
+.component-table__formats .btn {
+  min-width: 5.5rem;
+  justify-content: center;
+}
+
+.component-table__format-desc {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* A message above the table, outlined like it. */
 .component-table__banner {
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 1rem;
   font-size: 0.9rem;
   margin: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
 }
 
 .component-table__banner--info {
-  background: color-mix(in srgb, var(--info) 12%, transparent);
   color: var(--info);
 }
 
 .component-table__banner--ok {
-  background: var(--accent-green-soft);
   color: var(--dark-green);
 }
 
 .component-table__banner--error {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
-}
-
-.component-table__scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--surface-elevated);
-}
-
-.component-table__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.component-table__table th,
-.component-table__table td {
-  padding: 0.55rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--border-light);
-  white-space: nowrap;
-}
-
-.component-table__table thead th {
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.component-table__table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.component-table__sort {
-  border: none;
-  background: none;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  /* Buttons don't pick up the header's uppercase styling on their own. */
-  text-transform: inherit;
-  letter-spacing: inherit;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.component-table__sort:hover {
-  color: var(--dark-green);
-}
-
-.component-table__sort-icon {
-  font-size: 0.7rem;
-}
-
-.component-table__sort-icon--idle {
-  color: var(--border-light);
-}
-
-.component-table__empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 2rem 0.75rem;
 }
 
 .component-table__cell--strong {
   font-weight: 600;
 }
 
-/* Scoped under the table selector so this outweighs the generic th/td rule
-   that sets text-align: left. */
-.component-table__table .component-table__cell--right {
-  text-align: right;
-}
-
 .component-table__muted {
   color: var(--text-muted);
 }
 
+/* Same orange as the Release Marks page's warn banner. */
 .component-table__late {
-  color: var(--danger);
+  color: #ff8c00;
   font-weight: 600;
 }
 
+/* On the Dark Green heading row, a lighter shade of its white text. */
 .component-table__marker-info {
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: inherit;
+  opacity: 0.75;
   margin-left: 0.2rem;
   position: relative;
 }

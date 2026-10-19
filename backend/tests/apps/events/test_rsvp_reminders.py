@@ -35,7 +35,7 @@ def _make_event(**overrides):
 
 
 def _make_event_in_1h_window(**overrides):
-    """Event sitting in the 1h reminder window (1h–2h ahead)."""
+    """Event sitting in the 1h reminder window (30m–1.5h ahead)."""
     defaults = {
         "event_name": "Imminent Event",
         "start_datetime": timezone.now() + timedelta(hours=1, minutes=15),
@@ -167,16 +167,16 @@ class Reminder1hWindowTests(TestCase):
         self.assertEqual(mail.outbox, [])
 
     def test_1h_reminder_copy_matches_non_default_start_time(self):
-        # 1h45m out — the email must say so, not the stock "an hour".
+        # 1h20m out — the email must say so, not the stock "an hour".
         event = _make_event_in_1h_window(
-            start_datetime=timezone.now() + timedelta(hours=1, minutes=45),
+            start_datetime=timezone.now() + timedelta(hours=1, minutes=20),
         )
         _rsvp(event, self.attendee)
 
         send_due_rsvp_reminders(kind="1h")
 
         body = mail.outbox[0].body
-        self.assertIn("starts in about an hour and 45 minutes", body)
+        self.assertIn("starts in about an hour and 15 minutes", body)
         self.assertNotIn("starts in about an hour.", body)
 
     def test_1h_reminder_copy_still_says_an_hour_close_to_start(self):
@@ -189,6 +189,37 @@ class Reminder1hWindowTests(TestCase):
         send_due_rsvp_reminders(kind="1h")
 
         self.assertIn("starts in about an hour.", mail.outbox[0].body)
+
+    def test_1h_window_catches_event_30m_out(self):
+        # Lower window edge: an event exactly 30m away is reminded.
+        fixed_now = timezone.now()
+        event = _make_event_in_1h_window(
+            start_datetime=fixed_now + timedelta(minutes=30),
+        )
+        _rsvp(event, self.attendee)
+
+        with patch("apps.events.services.timezone.now") as fake_now:
+            fake_now.return_value = fixed_now
+            events, sent, _ = send_due_rsvp_reminders(kind="1h")
+
+        self.assertEqual((events, sent), (1, 1))
+        self.assertEqual(len(mail.outbox), 1)
+        event.refresh_from_db()
+        self.assertEqual(event.reminder_1h_sent_for_start, event.start_datetime)
+
+    def test_1h_window_skips_event_over_90m_out(self):
+        # Above the window ceiling: 1h45m out must NOT be reminded.
+        event = _make_event_in_1h_window(
+            start_datetime=timezone.now() + timedelta(hours=1, minutes=45),
+        )
+        _rsvp(event, self.attendee)
+
+        events, sent, _ = send_due_rsvp_reminders(kind="1h")
+
+        self.assertEqual((events, sent), (0, 0))
+        self.assertEqual(mail.outbox, [])
+        event.refresh_from_db()
+        self.assertIsNone(event.reminder_1h_sent_for_start)
 
     def test_kind_24h_does_not_touch_1h_field(self):
         # Run only the 24h kind explicitly. Even if a candidate event
@@ -469,23 +500,53 @@ class ResilienceTests(TestCase):
             _rsvp(event, u)
 
         real_send = mail.EmailMultiAlternatives.send
-        call_count = {"n": 0}
 
-        def flaky_send(self_msg, *args, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 2:
+        def broken_for_one(self_msg, *args, **kwargs):
+            # Every try, the retry too.
+            if self_msg.to == ["u1@example.com"]:
                 raise RuntimeError("simulated SMTP blowup")
             return real_send(self_msg, *args, **kwargs)
 
         with patch(
-            "apps.events.services.EmailMultiAlternatives.send",
-            new=flaky_send,
+            "apps.services.system_email.EmailMultiAlternatives.send",
+            new=broken_for_one,
         ):
             events, sent, failed = send_due_rsvp_reminders()
 
         self.assertEqual((events, sent, failed), (1, 2, 1))
         # The two successful sends still hit the outbox.
         self.assertEqual(len(mail.outbox), 2)
+
+    def test_a_send_that_fails_once_goes_when_tried_again_after_the_rest(self):
+        event = _make_event()
+        users = [
+            User.objects.create_user(email=f"u{i}@example.com", password="pw")
+            for i in range(3)
+        ]
+        for u in users:
+            _rsvp(event, u)
+
+        real_send = mail.EmailMultiAlternatives.send
+        order = []
+
+        def drops_once(self_msg, *args, **kwargs):
+            order.append(self_msg.to[0])
+            if order.count("u1@example.com") == 1 and self_msg.to == ["u1@example.com"]:
+                raise RuntimeError("connection dropped")
+            return real_send(self_msg, *args, **kwargs)
+
+        with patch(
+            "apps.services.system_email.EmailMultiAlternatives.send",
+            new=drops_once,
+        ), patch("apps.services.retry.time.sleep") as sleep:
+            events, sent, failed = send_due_rsvp_reminders()
+
+        self.assertEqual((events, sent, failed), (1, 3, 0))
+        self.assertEqual(len(mail.outbox), 3)
+        # Tried again once everyone else had been, a few seconds on.
+        self.assertEqual(order[-1], "u1@example.com")
+        self.assertEqual(order.count("u1@example.com"), 2)
+        sleep.assert_called_once()
 
     def test_event_stays_stamped_even_when_every_send_fails(self):
         # Once we claim the row we must NOT unstamp it on per-recipient
@@ -551,9 +612,9 @@ class ManagementCommandTests(TestCase):
         self.assertEqual(e_1h.reminder_1h_sent_for_start, e_1h.start_datetime)
 
 
-@override_settings(RSVP_REMINDER_TOKEN="s3cret-token")
+@override_settings(EMAIL_JOBS_TOKEN="s3cret-token")
 class RsvpReminderTriggerEndpointTests(TestCase):
-    """HTTP endpoint guarded by X-Reminder-Token header."""
+    """HTTP endpoint guarded by the X-Email-Jobs-Token header."""
 
     def setUp(self):
         self.client = APIClient()
@@ -564,23 +625,27 @@ class RsvpReminderTriggerEndpointTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_rejects_wrong_token(self):
-        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="nope")
+        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="nope")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_accepts_correct_token_and_dispatches(self):
+    def test_accepts_correct_token_and_queues_the_run(self):
+        from apps.management.models import EmailSendRun
+
         event = _make_event()
         user = User.objects.create_user(email="api@example.com", password="pw")
         _rsvp(event, user)
 
-        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="s3cret-token")
+        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="s3cret-token")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["events_processed"], 1)
-        self.assertEqual(response.data["emails_sent"], 1)
+        # Queued, and sent in its turn: at once under test settings.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data, {"status": "queued"})
         self.assertEqual(len(mail.outbox), 1)
+        run = EmailSendRun.objects.get(key="rsvp_reminder")
+        self.assertEqual((run.emailed, run.failed, run.held_until), (1, 0, None))
 
 
-@override_settings(RSVP_REMINDER_TOKEN="")
+@override_settings(EMAIL_JOBS_TOKEN="")
 class RsvpReminderTriggerUnconfiguredTests(TestCase):
     """If the env var is unset the endpoint must refuse — fail loud
     rather than exposing an unauthenticated trigger."""
@@ -589,7 +654,7 @@ class RsvpReminderTriggerUnconfiguredTests(TestCase):
         client = APIClient()
         response = client.post(
             reverse("rsvp-reminder-trigger"),
-            HTTP_X_REMINDER_TOKEN="anything",
+            HTTP_X_EMAIL_JOBS_TOKEN="anything",
         )
         self.assertEqual(
             response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE

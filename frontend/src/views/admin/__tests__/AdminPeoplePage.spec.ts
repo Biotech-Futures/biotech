@@ -4,6 +4,9 @@ import AdminPeoplePage from '@/views/admin/AdminPeoplePage.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 import AdminMentorImportSheet from '@/components/admin/mentors/AdminMentorImportSheet.vue'
 
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
+
 const country = { id: 1, countryName: 'Australia' }
 const state = { id: 1, stateName: 'NSW', countryName: 'Australia' }
 
@@ -65,6 +68,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   vi.unstubAllGlobals()
+  routeState.query = {}
 })
 
 const tabButtons = () => wrapper!.findAll('[role="tab"]')
@@ -72,6 +76,17 @@ const tabAddButton = () => wrapper!.find('.people-toolbar .btn-primary')
 const dialogs = () => Array.from(document.body.querySelectorAll('[role="dialog"]'))
 
 describe('AdminPeoplePage', () => {
+  it('opens the tab requested by an Admin deep link', async () => {
+    routeState.query = { tab: 'students', inGroup: 'no' }
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    const active = tabButtons().find((button) => button.attributes('aria-selected') === 'true')
+    expect(active?.text()).toBe('Students')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'Not in a group')
+  })
+
   it('renders the four tab labels', async () => {
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(AdminPeoplePage)
