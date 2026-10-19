@@ -15,6 +15,10 @@ import { apiErrorFromResponse } from './apiError'
 import type { StudentImportRow } from './adminStudentCsv'
 import type { MentorImportRow } from './adminMentorCsv'
 import {
+  systemEmailLogSchema,
+  systemEmailUnseenSchema,
+  systemEmailMailApiSchema,
+  type SystemEmailMailApi,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -23,6 +27,7 @@ import {
   systemEmailTestSendSchema
 } from './systemEmail'
 import type {
+  SystemEmailLogEntry,
   SystemEmailPreview,
   SystemEmailPreviewPayload,
   SystemEmailTestSendPayload,
@@ -32,6 +37,7 @@ import type {
   SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
+import type { MutualInterestItem } from './mutualInterests'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -202,6 +208,8 @@ export interface AdminUserState {
 }
 
 export interface AdminUserSupervisee {
+  /** The student's user id, for changing who supervises them. */
+  id?: number
   name: string
   email: string
 }
@@ -228,6 +236,23 @@ export interface AdminUser {
   mentorInstitution: string | null
   mentorReason: string | null
   mentorMaxGroupCount: number | null
+  /** From registering: an industry mentor's company; a student mentor's year
+   *  ("1" to "4", "5+"); a student's or academic's field of study. */
+  mentorCompany?: string | null
+  mentorUniversityYear?: string | null
+  mentorFieldOfStudy?: string | null
+  /** Their application's answers, beside mentorReason. */
+  mentorRelevantBackground?: string | null
+  mentorMentoringApproach?: string | null
+  /** How many hours a week they can give (1 to 40), as registering asks. */
+  mentorWeeklyHours?: number | null
+  /** When they're free each week (Monday is 0, times "HH:MM"): kept from
+   *  when registering asked, but no longer shown here. */
+  mentorAvailability?: { weekday: number; start: string; end: string }[]
+  /** Every group they mentor, by name, with its students counted. */
+  mentorGroups?: { id: number; name: string; studentCount: number }[]
+  /** Every group a supervisor is in (their students' groups), by name. */
+  supervisorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
   guardianFirstName: string | null
   guardianLastName: string | null
@@ -238,6 +263,8 @@ export interface AdminUser {
   pendingGuardian: AdminPendingGuardian | null
   /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
   mediaConsent: boolean | null
+  /** When that answer was given, from the signed form: null when it isn't. */
+  mediaConsentAt?: string | null
   consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
@@ -376,6 +403,32 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     data: env.data
   }))
 
+/** A supervisor's students added or taken off, by student or by group. */
+export interface SuperviseesChangeInput {
+  addStudentIds?: number[]
+  removeStudentIds?: number[]
+  addGroupIds?: number[]
+  removeGroupIds?: number[]
+  /** Only say who would move. */
+  preview?: boolean
+}
+
+/** A student moving: ``to`` null when left with no supervisor, ``from`` null
+ *  when they had none. */
+export interface SuperviseeChange {
+  studentId: number
+  name: string
+  group: string | null
+  from: string | null
+  to: string | null
+}
+
+export const changeSupervisees = (userId: string | number, input: SuperviseesChangeInput) =>
+  adminPost<AdminEnvelope<{ changes: SuperviseeChange[]; user?: AdminUser }>>(
+    `/user/${userId}/supervisees/`,
+    input
+  ).then((env) => env.data)
+
 export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
     (env) => env.msg
@@ -432,11 +485,6 @@ export const downloadGuardianConsentRecord = async (
   document.body.removeChild(a)
   window.URL.revokeObjectURL(blobUrl)
 }
-
-export const withdrawGuardianConsent = (userId: string | number, mediaOnly: boolean) =>
-  adminPost<AdminEnvelope<AdminUser>>(`/user/${userId}/guardian-consent-withdrawal/`, { mediaOnly }).then(
-    (env) => ({ msg: env.msg, data: env.data })
-  )
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({
@@ -542,15 +590,22 @@ export interface AdminGroupMember {
   /** "student" | "mentor" */
   role: string
   membershipId: number | null
+  interests?: string[]
 }
+
+export type { MutualInterestItem }
 
 export interface AdminGroupDetail {
   id: number
   name: string
   members: AdminGroupMember[]
   mentor: AdminGroupMember | null
+  mutualInterests?: MutualInterestItem[]
   createdAt: string
   updatedAt: string
+  /** Who formed it: its members (while registering), a supervisor or an admin
+   *  (``kind``, "" when not recorded), and the supervisor's or admin's name. */
+  formedBy?: { kind: 'members' | 'supervisor' | 'admin' | ''; name: string }
 }
 
 export interface AdminGroupListData {
@@ -861,6 +916,11 @@ export interface AdminResourceDetail {
   file_name: string | null
   file_mime_type: string | null
   file_size: number | null
+  slides_file_name?: string | null
+  slides_mime_type?: string | null
+  slides_file_size?: number | null
+  slides_storage_key?: string | null
+  has_slides?: boolean
   content_html?: string | null
   storage_key?: string | null
   labels?: Array<{ id: number; name: string }>
@@ -881,7 +941,8 @@ export interface CreateAdminResourcePayload {
   resource_name: string
   resource_description: string
   resource_kind: 'file' | 'attachment' | 'page'
-  visibility_scope: 'global' | 'role_based'
+  // Resources are role-based only; the backend rejects 'global'.
+  visibility_scope: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -893,7 +954,7 @@ export interface CreateAdminResourcePayload {
 export interface UpdateAdminResourcePayload {
   resource_name?: string
   resource_description?: string | null
-  visibility_scope?: 'global' | 'role_based'
+  visibility_scope?: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -917,12 +978,16 @@ export const uploadAdminResource = (formData: FormData) =>
     isFormData: true
   }).then((env) => env.data)
 
-export const uploadLinkedResourceAttachment = async (file: File) => {
+export const uploadLinkedResourceAttachment = async (
+  file: File,
+  acknowledgedOversized = false
+) => {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('resource_kind', 'attachment')
   formData.append('resource_name', file.name)
   formData.append('resource_description', `Resource attachment: ${file.name}`)
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   const resource = await uploadAdminResource(formData)
   const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
   const accessUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/access/`
@@ -941,9 +1006,22 @@ export const updateAdminResource = (id: number | string, payload: UpdateAdminRes
 export const deleteAdminResource = (id: number | string) =>
   adminDelete<AdminEnvelope<null>>(`/resource/${id}/`).then((env) => env.data)
 
-export const replaceAdminResourceFile = (id: number | string, file: File) => {
+export const replaceAdminResourceFile = (
+  id: number | string,
+  file?: File | null,
+  // The admin ticked "I understand this file is large"; the backend only
+  // accepts a file over the size limit when this is true.
+  acknowledgedOversized = false,
+  slidesFile?: File | null
+) => {
   const formData = new FormData()
-  formData.append('file', file)
+  if (file) {
+    formData.append('file', file)
+  }
+  if (slidesFile) {
+    formData.append('slides_file', slidesFile)
+  }
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
     method: 'POST',
     body: formData,
@@ -957,8 +1035,13 @@ export const fetchAdminResourceRoles = () =>
 export const fetchAdminResourceTypes = () =>
   adminGet<AdminEnvelope<AdminResourceTypeOption[]>>('/resource/types/').then((env) => env.data || [])
 
-export const downloadAdminResourceFile = async (id: number | string, fileName?: string) => {
-  const url = `${ADMIN_API_BASE}/resource/${id}/download/`
+export const downloadAdminResourceFile = async (
+  id: number | string,
+  fileName?: string,
+  field = 'file'
+) => {
+  const query = field === 'slides' ? '?field=slides' : ''
+  const url = `${ADMIN_API_BASE}/resource/${id}/download/${query}`
   const res = await fetch(url, {
     method: 'GET',
     credentials: 'include'
@@ -1039,10 +1122,18 @@ export interface AdminAnnouncementRoleOption {
   name: string
 }
 
+export interface AdminAnnouncementMergeTag {
+  name: string
+  description: string
+  sample: string
+  html: boolean
+}
+
 export interface AdminAnnouncementNotifyResult {
   msg: string
   deliveryId?: number
-  status: 'success' | 'partial' | 'failed' | 'skipped'
+  // queued: it sends in its turn, after any bulk email from the same mailbox.
+  status: 'queued' | 'success' | 'partial' | 'failed' | 'skipped'
   attempted: number
   succeeded: number
   failed: number
@@ -1091,6 +1182,11 @@ export const fetchAnnouncementGroups = () =>
 
 export const fetchAnnouncementRoles = () =>
   adminGet<AdminEnvelope<AdminAnnouncementRoleOption[]>>('/announcement/roles/').then(
+    (env) => env.data || []
+  )
+
+export const fetchAnnouncementMergeTags = () =>
+  adminGet<AdminEnvelope<AdminAnnouncementMergeTag[]>>('/announcement/merge-tags/').then(
     (env) => env.data || []
   )
 
@@ -1192,6 +1288,7 @@ export interface AdminTaskListParams {
   page?: number
   limit?: number
   task_type?: AdminTaskType | ''
+  search?: string
   sortBy?: AdminTaskSortBy
   sortOrder?: 'asc' | 'desc'
 }
@@ -1345,6 +1442,7 @@ export interface MatchedGroupMentor {
 }
 
 export interface MatchedGroupStudent {
+  id: number
   name: string
   hasLoggedIn: boolean
   interests: string[]
@@ -1479,6 +1577,26 @@ export const updateSystemEmailSettings = (enabled: boolean): Promise<SystemEmail
     systemEmailSettingsSchema.parse(env.data)
   )
 
+export const fetchSystemEmailLog = (): Promise<SystemEmailLogEntry[]> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/').then((env) => systemEmailLogSchema.parse(env.data))
+
+export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Seen by every admin from now on; returns the count left, normally 0. */
+export const markSystemEmailFailuresSeen = (): Promise<number> =>
+  adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether bounced emails can be checked, for the top of the Log. */
+export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/mail-api/').then((env) => systemEmailMailApiSchema.parse(env.data))
+
+/** Resend on the Log: the email again to the people it missed, queued to
+ *  send in its turn. Resolves to what to tell the admin; rejects with why
+ *  it can't go. */
+export const resendSystemEmail = (key: string): Promise<string> =>
+  adminPost<AdminEnvelope<unknown>>(`/email-log/${encodeURIComponent(key)}/resend/`).then((env) => env.msg)
+
 // ---------------------------------------------------------------------------
 // Admin User Views
 // ---------------------------------------------------------------------------
@@ -1561,7 +1679,15 @@ export const runAdminView = (id: number, params: ViewRunParams = {}) =>
   )
 
 /** Get export CSV download URL for a view */
-export const getAdminViewExportUrl = (id: number, search?: string) => {
-  const query = search ? `?search=${encodeURIComponent(search)}` : ''
+export const getAdminViewExportUrl = (
+  id: number,
+  options?: string | { search?: string; sortBy?: string; sortOrder?: 'asc' | 'desc' }
+) => {
+  if (typeof options === 'string') {
+    const query = options ? `?search=${encodeURIComponent(options)}` : ''
+    return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
+  }
+  const query = options ? buildAdminQuery(options) : ''
   return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
 }
+

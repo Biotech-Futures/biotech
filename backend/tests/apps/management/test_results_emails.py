@@ -1,7 +1,9 @@
 """Results emails from the Release Results tab: who gets which email, the
 client's wording, the files they carry, the survey details, preview, and
 sending each audience in batches."""
+import email
 import io
+import smtplib
 import zipfile
 from datetime import timedelta
 from decimal import Decimal
@@ -248,18 +250,21 @@ class ResultsEmailTests(_GradingFixture):
             self.assertEqual(r.json()["detail"], body["submissions_open"])
         self.assertEqual(mail.outbox, [])
 
-    def test_a_run_that_cannot_reach_the_mail_server_says_so_and_frees_the_send(self):
+    def test_a_run_that_cannot_reach_the_mail_server_keeps_the_email_to_send_later(self):
+        from apps.management.models import EmailDelivery
+        from apps.services.email_log import WAITING_REASON
+        from apps.services.models import WaitingEmail
+        from apps.services.system_email import sender_for
+        from apps.services.waiting_email import WAITING_NOTE, send_waiting
+
         unreachable = mock.Mock()
         unreachable.open.side_effect = OSError("mail server down")
+        unreachable.send_messages.side_effect = OSError("mail server down")
         # Connections are opened, signed in as the sender, by system_email.
-        with mock.patch("apps.services.system_email.get_connection", return_value=unreachable), \
-                self.assertLogs("apps.management.services.send_guard", level="ERROR"):
+        with mock.patch("apps.services.system_email.get_connection", return_value=unreachable),                 self.assertLogs("apps.management.services.send_guard", level="ERROR"):
             run = self._send_all("groups")[-1]["run"]
-        self.assertEqual(
-            (run["emailed"], run["failed"], run["error"]),
-            (0, 1, "Couldn't reach the mail server. Press Send again to email the rest."),
-        )
-        # Nobody it was for got it, so all are listed.
+        self.assertEqual((run["emailed"], run["failed"], run["error"]), (0, 0, WAITING_NOTE))
+        # Nobody it was for got it yet: all are listed, waiting.
         group = self.group.group_name
         self.assertEqual(
             sorted(m["who"] for m in run["missed"]), [
@@ -268,10 +273,25 @@ class ResultsEmailTests(_GradingFixture):
                 f"mentor@example.com ({group}, Mo Mentor)",
             ],
         )
-        self.assertEqual({m["reason"] for m in run["missed"]}, {"couldn't reach the mail server"})
+        self.assertEqual({m["reason"] for m in run["missed"]}, {WAITING_REASON})
+        self.assertEqual(WaitingEmail.objects.filter(key="results_team").count(), 1)
         self.assertFalse(ResultsTeamEmail.objects.exists())
-        # Pressing again sends it.
+
+        # Once the server can be reached, the waiting run sends it, files and
+        # all, and records everyone it reached.
+        send_waiting(sender_for("results_team").key)
+        self.assertEqual(len(mail.outbox), 1)
+        # Sent as it was built: its files are in the email itself.
+        sent = email.message_from_bytes(mail.outbox[0].message().as_bytes(linesep="\r\n"))
+        self.assertEqual(len([part for part in sent.walk() if part.get_content_disposition() == "attachment"]), 4)
+        self.assertEqual(EmailDelivery.objects.filter(email="results_team", group=self.group).count(), 3)
+        self.assertFalse(WaitingEmail.objects.exists())
+        run = self.client.get(reverse("management:results-email")).json()["runs"]["groups"]["run"]
+        self.assertEqual((run["emailed"], run["missed"]), (3, []))
+        # Pressing again marks the group emailed, and emails nobody twice.
+        mail.outbox = []
         self._send_all("groups")
+        self.assertEqual(mail.outbox, [])
         self.assertTrue(ResultsTeamEmail.objects.filter(group=self.group).exists())
 
     # -- the files they carry ------------------------------------------------------
@@ -315,7 +335,7 @@ class ResultsEmailTests(_GradingFixture):
         files = _files(mail.outbox[0])
         sheet = load_workbook(io.BytesIO(files[f"{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
-        self.assertEqual(dict(zip(rows[0], rows[1]))["PosterComment1"], "Bold layout.")
+        self.assertEqual(dict(zip(rows[0], rows[1]))["Poster Comment 1"], "Bold layout.")
 
     def test_supervisors_get_their_students_and_mentors_certificates_and_a_marks_sheet(self):
         # Only Poster and SAQ, as on the marks summary: another marked component stays out.
@@ -339,31 +359,32 @@ class ResultsEmailTests(_GradingFixture):
             "Mo Mentor mentored BTF-TEST-1", _docx_text(files[f"{year}_BTF_Mentor_Certificate_Mo_Mentor.docx"]),
         )
 
-        # One row per group, in the marks summary's own field names: each mark
+        # One row per group, headed by the marks summary's own field names
+        # spaced out (the marks as they are, TeamCode as Group): each mark
         # followed by its comment, then the total.
         sheet = load_workbook(io.BytesIO(files[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows()]
         self.assertEqual(rows[0], [
-            "TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory",
-            *(name for i in range(1, 11) for name in (f"PM{i}", f"PosterComment{i}")),
-            *(name for i in range(1, 5) for name in (f"SM{i}", f"ShortAnswerQuestionComment{i}")),
+            "Group", "Students", "Mentor", "Project Title", "Project Category", "Solution Category",
+            *(name for i in range(1, 11) for name in (f"PM{i}", f"Poster Comment {i}")),
+            *(name for i in range(1, 5) for name in (f"SM{i}", f"Short Answer Question Comment {i}")),
             "MTotal",
         ])
-        self.assertEqual(rows[0][6:10], ["PM1", "PosterComment1", "PM2", "PosterComment2"])
+        self.assertEqual(rows[0][6:10], ["PM1", "Poster Comment 1", "PM2", "Poster Comment 2"])
         self.assertEqual(len(rows), 2)
         row = dict(zip(rows[0], rows[1]))
         self.assertEqual(
-            (row["TeamCode"], row["Students"], row["Mentor"]),
+            (row["Group"], row["Students"], row["Mentor"]),
             ("BTF-TEST-1", "Stu amy, Stu ben", "Mo Mentor"),
         )
         # The design mark is poster criterion 1; content is SAQ 1, clarity (SAQ 2) unmarked.
         self.assertEqual((row["PM1"], row["PM2"], row["SM1"], row["SM2"]), (6.5, None, 8, None))
         # A comment sits beside its mark; one not given stays blank.
         self.assertEqual(
-            (row["PosterComment1"], row["ShortAnswerQuestionComment1"]), ("Bold, clear layout.", None)
+            (row["Poster Comment 1"], row["Short Answer Question Comment 1"]), ("Bold, clear layout.", None)
         )
         # Comments are wide and wrap.
-        comment_letter = get_column_letter(rows[0].index("PosterComment1") + 1)
+        comment_letter = get_column_letter(rows[0].index("Poster Comment 1") + 1)
         self.assertEqual(sheet.column_dimensions[comment_letter].width, 30)
         self.assertTrue(sheet[f"{comment_letter}2"].alignment.wrap_text)
         # One total: the Poster and SAQ marks together.
@@ -403,10 +424,10 @@ class ResultsEmailTests(_GradingFixture):
     # -- runs and failures ----------------------------------------------------------
 
     def test_a_supervisor_it_could_not_reach_is_listed_with_their_groups(self):
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
             run = self._send_all("supervisors")[-1]["run"]
-        self.assertEqual(run["missed"], [{"who": f"sam.lee@example.com ({self.group.group_name}, Sam Lee)", "reason": "lost the mail server connection"}])
+        self.assertEqual(run["missed"], [{"who": f"sam.lee@example.com ({self.group.group_name}, Sam Lee)", "reason": "mail server refused it"}])
 
     def _resend(self, audience):
         r = self.client.post(reverse(SEND), {"audience": audience, "which": "missed"}, format="json")
@@ -414,7 +435,7 @@ class ResultsEmailTests(_GradingFixture):
         return r.json()
 
     def test_resend_to_those_missed_emails_only_the_supervisor_missed(self):
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
             body = self._send_all("supervisors")[-1]
         self.assertEqual(body["missed"]["supervisors"], {"count": 1, "people": 1})
@@ -431,7 +452,7 @@ class ResultsEmailTests(_GradingFixture):
         # An earlier send reached everyone but ben; this one doesn't go at all.
         for address in ("amy@example.com", "mentor@example.com"):
             EmailDelivery.objects.create(email="results_team", group=self.group, address=address)
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
             body = self._send_all("groups")[-1]
         self.assertEqual(body["missed"]["groups"], {"count": 1, "people": 1})
@@ -459,13 +480,13 @@ class ResultsEmailTests(_GradingFixture):
         # An earlier send reached everyone but ben; this one doesn't go at all.
         for address in ("amy@example.com", "mentor@example.com"):
             EmailDelivery.objects.create(email="results_team", group=self.group, address=address)
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
             results = self._send_all("groups")
         self.assertEqual(sum(r["failed"] for r in results), 1)
         # The page lists who it couldn't reach, and why.
         self.assertEqual(
-            results[-1]["run"]["missed"], [{"who": f"ben@example.com ({self.group.group_name}, Stu ben)", "reason": "lost the mail server connection"}],
+            results[-1]["run"]["missed"], [{"who": f"ben@example.com ({self.group.group_name}, Stu ben)", "reason": "mail server refused it"}],
         )
         self.assertFalse(ResultsTeamEmail.objects.filter(group=self.group).exists())
         self.assertEqual(results[-1]["groups"], {"total": 1, "emailed": 0})
@@ -603,11 +624,13 @@ class ResultsEmailTests(_GradingFixture):
             r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks_Sample.xlsx"',
         )
         rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
-        self.assertEqual(rows[0][:6], ["TeamCode", "Students", "Mentor", "ProjectTitle", "ProjectCategory", "SolutionCategory"])
-        self.assertEqual(rows[0][-3:], ["SM4", "ShortAnswerQuestionComment4", "MTotal"])
+        self.assertEqual(
+            rows[0][:6], ["Group", "Students", "Mentor", "Project Title", "Project Category", "Solution Category"],
+        )
+        self.assertEqual(rows[0][-3:], ["SM4", "Short Answer Question Comment 4", "MTotal"])
         teams = [dict(zip(rows[0], row)) for row in rows[1:]]
-        self.assertEqual(sorted(t["TeamCode"] for t in teams), ["SAMPLE1", "SAMPLE2", "SAMPLE3"])
-        self.assertEqual({t["TeamCode"]: t["Mentor"] for t in teams}["SAMPLE1"], "Dr Sample Mentor")
+        self.assertEqual(sorted(t["Group"] for t in teams), ["SAMPLE1", "SAMPLE2", "SAMPLE3"])
+        self.assertEqual({t["Group"]: t["Mentor"] for t in teams}["SAMPLE1"], "Dr Sample Mentor")
         # Highest total first, as in the real spreadsheet.
         totals = [t["MTotal"] for t in teams]
         self.assertEqual(totals, sorted(totals, reverse=True))
@@ -639,7 +662,7 @@ class ResultsEmailTests(_GradingFixture):
             io.BytesIO(_files(mail.outbox[0])[f"{year}_BTF_Student_Marks_Sam_Lee.xlsx"])
         ).active
         rows = [[c.value for c in row] for row in sheet.iter_rows()]
-        self.assertEqual(rows[1][rows[0].index("ProjectTitle")], "Plant Sensors")
+        self.assertEqual(rows[1][rows[0].index("Project Title")], "Plant Sensors")
 
     def test_the_spreadsheet_puts_the_highest_total_first(self):
         # A second group of Sam's students that scored less, and one not marked.
@@ -668,7 +691,7 @@ class ResultsEmailTests(_GradingFixture):
         self.assertEqual(r["Content-Disposition"], f'attachment; filename="{self.group.year}_BTF_Student_Marks_Sam_Lee.xlsx"')
         rows = [[c.value for c in row] for row in load_workbook(io.BytesIO(r.content)).active.iter_rows()]
         row = dict(zip(rows[0], rows[1]))
-        self.assertEqual((row["TeamCode"], row["Students"], row["MTotal"]), ("BTF-TEST-1", "Stu amy, Stu ben", 14.5))
+        self.assertEqual((row["Group"], row["Students"], row["MTotal"]), ("BTF-TEST-1", "Stu amy, Stu ben", 14.5))
         # The same as the one the email attaches, and nothing was sent.
         self.assertEqual(mail.outbox, [])
         self._send_all("supervisors")

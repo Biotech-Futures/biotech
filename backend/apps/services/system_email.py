@@ -33,9 +33,12 @@ from django.utils import dateformat
 from django.utils.html import strip_tags
 
 from .email_branding import attach_inline_logo, brand_context
+from .email_log import note_send, reason_for
 from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
+from .retry import WAITING
+from .waiting_email import send_or_wait
 
 logger = logging.getLogger(__name__)
 
@@ -449,13 +452,19 @@ def send_system_email(
     connection=None,
     from_email: Optional[str] = None,
     files=(),
+    sent_by=None,
 ) -> str:
     """Check, render and send email ``key`` to one recipient, with ``files``
-    ((filename, content, mimetype) each) attached if given.
+    ((filename, content, mimetype) each) attached if given. The send is noted
+    in the Log on System Emails, as sent by ``sent_by`` (see ``email_log``).
 
     Returns ``SENT``, ``SKIPPED`` (type switched off) or ``FAILED``. Never raises
     for send errors. With ``background=True`` the message is handed to the mail
-    pool and ``SENT`` means queued.
+    pool and ``SENT`` means queued. A send that fails is tried once more at
+    once, over a fresh connection (see ``retry``); only then is it a miss.
+    When the mail server can't be reached, the email is kept and sent once it
+    can be (see ``waiting_email``), and that's ``SENT`` too: the Log lists it
+    as waiting.
     """
     if not is_email_enabled(key):
         logger.info("system_email.skipped_disabled key=%s", key)
@@ -470,13 +479,71 @@ def send_system_email(
     message = build_message(rendered, to, from_email=from_email, connection=connection, files=files)
 
     if background:
-        send_async(message, kind=key)
+        send_async(_NotedSend(message, key, sent_by), kind=key)
         return SENT
 
     try:
-        message.send(fail_silently=False)
+        outcome = send_or_wait(message, key=key, retry=True, sent_by=sent_by)
     except Exception as exc:
         # Not logger.exception: SMTP errors carry recipient addresses in their args.
         logger.error("system_email.send_failed key=%s error=%s", key, type(exc).__name__)
+        recipient_count = len(message.recipients())
+        note_send(
+            key,
+            missed=dict.fromkeys(message.recipients(), reason_for(exc)),
+            by=sent_by,
+            attempted=recipient_count,
+            delivered=0,
+            failed=recipient_count,
+            source_mailbox=message.from_email,
+        )
         return FAILED
+    if outcome is WAITING:
+        return SENT
+    recipient_count = len(message.recipients())
+    note_send(
+        key,
+        by=sent_by,
+        attempted=recipient_count,
+        delivered=recipient_count,
+        failed=0,
+        source_mailbox=message.from_email,
+    )
     return SENT
+
+
+class _NotedSend:
+    """A message for the mail pool that notes in the Log whether it went."""
+
+    def __init__(self, message, key: str, sent_by):
+        self.message = message
+        self.key = key
+        self.sent_by = sent_by
+
+    def send(self):
+        try:
+            outcome = send_or_wait(self.message, key=self.key, retry=True, sent_by=self.sent_by)
+        except Exception as exc:
+            recipient_count = len(self.message.recipients())
+            note_send(
+                self.key,
+                missed=dict.fromkeys(self.message.recipients(), reason_for(exc)),
+                by=self.sent_by,
+                attempted=recipient_count,
+                delivered=0,
+                failed=recipient_count,
+                source_mailbox=self.message.from_email,
+            )
+            raise
+        if outcome is WAITING:
+            # Kept to send once the mail server can be reached: the Log lists it as waiting.
+            return
+        recipient_count = len(self.message.recipients())
+        note_send(
+            self.key,
+            by=self.sent_by,
+            attempted=recipient_count,
+            delivered=recipient_count,
+            failed=0,
+            source_mailbox=self.message.from_email,
+        )

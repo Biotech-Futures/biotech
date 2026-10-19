@@ -1,0 +1,74 @@
+/* BIOTech Futures design tokens — the single source of truth for brand styling. */
+:root {
+  /* Design Guide palette */
+  --btf-dark-green: #017151;
+  --btf-white: #ffffff;
+  --btf-black: #000000;
+  --btf-teal: #174243;
+  --btf-light-green: #bad7bb;
+  --btf-air-force-blue: #39687b;
+  --btf-mint-green: #5ea99e;
+  --btf-yellow: #f1e5a6;
+
+  /* UI neutrals derived from the brand palette. */
+  --btf-surface: #f7faf9;
+  --btf-surface-muted: #eef4f1;
+  --btf-border: #d7e2de;
+  --btf-track: #e9efec;
+  --btf-muted: #667873;
+
+  /* Semantic aliases shared by the app shell and Analytics. */
+  --color-primary: var(--btf-dark-green);
+  --color-heading: var(--btf-teal);
+  --color-secondary: var(--btf-air-force-blue);
+  --color-accent: var(--btf-mint-green);
+  --color-highlight: var(--btf-yellow);
+  --color-selected: var(--btf-light-green);
+
+  /* App shell semantic tokens. */
+  --surface-0: var(--btf-surface);
+  --surface-1: var(--btf-surface-muted);
+  --surface-2: color-mix(in srgb, var(--btf-light-green) 34%, var(--btf-white));
+  --surface-3: color-mix(in srgb, var(--btf-light-green) 55%, var(--btf-white));
+  --text-strong: var(--btf-teal);
+  --text-main: var(--btf-teal);
+  --text-soft: var(--btf-muted);
+  --line-soft: color-mix(in srgb, var(--btf-teal) 8%, transparent);
+  --line-mid: color-mix(in srgb, var(--btf-teal) 14%, transparent);
+  --brand-950: var(--btf-teal);
+  --brand-900: color-mix(in srgb, var(--btf-teal) 92%, var(--btf-dark-green));
+  --brand-850: color-mix(in srgb, var(--btf-teal) 82%, var(--btf-dark-green));
+  --brand-800: color-mix(in srgb, var(--btf-teal) 72%, var(--btf-dark-green));
+  --brand-700: color-mix(in srgb, var(--btf-teal) 60%, var(--btf-dark-green));
+  --brand-600: color-mix(in srgb, var(--btf-teal) 44%, var(--btf-mint-green));
+  --brand-500: var(--btf-mint-green);
+  --brand-400: var(--btf-light-green);
+  --shadow-soft: 0 12px 28px rgba(23, 66, 67, 0.06);
+  --shadow-panel: 0 24px 60px rgba(23, 66, 67, 0.16);
+
+  /* Analytics aliases retained for readable component styles. */
+  --analytics-green: var(--btf-dark-green);
+  --analytics-green-dark: var(--btf-teal);
+  --analytics-green-soft: var(--btf-light-green);
+  --analytics-green-mid: var(--btf-mint-green);
+  --analytics-gray-50: var(--btf-surface);
+  --analytics-gray-100: var(--btf-track);
+  --analytics-gray-200: var(--btf-border);
+  --analytics-gray-300: #c4cfca;
+  --analytics-gray-400: #96a39e;
+  --analytics-gray-500: var(--btf-muted);
+  --analytics-gray-600: #52615c;
+  --analytics-gray-700: var(--btf-teal);
+  --analytics-text: var(--btf-teal);
+  --analytics-white: var(--btf-white);
+
+  /* Backwards-compatible names used by existing non-Analytics pages. */
+  --dark-green: var(--btf-dark-green);
+  --white: var(--btf-white);
+  --black: var(--btf-black);
+  --charcoal: var(--btf-teal);
+  --light-green: var(--btf-light-green);
+  --air-force-blue: var(--btf-air-force-blue);
+  --mint-green: var(--btf-mint-green);
+  --yellow: var(--btf-yellow);
+}

@@ -28,18 +28,15 @@
             Every suggested mentor is at capacity - you can still pick one manually below.
           </p>
         </div>
-        <select
+        <AppSelect
           v-model="selections[group.groupId]"
           class="form-input replace-dialog__select"
+          :options="actionOptionsFor(group.groupId)"
+          placeholder="Select action"
+          searchable
           :disabled="busy"
           :aria-label="`Replacement mentor for ${group.groupName}`"
-        >
-          <option value="">Select action</option>
-          <option :value="UNASSIGN_VALUE">— Unassign (leave unmatched)</option>
-          <option v-for="option in optionsFor(group.groupId)" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
+        />
       </div>
     </div>
 
@@ -61,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import {
   type MatchedGroup,
@@ -132,6 +130,13 @@ const optionsFor = (groupId: number): ReplaceOption[] => {
   }
   return options
 }
+
+/** Nothing yet, unassign, or one of the mentors. */
+const actionOptionsFor = (groupId: number): AppSelectOption[] => [
+  { value: '', label: 'Select action' },
+  { value: UNASSIGN_VALUE, label: '— Unassign (leave unmatched)' },
+  ...optionsFor(groupId)
+]
 
 const actionCount = computed(
   () => props.inactiveGroups.filter((group) => selections[group.groupId]).length
@@ -286,7 +291,7 @@ const confirm = async () => {
 .replace-dialog__name {
   margin: 0;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   overflow-wrap: anywhere;
 }
 

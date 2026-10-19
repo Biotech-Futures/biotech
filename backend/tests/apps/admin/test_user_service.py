@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.core import mail
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
@@ -299,7 +300,7 @@ class AdminUserBulkCreateViewTests(TestCase):
         response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "")
+        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
 
     @patch("apps.admin.views.bulk_create_users")
     def test_accepts_wrapped_users_payload_for_compatibility(self, mock_bulk_create_users):
@@ -315,7 +316,7 @@ class AdminUserBulkCreateViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        mock_bulk_create_users.assert_called_once_with(self.payload, "")
+        mock_bulk_create_users.assert_called_once_with(self.payload, "", created_by=self.admin_user)
 
     @patch("apps.admin.views.bulk_create_users")
     def test_rejects_non_array_payload(self, mock_bulk_create_users):
@@ -835,6 +836,17 @@ class AdminUserServiceQueryTests(TestCase):
         result = query_users(search="unique-email", requesting_user=self.admin_user)
         self.assertEqual(result["data"]["total"], 1)
         self.assertEqual(result["data"]["items"][0]["email"], "unique-email@example.com")
+
+    def test_query_users_search_by_full_name(self):
+        user = User.objects.create_user(
+            email="arjun.silva@example.com", first_name="Arjun", last_name="Silva",
+            state=self.state, password="testpass",
+        )
+
+        result = query_users(search="Arjun Silva", requesting_user=self.admin_user)
+
+        self.assertEqual(result["data"]["total"], 1)
+        self.assertEqual(result["data"]["items"][0]["id"], user.id)
 
 
 STUDENT_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
@@ -1573,6 +1585,8 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertIs(result["data"]["mediaConsent"], False)
         audit = self._audits().get()
         self.assertIs(audit.after_state["mediaConsent"], False)
+        # Permission received only thanks a guardian who signs on the platform.
+        self.assertEqual(mail.outbox, [])
 
     def test_admin_records_media_consent_given_later(self):
         self.profile.has_join_permission = True
@@ -1641,6 +1655,42 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertTrue(self.profile.joinperm_responseID.startswith("ADMIN-"))
         self.assertIs(self.profile.media_consent, True)
 
+    def _signed_form(self, **fields):
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent
+
+        return GuardianConsent.objects.create(
+            student=self.profile, guardian_full_name="Pat Parent", guardian_email="pat@example.com",
+            signature_png=b"", consent_version=CURRENT_VERSION, **fields,
+        )
+
+    def test_payload_gives_when_the_media_answer_was_signed(self):
+        consent = self._signed_form(media_consent=True)
+        self.profile.media_consent = True
+        self.profile.save()
+
+        data = fetch_user_by_id(self.student.id)
+        self.assertEqual(data["mediaConsentAt"], consent.signed_at.isoformat())
+
+    def test_payload_gives_when_media_consent_was_withdrawn(self):
+        withdrawn_at = timezone.now()
+        self._signed_form(media_consent=True, media_withdrawn_at=withdrawn_at)
+        self.profile.media_consent = False
+        self.profile.save()
+
+        data = fetch_user_by_id(self.student.id)
+        self.assertEqual(data["mediaConsentAt"], withdrawn_at.isoformat())
+
+    def test_payload_has_no_media_time_for_an_answer_the_form_does_not_give(self):
+        # Recorded by an admin after the form said no, or with no form at all.
+        self._signed_form(media_consent=False)
+        self.profile.media_consent = True
+        self.profile.save()
+        self.assertIsNone(fetch_user_by_id(self.student.id)["mediaConsentAt"])
+
+        StudentProfile.objects.get(pk=self.profile.pk).consents.all().delete()
+        self.assertIsNone(fetch_user_by_id(self.student.id)["mediaConsentAt"])
+
     def test_payload_includes_the_pending_guardian(self):
         self._make_pending()
 
@@ -1666,3 +1716,326 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertEqual(self.profile.pg_first_name, "Pat")
         self.assertEqual(self.profile.pg_email, "pat@example.com")
         self.assertFalse(self._audits().exists())
+
+
+class AdminUserTypedStateTests(TestCase):
+    """Outside Australia an admin types the state rather than picking it."""
+
+    def setUp(self):
+        from apps.groups.models import Countries
+
+        self.nz = Countries.objects.create(country_name="New Zealand")
+        self.user = User.objects.create_user(email="kiwi@example.com", first_name="Kiri", last_name="Hau")
+        self.user.country = self.nz
+        self.user.save()
+        # A student, as the panel edits.
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(user=self.user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        StudentProfile.objects.create(
+            user=self.user, school_name="Kiwi High", year_lvl="10",
+            pg_first_name="Pat", pg_last_name="Hau", pg_email="pat@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+        UserInterest.objects.create(user=self.user, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def _state(self):
+        self.user.refresh_from_db()
+        return self.user.state
+
+    def test_a_typed_state_is_added_once_and_reused_whatever_its_case(self):
+        from apps.groups.models import CountryStates
+
+        update_user(self.user.id, {"stateName": " Auckland "})
+        self.assertEqual(self._state().state_name, "Auckland")
+        self.assertEqual(self._state().country, self.nz)
+
+        update_user(self.user.id, {"stateName": "auckland"})
+        self.assertEqual(CountryStates.objects.filter(country=self.nz).count(), 1)
+
+    def test_a_new_country_takes_the_typed_state_with_it(self):
+        from apps.groups.models import Countries
+
+        fiji = Countries.objects.create(country_name="Fiji")
+        update_user(self.user.id, {"countryId": fiji.id, "stateName": "Central"})
+        self.assertEqual(self._state().country, fiji)
+
+    def test_a_blank_state_clears_it(self):
+        update_user(self.user.id, {"stateName": "Auckland"})
+        update_user(self.user.id, {"stateName": ""})
+        self.assertIsNone(self._state())
+
+
+class AdminMentorDetailsTests(TestCase):
+    """A mentor's panel: what they registered with, their weekly times and
+    groups, and an admin changing them as registering checks them."""
+
+    def setUp(self):
+        from apps.users.models import AreasOfInterest, UserInterest
+
+        self.au = Countries.objects.create(country_name="Australia")
+        self.mentor = User.objects.create_user(email="mia@example.com", first_name="Mia", last_name="Ng")
+        self.mentor.country = self.au
+        self.mentor.save()
+        role, _ = Roles.objects.get_or_create(role_name="mentor")
+        RoleAssignmentHistory.objects.create(user=self.mentor, role=role, valid_from=timezone.now() - timedelta(days=1))
+        self.profile = MentorProfile.objects.create(
+            user=self.mentor, background="postgraduate", institution="Uni", university_year="2",
+            field_of_study="Biology", mentor_reason="To help", relevant_background="Lab work",
+            mentoring_approach="Weekly calls", max_group_count=3,
+        )
+        UserInterest.objects.create(user=self.mentor, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def _profile(self):
+        self.profile.refresh_from_db()
+        return self.profile
+
+    def test_payload_gives_their_details_weekly_times_and_every_group(self):
+        from datetime import time
+
+        from apps.users.models.mentor_availability import MentorAvailability
+
+        MentorAvailability.objects.create(mentor_user=self.mentor, weekday=2, start_time=time(17), end_time=time(19))
+        MentorAvailability.objects.create(mentor_user=self.mentor, weekday=0, start_time=time(18), end_time=time(20))
+        for name, students in (("BTF10", 1), ("BTF2", 3)):
+            group = Groups.objects.create(group_name=name)
+            GroupMembership.objects.create(user=self.mentor, group=group, membership_role="mentor")
+            for index in range(students):
+                student = User.objects.create_user(email=f"{name}-{index}@example.com")
+                GroupMembership.objects.create(user=student, group=group, membership_role="student")
+
+        detail = fetch_user_by_id(self.mentor.id)
+        listed = next(item for item in query_users(role="mentor")["data"]["items"] if item["id"] == self.mentor.id)
+        for data in (detail, listed):
+            with self.subTest(source="detail" if data is detail else "list"):
+                self.assertEqual(data["mentorBackground"], "postgraduate")
+                self.assertEqual(data["mentorUniversityYear"], "2")
+                self.assertEqual(data["mentorFieldOfStudy"], "Biology")
+                self.assertEqual(data["mentorRelevantBackground"], "Lab work")
+                self.assertEqual(data["mentorMentoringApproach"], "Weekly calls")
+                self.assertEqual(data["mentorAvailability"], [
+                    {"weekday": 0, "start": "18:00", "end": "20:00"},
+                    {"weekday": 2, "start": "17:00", "end": "19:00"},
+                ])
+                self.assertEqual(
+                    [(group["name"], group["studentCount"]) for group in data["mentorGroups"]],
+                    [("BTF2", 3), ("BTF10", 1)],
+                )
+
+    def test_an_industry_mentor_needs_a_company_not_an_institution(self):
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "industry", "mentorCompany": "", "mentorInstitution": "",
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "",
+        })
+        self.assertEqual(result["msg"], "Company is required for industry mentors")
+
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "",
+        })
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual((self._profile().company, self._profile().institution), ("Acme Bio", ""))
+
+        # Later edits elsewhere no longer ask an industry mentor for an institution.
+        result = update_user(self.mentor.id, {"firstName": "Maya"})
+        self.assertIsNotNone(result["data"], result["msg"])
+
+    def test_a_student_background_needs_its_year_and_field(self):
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "undergraduate", "mentorInstitution": "Uni", "mentorUniversityYear": "",
+            "mentorFieldOfStudy": "Biology", "mentorCompany": "",
+        })
+        self.assertEqual(result["msg"], "Year of study is required for university students")
+
+        result = update_user(self.mentor.id, {
+            "mentorBackground": "academic", "mentorInstitution": "Uni", "mentorUniversityYear": "",
+            "mentorFieldOfStudy": "", "mentorCompany": "",
+        })
+        self.assertEqual(result["msg"], "Field of study is required for this background")
+
+    def test_answers_are_kept_to_150_words(self):
+        result = update_user(self.mentor.id, {"mentorMentoringApproach": "word " * 151})
+        self.assertEqual(result["msg"], "Keep each answer to 150 words or fewer")
+
+        result = update_user(self.mentor.id, {
+            "mentorReason": "To share what I know", "mentorRelevantBackground": "Ten years in labs",
+            "mentorMentoringApproach": "word " * 150,
+        })
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(self._profile().mentor_reason, "To share what I know")
+
+    def test_weekly_times_are_replaced_and_checked(self):
+        from apps.users.models.mentor_availability import MentorAvailability
+
+        result = update_user(self.mentor.id, {"mentorAvailability": [{"weekday": 1, "start": "19:00", "end": "18:00"}]})
+        self.assertEqual(result["msg"], "Each weekly time must end after it starts")
+
+        result = update_user(self.mentor.id, {"mentorAvailability": [
+            {"weekday": 1, "start": "18:00", "end": "19:30"},
+            {"weekday": 1, "start": "18:00", "end": "19:30"},
+            {"weekday": 4, "start": "09:00", "end": "10:00"},
+        ]})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(result["data"]["mentorAvailability"], [
+            {"weekday": 1, "start": "18:00", "end": "19:30"},
+            {"weekday": 4, "start": "09:00", "end": "10:00"},
+        ])
+
+        update_user(self.mentor.id, {"mentorAvailability": []})
+        self.assertFalse(MentorAvailability.objects.filter(mentor_user=self.mentor).exists())
+
+    def test_hours_per_week_are_given_and_changed(self):
+        self.profile.weekly_hours = 4
+        self.profile.save()
+        self.assertEqual(fetch_user_by_id(self.mentor.id)["mentorWeeklyHours"], 4)
+
+        result = update_user(self.mentor.id, {"mentorWeeklyHours": 41})
+        self.assertEqual(result["msg"], "Hours per week must be from 1 to 40")
+        result = update_user(self.mentor.id, {"mentorWeeklyHours": 6})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(self._profile().weekly_hours, 6)
+        # A mentor from before it was asked can be left without.
+        result = update_user(self.mentor.id, {"mentorWeeklyHours": None})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertIsNone(self._profile().weekly_hours)
+
+    def test_capacity_can_be_zero(self):
+        result = update_user(self.mentor.id, {"mentorMaxGroupCount": 0})
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertEqual(self._profile().max_group_count, 0)
+
+
+class AdminSupervisorGroupsTests(TestCase):
+    """A supervisor's panel lists every group they're in, not just the first."""
+
+    def test_payload_gives_every_group_they_are_in(self):
+        from apps.users.models import SupervisorProfile
+
+        supervisor = User.objects.create_user(email="sam@example.com", first_name="Sam", last_name="Lee")
+        role, _ = Roles.objects.get_or_create(role_name="supervisor")
+        RoleAssignmentHistory.objects.create(user=supervisor, role=role, valid_from=timezone.now() - timedelta(days=1))
+        SupervisorProfile.objects.create(user=supervisor, school_name="Cardinal College")
+        for name in ("BTF6", "BTF5"):
+            group = Groups.objects.create(group_name=name)
+            GroupMembership.objects.create(user=supervisor, group=group, membership_role="supervisor")
+            student = User.objects.create_user(email=f"{name}@example.com")
+            GroupMembership.objects.create(user=student, group=group, membership_role="student")
+
+        detail = fetch_user_by_id(supervisor.id)
+        listed = next(item for item in query_users(role="supervisor")["data"]["items"] if item["id"] == supervisor.id)
+        for data in (detail, listed):
+            with self.subTest(source="detail" if data is detail else "list"):
+                self.assertEqual([group["name"] for group in data["supervisorGroups"]], ["BTF5", "BTF6"])
+                self.assertEqual(data["schoolName"], "Cardinal College")
+
+
+class AdminSuperviseesTests(TestCase):
+    """An admin adds students to a supervisor or takes them off, by student
+    or by group, the supervisors' groups following."""
+
+    def setUp(self):
+        from apps.users.models import SupervisorProfile
+
+        self.admin_user = User.objects.create_user(email="admin@example.com")
+        supervisor_role, _ = Roles.objects.get_or_create(role_name="supervisor")
+        self.sam = self._supervisor("sam@example.com", "Sam", "Lee", supervisor_role, SupervisorProfile)
+        self.pat = self._supervisor("pat@example.com", "Pat", "Kim", supervisor_role, SupervisorProfile)
+        self.group = Groups.objects.create(group_name="BTF3")
+        self.ana = self._student("ana@example.com", "Ana", self.pat, self.group)
+        self.ben = self._student("ben@example.com", "Ben", self.pat, self.group)
+        self.cara = self._student("cara@example.com", "Cara", None, None)
+
+    def _supervisor(self, email, first, last, role, profile_model):
+        user = User.objects.create_user(email=email, first_name=first, last_name=last)
+        RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        profile_model.objects.create(user=user, school_name="School")
+        return user
+
+    def _student(self, email, first, supervisor, group):
+        from apps.groups.services import sync_supervisor_memberships
+
+        user = User.objects.create_user(email=email, first_name=first, last_name="Student")
+        StudentProfile.objects.create(
+            user=user, school_name="School", year_lvl="10", supervisor_id=supervisor.id if supervisor else None,
+            pg_first_name="Pat", pg_last_name="Parent", pg_email="g@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+
+        interest, _ = AreasOfInterest.objects.get_or_create(interest_desc="Biotech")
+        UserInterest.objects.create(user=user, interest=interest)
+        if group:
+            GroupMembership.objects.create(user=user, group=group, membership_role="student")
+        if supervisor:
+            sync_supervisor_memberships(supervisor.id)
+        return user
+
+    def _change(self, **lists):
+        from apps.admin.services.supervisees import change_supervisees
+
+        return change_supervisees(self.sam.id, lists, initiated_by=self.admin_user)
+
+    def _supervisor_of(self, student):
+        return StudentProfile.objects.get(user=student).supervisor_id
+
+    def _in_group(self, user):
+        return GroupMembership.objects.filter(user=user, group=self.group, left_at__isnull=True).exists()
+
+    def test_a_preview_says_who_would_move_and_changes_nothing(self):
+        result = self._change(addGroupIds=[self.group.id], addStudentIds=[self.cara.id], preview=True)
+
+        self.assertEqual(
+            [(change["name"], change["group"], change["from"], change["to"]) for change in result["data"]["changes"]],
+            [("Cara Student", None, None, "Sam Lee"), ("Ana Student", "BTF3", "Pat Kim", "Sam Lee"),
+             ("Ben Student", "BTF3", "Pat Kim", "Sam Lee")],
+        )
+        self.assertEqual(self._supervisor_of(self.ana), self.pat.id)
+        self.assertNotIn("user", result["data"])
+
+    def test_taking_a_group_moves_its_students_and_both_supervisors_groups_follow(self):
+        result = self._change(addGroupIds=[self.group.id])
+
+        self.assertEqual((self._supervisor_of(self.ana), self._supervisor_of(self.ben)), (self.sam.id, self.sam.id))
+        self.assertTrue(self._in_group(self.sam))
+        self.assertFalse(self._in_group(self.pat))
+        self.assertEqual([group["name"] for group in result["data"]["user"]["supervisorGroups"]], ["BTF3"])
+        self.assertEqual(
+            sorted(student["id"] for student in result["data"]["user"]["supervisees"]), sorted([self.ana.id, self.ben.id]),
+        )
+        from apps.audit.models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(entity_id=self.sam.id, action="supervisees_update").exists())
+
+    def test_a_student_taken_off_is_left_without_a_supervisor(self):
+        self._change(addGroupIds=[self.group.id])
+        result = self._change(removeStudentIds=[self.ana.id])
+
+        self.assertEqual([(change["name"], change["to"]) for change in result["data"]["changes"]], [("Ana Student", None)])
+        self.assertIsNone(self._supervisor_of(self.ana))
+        # Ben is still theirs, so they stay in BTF3.
+        self.assertTrue(self._in_group(self.sam))
+
+        self._change(removeGroupIds=[self.group.id])
+        self.assertIsNone(self._supervisor_of(self.ben))
+        self.assertFalse(self._in_group(self.sam))
+
+    def test_unknown_students_or_groups_are_refused(self):
+        self.assertEqual(self._change(addStudentIds=[999999])["msg"], "Student not found")
+        self.assertEqual(self._change(addGroupIds=[999999])["msg"], "Group not found")
+        self.assertEqual(self._change(addStudentIds="ana")["msg"], "addStudentIds must be a list of ids")
+
+    def test_the_admin_api_takes_it(self):
+        from apps.users.models.admin_scope import AdminScope
+
+        AdminScope.objects.create(user=self.admin_user)
+        client = APIClient()
+        client.force_authenticate(self.admin_user)
+        response = client.post(
+            f"/api/v1/admin/user/{self.sam.id}/supervisees/", {"addStudentIds": [self.cara.id]}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self._supervisor_of(self.cara), self.sam.id)
+
+    def test_changing_a_students_supervisor_moves_the_supervisors_groups_too(self):
+        result = update_user(self.ana.id, {"supervisorEmail": "sam@example.com"}, initiated_by=self.admin_user)
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertTrue(self._in_group(self.sam))
+        # Pat still has Ben in BTF3.
+        self.assertTrue(self._in_group(self.pat))

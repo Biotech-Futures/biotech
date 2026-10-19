@@ -213,6 +213,29 @@ class SupervisedGroupsViewTests(TestCase):
         response = self.client.get("/api/v1/users/supervised-groups/")
         self.assertEqual(response.status_code, 403)
 
+    def test_groups_come_back_in_the_order_the_supervisor_moved_them(self):
+        self.client.force_login(self.supervisor)
+        ids = [self.client.post("/api/v1/users/supervised-groups/", {}, format="json").json()["id"] for _ in range(3)]
+        first, second, third = ids
+        other = Groups.objects.create(group_name="BTF99").id
+
+        # Someone else's group is dropped; one left out follows the rest.
+        saved = self.client.put(
+            "/api/v1/users/supervised-groups/order/", {"group_ids": [third, other, first]}, format="json",
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["group_ids"], [third, first])
+        listed = [group["id"] for group in self.client.get("/api/v1/users/supervised-groups/").json()]
+        self.assertEqual(listed, [third, first, second])
+
+    def test_group_order_needs_a_list_of_ids(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.put("/api/v1/users/supervised-groups/order/", {"group_ids": "1,2"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.client.force_login(self.outsider)
+        response = self.client.put("/api/v1/users/supervised-groups/order/", {"group_ids": []}, format="json")
+        self.assertEqual(response.status_code, 403)
+
     def test_supervisor_can_tag_multiple_group_interests(self):
         self.client.force_login(self.supervisor)
         created = self.client.post(

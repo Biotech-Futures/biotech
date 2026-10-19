@@ -6,7 +6,8 @@ class GuardianConsentRequest(models.Model):
     """A consent link emailed to a student's guardian.
 
     Only a hash of the token is stored, so the table can't be used to open
-    links. A link works once, until it expires, and only while it's the newest
+    links. The token is worked out from the request and the server's secret,
+    so a supervisor can copy a link that's already out. A link works once, until it expires, and only while it's the newest
     one for the student: sending another revokes it.
     """
 
@@ -47,6 +48,9 @@ class GuardianConsent(models.Model):
         GuardianConsentRequest, on_delete=models.SET_NULL, null=True, blank=True, related_name="consent",
     )
     guardian_full_name = models.CharField(max_length=255)
+    # The student's name when the guardian signed, as the record shows it,
+    # whatever their account is renamed to later.
+    student_full_name = models.CharField(max_length=255, blank=True, default="")
     guardian_email = models.EmailField()
     media_consent = models.BooleanField()
     # The drawn signature as a PNG.
@@ -56,9 +60,6 @@ class GuardianConsent(models.Model):
     signed_at = models.DateTimeField(auto_now_add=True)
     signed_ip = models.GenericIPAddressField(null=True, blank=True)
     signed_user_agent = models.CharField(max_length=512, blank=True, default="")
-    # Where the signed record (PDF) is kept in the guardian-consent-forms container. Blank
-    # until it's been stored; it can always be rebuilt from this row.
-    record_pdf_key = models.CharField(max_length=255, blank=True, default="")
     # Recorded by an admin when the guardian withdraws, by contacting support.
     withdrawn_at = models.DateTimeField(null=True, blank=True)
     media_withdrawn_at = models.DateTimeField(null=True, blank=True)

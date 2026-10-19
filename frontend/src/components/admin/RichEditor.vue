@@ -1,17 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
 import { Table, TableRow, TableHeader, TableCell } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { uploadLinkedResourceAttachment } from '@/utils/adminAPI'
-import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, colourKey, lookOf, swatchOf } from './emailBlocks'
+import { BOX_LOOKS, BUTTON_LOOKS, EmailBox, EmailButton, lookOf, swatchOf } from './emailBlocks'
 import { EmailTable, EmailTableCell, EmailTableHeader } from './emailTables'
 import {
   EmailTextStyle,
   EmailTextStyles,
-  TEXT_COLOURS,
   TEXT_GAPS,
   TEXT_SIZES,
   gapBelowSelection,
@@ -19,6 +18,13 @@ import {
   styleValue,
   textStyleAt
 } from './emailTextStyle'
+import { FontFamily, FONT_STYLES, type AllowedFont } from './fontFamilyExtension'
+import {
+  TextColor,
+  COLOR_SECTIONS,
+  normalizeAllowedColor,
+  type AllowedColorHex
+} from './textColorExtension'
 import LinkDialog from './LinkDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import { formatHtml, visualLosses } from './emailHtml'
@@ -34,9 +40,6 @@ interface Props {
    * do survive, drawn with lines and padding the server keeps.
    */
   emailMode?: boolean
-  /** The Box and Button tools, as in email mode, with every other tool kept:
-   *  for announcements. */
-  blocks?: boolean
   /** Tighter vertical rhythm for side-by-side editor/preview layouts. */
   compact?: boolean
   /** Email mode: the email's link placeholders, offered in the link dialog. */
@@ -53,13 +56,13 @@ const props = withDefaults(defineProps<Props>(), {
   placeholder: undefined,
   readOnly: false,
   emailMode: false,
-  blocks: false,
   compact: false,
   linkPlaceholders: () => []
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  (e: 'update:needsOversizeAck', value: boolean): void
   (e: 'change', value: string): void
   (e: 'focus'): void
 }>()
@@ -68,9 +71,15 @@ const resolvedPlaceholder = computed(
   () => props.placeholder ?? (props.emailMode ? 'Write your email…' : 'Write your announcement…')
 )
 
+const LARGE_FILE_BYTES = 25 * 1024 * 1024
+
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const attachmentRange = ref<{ from: number; to: number } | null>(null)
+const pendingAttachmentFiles = ref<File[]>([])
+const pendingAttachmentRange = ref<{ from: number; to: number } | null>(null)
+const oversizedAttachmentFile = ref<File | null>(null)
+const acknowledgedOversizedAttachment = ref(false)
 const rawMode = ref(false)
 const rawHtml = ref(props.modelValue || '')
 // Whether the visual view has changed the content since it came in: until
@@ -81,15 +90,18 @@ const visualSwitch = ref<{ open: boolean; losses: string[] }>({ open: false, los
 const uploadingAttachment = ref(false)
 const attachmentError = ref<string | null>(null)
 const showHeadingDropdown = ref(false)
+const showFontDropdown = ref(false)
+const showColorDropdown = ref(false)
+const selectedFont = ref<AllowedFont>('Arial')
+const selectedColor = ref<AllowedColorHex>('#000000')
 
 const updateTick = ref(0)
 
 const editor = useEditor({
   extensions: [
     StarterKit.configure({
-      // No code blocks or strikethrough: neither emails nor announcements use them.
+      // No code blocks: neither emails nor announcements use them.
       codeBlock: false,
-      strike: false,
       // In emails inline code carries its own look, since email apps ignore
       // the editor's stylesheet; the server keeps it.
       ...(props.emailMode ? { code: { HTMLAttributes: { style: EMAIL_CODE_STYLE } } } : {}),
@@ -98,9 +110,9 @@ const editor = useEditor({
         HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' }
       }
     }),
+    FontFamily,
+    ...(!props.emailMode ? [TextColor] : []),
     Image.configure({ inline: false, allowBase64: true }),
-    // In emails a table draws its own lines, since email clients ignore the
-    // page's stylesheet; the server keeps these styles.
     // In emails a table draws its own lines, since email clients ignore the
     // page's stylesheet, or none for a template's layout (emailTables.ts).
     ...(props.emailMode
@@ -109,11 +121,12 @@ const editor = useEditor({
     Placeholder.configure({
       placeholder: resolvedPlaceholder.value
     }),
-    // Emails keep the boxes and buttons of their built-in design; announcements
-    // can have them too.
-    ...(props.emailMode || props.blocks ? [EmailBox, EmailButton] : []),
-    // Emails also keep their text's colours, sizes and spacing.
-    ...(props.emailMode ? [EmailTextStyle, EmailTextStyles] : [])
+    // The boxes and buttons of the emails' built-in design, in every editor.
+    EmailBox,
+    EmailButton,
+    // Every editor keeps its text's colours, sizes and spacing.
+    EmailTextStyle,
+    EmailTextStyles
   ],
   content: props.modelValue,
   editable: !props.readOnly,
@@ -156,7 +169,12 @@ watch(
   }
 )
 
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+})
+
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocumentClick)
   editor.value?.destroy()
 })
 
@@ -170,6 +188,82 @@ const currentHeadingLabel = computed(() => {
   }
   return 'Normal'
 })
+
+const currentFontLabel = computed<AllowedFont>(() => {
+  void updateTick.value
+  if (!editor.value) return selectedFont.value
+  const fontAttr = editor.value.getAttributes('fontFamily')?.fontFamily
+  if (fontAttr === 'Times New Roman') return 'Times New Roman'
+  if (fontAttr === 'Arial') return 'Arial'
+  if (editor.value.isActive('fontFamily')) {
+    return selectedFont.value
+  }
+  return 'Arial'
+})
+
+const currentFontFamilyStyle = computed(() => {
+  return FONT_STYLES[currentFontLabel.value] || 'inherit'
+})
+
+function selectFont(font: AllowedFont) {
+  if (!editor.value) return
+  selectedFont.value = font
+  editor.value.chain().focus().setFontFamily(font).run()
+  showFontDropdown.value = false
+}
+
+const currentTextColor = computed<AllowedColorHex>(() => {
+  void updateTick.value
+  if (!editor.value) return selectedColor.value
+  const rawColor = props.emailMode
+    ? shownColour.value
+    : editor.value.getAttributes('textColor')?.color
+  const normalized = normalizeAllowedColor(rawColor)
+  if (normalized) return normalized
+  if (!props.emailMode && editor.value.isActive('textColor')) {
+    return selectedColor.value
+  }
+  return '#000000'
+})
+
+const colorMenuOnRight = ref(false)
+
+function toggleColorDropdown(event: MouseEvent) {
+  if (showColorDropdown.value) {
+    showColorDropdown.value = false
+    return
+  }
+  const target = event.currentTarget as HTMLElement
+  const button = target.getBoundingClientRect()
+  const toolbar = target.closest('.rich-editor-toolbar')?.getBoundingClientRect()
+  colorMenuOnRight.value = !!toolbar && button.left + 280 > toolbar.right
+  showHeadingDropdown.value = false
+  showFontDropdown.value = false
+  emailMenu.value = null
+  showColorDropdown.value = true
+}
+
+function selectColor(color: AllowedColorHex) {
+  if (!editor.value) return
+  selectedColor.value = color
+  if (props.emailMode) {
+    editor.value.chain().focus().setTextColour(color).run()
+  } else {
+    editor.value.chain().focus().setTextColor(color).run()
+  }
+  showColorDropdown.value = false
+}
+
+function onDocumentClick(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  if (!target.closest('.heading-dropdown-container')) {
+    showHeadingDropdown.value = false
+    showFontDropdown.value = false
+    showColorDropdown.value = false
+    emailMenu.value = null
+  }
+}
 
 const isInTable = computed(() => {
   void updateTick.value
@@ -205,6 +299,8 @@ function selectHeading(level: number | 0) {
     editor.value.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 | 4 }).run()
   }
   showHeadingDropdown.value = false
+  showFontDropdown.value = false
+  showColorDropdown.value = false
 }
 
 // -- Link dialog: text links, and email buttons -------------------------------
@@ -238,7 +334,7 @@ function removeLink() {
 
 // -- Email boxes and buttons (email mode) ------------------------------------
 
-const emailMenu = ref<'box' | 'button' | 'colour' | 'size' | 'gap' | null>(null)
+const emailMenu = ref<'box' | 'button' | 'size' | 'gap' | null>(null)
 const emailMenuOnRight = ref(false)
 
 /** The look of the box or button the cursor is in, if it's one of the offered looks. */
@@ -254,6 +350,22 @@ const buttonLook = computed(() => {
   return lookOf(BUTTON_LOOKS, editor.value.getAttributes('emailButton').style ?? '')?.id ?? null
 })
 
+// Where the button the cursor is in sits on its line.
+const BUTTON_PLACES = [
+  { align: 'left', label: 'Left' },
+  { align: 'center', label: 'Centre' },
+] as const
+const buttonAlign = computed(() => {
+  void updateTick.value
+  if (!editor.value?.isActive('emailButton')) return null
+  return editor.value.getAttributes('emailButton').align === 'center' ? 'center' : 'left'
+})
+
+function alignButton(align: 'left' | 'center') {
+  emailMenu.value = null
+  editor.value?.chain().focus().setEmailButton({ align }).run()
+}
+
 /** The colour and size on the selected text, if it has its own. */
 const colourAt = computed(() => {
   void updateTick.value
@@ -265,29 +377,16 @@ const sizeAt = computed(() => {
   return editor.value ? textStyleAt(editor.value.state, 'font-size') : { own: null, shown: null }
 })
 
-// The colour or size set on the text itself (the tool can take it off), and
-// the one the text shows, which may come from its paragraph or heading.
-const textColour = computed(() => colourAt.value.own)
+// The size set on the text itself (the tool can take it off), and the one the
+// text shows, which may come from its paragraph or heading. The shown colour
+// is used by the color picker below.
 const shownColour = computed(() => colourAt.value.shown)
 const textSize = computed(() => sizeAt.value.own)
 const shownSize = computed(() => sizeAt.value.shown)
 
-const isShownColour = (colour: string) => !!shownColour.value && colourKey(colour) === colourKey(shownColour.value)
-
-/** The colour or size now, when it isn't one on offer: "Now: 26px", or
- *  "Now: default" when nothing sets one (the email's own). */
-const colourNote = computed(() =>
-  TEXT_COLOURS.some((colour) => isShownColour(colour.value)) ? null : shownColour.value ? `Now: ${shownColour.value}` : 'Now: default'
-)
 const sizeNote = computed(() =>
   TEXT_SIZES.some((size) => size.value === shownSize.value) ? null : shownSize.value ? `Now: ${shownSize.value}` : 'Now: default'
 )
-
-/** Colour the selected text, or (null) take its colour off. */
-function chooseTextColour(colour: string | null) {
-  emailMenu.value = null
-  editor.value?.chain().focus().setTextColour(colour).run()
-}
 
 /** Resize the selected text, or (null) take its size off. */
 function chooseTextSize(size: string | null) {
@@ -321,7 +420,7 @@ function chooseGap(gap: string) {
   editor.value?.chain().focus().setGapBelow(gap).run()
 }
 
-function toggleEmailMenu(menu: 'box' | 'button' | 'colour' | 'size' | 'gap', event: MouseEvent) {
+function toggleEmailMenu(menu: 'box' | 'button' | 'size' | 'gap', event: MouseEvent) {
   if (emailMenu.value === menu) {
     emailMenu.value = null
     return
@@ -332,6 +431,8 @@ function toggleEmailMenu(menu: 'box' | 'button' | 'colour' | 'size' | 'gap', eve
   const toolbar = target.closest('.rich-editor-toolbar')?.getBoundingClientRect()
   emailMenuOnRight.value = !!toolbar && button.left + button.width / 2 > toolbar.left + toolbar.width / 2
   showHeadingDropdown.value = false
+  showFontDropdown.value = false
+  showColorDropdown.value = false
   emailMenu.value = menu
 }
 
@@ -404,22 +505,81 @@ function insertAttachmentLink(href: string, range: { from: number; to: number } 
   editor.value.chain().focus().setTextSelection({ from, to }).setLink({ href }).run()
 }
 
-async function handleAttachmentFiles(files: File[]) {
-  if (!files.length) return
-  const initialRange = attachmentRange.value
+function formatFileSize(bytes?: number | null): string {
+  if (!bytes || bytes <= 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = bytes
+  let idx = 0
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024
+    idx++
+  }
+  return `${size.toFixed(size >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`
+}
+
+async function uploadAndInsertAttachments(
+  files: File[],
+  range: { from: number; to: number } | null,
+  acknowledgedOversized: boolean
+) {
   uploadingAttachment.value = true
   attachmentError.value = null
   try {
     for (const [index, file] of files.entries()) {
-      const resource = await uploadLinkedResourceAttachment(file)
-      insertAttachmentLink(resource.downloadUrl || resource.accessUrl, index === 0 ? initialRange : null)
+      const resource = await uploadLinkedResourceAttachment(file, acknowledgedOversized)
+      insertAttachmentLink(
+        resource.downloadUrl || resource.accessUrl,
+        index === 0 ? range : null
+      )
     }
+    pendingAttachmentFiles.value = []
+    pendingAttachmentRange.value = null
   } catch (err: unknown) {
     console.error('Attachment upload failed:', err)
-    attachmentError.value = err instanceof Error ? err.message : 'Attachment upload failed. Please try again.'
+    attachmentError.value =
+      err instanceof Error ? err.message : 'Attachment upload failed. Please try again.'
+    if (acknowledgedOversized && pendingAttachmentFiles.value.length > 0) {
+      acknowledgedOversizedAttachment.value = false
+      emit('update:needsOversizeAck', true)
+    }
   } finally {
     attachmentRange.value = null
     uploadingAttachment.value = false
+  }
+}
+
+async function handleAttachmentFiles(files: File[]) {
+  if (!files.length) return
+  const initialRange = attachmentRange.value
+  attachmentError.value = null
+
+  const largeFile = files.find((f) => f.size > LARGE_FILE_BYTES) ?? null
+  if (largeFile) {
+    pendingAttachmentFiles.value = files
+    pendingAttachmentRange.value = initialRange
+    oversizedAttachmentFile.value = largeFile
+    acknowledgedOversizedAttachment.value = false
+    attachmentRange.value = null
+    emit('update:needsOversizeAck', true)
+    return
+  }
+
+  oversizedAttachmentFile.value = null
+  pendingAttachmentFiles.value = []
+  pendingAttachmentRange.value = null
+  acknowledgedOversizedAttachment.value = false
+  emit('update:needsOversizeAck', false)
+  await uploadAndInsertAttachments(files, initialRange, false)
+}
+
+async function onOversizeAckChange() {
+  if (acknowledgedOversizedAttachment.value && pendingAttachmentFiles.value.length > 0) {
+    emit('update:needsOversizeAck', false)
+    const filesToUpload = [...pendingAttachmentFiles.value]
+    const rangeToUse = pendingAttachmentRange.value
+    await uploadAndInsertAttachments(filesToUpload, rangeToUse, true)
+  } else if (!acknowledgedOversizedAttachment.value && pendingAttachmentFiles.value.length > 0) {
+    emit('update:needsOversizeAck', true)
   }
 }
 
@@ -517,7 +677,7 @@ defineExpose({ insertText })
               type="button"
               class="toolbar-btn heading-btn"
               :title="`Current style: ${currentHeadingLabel}`"
-              @click="showHeadingDropdown = !showHeadingDropdown; emailMenu = null"
+              @click="showHeadingDropdown = !showHeadingDropdown; showFontDropdown = false; showColorDropdown = false; emailMenu = null"
             >
               <span>{{ currentHeadingLabel }}</span>
               <i class="fas fa-chevron-down heading-chevron"></i>
@@ -566,133 +726,175 @@ defineExpose({ insertText })
             </div>
           </div>
 
-          <!-- Text colour and size, kept on save (email mode) -->
-          <template v-if="emailMode">
-            <div class="toolbar-sep"></div>
-            <div class="heading-dropdown-container">
+          <!-- Font Family Dropdown -->
+          <div class="heading-dropdown-container font-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn heading-btn font-btn"
+              :title="`Current font: ${currentFontLabel}`"
+              @click="showFontDropdown = !showFontDropdown; showHeadingDropdown = false; showColorDropdown = false; emailMenu = null"
+            >
+              <span :style="{ fontFamily: currentFontFamilyStyle }">{{ currentFontLabel }}</span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div v-if="showFontDropdown" class="heading-dropdown-menu font-dropdown-menu">
               <button
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: !!textColour }"
-                title="Colour the selected text"
-                data-test="text-colour"
-                @mousedown.prevent="toggleEmailMenu('colour', $event)"
+                class="dropdown-item font-item-arial"
+                :class="{ active: currentFontLabel === 'Arial' }"
+                @click="selectFont('Arial')"
               >
-                <i class="fas fa-palette"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                Arial
               </button>
-              <div
-                v-if="emailMenu === 'colour'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+              <button
+                type="button"
+                class="dropdown-item font-item-times"
+                :class="{ active: currentFontLabel === 'Times New Roman' }"
+                @click="selectFont('Times New Roman')"
               >
-                <template v-if="colourNote">
-                  <div class="dropdown-item email-look-item text-now active" data-test="colour-now">
-                    <span v-if="shownColour" class="email-look-swatch" :style="{ backgroundColor: shownColour }"></span>
-                    {{ colourNote }}
-                  </div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="colour in TEXT_COLOURS"
-                  :key="colour.value"
-                  type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: isShownColour(colour.value) }"
-                  @mousedown.prevent="chooseTextColour(colour.value)"
-                >
-                  <span class="email-look-swatch" :style="{ backgroundColor: colour.value }"></span>
-                  {{ colour.label }}
-                </button>
-                <template v-if="textColour">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextColour(null)">
-                    No colour
-                  </button>
-                </template>
-              </div>
+                Times New Roman
+              </button>
             </div>
-            <div class="heading-dropdown-container">
-              <button
-                type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: !!textSize }"
-                title="Resize the selected text"
-                data-test="text-size"
-                @mousedown.prevent="toggleEmailMenu('size', $event)"
-              >
-                <i class="fas fa-text-height"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
-              </button>
+          </div>
+
+          <!-- Text colour, size and gap, kept on save, in every editor -->
+          <div class="toolbar-sep"></div>
+
+          <!-- Text Color Dropdown -->
+          <div class="heading-dropdown-container color-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn color-picker-btn"
+              :class="{ 'color-picker-btn--open': showColorDropdown || (emailMode ? !!colourAt.own : isActive('textColor')) }"
+              :title="`Text color (${currentTextColor})`"
+              data-test="text-colour"
+              @click="toggleColorDropdown($event)"
+            >
+              <span class="color-picker-icon">
+                <span class="color-picker-glyph">A</span>
+                <span
+                  class="color-picker-bar"
+                  :class="{ 'color-picker-bar--light': currentTextColor === '#FFFFFF' }"
+                  :style="{ backgroundColor: currentTextColor }"
+                ></span>
+              </span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="showColorDropdown"
+              class="color-dropdown-menu"
+              :class="{ 'color-dropdown-menu--right': colorMenuOnRight }"
+            >
               <div
-                v-if="emailMenu === 'size'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
+                v-for="section in COLOR_SECTIONS"
+                :key="section.title"
+                class="color-section"
               >
-                <template v-if="sizeNote">
-                  <div class="dropdown-item text-now active" data-test="size-now">{{ sizeNote }}</div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="size in TEXT_SIZES"
-                  :key="size.value"
-                  type="button"
-                  class="dropdown-item"
-                  :class="{ active: shownSize === size.value }"
-                  :style="{ fontSize: size.value }"
-                  @mousedown.prevent="chooseTextSize(size.value)"
-                >
-                  {{ size.label }}
-                </button>
-                <template v-if="textSize">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextSize(null)">
-                    Normal size
-                  </button>
-                </template>
-              </div>
-            </div>
-            <div class="heading-dropdown-container">
-              <button
-                type="button"
-                class="toolbar-btn text-icon-btn"
-                title="Gap below the selected paragraphs, box or button"
-                data-test="text-gap"
-                @mousedown.prevent="toggleEmailMenu('gap', $event)"
-              >
-                <i class="fas fa-arrows-up-down"></i>
-                <i class="fas fa-chevron-down heading-chevron"></i>
-              </button>
-              <div
-                v-if="emailMenu === 'gap'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <template v-if="gapNote">
-                  <div
-                    class="dropdown-item gap-now"
-                    :class="{ active: canSetGap }"
-                    data-test="gap-now"
-                    :title="gapBelow ? undefined : 'No gap is set here: the email app puts its usual space after a paragraph'"
+                <div class="color-section-title">{{ section.title }}</div>
+                <div class="color-section-grid">
+                  <button
+                    v-for="option in section.colors"
+                    :key="option.hex"
+                    type="button"
+                    class="color-option-card"
+                    :class="{ active: currentTextColor === option.hex }"
+                    @click="selectColor(option.hex)"
                   >
-                    {{ gapNote }}
-                  </div>
-                  <div class="email-look-sep"></div>
-                </template>
-                <button
-                  v-for="gap in TEXT_GAPS"
-                  :key="gap.value"
-                  type="button"
-                  class="dropdown-item"
-                  :class="{ active: gapBelow === gap.value }"
-                  :disabled="!canSetGap"
-                  @mousedown.prevent="chooseGap(gap.value)"
-                >
-                  {{ gap.label }} ({{ gap.value }})
-                </button>
+                    <span
+                      class="color-option-swatch"
+                      :class="{ 'color-option-swatch--white': option.hex === '#FFFFFF' }"
+                      :style="{ backgroundColor: option.hex }"
+                    ></span>
+                    <span class="color-option-info">
+                      <span class="color-option-name">{{ option.name }}</span>
+                      <span class="color-option-hex">{{ option.hex }}</span>
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
-          </template>
+          </div>
+
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: !!textSize }"
+              title="Resize the selected text"
+              data-test="text-size"
+              @mousedown.prevent="toggleEmailMenu('size', $event)"
+            >
+              <i class="fas fa-text-height"></i>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'size'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
+              <template v-if="sizeNote">
+                <div class="dropdown-item text-now active" data-test="size-now">{{ sizeNote }}</div>
+                <div class="email-look-sep"></div>
+              </template>
+              <button
+                v-for="size in TEXT_SIZES"
+                :key="size.value"
+                type="button"
+                class="dropdown-item"
+                :class="{ active: shownSize === size.value }"
+                :style="{ fontSize: size.value }"
+                @mousedown.prevent="chooseTextSize(size.value)"
+              >
+                {{ size.label }}
+              </button>
+              <template v-if="textSize">
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="chooseTextSize(null)">
+                  Normal size
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              title="Gap below the selected paragraphs, box or button"
+              data-test="text-gap"
+              @mousedown.prevent="toggleEmailMenu('gap', $event)"
+            >
+              <i class="fas fa-arrows-up-down"></i>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'gap'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
+              <template v-if="gapNote">
+                <div
+                  class="dropdown-item gap-now"
+                  :class="{ active: canSetGap }"
+                  data-test="gap-now"
+                  :title="gapBelow ? undefined : 'No gap is set here: the email app puts its usual space after a paragraph'"
+                >
+                  {{ gapNote }}
+                </div>
+                <div class="email-look-sep"></div>
+              </template>
+              <button
+                v-for="gap in TEXT_GAPS"
+                :key="gap.value"
+                type="button"
+                class="dropdown-item"
+                :class="{ active: gapBelow === gap.value }"
+                :disabled="!canSetGap"
+                @mousedown.prevent="chooseGap(gap.value)"
+              >
+                {{ gap.label }} ({{ gap.value }})
+              </button>
+            </div>
+          </div>
 
           <div class="toolbar-sep"></div>
 
@@ -724,6 +926,16 @@ defineExpose({ insertText })
           >
             <i class="fas fa-underline"></i>
           </button>
+          <button
+            type="button"
+            class="toolbar-btn icon-btn"
+            :class="{ active: isActive('strike') }"
+            title="Strikethrough"
+            @mousedown.prevent="editor?.chain().focus().toggleStrike().run()"
+          >
+            <i class="fas fa-strikethrough"></i>
+          </button>
+
           <button
             type="button"
             class="toolbar-btn icon-btn"
@@ -782,84 +994,94 @@ defineExpose({ insertText })
             <i class="fas fa-minus"></i>
           </button>
 
-          <!-- Email design blocks, kept on save -->
-          <template v-if="emailMode || blocks">
-            <div class="heading-dropdown-container">
+          <!-- Box and Button, kept on save, in every editor -->
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: isActive('emailBox') }"
+              title="Put the selected lines in a box, change the box, or take them out"
+              @mousedown.prevent="toggleEmailMenu('box', $event)"
+            >
+              <i class="far fa-square"></i>
+              <span>Box</span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'box'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
               <button
+                v-for="look in BOX_LOOKS"
+                :key="look.id"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: isActive('emailBox') }"
-                title="Put the selected lines in a box, change the box, or take them out"
-                @mousedown.prevent="toggleEmailMenu('box', $event)"
+                class="dropdown-item email-look-item"
+                :class="{ active: boxLook === look.id }"
+                @mousedown.prevent="chooseBoxLook(look.style)"
               >
-                <i class="far fa-square"></i>
-                <span>Box</span>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                <span class="email-look-swatch" :style="swatchOf(look)"></span>
+                {{ look.label }}
               </button>
-              <div
-                v-if="emailMenu === 'box'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
-                <button
-                  v-for="look in BOX_LOOKS"
-                  :key="look.id"
-                  type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: boxLook === look.id }"
-                  @mousedown.prevent="chooseBoxLook(look.style)"
-                >
-                  <span class="email-look-swatch" :style="swatchOf(look)"></span>
-                  {{ look.label }}
+              <template v-if="isActive('emailBox')">
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="chooseBoxLook(null)">
+                  No box
                 </button>
-                <template v-if="isActive('emailBox')">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="chooseBoxLook(null)">
-                    No box
-                  </button>
-                </template>
-              </div>
+              </template>
             </div>
-            <div class="heading-dropdown-container">
+          </div>
+          <div class="heading-dropdown-container">
+            <button
+              type="button"
+              class="toolbar-btn text-icon-btn"
+              :class="{ active: isActive('emailButton') }"
+              title="Turn this line into a button, or change the button"
+              @mousedown.prevent="toggleEmailMenu('button', $event)"
+            >
+              <i class="fas fa-hand-pointer"></i>
+              <span>Button</span>
+              <i class="fas fa-chevron-down heading-chevron"></i>
+            </button>
+            <div
+              v-if="emailMenu === 'button'"
+              class="heading-dropdown-menu email-look-menu"
+              :class="{ 'email-look-menu--right': emailMenuOnRight }"
+            >
               <button
+                v-for="look in BUTTON_LOOKS"
+                :key="look.id"
                 type="button"
-                class="toolbar-btn text-icon-btn"
-                :class="{ active: isActive('emailButton') }"
-                title="Turn this line into a button, or change the button"
-                @mousedown.prevent="toggleEmailMenu('button', $event)"
+                class="dropdown-item email-look-item"
+                :class="{ active: buttonLook === look.id }"
+                @mousedown.prevent="chooseButtonLook(look.style)"
               >
-                <i class="fas fa-hand-pointer"></i>
-                <span>Button</span>
-                <i class="fas fa-chevron-down heading-chevron"></i>
+                <span class="email-look-swatch" :style="swatchOf(look)"></span>
+                {{ look.label }}
               </button>
-              <div
-                v-if="emailMenu === 'button'"
-                class="heading-dropdown-menu email-look-menu"
-                :class="{ 'email-look-menu--right': emailMenuOnRight }"
-              >
+              <template v-if="isActive('emailButton')">
+                <div class="email-look-sep"></div>
+                <!-- Where the button sits on its line: left, or centred. -->
                 <button
-                  v-for="look in BUTTON_LOOKS"
-                  :key="look.id"
+                  v-for="place in BUTTON_PLACES"
+                  :key="place.align"
                   type="button"
-                  class="dropdown-item email-look-item"
-                  :class="{ active: buttonLook === look.id }"
-                  @mousedown.prevent="chooseButtonLook(look.style)"
+                  class="dropdown-item"
+                  :class="{ active: buttonAlign === place.align }"
+                  @mousedown.prevent="alignButton(place.align)"
                 >
-                  <span class="email-look-swatch" :style="swatchOf(look)"></span>
-                  {{ look.label }}
+                  {{ place.label }}
                 </button>
-                <template v-if="isActive('emailButton')">
-                  <div class="email-look-sep"></div>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="changeButtonLink">
-                    Change link…
-                  </button>
-                  <button type="button" class="dropdown-item" @mousedown.prevent="removeButton">
-                    No button
-                  </button>
-                </template>
-              </div>
+                <div class="email-look-sep"></div>
+                <button type="button" class="dropdown-item" @mousedown.prevent="changeButtonLink">
+                  Change link…
+                </button>
+                <button type="button" class="dropdown-item" @mousedown.prevent="removeButton">
+                  No button
+                </button>
+              </template>
             </div>
-          </template>
+          </div>
 
           <div class="toolbar-sep"></div>
 
@@ -1071,6 +1293,25 @@ defineExpose({ insertText })
       </ConfirmDialog>
     </div>
 
+    <!-- Large files are allowed once the admin confirms -->
+    <div v-if="oversizedAttachmentFile" class="rich-editor-oversize" role="alert">
+      <p class="rich-editor-oversize__text">
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        This file is {{ formatFileSize(oversizedAttachmentFile.size) }}, over the 25 MB guideline. Large files
+        take longer to upload and open.
+      </p>
+      <label class="rich-editor-oversize__checkbox-label">
+        <input
+          id="rich-editor-oversize-ack"
+          v-model="acknowledgedOversizedAttachment"
+          type="checkbox"
+          :disabled="uploadingAttachment"
+          @change="onOversizeAckChange"
+        />
+        <span>I understand this file is large</span>
+      </label>
+    </div>
+
     <LinkDialog
       v-model="linkDialog.open"
       :kind="linkDialog.kind"
@@ -1118,6 +1359,42 @@ defineExpose({ insertText })
   width: 100%;
 }
 
+.rich-editor-oversize {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 6px;
+  background-color: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.rich-editor-oversize__text {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #92400e;
+}
+
+.rich-editor-oversize__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--charcoal, #1f2937);
+  cursor: pointer;
+}
+
+.rich-editor-oversize__checkbox-label input {
+  accent-color: var(--dark-green, #017151);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
 .rich-editor-alert {
   display: flex;
   align-items: center;
@@ -1145,7 +1422,7 @@ defineExpose({ insertText })
   border-radius: 0.5rem;
   background-color: #ffffff;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  overflow: hidden;
+  overflow: visible;
   transition: border-color 0.15s ease-in-out;
 }
 
@@ -1160,6 +1437,7 @@ defineExpose({ insertText })
   gap: 0.25rem;
   padding: 0.375rem 0.5rem;
   border-bottom: 1px solid #e5e7eb;
+  border-radius: 0.5rem 0.5rem 0 0;
   background-color: #f9fafb;
 }
 
@@ -1172,7 +1450,7 @@ defineExpose({ insertText })
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 0.25rem;
   padding: 0.375rem 0.5rem;
   font-size: 0.8125rem;
@@ -1193,8 +1471,13 @@ defineExpose({ insertText })
 }
 
 .toolbar-btn.active {
-  background-color: #e0e7ff;
-  color: #2563eb;
+  border-color: #017151;
+  background-color: #f0fdf4;
+  color: #017151;
+}
+
+.toolbar-btn.active:hover {
+  background-color: #dcfce7;
 }
 
 .toolbar-btn.icon-btn {
@@ -1264,9 +1547,165 @@ defineExpose({ insertText })
 }
 
 .dropdown-item.active {
-  background-color: #eff6ff;
-  color: #2563eb;
+  background-color: #e8f5f1;
+  color: #017151;
   font-weight: 600;
+}
+
+.font-btn {
+  min-width: 9.5rem;
+}
+
+.font-dropdown-menu {
+  min-width: 9.5rem;
+}
+
+.font-item-arial {
+  font-family: Arial, sans-serif;
+}
+
+.font-item-times {
+  font-family: 'Times New Roman', Times, serif;
+}
+
+.color-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 0.3125rem;
+}
+
+.color-picker-icon {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+}
+
+.color-picker-btn--open {
+  border-color: #017151;
+  background-color: #f0fdf4;
+}
+
+.color-picker-glyph {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #1f2937;
+}
+
+.color-picker-bar {
+  width: 0.875rem;
+  height: 0.1875rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.color-picker-bar--light {
+  box-shadow: inset 0 0 0 1px #94a3b8;
+}
+
+.color-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  margin-top: 0.375rem;
+  width: 17.5rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 4px 10px -4px rgba(15, 23, 42, 0.07);
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.color-dropdown-menu--right {
+  left: auto;
+  right: 0;
+}
+
+.color-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.color-section-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.color-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.color-option-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.color-option-card:hover {
+  border-color: #94a3b8;
+  background-color: #f8fafc;
+}
+
+.color-option-card.active {
+  border-color: #017151;
+  background-color: #f0fdf4;
+  box-shadow: 0 0 0 1px #017151;
+}
+
+.color-option-swatch {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+}
+
+.color-option-swatch--white {
+  border: 1px solid #94a3b8;
+}
+
+.color-option-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.color-option-name {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.color-option-hex {
+  font-size: 0.5625rem;
+  font-weight: 500;
+  color: #64748b;
+  letter-spacing: 0.01em;
 }
 
 /* What switching to the visual view would drop, in its warning. */
@@ -1373,7 +1812,7 @@ defineExpose({ insertText })
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem 0.45rem;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 0.25rem;
   background: transparent;
   font-size: 0.78125rem;
@@ -1387,7 +1826,9 @@ defineExpose({ insertText })
 }
 
 .table-action-btn.active {
-  background-color: #dbeafe;
+  border-color: #017151;
+  background-color: #f0fdf4;
+  color: #017151;
   font-weight: 600;
 }
 
@@ -1448,6 +1889,7 @@ defineExpose({ insertText })
 .rich-editor-content-area .tiptap.ProseMirror {
   outline: none;
   min-height: 18rem;
+  font-family: Arial, sans-serif;
   font-size: 0.875rem;
   line-height: 1.625;
   color: #1f2937;

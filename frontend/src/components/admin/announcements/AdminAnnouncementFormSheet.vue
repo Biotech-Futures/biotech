@@ -35,11 +35,18 @@
           </label>
           <RichEditor
             :key="editorKey"
+            ref="richEditorRef"
             v-model="body"
-            blocks
             compact
             placeholder="Write your announcement content…"
           />
+          <!-- Merge tags: filled in with each reader's own details. -->
+          <div v-if="mergeTags.length" class="admin-ann-form__merge-tags" data-testid="merge-tags">
+            <span class="admin-ann-form__merge-tags-label">
+              Personalise it. Each tag becomes the reader's own:
+            </span>
+            <MergeTagPalette :tags="mergeTags" @insert="insertMergeTag" />
+          </div>
         </div>
 
         <!-- Target Roles -->
@@ -221,6 +228,8 @@
 import { ref, computed, defineAsyncComponent, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
+import { mergeTagToken } from '@/utils/systemEmail'
 
 const RichEditor = defineAsyncComponent(
   () => import('@/components/admin/RichEditor.vue')
@@ -231,10 +240,12 @@ import {
   updateAdminAnnouncement,
   fetchAnnouncementRoles,
   fetchAnnouncementGroups,
+  fetchAnnouncementMergeTags,
   type AdminAnnouncement,
   type AdminAnnouncementDetail,
   type AdminAnnouncementRoleOption,
-  type AdminAnnouncementGroupOption
+  type AdminAnnouncementGroupOption,
+  type AdminAnnouncementMergeTag
 } from '@/utils/adminAPI'
 import { fetchAnnouncementCategories, type AnnouncementCategories } from '@/utils/managementAPI'
 
@@ -268,6 +279,10 @@ const title = ref('')
 const body = ref('')
 const roleIds = ref<number[]>([])
 const groupIds = ref<number[]>([])
+
+// The greeting tags a body may use, offered under the editor.
+const mergeTags = ref<AdminAnnouncementMergeTag[]>([])
+const richEditorRef = ref<{ insertText: (text: string) => void } | null>(null)
 
 const roles = ref<AdminAnnouncementRoleOption[]>([])
 const groups = ref<AdminAnnouncementGroupOption[]>([])
@@ -313,6 +328,7 @@ async function loadCategories() {
 
 async function loadMeta() {
   void loadCategories()
+  void loadMergeTags()
   if (roles.value.length > 0 && groups.value.length > 0) return
   loadingMeta.value = true
   try {
@@ -329,78 +345,62 @@ async function loadMeta() {
   }
 }
 
-async function populateFromAnnouncement(item: AdminAnnouncement) {
-  title.value = item.title || ''
-  body.value = item.body || ''
-  
-  if (item.audiences && item.audiences.length > 0) {
-    roleIds.value = item.audiences
-      .map((a) => a.roleId)
-      .filter((id): id is number => id !== null && id !== undefined)
-    groupIds.value = item.audiences
-      .map((a) => a.groupId)
-      .filter((id): id is number => id !== null && id !== undefined)
-  } else {
-    roleIds.value = []
-    groupIds.value = []
+async function loadMergeTags() {
+  try {
+    mergeTags.value = await fetchAnnouncementMergeTags()
+  } catch {
+    // Best effort: without them the palette just stays empty.
   }
+}
 
-  // If body is missing (e.g. from list view), fetch full detail
-  if (item.id && !item.body) {
+function insertMergeTag(tag: AdminAnnouncementMergeTag) {
+  richEditorRef.value?.insertText(mergeTagToken(tag.name))
+}
+
+async function populateFromAnnouncement(item: AdminAnnouncement) {
+  applyAnnouncement(item)
+  if (item.id) {
     try {
       const fullDetail = await fetchAdminAnnouncement(item.id)
-      if (fullDetail) {
-        title.value = fullDetail.title || ''
-        body.value = fullDetail.body || ''
-        if (fullDetail.audiences) {
-          roleIds.value = fullDetail.audiences
-            .map((a) => a.roleId)
-            .filter((id): id is number => id !== null && id !== undefined)
-          groupIds.value = fullDetail.audiences
-            .map((a) => a.groupId)
-            .filter((id): id is number => id !== null && id !== undefined)
-        }
-      }
+      if (fullDetail) applyAnnouncement(fullDetail)
     } catch (err) {
       console.error('Failed to load announcement details:', err)
     }
   }
 }
 
+function applyAnnouncement(item: AdminAnnouncement) {
+  title.value = item.title || ''
+  body.value = item.body || ''
+  roleIds.value = (item.audiences || [])
+    .map((a) => a.roleId)
+    .filter((id): id is number => id !== null && id !== undefined)
+  groupIds.value = (item.audiences || [])
+    .map((a) => a.groupId)
+    .filter((id): id is number => id !== null && id !== undefined)
+}
+
+function resetForm() {
+  title.value = ''
+  body.value = ''
+  roleIds.value = []
+  groupIds.value = []
+}
+
 watch(
   () => props.modelValue,
   async (isOpen) => {
     confirmNotifyOpen.value = false
-    if (isOpen) {
-      formError.value = null
-      await loadMeta()
-      if (props.announcement) {
-        await populateFromAnnouncement(props.announcement)
-      } else {
-        title.value = ''
-        body.value = ''
-        roleIds.value = []
-        groupIds.value = []
-      }
+    if (!isOpen) return
+    formError.value = null
+    await loadMeta()
+    if (props.announcement) {
+      await populateFromAnnouncement(props.announcement)
+    } else {
+      resetForm()
     }
   },
   { immediate: true }
-)
-
-watch(
-  () => props.announcement,
-  async (newAnn) => {
-    if (props.modelValue) {
-      if (newAnn) {
-        await populateFromAnnouncement(newAnn)
-      } else {
-        title.value = ''
-        body.value = ''
-        roleIds.value = []
-        groupIds.value = []
-      }
-    }
-  }
 )
 
 function toggleRole(id: number) {
@@ -627,12 +627,24 @@ async function handleSubmit(sendEmail: boolean) {
   align-items: center;
   gap: 0.65rem;
   font-size: 0.84rem;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 0.375rem;
   padding: 0.625rem 0.875rem;
   line-height: 1.4;
+}
+
+.admin-ann-form__merge-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.admin-ann-form__merge-tags-label {
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .admin-ann-form__notice i {

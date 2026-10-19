@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import StudentMatchingPanel from '@/components/admin/matching/StudentMatchingPanel.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 /**
  * Integration coverage for the Student Matching tab: the panel, its composable,
@@ -513,7 +514,7 @@ describe('StudentMatchingPanel', () => {
     expect(wrapper.text()).toContain('Suggested Group 2')
 
     // "Full groups" hides the proposed group that still has open seats.
-    await wrapper.find('select').setValue('full')
+    await pickAppSelect(wrapper, '.student-matching__select', 'Full groups')
     expect(wrapper.text()).toContain('Suggested Group 2')
     expect(wrapper.text()).not.toContain('Suggested Group 1')
   })

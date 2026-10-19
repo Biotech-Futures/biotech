@@ -1,68 +1,69 @@
 <template>
-  <section class="admin-users__filters card" aria-label="Filter and search">
-    <div class="admin-users__filter">
-      <label class="admin-users__filter-label" for="user-search">Search</label>
-      <div class="admin-users__search">
-        <i class="fas fa-magnifying-glass admin-users__search-icon" aria-hidden="true"></i>
-        <input
-          id="user-search"
-          v-model="search"
-          type="search"
-          class="admin-users__search-input"
-          placeholder="Name or email"
-          aria-label="Search users"
-        />
-      </div>
-    </div>
+  <div class="admin-users__filters" role="group" aria-label="Filters">
 
+    <!-- The white dropdowns the user panel has: Country's to search, as
+         its list is long; the others just to pick from. -->
     <div v-if="!isRoleFixed" class="admin-users__filter">
       <label class="admin-users__filter-label" for="role-filter">Role</label>
-      <select id="role-filter" :value="filters.role" @change="emitPatch('role', $event)">
-        <option value="all">All roles</option>
-        <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
-      </select>
+      <AppSelect
+        id="role-filter"
+        :model-value="filters.role"
+        :options="roleOptions"
+        :searchable="false"
+        @update:model-value="(value) => emitPatch('role', value)"
+      />
     </div>
 
     <div class="admin-users__filter">
       <label class="admin-users__filter-label" for="country-filter">Country</label>
-      <select id="country-filter" :value="filters.country" @change="emitPatch('country', $event)">
-        <option value="all">All countries</option>
-        <option v-for="name in filterCountryNames" :key="name" :value="name">{{ name }}</option>
-      </select>
+      <AppSelect
+        id="country-filter"
+        :model-value="filters.country"
+        :options="countryOptions"
+        placeholder="Search countries"
+        empty-text="No country matches"
+        @update:model-value="(value) => emitPatch('country', value)"
+      />
     </div>
 
     <div class="admin-users__filter">
       <label class="admin-users__filter-label" for="state-filter">State</label>
-      <select id="state-filter" :value="filters.state" @change="emitPatch('state', $event)">
-        <option value="all">All states</option>
-        <option v-for="state in visibleStates" :key="state.id" :value="state.stateName">
-          {{ stateOptionLabel(state) }}
-        </option>
-      </select>
+      <AppSelect
+        id="state-filter"
+        :model-value="filters.state"
+        :options="stateOptions"
+        :searchable="false"
+        @update:model-value="(value) => emitPatch('state', value)"
+      />
     </div>
 
     <div v-if="isStudentMode" class="admin-users__filter">
       <label class="admin-users__filter-label" for="in-group-filter">In group</label>
-      <select id="in-group-filter" :value="filters.inGroup" @change="emitPatch('inGroup', $event)">
-        <option value="all">All students</option>
-        <option value="yes">In a group</option>
-        <option value="no">Not in a group</option>
-      </select>
+      <AppSelect
+        id="in-group-filter"
+        :model-value="filters.inGroup"
+        :options="IN_GROUP_OPTIONS"
+        :searchable="false"
+        @update:model-value="(value) => emitPatch('inGroup', value)"
+      />
     </div>
 
     <div class="admin-users__filter">
       <label class="admin-users__filter-label" for="status-filter">Status</label>
-      <select id="status-filter" :value="filters.status" @change="emitPatch('status', $event)">
-        <option value="all">All statuses</option>
-        <option value="active">Active</option>
-        <option value="inactive">Inactive</option>
-      </select>
+      <AppSelect
+        id="status-filter"
+        :model-value="filters.status"
+        :options="STATUS_OPTIONS"
+        :searchable="false"
+        @update:model-value="(value) => emitPatch('status', value)"
+      />
     </div>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import type { AdminUserCountry, AdminUserState } from '@/utils/adminAPI'
 import { roleLabel } from '@/utils/userFormat'
 import { USER_ROLES, type AdminUserFilters } from '@/utils/userOptions'
@@ -71,7 +72,6 @@ type FilterField = 'role' | 'country' | 'state' | 'inGroup' | 'status'
 
 const props = defineProps<{
   filters: AdminUserFilters
-  search?: string
   isStudentMode: boolean
   isRoleFixed: boolean
   filterCountries: AdminUserCountry[]
@@ -79,14 +79,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:search', value: string): void
   (e: 'patch', payload: { field: FilterField; value: string }): void
 }>()
-
-const search = computed({
-  get: () => props.search ?? '',
-  set: (value: string) => emit('update:search', value)
-})
 
 const filterCountryNames = computed(() =>
   [...new Set(props.filterCountries.map((country) => country.countryName))].sort((a, b) =>
@@ -104,18 +98,45 @@ const stateOptionLabel = (state: AdminUserState) =>
     ? `${state.stateName} · ${state.countryName}`
     : state.stateName
 
-const emitPatch = (field: FilterField, event: Event) => {
-  emit('patch', { field, value: (event.target as HTMLSelectElement).value })
+const roleOptions = computed<AppSelectOption[]>(() => [
+  { value: 'all', label: 'All roles' },
+  ...USER_ROLES.map((role) => ({ value: role, label: roleLabel(role) }))
+])
+
+const countryOptions = computed<AppSelectOption[]>(() => [
+  { value: 'all', label: 'All countries' },
+  ...filterCountryNames.value.map((name) => ({ value: name, label: name }))
+])
+
+const stateOptions = computed<AppSelectOption[]>(() => [
+  { value: 'all', label: 'All states' },
+  ...visibleStates.value.map((state) => ({ value: state.stateName, label: stateOptionLabel(state) }))
+])
+
+const IN_GROUP_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All students' },
+  { value: 'yes', label: 'In a group' },
+  { value: 'no', label: 'Not in a group' }
+]
+
+const STATUS_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' }
+]
+
+const emitPatch = (field: FilterField, value: AppSelectValue) => {
+  emit('patch', { field, value: String(value) })
 }
 </script>
 
 <style scoped>
+/* Laid out beside Search in the table's search card, and drawn like it. */
 .admin-users__filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
 }
 
 .admin-users__filter {
@@ -124,14 +145,20 @@ const emitPatch = (field: FilterField, event: Event) => {
   gap: 0.3rem;
 }
 
-.admin-users__filter select {
-  height: 40px;
+.admin-users__filter .app-select {
+  min-width: 9rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--charcoal);
-  width: 100%;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+}
+
+.admin-users__filter .app-select:focus-within {
+  outline: none;
+  border-color: var(--dark-green);
 }
 
 .admin-users__filter-label {
@@ -140,30 +167,5 @@ const emitPatch = (field: FilterField, event: Event) => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-users__search {
-  position: relative;
-  width: 100%;
-}
-
-.admin-users__search-input {
-  width: 100%;
-  height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--charcoal);
-}
-
-.admin-users__search-icon {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  pointer-events: none;
 }
 </style>

@@ -10,26 +10,23 @@ import base64
 import binascii
 import hashlib
 import io
-import logging
 import secrets
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 from typing import NamedTuple, Optional
 
 from django.conf import settings
-from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 from PIL import Image, UnidentifiedImageError
 
 from apps.audit.services import log_audit_event
-from apps.common.storage import get_consent_storage
+from apps.services.system_email import send_system_email
 
 from .consent_form import CURRENT_VERSION, render_consent_form
-from .consent_pdf import render_consent_pdf
 from .models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
-logger = logging.getLogger(__name__)
 
 LINK_LIFETIME = timedelta(days=14)
 # The drawn signature, as a PNG data URL from the page's canvas.
@@ -89,26 +86,62 @@ def consent_link(token: str) -> str:
     return f"{settings.FRONTEND_BASE_URL}/#/consent/{token}"
 
 
+def _token_for(request: GuardianConsentRequest) -> str:
+    """A link's token, worked out from the request and the server's secret, so
+    a link already out can be copied again while the table still holds only
+    its hash."""
+    value = f"{request.pk}:{int(request.expires_at.timestamp())}"
+    digest = salted_hmac("guardian-consent-link", value, algorithm="sha256").digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
 def issue_request(profile: StudentProfile, guardian: Guardian, sent_by=None) -> tuple:
     """A new consent link for ``guardian``. Earlier links for the student stop
-    working, so only the newest email's link can be used. Returns the request
-    and the raw token, which exists only in the emailed link."""
+    working, so only the newest link can be used. Returns the request and the
+    raw token."""
     now = timezone.now()
     GuardianConsentRequest.objects.filter(
         student=profile, used_at__isnull=True, revoked_at__isnull=True,
     ).update(revoked_at=now)
-    token = secrets.token_urlsafe(32)
     request = GuardianConsentRequest.objects.create(
         student=profile,
-        token_hash=_hash(token),
+        # A stand-in until the request has the id its token is worked out from.
+        token_hash=_hash(secrets.token_urlsafe(32)),
         guardian_first_name=guardian.first_name,
         guardian_last_name=guardian.last_name,
         guardian_email=guardian.email,
         for_pending_guardian=guardian.pending,
         sent_by=sent_by,
-        expires_at=now + LINK_LIFETIME,
+        # Whole seconds, so the token works out the same after a database
+        # round trip.
+        expires_at=(now + LINK_LIFETIME).replace(microsecond=0),
     )
+    token = _token_for(request)
+    request.token_hash = _hash(token)
+    request.save(update_fields=["token_hash"])
     return request, token
+
+
+def token_still_out(profile: StudentProfile, guardian: Guardian) -> Optional[str]:
+    """The token of the student's newest link if ``guardian`` can still use
+    it, else None. Links made before tokens could be worked out again can't be
+    copied, so those count as gone too."""
+    request = (
+        GuardianConsentRequest.objects.filter(
+            student=profile,
+            used_at__isnull=True,
+            revoked_at__isnull=True,
+            expires_at__gt=timezone.now(),
+            guardian_email=guardian.email,
+            for_pending_guardian=guardian.pending,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if request is None:
+        return None
+    token = _token_for(request)
+    return token if _hash(token) == request.token_hash else None
 
 
 def open_request(token: str, *, for_update: bool = False) -> GuardianConsentRequest:
@@ -146,6 +179,22 @@ def form_for(request: GuardianConsentRequest) -> dict:
         "supportEmail": settings.SUPPORT_EMAIL,
         "form": render_consent_form(student_name(profile)),
     }
+
+
+def latest_signature_data_url(
+    profile: StudentProfile, consent: Optional[GuardianConsent] = None,
+) -> Optional[str]:
+    """The newest unwithdrawn drawn signature for ``profile``, as a PNG data URL."""
+    if consent is None:
+        consent = (
+            profile.consents.filter(withdrawn_at__isnull=True)
+            .order_by("-signed_at")
+            .only("signature_png")
+            .first()
+        )
+    if consent is None or not consent.signature_png:
+        return None
+    return SIGNATURE_PREFIX + base64.b64encode(bytes(consent.signature_png)).decode()
 
 
 def decode_signature(data_url: str) -> bytes:
@@ -194,6 +243,7 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
             student=profile,
             request=request,
             guardian_full_name=full_name[:255],
+            student_full_name=student_name(profile)[:255],
             guardian_email=request.guardian_email,
             media_consent=media_consent,
             signature_png=png,
@@ -227,7 +277,14 @@ def sign(token: str, *, full_name: str, media_consent: bool, signature: str,
             },
         )
 
-    store_record_pdf(consent, render_consent_pdf(consent))
+    # Thanks the guardian; the signed record stays with the admins. From the
+    # mail pool, so the page needn't wait on the mail server.
+    send_system_email(
+        "guardian_consent_received",
+        [consent.guardian_email],
+        {"GUARDIAN_NAME": consent.guardian_full_name, "STUDENT_NAME": student_name(profile)},
+        background=True,
+    )
     return consent
 
 
@@ -246,39 +303,6 @@ def record_pdf_filename(consent: GuardianConsent) -> str:
     anyone's name is written in."""
     year = consent.signed_at.astimezone(_RECORD_TZ).year
     return f"{year}_{consent.student_id}_BTF_{consent_number(consent)}.pdf"
-
-
-def store_record_pdf(consent: GuardianConsent, pdf: bytes) -> bool:
-    """Keep the signed record in the guardian-consent-forms container. A failure is logged,
-    not raised: the consent is already recorded and the PDF can be rebuilt
-    from it whenever it's next asked for."""
-    try:
-        # Under its own name, e.g. "2026_318_BTF_1.pdf"; a name already taken
-        # (a copy that couldn't be read) gets a random ending from storage.
-        key = get_consent_storage().save(record_pdf_filename(consent), ContentFile(pdf))
-    except Exception as exc:
-        logger.error("guardian_consent.record_store_failed consent=%s error=%s", consent.pk, type(exc).__name__)
-        return False
-    consent.record_pdf_key = key
-    consent.save(update_fields=["record_pdf_key"])
-    return True
-
-
-def record_pdf_bytes(consent: GuardianConsent) -> bytes:
-    """The signed record's PDF: the stored copy, or a rebuilt one (stored for
-    next time) if it was never stored, has gone missing or can't be read."""
-    storage = get_consent_storage()
-    if consent.record_pdf_key:
-        try:
-            with storage.open(consent.record_pdf_key) as stored:
-                return stored.read()
-        except Exception as exc:
-            logger.warning(
-                "guardian_consent.record_open_failed consent=%s error=%s", consent.pk, type(exc).__name__,
-            )
-    pdf = render_consent_pdf(consent)
-    store_record_pdf(consent, pdf)
-    return pdf
 
 
 def withdraw(profile: StudentProfile, *, media_only: bool, initiated_by=None) -> None:

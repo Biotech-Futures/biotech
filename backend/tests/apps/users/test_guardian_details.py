@@ -136,21 +136,27 @@ class GuardianDetailsTriggerTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    @override_settings(GUARDIAN_REMINDER_TOKEN="")
+    @override_settings(EMAIL_JOBS_TOKEN="")
     def test_unconfigured_trigger_is_503(self):
-        response = self.client.post(TRIGGER, HTTP_X_REMINDER_TOKEN="anything")
+        response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="anything")
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    @override_settings(GUARDIAN_REMINDER_TOKEN="secret")
+    @override_settings(EMAIL_JOBS_TOKEN="secret")
     def test_wrong_token_is_401(self):
-        response = self.client.post(TRIGGER, HTTP_X_REMINDER_TOKEN="wrong")
+        response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="wrong")
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @override_settings(GUARDIAN_REMINDER_TOKEN="secret")
-    def test_right_token_runs_the_emails(self):
-        response = self.client.post(TRIGGER, HTTP_X_REMINDER_TOKEN="secret")
+    @override_settings(EMAIL_JOBS_TOKEN="secret")
+    def test_right_token_queues_the_emails(self):
+        from apps.management.models import EmailSendRun
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, {"sent": 0, "failed": 0})
+        response = self.client.post(TRIGGER, HTTP_X_EMAIL_JOBS_TOKEN="secret")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data, {"status": "queued"})
+        # Run in its turn: at once under test settings.
+        run = EmailSendRun.objects.get(key="guardian_details_request")
+        self.assertEqual((run.emailed, run.failed), (0, 0))
+        self.assertIsNotNone(run.finished_at)

@@ -244,7 +244,7 @@ describe('MentorMatchingPanel', () => {
     await flushPromises()
     await runMatch(wrapper)
 
-    await wrapper.find('.mentor-matching__expand-btn').trigger('click')
+    await wrapper.find('.data-table-expand-btn').trigger('click')
 
     expect(wrapper.text()).toContain('Interest overlap')
     expect(wrapper.text()).toContain('Capacity bonus')

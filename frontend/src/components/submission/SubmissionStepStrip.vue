@@ -1,7 +1,7 @@
 <template>
   <nav class="submission-steps" aria-label="Submission sections">
     <button
-      v-for="(step, index) in steps"
+      v-for="step in steps"
       :key="step.key"
       type="button"
       class="submission-step"
@@ -9,7 +9,6 @@
       :aria-current="active === step.key ? 'step' : undefined"
       @click="emit('select', step.key)"
     >
-      <span class="submission-step__index">{{ index + 1 }}</span>
       <span class="submission-step__label">{{ step.label }}</span>
       <span class="submission-step__state">{{ summary(step.key) }}</span>
     </button>
@@ -17,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-/** The numbered step strip shared by the submission portal and its Finalist step. */
+/** The step strip shared by the submission portal and its Finalist step. */
 defineProps<{
   steps: { key: string; label: string }[]
   active: string
@@ -59,24 +58,6 @@ const emit = defineEmits<{ select: [key: string] }>()
 .submission-step.is-active {
   color: var(--accent);
   border-bottom-color: var(--accent);
-}
-
-.submission-step__index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  font-size: 0.8rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.submission-step.is-active .submission-step__index {
-  background: var(--accent);
-  color: #fff;
 }
 
 .submission-step__label {

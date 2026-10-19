@@ -41,6 +41,17 @@ describe('coming back to the page asked for before signing in', () => {
     expect(router.replace).toHaveBeenLastCalledWith('/dashboard')
   })
 
+  it('takes a supervisor there too, else to their profile', async () => {
+    const supervisor = { ...student, isSupervisor: true }
+    rememberReturnTo('/groups/7')
+
+    await redirectAfterLogin(supervisor, router)
+    expect(router.replace).toHaveBeenLastCalledWith('/groups/7')
+
+    await redirectAfterLogin(supervisor, router)
+    expect(router.replace).toHaveBeenLastCalledWith('/profile')
+  })
+
   it('takes an admin there too', async () => {
     rememberReturnTo('/admin/emails')
     await redirectAfterLogin({ ...student, isAdmin: true }, router)

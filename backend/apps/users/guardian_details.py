@@ -9,10 +9,15 @@ can switch it off on System Emails.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from django.conf import settings
+from django.core import signing
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+
+from apps.audit.services import log_audit_event
 
 from apps.services.system_email import SENT, is_email_enabled, send_system_email
 
@@ -29,6 +34,80 @@ _CAN_SIGN_IN = (User.AccountStatus.INVITED, User.AccountStatus.PENDING, User.Acc
 def details_link() -> str:
     """The student's profile, with the guardian form open."""
     return f"{settings.FRONTEND_BASE_URL}/#/profile?guardian=edit"
+
+
+# A supervisor's Copy Details Link: a public form for the guardian's name and
+# email, for whoever the supervisor sends it to. The signed token is the only
+# credential, and the form closes once the student has a guardian email.
+FORM_LINK_LIFETIME = timedelta(days=14)
+_FORM_SALT = "guardian-details-form"
+
+
+class DetailsFormError(Exception):
+    """A details form link that can't be used, with a code the page can act on."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def details_form_link(profile: StudentProfile) -> str:
+    token = signing.dumps({"student": profile.user_id}, salt=_FORM_SALT)
+    return f"{settings.FRONTEND_BASE_URL}/#/guardian-details/{token}"
+
+
+def open_details_form(token: str, *, for_update: bool = False) -> StudentProfile:
+    """The student behind a details form link, while it can still be used."""
+    try:
+        data = signing.loads(token or "", salt=_FORM_SALT, max_age=FORM_LINK_LIFETIME)
+    except signing.SignatureExpired:
+        raise DetailsFormError("expired", "This link has expired. Ask the student's supervisor for a new one.")
+    except signing.BadSignature:
+        raise DetailsFormError("invalid", "This link isn't valid. Check you opened the whole link.")
+    queryset = StudentProfile.objects.select_related("user")
+    if for_update:
+        queryset = queryset.select_for_update()
+    profile = queryset.filter(user_id=data.get("student")).first()
+    if profile is None:
+        raise DetailsFormError("invalid", "This link isn't valid. Check you opened the whole link.")
+    if (profile.pg_email or "").strip() or profile.has_join_permission:
+        raise DetailsFormError("done", "The guardian's details have already been given. Thank you.")
+    return profile
+
+
+def student_name(profile: StudentProfile) -> str:
+    user = profile.user
+    return f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
+
+
+def save_details_form(token: str, *, first_name: str, last_name: str, email: str) -> StudentProfile:
+    """Record the guardian named on a details form, then email them the
+    consent form, as when a student names them on their profile. Raises
+    DetailsFormError for a link that can't be used and ValueError for the
+    student's own email."""
+    from .guardian_reminders import email_new_guardian
+
+    email = email.strip().lower()
+    with transaction.atomic():
+        profile = open_details_form(token, for_update=True)
+        if email == (profile.user.email or "").strip().lower():
+            raise ValueError("Enter the guardian's email, not the student's.")
+        profile.pg_first_name = first_name.strip()
+        profile.pg_last_name = last_name.strip()
+        profile.pg_email = email
+        profile.parent_guardian_flag = True
+        profile.clear_pending_guardian()
+        profile.save()
+        log_audit_event(
+            actor=None,
+            entity_type="user",
+            entity_id=profile.user_id,
+            action="guardian_update",
+            after_state={"guardianEmail": email, "via": "details_form"},
+        )
+    email_new_guardian(profile)
+    return profile
 
 
 def students_due(now=None):
@@ -48,6 +127,41 @@ def students_due(now=None):
         .exclude(guardian_details_reminded_on=today)
         .order_by("user_id")
     )
+
+
+def send_to_student(profile: StudentProfile, initiated_by=None) -> dict:
+    """Email one student the guardian-details request. Used by supervisors."""
+    if not is_email_enabled(EMAIL_KEY):
+        return {
+            "status": "disabled",
+            "msg": "Guardian details emails are switched off on System Emails.",
+        }
+    if profile.has_join_permission:
+        return {"status": "invalid", "msg": "Consent is already recorded for this student."}
+    if (profile.pg_email or "").strip():
+        return {
+            "status": "invalid",
+            "msg": "This student already has a guardian email on file.",
+        }
+    email = (profile.user.email or "").strip()
+    if not email:
+        return {"status": "invalid", "msg": "This student has no email address."}
+
+    outcome = send_system_email(
+        EMAIL_KEY,
+        [email],
+        {"STUDENT_FIRST_NAME": profile.user.first_name or "", "DETAILS_URL": details_link()},
+        sent_by=initiated_by,
+    )
+    if outcome != SENT:
+        return {
+            "status": "failed",
+            "msg": "The mail server didn't accept the email. Try again shortly.",
+        }
+    StudentProfile.objects.filter(pk=profile.pk).update(
+        guardian_details_reminded_on=timezone.localdate(),
+    )
+    return {"status": "sent", "msg": f"Details request sent to {email}."}
 
 
 def send_due(now=None, *, dry_run: bool = False) -> dict:
@@ -79,3 +193,9 @@ def send_due(now=None, *, dry_run: bool = False) -> dict:
     if failed:
         logger.error("guardian_details_request.failed sent=%s failed=%s", sent, failed)
     return {"sent": sent, "failed": failed}
+
+
+def reminder_job(actor, options) -> dict:
+    """The queued run of today's details emails (``send_guard.JOBS``). Each
+    that fails is tried once more at once, as every single email is."""
+    return send_due()

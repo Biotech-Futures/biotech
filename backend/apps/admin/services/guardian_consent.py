@@ -16,12 +16,16 @@ from django.utils import timezone
 
 from apps.admin.services.user import fetch_user_by_id
 from apps.audit.services import log_audit_event
-from apps.services.system_email import FAILED, SKIPPED, send_system_email
+from apps.services.email_log import NOT_SENT, note_send
+from apps.services.system_email import FAILED, SKIPPED, send_system_email, sender_for
 from apps.users import guardian_consent as consent
+from apps.users.consent_pdf import render_consent_pdf
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
 EMAIL_KEY = "guardian_consent_request"
 STUDENT_NOTICE_KEY = "guardian_consent_student_notice"
+# The student's copy when they named the guardian themselves.
+DETAILS_RECEIVED_KEY = "guardian_details_received"
 
 # Spaces out sends to one guardian, so a double click or an impatient resend
 # doesn't fill their inbox.
@@ -41,8 +45,26 @@ def _result(outcome: str, msg: str, data=None) -> Dict[str, Any]:
     return {"status": outcome, "msg": msg, "data": data}
 
 
-def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, Any]:
-    """Email the consent form to the guardian of student ``user_id``."""
+def _guardian_or_problem(profile):
+    """The guardian whose consent is still needed, or why there's nobody to
+    ask: ``(guardian, None)`` or ``(None, result)``."""
+    guardian = consent.guardian_to_ask(profile)
+    if guardian is None:
+        return None, _result(INVALID, "Consent is already recorded for this student.")
+    if not guardian.email:
+        return None, _result(INVALID, "This student has no guardian email to send to.")
+    if guardian.email == (profile.user.email or "").strip().lower():
+        return None, _result(
+            INVALID,
+            "The guardian email is the student's own address. Update it to the guardian's before sending.",
+        )
+    return guardian, None
+
+
+def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_saved: bool = False) -> Dict[str, Any]:
+    """Email the consent form to the guardian of student ``user_id``.
+    ``details_saved`` when the student has just named them on their profile:
+    the student is thanked for the details instead of asked to remind them."""
     with transaction.atomic():
         profile = (
             StudentProfile.objects.select_for_update()
@@ -53,16 +75,9 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
         if profile is None:
             return _result(NOT_FOUND, "Student not found.")
 
-        guardian = consent.guardian_to_ask(profile)
-        if guardian is None:
-            return _result(INVALID, "Consent is already recorded for this student.")
-        if not guardian.email:
-            return _result(INVALID, "This student has no guardian email to send to.")
-        if guardian.email == (profile.user.email or "").strip().lower():
-            return _result(
-                INVALID,
-                "The guardian email is the student's own address. Update it to the guardian's before sending.",
-            )
+        guardian, problem = _guardian_or_problem(profile)
+        if problem:
+            return problem
 
         last_sent = (
             GuardianConsentRequest.objects.filter(student=profile)
@@ -97,6 +112,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
                 "CONSENT_URL": consent.consent_link(token),
                 "EXPIRY_DAYS": consent.LINK_LIFETIME.days,
             },
+            sent_by=initiated_by,
         )
         if outcome in (SKIPPED, FAILED):
             # Nobody got the link, so it must not count as sent or replace the
@@ -104,31 +120,77 @@ def send_guardian_consent_request(user_id: int, initiated_by=None) -> Dict[str, 
             transaction.set_rollback(True)
             if outcome == SKIPPED:
                 return _result(DISABLED, "Guardian consent request emails are switched off on System Emails.")
-            return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
+        else:
+            profile.guardian_reminder_sent_at = now
+            interval = getattr(settings, "GUARDIAN_REMINDER_INTERVAL_DAYS", 0)
+            profile.guardian_reminder_due_at = now + timedelta(days=interval) if interval > 0 else None
+            profile.save(update_fields=["guardian_reminder_sent_at", "guardian_reminder_due_at"])
 
-        profile.guardian_reminder_sent_at = now
-        interval = getattr(settings, "GUARDIAN_REMINDER_INTERVAL_DAYS", 0)
-        profile.guardian_reminder_due_at = now + timedelta(days=interval) if interval > 0 else None
-        profile.save(update_fields=["guardian_reminder_sent_at", "guardian_reminder_due_at"])
+            log_audit_event(
+                actor=initiated_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_consent_request",
+                after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+            )
 
-        log_audit_event(
-            actor=initiated_by,
-            entity_type="user",
-            entity_id=user_id,
-            action="guardian_consent_request",
-            after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+    if outcome == FAILED:
+        # The Log's note of it went with the rollback, so it's made again here.
+        sender = sender_for(EMAIL_KEY)
+        note_send(
+            EMAIL_KEY,
+            missed={guardian.email: NOT_SENT},
+            by=initiated_by,
+            attempted=1,
+            delivered=0,
+            failed=1,
+            source_mailbox=sender.address,
         )
+        return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
 
     # The student's copy is an FYI: if it's switched off or doesn't go, the
     # guardian's request still stands.
     if student.email and first_to_guardian:
         send_system_email(
-            STUDENT_NOTICE_KEY,
+            DETAILS_RECEIVED_KEY if details_saved else STUDENT_NOTICE_KEY,
             [student.email],
             {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
+            sent_by=initiated_by,
         )
 
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
+
+
+def guardian_consent_link(user_id: int, shared_by=None) -> Dict[str, Any]:
+    """The consent link for student ``user_id``'s guardian, to share by hand:
+    the one already out if it still works, so an emailed link keeps working,
+    else a new one, which replaces it."""
+    with transaction.atomic():
+        profile = (
+            StudentProfile.objects.select_for_update()
+            .select_related("user")
+            .filter(user_id=user_id)
+            .first()
+        )
+        if profile is None:
+            return _result(NOT_FOUND, "Student not found.")
+
+        guardian, problem = _guardian_or_problem(profile)
+        if problem:
+            return problem
+
+        token = consent.token_still_out(profile, guardian)
+        if token is None:
+            request, token = consent.issue_request(profile, guardian, sent_by=shared_by)
+            log_audit_event(
+                actor=shared_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_consent_link",
+                after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+            )
+
+    return _result(OK, "Consent link ready.", {"link": consent.consent_link(token)})
 
 
 def list_guardian_consents(user_id: int) -> Dict[str, Any]:
@@ -159,7 +221,10 @@ def list_guardian_consents(user_id: int) -> Dict[str, Any]:
 
 def guardian_consent_record(user_id: int, consent_id: int):
     """The signed record PDF for one of student ``user_id``'s consents, as
-    (filename, bytes), or None if there's no such consent."""
+    (filename, bytes), or None if there's no such consent. Made from the
+    consent each time, as Mark Summaries and certificates are: no PDF is
+    stored, since the consent keeps the wording's version, the drawn
+    signature, the names, when it was signed and the media choice."""
     record = (
         GuardianConsent.objects.select_related("student__user")
         .filter(pk=consent_id, student__user_id=user_id)
@@ -167,7 +232,7 @@ def guardian_consent_record(user_id: int, consent_id: int):
     )
     if record is None:
         return None
-    return consent.record_pdf_filename(record), consent.record_pdf_bytes(record)
+    return consent.record_pdf_filename(record), render_consent_pdf(record)
 
 
 def withdraw_guardian_consent(user_id: int, *, media_only: bool, initiated_by=None) -> Dict[str, Any]:

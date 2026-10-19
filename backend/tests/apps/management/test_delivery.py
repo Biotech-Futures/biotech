@@ -50,7 +50,7 @@ class SendEachTests(TestCase):
     def _patched(self, behaviour):
         return mock.patch("django.core.mail.EmailMultiAlternatives.send", autospec=True, side_effect=behaviour)
 
-    def test_a_dropped_connection_is_opened_again_for_the_rest(self):
+    def test_a_dropped_connection_is_opened_again_and_the_copy_sent_once_more(self):
         tries = []
 
         def drop_once(message, *args, **kwargs):
@@ -59,14 +59,14 @@ class SendEachTests(TestCase):
                 raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
             return self.real_send(message, *args, **kwargs)
 
-        with self._patched(drop_once), self.assertLogs("apps.management.services.delivery", level="ERROR"), \
-                mock.patch.object(delivery, "_reconnect", wraps=delivery._reconnect) as reconnect:
+        with self._patched(drop_once), self.assertLogs("apps.services.retry", level="WARNING"), \
+                mock.patch("apps.services.retry.reopen") as reopen:
             failed = delivery.send_each(EMAIL, ["a@x.com", "b@x.com"], email="test", group=self.team, log_as="t")
-        # Not retried here: the run tries it again at its end.
-        self.assertEqual(failed, {"a@x.com": "lost the mail server connection"})
-        self.assertEqual(tries, ["a@x.com", "b@x.com"])
-        reconnect.assert_called_once()
-        self.assertEqual([m.to[0] for m in mail.outbox], ["b@x.com"])
+        # Opened again at once, and the same copy sent again: one drop fails nobody.
+        self.assertEqual(failed, {})
+        self.assertEqual(tries, ["a@x.com", "a@x.com", "b@x.com"])
+        reopen.assert_called_once()
+        self.assertEqual([m.to[0] for m in mail.outbox], ["a@x.com", "b@x.com"])
 
     def test_a_refused_address_keeps_the_connection_and_the_rest_still_go(self):
         tries = []
@@ -78,11 +78,11 @@ class SendEachTests(TestCase):
             return self.real_send(message, *args, **kwargs)
 
         with self._patched(refuse_a), self.assertLogs("apps.management.services.delivery", level="ERROR"), \
-                mock.patch.object(delivery, "_reconnect") as reconnect:
+                mock.patch("apps.services.retry.reopen") as reopen:
             failed = delivery.send_each(EMAIL, ["a@x.com", "b@x.com"], email="test", group=self.team, log_as="t")
         self.assertEqual(failed, {"a@x.com": "address refused"})
         self.assertEqual(tries, ["a@x.com", "b@x.com"])
-        reconnect.assert_not_called()
+        reopen.assert_not_called()
 
     def test_each_copy_that_goes_is_recorded_and_not_sent_again(self):
         delivery.send_each(EMAIL, ["a@x.com"], email="test", group=self.team, log_as="t")

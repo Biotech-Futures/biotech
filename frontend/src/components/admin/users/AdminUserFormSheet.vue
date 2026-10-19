@@ -24,37 +24,51 @@
             v-model.trim="form.email"
             type="email"
             class="form-input"
-            :disabled="isEditing"
-            :readonly="isEditing"
+            :disabled="isEditing && isSupervisorMode"
+            :readonly="isEditing && isSupervisorMode"
+            :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
           />
+          <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
+            Changing this address updates the user's login and future emails. They will need to
+            request a new login code or password-reset link if they have one already.
+          </p>
         </div>
         <div v-if="!isEditing" class="form-field">
           <label class="form-label" for="f-role">Role *</label>
-          <select id="f-role" v-model="form.role" class="form-input" :disabled="!!fixedRole">
-            <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
-          </select>
+          <AppSelect id="f-role" v-model="form.role" class="form-input" :options="ROLE_OPTIONS" :disabled="!!fixedRole" />
         </div>
         <div v-if="isEditing" class="form-field">
           <label class="form-label" for="f-role-edit">Role</label>
-          <select id="f-role-edit" v-model="form.role" class="form-input" :disabled="!!fixedRole">
-            <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
-          </select>
+          <AppSelect
+            id="f-role-edit"
+            v-model="form.role"
+            class="form-input"
+            :options="ROLE_OPTIONS"
+            :disabled="!!fixedRole"
+          />
         </div>
 
         <template v-if="form.role !== 'admin'">
           <div class="form-field">
             <label class="form-label" for="f-country">Country *</label>
-            <select id="f-country" v-model="form.countryId" class="form-input" @change="onFormCountryChange">
-              <option :value="undefined">Unassigned</option>
-              <option v-for="country in countries" :key="country.id" :value="country.id">{{ country.countryName }}</option>
-            </select>
+            <AppSelect
+              id="f-country"
+              :model-value="form.countryId ?? null"
+              class="form-input"
+              :options="countryOptions"
+              @update:model-value="(value) => (form.countryId = value === null ? undefined : Number(value))"
+              @change="onFormCountryChange"
+            />
           </div>
           <div v-if="formStates.length" class="form-field">
             <label class="form-label" for="f-state">State</label>
-            <select id="f-state" v-model="form.stateId" class="form-input">
-              <option :value="undefined">None</option>
-              <option v-for="state in formStates" :key="state.id" :value="state.id">{{ state.stateName }}</option>
-            </select>
+            <AppSelect
+              id="f-state"
+              :model-value="form.stateId ?? null"
+              class="form-input"
+              :options="stateOptions"
+              @update:model-value="(value) => (form.stateId = value === null ? undefined : Number(value))"
+            />
           </div>
         </template>
       </div>
@@ -228,6 +242,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import type { AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
@@ -360,6 +375,19 @@ const formStates = computed(() => {
 const onFormCountryChange = () => {
   form.stateId = undefined
 }
+
+const ROLE_OPTIONS: AppSelectOption[] = USER_ROLES.map((role) => ({ value: role, label: roleLabel(role) }))
+
+// No country or state is null here, undefined on the form.
+const countryOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'Unassigned' },
+  ...props.countries.map((country) => ({ value: country.id, label: country.countryName }))
+])
+
+const stateOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'None' },
+  ...formStates.value.map((state) => ({ value: state.id, label: state.stateName }))
+])
 
 const onInterestToggle = (option: string, event: Event) => {
   const checked = (event.target as HTMLInputElement).checked
@@ -539,6 +567,9 @@ const submitForm = async () => {
         countryId: role === 'admin' ? null : form.countryId,
         stateId: role === 'admin' ? null : form.stateId
       }
+      if (!props.isSupervisorMode && form.email.trim().toLowerCase() !== (props.user.email || '').trim().toLowerCase()) {
+        payload.email = form.email.trim().toLowerCase()
+      }
       if (role === 'student') {
         payload.schoolName = form.schoolName
         payload.yearLevel = form.yearLevel
@@ -635,7 +666,7 @@ const submitForm = async () => {
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -650,7 +681,13 @@ const submitForm = async () => {
   border-left: 4px solid var(--warning);
   border-radius: 6px;
   background-color: var(--bg-light);
-  color: var(--charcoal);
+  color: var(--teal);
+  font-size: 0.85rem;
+}
+
+.admin-users-form__hint {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
@@ -668,7 +705,7 @@ const submitForm = async () => {
   gap: 0.6rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -698,7 +735,7 @@ const submitForm = async () => {
   margin-bottom: 0.3rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -707,14 +744,20 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 
-.form-input:disabled {
+.form-input:disabled,
+.app-select.form-input.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
+}
+
+/* Drawn as the disabled inputs, without the dropdown's own fading. */
+.app-select.form-input.is-disabled {
+  opacity: 1;
 }
 
 .form-checkbox {

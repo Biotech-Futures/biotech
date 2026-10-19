@@ -6,11 +6,14 @@ from .models import (
     SupervisorProfile,
     UserInterest,
     AreasOfInterest,
+    KnownUniversity,
+    EmailVerification,
 )
 from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
 from apps.common.storage import get_profile_image_storage
+from django.db import DatabaseError
 from django.db.models import Q
 from django.conf import settings
 from django.utils import timezone
@@ -18,25 +21,248 @@ from drf_spectacular.utils import extend_schema_field
 from zoneinfo import available_timezones
 
 
+# What the form's ``RegisteredBy`` says when someone else registered the
+# student (the same answers UserRegisterView reads as peer, supervisor or
+# admin). Their guardian can be added later. A student registering
+# individually, or a form that doesn't say who filled it in, has to name one.
+_GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher", "admin"}
+REGISTRATION_OVERRIDES = {
+    "ConfirmSchoolOverride", "ConfirmNameEmailOverride",
+    "ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride",
+}
+
+
+class StrictBooleanField(serializers.BooleanField):
+    def to_internal_value(self, data):
+        if type(data) is not bool:
+            self.fail("invalid", input=data)
+        return data
+
+
+def _edit_distance(a, b):
+    if len(a) < len(b):
+        a, b = b, a
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a):
+        current = [i + 1]
+        for j, cb in enumerate(b):
+            current.append(min(current[j] + 1, previous[j + 1] + 1, previous[j] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+def email_precheck_enabled() -> bool:
+    return bool(getattr(settings, "EMAIL_PRECHECK_ENABLED", False))
+
+
+def stored_email_answers(addresses) -> dict:
+    """The fresh valid or invalid QuickEmailVerification answers on file for
+    ``addresses``, keyed by lower-case address: one query for a whole
+    submission, none while EMAIL_PRECHECK_ENABLED is off. Any failure gives
+    no answers, so registration goes on unchecked."""
+    if not email_precheck_enabled():
+        return {}
+    try:
+        return EmailVerification.reusable(
+            addresses, max_age_days=int(getattr(settings, "QEV_RESULT_MAX_AGE_DAYS", 180)),
+        )
+    except DatabaseError:
+        return {}
+
+
+def _invalid_email_warning(answers, address, *, code, field, override, whose):
+    """A warning when ``address``'s answer on file says it doesn't exist."""
+    answer = answers.get((address or "").strip().lower())
+    if answer is None or answer.status != EmailVerification.Status.INVALID:
+        return None
+    suggestion = f" Did you mean {answer.did_you_mean}?" if answer.did_you_mean else ""
+    return {
+        "code": code,
+        "field": field,
+        "override_field": override,
+        "message": f"{whose} doesn't appear to exist.{suggestion} Please correct it, or confirm if this is correct.",
+    }
+
+
+def registration_warnings(data, email_answers=None):
+    """The soft warnings for one student's registration details, each with
+    the override that confirms past it. ``email_answers`` is
+    ``stored_email_answers`` for the submission: an address answered invalid
+    gets a warning, and one with no answer gets none (it isn't blocked)."""
+    warnings = []
+    school = data.get("SchoolName", "").strip().lower()
+    if ("university" in school or KnownUniversity.matches(school)) and not data.get("ConfirmSchoolOverride"):
+        warnings.append({
+            "code": "university_school",
+            "field": "SchoolName",
+            "override_field": "ConfirmSchoolOverride",
+            "message": "This looks like a university, not a school. Please confirm if this is correct.",
+        })
+    name = (data.get("FirstName", "").strip() + data.get("Surname", "").strip()).lower().replace(" ", "")
+    local = data.get("Title", "").strip().lower().split("@")[0].replace(".", "").replace("_", "")
+    if 1 <= _edit_distance(name, local) <= 2 and not data.get("ConfirmNameEmailOverride"):
+        warnings.append({
+            "code": "name_email_mismatch",
+            "field": "Title",
+            "override_field": "ConfirmNameEmailOverride",
+            "message": "This email looks like it might have a typo compared to the student's name. Please confirm.",
+        })
+    if email_answers and email_precheck_enabled():
+        for warning, confirmed in (
+            (_invalid_email_warning(
+                email_answers, data.get("Title"), code="email_invalid", field="Title",
+                override="ConfirmEmailInvalidOverride", whose="This email address",
+            ), data.get("ConfirmEmailInvalidOverride")),
+            (_invalid_email_warning(
+                email_answers, data.get("GuardianEmail"), code="guardian_email_invalid", field="GuardianEmail",
+                override="ConfirmGuardianEmailInvalidOverride", whose="The guardian's email address",
+            ), data.get("ConfirmGuardianEmailInvalidOverride")),
+        ):
+            if warning and not confirmed:
+                warnings.append(warning)
+    return warnings
+
+
+def _has_role(user, profile_model, role_name) -> bool:
+    """Whether the account is a student or supervisor: it has that profile, or
+    has ever been given that role."""
+    return (
+        profile_model.objects.filter(user=user).exists()
+        or RoleAssignmentHistory.objects.filter(user=user, role__role_name__iexact=role_name).exists()
+    )
+
+
 # Validate body payload
 class UserRegisterBodySerializer(serializers.Serializer):
-    Title = serializers.EmailField()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.context.get("allow_partial_student"):
+            for field in ("Country", "SchoolName", "YearLevel"):
+                self.fields[field].allow_blank = True
+
+    Title = serializers.EmailField(max_length=254)
     FirstName = serializers.CharField(max_length=255)
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
     Region = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    SupervisorEmail = serializers.EmailField()
-    SupervisorFirstName = serializers.CharField(max_length=255)
-    SupervisorSurname = serializers.CharField(max_length=255)
-    GuardianEmail = serializers.EmailField()
-    GuardianName = serializers.CharField(max_length=255)
-    GuardianSurname = serializers.CharField(max_length=255)
+    # A nominated supervisor is optional (a supervisor registering is one).
+    SupervisorEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
+    SupervisorFirstName = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    SupervisorSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    # Required unless a peer or supervisor is registering the student; see validate().
+    GuardianEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
+    GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    GuardianSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
     SchoolName = serializers.CharField(max_length=255)
-    YearLevel = serializers.CharField(max_length=255)
-    Areaofinterest = serializers.CharField(max_length=255)
+    YearLevel = serializers.ChoiceField(choices=["9", "10", "11", "12"])
+    # A student's Areas of Interest are optional.
+    Areaofinterest = serializers.CharField(max_length=255, required=False, allow_blank=True)
     # Who filled the form in: "Self", "Peer" or "Supervisor". A supervisor's
     # registration locks the student's own details; missing leaves them editable.
     RegisteredBy = serializers.CharField(max_length=32, required=False, allow_blank=True)
+    ConfirmSchoolOverride = StrictBooleanField(required=False, default=False)
+    ConfirmNameEmailOverride = StrictBooleanField(required=False, default=False)
+    # Confirm an address QuickEmailVerification answered as not existing.
+    ConfirmEmailInvalidOverride = StrictBooleanField(required=False, default=False)
+    ConfirmGuardianEmailInvalidOverride = StrictBooleanField(required=False, default=False)
+
+    def validate_Title(self, value):
+        # `Title` is the student's own email (mislabeled field name; confirmed
+        # against the real Qualtrics form). Block registration if this email
+        # is already in use.
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+            raise serializers.ValidationError(
+                "This email address already belongs to a supervisor, so it "
+                "cannot be used to register a student.",
+                code="student_email_is_supervisor",
+            )
+        raise serializers.ValidationError(
+            "An account with this email address already exists.",
+            code="email_taken",
+        )
+
+    def validate_SupervisorEmail(self, value):
+        # A nominated supervisor is either new or already a supervisor. Any
+        # other existing account is refused, so the form can't hand someone
+        # else's account the supervisor role.
+        if not value:
+            return value
+        existing = User.objects.filter(email__iexact=value).first()
+        if existing is None:
+            return value
+        if _has_role(existing, StudentProfile, ROLE_STUDENT):
+            raise serializers.ValidationError(
+                "This email address belongs to a student, so they cannot be "
+                "nominated as a supervisor.",
+                code="supervisor_email_is_student",
+            )
+        if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+            raise serializers.ValidationError(
+                "This email address belongs to an existing account that is "
+                "not a supervisor.",
+                code="supervisor_email_in_use",
+            )
+        return value
+
+    def validate(self, data):
+        student_email = data.get("Title", "").strip().lower()
+        student_first = data.get("FirstName", "").strip().lower()
+        student_last = data.get("Surname", "").strip().lower()
+
+        guardian_email = data.get("GuardianEmail", "").strip().lower()
+        guardian_first = data.get("GuardianName", "").strip().lower()
+        guardian_last = data.get("GuardianSurname", "").strip().lower()
+
+        supervisor_email = data.get("SupervisorEmail", "").strip().lower()
+        supervisor_first = data.get("SupervisorFirstName", "").strip().lower()
+        supervisor_last = data.get("SupervisorSurname", "").strip().lower()
+
+        # Guardian details are required unless the student is being
+        # registered by a peer or their supervisor.
+        registered_by = data.get("RegisteredBy", "").strip().lower()
+        if registered_by not in _GUARDIAN_OPTIONAL_FOR:
+            missing = {
+                field: serializers.ValidationError(
+                    "This field is required when a student registers individually.",
+                    code="guardian_required",
+                ).detail
+                for field in ("GuardianEmail", "GuardianName", "GuardianSurname")
+                if not data.get(field, "").strip()
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+
+        # Guardian can't be the same person as the student. Blank guardian
+        # details match no one.
+        if (guardian_email and student_email == guardian_email) or (
+            guardian_first and guardian_last
+            and student_first == guardian_first and student_last == guardian_last
+        ):
+            message = "The guardian cannot be the same person as the student."
+            raise serializers.ValidationError(
+                {"GuardianEmail": message} if self.context.get("canonical_registration_fields") else message
+            )
+
+        # Supervisor can't be the same person as the student. Blank supervisor
+        # details (none nominated) match no one.
+        if (supervisor_email and student_email == supervisor_email) or (
+            supervisor_first and supervisor_last
+            and student_first == supervisor_first and student_last == supervisor_last
+        ):
+            message = "The supervisor cannot be the same person as the student."
+            raise serializers.ValidationError(
+                {"SupervisorEmail": message} if self.context.get("canonical_registration_fields") else message
+            )
+
+        if not self.context.get("defer_warnings"):
+            warnings = registration_warnings(data)
+            if warnings:
+                raise serializers.ValidationError(warnings[0]["message"])
+
+        return data
 
 # Registration Wrapper
 class UserRegisterRequestSerializer(serializers.Serializer):
@@ -50,6 +276,13 @@ class JoinPermissionBodySerializer(serializers.Serializer):
 # Join Permission Wrapper
 class JoinPermissionRequestSerializer(serializers.Serializer):
     body = JoinPermissionBodySerializer()
+
+
+class SelfNameSerializer(serializers.Serializer):
+    """The name a supervisor may change on their own profile."""
+
+    first_name = serializers.CharField(max_length=255, required=False)
+    last_name = serializers.CharField(max_length=255, required=False)
 
 
 class StudentSelfProfileUpdateSerializer(serializers.Serializer):
@@ -105,6 +338,8 @@ class UserSerializer(serializers.ModelSerializer):
     supervisor_id = serializers.SerializerMethodField()
     # The student's own details are their supervisor's to change (see StudentProfile.details_locked).
     details_locked = serializers.SerializerMethodField()
+    # Their guardian too, once permission is given (see StudentProfile.guardian_locked).
+    guardian_locked = serializers.SerializerMethodField()
 
     # Onboarding gate: tells the FE whether the user is still on their
     # invited/default-password state and must complete the password set/change
@@ -150,11 +385,14 @@ class UserSerializer(serializers.ModelSerializer):
             "guardian_reminder",
             "supervisor_id",
             "details_locked",
+            "guardian_locked",
             "must_change_password",
             "timezone",
+            "pronouns",
         ]
         read_only_fields = [
             "id",
+            "pronouns",
             "interests",
             "supervisor_name",
             "supervisor_email",
@@ -186,6 +424,10 @@ class UserSerializer(serializers.ModelSerializer):
     def get_details_locked(self, obj):
         profile = self._student_profile(obj)
         return bool(profile and profile.details_locked)
+
+    def get_guardian_locked(self, obj):
+        profile = self._student_profile(obj)
+        return bool(profile and profile.guardian_locked)
 
     def get_guardian_reminder(self, obj):
         from .guardian_reminders import reminder_info
@@ -451,11 +693,33 @@ class UserSerializer(serializers.ModelSerializer):
         return not obj.has_usable_password()
 
 
+class SupervisedStudentEmailSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+    kind = serializers.ChoiceField(choices=["guardian_details", "guardian_consent"])
+
+
+class SupervisedStudentIdsSerializer(serializers.Serializer):
+    student_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
 class SupervisedStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
     email = serializers.EmailField()
+    country_id = serializers.IntegerField(allow_null=True)
+    country_name = serializers.CharField(allow_blank=True)
+    state_id = serializers.IntegerField(allow_null=True)
+    state_name = serializers.CharField(allow_blank=True)
+    account_status = serializers.CharField()
+    media_consent = serializers.BooleanField(allow_null=True)
+    media_consent_at = serializers.DateTimeField(allow_null=True)
     school_name = serializers.CharField(allow_blank=True)
     year_lvl = serializers.CharField(allow_blank=True)
     interests = serializers.ListField(child=serializers.CharField())
@@ -466,8 +730,11 @@ class SupervisedStudentSerializer(serializers.Serializer):
     has_join_permission = serializers.BooleanField()
     joinperm_response_id = serializers.CharField(allow_blank=True, allow_null=True)
     joinperm_granted_at = serializers.DateTimeField(allow_null=True)
+    # No signature: fetched when a consent form is opened (SupervisedStudentSignaturesView).
     group_id = serializers.IntegerField(allow_null=True)
     group_name = serializers.CharField(allow_null=True)
+    # Their group from registering, where My Groups' Waiting Area keeps them.
+    registration_group_id = serializers.IntegerField(allow_null=True, required=False)
 
 
 class SupervisedGroupMemberSerializer(serializers.Serializer):
@@ -483,6 +750,10 @@ class SupervisedGroupSerializer(serializers.Serializer):
     group_name = serializers.CharField()
     members = SupervisedGroupMemberSerializer(many=True)
     interests = serializers.ListField(child=serializers.CharField())
+    # "supervisor" or "members" for a group formed while registering, else "".
+    registered_by = serializers.CharField(allow_blank=True)
+    # Made a BIOTech group from My Groups' Waiting Area (Create all groups).
+    placed = serializers.BooleanField(default=False)
 
 
 class SupervisedGroupNameSerializer(serializers.Serializer):
@@ -542,6 +813,10 @@ class StudentGuardianUpdateSerializer(serializers.Serializer):
 class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=255)
     last_name = serializers.CharField(max_length=255)
+    email = serializers.EmailField(required=False)
+    # Where the student is, as their Personal information shows it.
+    country_id = serializers.PrimaryKeyRelatedField(queryset=Countries.objects.all(), required=False, allow_null=True)
+    state_id = serializers.PrimaryKeyRelatedField(queryset=CountryStates.objects.all(), required=False, allow_null=True)
     school_name = serializers.CharField(max_length=255)
     year_lvl = serializers.ChoiceField(choices=[(str(year), str(year)) for year in range(9, 13)])
     interests = serializers.ListField(

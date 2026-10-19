@@ -18,18 +18,7 @@
     <template v-else-if="view">
       <header class="detail-header">
         <div>
-          <h1>{{ view.name }}</h1>
-          <div class="admin-view-executed__meta">
-            <span
-              class="admin-view-executed__badge"
-              :class="{ 'admin-view-executed__badge--default': view.isDefault }"
-            >
-              {{ badgeLabel }}
-            </span>
-            <span class="admin-view-executed__count">
-              {{ totalCount }} {{ totalCount === 1 ? 'user' : 'users' }}
-            </span>
-          </div>
+          <h1 class="page-title">{{ view.name }}</h1>
         </div>
         <div class="admin-view-executed__header-actions">
           <span :title="view.isDefault ? 'System default views cannot be edited' : undefined">
@@ -55,35 +44,6 @@
         <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
         <span>{{ error }}</span>
       </p>
-
-      <div class="admin-view-executed__controls">
-        <div class="admin-view-executed__search">
-          <i class="fas fa-magnifying-glass admin-view-executed__search-icon" aria-hidden="true"></i>
-          <input
-            v-model="searchInput"
-            type="search"
-            class="admin-view-executed__search-input"
-            placeholder="Name or email"
-            aria-label="Search users"
-          />
-        </div>
-
-        <div class="admin-view-executed__group-by">
-          <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
-          <select
-            id="view-group-by"
-            :value="groupBy"
-            @change="onGroupByChange(($event.target as HTMLSelectElement).value as GroupByOption)"
-          >
-            <option value="none">None</option>
-            <option value="role">Role</option>
-            <option value="status">Status</option>
-          </select>
-          <span v-if="groupBy !== 'none'" class="admin-view-executed__group-by-hint">
-            Grouping is not yet applied server-side; results are shown sorted, not grouped.
-          </span>
-        </div>
-      </div>
 
       <BulkActionsBar
         v-if="bulkCount && !loading"
@@ -111,7 +71,6 @@
         :page="page"
         :limit="limit"
         :total-count="totalCount"
-        :page-size-options="pageSizeOptions"
         :empty-message="emptyMessage"
         @update:selected="onSelectedChange"
         @update:sort="onSortChange"
@@ -121,7 +80,38 @@
         @view="openView"
         @edit="openEdit"
         @toggle-active="onToggleActive"
-      />
+        v-model:search="searchInput"
+      >
+        <!-- The view's kind and how many users it finds, centred in the search card. -->
+        <template #stats>
+          <span class="admin-view-executed__meta">
+            <span
+              class="admin-view-executed__badge"
+              :class="{ 'admin-view-executed__badge--default': view.isDefault }"
+            >
+              {{ badgeLabel }}
+            </span>
+            <span class="admin-view-executed__count">
+              {{ totalCount }} {{ totalCount === 1 ? 'user' : 'users' }}
+            </span>
+          </span>
+        </template>
+        <!-- Group by, beside Search. -->
+        <template #filters>
+          <div class="admin-view-executed__group-by">
+            <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
+            <AppSelect
+              id="view-group-by"
+              :model-value="groupBy"
+              :options="GROUP_BY_OPTIONS"
+              @change="(value) => onGroupByChange(value as GroupByOption)"
+            />
+          </div>
+          <span v-if="groupBy !== 'none'" class="admin-view-executed__group-by-hint">
+            Grouping is not yet applied server-side; results are shown sorted, not grouped.
+          </span>
+        </template>
+      </AdminViewResultsTable>
     </template>
 
     <!-- Bulk activate/deactivate confirm -->
@@ -238,7 +228,6 @@
       :open="viewOpen"
       :user="detailUser"
       @close="onViewClose"
-      @edit="openEditFromView"
       @updated="onDetailUpdated"
     />
 
@@ -250,6 +239,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
@@ -264,6 +254,12 @@ import {
   type GroupByOption,
   type ViewResultRow
 } from '@/composables/admin/useAdminViewExecuted'
+
+const GROUP_BY_OPTIONS: AppSelectOption[] = [
+  { value: 'none', label: 'None' },
+  { value: 'role', label: 'Role' },
+  { value: 'status', label: 'Status' }
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -285,7 +281,6 @@ const {
   columns,
   emptyMessage,
   badgeLabel,
-  pageSizeOptions,
   reload,
   loadResults,
   onSortChange,
@@ -345,12 +340,6 @@ const openEdit = (user: ViewResultRow): void => {
   formOpen.value = true
 }
 
-const openEditFromView = (): void => {
-  const user = detailUser.value
-  if (!user) return
-  onViewClose()
-  openEdit(user)
-}
 
 const onFormSaved = (): void => {
   void loadResults()
@@ -397,13 +386,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.back-button {
-  align-items: center;
-  display: inline-flex;
-  gap: 0.45rem;
-  margin-bottom: 1rem;
-}
-
 .detail-state {
   align-items: center;
   display: flex;
@@ -431,13 +413,13 @@ onMounted(() => {
   gap: 0.6rem;
 }
 
-.detail-header h1 {
-  margin-bottom: 0.35rem;
+:deep(.data-table-stats) {
+  margin-right: 0;
 }
 
 .admin-view-executed__meta {
   align-items: center;
-  display: flex;
+  display: inline-flex;
   gap: 0.65rem;
 }
 
@@ -469,59 +451,38 @@ onMounted(() => {
   margin-bottom: 1rem;
 }
 
-.admin-view-executed__controls {
-  align-items: flex-end;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.admin-view-executed__search {
-  align-items: center;
-  display: flex;
-  max-width: 320px;
-  position: relative;
-  width: 100%;
-}
-
-.admin-view-executed__search-icon {
-  color: var(--text-muted);
-  left: 0.75rem;
-  position: absolute;
-}
-
-.admin-view-executed__search-input {
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem 0.5rem 2.25rem;
-  width: 100%;
-}
-
+/* Group by beside Search in the table's search card, drawn like it. */
 .admin-view-executed__group-by {
-  align-items: center;
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.3rem;
 }
 
 .admin-view-executed__group-by-label {
-  color: var(--charcoal);
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.admin-view-executed__group-by select {
+.admin-view-executed__group-by .app-select {
+  min-width: 9rem;
+  padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
-  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
 }
 
 .admin-view-executed__group-by-hint {
+  align-self: center;
+  max-width: 220px;
   color: var(--text-muted);
   font-size: 0.75rem;
   font-style: italic;
-  max-width: 220px;
 }
 
 .admin-view-executed__force-toggle {
@@ -529,7 +490,7 @@ onMounted(() => {
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-view-executed__force-toggle input {
@@ -573,7 +534,7 @@ onMounted(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 

@@ -38,7 +38,7 @@ const mockApiAnnouncements = [
     archived_at: null,
     sender_name: 'Administrator',
     images: [],
-    audiences: [{ id: 1, role_name: 'Mentor', group: null }]
+    audiences: [{ id: 1, role: 2, role_name: 'Mentor', group: null }]
   }
 ]
 
@@ -123,11 +123,12 @@ describe('AnnouncementsPage - Admin Integration', () => {
       audiences: []
     })
     vi.spyOn(adminApi, 'deleteAdminAnnouncement').mockResolvedValue({} as any)
+    // The email is queued, to send in its turn after any bulk email.
     vi.spyOn(adminApi, 'notifyAdminAnnouncement').mockResolvedValue({
-      msg: 'Announcement email sent successfully',
-      status: 'success',
-      attempted: 5,
-      succeeded: 5,
+      msg: 'The email is queued and sends shortly.',
+      status: 'queued',
+      attempted: 0,
+      succeeded: 0,
       failed: 0
     })
   })
@@ -306,6 +307,34 @@ describe('AnnouncementsPage - Admin Integration', () => {
       expect(sheet.props('announcement')?.id).toBe(201)
     })
 
+    it('passes the saved audiences to the edit sheet so the roles stay ticked', async () => {
+      wrapper = mount(AnnouncementsPage, {
+        global: {
+          stubs: {
+            RouterLink: true,
+            AdminAnnouncementFormSheet: true,
+            ConfirmDialog: true,
+            BulkActionsBar: true
+          }
+        }
+      })
+      await flushPromises()
+
+      const mentorCardMenu = wrapper.findAll('.announcement__more-btn')[1]
+      await mentorCardMenu.trigger('click')
+      await flushPromises()
+
+      const editBtn = wrapper.findAll('.announcement__dropdown-item').find(b => b.text().includes('Edit'))
+      await editBtn!.trigger('click')
+      await flushPromises()
+
+      const sheet = wrapper.findComponent(AdminAnnouncementFormSheet)
+      expect(sheet.props('announcement')?.id).toBe(202)
+      expect(sheet.props('announcement')?.audiences).toEqual([
+        { id: 0, roleId: 2, groupId: null, roleName: 'Mentor', groupName: null }
+      ])
+    })
+
     it('handles archive action from card menu with confirmation', async () => {
       wrapper = mount(AnnouncementsPage, {
         global: {
@@ -398,7 +427,7 @@ describe('AnnouncementsPage - Admin Integration', () => {
       await flushPromises()
 
       expect(adminApi.notifyAdminAnnouncement).toHaveBeenCalledWith(201)
-      expect(wrapper.text()).toContain('Email notification sent successfully')
+      expect(wrapper.text()).toContain('The email is queued and sends shortly.')
     })
 
     it('renders checkboxes constantly on announcement cards for admins', async () => {

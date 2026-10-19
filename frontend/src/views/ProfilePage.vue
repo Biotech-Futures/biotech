@@ -49,7 +49,26 @@
 
       <div class="profile-content">
         <div class="profile-section">
-          <h3 class="profile-section-title">Personal Information</h3>
+          <div class="profile-section-heading">
+            <h3 class="profile-section-title">Personal Information</h3>
+            <!-- A supervisor can change their own name, and nothing else here. -->
+            <button
+              v-if="auth.isSupervisor && !nameEditing"
+              class="btn btn-outline profile-edit-button"
+              type="button"
+              @click="startNameEdit"
+            >
+              Edit name
+            </button>
+          </div>
+          <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
+            <label>First name<input v-model.trim="nameDraft.first_name" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="nameDraft.last_name" required maxlength="255" /></label>
+            <div class="student-edit-actions">
+              <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
+              <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save name' }}</button>
+            </div>
+          </form>
           <div class="profile-field">
             <span class="profile-field-label">Email:</span>
             <span class="profile-field-value">{{ user.email }}</span>
@@ -85,19 +104,12 @@
           <div class="profile-field timezone-field">
             <label class="profile-field-label" for="timezone-input">Set timezone:</label>
             <div class="timezone-control">
-              <select
+              <AppSelect
                 id="timezone-input"
                 v-model="selectedTimeZone"
                 class="timezone-input"
-              >
-                <option
-                  v-for="zone in timeZoneOptions"
-                  :key="zone"
-                  :value="zone"
-                >
-                  {{ formatTimeZoneLabel(zone) }}
-                </option>
-              </select>
+                :options="timeZoneSelectOptions"
+              />
               <div class="timezone-actions">
                 <button
                   class="btn btn-outline"
@@ -128,9 +140,9 @@
             <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
-            <label>Year level<select v-model="studentDraft.year_lvl" required><option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">{{ year }}</option></select></label>
-            <label>Country<select v-model="studentDraft.country_id" @change="studentDraft.state_id = null"><option :value="null">Not set</option><option v-for="country in profileOptions.countries" :key="country.id" :value="country.id">{{ country.country_name }}</option></select></label>
-            <label>Region<select v-model="studentDraft.state_id"><option :value="null">Not set</option><option v-for="region in availableRegions" :key="region.id" :value="region.id">{{ region.state_name }}</option></select></label>
+            <label>Year level<AppSelect v-model="studentDraft.year_lvl" :options="YEAR_LEVEL_OPTIONS" required /></label>
+            <label>Country<AppSelect v-model="studentDraft.country_id" :options="countrySelectOptions" @change="studentDraft.state_id = null" /></label>
+            <label>Region<AppSelect v-model="studentDraft.state_id" :options="regionSelectOptions" /></label>
             <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
@@ -186,37 +198,41 @@
           <p v-else-if="teamError" class="profile-note">{{ teamError }}</p>
           <template v-else-if="teamMembers.length">
             <p class="profile-note">{{ teamName }}</p>
-            <div class="team-table-wrap">
-              <table class="team-table">
-                <thead><tr><th scope="col">First name</th><th scope="col">Last name</th><th scope="col">Year level</th><th scope="col">School</th><th scope="col">Supervisor</th></tr></thead>
-                <tbody>
-                  <tr v-for="member in teamMembers" :key="member.id">
-                    <td>{{ member.first_name || unsetLabel }}</td>
-                    <td>{{ member.last_name || unsetLabel }}</td>
-                    <td>{{ member.year_level || unsetLabel }}</td>
-                    <td>{{ member.school || unsetLabel }}</td>
-                    <td>{{ member.supervisor || 'Not assigned' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <AppSimpleTable class="team-table" :columns="teamColumns" :rows="teamRows" />
           </template>
           <p v-else class="profile-note">You have not been assigned to a team yet.</p>
         </div>
 
         <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
           <div class="guardian-heading">
-            <h3 class="profile-section-title">Guardian Details</h3>
+            <h3 class="profile-section-title">Guardian Details <span v-if="guardianLocked" class="registration-lock" role="img" :aria-label="GUARDIAN_LOCK_REASON" :data-tooltip="GUARDIAN_LOCK_REASON" data-test="guardian-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
             <button
-              v-if="!guardianEditing"
+              v-if="!guardianEditing && !guardianLocked"
               class="btn btn-outline"
               type="button"
               data-test="guardian-edit"
-              @click="startGuardianEdit"
+              @click="guardianWarningOpen = true"
             >
               Edit guardian
             </button>
           </div>
+
+          <!-- Locked once their guardian has given permission: changes go through support. -->
+          <p v-if="guardianLocked" class="profile-note guardian-locked-note" data-test="guardian-locked">
+            Your guardian has given permission, so their details can't be changed here. If they need to
+            change, contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
+          </p>
+
+          <!-- A warning before editing: a new guardian clears permission given. -->
+          <ConfirmDialog
+            v-model="guardianWarningOpen"
+            title="Change your guardian's details?"
+            :message="guardianWarning"
+            confirm-label="Continue"
+            variant="warning"
+            data-test="guardian-warning"
+            @confirm="startGuardianEdit"
+          />
 
           <form
             v-if="guardianEditing"
@@ -226,7 +242,7 @@
             @submit.prevent="saveGuardian"
           >
             <p v-if="user.guardian.consentReceived" class="consent-hint guardian-form-hint">
-              {{ user.guardian.consentingName }} has already given consent and stays on file
+              Saving a new guardian clears the permission {{ user.guardian.consentingName }} gave,
               until your new guardian completes the consent form.
             </p>
             <div class="profile-field guardian-form-field">
@@ -398,18 +414,6 @@
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Supervised Students:</span>
-            <span class="profile-field-value">{{ user.supervisor.studentSummary }}</span>
-          </div>
-          <div
-            v-for="student in user.supervisor.students"
-            :key="student.id"
-            class="profile-field"
-          >
-            <span class="profile-field-label">{{ student.relationship }}:</span>
-            <span class="profile-field-value">{{ student.name }} ({{ student.email }})</span>
-          </div>
         </div>
       </div>
     </div>
@@ -424,11 +428,16 @@ import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
+import AppSimpleTable from '@/components/AppSimpleTable.vue'
+import AppSelect from '@/components/AppSelect.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
-  formatDayMonthYear,
-  formatDayMonthYearTime,
+  formatDayMonth,
+  formatDayMonthTime,
   formatTimeZoneLabel,
   getBrowserTimeZone,
+  getSetTimeZone,
   getTimeZoneDateParts,
   isValidTimeZone,
 } from '@/utils/date'
@@ -457,6 +466,16 @@ const studentDraft = ref({
 })
 const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
 const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
+// The student details form's dropdown choices.
+const YEAR_LEVEL_OPTIONS = ['9', '10', '11', '12'].map(year => ({ value: year, label: year }))
+const countrySelectOptions = computed(() => [
+  { value: null, label: 'Not set' },
+  ...profileOptions.value.countries.map(country => ({ value: country.id, label: country.country_name })),
+])
+const regionSelectOptions = computed(() => [
+  { value: null, label: 'Not set' },
+  ...availableRegions.value.map(region => ({ value: region.id, label: region.state_name })),
+])
 const guardianSending = ref(false)
 // Ticks so "send again in N minutes" counts down.
 const now = ref(Date.now())
@@ -482,12 +501,29 @@ const browserTimeZone = getBrowserTimeZone()
 const selectedTimeZone = ref('UTC')
 const teamMembers = ref([])
 const teamName = ref('')
+const teamColumns = [
+  { key: 'first_name', label: 'First name' },
+  { key: 'last_name', label: 'Last name' },
+  { key: 'year_level', label: 'Year level' },
+  { key: 'school', label: 'School' },
+  { key: 'supervisor', label: 'Supervisor' },
+]
 const teamLoading = ref(false)
 const teamError = ref('')
 const DEFAULT_PROFILE_AVATAR = ''
 const avatarUrl = ref(DEFAULT_PROFILE_AVATAR)
 const supportEmail = 'support@biotechfutures.org'
 const unsetLabel = 'Not set'
+const teamRows = computed(() =>
+  teamMembers.value.map((member) => ({
+    id: member.id,
+    first_name: member.first_name || unsetLabel,
+    last_name: member.last_name || unsetLabel,
+    year_level: member.year_level || unsetLabel,
+    school: member.school || unsetLabel,
+    supervisor: member.supervisor || 'Not assigned',
+  })),
+)
 let statusMessageTimer = null
 const commonTimeZones = [
   'UTC',
@@ -526,6 +562,9 @@ const commonTimeZones = [
   'Africa/Johannesburg'
 ]
 
+const timeZoneSelectOptions = computed(() =>
+  timeZoneOptions.value.map(zone => ({ value: zone, label: formatTimeZoneLabel(zone) })),
+)
 const timeZoneOptions = computed(() => {
   return Array.from(new Set([
     auth.timeZone,
@@ -539,6 +578,10 @@ const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
 // changes these details. A student who registered themselves (or through a
 // peer) changes their own. Guardian details are the student's either way.
 const detailsLocked = computed(() => Boolean(auth.user?.details_locked))
+// Their guardian too, once permission is given: changes then go through support.
+const guardianLocked = computed(() => Boolean(auth.user?.guardian_locked))
+const GUARDIAN_LOCK_REASON =
+  'Your guardian has given permission. Contact BIOTech Support if their details need to change.'
 const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !detailsLocked.value)
 const lockReason = computed(() => {
   const name = String(auth.user?.supervisor_name || '').trim()
@@ -627,6 +670,41 @@ const startStudentEdit = async () => {
   }
   error.value = ''
   studentEditing.value = true
+}
+
+// A supervisor's own name, the one thing of theirs they can change here.
+const nameEditing = ref(false)
+const nameSaving = ref(false)
+const nameDraft = ref({ first_name: '', last_name: '' })
+
+const startNameEdit = () => {
+  nameDraft.value = { first_name: auth.user?.first_name || '', last_name: auth.user?.last_name || '' }
+  error.value = ''
+  nameEditing.value = true
+}
+
+const saveName = async () => {
+  nameSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(nameDraft.value),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    nameEditing.value = false
+    showTemporaryStatus('Your name has been updated.')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your name could not be updated.'
+  } finally {
+    nameSaving.value = false
+  }
 }
 
 const cancelStudentEdit = () => {
@@ -769,23 +847,15 @@ const user = computed(() => {
   const interests = listOrEmpty(source?.interests)
   const supervisorEmail = valueOrFallback(source?.supervisor_email, unsetLabel)
   const supervisorEmailAddress = String(source?.supervisor_email || '').trim()
-  const supervisedStudents = Array.isArray(source?.supervised_students)
-    ? source.supervised_students.map((student) => {
-      const name = `${student?.first_name || ''} ${student?.last_name || ''}`.trim() || student?.email || 'Student'
-      return {
-        id: student?.id || student?.email || name,
-        name,
-        email: valueOrFallback(student?.email),
-        relationship: capitalise(student?.relationship_type || 'student')
-      }
-    })
-    : []
+  // Not shown (My Students lists them), but a supervisor with students still
+  // gets the Supervisor Details section.
+  const supervisedCount = Array.isArray(source?.supervised_students) ? source.supervised_students.length : 0
   const hasStudentDetails = roleKey === 'student'
   const consentReceived = source?.join_perm === true
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
   const placeholderGuardian = isPlaceholderGuardian(source?.pg_firstname, source?.pg_lastname, source?.first_name, source?.last_name)
   const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
-  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedStudents.length > 0)
+  const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedCount > 0)
 
 
   return {
@@ -815,9 +885,9 @@ const user = computed(() => {
       emailAddress: String(source?.pg_email || '').trim(),
       // null when there's no student profile behind the account; treat as not received.
       consentReceived,
-      // "14 Sep 2026 15:30", in the student's own timezone.
+      // "14 Sep, 3:30 pm", in the set time.
       consentReceivedAt: consentReceived && source?.join_perm_granted_at
-        ? formatDayMonthYearTime(source.join_perm_granted_at, auth.timeZone)
+        ? formatDayMonthTime(source.join_perm_granted_at)
         : '',
       pending: source?.pending_guardian
         ? {
@@ -840,11 +910,7 @@ const user = computed(() => {
     },
     supervisor: {
       hasDetails: hasSupervisorDetails,
-      schoolName: valueOrFallback(source?.supervisor_school_name),
-      studentSummary: supervisedStudents.length === 1
-        ? '1 student'
-        : `${supervisedStudents.length} students`,
-      students: supervisedStudents
+      schoolName: valueOrFallback(source?.supervisor_school_name)
     }
   }
 })
@@ -885,11 +951,12 @@ const reminderLine = computed(() => {
   const guardian = user.value?.guardian
   if (guardian?.consentReceived && !guardian?.pending) return ''
   const last = reminder.last_sent_at
-    ? `Last emailed ${formatDayMonthYearTime(reminder.last_sent_at, auth.timeZone)}.`
+    ? `Last emailed ${formatDayMonthTime(reminder.last_sent_at)}.`
     : 'Not emailed yet.'
   if (!reminder.next_due_at) return last
-  const today = getTimeZoneDateParts(new Date(now.value), auth.timeZone)
-  const due = getTimeZoneDateParts(reminder.next_due_at, auth.timeZone)
+  const zone = getSetTimeZone()
+  const today = getTimeZoneDateParts(new Date(now.value), zone)
+  const due = getTimeZoneDateParts(reminder.next_due_at, zone)
   const days = today && due
     ? Math.round((Date.UTC(due.year, due.month - 1, due.day) - Date.UTC(today.year, today.month - 1, today.day)) / 86400000)
     : null
@@ -897,9 +964,19 @@ const reminderLine = computed(() => {
     ? 'today'
     : days === 1
       ? 'tomorrow'
-      : `on ${formatDayMonthYear(reminder.next_due_at, auth.timeZone)}`
+      : `on ${formatDayMonth(reminder.next_due_at)}`
   return `${last} They'll be emailed again ${when}.`
 })
+
+// The warning before editing the guardian: what changing them does.
+const guardianWarningOpen = ref(false)
+const guardianWarning = computed(() =>
+  user.value.guardian.consentReceived
+    ? `Changing your guardian's details clears the permission ${user.value.guardian.consentingName} gave. ` +
+      "Your new guardian will be emailed the consent form, and until they complete it you won't be able to " +
+      'take part in most of the program.'
+    : 'Your new guardian will be emailed the consent form to complete.',
+)
 
 const startGuardianEdit = () => {
   const { guardian } = user.value
@@ -943,8 +1020,8 @@ const saveGuardian = async () => {
   try {
     await auth.updateGuardian({ ...guardianForm.value })
     guardianEditing.value = false
-    noteGuardian(true, hadConsent && user.value.guardian.pending
-      ? 'Saved. Your new guardian needs to complete the consent form.'
+    noteGuardian(true, hadConsent && !user.value.guardian.consentReceived
+      ? 'Saved. Your guardian permission is cleared until your new guardian completes the consent form.'
       : 'Your guardian details have been updated.')
   } catch (saveError) {
     const fields = saveError?.fields || {}
@@ -1167,7 +1244,13 @@ onMounted(async () => {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
+}
+
+/* Dark theme: the timezone box and its list on black, rather than white. */
+:root[data-theme='dark'] .timezone-input {
+  background: #000;
+  color-scheme: dark;
 }
 
 .timezone-actions {
@@ -1208,7 +1291,7 @@ onMounted(async () => {
   border-left: 4px solid var(--dark-green);
   border-radius: 6px;
   background: var(--bg-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .guardian-notice--error {
@@ -1275,7 +1358,7 @@ onMounted(async () => {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .guardian-error {
@@ -1305,7 +1388,7 @@ onMounted(async () => {
 
 .guardian-pending p {
   margin: 0 0 0.75rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .profile-link {
@@ -1328,9 +1411,10 @@ onMounted(async () => {
 .registration-lock::after { content:attr(data-tooltip); position:absolute; z-index:10; bottom:calc(100% + .5rem); left:50%; width:max-content; max-width:min(18rem, 70vw); padding:.45rem .6rem; border-radius:4px; background:#26332d; color:#fff; font-size:.75rem; font-weight:400; line-height:1.35; text-align:left; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%, .2rem); transition:opacity .15s ease, transform .15s ease; }
 .registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
 .profile-edit-button { margin:0; font-size:.85rem; }
+.guardian-locked-note { margin:.25rem 0 1rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--charcoal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
 .student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }
@@ -1338,12 +1422,7 @@ onMounted(async () => {
 .student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
 .student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
 .student-edit-actions .btn { margin:0; }
-.team-table-wrap { overflow-x:auto; margin-top:1rem; border:1px solid var(--border-light); border-radius:8px; }
-.team-table { width:100%; border-collapse:collapse; min-width:360px; }
-.team-table th, .team-table td { padding:.75rem 1rem; text-align:left; border-bottom:1px solid var(--border-light); }
-.team-table th { background:var(--accent-green-soft); color:var(--dark-green); font-size:.82rem; letter-spacing:.04em; text-transform:uppercase; }
-.team-table tr:last-child td { border-bottom:0; }
-.team-table td:first-child { display:flex; align-items:center; gap:.6rem; }
+.team-table { margin-top:1rem; }
 .member-initial { display:inline-grid; place-items:center; width:2rem; height:2rem; border-radius:50%; background:var(--accent-green-soft); color:var(--dark-green); font-weight:700; }
 .member-role { color:#657069; font-size:.88rem; }
 

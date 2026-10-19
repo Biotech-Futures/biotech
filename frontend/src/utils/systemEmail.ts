@@ -117,6 +117,63 @@ export type SystemEmailTestRecipient = NonNullable<
   z.infer<typeof systemEmailTestRecipientsSchema>['recipients']
 >[number]
 
+// The Log: each email's last send and who sent it, where mail it can't
+// deliver comes back to, and who its latest sends couldn't reach, newest first
+// ("amy@x.com (BTF07, Amy Chen)", as Notify Finalists lists them).
+export const systemEmailLogSchema = z.array(
+  z.object({
+    key: z.string(),
+    name: z.string(),
+    lastSentAt: z.string().nullable(),
+    lastSentBy: z.string(),
+    sentFrom: z.string(),
+    // One email per group, so the rest of a group still gets it.
+    toGroups: z.boolean(),
+    missed: z.array(
+      z.object({
+        at: z.string(),
+        people: z.array(z.object({ who: z.string(), reason: z.string() }))
+      })
+    ),
+    // Who it bounced back from after the mail server took it, grouped by
+    // when the bounce check found them, newest first.
+    bounced: z
+      .array(
+        z.object({
+          at: z.string(),
+          people: z.array(z.object({ who: z.string(), reason: z.string() }))
+        })
+      )
+      .default([]),
+    // Who it's waiting to reach while the mail server can't be reached: each
+    // is tried again every 10 minutes until `until`, then given up on.
+    waiting: z
+      .array(z.object({ who: z.string(), at: z.string().optional(), until: z.string() }))
+      .default([]),
+    // Whether its Resend has anyone to email again.
+    resendable: z.boolean().default(false),
+    // A login code or reset link: never resent, as they expire within minutes.
+    expires: z.boolean().default(false)
+  })
+)
+
+export type SystemEmailLogEntry = z.infer<typeof systemEmailLogSchema>[number]
+
+// How many people sends couldn't reach since an admin last looked at Failed
+// Sending Emails: the red count on its button.
+export const systemEmailUnseenSchema = z.object({ unseen: z.number() })
+
+// Whether bounced emails can be checked through Hostinger's Mail API: no key
+// ("unset"), a key Hostinger refused ("rejected"), or a check that couldn't
+// get through ("failed"), each at `at`; "" when it can.
+export const systemEmailMailApiSchema = z.object({
+  problem: z.enum(['', 'unset', 'rejected', 'failed']).catch(''),
+  at: z.string().nullable(),
+  status: z.number().nullable()
+})
+
+export type SystemEmailMailApi = z.infer<typeof systemEmailMailApiSchema>
+
 // ---------------------------------------------------------------------------
 // Request payloads
 // ---------------------------------------------------------------------------

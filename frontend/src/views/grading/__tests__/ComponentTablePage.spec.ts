@@ -144,8 +144,8 @@ describe('the component switcher', () => {
 describe('the table', () => {
   it('shows progress, marks, lateness and markers per row', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('.component-table__stats').text()).toContain('2/3 Submitted')
-    expect(wrapper.find('.component-table__stats').text()).toContain('1/2 Fully Marked')
+    expect(wrapper.find('.data-table-stats').text()).toContain('2/3 Submitted')
+    expect(wrapper.find('.data-table-stats').text()).toContain('1/2 Fully Marked')
 
     const done = rowByName(wrapper, 'BTF-1')
     expect(done.text()).toContain('2/2')
@@ -177,13 +177,13 @@ describe('the table', () => {
     await wrapper.find('input[type="search"]').setValue('alpha')
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     await wrapper.find('input[type="search"]').setValue('zzz')
-    expect(wrapper.find('.component-table__empty').text()).toBe('No groups match your search.')
+    expect(wrapper.find('.data-table-empty').text()).toBe('No groups match your search.')
   })
 
   it('sorting by group name starts ascending and toggles', async () => {
     const wrapper = await mountPage()
     const groupSort = wrapper
-      .findAll('.component-table__sort')
+      .findAll('.data-table-sort-btn')
       .find((b) => b.text().includes('Group'))!
     await groupSort.trigger('click')
     let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
@@ -196,7 +196,7 @@ describe('the table', () => {
   it('progress sort pins unsubmitted rows last in both directions', async () => {
     const wrapper = await mountPage()
     const progressSort = wrapper
-      .findAll('.component-table__sort')
+      .findAll('.data-table-sort-btn')
       .find((b) => b.text().includes('Progress'))!
     await progressSort.trigger('click')
     let names = wrapper.findAll('tbody tr').map((r) => r.findAll('td')[0]!.text())
@@ -212,7 +212,7 @@ describe('the table', () => {
     expect(wrapper.text()).toContain('Failed to load component "SAQ".')
     await wrapper.findAll('button').find((b) => /Try again/.test(b.text()))!.trigger('click')
     await flushPromises()
-    expect(wrapper.find('.component-table__stats').exists()).toBe(true)
+    expect(wrapper.find('.data-table-stats').exists()).toBe(true)
   })
 })
 
@@ -223,7 +223,7 @@ describe('exports and uploads', () => {
   it('SAQ has one Download button, its popup offering xlsx, pdf and txt', async () => {
     const wrapper = await mountPage()
     // Download, as on the other components, then Upload marks.
-    expect(wrapper.findAll('.component-table__actions button').map((b) => b.text())).toEqual([
+    expect(wrapper.findAll('.data-table-search-side button').map((b) => b.text())).toEqual([
       'Download',
       'Upload marks'
     ])

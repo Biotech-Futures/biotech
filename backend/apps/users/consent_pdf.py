@@ -176,9 +176,9 @@ def _masthead(pdf: _ConsentPDF):
 
 
 def render_consent_pdf(consent) -> bytes:
-    """The signed record for ``consent`` (a GuardianConsent) as PDF bytes."""
-    user = consent.student.user
-    student = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
+    """The signed record for ``consent`` (a GuardianConsent) as PDF bytes,
+    with the student named as they were when the guardian signed."""
+    student = consent.student_full_name
     guardian = consent.guardian_full_name
     wording = consent_wording(student, consent.consent_version)
     record = wording["record"]

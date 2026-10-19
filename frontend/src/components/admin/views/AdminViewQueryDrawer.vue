@@ -63,21 +63,22 @@
       <div class="view-drawer-form__grid-2">
         <div class="form-field">
           <label class="form-label" for="view-status">Account Status</label>
-          <select id="view-status" v-model="form.accountStatus" class="form-input form-select">
-            <option value="all">All statuses</option>
-            <option value="active">Active only</option>
-            <option value="inactive">Inactive only</option>
-          </select>
+          <AppSelect
+            id="view-status"
+            v-model="form.accountStatus"
+            class="form-input form-select"
+            :options="STATUS_OPTIONS"
+          />
         </div>
 
         <div class="form-field">
           <label class="form-label" for="view-engagement">Engagement / Matching</label>
-          <select id="view-engagement" v-model="form.engagementStatus" class="form-input form-select">
-            <option value="all">All</option>
-            <option value="matched">Matched (in active group)</option>
-            <option value="unmatched">Unmatched</option>
-            <option value="pending">Pending matching / invited</option>
-          </select>
+          <AppSelect
+            id="view-engagement"
+            v-model="form.engagementStatus"
+            class="form-input form-select"
+            :options="ENGAGEMENT_OPTIONS"
+          />
         </div>
       </div>
 
@@ -118,6 +119,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AdminViewConditionsBuilder from '@/components/admin/views/AdminViewConditionsBuilder.vue'
 import AdminViewColumnSelector from '@/components/admin/views/AdminViewColumnSelector.vue'
@@ -133,6 +135,19 @@ const ROLE_CHOICES = [
   { value: 'mentor', label: 'Mentor' },
   { value: 'supervisor', label: 'Supervisor' },
   { value: 'admin', label: 'Admin' },
+]
+
+const STATUS_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'active', label: 'Active only' },
+  { value: 'inactive', label: 'Inactive only' },
+]
+
+const ENGAGEMENT_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All' },
+  { value: 'matched', label: 'Matched (in active group)' },
+  { value: 'unmatched', label: 'Unmatched' },
+  { value: 'pending', label: 'Pending matching / invited' },
 ]
 
 const DEFAULT_COLUMNS = [
@@ -317,7 +332,7 @@ const handleSubmit = async () => {
 .form-label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -329,7 +344,7 @@ const handleSubmit = async () => {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   background-color: var(--surface-elevated, #ffffff);
-  color: var(--charcoal);
+  color: var(--teal);
   transition: border-color 0.15s ease-in-out;
 }
 
@@ -341,7 +356,8 @@ const handleSubmit = async () => {
   color: var(--text-muted);
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-within {
   outline: none;
   border-color: var(--dark-green);
 }
@@ -366,7 +382,7 @@ const handleSubmit = async () => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   user-select: none;
 }

@@ -2,7 +2,7 @@ from io import BytesIO
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from unittest.mock import patch
 
 from apps.chat.utils import reset_pattern_cache
@@ -156,3 +156,40 @@ class ManagedFileServiceTests(SimpleTestCase):
         )
         self.assertEqual(failed_response.status_code, 404)
         self.assertJSONEqual(failed_response.content, {"detail": "missing"})
+
+    def test_serve_managed_file_handles_http_range_requests(self):
+        factory = RequestFactory()
+        req = factory.get("/download/", HTTP_RANGE="bytes=2-5")
+        range_response = serve_managed_file(
+            resolve_url=lambda *args, **kwargs: None,
+            open_file=lambda storage_key: BytesIO(b"0123456789"),
+            storage_key="2026/05/08/example/video.mp4",
+            filename="video.mp4",
+            mime_type="video/mp4",
+            size=10,
+            as_attachment=False,
+            request=req,
+        )
+        self.assertEqual(range_response.status_code, 206)
+        self.assertEqual(range_response["Content-Range"], "bytes 2-5/10")
+        self.assertEqual(range_response["Content-Length"], "4")
+        self.assertEqual(range_response["Accept-Ranges"], "bytes")
+        content = b"".join(range_response.streaming_content)
+        self.assertEqual(content, b"2345")
+
+        # Range extending to end
+        req_end = factory.get("/download/", HTTP_RANGE="bytes=6-")
+        range_response_end = serve_managed_file(
+            resolve_url=lambda *args, **kwargs: None,
+            open_file=lambda storage_key: BytesIO(b"0123456789"),
+            storage_key="2026/05/08/example/video.mp4",
+            filename="video.mp4",
+            mime_type="video/mp4",
+            size=10,
+            as_attachment=False,
+            request=req_end,
+        )
+        self.assertEqual(range_response_end.status_code, 206)
+        self.assertEqual(range_response_end["Content-Range"], "bytes 6-9/10")
+        self.assertEqual(range_response_end["Content-Length"], "4")
+        self.assertEqual(b"".join(range_response_end.streaming_content), b"6789")

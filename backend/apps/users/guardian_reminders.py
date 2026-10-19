@@ -70,7 +70,7 @@ def email_new_guardian(profile) -> None:
     if profile.consent_requests.filter(guardian_email=guardian.email).exists():
         return
     try:
-        send_guardian_consent_request(profile.user_id)
+        send_guardian_consent_request(profile.user_id, details_saved=True)
     except Exception:  # noqa: BLE001
         logger.exception("guardian_reminders.new_guardian_failed student=%s", profile.user_id)
 
@@ -143,3 +143,9 @@ def send_due(now=None, *, dry_run: bool = False) -> dict:
     if failed:
         logger.error("guardian_reminders.failed sent=%s failed=%s skipped=%s", sent, failed, skipped)
     return {"sent": sent, "failed": failed, "skipped": skipped}
+
+
+def reminder_job(actor, options) -> dict:
+    """The queued run of today's consent reminders (``send_guard.JOBS``).
+    Each that fails is tried once more at once, as every single email is."""
+    return send_due()

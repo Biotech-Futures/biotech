@@ -84,6 +84,14 @@
         </div>
 
         <div class="legacy-links">
+          <!-- Unless Management > Registration has closed it. -->
+          <RouterLink
+            v-if="registrationOpen"
+            class="legacy-website-button legacy-website-button--primary"
+            to="/register"
+          >
+            Register now
+          </RouterLink>
           <a
             class="legacy-website-button"
             href="https://biotechfutures.org"
@@ -432,7 +440,7 @@
   Imports and external modules.
 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { apiErrorFromResponse, apiErrorFromUnknown, logApiError } from '@/utils/apiError'
@@ -448,6 +456,7 @@ import {
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 import { LOGIN_MESSAGES } from '@/data/login_language'
+import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 
 /*
   Page-level instances.
@@ -1239,7 +1248,11 @@ watch([isOtpComplete, currentStep], ([complete, step]) => {
 /*
   Lifecycle: initial focus.
 */
+// Within the year's registration dates (Management > Registration).
+const { openNow: registrationOpen } = useRegistrationOpen()
+
 onMounted(async () => {
+  void loadRegistrationOpen(true)
   // Magic-link rejections land here as a redirect from the callback view.
   const linkError = Array.isArray(route.query.error) ? route.query.error[0] : route.query.error
 
@@ -1387,7 +1400,7 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-logo-icon {
@@ -1409,7 +1422,7 @@ onBeforeUnmount(() => {
 .legacy-info-title {
   margin: 0 0 0.75rem;
   font-size: 1.75rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-custom-content p {
@@ -1420,15 +1433,20 @@ onBeforeUnmount(() => {
 
 .legacy-info-list {
   margin: 0.75rem 0 1rem 1.25rem;
-  color: var(--charcoal, #212529);
+  color: var(--teal, #212529);
 }
 
 .legacy-info-list li + li {
   margin-top: 0.35rem;
 }
 
+/* Register now and Visit Website side by side, apart; one under the other
+   when there isn't room. */
 .legacy-links {
   margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .legacy-website-button {
@@ -1454,6 +1472,30 @@ onBeforeUnmount(() => {
   color: var(--white, #ffffff);
   background-color: var(--dark-green, #2d5a3d);
   transform: translateY(-1px);
+}
+
+/* Register now: green, as the page's Sign in button is. */
+.legacy-website-button--primary,
+.legacy-website-button--primary:hover,
+.legacy-website-button--primary:focus-visible {
+  border-color: transparent;
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(18, 96, 80, 1), rgba(47, 164, 134, 0.96)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.14), transparent 28%);
+  /* Under the see-through border too, so the gradient doesn't start over
+     there as a dark line. */
+  background-origin: border-box;
+  box-shadow:
+    0 10px 22px rgba(31, 93, 79, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.legacy-website-button--primary:hover,
+.legacy-website-button--primary:focus-visible {
+  box-shadow:
+    0 14px 28px rgba(31, 93, 79, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /*

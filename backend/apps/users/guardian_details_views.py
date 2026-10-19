@@ -1,49 +1,43 @@
 """The daily guardian emails, called by a scheduler: the details email to
 students, and the consent form reminder to guardians."""
-import hmac
-
-from django.conf import settings
 from drf_spectacular.utils import extend_schema
-from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import guardian_details, guardian_reminders
+from apps.common import email_jobs
 
-
-def _refused(request):
-    """Why the shared ``X-Reminder-Token`` doesn't let this run; None when it
-    does. Unset ``GUARDIAN_REMINDER_TOKEN`` answers 503 rather than standing
-    open."""
-    expected = getattr(settings, "GUARDIAN_REMINDER_TOKEN", "") or ""
-    if not expected:
-        return Response(
-            {"detail": "Guardian reminder trigger is not configured."},
-            status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-    if not hmac.compare_digest(request.headers.get("X-Reminder-Token", ""), expected):
-        return Response({"detail": "Invalid token."}, status=status.HTTP_401_UNAUTHORIZED)
-    return None
+from . import guardian_details
 
 
 class SendGuardianDetailsRemindersView(APIView):
-    """POST with the token: email today's students with no guardian details."""
+    """POST with the email jobs' token: email today's students with no guardian details."""
 
     authentication_classes = []
     permission_classes = []
 
     @extend_schema(exclude=True)
     def post(self, request):
-        return _refused(request) or Response(guardian_details.send_due(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or email_jobs.queued(guardian_details.EMAIL_KEY)
+
+
+class SendSupervisorRegistrationStatusView(APIView):
+    """POST with the email jobs' token: email today's supervisors whose
+    students aren't all complete (apps.users.supervisor_status)."""
+
+    authentication_classes = []
+    permission_classes = []
+
+    @extend_schema(exclude=True)
+    def post(self, request):
+        return email_jobs.refused(request) or email_jobs.queued("supervisor_registration_status")
 
 
 class SendGuardianConsentRemindersView(APIView):
-    """POST with the token: email the consent form to today's guardians who
-    haven't signed."""
+    """POST with the email jobs' token: email the consent form to today's
+    guardians who haven't signed."""
 
     authentication_classes = []
     permission_classes = []
 
     @extend_schema(exclude=True)
     def post(self, request):
-        return _refused(request) or Response(guardian_reminders.send_due(), status=status.HTTP_200_OK)
+        return email_jobs.refused(request) or email_jobs.queued("guardian_consent_request")

@@ -3,7 +3,7 @@ the page's "of" list shows them, and the merge values that recipient's own
 email carries. An email for a whole group lists groups ("BTF01"). An email to
 people lists only the roles it goes to: students by this year's groups
 ("(BTF01) Pat Lee"), mentors with their role too ("(BTF01, mentor) Aga
-Smith"), guardians by their student ("(BTF01, guardian) Pat Lee"), and
+Smith"), guardians by their student ("(BTF01) guardian of Pat Lee"), and
 supervisors and admins by their role alone ("(supervisor) Sam Lee", "(admin)
 Ada Lin"). A student or mentor with no group this year shows as "NoGroup"
 ("(NoGroup) Pat Lee", "(NoGroup, mentor) Aga Smith").
@@ -33,6 +33,8 @@ _ROLES = GroupMembership.MembershipRoleChoices
 _ADMIN = "admin"
 # Where a student or mentor with no group this year shows.
 _NO_GROUP = "NoGroup"
+# Listed by their student's name and group.
+_GUARDIAN = "guardian"
 # Roles shown without groups, listed after students and mentors in this order.
 _ROLE_ONLY = (_ROLES.SUPERVISOR, _ADMIN)
 # Accounts the platform no longer emails.
@@ -51,9 +53,10 @@ def _this_year():
 
 def _person_option(user, role: str, groups=()) -> dict:
     """"(BTF01) Pat Lee" for a student, "(BTF01, mentor) Aga Smith" for a
-    mentor, "(BTF01, guardian) Pat Lee" for Pat's guardian, "(supervisor) Sam
-    Lee" for a supervisor and "(admin) Ada Lin" for an admin. With no group,
-    "(NoGroup) Pat Lee" and "(NoGroup, mentor) Aga Smith". Those in groups
+    mentor, "(BTF01) guardian of Pat Lee" for Pat's guardian, "(supervisor)
+    Sam Lee" for a supervisor and "(admin) Ada Lin" for an admin. With no
+    group, "(NoGroup) Pat Lee", "(NoGroup, mentor) Aga Smith" and "(NoGroup)
+    guardian of Pat Lee". Those in groups
     come first in group order, then those with none, then supervisors, then
     admins."""
     name = person_name(user)
@@ -64,10 +67,13 @@ def _person_option(user, role: str, groups=()) -> dict:
             "order": (2 + _ROLE_ONLY.index(role), (), name.lower()),
         }
     groups = sorted(groups, key=natural_key) or [_NO_GROUP]
-    parts = groups + ([] if role == _ROLES.STUDENT else [role])
+    if role == _GUARDIAN:
+        label = f"({', '.join(groups)}) guardian of {name}"
+    else:
+        label = f"({', '.join(groups + ([] if role == _ROLES.STUDENT else [role]))}) {name}"
     return {
         "value": str(user.id),
-        "label": f"({', '.join(parts)}) {name}",
+        "label": label,
         "order": (1, (), name.lower()) if groups == [_NO_GROUP] else (0, natural_key(groups[0]), name.lower()),
     }
 
@@ -197,6 +203,10 @@ def _students() -> list[dict]:
     return _people(_ROLES.STUDENT)
 
 
+def _mentors() -> list[dict]:
+    return _people(_ROLES.MENTOR)
+
+
 def _guardian_details_context(value: str) -> dict:
     from apps.users.guardian_details import details_link
 
@@ -220,8 +230,8 @@ def _guardian_of(value: str):
 
 
 def _guardians() -> list[dict]:
-    """Each student's guardian, named by their student: "(BTF01, guardian)
-    Pat Lee" is Pat's guardian, and "(NoGroup, guardian) Pat Lee" when Pat
+    """Each student's guardian, named by their student: "(BTF01) guardian of
+    Pat Lee" is Pat's guardian, and "(NoGroup) guardian of Pat Lee" when Pat
     has no group. A guardian with no email can't be sent it, so isn't
     listed."""
     students: dict[int, set] = {}
@@ -232,7 +242,7 @@ def _guardians() -> list[dict]:
     options = []
     for profile in StudentProfile.objects.filter(user_id__in=list(students)).select_related("user"):
         if _guardian(profile).email:
-            options.append(_person_option(profile.user, "guardian", students[profile.user_id]))
+            options.append(_person_option(profile.user, _GUARDIAN, students[profile.user_id]))
     return _sorted(options)
 
 
@@ -242,6 +252,19 @@ def _student_notice_context(value: str) -> dict:
     if guardian and guardian.email:
         context["GUARDIAN_EMAIL"] = guardian.email
     return context
+
+
+def _consent_received_context(value: str) -> dict:
+    """The name the guardian last signed with, else the one on file."""
+    from apps.users.guardian_consent import is_placeholder_name, student_name
+
+    profile, guardian = _guardian_of(value)
+    if profile is None:
+        return {"STUDENT_NAME": person_name(_user(value))}
+    signed = profile.consents.order_by("-signed_at").values_list("guardian_full_name", flat=True).first()
+    on_file = " ".join(filter(None, (guardian.first_name, guardian.last_name)))
+    named = not is_placeholder_name(guardian.first_name or "", guardian.last_name, profile)
+    return {"GUARDIAN_NAME": signed or (on_file if named else ""), "STUDENT_NAME": student_name(profile)}
 
 
 def _consent_request_context(value: str) -> dict:
@@ -297,12 +320,13 @@ def _submitted_teams() -> list[dict]:
 
 def _confirmation_context(value: str) -> dict:
     from apps.submissions.emails import build_components
+    from apps.submissions.serializers import submitted_by_label
 
     group = _group(value)
     submission = group.submission
     return {
         **_submission_context(group, *build_components(submission)),
-        "SUBMITTED_BY": submission.submitted_by,
+        "SUBMITTED_BY": submitted_by_label(submission),
     }
 
 
@@ -316,6 +340,37 @@ def _reminder_context(value: str) -> dict:
 
     group = _group(value)
     return _submission_context(group, *components_for(_submission_of(group)))
+
+
+def _finalist_submitted_teams() -> list[dict]:
+    return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_entry__submitted_at__isnull=False))
+
+
+def _finalist_confirmation_context(value: str) -> dict:
+    from apps.submissions.emails import finalist_confirmation_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    # A team yet to submit previews as nothing received.
+    entry = FinalistEntry.objects.filter(group=group).first() or FinalistEntry(group=group)
+    return finalist_confirmation_context(entry)
+
+
+def _finalist_reminder_teams() -> list[dict]:
+    # Reminders go to this year's notified finalists until they submit.
+    return _groups(
+        _this_years_teams()
+        .filter(finalist_flag__notified=True)
+        .exclude(finalist_entry__submitted_at__isnull=False)
+    )
+
+
+def _finalist_reminder_context(value: str) -> dict:
+    from apps.submissions.finalist_reminders import reminder_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    return reminder_context(group, FinalistEntry.objects.filter(group=group).first())
 
 
 def _finalist_teams() -> list[dict]:
@@ -410,18 +465,64 @@ class Recipients:
 
 _EVERYONE = Recipients(_everyone, _first_name)
 
+def _registration_context(value: str) -> dict:
+    from apps.users.registration_emails import registration_context
+
+    return registration_context(_user(value))
+
+
+def _registered_by_supervisor_context(value: str) -> dict:
+    """A student's, with their supervisor's name (any supervisor's, for one
+    with none, as the sample)."""
+    from apps.users.registration_emails import supervised_context
+
+    student = _user(value)
+    profile = StudentProfile.objects.select_related("supervisor__user").filter(user=student).first()
+    supervisor = profile.supervisor.user if profile and profile.supervisor else None
+    if supervisor is None:
+        return {**supervised_context(student, student), "SUPERVISOR_NAME": "Sam Lee"}
+    return supervised_context(student, supervisor)
+
+
+def _supervisors_only() -> list[dict]:
+    return _people(_ROLES.SUPERVISOR)
+
+
+def _registration_supervisor_context(value: str) -> dict:
+    from apps.users.registration_emails import supervisor_context
+
+    return supervisor_context(_user(value))
+
+
+def _registration_status_context(value: str) -> dict:
+    from apps.users.supervisor_status import status_context
+
+    return status_context(_user(value))
+
+
 RECIPIENTS: dict[str, Recipients] = {
     "login_code": _EVERYONE,
     "password_reset": _EVERYONE,
     "password_changed": _EVERYONE,
+    "registration_student": Recipients(_students, _registration_context),
+    "registration_group": Recipients(_students, _registration_context),
+    "registration_by_supervisor": Recipients(_students, _registered_by_supervisor_context),
+    "registration_by_admin": Recipients(_students, _registered_by_supervisor_context),
+    "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
+    "registration_mentor": Recipients(_mentors, _registration_context),
+    "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,
     "guardian_details_request": Recipients(_students, _guardian_details_context),
+    "guardian_details_received": Recipients(_students, _student_notice_context),
     "guardian_consent_student_notice": Recipients(_students, _student_notice_context),
     "guardian_consent_request": Recipients(_guardians, _consent_request_context),
+    "guardian_consent_received": Recipients(_guardians, _consent_received_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
+    "finalist_submission_confirmation": Recipients(_finalist_submitted_teams, _finalist_confirmation_context),
+    "finalist_submission_reminder": Recipients(_finalist_reminder_teams, _finalist_reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
     "nonfinalist_invitation": Recipients(*_symposium("NONFINALIST")),
     "nonsubmission_notice": Recipients(*_symposium("NONSUBMISSION")),
