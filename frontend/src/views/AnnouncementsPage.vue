@@ -398,7 +398,13 @@ function onEditAnnouncement(item: Announcement) {
     publishedAt: item.date || null,
     archivedAt: item.archivedAt || null,
     authorUserId: null,
-    audiences: []
+    audiences: item.audiences.map((a) => ({
+      id: 0,
+      roleId: a.roleId,
+      groupId: a.groupId,
+      roleName: a.roleName,
+      groupName: a.groupName
+    }))
   }
   formSheetOpen.value = true
 }
@@ -422,6 +428,7 @@ function onFormDelete(item: AdminAnnouncement) {
         bodyHtml: '',
         audience: 'all',
         audienceRoles: [],
+        audiences: [],
         isPublic: true,
         groupIds: [],
         images: []

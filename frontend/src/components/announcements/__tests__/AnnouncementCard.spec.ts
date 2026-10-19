@@ -24,6 +24,7 @@ const announcement: Announcement = {
   bodyHtml: '<p>A long welcome.</p><p>More.</p><p>And more.</p>',
   audience: 'global',
   audienceRoles: [],
+  audiences: [],
   isPublic: true,
   groupIds: [],
   images: []
@@ -100,5 +101,13 @@ describe('AnnouncementCard', () => {
 
   it('shows no New once seen', () => {
     expect(mountCard({ isNew: false }).find('.announcement__new').exists()).toBe(false)
+  })
+
+  it('shows every targeted role in the audience badge', () => {
+    const wrapper = mountCard({
+      audience: 'student,mentor,supervisor',
+      audienceRoles: ['student', 'mentor', 'supervisor']
+    })
+    expect(wrapper.find('.announcement__badge').text()).toBe('Student, Mentor, Supervisor')
   })
 })
