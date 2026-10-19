@@ -62,6 +62,8 @@ BULK_EMAIL_QUEUE_GAP_SECONDS = 0
 # environment (its HTTP is mocked anyway), and its checks run inline.
 QEV_API_KEY = "test-dummy-key"
 QEV_PAID_API_KEY = "test-dummy-paid-key"
+# Off whatever the environment says; the tests that need it turn it on.
+EMAIL_PRECHECK_ENABLED = False
 EMAIL_VERIFICATION_DISPATCH_SYNC = True
 
 # `apps/common/storage.py` selects the Azure backend whenever this is truthy,
