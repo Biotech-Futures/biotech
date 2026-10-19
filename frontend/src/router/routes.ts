@@ -196,6 +196,8 @@ const routes: RouteRecordRaw[] = [
       // supervisors after close. Its old paths still lead to it.
       { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
       { path: 'registration-visibility', redirect: '/management/late-registration' },
+      // The names registration treats as a university, not a school.
+      { path: 'known-universities', name: 'management-known-universities', component: () => import('@/views/management/KnownUniversitiesPage.vue') },
       // The day this year's challenge starts, for the supervisors' daily email.
       { path: 'challenge-start', name: 'management-challenge-start', component: () => import('@/views/management/ChallengeStartPage.vue') },
       { path: 'supervisor-visibility', redirect: '/management/late-registration' }

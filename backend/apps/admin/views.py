@@ -39,6 +39,7 @@ from apps.admin.services.known_university import (
     add_known_university,
     delete_known_university,
     list_known_universities,
+    rename_known_university,
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
@@ -1849,9 +1850,15 @@ class KnownUniversityListCreateView(APIView):
 
 
 class KnownUniversityDetailView(APIView):
-    """DELETE /api/v1/admin/known-university/<id>/ — take a name off the list."""
+    """PATCH /api/v1/admin/known-university/<id>/ — rename it ({"name"});
+    DELETE — take it off the list."""
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def patch(self, request, university_id):
+        name = request.data.get("name") if isinstance(request.data, dict) else None
+        result, code = rename_known_university(university_id, name, actor=request.user)
+        return Response(result, status=code)
 
     def delete(self, request, university_id):
         result, code = delete_known_university(university_id, actor=request.user)

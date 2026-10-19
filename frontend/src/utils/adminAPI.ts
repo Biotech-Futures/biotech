@@ -550,6 +550,33 @@ export const fetchAdminStates = (): Promise<AdminUserState[]> =>
   adminGet<AdminEnvelope<AdminUserState[]>>('/user/states/').then((env) => env.data)
 
 // ---------------------------------------------------------------------------
+// Known universities: names registration treats as a university, not a school
+// ---------------------------------------------------------------------------
+
+export interface KnownUniversity {
+  id: number
+  name: string
+  createdAt: string | null
+}
+
+/** Every listed name, by name. */
+export const fetchKnownUniversities = () =>
+  adminGet<AdminEnvelope<{ items: KnownUniversity[]; total: number }>>('/known-university/').then(
+    (env) => env.data.items
+  )
+
+/** Add one; refused when blank, too long or already listed in any casing. */
+export const addKnownUniversity = (name: string) =>
+  adminPost<AdminEnvelope<KnownUniversity>>('/known-university/', { name }).then((env) => env.data)
+
+/** Rename one, checked as an added name is. */
+export const renameKnownUniversity = (id: number, name: string) =>
+  adminPatch<AdminEnvelope<KnownUniversity>>(`/known-university/${id}/`, { name }).then((env) => env.data)
+
+export const deleteKnownUniversity = (id: number) =>
+  adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
+
+// ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
 
