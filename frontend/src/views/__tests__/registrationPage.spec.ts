@@ -6,7 +6,10 @@ import RegistrationPage from '@/views/RegistrationPage.vue'
 import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
-import { setRegistrationOpen } from '@/composables/useRegistrationOpen'
+import { setRegistrationState } from '@/composables/useRegistrationOpen'
+
+// Registration as it is by default: open, with no dates.
+const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
 
 const mountPage = (mode: 'canonical' | 'supervisor' = 'canonical') =>
   mount(RegistrationPage, {
@@ -28,10 +31,9 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
   await button!.trigger('click')
 }
 
-// Upload students by CSV is hidden from the options for now; its flow,
-// opened directly.
+// Upload student details, chosen as a supervisor would.
 const openCsvUpload = async (wrapper: VueWrapper) => {
-  ;(wrapper.vm as unknown as { selectJourney: (journey: string) => void }).selectJourney('supervisor_csv')
+  await clickButton(wrapper, 'Upload student details')
   await wrapper.vm.$nextTick()
 }
 
@@ -188,9 +190,10 @@ describe('canonical registration intake', () => {
     { mode: 'canonical', journey: 'Register as an individual student', choice: "I don't have a group", steps: 4 },
     { mode: 'canonical', journey: 'Create a student group', choice: 'I have a group', steps: 4 },
     { mode: 'canonical', journey: 'Register as a mentor', choice: '', steps: 4 },
-    { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 2 },
+    // Its one step has no tabs.
+    { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 0 },
     { mode: 'supervisor', journey: 'Register a student group', choice: 'Register a student group', steps: 3 },
-    { mode: 'supervisor', journey: 'Upload students by CSV', choice: '', steps: 3 },
+    { mode: 'supervisor', journey: 'Upload student details', choice: '', steps: 3 },
   ] as const)(
     'keeps numbered tabs without a percentage bar for $journey',
     async ({ mode, journey, choice, steps }) => {
@@ -199,7 +202,7 @@ describe('canonical registration intake', () => {
         if (mode === 'canonical') {
           await clickButton(wrapper, journey === 'Register as a mentor' ? 'Mentor' : 'Student')
         }
-        if (journey === 'Upload students by CSV') await openCsvUpload(wrapper)
+        if (journey === 'Upload student details') await openCsvUpload(wrapper)
         else if (journey !== 'Register as a mentor') {
           await clickButton(wrapper, choice)
         }
@@ -210,7 +213,7 @@ describe('canonical registration intake', () => {
         expect(tabs.map((tab) => tab.find('span').text())).toEqual(
           Array.from({ length: steps }, (_, index) => String(index + 1)),
         )
-        expect(tabs[0]!.attributes('aria-current')).toBe('step')
+        if (steps) expect(tabs[0]!.attributes('aria-current')).toBe('step')
         expect(wrapper.get('.journey-context h1').text()).toBe(journey)
         expect(wrapper.find('.journey-context > p').exists()).toBe(false)
         expect(wrapper.find('.step-header').exists()).toBe(false)
@@ -255,11 +258,11 @@ describe('canonical registration intake', () => {
       window.history.replaceState({}, '', previous)
     }
   })
-  it('says registration is closed while Management > Registration has closed it', async () => {
+  it('says registration is closed while its dates have closed it', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
-        new Response(JSON.stringify(String(url).includes('/registration-open/') ? { open: false } : {})),
+        new Response(JSON.stringify(String(url).includes('/registration-open/') ? { open_now: false } : {})),
       ),
     )
     const wrapper = mountPage()
@@ -274,7 +277,35 @@ describe('canonical registration intake', () => {
       supervisor.unmount()
     } finally {
       wrapper.unmount()
-      setRegistrationOpen(true)
+      setRegistrationState(OPEN)
+    }
+  })
+
+  it("closes a supervisor's registration once its dates have, unless they're let register after", async () => {
+    const closed = { open_now: false, opens_at: null, closes_at: '2026-10-01T00:00:00Z' }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        new Response(
+          JSON.stringify(
+            String(url).includes('/registration-open/') ? { ...closed, can_register_students: false } : {},
+          ),
+        ),
+      ),
+    )
+    const supervisor = mountPage('supervisor')
+    try {
+      await flushPromises()
+      expect(supervisor.get('.page-title').text()).toBe('Registration is closed')
+      expect(supervisor.text()).toContain("students can't be registered here")
+      // No Back to the sign-in page from the portal.
+      expect(supervisor.find('.setup-back').exists()).toBe(false)
+      setRegistrationState({ ...closed, can_register_students: true })
+      await flushPromises()
+      expect(supervisor.text()).not.toContain('Registration is closed')
+    } finally {
+      supervisor.unmount()
+      setRegistrationState(OPEN)
     }
   })
 
@@ -362,7 +393,7 @@ describe('canonical registration intake', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).toContain('Student email format is invalid.')
-    expect(wrapper.text()).toContain('Exclude this row')
+    expect(wrapper.text()).toContain('Exclude')
   })
 
   it('explains guardian permission on the contact step without a before-submit bubble', async () => {
@@ -401,15 +432,13 @@ describe('canonical registration intake', () => {
     // The platform's own page heading, as on the portal's other pages.
     expect(wrapper.find('#pathway-title').classes()).toContain('page-title')
     await clickButton(wrapper, 'Register one student')
-    expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
-      'Student',
-      'Review',
-    ])
+    // One step, no Review: no steps to show, and it registers from here.
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
+    expect(wrapper.find('.review-step').exists()).toBe(false)
+    expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
     expect(wrapper.find('#supervisorIndividual-student-email').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Confirm the signed-in account')
     expect(wrapper.find('.form-progress').exists()).toBe(false)
-    expect(wrapper.find('.step-navigation').attributes('aria-label')).toBe('Registration progress')
-    expect(wrapper.findAll('.step-navigation li')).toHaveLength(2)
     expect(wrapper.text()).not.toContain('School-only grouping')
     expect(wrapper.text()).not.toContain('Cross-school grouping')
 
@@ -427,7 +456,7 @@ describe('canonical registration intake', () => {
 
     const csv = mountPage('supervisor')
     await openCsvUpload(csv)
-    expect(csv.text()).toContain('Choose completed CSV')
+    expect(csv.text()).toContain('Choose completed .xlsx or .csv')
   })
 
   it('puts the creator profile before team configuration and removes naming', async () => {
@@ -482,14 +511,19 @@ describe('canonical registration intake', () => {
     expect(csv.text()).not.toContain('Confirm student email')
   })
 
-  it('adds students to Register one student on the same page, its heading and steps unchanged', async () => {
+  it('adds students to Register one student on the same page, then a Review step until they go again', async () => {
     const wrapper = mountPage('supervisor')
     await clickButton(wrapper, 'Register one student')
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
     const add = wrapper.findAll('.form-footer button').find((button) => button.text() === 'Add student')!
     await add.trigger('click')
 
     expect(wrapper.get('.page-title').text()).toBe('Register one student')
-    expect(wrapper.findAll('.step-navigation button')).toHaveLength(2)
+    expect(wrapper.findAll('.step-navigation__label').map((item) => item.text())).toEqual([
+      'Student',
+      'Review',
+    ])
+    expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Continue')
     expect(wrapper.findAll('.student-entry__heading h3').map((heading) => heading.text())).toEqual([
       'Student 1',
       'Student 2',
@@ -502,6 +536,9 @@ describe('canonical registration intake', () => {
     expect(removes).toHaveLength(1)
     await removes[0]!.trigger('click')
     expect(wrapper.find('.student-entry__heading').exists()).toBe(false)
+    // On its own again: no Review.
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
+    expect(wrapper.find('.form-footer button[type="submit"]').text()).toBe('Submit registration')
   })
 
   it("lets a student leave out their supervisor, but asks for all of one that's started", async () => {
@@ -747,11 +784,11 @@ describe('canonical registration intake', () => {
     expect(disabled).toEqual([false, false, false, true])
   })
 
-  it('offers a supervisor no CSV upload for now', () => {
+  it('offers a supervisor all three ways to register students', () => {
     const wrapper = mountPage('supervisor')
     expect(wrapper.text()).toContain('Register one student')
     expect(wrapper.text()).toContain('Register a student group')
-    expect(wrapper.text()).not.toContain('Upload students by CSV')
+    expect(wrapper.text()).toContain('Upload student details')
   })
 
   it("offers the database's countries, and Australia's states, as dropdowns", async () => {
@@ -798,29 +835,55 @@ describe('canonical registration intake', () => {
 
   it("shows a supervisor's saved registration as the steps' last page, with what Review showed", async () => {
     const wrapper = mountPage('supervisor')
-    await clickButton(wrapper, 'Register one student')
+    await clickButton(wrapper, 'Register a student group')
     const setup = wrapper.vm as unknown as { success: unknown }
     setup.success = {
       referenceCode: 'REG-1',
-      journey: 'supervisor_individual',
+      journey: 'supervisor_group',
       studentCount: 1,
       submittedAt: '2026-10-16T00:08:00Z',
     }
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('.success-body .form-footer').exists()).toBe(true)
-    expect(wrapper.get('.page-title').text()).toBe('Register one student')
-    expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(2)
+    expect(wrapper.get('.page-title').text()).toBe('Register a student group')
+    expect(wrapper.findAll('.step-navigation .tab-pill.complete')).toHaveLength(3)
     const body = wrapper.get('.success-body')
     expect(body.get('h3').text()).toBe('Registration Complete')
     expect(body.text()).not.toContain('REG-1')
-    // What Review showed (the student), then when it was registered.
-    expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual(['Student'])
+    // What Review showed (the group's students), then when it was registered.
+    expect(body.findAll('.review-section h3').map((heading) => heading.text())).toEqual([
+      'Group members',
+    ])
     // The last section's last row.
     const completed = body.findAll('.review-section dl > div').at(-1)!
     expect(completed.get('dt').text()).toBe('Registration completed')
     expect(completed.get('dd').text()).toMatch(/16 Oct|15 Oct/)
-    expect(body.get('.form-footer').text()).toContain('Register another student')
+    // Back on top to the options; one button for another group.
+    expect(body.get('.form-footer').text()).toBe('Register Another Group')
+    expect(wrapper.get('.journey-context .back-button').text()).toBe('Back')
+
+    await body.get('.form-footer button').trigger('click')
+    expect(wrapper.find('.success-body').exists()).toBe(false)
+    expect(wrapper.get('.page-title').text()).toBe('Register a student group')
+    expect(wrapper.get('.step-navigation .tab-pill').attributes('aria-current')).toBe('step')
+  })
+
+  it("goes back to the options from a supervisor's saved registration", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register a student group')
+    const setup = wrapper.vm as unknown as { success: unknown }
+    setup.success = {
+      referenceCode: 'REG-1',
+      journey: 'supervisor_group',
+      studentCount: 1,
+      submittedAt: '2026-10-16T00:08:00Z',
+    }
+    await wrapper.vm.$nextTick()
+
+    await wrapper.get('.journey-context .back-button').trigger('click')
+    expect(wrapper.find('.success-body').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Register students')
   })
 
   it("gives a supervisor's student one full width email, and Areas of Interest with no *", async () => {

@@ -16,6 +16,8 @@ from .test_email_verification import KEY, QevTestCase, qev, response
 HEADER = "X-QEV-Remaining-Credits"
 
 
+# The paid key only: its balance is the one kept.
+@override_settings(QEV_API_KEY="", QEV_PAID_API_KEY=KEY)
 class CreditTestCase(QevTestCase):
     def setUp(self):
         super().setUp()
@@ -59,7 +61,7 @@ class BalanceTests(CreditTestCase):
 
         result = ev.verify_email("kid@example.com")
 
-        self.assertEqual(result.reason, "http_402")
+        self.assertEqual(result.reason, "out_of_credit")
         self.assertEqual(self.balance()[0], 0)
 
     def test_a_failed_request_leaves_the_balance_alone(self):

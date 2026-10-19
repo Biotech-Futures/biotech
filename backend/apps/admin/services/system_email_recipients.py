@@ -338,6 +338,37 @@ def _reminder_context(value: str) -> dict:
     return _submission_context(group, *components_for(_submission_of(group)))
 
 
+def _finalist_submitted_teams() -> list[dict]:
+    return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_entry__submitted_at__isnull=False))
+
+
+def _finalist_confirmation_context(value: str) -> dict:
+    from apps.submissions.emails import finalist_confirmation_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    # A team yet to submit previews as nothing received.
+    entry = FinalistEntry.objects.filter(group=group).first() or FinalistEntry(group=group)
+    return finalist_confirmation_context(entry)
+
+
+def _finalist_reminder_teams() -> list[dict]:
+    # Reminders go to this year's notified finalists until they submit.
+    return _groups(
+        _this_years_teams()
+        .filter(finalist_flag__notified=True)
+        .exclude(finalist_entry__submitted_at__isnull=False)
+    )
+
+
+def _finalist_reminder_context(value: str) -> dict:
+    from apps.submissions.finalist_reminders import reminder_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    return reminder_context(group, FinalistEntry.objects.filter(group=group).first())
+
+
 def _finalist_teams() -> list[dict]:
     return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_flag__isnull=False))
 
@@ -430,10 +461,36 @@ class Recipients:
 
 _EVERYONE = Recipients(_everyone, _first_name)
 
+def _registration_context(value: str) -> dict:
+    from apps.users.registration_emails import registration_context
+
+    return registration_context(_user(value))
+
+
+def _supervisors_only() -> list[dict]:
+    return _people(_ROLES.SUPERVISOR)
+
+
+def _registration_supervisor_context(value: str) -> dict:
+    from apps.users.registration_emails import supervisor_context
+
+    return supervisor_context(_user(value))
+
+
+def _registration_status_context(value: str) -> dict:
+    from apps.users.supervisor_status import status_context
+
+    return status_context(_user(value))
+
+
 RECIPIENTS: dict[str, Recipients] = {
     "login_code": _EVERYONE,
     "password_reset": _EVERYONE,
     "password_changed": _EVERYONE,
+    "registration_student": Recipients(_students, _registration_context),
+    "registration_group": Recipients(_students, _registration_context),
+    "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
+    "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
     "event_promotion": _EVERYONE,
@@ -444,6 +501,8 @@ RECIPIENTS: dict[str, Recipients] = {
     "guardian_consent_received": Recipients(_guardians, _consent_received_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
+    "finalist_submission_confirmation": Recipients(_finalist_submitted_teams, _finalist_confirmation_context),
+    "finalist_submission_reminder": Recipients(_finalist_reminder_teams, _finalist_reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
     "nonfinalist_invitation": Recipients(*_symposium("NONFINALIST")),
     "nonsubmission_notice": Recipients(*_symposium("NONSUBMISSION")),

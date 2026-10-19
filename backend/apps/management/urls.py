@@ -1,13 +1,21 @@
 from django.urls import path
 
 from .views import (
+    AllResultsCertificatesZipView,
+    AllResultsCertificateView,
+    AllResultsSheetView,
+    AllResultsView,
     AnnouncementCategoriesView,
     CertificatesReleaseView,
     FinalistEmailPreviewView,
     FinalistEmailSettingsView,
     FinalistNotifyAllView,
     GradingSettingsView,
+    BounceCheckTriggerView,
+    ChallengeStartView,
     RegistrationOpenView,
+    RegistrationSupervisorsView,
+    RegistrationSupervisorView,
     SupervisorPagesView,
     SupervisorResultsCertificatesZipView,
     SupervisorResultsCertificateView,
@@ -63,6 +71,16 @@ urlpatterns = [
     path("settings/", GradingSettingsView.as_view(), name="settings"),
     path("supervisor-pages/", SupervisorPagesView.as_view(), name="supervisor-pages"),
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
+    # Management > Challenge Start.
+    path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
+    # Late Registration > Supervisors After Close.
+    path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
+    path(
+        "registration-supervisors/<int:user_id>/",
+        RegistrationSupervisorView.as_view(),
+        name="registration-supervisor",
+    ),
+    path("bounce-check/", BounceCheckTriggerView.as_view(), name="bounce-check"),
     # Which placeholders the active template actually contains.
     path(
         "settings/template-scan/<str:kind>/",
@@ -188,6 +206,16 @@ urlpatterns = [
         "supervisor-results/certificates/<int:group_id>/<int:user_id>/",
         SupervisorResultsCertificateView.as_view(),
         name="supervisor-results-certificate",
+    ),
+
+    # Management's Results tab: every group's marks and certificates, for admins.
+    path("all-results/", AllResultsView.as_view(), name="all-results"),
+    path("all-results/marks-sheet/", AllResultsSheetView.as_view(), name="all-results-sheet"),
+    path("all-results/certificates/", AllResultsCertificatesZipView.as_view(), name="all-results-certificates"),
+    path(
+        "all-results/certificates/<int:group_id>/<int:user_id>/",
+        AllResultsCertificateView.as_view(),
+        name="all-results-certificate",
     ),
 
     # Results emails to teams and supervisors, from the Release Results tab.

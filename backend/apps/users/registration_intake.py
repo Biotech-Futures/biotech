@@ -45,7 +45,7 @@ JOURNEY = "student_individual"
 GROUP_JOURNEYS = {"student_team", "supervisor_group"}
 SUPERVISOR_JOURNEYS = {"supervisor_individual", "supervisor_group", "supervisor_csv"}
 STUDENT_JOURNEYS = [JOURNEY, "student_team", *sorted(SUPERVISOR_JOURNEYS)]
-MAX_CSV_ROWS = 500
+MAX_CSV_ROWS = 1000
 # A group's most students: a student group may start with one (its creator),
 # the rest joining by its code.
 GROUP_MAX_STUDENTS = 5
@@ -191,6 +191,9 @@ class PayloadInput(StrictInput):
     )
     source = SourceInput()
     supervisor = SupervisorInput(required=False)
+    # An admin's students' supervisor (Management > Registration): an existing
+    # supervisor, by their email.
+    supervisorEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     group = GroupInput(required=False)
 
 
@@ -216,9 +219,10 @@ class IntakeInput(StrictInput):
                     "A group can have up to five students." if journey == "student_team"
                     else "A group must contain two to five students."
                 )
-            # A student group has no shared interests (each member has their own).
-            if journey == "supervisor_group" and not group.get("interests"):
-                errors["payload.group.interests"] = "Choose shared group interests."
+            # Shared interests are optional here: a student group has none
+            # (each member has their own), and nor may Register one student's
+            # group (students added). Register a student group asks for them
+            # on its page.
         else:
             if "group" in payload:
                 errors["payload.group"] = "This journey does not create a group."
@@ -234,8 +238,11 @@ class IntakeInput(StrictInput):
         elif set(source) - {"method"}:
             errors["payload.source"] = "CSV metadata is only accepted for CSV intake."
         # A student registering themselves may nominate a supervisor (optional).
+        # A supervisor is their own students'; an admin chooses one (register).
         if journey in SUPERVISOR_JOURNEYS and "supervisor" in payload:
             errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
+        if journey not in SUPERVISOR_JOURNEYS and payload.get("supervisorEmail"):
+            errors["payload.supervisorEmail"] = "Only an admin registering students chooses their supervisor."
         students = []
         emails = {}
         for index, raw in enumerate(payload["students"]):
@@ -267,9 +274,18 @@ class IntakeInput(StrictInput):
 
 
 class WindowInput(serializers.ModelSerializer):
+    # Who last saved the dates, and when: "Set by Sam Lee on ...".
+    set_by = serializers.SerializerMethodField()
+
     class Meta:
         model = RegistrationWindow
-        fields = ["year", "opens_at", "closes_at"]
+        fields = ["year", "opens_at", "closes_at", "updated_at", "set_by"]
+        read_only_fields = ["updated_at"]
+
+    def get_set_by(self, window):
+        from apps.management.services.send_guard import person_name
+
+        return person_name(window.updated_by) if window.updated_by else ""
 
     def validate(self, data):
         if data.get("year", self.instance.year) != self.instance.year:
@@ -294,11 +310,20 @@ def invitation_token(invitation):
     return invitation_signer().sign(value)
 
 
+def _registered_email(invitation) -> str:
+    """The email of the student who registered with a late link; "" until used."""
+    try:
+        return invitation.registrationsubmission.student.email
+    except RegistrationSubmission.DoesNotExist:
+        return ""
+
+
 def invitation_payload(invitation, now):
     token = invitation_token(invitation)
     recoverable = hmac.compare_digest(token_hash(token), invitation.token_hash)
     return {
         "id": invitation.pk, "journey": invitation.journey,
+        "email": _registered_email(invitation),
         "created_at": invitation.created_at, "expires_at": invitation.expires_at,
         "revoked_at": invitation.revoked_at, "used_at": invitation.used_at,
         "status": invitation.status_at(now) if recoverable else "signing_key_changed",
@@ -390,6 +415,17 @@ def current_window(*, lock=False):
     return window
 
 
+def registers_after_close(user) -> bool:
+    """Whether ``user`` can register students while registration is closed by
+    its dates: an admin, or a supervisor an admin has let (Management >
+    Late Registration > Supervisors After Close)."""
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if is_admin(user):
+        return True
+    return SupervisorProfile.objects.filter(user=user, register_after_close=True).exists()
+
+
 def valid_invitation(token, window, now, *, journey=JOURNEY):
     if not token:
         return None
@@ -464,19 +500,28 @@ def save_student(student, supervisor, now, *, registered_by):
     return user
 
 
+def registering_as_admin(user) -> bool:
+    """An admin registering students (Management > Registration) who isn't a
+    supervisor: their students have no supervisor, registered by an admin."""
+    return (
+        getattr(user, "is_authenticated", False)
+        and (is_admin(user) or user.is_staff or user.is_superuser)
+        and not SupervisorProfile.objects.filter(user=user).exists()
+    )
+
+
 def authenticated_supervisor(request):
+    """Who's registering students: a supervisor, as their students'
+    supervisor; or an admin with no supervisor profile, as no one's
+    (``admin``)."""
     user = request.user
     if (
         not user.is_authenticated or user.account_status in User.INACTIVE_LOGIN_STATUSES
         or not (user_has_role(user, ROLE_SUPERVISOR) or is_admin(user) or user.is_staff or user.is_superuser)
     ):
         raise PermissionDenied("An authenticated current supervisor is required.")
-    # Hidden by Management > Supervisor Visibility: supervisors can't register
-    # students (admins still can).
-    from apps.management.models import SupervisorPagesSetting
-
-    if not is_admin(user) and not SupervisorPagesSetting.load().registration_shown:
-        raise PermissionDenied("Registering students is closed for supervisors. Contact BIOTech Support.")
+    if registering_as_admin(user):
+        return {"firstName": "", "lastName": "", "email": "", "school": "", "admin": True}
     profile = SupervisorProfile.objects.filter(user=user).first()
     if profile is None:
         raise PermissionDenied("An existing supervisor profile is required.")
@@ -540,7 +585,10 @@ def save_group(users, payload, actor, *, joining=None):
             group.mark_formed(Groups.FormedBy.MEMBERS, users[0])
         else:
             group = Groups.create_auto_named()
-            group.mark_formed(Groups.FormedBy.SUPERVISOR, actor)
+            # By an admin, from Management > Registration, when they aren't a supervisor.
+            group.mark_formed(
+                Groups.FormedBy.ADMIN if registering_as_admin(actor) else Groups.FormedBy.SUPERVISOR, actor,
+            )
     except (GroupAutoNameUnavailable, GroupCodeUnavailable) as exc:
         raise RegistrationConflict(str(exc)) from exc
     GroupMembership.objects.bulk_create([
@@ -587,10 +635,27 @@ def register(request):
     journey = parser.validated_data["journey"]
     students = payload["students"]
     # None nominated: blank details, as the supervisor is optional.
-    supervisor = (
-        authenticated_supervisor(request) if journey in SUPERVISOR_JOURNEYS
-        else payload.get("supervisor") or {"firstName": "", "lastName": "", "email": ""}
-    )
+    if journey in SUPERVISOR_JOURNEYS:
+        supervisor = authenticated_supervisor(request)
+        chosen = (payload.get("supervisorEmail") or "").strip()
+        if chosen:
+            # An admin chooses their students' supervisor (Management >
+            # Registration), even one who supervises too; a supervisor's
+            # students are their own.
+            user = request.user
+            if not (is_admin(user) or user.is_staff or user.is_superuser):
+                raise serializers.ValidationError(
+                    {"supervisorEmail": "Only an admin chooses the students' supervisor."}
+                )
+            profile = SupervisorProfile.objects.select_related("user").filter(user__email__iexact=chosen).first()
+            if profile is None:
+                raise serializers.ValidationError({"supervisorEmail": "No supervisor has this email."})
+            supervisor = {
+                "firstName": profile.user.first_name, "lastName": profile.user.last_name,
+                "email": profile.user.email, "school": profile.school_name, "admin": True,
+            }
+    else:
+        supervisor = payload.get("supervisor") or {"firstName": "", "lastName": "", "email": ""}
     raw_token = request.headers.get("X-Registration-Invitation", "")
     key_value = request.headers.get("Idempotency-Key")
     try:
@@ -649,13 +714,10 @@ def register(request):
                 return Response(receipt(previous))
             now = timezone.now()
             invitation = valid_invitation(raw_token, window, now, journey=journey)
-            if not window.is_open(now) and invitation is None:
-                raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
-            # Closed to the public (Management > Registration): students can't
-            # register themselves, but a late link still can.
-            from apps.management.models import PublicRegistrationSetting
-
-            if journey not in SUPERVISOR_JOURNEYS and invitation is None and not PublicRegistrationSetting.load().open:
+            # Closed by its dates: but for a late link, or a supervisor let
+            # register their students after it closes.
+            after_close = journey in SUPERVISOR_JOURNEYS and registers_after_close(request.user)
+            if not window.is_open(now) and invitation is None and not after_close:
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator for a late link."})
             # A student joining a group by its code: checked before anything's saved.
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
@@ -663,7 +725,10 @@ def register(request):
             errors, warnings, provenance = {}, [], []
             for index, student in enumerate(students):
                 registered_by = (
-                    StudentProfile.RegisteredBy.SUPERVISOR if journey in SUPERVISOR_JOURNEYS
+                    (
+                        StudentProfile.RegisteredBy.ADMIN if supervisor.get("admin")
+                        else StudentProfile.RegisteredBy.SUPERVISOR
+                    ) if journey in SUPERVISOR_JOURNEYS
                     else StudentProfile.RegisteredBy.PEER if index else StudentProfile.RegisteredBy.SELF
                 )
                 provenance.append(registered_by)
@@ -724,6 +789,13 @@ def register(request):
             for user, photo in zip(users, photos):
                 if photo:
                     created_files.append(save_profile_image(user=user, uploaded_file=photo))
+            # Its registration emails, once it's saved (System Emails > Registration).
+            from .registration_emails import send_registration_emails
+
+            # A supervisor's confirmation too, never an admin's (registering
+            # students for a supervisor or for none).
+            registering = request.user if journey in SUPERVISOR_JOURNEYS and not supervisor.get("admin") else None
+            transaction.on_commit(lambda: send_registration_emails(journey, users, supervisor=registering))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:
@@ -871,7 +943,11 @@ class RegistrationManagementView(APIView):
             page = serializers.IntegerField(min_value=1).run_validation(request.query_params.get("page", 1))
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"page": exc.detail})
-        invitations = RegistrationInvitation.objects.filter(window=window).order_by("-created_at", "-id")
+        invitations = (
+            RegistrationInvitation.objects.filter(window=window)
+            .select_related("registrationsubmission__student")
+            .order_by("-created_at", "-id")
+        )
         now = timezone.now()
         return Response({
             "window": WindowInput(window).data,
@@ -897,7 +973,7 @@ class RegistrationManagementView(APIView):
             if action == "window":
                 serializer = WindowInput(window, data=request.data, partial=True)
                 serializer.is_valid(raise_exception=True)
-                serializer.save()
+                serializer.save(updated_by=request.user, updated_at=timezone.now())
                 return Response({"window": serializer.data})
             if action == "invite":
                 try:

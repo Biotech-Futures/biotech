@@ -429,14 +429,21 @@ class GroupSubmissionReopenView(APIView):
 
 
 class SendSubmissionRemindersView(APIView):
-    """Daily reminder run, called by a scheduler with the email jobs' token."""
+    """Daily reminder run, called by a scheduler with the email jobs' token: the entry's
+    reminders, and the finalists' ahead of their slides."""
 
     authentication_classes = []
     permission_classes = []
 
     @extend_schema(exclude=True)
     def post(self, request):
-        return email_jobs.refused(request) or email_jobs.queued("submission_reminder")
+        from apps.management.services.send_guard import queue_job
+
+        refused = email_jobs.refused(request)
+        if refused:
+            return refused
+        queue_job("finalist_submission_reminder")
+        return email_jobs.queued("submission_reminder")
 
 
 class AutoSubmitView(APIView):

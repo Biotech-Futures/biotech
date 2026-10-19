@@ -41,6 +41,8 @@ class EmailJobsTokenTests(TestCase):
             [
                 "rsvp_reminder",
                 "rsvp_reminder",
+                # The submissions call runs the finalists' reminders as well as the entry's.
+                "finalist_submission_reminder",
                 "submission_reminder",
                 "unread_messages",
                 "guardian_details_request",

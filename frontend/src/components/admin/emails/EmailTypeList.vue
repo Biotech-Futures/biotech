@@ -102,6 +102,10 @@ const query = ref('')
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
   [
+    'Registration',
+    ['registration_student', 'registration_group', 'registration_supervisor', 'supervisor_registration_status']
+  ],
+  [
     'Guardians',
     [
       'guardian_details_request',
@@ -113,7 +117,7 @@ const GROUPS: [string, string[]][] = [
   ],
   ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
   ['Submissions', ['submission_reminder', 'submission_confirmation']],
-  ['Symposium', ['finalist_notification', 'nonfinalist_invitation', 'nonsubmission_notice']],
+  ['Symposium', ['finalist_notification', 'finalist_submission_reminder', 'finalist_submission_confirmation', 'nonfinalist_invitation', 'nonsubmission_notice']],
   ['Results', ['results_team', 'results_supervisor']]
 ]
 const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))

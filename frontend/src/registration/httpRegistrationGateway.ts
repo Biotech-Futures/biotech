@@ -150,7 +150,12 @@ export const createHttpRegistrationGateway = ({
       }
       headers.set('Idempotency-Key', idempotencyKey)
       if (options.invitationToken) headers.set('X-Registration-Invitation', options.invitationToken)
-      body = JSON.stringify(buildProductionRegistrationRequest(request, options.overrides))
+      const production = buildProductionRegistrationRequest(request, options.overrides)
+      // An admin's students' supervisor, when they choose one.
+      if (options.supervisorEmail?.trim()) {
+        ;(production.payload as Record<string, unknown>).supervisorEmail = options.supervisorEmail.trim()
+      }
+      body = JSON.stringify(production)
       if (Object.keys(options.attachments || {}).length) {
         const multipart = new FormData()
         multipart.append('request', body)

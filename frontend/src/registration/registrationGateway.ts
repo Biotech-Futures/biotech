@@ -96,6 +96,9 @@ export interface RegistrationGateway {
       invitationToken?: string
       idempotencyKey?: string
       overrides?: Record<string, boolean>
+      /** An admin's students' supervisor, by their email, on a supervisor
+       *  journey (Management > Registration); only one that was chosen. */
+      supervisorEmail?: string
     },
   ): Promise<RegistrationGatewayResult>
 }

@@ -145,4 +145,15 @@ urlpatterns = [
     # SYSTEM LOG ROUTES (apps.system_logs)
     # ========================================================================
     path('system-logs/', include('apps.system_logs.urls')),
+
+    # ========================================================================
+    # EMAIL VERIFICATION ROUTES
+    # ========================================================================
+    path('email-verification/credits/', views.EmailVerificationCreditsView.as_view(), name='email-verification-credits'),
+
+    # ========================================================================
+    # KNOWN UNIVERSITY ROUTES
+    # ========================================================================
+    path('known-university/', views.KnownUniversityListCreateView.as_view(), name='known-university-list-create'),
+    path('known-university/<int:university_id>/', views.KnownUniversityDetailView.as_view(), name='known-university-detail'),
 ]
