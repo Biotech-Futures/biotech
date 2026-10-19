@@ -203,6 +203,10 @@ def _students() -> list[dict]:
     return _people(_ROLES.STUDENT)
 
 
+def _mentors() -> list[dict]:
+    return _people(_ROLES.MENTOR)
+
+
 def _guardian_details_context(value: str) -> dict:
     from apps.users.guardian_details import details_link
 
@@ -459,6 +463,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "registration_student": Recipients(_students, _registration_context),
     "registration_group": Recipients(_students, _registration_context),
     "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
+    "registration_mentor": Recipients(_mentors, _registration_context),
     "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,

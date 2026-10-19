@@ -166,6 +166,18 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="registration_mentor",
+        name="Registration confirmation (to mentor)",
+        description="Sent to a mentor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_mentor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="supervisor_registration_status",
         name="Registration status (to supervisor)",
         description=(

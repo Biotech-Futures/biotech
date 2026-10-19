@@ -7,7 +7,7 @@ So far: a student registering on their own, including with a late link
 (``registration_student``); each student registering as a team, or joining a
 group by its code (``registration_group``); and a supervisor registering
 students, once for each registration (``registration_supervisor``), never an
-admin registering them.
+admin registering them; and a mentor registering (``registration_mentor``).
 """
 from __future__ import annotations
 
@@ -19,9 +19,10 @@ from apps.submissions.services import current_cohort
 STUDENT_KEY = "registration_student"
 GROUP_KEY = "registration_group"
 SUPERVISOR_KEY = "registration_supervisor"
+MENTOR_KEY = "registration_mentor"
 
-# Each journey's email, to each student it registered.
-STUDENT_EMAILS = {"student_individual": STUDENT_KEY, "student_team": GROUP_KEY}
+# Each journey's email, to each person it registered.
+STUDENT_EMAILS = {"student_individual": STUDENT_KEY, "student_team": GROUP_KEY, "mentor": MENTOR_KEY}
 
 
 def registration_context(user) -> dict:

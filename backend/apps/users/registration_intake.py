@@ -625,6 +625,11 @@ def register(request):
         raise serializers.ValidationError({"detail": "Provide only the legacy body wrapper."})
     if not legacy:
         SessionAuthentication().enforce_csrf(request)
+    # A mentor registers on a path of their own (apps.users.mentor_registration).
+    if not legacy and raw.get("journey") == "mentor":
+        from .mentor_registration import register_mentor
+
+        return register_mentor(request, raw)
     envelope = legacy_request(raw["body"]) if legacy else raw
     parser = IntakeInput(data=envelope, context={"legacy": legacy})
     if not parser.is_valid():

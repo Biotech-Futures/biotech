@@ -8,12 +8,23 @@ class MentorProfile(models.Model):
         UG = "undergraduate", "University Student - Undergraduate"
         PG = "postgraduate", "University Student - Postgraduate"
         HDR = "hdr", "University Student - HDR"
+        ACADEMIC = "academic", "Academic / research staff"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     background = models.CharField(max_length=50, choices=BackgroundChoices.choices, blank=True, null=True)
     institution = models.CharField(db_column='Institution', max_length=255)
     mentor_reason = models.TextField()
     max_group_count = models.PositiveIntegerField(default=3)
+    # From registering (apps.users.registration_intake): where an industry
+    # mentor works; a university student's year ("1" to "4", or "5+"); and a
+    # student's or academic's field of study or research.
+    company = models.CharField(max_length=255, blank=True, default="")
+    university_year = models.CharField(max_length=8, blank=True, default="")
+    field_of_study = models.CharField(max_length=255, blank=True, default="")
+    # Their relevant background, and how they'd mentor BIOTech groups (150
+    # words at most each, as the form asks).
+    relevant_background = models.TextField(blank=True, default="")
+    mentoring_approach = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = 'mentor_profile'
