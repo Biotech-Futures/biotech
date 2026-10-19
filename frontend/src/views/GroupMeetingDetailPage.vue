@@ -191,7 +191,12 @@
 
           <section class="detail-section summary-panel">
             <div class="section-heading">
-              <h2>Mentor Summary</h2>
+              <h2>
+                Mentor Summary
+                <span v-if="!meeting.can_manage" class="view-only-label">
+                  (view only)
+                </span>
+              </h2>
 
               <button
                 v-if="meeting.can_manage"
@@ -210,12 +215,13 @@
               placeholder="Write the meeting summary..."
             />
 
-            <p
+            <textarea
               v-else-if="summaryBody"
-              class="summary-text"
-            >
-              {{ summaryBody }}
-            </p>
+              :value="summaryBody"
+              class="note-textarea summary-textarea"
+              readonly
+              aria-label="Mentor Summary"
+            />
 
             <p
               v-else
@@ -724,6 +730,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* Consistent text styling for Shared Meeting Notes and Mentor Summary */
+.note-textarea,
+.note-editor :deep(.cm-content),
+.note-editor :deep(.cm-line) {
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
 .duration-input-wrapper {
   position: relative;
   width: 100%;
@@ -943,6 +959,9 @@ onBeforeUnmount(() => {
 
 .note-editor :deep(.cm-content) {
   font-family: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 .summary-panel {
@@ -950,7 +969,14 @@ onBeforeUnmount(() => {
 }
 
 .summary-textarea {
+  height: 230px;
   min-height: 90px;
+  max-width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  resize: vertical;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
 }
 
 @media (max-width: 1100px) {
@@ -1048,7 +1074,11 @@ onBeforeUnmount(() => {
 
 .summary-text {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
 }
+
 .danger-button {
   padding: 10px 16px;
   border: 1px solid #d32f2f;
@@ -1313,5 +1343,26 @@ onBeforeUnmount(() => {
     width: 100%;
     flex: 0 0 auto;
   }
+}
+
+.view-only-label {
+  font-size: 13px;
+  font-weight: 400;
+  color: #888888;
+  margin-left: 6px;
+}
+
+/* Shared Meeting Notes text in dark mode */
+:global(html[data-theme='dark']) .note-editor :deep(.cm-editor),
+:global(html[data-theme='dark']) .note-editor :deep(.cm-scroller),
+:global(html[data-theme='dark']) .note-editor :deep(.cm-content),
+:global(html[data-theme='dark']) .note-editor :deep(.cm-line) {
+  color: #e6efed !important;
+  caret-color: #e6efed;
+}
+
+/* Dark mode: Shared Meeting Notes cursor */
+:global(html[data-theme='dark']) .note-editor :deep(.cm-cursor) {
+  border-left-color: #e6efed !important;
 }
 </style>
