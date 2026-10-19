@@ -21,6 +21,7 @@ import {
 } from '@/utils/adminAPI'
 import type { SystemEmailLogEntry, SystemEmailTemplate } from '@/utils/systemEmail'
 import { formatShortDateTime, formatStatementTime } from '@/utils/date'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/adminAPI', () => ({
   fetchSystemEmailLog: vi.fn(),
@@ -231,18 +232,18 @@ describe('AdminEmailsPage', () => {
     const wrapper = await mountPage()
     vi.mocked(updateSystemEmailTemplate).mockResolvedValue(buildTemplate({ sender: 'connect' }))
 
-    const select = wrapper.find<HTMLSelectElement>('#password_reset-sender')
+    const select = '#password_reset-sender'
+    expect(appSelectText(wrapper, select)).toBe('info@biotechfutures.org')
     // Only the mailboxes the server can sign in to.
-    expect(select.findAll('option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(wrapper, select)).toEqual([
       'info@biotechfutures.org',
       'connect@biotechfutures.org'
     ])
-    expect(select.element.value).toBe('info')
-    await select.setValue('connect')
+    await pickAppSelect(wrapper, select, 'connect@biotechfutures.org')
     await flushPromises()
 
     expect(updateSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { sender: 'connect' })
-    expect(wrapper.find<HTMLSelectElement>('#password_reset-sender').element.value).toBe('connect')
+    expect(appSelectText(wrapper, select)).toBe('connect@biotechfutures.org')
   })
 
   it('keeps Subject and Body editable while Send from saves', async () => {
@@ -254,7 +255,7 @@ describe('AdminEmailsPage', () => {
       })
     )
 
-    await wrapper.find('#password_reset-sender').setValue('connect')
+    await pickAppSelect(wrapper, '#password_reset-sender', 'connect@biotechfutures.org')
     // Disabling them flashed the Subject box and dropped the Body's toolbar.
     expect(wrapper.find<HTMLInputElement>('#template-subject').element.disabled).toBe(false)
     expect(wrapper.findComponent({ name: 'RichEditor' }).props('readOnly')).toBe(false)
@@ -788,7 +789,7 @@ describe('AdminEmailsPage', () => {
     const control = wrapper.find('[data-test="test-email"]')
     const send = control.findAll('button').find((button) => button.text() === 'Send Test')!
 
-    await control.find('input').setValue('tester@example.com')
+    await control.find('.email-editor__test-to').setValue('tester@example.com')
     await send.trigger('click')
     await flushPromises()
 
@@ -843,20 +844,20 @@ describe('AdminEmailsPage', () => {
     })
     const wrapper = await mountPage()
     const control = wrapper.find('[data-test="test-email"]')
-    const of = control.find('[data-test="test-of"]')
+    const of = '[data-test="test-of"]'
 
     expect(fetchSystemEmailTestRecipients).toHaveBeenCalledWith('password_reset')
     expect(control.text()).toMatch(/Send Test\s*of\s*(.|\n)*to/)
-    expect(of.findAll('option').map((option) => option.text())).toEqual([
+    // The first one to start with, with no lock on an email that can be switched off.
+    expect(appSelectText(control, of)).toBe('(BTF1, mentor) Aga Smith')
+    expect(await appSelectLabels(control, of)).toEqual([
       '(BTF1, mentor) Aga Smith',
       '(BTF2) Ben Bell'
     ])
-    // The first one to start with, with no lock on an email that can be switched off.
-    expect((of.element as HTMLSelectElement).value).toBe('7')
     expect(control.find('button .fa-lock').exists()).toBe(false)
 
-    await of.setValue('9')
-    await control.find('input').setValue('tester@example.com')
+    await pickAppSelect(control, of, '(BTF2) Ben Bell')
+    await control.find('.email-editor__test-to').setValue('tester@example.com')
     await control.findAll('button').find((button) => button.text() === 'Send Test')!.trigger('click')
     await flushPromises()
 
@@ -876,10 +877,10 @@ describe('AdminEmailsPage', () => {
     const control = wrapper.find('[data-test="test-email"]')
     const of = control.find('[data-test="test-of"]')
 
-    expect(of.text()).toBe('Nobody yet (sample details)')
-    expect(of.attributes('disabled')).toBeDefined()
+    expect(of.find('input').attributes('placeholder')).toBe('Nobody yet (sample details)')
+    expect(of.find('input').attributes('disabled')).toBeDefined()
 
-    await control.find('input').setValue('tester@example.com')
+    await control.find('.email-editor__test-to').setValue('tester@example.com')
     await control.findAll('button').find((button) => button.text() === 'Send Test')!.trigger('click')
     await flushPromises()
 
@@ -897,15 +898,15 @@ describe('AdminEmailsPage', () => {
     await flushPromises()
 
     expect(fetchSystemEmailTestRecipients).toHaveBeenLastCalledWith('login_code')
-    expect(wrapper.find('[data-test="test-of"]').text()).toBe('(BTF3) Cai Chen')
+    expect(appSelectText(wrapper, '[data-test="test-of"]')).toBe('(BTF3) Cai Chen')
     // A critical email can't be test sent: Send Test shows a lock and is off,
     // while anyone can still be picked and an address typed.
     const control = wrapper.find('[data-test="test-email"]')
     const send = control.find('button')
     expect(send.find('.fa-lock').exists()).toBe(true)
     expect(send.attributes('disabled')).toBeDefined()
-    expect(control.find('input').attributes('disabled')).toBeUndefined()
-    expect(control.find('[data-test="test-of"]').attributes('disabled')).toBeUndefined()
+    expect(control.find('.email-editor__test-to').attributes('disabled')).toBeUndefined()
+    expect(control.find('[data-test="test-of"] input').attributes('disabled')).toBeUndefined()
     expect(control.find('[data-test="test-of"] .fa-lock').exists()).toBe(false)
   })
 })

@@ -1655,6 +1655,42 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertTrue(self.profile.joinperm_responseID.startswith("ADMIN-"))
         self.assertIs(self.profile.media_consent, True)
 
+    def _signed_form(self, **fields):
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent
+
+        return GuardianConsent.objects.create(
+            student=self.profile, guardian_full_name="Pat Parent", guardian_email="pat@example.com",
+            signature_png=b"", consent_version=CURRENT_VERSION, **fields,
+        )
+
+    def test_payload_gives_when_the_media_answer_was_signed(self):
+        consent = self._signed_form(media_consent=True)
+        self.profile.media_consent = True
+        self.profile.save()
+
+        data = fetch_user_by_id(self.student.id)
+        self.assertEqual(data["mediaConsentAt"], consent.signed_at.isoformat())
+
+    def test_payload_gives_when_media_consent_was_withdrawn(self):
+        withdrawn_at = timezone.now()
+        self._signed_form(media_consent=True, media_withdrawn_at=withdrawn_at)
+        self.profile.media_consent = False
+        self.profile.save()
+
+        data = fetch_user_by_id(self.student.id)
+        self.assertEqual(data["mediaConsentAt"], withdrawn_at.isoformat())
+
+    def test_payload_has_no_media_time_for_an_answer_the_form_does_not_give(self):
+        # Recorded by an admin after the form said no, or with no form at all.
+        self._signed_form(media_consent=False)
+        self.profile.media_consent = True
+        self.profile.save()
+        self.assertIsNone(fetch_user_by_id(self.student.id)["mediaConsentAt"])
+
+        StudentProfile.objects.get(pk=self.profile.pk).consents.all().delete()
+        self.assertIsNone(fetch_user_by_id(self.student.id)["mediaConsentAt"])
+
     def test_payload_includes_the_pending_guardian(self):
         self._make_pending()
 
@@ -1680,3 +1716,50 @@ class AdminGuardianUpdateTests(TestCase):
         self.assertEqual(self.profile.pg_first_name, "Pat")
         self.assertEqual(self.profile.pg_email, "pat@example.com")
         self.assertFalse(self._audits().exists())
+
+
+class AdminUserTypedStateTests(TestCase):
+    """Outside Australia an admin types the state rather than picking it."""
+
+    def setUp(self):
+        from apps.groups.models import Countries
+
+        self.nz = Countries.objects.create(country_name="New Zealand")
+        self.user = User.objects.create_user(email="kiwi@example.com", first_name="Kiri", last_name="Hau")
+        self.user.country = self.nz
+        self.user.save()
+        # A student, as the panel edits.
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(user=self.user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        StudentProfile.objects.create(
+            user=self.user, school_name="Kiwi High", year_lvl="10",
+            pg_first_name="Pat", pg_last_name="Hau", pg_email="pat@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+        UserInterest.objects.create(user=self.user, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def _state(self):
+        self.user.refresh_from_db()
+        return self.user.state
+
+    def test_a_typed_state_is_added_once_and_reused_whatever_its_case(self):
+        from apps.groups.models import CountryStates
+
+        update_user(self.user.id, {"stateName": " Auckland "})
+        self.assertEqual(self._state().state_name, "Auckland")
+        self.assertEqual(self._state().country, self.nz)
+
+        update_user(self.user.id, {"stateName": "auckland"})
+        self.assertEqual(CountryStates.objects.filter(country=self.nz).count(), 1)
+
+    def test_a_new_country_takes_the_typed_state_with_it(self):
+        from apps.groups.models import Countries
+
+        fiji = Countries.objects.create(country_name="Fiji")
+        update_user(self.user.id, {"countryId": fiji.id, "stateName": "Central"})
+        self.assertEqual(self._state().country, fiji)
+
+    def test_a_blank_state_clears_it(self):
+        update_user(self.user.id, {"stateName": "Auckland"})
+        update_user(self.user.id, {"stateName": ""})
+        self.assertIsNone(self._state())

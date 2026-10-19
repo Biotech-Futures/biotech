@@ -243,12 +243,12 @@
         search-placeholder="Search by group, mentor, or country"
       >
         <template #filters>
-          <select v-model="recCountry" class="mentor-matching__select" aria-label="Filter by country">
-            <option value="all">All countries</option>
-            <option v-for="country in recCountries" :key="country" :value="country">
-              {{ country }}
-            </option>
-          </select>
+          <AppSelect
+            v-model="recCountry"
+            class="mentor-matching__select"
+            aria-label="Filter by country"
+            :options="countryOptions"
+          />
         </template>
 
         <!-- Only a row with a mentor can be ticked for confirming. -->
@@ -281,22 +281,18 @@
           <!-- The row's recommendation, named entry for the markup below. -->
           <template v-for="entry in [entryOf(row)]" :key="entry.group.groupId">
             <template v-if="changingGroupId === entry.group.groupId">
-              <select
-                class="mentor-matching__select mentor-matching__select--inline"
-                :aria-label="`Choose a mentor for ${entry.group.groupName}`"
-                @click.stop
-                @change="onMentorPicked(entry.group.groupId, $event)"
-              >
-                <option value="">Keep recommendation</option>
-                <option
-                  v-for="candidate in availableMentors"
-                  :key="candidate.mentorId"
-                  :value="candidate.mentorId"
-                  :selected="effectiveMentorFor(entry)?.mentorId === candidate.mentorId"
-                >
-                  {{ candidate.name }} ({{ candidate.remainingCapacity }} left)
-                </option>
-              </select>
+              <!-- A click in it doesn't reach the row. -->
+              <span @click.stop>
+                <AppSelect
+                  class="mentor-matching__select mentor-matching__select--inline"
+                  :aria-label="`Choose a mentor for ${entry.group.groupName}`"
+                  :model-value="effectiveMentorFor(entry)?.mentorId ?? ''"
+                  :options="mentorOptions"
+                  placeholder="Keep recommendation"
+                  searchable
+                  @change="(value) => onMentorPicked(entry.group.groupId, value)"
+                />
+              </span>
             </template>
             <template v-else-if="effectiveMentorFor(entry)">
               <span class="mentor-matching__mentor-name">
@@ -508,6 +504,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import {
   MENTOR_MATCH_MODES,
   type RecommendationSortKey,
@@ -617,9 +614,22 @@ const reasonSentences = (reason: string): string[] => {
     .map((sentence) => (sentence.endsWith('.') ? sentence : `${sentence}.`))
 }
 
-const onMentorPicked = (groupId: number, event: Event) => {
-  const raw = (event.target as HTMLSelectElement).value
-  setMentorOverride(groupId, raw === '' ? null : Number(raw))
+const countryOptions = computed<AppSelectOption[]>(() => [
+  { value: 'all', label: 'All countries' },
+  ...recCountries.value.map((country) => ({ value: country, label: country }))
+])
+
+// "Keep recommendation" first, then each mentor with room.
+const mentorOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'Keep recommendation' },
+  ...availableMentors.value.map((candidate) => ({
+    value: candidate.mentorId,
+    label: `${candidate.name} (${candidate.remainingCapacity} left)`
+  }))
+])
+
+const onMentorPicked = (groupId: number, value: AppSelectValue) => {
+  setMentorOverride(groupId, value === '' || value === null ? null : Number(value))
   changingGroupId.value = null
 }
 

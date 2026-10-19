@@ -18,6 +18,7 @@ import {
   type StudentDetails,
 } from '@/registration/registration'
 import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const studentCsv = () =>
   `${registrationCsvTemplate()}Alex,Morgan,alex@example.test,High School,10,Australia,NSW,Biomedical Innovations,Taylor,Morgan,taylor@example.test,Parent,,\r\n`
@@ -428,7 +429,7 @@ describe('registration gateway UI integration', () => {
     expect(send).not.toHaveBeenCalled()
     await wrapper.get('button[aria-label="Edit row 2"]').trigger('click')
     await wrapper.get('#csv-row-2-email').setValue('corrected@example.test')
-    await wrapper.get('#csv-row-2-yearLevel').setValue('11')
+    await pickAppSelect(wrapper, '#csv-row-2-yearLevel', 'Year 11')
     await wrapper.get('#csv-row-2-firstName').setValue('Corrected Alex')
     expect(setup.forms.supervisorCsv.rows[0].category).toBe('valid')
     expect(wrapper.text()).not.toContain('Student email format is invalid.')

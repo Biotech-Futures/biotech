@@ -14,15 +14,13 @@
         <!-- Resource Kind -->
         <div class="form-field form-field--full">
           <label class="form-label" for="res-kind">Resource Kind *</label>
-          <select
+          <AppSelect
             id="res-kind"
             v-model="form.kind"
             class="form-input filter-select"
+            :options="KIND_OPTIONS"
             :disabled="isEditing"
-          >
-            <option value="file">File Upload</option>
-            <option value="page">Rich Content Page</option>
-          </select>
+          />
           <p v-if="isEditing" class="admin-resource-form__hint">
             Resource kind cannot be changed after creation.
           </p>
@@ -102,20 +100,12 @@
         <!-- Type -->
         <div class="form-field form-field--full">
           <label class="form-label" for="res-type">Type</label>
-          <select
+          <AppSelect
             id="res-type"
             v-model="form.typeId"
             class="form-input filter-select"
-          >
-            <option :value="null">Uncategorized</option>
-            <option
-              v-for="typeItem in resourceTypes"
-              :key="typeItem.id"
-              :value="typeItem.id"
-            >
-              {{ typeItem.type_name }}
-            </option>
-          </select>
+            :options="typeOptions"
+          />
         </div>
       </div>
 
@@ -253,6 +243,7 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AdminRecordedSessionFields from './AdminRecordedSessionFields.vue'
 
@@ -326,6 +317,16 @@ const editorKey = ref(0)
 
 const availableRoles = ref<AdminResourceRoleItem[]>([])
 const resourceTypes = ref<ResourceType[]>([])
+
+const KIND_OPTIONS: AppSelectOption[] = [
+  { value: 'file', label: 'File Upload' },
+  { value: 'page', label: 'Rich Content Page' }
+]
+
+const typeOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'Uncategorized' },
+  ...resourceTypes.value.map((typeItem) => ({ value: typeItem.id, label: typeItem.type_name }))
+])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
@@ -783,21 +784,14 @@ const submitForm = async () => {
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-within {
   outline: none;
   border-color: var(--dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
 .filter-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 2rem;
   cursor: pointer;
 }
 

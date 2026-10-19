@@ -244,6 +244,8 @@ export interface AdminUser {
   pendingGuardian: AdminPendingGuardian | null
   /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
   mediaConsent: boolean | null
+  /** When that answer was given, from the signed form: null when it isn't. */
+  mediaConsentAt?: string | null
   consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean

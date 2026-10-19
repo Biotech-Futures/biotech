@@ -1008,20 +1008,20 @@
                 />
                 <label class="select-field">
                   <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
-                  <select
+                  <AppSelect
                     id="mentor-capacity"
-                    v-model="forms.mentor.capacity"
+                    :model-value="forms.mentor.capacity"
+                    :options="CAPACITY_OPTIONS"
+                    placeholder="Select group capacity"
                     :aria-invalid="Boolean(errors['mentor.capacity'])"
                     :aria-describedby="
                       errors['mentor.capacity'] ? 'mentor-capacity-error' : undefined
                     "
                     required
-                  >
-                    <option value="" disabled>Select group capacity</option>
-                    <option v-for="count in ['1', '2', '3', '4', '5']" :key="count" :value="count">
-                      {{ count }} {{ count === '1' ? 'group' : 'groups' }}
-                    </option>
-                  </select>
+                    @update:model-value="
+                      (value) => (forms.mentor.capacity = String(value ?? '') as typeof forms.mentor.capacity)
+                    "
+                  />
                   <span
                     v-if="errors['mentor.capacity']"
                     id="mentor-capacity-error"
@@ -1176,6 +1176,7 @@ import { RouterLink } from 'vue-router'
 import RegistrationAvailabilityField from '@/components/registration/RegistrationAvailabilityField.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import SupervisorSearchField from '@/components/registration/SupervisorSearchField.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
@@ -1477,6 +1478,12 @@ const STUDY_YEAR_OPTIONS = [
   { value: '4', label: 'Year 4' },
   { value: '5+', label: 'Year 5 or later' },
 ]
+
+// How many groups a mentor can take on.
+const CAPACITY_OPTIONS: AppSelectOption[] = ['1', '2', '3', '4', '5'].map((count) => ({
+  value: count,
+  label: `${count} ${count === '1' ? 'group' : 'groups'}`,
+}))
 
 const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
   { value: 'undergraduate', label: 'Undergraduate student' },
@@ -3999,7 +4006,7 @@ form,
 }
 
 /* As tall as the text boxes beside it (RegistrationTextField). */
-.select-field select {
+.select-field .app-select {
   width: 100%;
   min-height: 2.5rem;
   padding: 0.4rem 0.6rem;
@@ -4011,9 +4018,14 @@ form,
   font: inherit;
 }
 
-.select-field select:focus-visible {
+.select-field .app-select:focus-within {
   border-color: var(--registration-green);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
+}
+
+/* Its border and soft ring only: no outline. */
+.select-field .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
 }
 
 .review-section dl {

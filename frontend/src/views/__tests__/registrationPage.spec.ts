@@ -7,6 +7,7 @@ import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
 import { setRegistrationState } from '@/composables/useRegistrationOpen'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 // Registration as it is by default: open, with no dates.
 const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
@@ -807,27 +808,21 @@ describe('canonical registration intake', () => {
     const asked = send.mock.calls.map(([url]) => String(url))
     expect(asked.some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
     expect(asked.some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
-    expect(country().element.tagName).toBe('SELECT')
-    expect(
-      country()
-        .findAll('option')
-        .slice(1)
-        .map((option) => option.attributes('value')),
-    ).toEqual(countries)
-    expect((country().element as HTMLSelectElement).value).toBe('Australia')
-    expect(state().element.tagName).toBe('SELECT')
+    // Dropdowns (a combobox's field), each choice as the database names it.
+    expect(country().attributes('role')).toBe('combobox')
+    expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-country')).toEqual(countries)
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-country')).toBe('Australia')
+    await country().trigger('blur')
+    expect(state().attributes('role')).toBe('combobox')
     expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State *')
-    expect(
-      state()
-        .findAll('option')
-        .slice(1)
-        .map((option) => option.attributes('value')),
-    ).toEqual(states)
-    await state().setValue('VIC')
-    expect((state().element as HTMLSelectElement).value).toBe('VIC')
+    expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-state')).toEqual(states)
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-state', 'VIC')
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-state')).toBe('VIC')
 
-    await country().setValue('New Zealand')
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-country', 'New Zealand')
+    // A text box to type in.
     expect(state().element.tagName).toBe('INPUT')
+    expect(state().attributes('role')).toBeUndefined()
     // Elsewhere a Region, optional; the Australian state isn't kept.
     expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('Region (Optional)')
     expect((state().element as HTMLInputElement).value).toBe('')

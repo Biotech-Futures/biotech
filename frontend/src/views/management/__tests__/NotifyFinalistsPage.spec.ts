@@ -9,6 +9,7 @@ import {
   previewFinalistEmail,
   updateFinalistEmailDetails
 } from '@/utils/managementAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/gradingAPI', () => ({
   fetchFinalists: vi.fn()
@@ -529,7 +530,7 @@ describe('the email details', () => {
     })
     previewMock.mockResolvedValueOnce({ subject: 'Congratulations', group_name: 'BTF-2', html: '<p>email</p>' })
     const wrapper = await mountPage()
-    await wrapper.find('.test-email__select').setValue('2:4')
+    await pickAppSelect(wrapper, '.test-email__select', '(BTF-2) Ben Lee')
     await buttonNamed(wrapper, /Preview Email/).trigger('click')
     await flushPromises()
     expect(previewMock).toHaveBeenCalledWith(expect.any(Object), '2:4')

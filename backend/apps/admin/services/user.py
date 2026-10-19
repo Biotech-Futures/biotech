@@ -4,14 +4,14 @@ Literal translation from admin/apps/server/src/module/user/
 """
 from django.db import transaction, IntegrityError
 from django.utils import timezone
-from django.db.models import Exists, Max, OuterRef, Q, ProtectedError, Value
+from django.db.models import Exists, Max, OuterRef, Q, ProtectedError, Subquery, Value
 from django.db.models.functions import Concat
 from typing import List, Dict, Any, Optional
 
 # Import models
 from apps.users.models import (
     User, StudentProfile, SupervisorProfile, MentorProfile,
-    AreasOfInterest, UserInterest, StudentSupervisor
+    AreasOfInterest, UserInterest, StudentSupervisor, GuardianConsent
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.resources.models import Roles, RoleAssignmentHistory
@@ -432,8 +432,24 @@ def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
         "pendingGuardian": pending,
         "mediaConsent": sp.media_consent if sp else None,
         # Only on profiles loaded with_consent_request_sent_at().
+        "mediaConsentAt": _media_consent_at(sp),
         "consentRequestSentAt": _iso(getattr(sp, "last_consent_request_at", None)),
     }
+
+
+def _media_consent_at(sp: Optional[StudentProfile]) -> Optional[str]:
+    """When the media answer on file was given: the signing of the standing
+    signed form, or its media withdrawal. None when an admin recorded an
+    answer the form doesn't give."""
+    if sp is None or sp.media_consent is None:
+        return None
+    signed_at = getattr(sp, "form_signed_at", None)
+    if signed_at is None:
+        return None
+    withdrawn_at = getattr(sp, "form_media_withdrawn_at", None)
+    if (bool(sp.form_media_consent) and withdrawn_at is None) != sp.media_consent:
+        return None
+    return _iso(withdrawn_at or signed_at)
 
 
 def _iso(value) -> Optional[str]:
@@ -441,9 +457,16 @@ def _iso(value) -> Optional[str]:
 
 
 def with_consent_request_sent_at(queryset):
-    """Student profiles with when a consent request was last sent, in the same
-    query, for the admin payload."""
-    return queryset.annotate(last_consent_request_at=Max("consent_requests__created_at"))
+    """Student profiles with when a consent request was last sent, and their
+    standing signed form's media answer and its times, in the same query, for
+    the admin payload."""
+    form = GuardianConsent.objects.filter(student=OuterRef("pk"), withdrawn_at__isnull=True).order_by("-signed_at")
+    return queryset.annotate(
+        last_consent_request_at=Max("consent_requests__created_at"),
+        form_signed_at=Subquery(form.values("signed_at")[:1]),
+        form_media_consent=Subquery(form.values("media_consent")[:1]),
+        form_media_withdrawn_at=Subquery(form.values("media_withdrawn_at")[:1]),
+    )
 
 
 GUARDIAN_AUDIT_KEYS = (
@@ -1566,6 +1589,23 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             user.state_id = state_obj.id
             user.country_id = state_obj.country_id  # keep the pair coherent
 
+    # A state typed in, for a country with no list to pick from (outside
+    # Australia): found or added as registering does. Blank clears it.
+    if "stateName" in input_data:
+        region = input_data["stateName"]
+        if region is not None and not isinstance(region, str):
+            return {"msg": "State is not valid", "data": None}
+        region = (region or "").strip()[:255]
+        if not region:
+            user.state_id = None
+        elif not user.country_id:
+            return {"msg": "Choose a country before a state", "data": None}
+        else:
+            state_obj, _ = CountryStates.objects.get_or_create(
+                country_id=user.country_id, state_name__iexact=region, defaults={"state_name": region},
+            )
+            user.state_id = state_obj.id
+
     try:
         with transaction.atomic():
             # Update basic user fields
@@ -1575,7 +1615,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "firstName", "lastName", "email"]):
+            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "email"]):
                 user.save()
 
             if email_changed:

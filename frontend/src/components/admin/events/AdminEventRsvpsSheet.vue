@@ -54,18 +54,12 @@
           </button>
         </div>
 
-        <select
+        <AppSelect
           v-model="statusFilter"
           class="admin-event-rsvps__status-select"
           aria-label="Filter by RSVP status"
-        >
-          <option value="">All statuses</option>
-          <option value="accepted">Going</option>
-          <option value="tentative">Maybe</option>
-          <option value="waitlisted">Waitlisted</option>
-          <option value="declined">Not going</option>
-          <option value="pending">Pending</option>
-        </select>
+          :options="STATUS_OPTIONS"
+        />
       </div>
 
       <!-- Error alert -->
@@ -135,12 +129,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
 import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
 import { formatShortDateTime } from '@/utils/date'
 import { roleLabel } from '@/utils/userFormat'
 import type { BackendEvent } from '@/utils/eventsAPI'
+
+const STATUS_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'All statuses' },
+  { value: 'accepted', label: 'Going' },
+  { value: 'tentative', label: 'Maybe' },
+  { value: 'waitlisted', label: 'Waitlisted' },
+  { value: 'declined', label: 'Not going' },
+  { value: 'pending', label: 'Pending' }
+]
 
 const props = defineProps<{
   open: boolean
@@ -485,19 +489,12 @@ const rsvpRows = computed(() =>
 }
 
 .admin-event-rsvps__status-select {
-  padding: 0.5rem 1.8rem 0.5rem 0.75rem;
+  padding: 0.5rem 0.6rem 0.5rem 0.75rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--white);
   color: var(--teal);
   font-size: 0.875rem;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
   cursor: pointer;
 }
 

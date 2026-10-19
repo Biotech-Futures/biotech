@@ -220,11 +220,12 @@
     <div ref="bottomEl" class="data-table-bottom">
       <label class="data-table-page-size">
         <span class="sr-only">Rows per page</span>
-        <select :value="pageSize" @change="onPageSizeChange">
-          <option v-for="size in sizeOptions" :key="size" :value="size">
-            {{ size === DATA_TABLE_ALL ? 'All' : size }} Entries
-          </option>
-        </select>
+        <AppSelect
+          :model-value="pageSize"
+          :options="sizeChoices"
+          aria-label="Rows per page"
+          @change="onPageSizeChange"
+        />
       </label>
       <p class="data-table-summary">{{ summaryText }}</p>
       <!-- The admin tables' pager, with the page number typed in. -->
@@ -266,6 +267,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { usePagerAnchor } from '@/composables/usePagerAnchor'
 import { useTopScrollbar } from '@/composables/useTopScrollbar'
 import {
@@ -743,9 +745,17 @@ const fitSearchWidth = () => {
 onMounted(fitSearchWidth)
 watch(() => props.searchPlaceholder, () => void nextTick(fitSearchWidth))
 
-const onPageSizeChange = (event: Event) => {
+// "7 Entries" … "All Entries".
+const sizeChoices = computed<AppSelectOption[]>(() =>
+  sizeOptions.value.map((size) => ({
+    value: size,
+    label: `${size === DATA_TABLE_ALL ? 'All' : size} Entries`
+  }))
+)
+
+const onPageSizeChange = (value: AppSelectValue) => {
   fitting.value = false
-  pageSize.value = Number((event.target as HTMLSelectElement).value)
+  pageSize.value = Number(value)
 }
 
 const onPageDraftInput = (event: Event) => {
@@ -862,7 +872,7 @@ const togglePageSelection = () => {
   background-color: var(--light-green);
 }
 
-.data-table-page-size select {
+.data-table-page-size .app-select {
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;

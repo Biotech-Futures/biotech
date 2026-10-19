@@ -2,6 +2,7 @@ from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from datetime import timedelta
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -727,6 +728,7 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["state_name"], "")
         self.assertEqual(row["account_status"], "Active")
         self.assertIsNone(row["media_consent"])
+        self.assertIsNone(row["media_consent_at"])
 
     def test_drawn_consent_signature_is_fetched_on_its_own(self):
         import io
@@ -742,7 +744,7 @@ class SupervisedStudentsViewTests(TestCase):
         image.save(buffer, format="PNG")
 
         profile = StudentProfile.objects.get(user=self.student)
-        GuardianConsent.objects.create(
+        consent = GuardianConsent.objects.create(
             student=profile,
             guardian_full_name="Pat Parent",
             guardian_email="pat@example.com",
@@ -754,6 +756,8 @@ class SupervisedStudentsViewTests(TestCase):
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
         self.assertNotIn("signature", row)
         self.assertTrue(row["media_consent"])
+        # Given when the form was signed.
+        self.assertEqual(parse_datetime(row["media_consent_at"]), consent.signed_at)
 
         url = "/api/v1/users/supervised-students/signatures/"
         response = self.client.get(url, {"ids": str(self.student.id)})
@@ -771,18 +775,21 @@ class SupervisedStudentsViewTests(TestCase):
         from apps.users.consent_form import CURRENT_VERSION
         from apps.users.models import GuardianConsent, StudentProfile
 
+        withdrawn_at = timezone.now()
         GuardianConsent.objects.create(
             student=StudentProfile.objects.get(user=self.student),
             guardian_full_name="Pat Parent",
             guardian_email="pat@example.com",
             media_consent=True,
-            media_withdrawn_at=timezone.now(),
+            media_withdrawn_at=withdrawn_at,
             signature_png=b"",
             consent_version=CURRENT_VERSION,
         )
         self.client.force_login(self.supervisor)
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
         self.assertFalse(row["media_consent"])
+        # Answered no when it was withdrawn.
+        self.assertEqual(parse_datetime(row["media_consent_at"]), withdrawn_at)
 
     def test_roster_includes_country_and_state(self):
         from apps.groups.models import Countries, CountryStates

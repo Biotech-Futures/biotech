@@ -18,23 +18,19 @@
       @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     ></textarea>
     <!-- Given options (e.g. Australia's states), a dropdown of them instead. -->
-    <select
+    <AppSelect
       v-else-if="options"
       :id="id"
-      :value="modelValue"
-      :autocomplete="autocomplete"
+      :model-value="modelValue"
+      :options="options"
+      :placeholder="placeholder ?? 'Select one'"
       :aria-invalid="Boolean(error)"
       :aria-labelledby="`${id}-label`"
       :aria-describedby="describedBy"
       :required="required"
       :disabled="disabled"
-      @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
-    >
-      <option value="" disabled>{{ placeholder ?? 'Select one' }}</option>
-      <option v-for="option in options" :key="option.value" :value="option.value">
-        {{ option.label }}
-      </option>
-    </select>
+      @update:model-value="(value) => $emit('update:modelValue', String(value ?? ''))"
+    />
     <input
       v-else
       :id="id"
@@ -66,6 +62,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import AppSelect from '@/components/AppSelect.vue'
 import { countWords } from '@/registration/registration'
 
 const props = withDefaults(
@@ -152,7 +149,7 @@ const wordCount = computed(() => countWords(props.modelValue))
 
 /* As big as the platform's other form boxes (e.g. the student sheet's). */
 input,
-select,
+.app-select,
 textarea {
   width: 100%;
   min-height: 2.5rem;
@@ -182,21 +179,26 @@ textarea::placeholder {
 }
 
 input:hover,
-select:hover,
+.app-select:hover,
 textarea:hover {
   border-color: #8da69d;
 }
 
 input:focus-visible,
-select:focus-visible,
+.app-select:focus-within,
 textarea:focus-visible {
   border-color: var(--registration-green);
   background: var(--white);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
 }
 
+/* Its border and soft ring only, as the boxes beside it: no outline. */
+.registration-field .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
+}
+
 input[aria-invalid='true'],
-select[aria-invalid='true'],
+.app-select:has([aria-invalid='true']),
 textarea[aria-invalid='true'] {
   border-color: #a93732;
 }

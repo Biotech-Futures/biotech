@@ -62,38 +62,22 @@
 
         <label class="filter-field">
           <span class="filter-label">Category</span>
-          <select
+          <AppSelect
             v-model="filters.category"
             class="filter-input filter-select"
+            :options="categoryFilterOptions"
             @change="loadEvents()"
-          >
-            <option value="">All categories</option>
-            <option
-              v-for="category in eventCategories"
-              :key="category.value"
-              :value="category.value"
-            >
-              {{ category.label }}
-            </option>
-          </select>
+          />
         </label>
 
         <label class="filter-field">
           <span class="filter-label">RSVP</span>
-          <select
+          <AppSelect
             v-model="filters.rsvpStatus"
             class="filter-input filter-select"
+            :options="rsvpStatusFilterOptions"
             @change="loadEvents()"
-          >
-            <option value="">Any status</option>
-            <option
-              v-for="status in rsvpFilterOptions"
-              :key="status.value"
-              :value="status.value"
-            >
-              {{ status.label }}
-            </option>
-          </select>
+          />
         </label>
 
         <div class="filter-actions">
@@ -746,6 +730,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { BRAND_NAME } from '@/constants/brand'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminEventFormSheet from '@/components/admin/events/AdminEventFormSheet.vue'
@@ -870,6 +855,10 @@ const rsvpFilterOptions: Array<{ value: EventRsvpStatus; label: string }> = [
   { value: 'declined', label: 'Not going' },
   { value: 'waitlisted', label: 'Waitlisted' }
 ]
+
+// The Category and RSVP filters' choices.
+const categoryFilterOptions: AppSelectOption[] = [{ value: '', label: 'All categories' }, ...eventCategories]
+const rsvpStatusFilterOptions: AppSelectOption[] = [{ value: '', label: 'Any status' }, ...rsvpFilterOptions]
 
 const rsvpChoices: Array<{ value: UserRsvpStatus; label: string; shortLabel: string }> = [
   { value: 'accepted', label: 'Going', shortLabel: 'Going' },
@@ -1668,20 +1657,15 @@ const onFormEditorDelete = () => {
   padding-right: 2.25rem;
 }
 
-.filter-input:focus {
+.filter-input:focus,
+.app-select.filter-input:focus-within {
   outline: none;
   border-color: var(--event-dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
+/* AppSelect draws its own arrow. */
 .filter-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
   padding-right: 2rem;
   cursor: pointer;
 }

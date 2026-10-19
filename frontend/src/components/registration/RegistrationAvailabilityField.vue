@@ -8,16 +8,13 @@
     <div v-for="(slot, index) in slots" :key="index" class="availability-field__slot">
       <label class="availability-field__part">
         <span>Day</span>
-        <select
+        <AppSelect
           :id="`${id}-${index}-weekday`"
-          v-model="slot.weekday"
+          :model-value="slot.weekday"
+          :options="WEEKDAY_OPTIONS"
           :aria-invalid="Boolean(slotError(index))"
-        >
-          <option value="">Select a day</option>
-          <option v-for="(day, value) in WEEKDAY_NAMES" :key="day" :value="String(value)">
-            {{ day }}
-          </option>
-        </select>
+          @update:model-value="(value) => (slot.weekday = String(value ?? ''))"
+        />
       </label>
       <label class="availability-field__part">
         <span>From</span>
@@ -61,6 +58,7 @@
 </template>
 
 <script setup lang="ts">
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import {
   createAvailabilitySlot,
   WEEKDAY_NAMES,
@@ -81,6 +79,12 @@ const props = withDefaults(
 const slots = defineModel<AvailabilitySlot[]>({ required: true })
 
 const slotError = (index: number) => props.errors[`${props.prefix}.${index}`]
+
+// "Select a day" first, a choice of its own; each day by its number, Monday 0.
+const WEEKDAY_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'Select a day' },
+  ...WEEKDAY_NAMES.map((day, value) => ({ value: String(value), label: day })),
+]
 </script>
 
 <style scoped>
@@ -129,7 +133,7 @@ p {
 }
 
 /* As big as the form's other boxes. */
-select,
+.app-select,
 input {
   width: 100%;
   min-height: 2.5rem;
@@ -142,15 +146,22 @@ input {
   font-weight: 400;
 }
 
-select:focus-visible,
+[aria-invalid='true'],
+.app-select:has([aria-invalid='true']) {
+  border-color: #a93732;
+}
+
+/* After the invalid border, so focus shows over it, as before. */
+.app-select:focus-within,
 input:focus-visible {
   outline: none;
   border-color: var(--registration-green);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
 }
 
-[aria-invalid='true'] {
-  border-color: #a93732;
+/* Its border and soft ring only: no outline. */
+.availability-field__part .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
 }
 
 .availability-field__remove {

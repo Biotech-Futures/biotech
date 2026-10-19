@@ -15,6 +15,8 @@ export type SupervisedStudent = {
   account_status?: string
   /** From the signed form: null when there's none on the platform. */
   media_consent?: boolean | null
+  /** When that answer was given: the form's signing, or the withdrawal. */
+  media_consent_at?: string | null
   school_name: string
   year_lvl: string
   interests: string[]

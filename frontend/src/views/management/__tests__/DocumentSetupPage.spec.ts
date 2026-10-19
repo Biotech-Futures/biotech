@@ -11,6 +11,7 @@ import {
   scanTemplateCandidate,
   updateGradingSettings
 } from '@/utils/managementAPI'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 const guards = vi.hoisted(() => ({ leave: [] as Array<() => boolean | undefined>[] }))
 vi.mock('vue-router', () => ({
@@ -294,10 +295,14 @@ describe('template picking and testing', () => {
       ['Download Sample Certificate Doc', 'Download Student Certificate'],
       ['Download Sample Certificate Doc', 'Download Mentor Certificate']
     ])
-    const options = (i: number) => rows[i]!.findAll('option').map((o) => o.text())
-    expect(options(0)).toEqual(['BTF1', 'BTF2'])
-    expect(options(1)).toEqual(['(BTF1) Amy Chen', '(BTF2) Ben Lee'])
-    expect(options(2)).toEqual(['(BTF1) Mo Mentor'])
+    const options = async (i: number) => {
+      const labels = await appSelectLabels(rows[i]!, '.grading-settings__person-select')
+      await rows[i]!.find('.grading-settings__person-select input').trigger('blur')
+      return labels
+    }
+    expect(await options(0)).toEqual(['BTF1', 'BTF2'])
+    expect(await options(1)).toEqual(['(BTF1) Amy Chen', '(BTF2) Ben Lee'])
+    expect(await options(2)).toEqual(['(BTF1) Mo Mentor'])
     expect(peopleMock).toHaveBeenCalledWith('mentor-certificate')
   })
 
@@ -305,7 +310,7 @@ describe('template picking and testing', () => {
     testStoredMock.mockResolvedValueOnce()
     const wrapper = await mountPage()
     const row = wrapper.findAll('.grading-settings__test-row')[0]!
-    await row.find('select').setValue('2')
+    await pickAppSelect(row, '.grading-settings__person-select', 'BTF2')
     await buttonNamed(wrapper, /^Download Group Marks$/).trigger('click')
     await flushPromises()
     expect(testStoredMock).toHaveBeenCalledWith('marks-summary', '2')
@@ -328,8 +333,8 @@ describe('template picking and testing', () => {
     const wrapper = await mountPage()
     const rows = wrapper.findAll('.grading-settings__test-row')
     // No groups yet: the dropdown says so and both it and the button are off.
-    expect(rows[0]!.find('select').text()).toBe('No groups yet')
-    expect(rows[0]!.find('select').attributes('disabled')).toBeDefined()
+    expect(appSelectText(rows[0]!, '.grading-settings__person-select')).toBe('No groups yet')
+    expect(rows[0]!.find('.grading-settings__person-select input').attributes('disabled')).toBeDefined()
     expect(rows[0]!.findAll('button')[1]!.attributes('disabled')).toBeDefined()
     // People, but no certificate template saved or picked.
     expect(rows[1]!.findAll('button')[1]!.attributes('disabled')).toBeDefined()

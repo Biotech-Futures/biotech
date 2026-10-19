@@ -9,9 +9,15 @@
   >
     <p v-if="loading" class="admin-users-detail__muted">Loading details...</p>
     <p v-else-if="error" class="admin-users-detail__error" role="alert">{{ error }}</p>
-    <AdminUserDetailContent v-else-if="user" :user="user" @updated="(u) => emit('updated', u)" />
+    <AdminUserDetailContent
+      v-else-if="user"
+      :user="user"
+      :editable="showEdit"
+      @updated="(u) => emit('updated', u)"
+    />
 
-    <div class="admin-users-detail__footer">
+    <!-- A student's parts each have their own Edit, and the x closes. -->
+    <div v-if="user?.role !== 'student'" class="admin-users-detail__footer">
       <button type="button" class="btn btn-outline" @click="onDismiss">Close</button>
       <button v-if="user && showEdit" type="button" class="btn btn-primary" @click="emit('edit', user)">Edit</button>
     </div>

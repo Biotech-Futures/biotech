@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DATA_TABLE_TWO_LINE_ROW_HEIGHT, fitPageSize } from '@/utils/dataTable'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminTasksPage from '@/views/admin/AdminTasksPage.vue'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 const baseTask = {
   id: 1,
@@ -269,7 +270,7 @@ describe('AdminTasksPage', () => {
     await flushPromises()
     expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('1')
 
-    await wrapper.find<HTMLSelectElement>('#task-type-filter').setValue('group')
+    await pickAppSelect(wrapper, '#task-type-filter', 'Group')
     await flushPromises()
 
     const params = lastTaskListUrl(fetchMock).searchParams
@@ -315,7 +316,7 @@ describe('AdminTasksPage', () => {
     expect(params.get('page')).toBe('2')
     expect(params.get('limit')).toBe(String(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT)))
 
-    await wrapper.find<HTMLSelectElement>('.data-table-page-size select').setValue('30')
+    await pickAppSelect(wrapper, '.data-table-page-size', '30 Entries')
     await flushPromises()
 
     params = lastTaskListUrl(fetchMock).searchParams
@@ -500,7 +501,7 @@ describe('AdminTasksPage', () => {
     await rowCheckboxes[2].setValue(true)
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
+    await pickAppSelect(wrapper, '#task-bulk-status', 'Done')
     await flushPromises()
 
     const patchCalls = fetchMock.mock.calls.filter(
@@ -522,9 +523,9 @@ describe('AdminTasksPage', () => {
     await rowCheckboxes[1].setValue(true)
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
+    await pickAppSelect(wrapper, '#task-bulk-status', 'Done')
 
-    expect(wrapper.find<HTMLSelectElement>('#task-type-filter').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#task-type-filter').attributes('disabled')).toBeDefined()
     expect(buttonByText(wrapper, 'Add Task')!.attributes('disabled')).toBeDefined()
 
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -558,7 +559,7 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 
@@ -586,7 +587,7 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
     await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-10-04')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
@@ -610,14 +611,14 @@ describe('AdminTasksPage', () => {
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
 
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeUndefined()
 
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
 
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await pickAppSelect(wrapper, '#task-assign-mode', 'Everyone with a role')
+    await pickAppSelect(wrapper, '#task-role', 'Everyone with the mentor role')
     await flushPromises()
 
     expect(wrapper.text()).toContain('No active users currently have this role.')
@@ -632,10 +633,10 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
+    await pickAppSelect(wrapper, '#task-assign-mode', 'Everyone with a role')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await pickAppSelect(wrapper, '#task-role', 'Everyone with the mentor role')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Recipient count could not be loaded. Try again.')
@@ -661,7 +662,7 @@ describe('AdminTasksPage', () => {
     consoleSpy.mockRestore()
   })
 
-  it('renders duplicate role names without changing role assignment behavior', async () => {
+  it('lists a role named twice once, without changing role assignment behavior', async () => {
     const fetchMock = fetchMockFor([buildTask()], 1, {
       roles: [
         { id: 2, roleName: 'mentor' },
@@ -673,14 +674,15 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
+    await pickAppSelect(wrapper, '#task-assign-mode', 'Everyone with a role')
 
-    const roleOptions = wrapper.findAll<HTMLOptionElement>('#task-role option')
-    expect(roleOptions.filter((option) => option.element.value === 'mentor')).toHaveLength(2)
+    // Listed once, as either assigns by the name.
+    const roleLabels = await appSelectLabels(wrapper, '#task-role')
+    expect(roleLabels.filter((label) => label === 'Everyone with the mentor role')).toHaveLength(1)
 
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await pickAppSelect(wrapper, '#task-role', 'Everyone with the mentor role')
     await flushPromises()
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
@@ -698,9 +700,9 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Message mentor')
-    await wrapper.find<HTMLSelectElement>('#task-user').setValue('42')
+    await pickAppSelect(wrapper, '#task-user', 'Ada Lovelace (ada@example.edu)')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 
@@ -721,10 +723,10 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
+    await pickAppSelect(wrapper, '#task-assign-mode', 'Everyone with a role')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await pickAppSelect(wrapper, '#task-role', 'Everyone with the mentor role')
     await flushPromises()
 
     expect(wrapper.text()).toContain('Creates 2 separate tasks')
@@ -755,10 +757,10 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
+    await pickAppSelect(wrapper, '#task-assign-mode', 'Everyone with a role')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Send mentor update')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await pickAppSelect(wrapper, '#task-role', 'Everyone with the mentor role')
     await flushPromises()
 
     await submitButton(wrapper)!.trigger('submit')
@@ -771,7 +773,7 @@ describe('AdminTasksPage', () => {
 
     expect(lastTaskMutation(fetchMock, 'POST')).toBeUndefined()
     expect(wrapper.find<HTMLInputElement>('#task-name').element.value).toBe('Send mentor update')
-    expect(wrapper.find<HTMLSelectElement>('#task-role').element.value).toBe('mentor')
+    expect(appSelectText(wrapper, '#task-role')).toBe('Everyone with the mentor role')
     expect(wrapper.text()).not.toContain('Create role tasks')
   })
 
@@ -783,11 +785,11 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Notify participants')
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
-    await wrapper.find<HTMLSelectElement>('#task-user').setValue('42')
-    await wrapper.find<HTMLSelectElement>('#task-assign-mode').setValue('role')
-    await wrapper.find<HTMLSelectElement>('#task-role').setValue('mentor')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
+    await pickAppSelect(wrapper, '#task-user', 'Ada Lovelace (ada@example.edu)')
+    await pickAppSelect(wrapper, '#task-assign-mode', 'Everyone with a role')
+    await pickAppSelect(wrapper, '#task-role', 'Everyone with the mentor role')
     await flushPromises()
 
     await submitButton(wrapper)!.trigger('submit')
@@ -814,7 +816,7 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Updated reflection')
-    await wrapper.find<HTMLSelectElement>('#task-status').setValue('in_progress')
+    await pickAppSelect(wrapper, '#task-status', 'In Progress')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 

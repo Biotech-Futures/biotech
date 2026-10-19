@@ -57,17 +57,14 @@
          its aliases. Saved at once, like the on/off switch. -->
     <div class="editor__field">
       <label class="editor__label" :for="`${emailTemplate.key}-sender`">Send from</label>
-      <select
+      <AppSelect
         :id="`${emailTemplate.key}-sender`"
         class="editor__title email-editor__sender"
-        :value="emailTemplate.sender"
+        :model-value="emailTemplate.sender"
+        :options="senderOptions"
         :disabled="busy"
-        @change="emit('change-sender', ($event.target as HTMLSelectElement).value)"
-      >
-        <option v-for="sender in emailTemplate.senders" :key="sender.key" :value="sender.key">
-          {{ sender.address }}
-        </option>
-      </select>
+        @change="(value) => emit('change-sender', String(value))"
+      />
     </div>
 
     <!-- Only a list of the placeholders this email can use: clicking one
@@ -165,20 +162,15 @@
         <template v-if="testRecipientsFailed || testRecipients">
           <span class="email-editor__test-word">of</span>
           <!-- Open even on a critical email, so its preview can show anyone. -->
-          <select
+          <AppSelect
             v-model="testOf"
             class="email-editor__test-select"
             aria-label="Send it as"
             data-test="test-of"
+            :options="testRecipients ?? []"
+            :placeholder="testOfPlaceholder"
             :disabled="!testRecipients?.length"
-          >
-            <option v-if="!testRecipients?.length" value="">
-              {{ testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
-            </option>
-            <option v-for="option in testRecipients" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
+          />
         </template>
         <span class="email-editor__test-word email-editor__test-word--to">to</span>
         <!-- Password managers leave this box alone. -->
@@ -209,6 +201,7 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
 import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import {
@@ -288,6 +281,16 @@ const emit = defineEmits<{
   (e: 'restore'): void
   (e: 'test-send', to: string): void
 }>()
+
+const senderOptions = computed<AppSelectOption[]>(() =>
+  props.emailTemplate.senders.map((sender) => ({ value: sender.key, label: sender.address }))
+)
+
+// With nobody to pick, what the test goes out as instead.
+const testOfPlaceholder = computed(() => {
+  if (props.testRecipients?.length) return ''
+  return props.testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)'
+})
 
 const onToggleEnabled = (enabled: boolean) => {
   if (props.emailTemplate.locked && !enabled) return
@@ -380,7 +383,7 @@ const onToggleEnabled = (enabled: boolean) => {
   max-width: 100%;
 }
 
-.email-editor__test-select:focus,
+.email-editor__test-select:focus-within,
 .email-editor__test-to:focus {
   outline: none;
   border-color: var(--dark-green);
@@ -505,6 +508,13 @@ const onToggleEnabled = (enabled: boolean) => {
   width: auto;
   min-width: 16rem;
   background: var(--surface-elevated, #fff);
+}
+
+/* The Subject box's focus, which editorForm.css gives on :focus. */
+.email-editor__sender:focus-within {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
 .email-editor__last-edited {
