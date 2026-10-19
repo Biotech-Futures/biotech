@@ -112,6 +112,7 @@ class AdminUserNotesTests(TestCase):
             first_name="Notable",
             last_name="User",
             admin_notes="DistinctiveKeyword123 in private note",
+            is_active=True,
         )
 
         # Query all
