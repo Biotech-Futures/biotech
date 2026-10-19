@@ -4,7 +4,7 @@
       <div class="admin-users-detail__heading">
         <h3>Account</h3>
         <button
-          v-if="(user.role === 'student' || user.role === 'mentor') && editable && editing !== 'account'"
+          v-if="EDITED_IN_PARTS.includes(user.role ?? '') && editable && editing !== 'account'"
           type="button"
           class="btn btn-outline btn-sm"
           data-test="admin-edit-account"
@@ -13,7 +13,7 @@
           Edit
         </button>
       </div>
-      <!-- A student's or mentor's email, country, state and status. -->
+      <!-- A student's, mentor's or supervisor's email, country, state and status. -->
       <form v-if="editing === 'account'" data-test="admin-account-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Email</span>
@@ -788,53 +788,197 @@
       </dl>
     </section>
 
-    <section v-if="user?.role === 'supervisor'" class="admin-users-detail__section">
-      <h3>Supervisor Profile</h3>
-      <dl class="admin-users-detail__list">
-        <div class="admin-users-detail__item">
-          <dt>School</dt>
-          <dd>{{ user.schoolName || '—' }}</dd>
+    <!-- A supervisor's parts: their groups and students come from each
+         student's own Supervisor and Group; their details are edited here. -->
+    <section v-if="user?.role === 'supervisor'" class="admin-users-detail__section" data-test="admin-supervisor-groups">
+      <div class="admin-users-detail__heading">
+        <h3>Groups</h3>
+        <button
+          v-if="editable && editing !== 'supervisorGroups'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-supervisor-groups"
+          @click="startEdit('supervisorGroups')"
+        >
+          Edit
+        </button>
+      </div>
+      <!-- Group 1, 2, …: a group added makes them every student's supervisor in
+           it; one taken off leaves its students of theirs with none. -->
+      <form v-if="editing === 'supervisorGroups'" data-test="admin-supervisor-groups-form" @submit.prevent="save">
+        <div v-for="(groupId, index) in supervisorGroupSlots" :key="index" class="admin-users-detail__item">
+          <label class="admin-users-detail__label" :for="`admin-supervisor-group-${index}`">Group {{ index + 1 }}</label>
+          <AppSelect
+            :id="`admin-supervisor-group-${index}`"
+            size="large"
+            :model-value="groupId"
+            class="admin-users-detail__input"
+            :data-test="`admin-supervisor-group-${index}`"
+            :options="supervisorGroupOptions(index)"
+            :loading="picksLoading"
+            searchable
+            placeholder="Choose a group"
+            empty-text="No group matches"
+            @update:model-value="(value) => pickSupervisorGroup(index, value)"
+          />
         </div>
-        <div class="admin-users-detail__item">
-          <dt>Group</dt>
-          <dd>{{ user.groupName || '—' }}</dd>
+        <p v-if="picksError" class="admin-users-detail__save-error" role="alert">{{ picksError }}</p>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
         </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
         <div class="admin-users-detail__item">
-          <dt>Supervisees</dt>
-          <dd class="admin-users-detail__supervisees">
-            <span v-if="!user.supervisees?.length">—</span>
-            <span v-else>{{ superviseesLabel(user) }}</span>
+          <dt>Groups</dt>
+          <dd data-test="admin-supervisor-group-names">
+            {{ (user.supervisorGroups || []).map((group) => group.name).join(', ') || '—' }}
           </dd>
         </div>
       </dl>
     </section>
 
-    <section v-if="user?.role === 'admin'" class="admin-users-detail__section">
-      <h3>Admin Profile</h3>
-      <dl class="admin-users-detail__list">
+    <section v-if="user?.role === 'supervisor'" class="admin-users-detail__section" data-test="admin-supervisor-details">
+      <div class="admin-users-detail__heading">
+        <h3>Supervisor Details</h3>
+        <button
+          v-if="editable && editing !== 'supervisorDetails'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-supervisor-details"
+          @click="startEdit('supervisorDetails')"
+        >
+          Edit
+        </button>
+      </div>
+      <form v-if="editing === 'supervisorDetails'" data-test="admin-supervisor-details-form" @submit.prevent="save">
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">First name</span>
+          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="150" />
+        </label>
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Last name</span>
+          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="150" />
+        </label>
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">School</span>
+          <input
+            v-model.trim="form.supervisorSchoolName"
+            class="admin-users-detail__input"
+            data-test="admin-supervisor-school"
+            maxlength="255"
+          />
+        </label>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
         <div class="admin-users-detail__item">
-          <dt>Scope</dt>
-          <dd>Admin</dd>
+          <dt>Name</dt>
+          <dd>{{ [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' }}</dd>
+        </div>
+        <div class="admin-users-detail__item">
+          <dt>School</dt>
+          <dd>{{ user.schoolName || '—' }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section v-if="user?.role === 'supervisor'" class="admin-users-detail__section" data-test="admin-supervisees">
+      <div class="admin-users-detail__heading">
+        <h3>Supervisees</h3>
+        <button
+          v-if="editable && editing !== 'supervisees'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-supervisees"
+          @click="startEdit('supervisees')"
+        >
+          Edit
+        </button>
+      </div>
+      <!-- Their students, each with its ×, and any student to add. -->
+      <form v-if="editing === 'supervisees'" data-test="admin-supervisees-form" @submit.prevent="save">
+        <div
+          v-for="(student, index) in form.superviseeRows"
+          :key="student.id"
+          class="admin-users-detail__item"
+          :data-test="`admin-supervisee-${index}`"
+        >
+          <span class="admin-users-detail__label">{{ student.name || student.email }}</span>
+          <span class="admin-users-detail__supervisee">
+            <span class="admin-users-detail__value">{{ student.email }}</span>
+            <button
+              type="button"
+              class="admin-users-detail__slot-remove"
+              :aria-label="`Take ${student.name || student.email} off`"
+              @click="form.superviseeRows.splice(index, 1)"
+            >
+              <i class="fas fa-xmark" aria-hidden="true"></i>
+            </button>
+          </span>
+        </div>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-supervisee-add">Add a student</label>
+          <AppSelect
+            id="admin-supervisee-add"
+            size="large"
+            :model-value="null"
+            class="admin-users-detail__input"
+            data-test="admin-supervisee-add"
+            :options="studentOptions"
+            :loading="picksLoading"
+            searchable
+            placeholder="Search by name or email"
+            empty-text="No student matches"
+            @update:model-value="addSupervisee"
+          />
+        </div>
+        <p v-if="picksError" class="admin-users-detail__save-error" role="alert">{{ picksError }}</p>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
+        <div v-for="supervisee in user.supervisees || []" :key="supervisee.email" class="admin-users-detail__item">
+          <dt>{{ supervisee.name || '—' }}</dt>
+          <dd>{{ supervisee.email }}</dd>
+        </div>
+        <div v-if="!user.supervisees?.length" class="admin-users-detail__item">
+          <dt>Students</dt>
+          <dd>—</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section v-if="user?.role === 'admin'" class="admin-users-detail__section">
+      <h3>Admin Details</h3>
+      <dl class="admin-users-detail__list">
+        <div class="admin-users-detail__item" data-test="admin-admin-name">
+          <dt>Name</dt>
+          <dd>{{ [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' }}</dd>
         </div>
       </dl>
     </section>
 
     <ConfirmDialog
       v-model="confirmOpen"
-      :title="editing === 'mentorGroups' ? 'Change their groups?' : 'Replace supervisor or group?'"
-      :message="
-        editing === 'mentorGroups'
-          ? `This changes the groups ${userName(user)} mentors. Saving will:`
-          : `${userName(user)} already has one. Saving will:`
-      "
+      :title="confirmSetup.title"
+      :message="confirmSetup.message"
       confirm-label="Save"
       busy-label="Saving…"
       variant="warning"
       :busy="saving"
-      @confirm="editing === 'mentorGroups' ? commitMentorGroups() : commitSupervisorAndGroup()"
+      @confirm="confirmSetup.confirm()"
     >
       <ul class="admin-users-detail__replacing" data-test="admin-replacing">
-        <li v-for="line in editing === 'mentorGroups' ? mentorGroupReplacing : replacing" :key="line">{{ line }}.</li>
+        <li v-for="line in confirmSetup.lines" :key="line">{{ line }}.</li>
       </ul>
     </ConfirmDialog>
   </div>
@@ -845,6 +989,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
+  changeSupervisees,
   confirmMentorAssignments,
   confirmStudentAssignments,
   downloadGuardianConsentRecord,
@@ -865,7 +1010,9 @@ import type {
   AdminGuardianConsent,
   AdminUser,
   AdminUserCountry,
-  AdminUserState
+  AdminUserState,
+  SuperviseeChange,
+  SuperviseesChangeInput
 } from '@/utils/adminAPI'
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -878,7 +1025,6 @@ import {
   labelizeCountry,
   labelizeState,
   roleLabel,
-  superviseesLabel,
   supervisorLabel,
   userName
 } from '@/utils/userFormat'
@@ -944,8 +1090,14 @@ watch(() => props.user?.id, () => {
 
 // --- a student's parts, each edited in place ----------------------------------
 
+// Roles whose parts each have their own Edit; an admin keeps the sheet's own.
+const EDITED_IN_PARTS = ['student', 'mentor', 'supervisor']
+
 type Part =
   | 'account'
+  | 'supervisorDetails'
+  | 'supervisorGroups'
+  | 'supervisees'
   | 'details'
   | 'guardian'
   | 'supervisor'
@@ -994,6 +1146,9 @@ const blankForm = () => ({
   mentorWeeklyHours: '' as string | number,
   mentorAvailability: [] as MentorSlot[],
   mentorRelevantBackground: '',
+  supervisorSchoolName: '',
+  supervisorGroupIds: [] as number[],
+  superviseeRows: [] as { id: number; name: string; email: string }[],
   mentorReason: '',
   mentorMentoringApproach: ''
 })
@@ -1035,6 +1190,11 @@ const startEdit = (part: Part) => {
     mentorWeeklyHours: user.mentorWeeklyHours ?? '',
     mentorAvailability: (user.mentorAvailability || []).map(splitSlot),
     mentorRelevantBackground: user.mentorRelevantBackground || '',
+    supervisorSchoolName: user.role === 'supervisor' ? user.schoolName || '' : '',
+    supervisorGroupIds: (user.supervisorGroups || []).map((group) => group.id),
+    superviseeRows: (user.supervisees || []).flatMap((student) =>
+      student.id ? [{ id: student.id, name: student.name, email: student.email }] : []
+    ),
     mentorReason: user.mentorReason || '',
     mentorMentoringApproach: user.mentorMentoringApproach || ''
   })
@@ -1042,7 +1202,8 @@ const startEdit = (part: Part) => {
   editing.value = part
   if (part === 'supervisor') loadPicks()
   if (part === 'account') loadPlaces()
-  if (part === 'mentorGroups') loadGroups()
+  if (part === 'mentorGroups' || part === 'supervisorGroups') loadGroups()
+  if (part === 'supervisees') loadStudents()
 }
 
 const cancelEdit = () => {
@@ -1077,6 +1238,10 @@ const payloadFor = (part: Part): Record<string, unknown> | string => {
   if (part === 'mentorDetails') return mentorDetailsPayload()
   if (part === 'application') return applicationPayload()
   if (part === 'availability') return availabilityPayload()
+  if (part === 'supervisorDetails') {
+    if (!form.firstName || !form.lastName) return 'Enter their first and last name.'
+    return { firstName: form.firstName, lastName: form.lastName, supervisorSchoolName: form.supervisorSchoolName }
+  }
   if (part === 'details') {
     if (form.yearLevel === null) return 'Choose a year level.'
     if (!form.interests.length) return 'Choose at least one interest.'
@@ -1123,6 +1288,10 @@ const save = async () => {
   }
   if (part === 'mentorGroups') {
     saveMentorGroups()
+    return
+  }
+  if (part === 'supervisorGroups' || part === 'supervisees') {
+    saveSupervisees(superviseeLists(part))
     return
   }
   const payload = payloadFor(part)
@@ -1224,7 +1393,8 @@ const fetchAllGroups = async () => {
   const groups: AdminGroupDetail[] = []
   for (let page = 1; page <= 20; page += 1) {
     const data = await fetchAdminGroupList({ page, limit: 200 })
-    groups.push(...data.items)
+    // The list gives each id as text; a user's own groups give numbers.
+    groups.push(...data.items.map((group) => ({ ...group, id: Number(group.id) })))
     if (!data.has_more) break
   }
   return groups
@@ -1681,6 +1851,208 @@ const commitMentorGroups = async () => {
   }
 }
 
+// --- a supervisor's groups and students ------------------------------------------
+
+// Groups: Group 1, 2, …, with a new one after the last picked.
+const supervisorGroupSlots = computed<(number | null)[]>(() => [...form.supervisorGroupIds, null])
+
+const supervisorGroupOptions = (index: number): AppSelectOption[] => {
+  const pickedElsewhere = new Set(form.supervisorGroupIds.filter((_, at) => at !== index))
+  const groups: AppSelectOption[] = [...groupList.value]
+    .filter((group) => !pickedElsewhere.has(group.id))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    .map((group) => {
+      const taken = studentCount(group)
+      return { value: group.id, label: group.name, detail: `${taken} ${taken === 1 ? 'student' : 'students'}` }
+    })
+  for (const group of props.user?.supervisorGroups || []) {
+    if (!pickedElsewhere.has(group.id) && !groups.some((option) => option.value === group.id)) {
+      groups.unshift({ value: group.id, label: group.name, detail: 'theirs' })
+    }
+  }
+  return form.supervisorGroupIds[index] !== undefined
+    ? [{ value: null, label: 'No group', detail: 'Take them off this group' }, ...groups]
+    : groups
+}
+
+const pickSupervisorGroup = (index: number, value: AppSelectOption['value']) => {
+  if (value === null) form.supervisorGroupIds.splice(index, 1)
+  else form.supervisorGroupIds[index] = value as number
+}
+
+// Supervisees: every student, to add one; who supervises them now under each.
+const studentList = ref<AdminUser[]>([])
+
+const loadStudents = async () => {
+  picksLoading.value = true
+  picksError.value = ''
+  try {
+    const students: AdminUser[] = []
+    for (let page = 1; page <= 25; page += 1) {
+      const data = await fetchAdminUsers({ page, limit: 200, role: 'student' })
+      students.push(...data.items)
+      if (!data.hasMore) break
+    }
+    studentList.value = students
+  } catch (error) {
+    picksError.value = apiErrorFromUnknown(error, 'Could not load the students.').message
+  } finally {
+    picksLoading.value = false
+  }
+}
+
+const studentOptions = computed<AppSelectOption[]>(() => {
+  const listed = new Set(form.superviseeRows.map((student) => student.id))
+  return studentList.value
+    .filter((student) => !listed.has(student.id))
+    .map((student) => ({
+      value: student.id,
+      label: userName(student) || student.email || `Student ${student.id}`,
+      detail: [
+        student.email,
+        student.groupName || 'no group',
+        student.supervisorName ? `supervisor: ${student.supervisorName}` : 'no supervisor'
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+})
+
+const addSupervisee = (value: AppSelectOption['value']) => {
+  const student = studentList.value.find((candidate) => candidate.id === value)
+  if (!student) return
+  form.superviseeRows.push({ id: student.id, name: userName(student), email: student.email || '' })
+}
+
+// What a part's Save asks for: the groups or students added and taken off.
+const superviseeLists = (part: Part): SuperviseesChangeInput => {
+  if (part === 'supervisorGroups') {
+    const had = (props.user?.supervisorGroups || []).map((group) => group.id)
+    return {
+      addGroupIds: form.supervisorGroupIds.filter((id) => !had.includes(id)),
+      removeGroupIds: had.filter((id) => !form.supervisorGroupIds.includes(id))
+    }
+  }
+  const had = (props.user?.supervisees || []).flatMap((student) => (student.id ? [student.id] : []))
+  const now = form.superviseeRows.map((student) => student.id)
+  return {
+    addStudentIds: now.filter((id) => !had.includes(id)),
+    removeStudentIds: had.filter((id) => !now.includes(id))
+  }
+}
+
+const pendingSupervisees = ref<SuperviseesChangeInput | null>(null)
+const superviseeChanges = ref<SuperviseeChange[]>([])
+
+const joinNames = (names: string[]) =>
+  names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] ?? '')
+
+// The warning: who moves from another supervisor, and who's left with none,
+// a group's together.
+const superviseeLines = computed(() => {
+  const lines = new Map<string, { prefix: string; names: string[]; end: (many: boolean) => string }>()
+  for (const change of superviseeChanges.value) {
+    if (change.from && change.to) {
+      const key = `move|${change.group}|${change.from}`
+      if (!lines.has(key)) {
+        lines.set(key, {
+          prefix: change.group ? `${change.group}: ` : '',
+          names: [],
+          end: (many) => `${many ? 'move' : 'moves'} from ${change.from} to ${change.to}`
+        })
+      }
+      lines.get(key)!.names.push(change.name)
+    } else if (!change.to) {
+      const key = `none|${change.group}`
+      if (!lines.has(key)) {
+        lines.set(key, {
+          prefix: change.group ? `${change.group}: ` : '',
+          names: [],
+          end: () => 'will have no supervisor'
+        })
+      }
+      lines.get(key)!.names.push(change.name)
+    }
+  }
+  return [...lines.values()].map(({ prefix, names, end }) => `${prefix}${joinNames(names)} ${end(names.length > 1)}`)
+})
+
+// First asked as a preview: anyone moving from another supervisor, or left
+// with none, is warned of before anything changes.
+const saveSupervisees = async (lists: SuperviseesChangeInput) => {
+  const user = props.user
+  if (!user || saving.value) return
+  if (!Object.values(lists).some((ids) => ids?.length)) {
+    cancelEdit()
+    return
+  }
+  saving.value = true
+  saveError.value = ''
+  let changes: SuperviseeChange[]
+  try {
+    changes = (await changeSupervisees(user.id, { ...lists, preview: true })).changes
+  } catch (error) {
+    saveError.value = apiErrorFromUnknown(error, 'The change could not be saved.').message
+    return
+  } finally {
+    saving.value = false
+  }
+  if (!changes.length) {
+    cancelEdit()
+    return
+  }
+  pendingSupervisees.value = lists
+  superviseeChanges.value = changes
+  if (superviseeLines.value.length) confirmOpen.value = true
+  else commitSupervisees()
+}
+
+const commitSupervisees = async () => {
+  const user = props.user
+  const lists = pendingSupervisees.value
+  if (!user || !lists || saving.value) return
+  saving.value = true
+  saveError.value = ''
+  try {
+    const result = await changeSupervisees(user.id, lists)
+    if (result.user) emit('updated', result.user)
+    editing.value = null
+  } catch (error) {
+    saveError.value = apiErrorFromUnknown(error, 'The change could not be saved.').message
+  } finally {
+    saving.value = false
+    confirmOpen.value = false
+  }
+}
+
+// The popup, for whichever part is saving.
+const confirmSetup = computed(() => {
+  const name = userName(props.user)
+  if (editing.value === 'mentorGroups') {
+    return {
+      title: 'Change their groups?',
+      message: `This changes the groups ${name} mentors. Saving will:`,
+      lines: mentorGroupReplacing.value,
+      confirm: commitMentorGroups
+    }
+  }
+  if (editing.value === 'supervisorGroups' || editing.value === 'supervisees') {
+    return {
+      title: 'Change their students?',
+      message: `This changes who ${name} supervises. Saving will:`,
+      lines: superviseeLines.value,
+      confirm: commitSupervisees
+    }
+  }
+  return {
+    title: 'Replace supervisor or group?',
+    message: `${name} already has one. Saving will:`,
+    lines: replacing.value,
+    confirm: commitSupervisorAndGroup
+  }
+})
+
 const mediaConsentLabel = computed(() => {
   const media = props.user?.mediaConsent
   if (media == null) return '—'
@@ -1854,6 +2226,15 @@ const sendConsentRequest = async () => {
 
 .admin-users-detail__words.is-over {
   color: var(--danger);
+}
+
+/* A supervisee's email and their ×, together at the right. */
+.admin-users-detail__supervisee {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* A weekly time: day, from, to, and its ×. */

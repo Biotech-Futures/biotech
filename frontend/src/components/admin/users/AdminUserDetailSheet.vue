@@ -15,12 +15,7 @@
       :editable="showEdit"
       @updated="(u) => emit('updated', u)"
     />
-
-    <!-- A student's or mentor's parts each have their own Edit, and the x closes. -->
-    <div v-if="user?.role !== 'student' && user?.role !== 'mentor'" class="admin-users-detail__footer">
-      <button type="button" class="btn btn-outline" @click="onDismiss">Close</button>
-      <button v-if="user && showEdit" type="button" class="btn btn-primary" @click="emit('edit', user)">Edit</button>
-    </div>
+    <!-- No buttons below: its parts have their own Edit, and the x closes it. -->
   </FormSheet>
 </template>
 
@@ -50,7 +45,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'edit', user: AdminUser): void
   (e: 'updated', user: AdminUser): void
 }>()
 
@@ -72,10 +66,4 @@ const onDismiss = () => {
   font-size: 0.875rem;
 }
 
-.admin-users-detail__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.6rem;
-  margin-top: 1.5rem;
-}
 </style>

@@ -183,6 +183,21 @@ class UserStatusUpdateView(APIView):
         return Response(result, status=code)
 
 
+class UserSuperviseesView(APIView):
+    """POST: add students to a supervisor or take them off, by student or by
+    group; with ``preview``, only say who would move."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        from apps.admin.services.supervisees import change_supervisees
+
+        result = change_supervisees(int(user_id), request.data, initiated_by=request.user)
+        if result.get("data") is not None:
+            return Response(result)
+        missing = result["msg"].endswith("not found")
+        return Response(result, status=status.HTTP_404_NOT_FOUND if missing else status.HTTP_400_BAD_REQUEST)
+
+
 GUARDIAN_CONSENT_STATUS_CODES = {
     guardian_consent.SENT: status.HTTP_200_OK,
     guardian_consent.OK: status.HTTP_200_OK,

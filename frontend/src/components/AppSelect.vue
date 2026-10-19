@@ -276,6 +276,9 @@ const closeList = () => {
 // and leaves the caret where it was put.
 const onBoxMousedown = (event: MouseEvent) => {
   if (props.disabled || event.button !== 0) return
+  // A choice clicked in its own list (in the box when Teleport is stubbed)
+  // is the list's, whatever Vue's same-moment check let through.
+  if (listRef.value?.contains(event.target as Node)) return
   if (event.target === inputRef.value && canSearch.value) {
     openList()
     return

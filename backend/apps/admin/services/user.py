@@ -23,7 +23,7 @@ from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
     group_name_sort_key,
 )
-from apps.groups.services import sync_supervisor_memberships_for_student
+from apps.groups.services import sync_supervisor_memberships, sync_supervisor_memberships_for_student
 from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
 from apps.services.models import LoginToken, PasswordResetToken
@@ -537,6 +537,7 @@ EDIT_ACTIONS = (
     "guardian_consent_withdrawn",
     "guardian_media_consent_withdrawn",
     "profile_update",
+    "supervisees_update",
 )
 _NO_EDIT = {"lastEditedBy": None, "lastEditedAt": None}
 
@@ -594,9 +595,10 @@ def _natural_key(name: str) -> list:
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name or "")]
 
 
-def mentor_extras(user_ids) -> Dict[int, Dict[str, list]]:
-    """Each mentor's weekly availability and every group they mentor (with
-    its students counted), by user id, in a few queries however many."""
+def member_extras(user_ids) -> Dict[int, Dict[str, list]]:
+    """Each mentor's or supervisor's weekly availability (mentors have it)
+    and every group they're in, with its students counted, by user id: in a
+    few queries however many."""
     user_ids = list(user_ids)
     extras: Dict[int, Dict[str, list]] = {uid: {"availability": [], "groups": []} for uid in user_ids}
     if not user_ids:
@@ -700,8 +702,10 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         **_mentor_dict(
             mentor_profile,
             mentor_extra if mentor_extra is not None or not mentor_profile
-            else mentor_extras([user.id]).get(user.id),
+            else member_extras([user.id]).get(user.id),
         ),
+        # Every group a supervisor is in: their students' groups.
+        "supervisorGroups": member_extras([user.id])[user.id]["groups"] if supervisor_profile else [],
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
         **_guardian_dict(student_profile),
         "interests": interests,
@@ -764,6 +768,7 @@ def fetch_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
             supervisor_id=supervisor_profile.user_id
         ).select_related('user'):
             supervisees.append({
+                "id": sp.user_id,
                 "name": f"{sp.user.first_name} {sp.user.last_name}".strip(),
                 "email": sp.user.email,
             })
@@ -918,7 +923,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
     mentor_profiles = {
         mp.user_id: mp for mp in MentorProfile.objects.filter(user_id__in=user_ids)
     }
-    mentors_extra = mentor_extras(mentor_profiles)
+    members_extra = member_extras([*mentor_profiles, *supervisor_profiles])
     admin_user_ids = get_admin_user_ids(user_ids)
 
     # Active role assignments
@@ -971,6 +976,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             supervisor_id__in=sup_profile_ids_on_page
         ).select_related('user'):
             supervisee_map.setdefault(student_sp.supervisor_id, []).append({
+                "id": student_sp.user_id,
                 "name": f"{student_sp.user.first_name} {student_sp.user.last_name}".strip(),
                 "email": student_sp.user.email,
             })
@@ -1014,7 +1020,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "groupId": group_info["id"] if group_info else None,
             "groupName": group_info["name"] if group_info else None,
             "schoolName": school_name,
-            **_mentor_dict(mp, mentors_extra.get(uid)),
+            **_mentor_dict(mp, members_extra.get(uid)),
+            "supervisorGroups": members_extra[uid]["groups"] if supervisor else [],
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
             **_guardian_dict(sp),
             "interests": interests_map.get(uid, []),
@@ -1716,6 +1723,10 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
     role_changed = "role" in input_data and input_data["role"] != current_role
     before_user = fetch_user_by_id(user_id)
     before_guardian = _guardian_audit_state(user_id) if next_role == "student" else None
+    supervisor_before = (
+        StudentProfile.objects.filter(user_id=user_id).values_list("supervisor_id", flat=True).first()
+        if "supervisorEmail" in input_data else None
+    )
 
     # Handle geography update. Country is the required half for non-admins; state
     # is sub-national and may always be cleared (most non-AU users have none).
@@ -1835,6 +1846,15 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     **_consent_inputs(input_data),
                 )
                 _withdrawals(user_id, input_data, initiated_by)
+                # A new supervisor joins the student's group, and the old one
+                # leaves it when no student of theirs is left there.
+                if "supervisorEmail" in input_data:
+                    supervisor_after = StudentProfile.objects.filter(user_id=user_id).values_list(
+                        "supervisor_id", flat=True,
+                    ).first()
+                    if supervisor_after != supervisor_before:
+                        for changed in (supervisor_before, supervisor_after):
+                            sync_supervisor_memberships(changed)
             elif user.roleassignmenthistory_set.filter(valid_to__isnull=False).exists():
                 delete_student_details(user_id)
             

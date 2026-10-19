@@ -1902,3 +1902,140 @@ class AdminMentorDetailsTests(TestCase):
         result = update_user(self.mentor.id, {"mentorMaxGroupCount": 0})
         self.assertIsNotNone(result["data"], result["msg"])
         self.assertEqual(self._profile().max_group_count, 0)
+
+
+class AdminSupervisorGroupsTests(TestCase):
+    """A supervisor's panel lists every group they're in, not just the first."""
+
+    def test_payload_gives_every_group_they_are_in(self):
+        from apps.users.models import SupervisorProfile
+
+        supervisor = User.objects.create_user(email="sam@example.com", first_name="Sam", last_name="Lee")
+        role, _ = Roles.objects.get_or_create(role_name="supervisor")
+        RoleAssignmentHistory.objects.create(user=supervisor, role=role, valid_from=timezone.now() - timedelta(days=1))
+        SupervisorProfile.objects.create(user=supervisor, school_name="Cardinal College")
+        for name in ("BTF6", "BTF5"):
+            group = Groups.objects.create(group_name=name)
+            GroupMembership.objects.create(user=supervisor, group=group, membership_role="supervisor")
+            student = User.objects.create_user(email=f"{name}@example.com")
+            GroupMembership.objects.create(user=student, group=group, membership_role="student")
+
+        detail = fetch_user_by_id(supervisor.id)
+        listed = next(item for item in query_users(role="supervisor")["data"]["items"] if item["id"] == supervisor.id)
+        for data in (detail, listed):
+            with self.subTest(source="detail" if data is detail else "list"):
+                self.assertEqual([group["name"] for group in data["supervisorGroups"]], ["BTF5", "BTF6"])
+                self.assertEqual(data["schoolName"], "Cardinal College")
+
+
+class AdminSuperviseesTests(TestCase):
+    """An admin adds students to a supervisor or takes them off, by student
+    or by group, the supervisors' groups following."""
+
+    def setUp(self):
+        from apps.users.models import SupervisorProfile
+
+        self.admin_user = User.objects.create_user(email="admin@example.com")
+        supervisor_role, _ = Roles.objects.get_or_create(role_name="supervisor")
+        self.sam = self._supervisor("sam@example.com", "Sam", "Lee", supervisor_role, SupervisorProfile)
+        self.pat = self._supervisor("pat@example.com", "Pat", "Kim", supervisor_role, SupervisorProfile)
+        self.group = Groups.objects.create(group_name="BTF3")
+        self.ana = self._student("ana@example.com", "Ana", self.pat, self.group)
+        self.ben = self._student("ben@example.com", "Ben", self.pat, self.group)
+        self.cara = self._student("cara@example.com", "Cara", None, None)
+
+    def _supervisor(self, email, first, last, role, profile_model):
+        user = User.objects.create_user(email=email, first_name=first, last_name=last)
+        RoleAssignmentHistory.objects.create(user=user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        profile_model.objects.create(user=user, school_name="School")
+        return user
+
+    def _student(self, email, first, supervisor, group):
+        from apps.groups.services import sync_supervisor_memberships
+
+        user = User.objects.create_user(email=email, first_name=first, last_name="Student")
+        StudentProfile.objects.create(
+            user=user, school_name="School", year_lvl="10", supervisor_id=supervisor.id if supervisor else None,
+            pg_first_name="Pat", pg_last_name="Parent", pg_email="g@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+
+        interest, _ = AreasOfInterest.objects.get_or_create(interest_desc="Biotech")
+        UserInterest.objects.create(user=user, interest=interest)
+        if group:
+            GroupMembership.objects.create(user=user, group=group, membership_role="student")
+        if supervisor:
+            sync_supervisor_memberships(supervisor.id)
+        return user
+
+    def _change(self, **lists):
+        from apps.admin.services.supervisees import change_supervisees
+
+        return change_supervisees(self.sam.id, lists, initiated_by=self.admin_user)
+
+    def _supervisor_of(self, student):
+        return StudentProfile.objects.get(user=student).supervisor_id
+
+    def _in_group(self, user):
+        return GroupMembership.objects.filter(user=user, group=self.group, left_at__isnull=True).exists()
+
+    def test_a_preview_says_who_would_move_and_changes_nothing(self):
+        result = self._change(addGroupIds=[self.group.id], addStudentIds=[self.cara.id], preview=True)
+
+        self.assertEqual(
+            [(change["name"], change["group"], change["from"], change["to"]) for change in result["data"]["changes"]],
+            [("Cara Student", None, None, "Sam Lee"), ("Ana Student", "BTF3", "Pat Kim", "Sam Lee"),
+             ("Ben Student", "BTF3", "Pat Kim", "Sam Lee")],
+        )
+        self.assertEqual(self._supervisor_of(self.ana), self.pat.id)
+        self.assertNotIn("user", result["data"])
+
+    def test_taking_a_group_moves_its_students_and_both_supervisors_groups_follow(self):
+        result = self._change(addGroupIds=[self.group.id])
+
+        self.assertEqual((self._supervisor_of(self.ana), self._supervisor_of(self.ben)), (self.sam.id, self.sam.id))
+        self.assertTrue(self._in_group(self.sam))
+        self.assertFalse(self._in_group(self.pat))
+        self.assertEqual([group["name"] for group in result["data"]["user"]["supervisorGroups"]], ["BTF3"])
+        self.assertEqual(
+            sorted(student["id"] for student in result["data"]["user"]["supervisees"]), sorted([self.ana.id, self.ben.id]),
+        )
+        from apps.audit.models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(entity_id=self.sam.id, action="supervisees_update").exists())
+
+    def test_a_student_taken_off_is_left_without_a_supervisor(self):
+        self._change(addGroupIds=[self.group.id])
+        result = self._change(removeStudentIds=[self.ana.id])
+
+        self.assertEqual([(change["name"], change["to"]) for change in result["data"]["changes"]], [("Ana Student", None)])
+        self.assertIsNone(self._supervisor_of(self.ana))
+        # Ben is still theirs, so they stay in BTF3.
+        self.assertTrue(self._in_group(self.sam))
+
+        self._change(removeGroupIds=[self.group.id])
+        self.assertIsNone(self._supervisor_of(self.ben))
+        self.assertFalse(self._in_group(self.sam))
+
+    def test_unknown_students_or_groups_are_refused(self):
+        self.assertEqual(self._change(addStudentIds=[999999])["msg"], "Student not found")
+        self.assertEqual(self._change(addGroupIds=[999999])["msg"], "Group not found")
+        self.assertEqual(self._change(addStudentIds="ana")["msg"], "addStudentIds must be a list of ids")
+
+    def test_the_admin_api_takes_it(self):
+        from apps.users.models.admin_scope import AdminScope
+
+        AdminScope.objects.create(user=self.admin_user)
+        client = APIClient()
+        client.force_authenticate(self.admin_user)
+        response = client.post(
+            f"/api/v1/admin/user/{self.sam.id}/supervisees/", {"addStudentIds": [self.cara.id]}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self._supervisor_of(self.cara), self.sam.id)
+
+    def test_changing_a_students_supervisor_moves_the_supervisors_groups_too(self):
+        result = update_user(self.ana.id, {"supervisorEmail": "sam@example.com"}, initiated_by=self.admin_user)
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertTrue(self._in_group(self.sam))
+        # Pat still has Ben in BTF3.
+        self.assertTrue(self._in_group(self.pat))

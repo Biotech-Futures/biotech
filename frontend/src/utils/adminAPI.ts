@@ -208,6 +208,8 @@ export interface AdminUserState {
 }
 
 export interface AdminUserSupervisee {
+  /** The student's user id, for changing who supervises them. */
+  id?: number
   name: string
   email: string
 }
@@ -249,6 +251,8 @@ export interface AdminUser {
   mentorAvailability?: { weekday: number; start: string; end: string }[]
   /** Every group they mentor, by name, with its students counted. */
   mentorGroups?: { id: number; name: string; studentCount: number }[]
+  /** Every group a supervisor is in (their students' groups), by name. */
+  supervisorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
   guardianFirstName: string | null
   guardianLastName: string | null
@@ -398,6 +402,32 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     msg: env.msg,
     data: env.data
   }))
+
+/** A supervisor's students added or taken off, by student or by group. */
+export interface SuperviseesChangeInput {
+  addStudentIds?: number[]
+  removeStudentIds?: number[]
+  addGroupIds?: number[]
+  removeGroupIds?: number[]
+  /** Only say who would move. */
+  preview?: boolean
+}
+
+/** A student moving: ``to`` null when left with no supervisor, ``from`` null
+ *  when they had none. */
+export interface SuperviseeChange {
+  studentId: number
+  name: string
+  group: string | null
+  from: string | null
+  to: string | null
+}
+
+export const changeSupervisees = (userId: string | number, input: SuperviseesChangeInput) =>
+  adminPost<AdminEnvelope<{ changes: SuperviseeChange[]; user?: AdminUser }>>(
+    `/user/${userId}/supervisees/`,
+    input
+  ).then((env) => env.data)
 
 export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(

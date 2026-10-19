@@ -155,9 +155,9 @@ describe('AdminViewExecutedPage', () => {
     expect(headers).toEqual(['Full Name', 'Email', 'Role', 'Actions', 'Actions'])
   })
 
-  // A student's and a mentor's parts each have their own Edit instead, so a supervisor's.
-  it('opens the user detail sheet from a name click, then the edit form from within it', async () => {
-    const result = await mountPage([buildUser({ role: 'supervisor' })], buildView())
+  // The sheet has no buttons below (its parts have their own Edit); the row's Edit opens the form.
+  it('opens the user detail sheet from a name click, with no buttons below', async () => {
+    const result = await mountPage([buildUser({ role: 'admin' })], buildView())
     wrapper = result.wrapper
 
     const nameButton = wrapper.find('.admin-view-table__name-btn')
@@ -169,16 +169,9 @@ describe('AdminViewExecutedPage', () => {
     expect(detail).toBeDefined()
     expect(detail!.textContent).toContain('ada@example.com')
 
-    const editButton = Array.from(detail!.querySelectorAll('button')).find(
-      (b) => b.textContent!.trim() === 'Edit'
-    )
-    expect(editButton).toBeDefined()
-    await editButton!.click()
-    await flushPromises()
-
-    const editor = dialogs().find((d) => d.textContent!.includes('Edit user'))
-    expect(editor).toBeDefined()
-    expect((editor!.querySelector('#f-first') as HTMLInputElement).value).toBe('Ada')
+    const labels = Array.from(detail!.querySelectorAll('button')).map((b) => b.textContent!.trim())
+    expect(labels).not.toContain('Close')
+    expect(detail!.querySelector('.admin-users-detail__footer')).toBeNull()
   })
 
   it('shows a sent consent request on the open sheet and reloads the results', async () => {
