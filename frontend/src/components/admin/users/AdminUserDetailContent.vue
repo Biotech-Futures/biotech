@@ -663,17 +663,6 @@ const sendConsentRequest = async () => {
   text-align: right;
 }
 
-.admin-users-detail__section-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.4rem;
-}
-
-.admin-users-detail__section-head h3 {
-  margin: 0;
-}
-
 .admin-users-detail__notes-box {
   padding: 0.75rem;
   border: 1px solid var(--border-light);

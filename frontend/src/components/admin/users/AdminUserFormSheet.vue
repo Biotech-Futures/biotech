@@ -849,12 +849,6 @@ const submitForm = async () => {
   }
 }
 
-.admin-users-form__textarea {
-  min-height: 80px;
-  resize: vertical;
-  font-family: inherit;
-}
-
 @media (max-width: 640px) {
   .admin-users-form__grid {
     grid-template-columns: 1fr;
