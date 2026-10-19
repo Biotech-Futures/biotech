@@ -29,6 +29,7 @@
           >
             Resend
           </button>
+          <span v-else-if="email.expires" class="email-log__expires" data-test="log-expires">{{ EXPIRES_NOTE }}</span>
         </div>
         <p
           v-if="resendOf(email.key).note"
@@ -103,6 +104,7 @@
           >
             Resend
           </button>
+          <span v-else-if="item.expires" class="email-log__expires" data-test="log-expires">{{ EXPIRES_NOTE }}</span>
         </div>
         <p
           v-if="resendOf(item.key).note"
@@ -199,6 +201,9 @@ const resend = async (key: string) => {
   }
 }
 
+// In place of Resend on a login code or reset link.
+const EXPIRES_NOTE = "Can't be resent as these expire within minutes. They can ask for a new one."
+
 // Who it's waiting to reach while the mail server can't be reached.
 const waitingOf = (item: SystemEmailLogEntry) => item.waiting ?? []
 const WAITING_HINT =
@@ -208,8 +213,10 @@ const withMissed = computed(() =>
   props.emails.filter((item) => item.missed.length || bouncedOf(item).length || waitingOf(item).length),
 )
 
-// When it was sent: its last send, else its latest that missed someone.
-const sentAt = (item: SystemEmailLogEntry) => item.lastSentAt ?? item.missed[0]?.at ?? null
+// When it was sent: its last send, else its latest that missed someone, else
+// when its newest email waiting for the mail server was tried.
+const sentAt = (item: SystemEmailLogEntry) =>
+  item.lastSentAt ?? item.missed[0]?.at ?? waitingOf(item)[waitingOf(item).length - 1]?.at ?? null
 
 /** Each send's time: "29/09/26 23:58". */
 const formatWhen = (iso: string) => formatShortDateTime(iso)
@@ -254,12 +261,30 @@ const lastEmailed = (item: SystemEmailLogEntry) => {
   gap: 0.5rem;
 }
 
-/* A heading, or "Couldn't be emailed:", with its Resend beside it. */
+/* A heading, or "Couldn't be emailed:", with its Resend beside it. Wrapped
+   onto a line of its own, the note on a login code or reset link sits the
+   email's 0.25rem below the heading, or the missed block's 0.5rem. */
 .email-log__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.25rem 0.75rem;
+}
+
+.email-log__missed .email-log__head {
+  row-gap: 0.5rem;
+}
+
+/* Below the note, the email's 0.25rem gap and this: as far as a heading with
+   its Resend sits above the next line. */
+.email-log__email .email-log__expires {
+  margin-bottom: 0.25rem;
+}
+
+/* Where Resend would be, on a login code or reset link. */
+.email-log__expires {
+  color: var(--danger);
+  font-size: 0.8rem;
 }
 
 /* White, as the editor's boxes are, against the page's grey; the outline

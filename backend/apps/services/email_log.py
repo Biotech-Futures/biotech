@@ -225,7 +225,7 @@ def email_log() -> list[dict]:
 
     from .resend import resendable
     from .system_email import sender_for
-    from .waiting_email import kept_for_resend, waiting_for
+    from .waiting_email import NEVER_WAIT, kept_for_resend, waiting_for
 
     logs = {log.key: log for log in SystemEmailLog.objects.select_related("last_sent_by")}
     runs = {
@@ -289,12 +289,18 @@ def email_log() -> list[dict]:
             "toGroups": bool(email_type.delivery),
             "missed": missed,
             "bounced": bounced.get(key, []),
+            # A login code or reset link: never resent, as they expire within minutes.
+            "expires": key in NEVER_WAIT,
             "resendable": resendable(
-                key, run=run, kept=kept,
+                key, run=run, kept=kept, waiting=set(waiting),
                 announcements=missed_by_announcement() if key == "announcement" else None,
             ),
             "waiting": [
-                {"who": labels.get(item["address"], item["address"]), "until": item["until"].isoformat()}
+                {
+                    "who": labels.get(item["address"], item["address"]),
+                    "at": item["at"].isoformat(),
+                    "until": item["until"].isoformat(),
+                }
                 for item in waiting.get(key, [])
             ],
         })

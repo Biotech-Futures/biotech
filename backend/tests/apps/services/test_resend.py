@@ -72,6 +72,8 @@ class KeptForResendTests(TestCase):
                 send_system_email(key, "amy@example.test", {})
         self.assertFalse(WaitingEmail.objects.exists())
         self.assertFalse(_entry("login_code")["resendable"])
+        # The Log says why, in place of Resend.
+        self.assertEqual((_entry("login_code")["expires"], _entry("registration_student")["expires"]), (True, False))
         self.assertEqual(self.client.post(_url("login_code")).status_code, 400)
 
     def test_resend_sends_the_kept_copy_and_takes_them_off_the_list(self):
@@ -105,6 +107,29 @@ class KeptForResendTests(TestCase):
         entry = _entry("registration_student")
         self.assertEqual(entry["missed"], [])
         self.assertEqual([p["who"] for p in entry["waiting"]], ["amy@example.test"])
+
+    def _wait(self):
+        with mock.patch.object(EmailMultiAlternatives, "send", side_effect=DROPPED):
+            send_system_email("registration_student", "amy@example.test", CONTEXT)
+        self.assertEqual(WaitingEmail.objects.get().state, WaitingEmail.State.WAITING)
+
+    def test_one_waiting_for_the_mail_server_has_resend_which_tries_it_now(self):
+        self._wait()
+        self.assertTrue(_entry("registration_student")["resendable"])
+        self.assertEqual(self.client.post(_url("registration_student")).status_code, 202)
+        self.assertEqual([m.to for m in mail.outbox], [["amy@example.test"]])
+        self.assertFalse(WaitingEmail.objects.exists())
+        self.assertEqual(_entry("registration_student")["waiting"], [])
+
+    def test_resent_while_still_out_of_reach_it_keeps_waiting_for_the_10_minute_retries(self):
+        self._wait()
+        unreachable = mock.Mock()
+        unreachable.open.side_effect = OSError("unreachable")
+        with mock.patch("apps.services.system_email.get_connection", return_value=unreachable):
+            self.assertEqual(self.client.post(_url("registration_student")).status_code, 202)
+        kept = WaitingEmail.objects.get()
+        self.assertEqual((kept.state, kept.tries), (WaitingEmail.State.WAITING, 1))
+        self.assertEqual(mail.outbox, [])
 
     def test_nobody_to_resend_to_or_switched_off_is_refused_with_why(self):
         response = self.client.post(_url("registration_student"))

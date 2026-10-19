@@ -302,6 +302,7 @@ describe('AdminEmailsPage', () => {
       bounced: [],
       waiting: [],
       resendable: false,
+      expires: false,
       ...overrides
     })
     const unreachable = "couldn't reach the mail server"
@@ -508,6 +509,38 @@ describe('AdminEmailsPage', () => {
       expect(announcement.find('[data-test="log-resend-note"]').text()).toContain('Resending.')
       expect(announcement.find('[data-test="log-resend"]').attributes('disabled')).toBeDefined()
       expect(reminder.find('[data-test="log-resend"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('says a login code or reset link cannot be resent, in place of Resend', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'login_code',
+          name: 'Login code',
+          expires: true,
+          missed: [{ at: '2026-10-19T02:24:00Z', people: [{ who: 'amy@seed.test', reason: unreachable }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      const [login] = wrapper.findAll('[data-test="log-email"]')
+      expect(login.find('[data-test="log-resend"]').exists()).toBe(false)
+      expect(login.find('.email-log__head [data-test="log-expires"]').text()).toBe(
+        "Can't be resent as these expire within minutes. They can ask for a new one."
+      )
+    })
+
+    it('dates an email only waiting for the mail server by when it was tried', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'password_changed',
+          name: 'Password changed',
+          resendable: true,
+          waiting: [{ who: 'amy@seed.test', at: '2026-10-19T02:24:00Z', until: '2026-10-22T02:24:00Z' }]
+        })
+      ])
+      const wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-email"] h3').text()).toBe(
+        `Password changed ${at('2026-10-19T02:24:00Z')}`
+      )
     })
 
     it('says why a Resend could not go, and lets it be pressed again', async () => {

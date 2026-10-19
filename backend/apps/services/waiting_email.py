@@ -405,16 +405,18 @@ def _send_row(row: WaitingEmail, connection, now) -> tuple[int, int] | None:
     return 1, 0
 
 
-def send_waiting(mailbox: str, now=None) -> dict:
-    """Send ``mailbox``'s waiting emails, oldest first, once the mail server can
-    be reached; one whose email is switched off on System Emails keeps
-    waiting. A run that can't reach the server, or loses it partway, leaves
-    the rest for the next. Gives ``{"sent", "failed"}``."""
+def send_waiting(mailbox: str, now=None, *, key: str | None = None) -> dict:
+    """Send ``mailbox``'s waiting emails (only ``key``'s, for its Resend),
+    oldest first, once the mail server can be reached; one whose email is
+    switched off on System Emails keeps waiting. A run that can't reach the
+    server, or loses it partway, leaves the rest for the next. Gives
+    ``{"sent", "failed"}``."""
     from .system_email import _sender, sender_connection, senders
 
     now = now or timezone.now()
     give_up(now)
-    rows = list(WaitingEmail.objects.filter(mailbox=mailbox, state=WAITING).order_by("id"))
+    rows = WaitingEmail.objects.filter(mailbox=mailbox, state=WAITING)
+    rows = list((rows.filter(key=key) if key else rows).order_by("id"))
     if not rows:
         return {"sent": 0, "failed": 0}
     connection = sender_connection(_sender(mailbox) or senders()[0], fail_silently=False)
@@ -465,12 +467,14 @@ def queue_waiting(now=None) -> list[str]:
 
 
 def waiting_for() -> dict[str, list[dict]]:
-    """Who each email is waiting to reach, and until when: ``{key:
-    [{"address", "until"}]}``, oldest first."""
+    """Who each email is waiting to reach, since when it was first tried and
+    until when: ``{key: [{"address", "at", "until"}]}``, oldest first."""
     waiting: dict[str, list[dict]] = {}
     for row in WaitingEmail.objects.filter(state=WAITING).defer("message").order_by("id"):
         for address in row.recipients:
-            waiting.setdefault(row.key, []).append({"address": address, "until": row.give_up_at})
+            waiting.setdefault(row.key, []).append(
+                {"address": address, "at": row.created_at, "until": row.give_up_at},
+            )
     return waiting
 
 
@@ -549,6 +553,11 @@ def resend_missed(key: str, actor=None, now=None) -> dict:
         )
     logger.info("waiting_email.resend key=%s sent=%s failed=%s waiting=%s", key, len(delivered), len(missed), len(waiting))
     return {"sent": len(delivered), "failed": len(missed)}
+
+
+def waiting_keys() -> set[str]:
+    """The emails with copies waiting for the mail server, by key."""
+    return set(WaitingEmail.objects.filter(state=WAITING).values_list("key", flat=True))
 
 
 def kept_for_resend(now=None) -> set[str]:
