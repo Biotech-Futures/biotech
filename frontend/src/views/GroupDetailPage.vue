@@ -1236,12 +1236,12 @@
                         v-if="message.isSuppressed"
                         class="message-suppressed-label"
                         :title="
-                          message.isDeleted && message.deletedByIsAdmin
+                          isModerationRemoval(message)
                             ? 'This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
                             : 'This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
                         "
                         :aria-label="
-                          message.isDeleted && message.deletedByIsAdmin
+                          isModerationRemoval(message)
                             ? 'Removed after review. This message was reviewed and removed by an administrator because it did not meet the community guidelines. It is no longer visible to other group members.'
                             : 'Hidden pending review. This message has been flagged as potentially inappropriate and is pending review by administration. It is not visible to other group members while the review is underway.'
                         "
@@ -1249,14 +1249,14 @@
                         <i
                           :class="[
                             'fas',
-                            message.isDeleted && message.deletedByIsAdmin
+                            isModerationRemoval(message)
                               ? 'fa-ban'
                               : 'fa-eye-slash',
                           ]"
                           aria-hidden="true"
                         ></i>
                         {{
-                          message.isDeleted && message.deletedByIsAdmin
+                          isModerationRemoval(message)
                             ? 'Removed after review'
                             : 'Hidden pending review'
                         }}
@@ -1868,7 +1868,10 @@ import GroupSubmissionSection from '@/components/submission/GroupSubmissionSecti
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { splitTextIntoLinkSegments, firstLinkHref } from '@/utils/linkify'
-import { hideModerationDeletionFromViewer } from '@/utils/chatModeration'
+import {
+  hideModerationDeletionFromViewer,
+  isModerationRemoval,
+} from '@/utils/chatModeration'
 import {
   applyCursorToMessage,
   getReceiptAriaLabel as receiptAriaLabel,
@@ -3376,7 +3379,9 @@ const normalizeMessage = (item) => {
 
 const getDeletedMessageText = (message) => {
   if (!message?.isDeleted) return ''
-  if (message.deletedByIsAdmin) return 'Admin deleted a message'
+  if (isModerationRemoval(message) || message.deletedByIsAdmin) {
+    return 'Admin deleted a message'
+  }
   const deletedById = Number(message.deletedById || 0)
   if ((deletedById > 0 && deletedById === currentUserId.value) || (!deletedById && message.isOwn)) {
     return 'You deleted a message'

@@ -20,13 +20,9 @@ jobs:
     steps:
       - name: Trigger AI message screening
         env:
-          BACKEND_URL: ${{ vars.RSVP_REMINDER_BACKEND_URL }}
+          BACKEND_URL: https://api.biotechfutures.org
           SCREENING_TOKEN: ${{ secrets.AI_SCREENING_TRIGGER_TOKEN }}
         run: |
-          if [ -z "${BACKEND_URL}" ]; then
-            echo "RSVP_REMINDER_BACKEND_URL is not set." >&2
-            exit 1
-          fi
           if [ -z "${SCREENING_TOKEN}" ]; then
             echo "AI_SCREENING_TRIGGER_TOKEN is not set." >&2
             exit 1

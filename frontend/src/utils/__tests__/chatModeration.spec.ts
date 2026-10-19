@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'vitest'
 
-import { hideModerationDeletionFromViewer } from '@/utils/chatModeration'
+import {
+  hideModerationDeletionFromViewer,
+  isModerationRemoval,
+} from '@/utils/chatModeration'
+
+describe('isModerationRemoval', () => {
+  it('recognises a screened message deleted by a support agent', () => {
+    expect(
+      isModerationRemoval({
+        isDeleted: true,
+        isSuppressed: true,
+        deletedByIsAdmin: false,
+        deletedByName: 'Sana Reid',
+      }),
+    ).toBe(true)
+  })
+
+  it('does not treat a message still awaiting review as removed', () => {
+    expect(isModerationRemoval({ isDeleted: false, isSuppressed: true })).toBe(false)
+  })
+
+  it('does not change ordinary message deletion', () => {
+    expect(isModerationRemoval({ is_deleted: true, is_suppressed: false })).toBe(false)
+  })
+})
 
 describe('hideModerationDeletionFromViewer', () => {
   const deletedSuppressedMessage = {
