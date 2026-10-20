@@ -77,6 +77,7 @@ _api_v1_patterns = [
     path("events/", include(event_canonical_urlpatterns)),
     path("admin/", include("apps.admin.urls")),
     path("tasks/", include("apps.tasks.urls")),
+    path("plans/", include("apps.plans.urls")),
     path("grading/", include("apps.grading.urls")),
     path("management/", include("apps.management.urls")),
     # Submissions is v1-only: it has no legacy unprefixed callers to support,

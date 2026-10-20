@@ -77,6 +77,8 @@ Use the same completion-record check for backend validation and the admin form's
 
 Send due dates as `YYYY-MM-DD` or `null`; reject datetime strings. Use stage/task position as the default order on the member page and progress matrix; due dates label tasks rather than determine the journey. The admin task table may still offer due-date sorting, with undated tasks last. Format dates with `formatShortDate(value, 'UTC')`; compare with `toTimeZoneDateKey(new Date(), getSetTimeZone())` from `utils/date.ts`. Show Overdue only for `completed === false` with a due date before today, not for null personal completion viewed by an admin.
 
+Use `PlanTask.objects.active().in_plan_order()` for display lists. This shared helper orders by stage position, stage ID, task position and task ID; the model has no implicit ordering. Build distinct/grouped reporting queries from an unordered queryset, or clear an existing display order with `.order_by()` before `values(...).distinct()` or `values(...).annotate(...)`.
+
 Due dates are fixed, without per-group extensions. All groups read the shared task live, so an admin's date edit during the current cohort appears for every current-year group on its next load; no completion records are reset or copied.
 
 Calculate progress with grouped queries, rather than a query for every cell:
