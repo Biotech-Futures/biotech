@@ -204,23 +204,32 @@ export type EmailDeliveryAnalyticsResponse = {
   }>
   // Every email type (system emails, announcements, digests, bulk sends).
   // Optional while older backends only send announcement deliveries.
-  recent_sends?: Array<{
-    id: number
-    email_type: string
-    email_type_label: string
-    title: string | null
-    announcement_id: number | null
-    source_mailbox: string
-    started_at: string
-    status: 'success' | 'partial' | 'failed'
-    attempted: number
-    delivered: number
-    failed: number
-    initiated_by_name: string
-    initiated_by_email: string
+  recent_sends?: Array<Omit<EmailSend, 'id' | 'status'> & {
+    // An announcement send still going has no id yet: delivery_id names its
+    // announcement delivery row and its status is 'sending'.
+    id: number | null
+    delivery_id?: number
+    status: EmailSend['status'] | 'sending'
     // Recipients kept for the send; 0 for sends made before they were recorded.
     recipients_recorded?: number
   }>
+}
+
+// One finished send of any email type.
+export type EmailSend = {
+  id: number
+  email_type: string
+  email_type_label: string
+  title: string | null
+  announcement_id: number | null
+  source_mailbox: string
+  started_at: string
+  status: 'success' | 'partial' | 'failed'
+  attempted: number
+  delivered: number
+  failed: number
+  initiated_by_name: string
+  initiated_by_email: string
 }
 
 export type EmailRecipient = {
@@ -231,7 +240,7 @@ export type EmailRecipient = {
   reason: string
 }
 
-export type EmailSendToRecipient = Omit<NonNullable<EmailDeliveryAnalyticsResponse['recent_sends']>[number], 'recipients_recorded'> & {
+export type EmailSendToRecipient = EmailSend & {
   recipient: EmailRecipient
 }
 

@@ -17,6 +17,7 @@ from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
 from apps.services.email_registry import get_email_type, is_known_email_type
 from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
+from apps.services.system_email import sender_for
 from apps.users.models import User
 
 
@@ -624,6 +625,10 @@ def get_resource_analytics(
 # (announcements) out of the list or out of its type filter.
 RECENT_SENDS_PER_TYPE = 100
 
+# How long an announcement send with no completion time still counts as
+# sending. A send that has not finished by then was interrupted.
+ANNOUNCEMENT_SENDING_WINDOW = timedelta(minutes=30)
+
 
 def _email_type_label(key: str) -> str:
     """System Emails name for a send type, or a readable form of its key."""
@@ -632,8 +637,57 @@ def _email_type_label(key: str) -> str:
     return key.replace("_", " ").replace("-", " ").strip().capitalize() or "Email"
 
 
-def _recent_email_sends() -> list[dict]:
-    """The latest ``RECENT_SENDS_PER_TYPE`` sends of each email type, newest first.
+def _sending_announcements(now) -> list[dict]:
+    """Announcement sends still going, newest first.
+
+    An announcement's delivery row is created as ``failed`` when its send
+    starts and completed when the send ends, while its ``EmailDeliveryMetric``
+    row is written only once every recipient has been tried. Listed here, a
+    running send shows as sending instead of being missing until it ends.
+    """
+    finished_starts = EmailDeliveryMetric.objects.filter(
+        email_type="announcement"
+    ).values("started_at")
+    deliveries = (
+        AnnouncementDelivery.objects.filter(
+            completed_at__isnull=True,
+            started_at__gt=now - ANNOUNCEMENT_SENDING_WINDOW,
+            started_at__lte=now,
+        )
+        .exclude(started_at__in=finished_starts)
+        .select_related("announcement", "initiated_by")
+        .order_by("-started_at", "-id")
+    )
+    return [
+        {
+            # No metric row yet, so no send to export recipients from.
+            "id": None,
+            "delivery_id": delivery.id,
+            "email_type": "announcement",
+            "email_type_label": _email_type_label("announcement"),
+            "title": delivery.announcement.title,
+            "announcement_id": delivery.announcement_id,
+            "source_mailbox": sender_for("announcement").address,
+            "started_at": delivery.started_at.isoformat(),
+            "status": "sending",
+            "attempted": delivery.recipient_count,
+            "delivered": delivery.success_count,
+            "failed": 0,
+            "initiated_by_name": (
+                f"{delivery.initiated_by.first_name} {delivery.initiated_by.last_name}".strip()
+                if delivery.initiated_by
+                else "System"
+            ),
+            "initiated_by_email": delivery.initiated_by.email if delivery.initiated_by else "",
+            "recipients_recorded": 0,
+        }
+        for delivery in deliveries
+    ]
+
+
+def _recent_email_sends(now) -> list[dict]:
+    """The latest ``RECENT_SENDS_PER_TYPE`` sends of each email type, newest
+    first, after any announcement sends still going.
 
     ``EmailDeliveryMetric`` records one row per real send operation for system
     emails, announcements, chat digests and management bulk sends, so it is the
@@ -658,10 +712,15 @@ def _recent_email_sends() -> list[dict]:
         .annotate(total=Count("id"))
         .values_list("metric_id", "total")
     )
-    return [
+    sends = [
         {**send, "recipients_recorded": recorded.get(send["id"], 0)}
         for send in _send_rows(rows)
     ]
+    return sorted(
+        _sending_announcements(now) + sends,
+        key=lambda send: datetime.fromisoformat(send["started_at"]),
+        reverse=True,
+    )
 
 
 def _send_rows(rows) -> list[dict]:
@@ -872,7 +931,8 @@ def get_email_delivery_analytics() -> dict:
             "hourly": [],
             "daily": [],
             "status_by_role": empty_role_status(),
-            "recent_sends": [],
+            # The first announcement ever sent has no metric row until it ends.
+            "recent_sends": _sending_announcements(snapshot_at),
             "role_attribution": role_attribution(
                 tracked_delivery_runs=0,
                 unattributed_delivery_runs=0,
@@ -1140,5 +1200,5 @@ def get_email_delivery_analytics() -> dict:
         "status_by_role": status_by_role,
         "role_attribution": attribution,
         "recent_deliveries": recent_deliveries,
-        "recent_sends": _recent_email_sends(),
+        "recent_sends": _recent_email_sends(snapshot_at),
     }

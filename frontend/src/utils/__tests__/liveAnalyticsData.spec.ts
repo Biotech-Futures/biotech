@@ -202,6 +202,48 @@ describe('buildEmailMonitoring', () => {
     expect(result.logs[0]).toMatchObject({ status: 'Delivered', senderEmail: '—' })
   })
 
+  it('shows an announcement send still going as sending, with no recipients to export yet', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_sends: [{
+        id: null,
+        delivery_id: 4,
+        email_type: 'announcement',
+        email_type_label: 'Announcement notification',
+        title: 'Programme update',
+        announcement_id: 5,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-20T00:00:00Z',
+        status: 'sending',
+        attempted: 12,
+        delivered: 0,
+        failed: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+        recipients_recorded: 0,
+      }, {
+        id: 4,
+        email_type: 'announcement',
+        email_type_label: 'Announcement notification',
+        title: 'Earlier update',
+        announcement_id: 3,
+        source_mailbox: 'info@biotechfutures.org',
+        started_at: '2026-10-19T00:00:00Z',
+        status: 'success',
+        attempted: 2,
+        delivered: 2,
+        failed: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+        recipients_recorded: 2,
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Sending', recipient: '12 recipients', sendId: null })
+    expect(result.logs[1]).toMatchObject({ status: 'Delivered', sendId: 4 })
+    expect(result.logs[0]!.id).not.toBe(result.logs[1]!.id)
+  })
+
   it('shows an unfinished legacy announcement send as sending, not failed', () => {
     const result = data.buildEmailMonitoring(bundle({
       ...baseEmailAnalytics,

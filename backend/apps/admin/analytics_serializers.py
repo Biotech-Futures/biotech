@@ -302,6 +302,12 @@ class RecentEmailSendSerializer(serializers.Serializer):
 
 
 class RecentEmailSendWithRecipientsSerializer(RecentEmailSendSerializer):
+    # An announcement send still going has no metric row yet: its ``id`` is
+    # null, ``delivery_id`` names its announcement delivery row and its status
+    # is "sending".
+    id = serializers.IntegerField(min_value=1, allow_null=True)
+    delivery_id = serializers.IntegerField(min_value=1, required=False)
+    status = serializers.ChoiceField(choices=("success", "partial", "failed", "sending"))
     # How many recipients were recorded for the send; 0 for sends made before
     # recipients were kept.
     recipients_recorded = serializers.IntegerField(min_value=0)

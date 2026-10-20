@@ -610,6 +610,78 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
         self.assertEqual(recent[0]["id"], delivery.id)
         self.assertIsNone(recent[0]["completed_at"])
 
+    def running_delivery(self, started_at):
+        # As the send leaves it until every recipient has been tried: failed,
+        # with no counts, no completion time and no metric row.
+        return AnnouncementDelivery.objects.create(
+            announcement=self.announcement,
+            initiated_by=self.admin,
+            started_at=started_at,
+            completed_at=None,
+            status=AnnouncementDelivery.Status.FAILED,
+            recipient_count=4,
+            success_count=0,
+            failure_count=0,
+        )
+
+    def test_running_announcement_send_is_listed_as_sending(self):
+        self.delivery(
+            started_at=self.snapshot_at - timedelta(hours=2),
+            recipients=2,
+            delivered=2,
+            failed=0,
+            delivery_status=AnnouncementDelivery.Status.SUCCESS,
+        )
+        running = self.running_delivery(self.snapshot_at - timedelta(minutes=5))
+
+        recent = self.get_as_admin()["recent_sends"]
+
+        self.assertEqual(len(recent), 2)
+        self.assertEqual(recent[0], {
+            "id": None,
+            "delivery_id": running.id,
+            "email_type": "announcement",
+            "email_type_label": recent[1]["email_type_label"],
+            "title": "Analytics update",
+            "announcement_id": self.announcement.id,
+            "source_mailbox": self.primary_mailbox,
+            "started_at": running.started_at.isoformat(),
+            "status": "sending",
+            "attempted": 4,
+            "delivered": 0,
+            "failed": 0,
+            "initiated_by_name": "Ada Admin",
+            "initiated_by_email": self.admin.email,
+            "recipients_recorded": 0,
+        })
+        self.assertEqual(recent[1]["status"], EmailDeliveryMetric.Status.SUCCESS)
+
+    def test_first_running_announcement_send_is_listed_before_any_metric(self):
+        running = self.running_delivery(self.snapshot_at - timedelta(minutes=5))
+
+        recent = self.get_as_admin()["recent_sends"]
+
+        self.assertEqual([(row["delivery_id"], row["status"]) for row in recent], [(running.id, "sending")])
+
+    def test_finished_or_interrupted_announcement_sends_are_not_sending(self):
+        # Interrupted: never completed, and started longer ago than any send runs.
+        self.running_delivery(self.snapshot_at - timedelta(minutes=31))
+        # Every recipient tried and its metric row written, but the delivery
+        # row not completed yet: listed once, from the metric row.
+        finished = self.delivery(
+            started_at=self.snapshot_at - timedelta(minutes=2),
+            recipients=4,
+            delivered=4,
+            failed=0,
+            delivery_status=AnnouncementDelivery.Status.SUCCESS,
+        )
+        AnnouncementDelivery.objects.filter(pk=finished.pk).update(completed_at=None)
+
+        recent = self.get_as_admin()["recent_sends"]
+
+        self.assertEqual([row["status"] for row in recent], [EmailDeliveryMetric.Status.SUCCESS])
+        self.assertIsNotNone(recent[0]["id"])
+
     def test_twenty_four_hour_window_excludes_exact_lower_boundary(self):
         latest = datetime(2026, 9, 15, 12, tzinfo=datetime_timezone.utc)
         announcement = self.targeted_announcement(

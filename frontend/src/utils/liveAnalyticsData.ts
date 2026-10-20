@@ -1204,7 +1204,9 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
     },
     logs: email.recent_sends
       ? email.recent_sends.map((row) => ({
-          id: row.id,
+          // A send still going has no id yet; its delivery row's id, negated,
+          // keeps the row apart from finished sends.
+          id: row.id ?? -(row.delivery_id ?? 0),
           sender: row.initiated_by_name || 'System',
           senderEmail: row.initiated_by_email || '—',
           recipient: recipientCount(row.attempted),
@@ -1213,7 +1215,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           type: row.email_type_label,
           sentAt: formatLogTime(row.started_at),
           sentAtIso: row.started_at,
-          status: logStatus(row.status, row.delivered, row.failed),
+          status: logStatus(row.status, row.delivered, row.failed, row.status === 'sending'),
           attempted: row.attempted,
           delivered: row.delivered,
           failed: row.failed,
