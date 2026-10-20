@@ -39,6 +39,8 @@ interface User {
   join_perm_granted_at?: string | null
   pending_guardian?: (GuardianDetails & { requested_at: string }) | null
   interests?: string[]
+  /** As given registering, and changeable on their profile. */
+  pronouns?: string | null
   supervisor_name?: string | null
   supervisor_id?: number | null
   /** The student's own details are their supervisor's to change. */

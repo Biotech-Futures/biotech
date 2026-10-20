@@ -2,7 +2,7 @@
   <label class="table-options">
     <span class="table-options__label">Options</span>
     <AppSelect
-      class="table-options__select"
+      class="table-options__select table-filter"
       :model-value="choice"
       :options="menuOptions"
       @update:model-value="onOption"
@@ -135,15 +135,5 @@ const onOption = async (value: AppSelectValue) => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.table-options__select {
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  color: var(--teal);
-  background: var(--surface-elevated);
 }
 </style>

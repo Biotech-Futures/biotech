@@ -44,7 +44,7 @@
             type="number"
             min="1"
             :value="inactiveDays"
-            class="admin-mentors__inactive-input"
+            class="admin-mentors__inactive-input table-filter"
             @change="onInactiveDaysChange"
           />
           <span class="admin-mentors__inactive-label">days</span>
@@ -263,15 +263,11 @@ defineExpose({
   white-space: nowrap;
 }
 
+/* The table's filter box, at its own narrow width. */
 .admin-mentors__inactive-input {
   width: 4.5rem;
-  height: 2rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
+  min-width: 0;
   background-color: var(--white);
-  color: var(--teal);
-  font-size: 0.9rem;
 }
 
 .admin-mentors__badge {

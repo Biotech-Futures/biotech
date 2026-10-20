@@ -13,6 +13,8 @@ class KnownUniversity(models.Model):
     acronym = models.CharField(max_length=64, blank=True, default="")
     country = models.CharField(max_length=100, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+    # Set on every change to its name, acronym or country.
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'known_university'

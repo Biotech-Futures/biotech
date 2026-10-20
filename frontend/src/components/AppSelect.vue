@@ -406,8 +406,10 @@ const onKeydown = (event: KeyboardEvent) => {
   text-overflow: ellipsis;
 }
 
-/* Large: the page's line height, as the text boxes beside it have. */
-.app-select.is-large .app-select__input {
+/* Large, or the shared text box (app-input): the page's line height, as
+   the text boxes beside it have, so it's as tall as they are. */
+.app-select.is-large .app-select__input,
+.app-select.app-input .app-select__input {
   line-height: inherit;
 }
 
@@ -451,6 +453,27 @@ const onKeydown = (event: KeyboardEvent) => {
 
 .app-select__sizer > span {
   display: block;
+}
+
+/* The shared box (app-input) fills its column, so its longest option
+   mustn't widen the column past the boxes beside it. */
+.app-select.app-input .app-select__sizer {
+  width: 0;
+  padding-right: 0;
+}
+
+/* A compact one (app-input--compact) keeps its own width: as wide as its
+   longest option, up to what its page allows. */
+.app-select.app-input--compact .app-select__sizer {
+  width: auto;
+  padding-right: 1.25rem;
+}
+
+/* Its text centred in its height, as a text box's is, rather than pushed
+   down by padding its line doesn't fit inside. */
+.app-select.app-input--compact {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .app-select__validator {

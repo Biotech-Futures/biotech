@@ -12,7 +12,6 @@ from .models import (
 from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
-from apps.common.storage import get_profile_image_storage
 from django.db import DatabaseError
 from django.db.models import Q
 from django.conf import settings
@@ -285,10 +284,12 @@ class JoinPermissionRequestSerializer(serializers.Serializer):
 
 
 class SelfNameSerializer(serializers.Serializer):
-    """The name a supervisor may change on their own profile."""
+    """The name and pronouns a supervisor may change on their own profile."""
 
     first_name = serializers.CharField(max_length=255, required=False)
     last_name = serializers.CharField(max_length=255, required=False)
+    # Blank leaves them unsaid.
+    pronouns = serializers.CharField(max_length=100, required=False, allow_blank=True)
 
 
 class StudentSelfProfileUpdateSerializer(serializers.Serializer):
@@ -296,6 +297,8 @@ class StudentSelfProfileUpdateSerializer(serializers.Serializer):
 
     first_name = serializers.CharField(max_length=255, required=False)
     last_name = serializers.CharField(max_length=255, required=False)
+    # Blank leaves them unsaid, as registering allows.
+    pronouns = serializers.CharField(max_length=100, required=False, allow_blank=True)
     school_name = serializers.CharField(max_length=255, required=False)
     year_lvl = serializers.ChoiceField(
         choices=[str(level) for level in range(9, 13)],
@@ -327,6 +330,8 @@ class UserSerializer(serializers.ModelSerializer):
     ment_inst = serializers.SerializerMethodField()
     ment_reason = serializers.SerializerMethodField()
     ment_max_groups = serializers.SerializerMethodField()
+    # Their details as their admin panel shows them, for their own profile.
+    mentor_details = serializers.SerializerMethodField()
 
     # Profile page additions (read-only):
     #   * `interests` is the user's selected areas of interest (any role).
@@ -382,6 +387,7 @@ class UserSerializer(serializers.ModelSerializer):
             "ment_inst",
             "ment_reason",
             "ment_max_groups",
+            "mentor_details",
             "interests",
             "supervisor_name",
             "supervisor_email",
@@ -605,6 +611,20 @@ class UserSerializer(serializers.ModelSerializer):
         return None if mp is None else mp.institution
     
     @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_mentor_details(self, obj):
+        """A mentor's details as their admin panel has them (their background,
+        where they work or study, capacity, hours, weekly times and groups),
+        but not their application's answers; None for anyone else."""
+        mp = self._mentor_profile(obj)
+        if mp is None:
+            return None
+        from apps.admin.services.user import _mentor_dict, member_extras
+
+        details = _mentor_dict(mp, member_extras([obj.pk])[obj.pk])
+        for answer in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
+            details.pop(answer, None)
+        return details
+
     def get_ment_reason(self, obj):
         mp = self._mentor_profile(obj)
         return None if mp is None else mp.mentor_reason
@@ -671,18 +691,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_profile_image_url(self, obj):
-        if not obj.profile_image_key:
-            return None
-        url = get_profile_image_storage().url(
-            obj.profile_image_key,
-            content_type=obj.profile_image_content_type or None,
-        )
-        # FileSystemStorage returns a relative ``/media/...`` URL. The SPA
-        # runs on another local origin (Vite :5173), so make that URL point at
-        # Django rather than accidentally requesting it from the frontend.
-        if url.startswith("/"):
-            return f"{settings.BACKEND_URL}{url}"
-        return url
+        from .profile_images import profile_image_url
+
+        return profile_image_url(obj)
 
     @extend_schema_field(serializers.BooleanField())
     def get_must_change_password(self, obj) -> bool:
@@ -718,6 +729,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
+    pronouns = serializers.CharField(allow_blank=True)
     email = serializers.EmailField()
     country_id = serializers.IntegerField(allow_null=True)
     country_name = serializers.CharField(allow_blank=True)
@@ -726,6 +738,8 @@ class SupervisedStudentSerializer(serializers.Serializer):
     account_status = serializers.CharField()
     media_consent = serializers.BooleanField(allow_null=True)
     media_consent_at = serializers.DateTimeField(allow_null=True)
+    profile_image_url = serializers.CharField(allow_null=True, required=False)
+    policies_agreed_at = serializers.DateTimeField(allow_null=True, required=False)
     school_name = serializers.CharField(allow_blank=True)
     year_lvl = serializers.CharField(allow_blank=True)
     interests = serializers.ListField(child=serializers.CharField())
@@ -819,6 +833,8 @@ class StudentGuardianUpdateSerializer(serializers.Serializer):
 class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=255)
     last_name = serializers.CharField(max_length=255)
+    # Blank leaves them unsaid, as registering allows.
+    pronouns = serializers.CharField(max_length=100, required=False, allow_blank=True)
     email = serializers.EmailField(required=False)
     # Where the student is, as their Personal information shows it.
     country_id = serializers.PrimaryKeyRelatedField(queryset=Countries.objects.all(), required=False, allow_null=True)

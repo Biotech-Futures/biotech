@@ -49,59 +49,69 @@ describe('Known Universities', () => {
     await wrapper.get('.data-table-search-input').setValue('sy')
     expect(names(wrapper)).toEqual(['USYD'])
     await wrapper.get('.data-table-search-input').setValue('monash')
-    expect(wrapper.text()).toContain('No name matches.')
+    expect(wrapper.text()).toContain('No university matches.')
   })
 
-  it('adds a name in its place by name', async () => {
-    vi.mocked(addKnownUniversity).mockResolvedValue({ id: 3, name: 'Monash', createdAt: '2026-10-20T00:00:00Z' })
+  it('adds one from its popup, with its acronym and country, in its place by name', async () => {
+    vi.mocked(addKnownUniversity).mockResolvedValue({
+      id: 3, name: 'Monash University', acronym: 'MU', country: 'Australia', createdAt: '2026-10-20T00:00:00Z',
+    })
     const wrapper = await mountPage()
 
-    await wrapper.get('[data-test="university-new-name"]').setValue(' Monash ')
-    await wrapper.get('[data-test="university-add"]').trigger('submit')
+    await wrapper.get('[data-test="university-add-open"]').trigger('click')
+    await wrapper.get('[data-test="university-name"]').setValue(' Monash University ')
+    await wrapper.get('[data-test="university-acronym"]').setValue('MU')
+    await wrapper.get('[data-test="university-country"]').setValue('Australia')
+    await wrapper.get('[data-test="university-form"]').trigger('submit')
     await flushPromises()
 
-    expect(addKnownUniversity).toHaveBeenCalledWith(' Monash ')
-    expect(names(wrapper)).toEqual(['Monash', 'UNSW', 'USYD'])
-    expect((wrapper.get('[data-test="university-new-name"]').element as HTMLInputElement).value).toBe('')
+    expect(addKnownUniversity).toHaveBeenCalledWith({ name: ' Monash University ', acronym: 'MU', country: 'Australia' })
+    expect(names(wrapper)).toEqual(['Monash University', 'UNSW', 'USYD'])
+    // The popup closes once it's added.
+    expect(wrapper.find('[data-test="university-form"]').exists()).toBe(false)
   })
 
-  it("says why an add was refused, keeping what's typed", async () => {
+  it("says in the popup why an add was refused, keeping what's typed", async () => {
     vi.mocked(addKnownUniversity).mockRejectedValue(refused("'USYD' is already on the list"))
     const wrapper = await mountPage()
 
-    await wrapper.get('[data-test="university-new-name"]').setValue('usyd')
-    await wrapper.get('[data-test="university-add"]').trigger('submit')
+    await wrapper.get('[data-test="university-add-open"]').trigger('click')
+    await wrapper.get('[data-test="university-name"]').setValue('usyd')
+    await wrapper.get('[data-test="university-form"]').trigger('submit')
     await flushPromises()
 
     expect(wrapper.get('[role="alert"]').text()).toBe("'USYD' is already on the list")
-    expect((wrapper.get('[data-test="university-new-name"]').element as HTMLInputElement).value).toBe('usyd')
+    expect((wrapper.get('[data-test="university-name"]').element as HTMLInputElement).value).toBe('usyd')
   })
 
-  it('renames one in its row', async () => {
-    vi.mocked(renameKnownUniversity).mockResolvedValue({ ...usyd, name: 'Sydney Uni' })
+  it('edits one in its popup: its name, acronym and country', async () => {
+    vi.mocked(renameKnownUniversity).mockResolvedValue({ ...usyd, name: 'Sydney Uni', acronym: 'USYD', country: 'Australia' })
     const wrapper = await mountPage()
 
     await wrapper.get('[data-test="university-edit-1"]').trigger('click')
-    await wrapper.get('[data-test="university-edit-name"]').setValue('Sydney Uni')
-    await wrapper.get('[data-test="university-save"]').trigger('click')
+    expect((wrapper.get('[data-test="university-name"]').element as HTMLInputElement).value).toBe('USYD')
+    await wrapper.get('[data-test="university-name"]').setValue('Sydney Uni')
+    await wrapper.get('[data-test="university-acronym"]').setValue('USYD')
+    await wrapper.get('[data-test="university-country"]').setValue('Australia')
+    await wrapper.get('[data-test="university-form"]').trigger('submit')
     await flushPromises()
 
-    expect(renameKnownUniversity).toHaveBeenCalledWith(1, 'Sydney Uni')
+    expect(renameKnownUniversity).toHaveBeenCalledWith(1, { name: 'Sydney Uni', acronym: 'USYD', country: 'Australia' })
     expect(names(wrapper)).toEqual(['Sydney Uni', 'UNSW'])
-    expect(wrapper.find('[data-test="university-edit-name"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="university-form"]').exists()).toBe(false)
   })
 
-  it('keeps the box open with the reason when a rename is refused', async () => {
+  it('keeps the popup open with the reason when an edit is refused', async () => {
     vi.mocked(renameKnownUniversity).mockRejectedValue(refused("'UNSW' is already on the list"))
     const wrapper = await mountPage()
 
     await wrapper.get('[data-test="university-edit-1"]').trigger('click')
-    await wrapper.get('[data-test="university-edit-name"]').setValue('unsw')
-    await wrapper.get('[data-test="university-save"]').trigger('click')
+    await wrapper.get('[data-test="university-name"]').setValue('unsw')
+    await wrapper.get('[data-test="university-form"]').trigger('submit')
     await flushPromises()
 
     expect(wrapper.get('[role="alert"]').text()).toBe("'UNSW' is already on the list")
-    expect(wrapper.find('[data-test="university-edit-name"]').exists()).toBe(true)
+    expect((wrapper.get('[data-test="university-name"]').element as HTMLInputElement).value).toBe('unsw')
   })
 
   it('deletes one once confirmed', async () => {

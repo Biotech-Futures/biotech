@@ -1,6 +1,6 @@
 <template>
   <div class="email-type-list">
-    <div class="email-type-list__search">
+    <div class="email-type-list__search app-input app-input--wide">
       <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
       <input
         v-model="query"
@@ -151,23 +151,22 @@ const filtered = computed(() => {
   min-width: 0;
 }
 
+/* The shared box (app-input) across the column, with its magnifier. */
 .email-type-list__search {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  background: #ffffff;
   color: #9ca3af;
 }
 
+/* The box's own text, with no box of its own. */
 .email-type-list__search-input {
   flex: 1;
   min-width: 0;
+  padding: 0;
   border: none;
   outline: none;
-  font-size: 0.875rem;
+  font: inherit;
   color: #111827;
   background: transparent;
 }

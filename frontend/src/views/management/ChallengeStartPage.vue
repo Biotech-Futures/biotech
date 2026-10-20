@@ -26,7 +26,7 @@
       <form class="challenge-start__form" @submit.prevent="save(startsOn || null)">
         <label class="challenge-start__field">
           <span>Starts on</span>
-          <input v-model="startsOn" type="date" data-test="challenge-start-date" />
+          <input v-model="startsOn" type="date" class="app-input app-input--compact" data-test="challenge-start-date" />
         </label>
         <div class="challenge-start__actions">
           <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
@@ -143,14 +143,10 @@ onMounted(async () => {
   color: var(--teal);
 }
 
+/* The shared compact box (app-input), at its own width. */
 .challenge-start__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
 }
 
 .challenge-start__field input:focus {

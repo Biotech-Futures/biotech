@@ -521,6 +521,60 @@ class StudentProfileDashboardFieldsTests(TestCase):
         self.assertTrue(response.data["join_perm"])
         self.assertIsNotNone(response.data["joinperm_granted_at"])
 
+    def test_edit_options_offer_only_the_registration_interests_in_its_order(self):
+        from apps.users.models import AreasOfInterest
+        from apps.users.profile_options import AREAS_OF_INTEREST
+
+        client = APIClient()
+        student = User.objects.create_user(email="interest-options@test.com", first_name="Ivy", last_name="Student")
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", pg_email="pat@test.com",
+            school_name="Test High", year_lvl="10",
+        )
+        # As users 0023 loads them, backwards, beside an old or seeded area
+        # registration doesn't offer.
+        for name in reversed(AREAS_OF_INTEREST):
+            AreasOfInterest.objects.get_or_create(interest_desc=name)
+        AreasOfInterest.objects.create(interest_desc="Biochemistry")
+
+        client.force_authenticate(user=student)
+        response = client.get(reverse("student-profile-options"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["interest_desc"] for row in response.data["interests"]], AREAS_OF_INTEREST)
+
+    def _pronoun_student(self, **profile):
+        student = User.objects.create_user(
+            email="pronouns@test.com", first_name="Sam", last_name="Student", pronouns="He/him",
+        )
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", pg_email="pat@test.com",
+            school_name="Test High", year_lvl="10", **profile,
+        )
+        client = APIClient()
+        client.force_authenticate(user=student)
+        return student, client
+
+    def test_student_changes_or_clears_their_pronouns(self):
+        student, client = self._pronoun_student()
+
+        response = client.patch(reverse("MeListHTMLView"), {"pronouns": " Xe/xem "}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pronouns"], "Xe/xem")
+        client.patch(reverse("MeListHTMLView"), {"pronouns": ""}, format="json")
+        student.refresh_from_db()
+        self.assertEqual(student.pronouns, "")
+
+    def test_pronouns_are_the_supervisors_to_change_when_they_manage_the_student(self):
+        student, client = self._pronoun_student(supervisor_edited_at=timezone.now())
+
+        response = client.patch(reverse("MeListHTMLView"), {"pronouns": "They/them"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        student.refresh_from_db()
+        self.assertEqual(student.pronouns, "He/him")
+
 
 class ReceiveJoinPermissionTokenTests(TestCase):
     """The legacy ``AllowAny`` on ``ReceiveJoinPermissionView`` let any anonymous
@@ -888,6 +942,18 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(blank.status_code, 400)
         school = self.client.patch("/api/v1/users/me/", {"school_name": "Elsewhere"}, format="json")
         self.assertEqual(school.status_code, 400)
+
+    def test_supervisor_changes_or_clears_their_own_pronouns(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.patch("/api/v1/users/me/", {"pronouns": " She/her "}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.supervisor.refresh_from_db()
+        self.assertEqual(self.supervisor.pronouns, "She/her")
+        self.client.patch("/api/v1/users/me/", {"pronouns": ""}, format="json")
+        self.supervisor.refresh_from_db()
+        self.assertEqual(self.supervisor.pronouns, "")
 
     def test_supervisor_can_record_guardian_details(self):
         self.client.force_login(self.supervisor)
@@ -1709,3 +1775,155 @@ class RegistrationThenConsentTests(TestCase):
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertTrue(self.profile.parent_guardian_flag)
+
+
+class MentorOwnProfileTests(TestCase):
+    """A mentor's own profile: their details as their admin panel shows
+    them, without their application's answers."""
+
+    def test_the_profile_gives_their_details_weekly_times_and_groups_not_their_answers(self):
+        from datetime import time
+
+        from apps.groups.models import GroupMembership
+        from apps.users.models import MentorProfile
+        from apps.users.models.mentor_availability import MentorAvailability
+
+        mentor = User.objects.create_user(email="mia@uni.example", first_name="Mia", last_name="Ng")
+        RoleAssignmentHistory.objects.create(
+            user=mentor, role=Roles.objects.get_or_create(role_name="mentor")[0],
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        MentorProfile.objects.create(
+            user=mentor, background="postgraduate", institution="Uni", university_year="2",
+            field_of_study="Biology", mentor_reason="To help", max_group_count=3, weekly_hours=4,
+        )
+        MentorAvailability.objects.create(mentor_user=mentor, weekday=0, start_time=time(18), end_time=time(19))
+        group = Groups.objects.create(group_name="BTF7")
+        GroupMembership.objects.create(group=group, user=mentor, membership_role="mentor")
+        client = APIClient()
+        client.force_authenticate(mentor)
+
+        details = client.get(reverse("MeListHTMLView")).json()["mentor_details"]
+
+        self.assertEqual(
+            (details["mentorBackground"], details["mentorUniversityYear"], details["mentorFieldOfStudy"],
+             details["mentorMaxGroupCount"], details["mentorWeeklyHours"]),
+            ("postgraduate", "2", "Biology", 3, 4),
+        )
+        self.assertEqual(details["mentorAvailability"], [{"weekday": 0, "start": "18:00", "end": "19:00"}])
+        self.assertEqual([g["name"] for g in details["mentorGroups"]], ["BTF7"])
+        self.assertNotIn("mentorReason", details)
+
+
+class MentorSelfEditTests(TestCase):
+    """A mentor changes their own details on their profile, checked as their
+    admin panel's edit is; their answers and groups stay an admin's."""
+
+    def setUp(self):
+        from apps.users.models import MentorProfile
+
+        self.au, _ = Countries.objects.get_or_create(country_name="Australia")
+        self.nsw, _ = CountryStates.objects.get_or_create(country=self.au, state_name="NSW")
+        Countries.objects.get_or_create(country_name="New Zealand")
+        self.mentor = User.objects.create_user(email="mia@uni.example", first_name="Mia", last_name="Ng")
+        RoleAssignmentHistory.objects.create(
+            user=self.mentor, role=Roles.objects.get_or_create(role_name="mentor")[0],
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        MentorProfile.objects.create(
+            user=self.mentor, background="postgraduate", institution="Uni", university_year="2",
+            field_of_study="Biology", mentor_reason="To help", max_group_count=3,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.mentor)
+        self.url = reverse("me-mentor-details")
+
+    def test_a_mentor_changes_their_details_weekly_times_and_place(self):
+        from apps.users.models import MentorProfile
+
+        response = self.client.patch(self.url, {
+            "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "", "mentorMaxGroupCount": 2, "mentorWeeklyHours": 5,
+            "mentorAvailability": [{"weekday": 1, "start": "17:00", "end": "18:00"}],
+            "pronouns": "They/them", "country": "New Zealand", "state": "Auckland",
+        }, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        profile = MentorProfile.objects.get(user=self.mentor)
+        self.assertEqual((profile.background, profile.company, profile.weekly_hours), ("industry", "Acme Bio", 5))
+        details = response.json()["mentor_details"]
+        self.assertEqual(details["mentorAvailability"], [{"weekday": 1, "start": "17:00", "end": "18:00"}])
+        self.mentor.refresh_from_db()
+        self.assertEqual(
+            (self.mentor.pronouns, self.mentor.country.country_name, self.mentor.state.state_name),
+            ("They/them", "New Zealand", "Auckland"),
+        )
+
+    def test_their_answers_and_a_non_mentor_are_refused(self):
+        self.assertEqual(self.client.patch(self.url, {"mentorReason": "Other"}, format="json").status_code, 400)
+        student = User.objects.create_user(email="kid@example.com", first_name="Kid", last_name="Lee")
+        self.client.force_authenticate(student)
+        self.assertEqual(self.client.patch(self.url, {"pronouns": "He/him"}, format="json").status_code, 403)
+
+
+class AdminSelfEditTests(TestCase):
+    """An admin changes their own name, pronouns and place on their profile,
+    but not their email or status."""
+
+    def setUp(self):
+        Countries.objects.get_or_create(country_name="New Zealand")
+        self.admin = User.objects.create_user(email="ada@biotech.example", first_name="Ada", last_name="Admin")
+        AdminScope.objects.create(user=self.admin)
+        RoleAssignmentHistory.objects.create(
+            user=self.admin, role=Roles.objects.get_or_create(role_name="admin")[0],
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.admin.activate()
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+        self.url = reverse("me-admin-details")
+
+    def test_an_admin_changes_their_name_pronouns_and_place(self):
+        response = self.client.patch(self.url, {
+            "firstName": "Adah", "lastName": "Lovelace", "pronouns": "She/her",
+            "country": "New Zealand", "state": "Otago",
+        }, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.admin.refresh_from_db()
+        self.assertEqual(
+            (self.admin.first_name, self.admin.last_name, self.admin.pronouns,
+             self.admin.country.country_name, self.admin.state.state_name),
+            ("Adah", "Lovelace", "She/her", "New Zealand", "Otago"),
+        )
+
+    def test_an_admin_changes_their_own_email_but_never_to_one_taken(self):
+        User.objects.create_user(email="taken@biotech.example", first_name="Tai", last_name="Ken")
+
+        response = self.client.patch(self.url, {"email": " New@Biotech.example "}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.email, "new@biotech.example")
+        taken = self.client.patch(self.url, {"email": "taken@biotech.example"}, format="json")
+        self.assertEqual(taken.status_code, 400)
+
+    def test_an_admin_stays_an_admin_and_changes_their_own_status(self):
+        self.client.patch(self.url, {"firstName": "Adah"}, format="json")
+        self.assertTrue(AdminScope.objects.filter(user=self.admin).exists())
+        self.assertFalse(StudentProfile.objects.filter(user=self.admin).exists())
+
+        response = self.client.patch(self.url, {"isActive": False}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_active)
+
+    def test_not_a_non_admin_nor_an_admin_without_their_admin_role(self):
+        bare = User.objects.create_user(email="bare@biotech.example", first_name="Bare", last_name="Admin")
+        AdminScope.objects.create(user=bare)
+        self.client.force_authenticate(bare)
+        self.assertEqual(self.client.patch(self.url, {"firstName": "B"}, format="json").status_code, 403)
+        student = User.objects.create_user(email="kid@example.com", first_name="Kid", last_name="Lee")
+        self.client.force_authenticate(student)
+        self.assertEqual(self.client.patch(self.url, {"pronouns": "He/him"}, format="json").status_code, 403)

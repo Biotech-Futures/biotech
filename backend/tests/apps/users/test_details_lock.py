@@ -137,6 +137,21 @@ class StudentEditLockTests(TestCase):
         self.assertIsNotNone(self.profile.supervisor_edited_at)
         self.assertEqual(self._edit_name().status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_a_supervisor_changes_their_pronouns_and_leaving_them_out_keeps_them(self):
+        supervisor = APIClient()
+        supervisor.force_authenticate(self.supervisor)
+        url = reverse("supervised-student-detail", kwargs={"pk": self.student.pk})
+        details = {"first_name": "Amy", "last_name": "Chen", "school_name": "Test High", "year_lvl": "11"}
+
+        response = supervisor.patch(url, {**details, "pronouns": " They/them "}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["pronouns"], "They/them")
+        # Personal information's Edit sends none, and changes nothing of them.
+        supervisor.patch(url, details, format="json")
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.pronouns, "They/them")
+
 
 class AdminAddedStudentTests(TestCase):
     def test_a_student_an_admin_adds_is_recorded_as_such_and_free_to_edit(self):

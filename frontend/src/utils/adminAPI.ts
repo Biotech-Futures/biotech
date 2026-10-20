@@ -225,6 +225,13 @@ export interface AdminUser {
   id: number
   firstName: string | null
   lastName: string | null
+  /** As given registering, or since changed: blank when unsaid. */
+  pronouns?: string
+  /** Where their profile photo loads from, or null without one. */
+  profileImageUrl?: string | null
+  /** When they agreed to the BIOTech Futures policies, registering; null
+   *  for anyone who hasn't (added by someone else, or registered before). */
+  policiesAgreedAt?: string | null
   email: string | null
   role: string | null
   country: AdminUserCountry | null
@@ -402,6 +409,21 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     msg: env.msg,
     data: env.data
   }))
+
+/** A user's profile photo replaced, as the dashboard's upload checks it. */
+export const uploadAdminUserPhoto = (userId: string | number, file: File) => {
+  const formData = new FormData()
+  formData.append('image', file)
+  return adminRequest<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+/** A user's profile photo taken off. */
+export const removeAdminUserPhoto = (userId: string | number) =>
+  adminDelete<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`).then((env) => env.data)
 
 /** A supervisor's students added or taken off, by student or by group. */
 export interface SuperviseesChangeInput {
@@ -588,7 +610,10 @@ export const fetchEmailCheckCredits = () =>
 export interface KnownUniversity {
   id: number
   name: string
+  acronym?: string
+  country?: string
   createdAt: string | null
+  updatedAt?: string | null
 }
 
 /** Every listed name, by name. */
@@ -597,13 +622,14 @@ export const fetchKnownUniversities = () =>
     (env) => env.data.items
   )
 
-/** Add one; refused when blank, too long or already listed in any casing. */
-export const addKnownUniversity = (name: string) =>
-  adminPost<AdminEnvelope<KnownUniversity>>('/known-university/', { name }).then((env) => env.data)
+/** Add one: its full name, and its acronym and country if known. Refused
+ *  when the name is blank, too long or already listed in any casing. */
+export const addKnownUniversity = (university: { name: string; acronym?: string; country?: string }) =>
+  adminPost<AdminEnvelope<KnownUniversity>>('/known-university/', university).then((env) => env.data)
 
-/** Rename one, checked as an added name is. */
-export const renameKnownUniversity = (id: number, name: string) =>
-  adminPatch<AdminEnvelope<KnownUniversity>>(`/known-university/${id}/`, { name }).then((env) => env.data)
+/** Change one's full name, acronym or country, the name checked as an added one is. */
+export const renameKnownUniversity = (id: number, university: { name: string; acronym?: string; country?: string }) =>
+  adminPatch<AdminEnvelope<KnownUniversity>>(`/known-university/${id}/`, university).then((env) => env.data)
 
 export const deleteKnownUniversity = (id: number) =>
   adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)

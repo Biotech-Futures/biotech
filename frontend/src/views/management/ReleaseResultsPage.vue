@@ -22,12 +22,13 @@
         <div class="release-results__fields">
           <label class="release-results__field release-results__field--wide">
             <span>Feedback Survey Link</span>
-            <input v-model="form.survey_url" type="url" placeholder="https://…" />
+            <input v-model="form.survey_url" class="app-input app-input--compact" type="url" placeholder="https://…" />
           </label>
           <label class="release-results__field">
             <span>Survey Closes</span>
             <input
               v-model="form.survey_closes"
+              class="app-input app-input--compact"
               type="date"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && closesPast }"
@@ -92,7 +93,7 @@
               </button>
               <AppSelect
                 :model-value="sheetSupervisor"
-                class="release-results__supervisor-select"
+                class="release-results__supervisor-select app-input app-input--compact app-input--small"
                 aria-label="Supervisor"
                 :options="sheetSupervisorOptions"
                 :disabled="!sheetSupervisors.length"
@@ -602,14 +603,10 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   color: var(--text-muted);
 }
 
+/* The shared compact box (app-input), filling its column. */
 .release-results__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
 }
 
 .release-results__field input:focus {
@@ -658,14 +655,9 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   gap: 0.5rem;
 }
 
+/* The shared compact box (app-input), as wide as its longest name. */
 .release-results__supervisor-select {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
   max-width: 14rem;
 }
 

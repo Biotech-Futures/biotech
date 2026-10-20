@@ -25,12 +25,15 @@ from .views import (
     BulkUserStatusView,
     PasswordLoginView,
     SetPasswordView,
+    MeAdminDetailsView,
+    MeMentorDetailsView,
     ProfileImageUploadView,
     SupervisedStudentConsentLinksView,
     SupervisedGuardianUploadView,
     SupervisedStudentDetailsLinksView,
     SupervisedStudentDetailView,
     SupervisedStudentEmailView,
+    SupervisedStudentProfileImageView,
     SupervisedStudentOptionsView,
     SupervisedStudentSignaturesView,
     SupervisedStudentsView,
@@ -44,6 +47,7 @@ from .registration_intake import (
     RegistrationIntakeView,
     RegistrationManagementView,
     RegistrationStatesView,
+    RegistrationUniversitiesView,
 )
 
 urlpatterns = [
@@ -52,6 +56,8 @@ urlpatterns = [
     path("login/", PasswordLoginView.as_view(), name="password-login"),
     path("set-password/", SetPasswordView.as_view(), name="set-password"),
     path("users/me/", MeRetrieveView.as_view(), name="MeListHTMLView"),
+    path("users/me/mentor/", MeMentorDetailsView.as_view(), name="me-mentor-details"),
+    path("users/me/admin/", MeAdminDetailsView.as_view(), name="me-admin-details"),
     path("users/me/guardian/", MeGuardianView.as_view(), name="me-guardian"),
     path("users/supervised-students/", SupervisedStudentsView.as_view(), name="supervised-students"),
     path("users/supervised-students/email/", SupervisedStudentEmailView.as_view(), name="supervised-students-email"),
@@ -73,6 +79,11 @@ urlpatterns = [
         name="supervised-students-guardian-upload",
     ),
     path("users/supervised-students/<int:pk>/", SupervisedStudentDetailView.as_view(), name="supervised-student-detail"),
+    path(
+        "users/supervised-students/<int:pk>/profile-image/",
+        SupervisedStudentProfileImageView.as_view(),
+        name="supervised-student-profile-image",
+    ),
     path("users/supervised-groups/mentors/", SupervisedMentorsView.as_view(), name="supervised-mentors"),
     path("users/supervised-groups/interests/", SupervisedInterestCatalogView.as_view(), name="supervised-group-interests"),
     path("users/supervised-groups/", SupervisedGroupsView.as_view(), name="supervised-groups"),
@@ -91,6 +102,7 @@ urlpatterns = [
     path("registration/group-code/", RegistrationGroupCodeView.as_view(), name="registration-group-code"),
     path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
+    path("registration/universities/", RegistrationUniversitiesView.as_view(), name="registration-universities"),
     # Upload student details, from an .xlsx: its first sheet as CSV text.
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
     # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).

@@ -23,6 +23,7 @@ import csv
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
 from apps.users.models import KnownUniversity
 
@@ -63,6 +64,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         rows = read_rows(options["csv_path"], options["column"])
         listed = {university.full_name.lower(): university for university in KnownUniversity.objects.all()}
+        now = timezone.now()
         new, updated, conflicts, skipped, seen = [], [], [], 0, set()
         for row in rows:
             key = row["full_name"].lower()
@@ -83,6 +85,7 @@ class Command(BaseCommand):
                 elif theirs and ours.lower() != theirs.lower():
                     conflicts.append(f"{existing.full_name}: {field} is {ours!r}, the file says {theirs!r}")
             if changed:
+                existing.updated_at = now
                 updated.append(existing)
             else:
                 skipped += 1
@@ -90,7 +93,7 @@ class Command(BaseCommand):
         if not options["dry_run"]:
             with transaction.atomic():
                 KnownUniversity.objects.bulk_create(new, batch_size=1000)
-                KnownUniversity.objects.bulk_update(updated, ["acronym", "country"], batch_size=1000)
+                KnownUniversity.objects.bulk_update(updated, ["acronym", "country", "updated_at"], batch_size=1000)
         for conflict in conflicts:
             self.stdout.write(f"Conflict, left as it is: {conflict}")
         add, fill = ("Would add", "would fill in") if options["dry_run"] else ("Added", "filled in")

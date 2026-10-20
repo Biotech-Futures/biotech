@@ -80,6 +80,7 @@ class ListTests(KnownUniversityApiTestCase):
             {
                 "id": usyd.pk, "fullName": "USYD", "acronym": "", "country": "", "name": "USYD",
                 "createdAt": usyd.created_at.isoformat(),
+                "updatedAt": usyd.updated_at.isoformat(),
             },
         )
 
@@ -112,6 +113,7 @@ class AddTests(KnownUniversityApiTestCase):
         university = KnownUniversity.objects.get()
         self.assertEqual(body["data"], {
             "id": university.pk, "fullName": "Monash Uni", "acronym": "", "country": "", "name": "Monash Uni",
+            "updatedAt": university.updated_at.isoformat(),
             "createdAt": university.created_at.isoformat(),
         })
 

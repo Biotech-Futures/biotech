@@ -36,12 +36,14 @@ describe('registration form factories', () => {
 
   it('starts every group member as Member 1, with their guardian optional', () => {
     const forms = createRegistrationForms()
-    expect(forms.studentTeam.creator.country).toBe('Australia')
+    // No country is chosen for anyone: each picks their own.
+    expect(forms.studentTeam.creator.country).toBe('')
+    expect(forms.mentor.country).toBe('')
     for (const peer of [forms.studentTeam.teammates[0], createPendingPeer()]) {
       expect(peer).toMatchObject({
         school: '',
         yearLevel: '',
-        country: 'Australia',
+        country: '',
         state: '',
         interests: [],
         guardianDeferred: true,
@@ -166,7 +168,7 @@ describe('parseRegistrationCsv', () => {
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
     row.values.interests = ''
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
-    // A State in Australia, as on the student form; a Region elsewhere is optional.
+    // A State in Australia, as on the student form; elsewhere it's optional.
     row.values.state = ''
     expect(revalidateRegistrationCsvRows([row, peer])[0].fieldErrors?.state).toBe(
       'Enter the Australian state or territory.',

@@ -115,6 +115,7 @@
           <span class="sr-only">Rows per page</span>
           <AppSelect
             :model-value="pageSize"
+            class="table-page-size"
             :options="pageSizeChoices"
             :disabled="loading"
             aria-label="Rows per page"
@@ -466,15 +467,6 @@ const renderCell = (value: unknown) => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.9rem;
-}
-
-.admin-table__page-size .app-select {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background-color: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
 }
 
 .admin-table__page-info {

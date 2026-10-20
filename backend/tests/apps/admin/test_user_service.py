@@ -509,20 +509,23 @@ class AdminUserServiceCreateUserTests(TestCase):
         self.assertIsNotNone(profile.joinperm_granted_at)
         self.assertTrue(result["data"]["joinPermissionReceived"])
 
-    def test_create_student_missing_school_returns_error(self):
-        result = create_user({
-            "email": "student2@example.com",
-            "firstName": "Bob",
-            "lastName": "Student",
-            "role": "student",
-            "state": "NSW",
-            "yearLevel": 10,
-        })
+    def test_a_student_needs_only_an_email_the_rest_may_come_later(self):
+        result = create_user({"email": "student2@example.com", "role": "student"})
 
-        self.assertEqual(result["msg"], "School is required for student users")
-        self.assertIsNone(result["data"])
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = StudentProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual((profile.school_name, profile.year_lvl, profile.parent_guardian_flag), ("", "", False))
 
-    def test_create_student_missing_country_returns_error(self):
+        # Later edits aren't held up by what's still blank.
+        result = update_user(profile.user_id, {"firstName": "Bob"})
+        self.assertIsNotNone(result["data"], result["msg"])
+
+    def test_a_year_given_must_be_9_to_12(self):
+        result = create_user({"email": "student4@example.com", "role": "student", "yearLevel": 15})
+
+        self.assertEqual(result["msg"], "Year level must be from 9 to 12")
+
+    def test_a_student_may_be_added_without_a_country(self):
         result = create_user({
             "email": "student3@example.com",
             "firstName": "Cara",
@@ -533,8 +536,8 @@ class AdminUserServiceCreateUserTests(TestCase):
             "interests": ["Biotech"],
         })
 
-        self.assertEqual(result["msg"], "Country is required")
-        self.assertIsNone(result["data"])
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertIsNone(result["data"]["country"])
 
     def test_create_mentor_user(self):
         result = create_user({
@@ -1859,6 +1862,62 @@ class AdminUserTypedStateTests(TestCase):
         self.assertIsNone(self._state())
 
 
+class AdminStudentPronounsTests(TestCase):
+    """Student Details shows and changes a student's pronouns."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="pronouns@example.com", first_name="Sam", last_name="Lee", pronouns="He/him",
+        )
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(user=self.user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        StudentProfile.objects.create(
+            user=self.user, school_name="Test High", year_lvl="10",
+            pg_first_name="Pat", pg_last_name="Lee", pg_email="pat@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+        UserInterest.objects.create(user=self.user, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def test_they_are_shown_changed_and_cleared(self):
+        result = update_user(self.user.id, {"pronouns": " Xe/xem "})
+
+        self.assertEqual(result["data"]["pronouns"], "Xe/xem")
+        update_user(self.user.id, {"pronouns": ""})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pronouns, "")
+
+    def test_the_panel_has_their_photo_or_none(self):
+        from apps.admin.services.user import build_user_dict
+
+        self.assertIsNone(build_user_dict(self.user)["profileImageUrl"])
+        self.user.profile_image_key = "users/1/photo.png"
+        self.user.profile_image_content_type = "image/png"
+        self.assertIn("users/1/photo.png", build_user_dict(self.user)["profileImageUrl"])
+
+    def test_a_new_student_gets_the_pronouns_given(self):
+        from apps.admin.services.user import create_user
+
+        Roles.objects.get_or_create(role_name="student")
+        result = create_user({
+            "email": "new.student@example.com", "firstName": "Ivy", "lastName": "Lee", "role": "student",
+            "country": "Australia", "schoolName": "Test High", "yearLevel": 10, "interests": ["Biotech"],
+            "pronouns": " They/them ",
+        })
+
+        self.assertEqual(result["data"]["pronouns"], "They/them", result["msg"])
+        self.assertIsNone(create_user({
+            "email": "long@example.com", "firstName": "Ivy", "lastName": "Lee", "role": "student",
+            "country": "Australia", "schoolName": "Test High", "yearLevel": 10, "interests": ["Biotech"],
+            "pronouns": "x" * 101,
+        })["data"])
+
+    def test_too_long_or_not_text_is_refused(self):
+        self.assertEqual(update_user(self.user.id, {"pronouns": "x" * 101})["data"], None)
+        self.assertEqual(update_user(self.user.id, {"pronouns": 5})["data"], None)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pronouns, "He/him")
+
+
 class AdminMentorDetailsTests(TestCase):
     """A mentor's panel: what they registered with, their weekly times and
     groups, and an admin changing them as registering checks them."""
@@ -1915,12 +1974,13 @@ class AdminMentorDetailsTests(TestCase):
                     [("BTF2", 3), ("BTF10", 1)],
                 )
 
-    def test_an_industry_mentor_needs_a_company_not_an_institution(self):
+    def test_an_industry_mentor_keeps_a_company_not_an_institution(self):
+        # Blank is allowed: an admin may add a mentor before they're known.
         result = update_user(self.mentor.id, {
             "mentorBackground": "industry", "mentorCompany": "", "mentorInstitution": "",
             "mentorUniversityYear": "", "mentorFieldOfStudy": "",
         })
-        self.assertEqual(result["msg"], "Company is required for industry mentors")
+        self.assertIsNotNone(result["data"], result["msg"])
 
         result = update_user(self.mentor.id, {
             "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
@@ -1933,18 +1993,15 @@ class AdminMentorDetailsTests(TestCase):
         result = update_user(self.mentor.id, {"firstName": "Maya"})
         self.assertIsNotNone(result["data"], result["msg"])
 
-    def test_a_student_background_needs_its_year_and_field(self):
+    def test_a_student_background_may_leave_its_year_and_field_blank_but_not_a_made_up_year(self):
         result = update_user(self.mentor.id, {
             "mentorBackground": "undergraduate", "mentorInstitution": "Uni", "mentorUniversityYear": "",
-            "mentorFieldOfStudy": "Biology", "mentorCompany": "",
-        })
-        self.assertEqual(result["msg"], "Year of study is required for university students")
-
-        result = update_user(self.mentor.id, {
-            "mentorBackground": "academic", "mentorInstitution": "Uni", "mentorUniversityYear": "",
             "mentorFieldOfStudy": "", "mentorCompany": "",
         })
-        self.assertEqual(result["msg"], "Field of study is required for this background")
+        self.assertIsNotNone(result["data"], result["msg"])
+
+        result = update_user(self.mentor.id, {"mentorUniversityYear": "7"})
+        self.assertEqual(result["msg"], "Year of study is not valid")
 
     def test_answers_are_kept_to_150_words(self):
         result = update_user(self.mentor.id, {"mentorMentoringApproach": "word " * 151})
@@ -2133,3 +2190,49 @@ class AdminSuperviseesTests(TestCase):
         self.assertTrue(self._in_group(self.sam))
         # Pat still has Ben in BTF3.
         self.assertTrue(self._in_group(self.pat))
+
+
+class AdminAddMentorTests(TestCase):
+    """Add user's mentor form, as the mentor panel has it: their details,
+    weekly times and application answers, checked as the panel's edit is."""
+
+    def setUp(self):
+        Roles.objects.get_or_create(role_name="mentor")
+        self.mentor = {
+            "email": "new.mentor@example.com", "firstName": "Mia", "lastName": "Ng", "role": "mentor",
+            "country": "Australia", "mentorBackground": "postgraduate", "mentorInstitution": "Uni",
+            "mentorUniversityYear": "2", "mentorFieldOfStudy": "Biology", "mentorMaxGroupCount": 2,
+            "mentorWeeklyHours": 4, "mentorRelevantBackground": "Lab work", "mentorReason": "To help",
+            "mentorMentoringApproach": "Weekly calls",
+            "mentorAvailability": [{"weekday": 0, "start": "18:00", "end": "19:30"}],
+        }
+
+    def test_a_mentor_is_added_with_everything_the_form_gives(self):
+        from apps.admin.services.user import create_user
+
+        result = create_user(self.mentor)
+
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = MentorProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual(
+            (profile.background, profile.university_year, profile.field_of_study, profile.weekly_hours,
+             profile.max_group_count, profile.mentoring_approach),
+            ("postgraduate", "2", "Biology", 4, 2, "Weekly calls"),
+        )
+        self.assertEqual(result["data"]["mentorAvailability"], [{"weekday": 0, "start": "18:00", "end": "19:30"}])
+
+    def test_times_must_end_after_they_start(self):
+        from apps.admin.services.user import create_user
+
+        backwards = {**self.mentor, "mentorAvailability": [{"weekday": 0, "start": "19:00", "end": "18:00"}]}
+        self.assertEqual(create_user(backwards)["msg"], "Each weekly time must end after it starts")
+        self.assertFalse(User.objects.filter(email="new.mentor@example.com").exists())
+
+    def test_only_an_email_is_needed_the_rest_may_come_later(self):
+        from apps.admin.services.user import create_user
+
+        result = create_user({"email": "bare.mentor@example.com", "role": "mentor", "mentorWeeklyHours": None})
+
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = MentorProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual((profile.background, profile.institution, profile.max_group_count), (None, "", 2))

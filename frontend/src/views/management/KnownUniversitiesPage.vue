@@ -20,76 +20,37 @@
       row-key="id"
       :selectable="false"
       :loading="isLoading"
-      search-placeholder="Search names"
-      :default-sort="{ key: 'name', direction: 'asc' }"
-      :empty-message="search.trim() ? 'No name matches.' : 'No universities listed yet.'"
+      search-placeholder="Name, acronym or country"
+      :default-sort="{ key: 'updated', direction: 'desc' }"
+      :empty-message="search.trim() ? 'No university matches.' : 'No universities listed yet.'"
     >
       <template #stats>
         {{ universities.length }} {{ universities.length === 1 ? 'university' : 'universities' }} listed
       </template>
       <template #search-side>
-        <form class="known-universities__add" data-test="university-add" @submit.prevent="add">
-          <input
-            v-model="newName"
-            class="known-universities__input"
-            maxlength="255"
-            placeholder="Add a university, e.g. USYD"
-            aria-label="Add a university"
-            data-test="university-new-name"
-          />
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="isAdding || !newName.trim()">
-            {{ isAdding ? 'Adding…' : 'Add' }}
-          </button>
-        </form>
-      </template>
-      <!-- Renamed in place: its name becomes a box with Save and Cancel. -->
-      <template #cell-name="{ row }">
-        <input
-          v-if="editingId === row.id"
-          v-model="editName"
-          class="known-universities__input"
-          maxlength="255"
-          :aria-label="`New name for ${row.name}`"
-          data-test="university-edit-name"
-          @keydown.enter.prevent="saveRename(toUniversity(row))"
-          @keydown.esc.prevent="cancelRename"
-        />
-        <span v-else>{{ row.name }}</span>
+        <button type="button" class="btn btn-primary btn-sm" data-test="university-add-open" @click="openAdd">
+          <i class="fas fa-plus" aria-hidden="true"></i>
+          Add University
+        </button>
       </template>
       <template #actions="{ row }">
         <div class="known-universities__actions">
-          <template v-if="editingId === row.id">
-            <button type="button" class="btn btn-outline btn-sm" :disabled="isSaving" @click="cancelRename">
-              Cancel
-            </button>
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              :disabled="isSaving || !editName.trim()"
-              data-test="university-save"
-              @click="saveRename(toUniversity(row))"
-            >
-              {{ isSaving ? 'Saving…' : 'Save' }}
-            </button>
-          </template>
-          <template v-else>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :data-test="`university-edit-${row.id}`"
-              @click="startRename(toUniversity(row))"
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :data-test="`university-delete-${row.id}`"
-              @click="toDelete = toUniversity(row)"
-            >
-              Delete
-            </button>
-          </template>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :data-test="`university-edit-${row.id}`"
+            @click="openEdit(toUniversity(row))"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :data-test="`university-delete-${row.id}`"
+            @click="toDelete = toUniversity(row)"
+          >
+            Delete
+          </button>
         </div>
       </template>
     </AppDataTable>
@@ -105,6 +66,39 @@
       @confirm="confirmDelete"
       @update:model-value="(open) => { if (!open) toDelete = null }"
     />
+
+    <!-- Adding or editing, in a popup: its full name, and its acronym and country if known. -->
+    <ConfirmDialog
+      v-model="formOpen"
+      :title="editingId === null ? 'Add university' : 'Edit university'"
+      :confirm-label="editingId === null ? 'Add' : 'Save'"
+      :busy-label="editingId === null ? 'Adding…' : 'Saving…'"
+      :busy="isSaving"
+      :disabled="!draft.name.trim()"
+      @confirm="save"
+    >
+      <form class="known-universities__form" data-test="university-form" @submit.prevent="save" @keydown.enter.prevent="save">
+        <label class="known-universities__field">
+          <span>Full name <span class="required-mark">*</span></span>
+          <input
+            v-model="draft.name"
+            class="app-input app-input--wide"
+            maxlength="255"
+            placeholder="e.g. The University of Sydney"
+            data-test="university-name"
+          />
+        </label>
+        <label class="known-universities__field">
+          <span>Acronym</span>
+          <input v-model="draft.acronym" class="app-input" maxlength="64" placeholder="e.g. USYD" data-test="university-acronym" />
+        </label>
+        <label class="known-universities__field">
+          <span>Country</span>
+          <input v-model="draft.country" class="app-input" maxlength="100" placeholder="e.g. Australia" data-test="university-country" />
+        </label>
+        <p v-if="formError" class="known-universities__form-error" role="alert">{{ formError }}</p>
+      </form>
+    </ConfirmDialog>
   </section>
 </template>
 
@@ -121,12 +115,19 @@ import {
   type KnownUniversity,
 } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { formatShortDateTime } from '@/utils/date'
+import { formatShortDate, getSetTimeZone, toTimeZoneDateKey } from '@/utils/date'
 
 const columns: DataTableColumn[] = [
   { key: 'name', label: 'Name', sortValue: (row) => String(row.name).toLowerCase() },
-  { key: 'added', label: 'Added', sortValue: (row) => String(toUniversity(row).createdAt ?? '') },
+  { key: 'acronym', label: 'Acronym', sortValue: (row) => String(toUniversity(row).acronym ?? '').toLowerCase() },
+  { key: 'country', label: 'Country', sortValue: (row) => String(toUniversity(row).country ?? '').toLowerCase() },
+  // By the day it was last changed; the same day keeps the rows' order by name.
+  { key: 'updated', label: 'Updated', sortValue: (row) => updatedDay(toUniversity(row)) },
 ]
+
+// When it was last changed (when it was added, for one never changed).
+const updatedOn = (university: KnownUniversity) => university.updatedAt ?? university.createdAt
+const updatedDay = (university: KnownUniversity) => toTimeZoneDateKey(updatedOn(university), getSetTimeZone())
 
 const universities = ref<KnownUniversity[]>([])
 const isLoading = ref(true)
@@ -138,15 +139,23 @@ const search = ref('')
 const byName = (list: KnownUniversity[]) =>
   [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
-// Searched as it's typed: part of a name, in any casing.
+// Searched as it's typed: part of a name, acronym or country, in any casing.
 const rows = computed(() => {
   const typed = search.value.trim().toLowerCase()
   return universities.value
-    .filter((university) => !typed || university.name.toLowerCase().includes(typed))
+    .filter(
+      (university) =>
+        !typed ||
+        [university.name, university.acronym, university.country].some((value) =>
+          (value ?? '').toLowerCase().includes(typed)
+        )
+    )
     .map((university) => ({
       id: university.id,
       name: university.name,
-      added: university.createdAt ? formatShortDateTime(university.createdAt) : '—',
+      acronym: university.acronym || '—',
+      country: university.country || '—',
+      updated: updatedOn(university) ? formatShortDate(updatedOn(university)) : '—',
       university,
     }))
 })
@@ -162,51 +171,46 @@ const load = async () => {
   }
 }
 
-// Adding: the server tidies its spacing, and refuses one already listed.
-const newName = ref('')
-const isAdding = ref(false)
-
-const add = async () => {
-  if (!newName.value.trim() || isAdding.value) return
-  isAdding.value = true
-  error.value = ''
-  try {
-    const added = await addKnownUniversity(newName.value)
-    universities.value = byName([...universities.value, added])
-    newName.value = ''
-  } catch (err) {
-    error.value = apiErrorFromUnknown(err, 'The university could not be added.').message
-  } finally {
-    isAdding.value = false
-  }
-}
-
-// Renaming one at a time, in its row.
+// Adding or editing, in a popup: the server tidies the spacing, and refuses
+// a name already listed (said in the popup, keeping what's typed).
+const emptyDraft = () => ({ name: '', acronym: '', country: '' })
+const formOpen = ref(false)
 const editingId = ref<number | null>(null)
-const editName = ref('')
+const draft = ref(emptyDraft())
+const formError = ref('')
 const isSaving = ref(false)
 
-const startRename = (university: KnownUniversity) => {
-  editingId.value = university.id
-  editName.value = university.name
-  error.value = ''
-}
-
-const cancelRename = () => {
+const openAdd = () => {
   editingId.value = null
-  editName.value = ''
+  draft.value = emptyDraft()
+  formError.value = ''
+  formOpen.value = true
 }
 
-const saveRename = async (university: KnownUniversity) => {
-  if (!editName.value.trim() || isSaving.value) return
+const openEdit = (university: KnownUniversity) => {
+  editingId.value = university.id
+  draft.value = { name: university.name, acronym: university.acronym ?? '', country: university.country ?? '' }
+  formError.value = ''
+  formOpen.value = true
+}
+
+const save = async () => {
+  if (!draft.value.name.trim() || isSaving.value) return
   isSaving.value = true
-  error.value = ''
+  formError.value = ''
+  const id = editingId.value
   try {
-    const renamed = await renameKnownUniversity(university.id, editName.value)
-    universities.value = byName(universities.value.map((item) => (item.id === renamed.id ? renamed : item)))
-    cancelRename()
+    if (id === null) {
+      const added = await addKnownUniversity({ ...draft.value })
+      universities.value = byName([...universities.value, added])
+    } else {
+      const saved = await renameKnownUniversity(id, { ...draft.value })
+      universities.value = byName(universities.value.map((item) => (item.id === saved.id ? saved : item)))
+    }
+    formOpen.value = false
   } catch (err) {
-    error.value = apiErrorFromUnknown(err, 'The university could not be renamed.').message
+    const fallback = id === null ? 'The university could not be added.' : 'The university could not be saved.'
+    formError.value = apiErrorFromUnknown(err, fallback).message
   } finally {
     isSaving.value = false
   }
@@ -224,7 +228,6 @@ const confirmDelete = async () => {
   try {
     await deleteKnownUniversity(university.id)
     universities.value = universities.value.filter((item) => item.id !== university.id)
-    if (editingId.value === university.id) cancelRename()
   } catch (err) {
     error.value = apiErrorFromUnknown(err, 'The university could not be deleted.').message
   } finally {
@@ -250,38 +253,26 @@ onMounted(load)
   font-size: 0.9rem;
 }
 
-/* Add, at the right of the table's search card: the button beside its box. */
-.known-universities__add {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.5rem;
+/* The Add popup's three boxes, one under another. */
+.known-universities__form {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.75rem;
+  text-align: left;
 }
 
-/* Wide enough for its whole placeholder. */
-.known-universities__add .known-universities__input {
-  flex: 0 0 15rem;
-  max-width: 100%;
-}
-
-.known-universities__add .btn {
-  flex-shrink: 0;
-}
-
-.known-universities__input {
-  width: min(100%, 20rem);
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font: inherit;
-  font-size: 0.9rem;
+.known-universities__field {
+  display: grid;
+  gap: 0.35rem;
   color: var(--teal);
-  background: var(--surface-elevated);
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 
-.known-universities__input:focus {
-  outline: none;
-  border-color: var(--dark-green);
+.known-universities__form-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
 }
 
 .known-universities__actions {

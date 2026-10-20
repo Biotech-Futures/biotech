@@ -36,6 +36,7 @@
           v-model="student.school"
           label="School"
           autocomplete="organization"
+          :suggestions="schoolSuggestions"
           :error="fieldError('school')"
           :required="markRequired"
         />
@@ -43,6 +44,7 @@
           <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
           <AppSelect
             :id="fieldId('yearLevel')"
+            class="app-input"
             :model-value="student.yearLevel"
             :options="YEAR_LEVEL_OPTIONS"
             placeholder="Select a year"
@@ -74,13 +76,14 @@
           :required="markRequired"
         />
         <!-- In Australia, its State (required, a dropdown of its states and
-             territories); elsewhere a Region (optional). -->
+             territories); elsewhere typed in (optional). -->
         <RegistrationTextField
           :id="fieldId('state')"
           v-model="student.state"
-          :label="stateLabel(student.country)"
+          :label="stateLabel()"
           autocomplete="address-level1"
           :options="stateOptions.length ? stateOptions : undefined"
+          :suggestions="regionSuggestions"
           :placeholder="stateOptions.length ? 'Select a state' : undefined"
           :error="fieldError('state')"
           :required="markRequired && isAustralia(student.country)"
@@ -103,6 +106,7 @@
             <span>Pronouns <small>(Optional)</small></span>
             <AppSelect
               :id="fieldId('pronouns')"
+              class="app-input"
               :model-value="student.pronouns"
               :options="PRONOUN_SELECT_OPTIONS"
               @update:model-value="(value) => (student.pronouns = String(value ?? ''))"
@@ -214,12 +218,19 @@ const props = withDefaults(
     showOptionalProfile?: boolean
     showInterests?: boolean
     previewUrl?: string
+    /** Schools the others in their group gave, offered as theirs is typed. */
+    schoolSuggestions?: string[]
+    /** States the others in their group gave, for a typed state (outside
+     *  Australia, whose states are a dropdown). */
+    regionSuggestions?: string[]
   }>(),
   {
     allowGuardianDefer: false,
     showOptionalProfile: false,
     showInterests: true,
     previewUrl: '',
+    schoolSuggestions: () => [],
+    regionSuggestions: () => [],
   },
 )
 
@@ -242,12 +253,13 @@ const PRONOUN_SELECT_OPTIONS: AppSelectOption[] = [
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
 // Another country: its state or region starts again (NSW isn't Algeria's).
-// Only for the same student: the form can be handed another (a list's
-// student removed), whose own state stays.
+// Only for the same student, and only from a country they'd picked: the
+// first one picked (none to start) keeps what's there. The form can be
+// handed another (a list's student removed), whose own state stays.
 watch(
   () => [student.value, student.value.country] as const,
   ([current, country], [before, beforeCountry]) => {
-    if (current === before && country !== beforeCountry) current.state = ''
+    if (current === before && beforeCountry && country !== beforeCountry) current.state = ''
   },
 )
 
@@ -319,17 +331,13 @@ const onPhotoChange = (event: Event) => {
   font-weight: 500;
 }
 
-/* As tall as the text boxes beside it (RegistrationTextField). */
+/* The shared box (app-input), as the text boxes beside it, in
+   registration's colours. */
 .app-select {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);
-  font: inherit;
 }
 
 .app-select:focus-within {

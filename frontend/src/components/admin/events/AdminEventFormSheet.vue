@@ -18,7 +18,7 @@
             id="ev-host"
             :value="hostDisplayName"
             type="text"
-            class="form-input form-input--disabled"
+            class="form-input app-input form-input--disabled"
             readonly
             disabled
           />
@@ -31,7 +31,7 @@
             id="ev-name"
             v-model.trim="form.eventName"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Biotech Symposium 2026"
             required
             maxlength="255"
@@ -54,7 +54,7 @@
           <AppSelect
             id="ev-format"
             v-model="form.eventFormat"
-            class="form-input filter-select"
+            class="form-input app-input filter-select"
             :options="FORMAT_OPTIONS"
           />
         </div>
@@ -65,7 +65,7 @@
           <AppSelect
             id="ev-tz"
             v-model="form.eventTimezone"
-            class="form-input filter-select"
+            class="form-input app-input filter-select"
             :options="timezoneOptions"
           />
         </div>
@@ -77,7 +77,7 @@
             id="ev-loc"
             v-model.trim="form.location"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Room 201, Science Building"
           />
         </div>
@@ -91,7 +91,7 @@
             id="ev-link"
             v-model.trim="form.locationLink"
             type="url"
-            class="form-input"
+            class="form-input app-input"
             :placeholder="form.eventFormat === 'in_person' ? 'https://maps.google.com/...' : 'https://zoom.us/j/...'"
           />
         </div>
@@ -103,7 +103,7 @@
             id="ev-start"
             v-model="form.startAt"
             type="datetime-local"
-            class="form-input"
+            class="form-input app-input"
             required
           />
         </div>
@@ -115,7 +115,7 @@
             id="ev-end"
             v-model="form.endsAt"
             type="datetime-local"
-            class="form-input"
+            class="form-input app-input"
             required
           />
         </div>
@@ -167,7 +167,7 @@
             id="ev-img-url"
             v-model.trim="form.eventImage"
             type="url"
-            class="form-input"
+            class="form-input app-input"
             placeholder="https://example.com/banner.png"
             :disabled="Boolean(selectedFile)"
           />
@@ -755,15 +755,10 @@ const submitForm = async () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input). */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
   color: var(--teal);
-  font: inherit;
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 

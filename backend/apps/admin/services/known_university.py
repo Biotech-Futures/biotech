@@ -24,6 +24,7 @@ def _serialize(university: KnownUniversity) -> dict:
         # The page from before full names and acronyms reads this.
         "name": university.full_name,
         "createdAt": university.created_at.isoformat() if university.created_at else None,
+        "updatedAt": university.updated_at.isoformat() if university.updated_at else None,
     }
 
 
@@ -136,7 +137,7 @@ def rename_known_university(
             with transaction.atomic():
                 for field, value in values.items():
                     setattr(university, field, value)
-                university.save(update_fields=list(values))
+                university.save(update_fields=[*values, "updated_at"])
         except IntegrityError:
             # Added by someone else since the check above.
             return _refused(f"'{values['full_name']}' is already on the list"), 400

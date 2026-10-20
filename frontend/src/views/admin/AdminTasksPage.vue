@@ -64,6 +64,7 @@
             <label class="admin-tasks__filter-label" for="task-type-filter">Type</label>
             <AppSelect
               id="task-type-filter"
+              class="table-filter"
               :model-value="taskTypeFilter"
               :options="TYPE_OPTIONS"
               :disabled="loading || taskActionBusy"
@@ -593,17 +594,6 @@ onMounted(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-tasks__filter .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 /* Its text centred in the 2rem box, as a select's is. */

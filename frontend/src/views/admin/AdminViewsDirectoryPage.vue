@@ -62,12 +62,12 @@
         <template #filters>
           <div class="admin-views__filter">
             <label class="admin-views__filter-label" for="view-type-filter">Type</label>
-            <AppSelect id="view-type-filter" v-model="activeTab" :options="TYPE_OPTIONS" />
+            <AppSelect id="view-type-filter" v-model="activeTab" class="table-filter" :options="TYPE_OPTIONS" />
           </div>
 
           <div class="admin-views__filter">
             <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
-            <AppSelect id="view-role-filter" v-model="roleFilter" :options="ROLE_OPTIONS" />
+            <AppSelect id="view-role-filter" v-model="roleFilter" class="table-filter" :options="ROLE_OPTIONS" />
           </div>
         </template>
       </AdminViewsDirectoryTable>
@@ -278,22 +278,6 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-}
-
-.admin-views__filter .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-}
-
-.admin-views__filter .app-select:focus-within {
-  outline: none;
-  border-color: var(--dark-green);
 }
 
 .admin-views__filter-label {

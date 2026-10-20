@@ -140,15 +140,15 @@
         </p>
         <label>
           First name
-          <input v-model="guardianForm.firstName" required />
+          <input v-model="guardianForm.firstName" class="app-input" required />
         </label>
         <label>
           Last name
-          <input v-model="guardianForm.lastName" required />
+          <input v-model="guardianForm.lastName" class="app-input" required />
         </label>
         <label>
           Email
-          <input v-model="guardianForm.email" type="email" />
+          <input v-model="guardianForm.email" class="app-input" type="email" />
         </label>
         <p v-if="guardianError" class="supervisor-error">{{ guardianError }}</p>
         <div class="supervisor-modal-actions">
@@ -663,13 +663,6 @@ onMounted(loadStudents)
   gap: 0.3rem;
   color: #6c757d;
   font-size: 0.9rem;
-}
-
-.supervisor-modal input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  color: var(--teal);
 }
 
 .supervisor-modal-actions {

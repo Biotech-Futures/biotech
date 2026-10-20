@@ -130,7 +130,7 @@
         <input
           id="bulk-delete-confirm"
           v-model="deleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -165,7 +165,7 @@
         <input
           id="single-delete-confirm"
           v-model="singleDeleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -524,12 +524,8 @@ defineExpose({
   color: var(--danger);
 }
 
+/* The shared box (app-input), on the dialog's own background. */
 .admin-users__delete-type input {
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--teal);
-  font: inherit;
 }
 </style>

@@ -18,6 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from.models import (
+    MentorProfile,
     User,
     StudentProfile,
     UserInterest,
@@ -55,7 +56,7 @@ from apps.audit.services import log_audit_event
 from .email_verification import check_one_address, invalid_address_message
 from .guardian_consent import latest_signature_data_url
 from .guardian_reminders import email_new_guardian
-from .profile_images import save_profile_image
+from .profile_images import profile_image_url, remove_profile_image, save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
 from config.errors import (
@@ -296,7 +297,7 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
 
 STUDENT_SELF_PROFILE_FIELDS: frozenset[str] = frozenset({
-    "first_name", "last_name", "school_name", "year_lvl",
+    "first_name", "last_name", "pronouns", "school_name", "year_lvl",
     "pg_firstname", "pg_lastname", "pg_email",
     "country_id", "state_id", "interest_ids",
 })
@@ -312,6 +313,93 @@ SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
 SELF_PATCH_REJECTED_MESSAGE = (
     "This field cannot be changed via /users/me/. Contact an admin."
 )
+
+
+def _current_role_name(user):
+    """The role the user holds now, by their role assignments."""
+    now = timezone.now()
+    assignment = (
+        RoleAssignmentHistory.objects.filter(user=user)
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
+        .select_related("role")
+        .first()
+    )
+    return assignment.role.role_name if assignment and assignment.role else None
+
+
+class _OwnDetailsView(APIView):
+    """PATCH: someone changes their own details on their profile: ``FIELDS``,
+    and their country and state (by name, as registering offers them),
+    checked as their admin panel's edit is. Only while they hold ``ROLE``,
+    which the save is told outright, so it never takes them for another."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+    FIELDS: tuple = ()
+    ROLE = ""
+
+    def allowed(self, user) -> bool:
+        return _current_role_name(user) == self.ROLE
+
+    def patch(self, request):
+        from apps.admin.services.user import update_status, update_user
+
+        user = request.user
+        if not self.allowed(user):
+            raise PermissionDenied("These details aren't yours to change here.")
+        data = request.data if isinstance(request.data, dict) else {}
+        status_field = {"isActive"} if "isActive" in self.FIELDS else set()
+        unknown = sorted(set(data) - set(self.FIELDS) - {"country", "state"} - status_field)
+        if unknown:
+            raise serializers.ValidationError({key: "This can't be changed here." for key in unknown})
+        changes = {key: data[key] for key in self.FIELDS if key in data and key != "isActive"}
+        changes["role"] = self.ROLE
+        # A country by its name, and its state as picked or typed (blank for none).
+        if "country" in data:
+            name = str(data.get("country") or "").strip()
+            country = Countries.objects.filter(country_name__iexact=name).first() if name else None
+            if country is None:
+                raise serializers.ValidationError({"country": "Choose a country."})
+            changes["countryId"] = country.pk
+            changes["stateName"] = str(data.get("state") or "").strip()
+        elif "state" in data:
+            changes["stateName"] = str(data.get("state") or "").strip()
+        result = update_user(user.pk, changes, initiated_by=user)
+        if result.get("data") is None:
+            raise serializers.ValidationError({"detail": result.get("msg") or "Your details could not be saved."})
+        if "isActive" in data:
+            if not isinstance(data["isActive"], bool):
+                raise serializers.ValidationError({"isActive": "Give a status of active or inactive."})
+            update_status(user.pk, data["isActive"], initiated_by=user)
+        user.refresh_from_db()
+        return Response(UserSerializer(user).data)
+
+
+class MeMentorDetailsView(_OwnDetailsView):
+    """A mentor's own name, pronouns, interests, Mentor Details, weekly times
+    and place. Their application's answers and their groups stay an admin's."""
+
+    FIELDS = (
+        "firstName", "lastName", "pronouns", "interests", "mentorBackground", "mentorCompany", "mentorInstitution",
+        "mentorUniversityYear", "mentorFieldOfStudy", "mentorMaxGroupCount", "mentorWeeklyHours",
+        "mentorAvailability",
+    )
+    ROLE = "mentor"
+
+    def allowed(self, user) -> bool:
+        return super().allowed(user) and MentorProfile.objects.filter(user=user).exists()
+
+
+class MeAdminDetailsView(_OwnDetailsView):
+    """An admin's own name, pronouns, email, place and status, as their Admin
+    Details and Account show them (an email change checked as the admin
+    panel's is)."""
+
+    FIELDS = ("firstName", "lastName", "pronouns", "email", "isActive")
+    ROLE = "admin"
+
+    def allowed(self, user) -> bool:
+        return super().allowed(user) and is_admin(user)
 
 
 #issue 40
@@ -352,13 +440,15 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
 
-        # A supervisor changes their own name on their profile, and nothing
-        # else of theirs; the rest of the student fields stay students' only.
+        # A supervisor changes their own name and pronouns on their profile,
+        # and nothing else of theirs; the rest of the student fields stay
+        # students' only.
+        own_fields = ("first_name", "last_name", "pronouns")
         if (
             not StudentProfile.objects.filter(user=user).exists()
             and SupervisorProfile.objects.filter(user=user).exists()
         ):
-            name_data = {key: data[key] for key in ("first_name", "last_name") if key in data}
+            name_data = {key: data[key] for key in own_fields if key in data}
             if name_data:
                 names = SelfNameSerializer(data=name_data)
                 names.is_valid(raise_exception=True)
@@ -366,7 +456,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     setattr(user, field, value.strip())
                 user.save(update_fields=list(names.validated_data))
                 _log_edit(user, user.id, "profile_update", {"fields": sorted(names.validated_data)})
-            data = {key: value for key, value in data.items() if key not in ("first_name", "last_name")}
+            data = {key: value for key, value in data.items() if key not in own_fields}
 
         student_update_data = {
             key: value for key, value in data.items() if key in STUDENT_SELF_PROFILE_FIELDS
@@ -392,7 +482,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 if "country_id" in cleaned and "state_id" not in cleaned and state and state.country_id != getattr(country, "pk", None):
                     state = None
                 if ("country_id" in cleaned or "state_id" in cleaned) and state and state.country_id != getattr(country, "pk", None):
-                    raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+                    raise serializers.ValidationError({"state_id": "Choose a state in the selected country."})
                 if "country_id" in cleaned or "state_id" in cleaned:
                     user.country, user.state = country, state
                     user.save(update_fields=["country", "state"])
@@ -405,7 +495,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     cleaned["pg_email"] = cleaned["pg_email"] or None
                 user_fields = {
                     field: cleaned[field]
-                    for field in ("first_name", "last_name")
+                    for field in ("first_name", "last_name", "pronouns")
                     if field in cleaned
                 }
                 if user_fields:
@@ -541,6 +631,7 @@ class SupervisedStudentsView(APIView):
                 "id": profile.user_id,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
+                "pronouns": user.pronouns or "",
                 "email": user.email,
                 **_account_fields(user, consent),
                 "school_name": profile.school_name or "",
@@ -850,6 +941,10 @@ def _account_fields(user, consent):
         ),
         # When that answer was given: the form's signing, or the withdrawal.
         "media_consent_at": None if consent is None else consent.media_withdrawn_at or consent.signed_at,
+        "profile_image_url": profile_image_url(user),
+        # When they agreed to the policies, registering themselves; None if
+        # they didn't (their supervisor registered them, say).
+        "policies_agreed_at": user.policies_agreed_at,
     }
 
 
@@ -888,6 +983,7 @@ def _supervised_student_row(profile):
         "id": profile.user_id,
         "first_name": profile.user.first_name,
         "last_name": profile.user.last_name,
+        "pronouns": profile.user.pronouns or "",
         "email": profile.user.email,
         **_account_fields(profile.user, consent),
         "school_name": profile.school_name or "",
@@ -1018,6 +1114,40 @@ class SupervisedStudentOptionsView(APIView):
         })
 
 
+class SupervisedStudentProfileImageView(APIView):
+    """POST: replace one of the supervisor's students' profile photo
+    (``image``, checked as the dashboard's upload is). DELETE: take it off.
+    Admins too, as for the student's other details."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _profile(self, request, pk):
+        profile = _student_scope(request.user).select_related("user").filter(user_id=pk).first()
+        if profile is None:
+            raise PermissionDenied("This student is not on your roster.")
+        return profile
+
+    def _changed(self, request, profile, change):
+        _log_edit(request.user, profile.user_id, "update", {"profile_photo": change})
+        profile.refresh_from_db()
+        profile.user.refresh_from_db()
+        return Response(SupervisedStudentSerializer(_supervised_student_row(profile)).data)
+
+    def post(self, request, pk):
+        profile = self._profile(request, pk)
+        image = request.FILES.get("image")
+        if image is None:
+            raise serializers.ValidationError({"image": "Choose a photo to upload."})
+        save_profile_image(user=profile.user, uploaded_file=image)
+        return self._changed(request, profile, "replaced")
+
+    def delete(self, request, pk):
+        profile = self._profile(request, pk)
+        remove_profile_image(user=profile.user)
+        return self._changed(request, profile, "removed")
+
+
 class SupervisedStudentDetailView(APIView):
     """Update a supervised student's name, email, and school details."""
 
@@ -1044,6 +1174,9 @@ class SupervisedStudentDetailView(APIView):
         user.first_name = data["first_name"].strip()
         user.last_name = data["last_name"].strip()
         user_fields = ["first_name", "last_name"]
+        if "pronouns" in data:
+            user.pronouns = data["pronouns"].strip()
+            user_fields.append("pronouns")
         if "email" in data:
             new_email = data["email"].strip().lower()
             if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
@@ -1064,7 +1197,7 @@ class SupervisedStudentDetailView(APIView):
             if "country_id" in data and "state_id" not in data and state and state.country_id != getattr(country, "pk", None):
                 state = None
             if state and state.country_id != getattr(country, "pk", None):
-                raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+                raise serializers.ValidationError({"state_id": "Choose a state in the selected country."})
             user.country, user.state = country, state
             user_fields.extend(["country", "state"])
         user.save(update_fields=user_fields)
