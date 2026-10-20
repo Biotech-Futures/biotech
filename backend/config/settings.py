@@ -809,3 +809,7 @@ QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=8, cast=int)
 # Seconds a queued pre-submission check (waiting behind earlier ones) may go
 # without starting before it counts as stalled and the page submits anyway.
 EMAIL_PRECHECK_QUEUED_STALL_SECONDS = config("EMAIL_PRECHECK_QUEUED_STALL_SECONDS", default=300, cast=int)
+
+# Refuse an address QuickEmailVerification answered as not existing when an
+# admin edits a user or a student changes their guardian. Off unless set.
+EMAIL_CHECK_ON_EDIT = config("EMAIL_CHECK_ON_EDIT", default="false", cast=env_bool)

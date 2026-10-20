@@ -52,6 +52,7 @@ from .serializers import (
     StudentSelfProfileUpdateSerializer,
 )
 from apps.audit.services import log_audit_event
+from .email_verification import check_one_address, invalid_address_message
 from .guardian_consent import latest_signature_data_url
 from .guardian_reminders import email_new_guardian
 from .profile_images import save_profile_image
@@ -945,6 +946,11 @@ class MeGuardianView(APIView):
         first_name = serializer.validated_data["first_name"]
         last_name = serializer.validated_data["last_name"]
         email = serializer.validated_data["email"]
+        current = StudentProfile.objects.filter(user=request.user).values_list("pg_email", flat=True).first()
+        if invalid := check_one_address(email, current=current):
+            raise serializers.ValidationError(
+                {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
+            )
 
         with transaction.atomic():
             profile = self._profile(request)

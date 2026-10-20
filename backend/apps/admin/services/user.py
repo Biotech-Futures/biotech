@@ -18,6 +18,7 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
+from apps.users.email_verification import check_one_address, invalid_address_message
 from apps.users.mentor_registration import (
     MAX_WEEKLY_HOURS as MENTOR_MAX_WEEKLY_HOURS, MAX_WORDS as MENTOR_MAX_WORDS,
     STUDY_YEARS as MENTOR_STUDY_YEARS, STUDYING as MENTOR_STUDYING,
@@ -1654,6 +1655,8 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Email is not a valid email address", "data": None}
         if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
             return {"msg": "Account email already exists", "data": None}
+        if invalid := check_one_address(new_email, current=user.email):
+            return {"msg": invalid_address_message(invalid), "data": None}
     email_changed = new_email != user.email.strip().lower()
 
     if email_changed:
@@ -1702,6 +1705,9 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     return {"msg": "Guardian email is not a valid email address", "data": None}
                 if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
+                current_guardian = StudentProfile.objects.filter(user_id=user_id).values_list("pg_email", flat=True).first()
+                if invalid := check_one_address(guardian_email, current=current_guardian):
+                    return {"msg": invalid_address_message(invalid, "The guardian's email address"), "data": None}
     
     if next_role in ["student", "mentor"] and not next_interests:
         return {
