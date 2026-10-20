@@ -208,7 +208,7 @@ export type EmailLog = {
   sentAt: string
   // ISO 8601 UTC time of the send, for exports.
   sentAtIso: string
-  status: 'Delivered' | 'Partial' | 'Opened' | 'Failed'
+  status: 'Sending' | 'Delivered' | 'Partial' | 'Opened' | 'Failed'
   attempted: number
   delivered: number
   failed: number

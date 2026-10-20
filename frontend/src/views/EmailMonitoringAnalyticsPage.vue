@@ -183,6 +183,7 @@
           <label class="status-filter">
             <select v-model="logStatus" aria-label="Filter email logs by status">
               <option value="all">All statuses</option>
+              <option value="Sending">Sending</option>
               <option value="Delivered">Delivered</option>
               <option value="Partial">Partial</option>
               <option value="Failed">Failed</option>
@@ -200,7 +201,7 @@
           <thead>
             <tr>
               <th>Sender</th>
-              <th>Sender Email</th>
+              <th>Initiating Admin Email</th>
               <th>Recipient</th>
               <th>Recipient Email</th>
               <th>Email Type</th>
@@ -259,6 +260,10 @@
       </p>
 
       <dl class="log-status-legend" aria-label="What the statuses mean">
+        <div>
+          <dt><span class="log-status sending">Sending</span></dt>
+          <dd>The email send is still in progress.</dd>
+        </div>
         <div>
           <dt><span class="log-status delivered">Delivered</span></dt>
           <dd>Every recipient's mail server accepted the email.</dd>
@@ -790,6 +795,7 @@ function statusDetail(log: EmailLog) {
       : 'Delivered to this recipient.'
   }
   const counts = `${log.delivered} of ${log.attempted} delivered, ${log.failed} not delivered.`
+  if (log.status === 'Sending') return 'Sending: this email send is still in progress.'
   if (log.status === 'Partial') return `Partial: not every recipient received this email. ${counts}`
   if (log.status === 'Failed') return `Failed: no recipient received this email. ${counts}`
   return counts
@@ -1056,8 +1062,8 @@ function emailLogsDetails() {
         log.status, log.attempted, log.delivered, log.failed, log.recipientsRecorded,
       ])
   const headers = perRecipient
-    ? ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Status', 'Reason Not Delivered']
-    : ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Sender Email', 'Status', 'Recipients', 'Delivered', 'Not Delivered', 'Recipients Recorded']
+    ? ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Initiating Admin Email', 'Recipient', 'Recipient Email', 'Status', 'Reason Not Delivered']
+    : ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Initiating Admin Email', 'Status', 'Recipients', 'Delivered', 'Not Delivered', 'Recipients Recorded']
   const scope = perRecipient ? `to ${recipientQuery.value.trim()}` : isoUtc(analyticsSnapshotAt.value).slice(0, 10) || 'latest'
   return {
     fileName: exportFileName('email', 'logs', scope),
@@ -1879,6 +1885,11 @@ th {
   color: #174243;
 }
 
+.log-status.sending {
+  background: #e8f0f3;
+  color: #376f83;
+}
+
 .log-status.partial {
   background: #fff4d0;
   color: #715400;
@@ -2134,6 +2145,11 @@ th {
 .email-log-table .log-status.opened {
   background: rgba(94, 169, 158, 0.16);
   color: #174243;
+}
+
+.email-log-table .log-status.sending {
+  background: #e8f0f3;
+  color: #376f83;
 }
 
 .email-log-table .log-status.partial {

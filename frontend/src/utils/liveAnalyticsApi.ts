@@ -187,6 +187,7 @@ export type EmailDeliveryAnalyticsResponse = {
     announcement_id: number
     title: string
     started_at: string
+    completed_at?: string | null
     status: 'success' | 'partial' | 'failed'
     recipient_count: number
     success_count: number

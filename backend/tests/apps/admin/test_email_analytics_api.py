@@ -571,11 +571,44 @@ class EmailDeliveryAnalyticsApiTests(APITestCase):
         )
         self.assertEqual(recent[0]["announcement_id"], self.announcement.id)
         self.assertEqual(recent[0]["title"], "Analytics update")
+        self.assertEqual(
+            recent[0]["completed_at"],
+            (latest + timedelta(minutes=1)).isoformat(),
+        )
         self.assertEqual(recent[0]["status"], AnnouncementDelivery.Status.PARTIAL)
         self.assertEqual(recent[0]["initiated_by_name"], "Ada Admin")
         self.assertEqual(recent[0]["initiated_by_email"], self.admin.email)
         self.assertEqual(recent[-1]["initiated_by_name"], "System")
         self.assertEqual(recent[-1]["initiated_by_email"], "")
+
+    def test_in_progress_announcement_exposes_null_completion_time(self):
+        # Establish the analytics snapshot while the announcement itself is
+        # still in progress and has not written its aggregate metric yet.
+        EmailDeliveryMetric.objects.create(
+            email_type="password_reset",
+            source_mailbox=self.primary_mailbox,
+            attempted_count=1,
+            delivered_count=1,
+            failed_count=0,
+            status=EmailDeliveryMetric.Status.SUCCESS,
+            started_at=self.snapshot_at,
+            completed_at=self.snapshot_at,
+        )
+        delivery = AnnouncementDelivery.objects.create(
+            announcement=self.announcement,
+            initiated_by=self.admin,
+            started_at=self.snapshot_at,
+            completed_at=None,
+            status=AnnouncementDelivery.Status.FAILED,
+            recipient_count=4,
+            success_count=0,
+            failure_count=0,
+        )
+
+        recent = self.get_as_admin()["recent_deliveries"]
+
+        self.assertEqual(recent[0]["id"], delivery.id)
+        self.assertIsNone(recent[0]["completed_at"])
 
     def test_twenty_four_hour_window_excludes_exact_lower_boundary(self):
         latest = datetime(2026, 9, 15, 12, tzinfo=datetime_timezone.utc)

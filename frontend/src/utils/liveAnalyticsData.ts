@@ -1179,8 +1179,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
       ? email.recent_sends.map((row) => ({
           id: row.id,
           sender: row.initiated_by_name || 'System',
-          // Automatic sends have no person behind them; show the mailbox instead.
-          senderEmail: row.initiated_by_email || row.source_mailbox,
+          senderEmail: row.initiated_by_email || '—',
           recipient: recipientCount(row.attempted),
           recipientEmail: '—',
           title: row.title ?? row.email_type_label,
@@ -1204,7 +1203,15 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
           type: 'Announcement notification',
           sentAt: formatLogTime(row.started_at),
           sentAtIso: row.started_at,
-          status: logStatus(row.status, row.success_count, row.failure_count),
+          status: logStatus(
+            row.status,
+            row.success_count,
+            row.failure_count,
+            row.completed_at === null
+              || (row.completed_at === undefined
+                && row.recipient_count > 0
+                && row.success_count + row.failure_count === 0),
+          ),
           attempted: row.recipient_count,
           delivered: row.success_count,
           failed: row.failure_count,
@@ -1219,7 +1226,7 @@ export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[
   return rows.map((row) => ({
     id: row.id,
     sender: row.initiated_by_name || 'System',
-    senderEmail: row.initiated_by_email || row.source_mailbox,
+    senderEmail: row.initiated_by_email || '—',
     recipient: row.recipient.name || '—',
     recipientEmail: row.recipient.email,
     title: row.title ?? row.email_type_label,
@@ -1236,9 +1243,15 @@ export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[
   }))
 }
 
-function logStatus(status: string, delivered: number, failed: number): EmailLog['status'] {
-  if (status === 'partial' || (delivered > 0 && failed > 0)) return 'Partial'
-  if (status === 'failed' || (failed > 0 && delivered === 0)) return 'Failed'
+function logStatus(status: string, delivered: number, failed: number, sending = false): EmailLog['status'] {
+  if (sending) return 'Sending'
+  // Counts describe the completed result more reliably than a stale status
+  // value left behind by an interrupted or older delivery workflow.
+  if (delivered > 0 && failed > 0) return 'Partial'
+  if (delivered > 0) return 'Delivered'
+  if (failed > 0) return 'Failed'
+  if (status === 'partial') return 'Partial'
+  if (status === 'failed') return 'Failed'
   return 'Delivered'
 }
 

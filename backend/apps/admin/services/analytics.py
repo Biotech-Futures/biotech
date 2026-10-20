@@ -976,6 +976,7 @@ def get_email_delivery_analytics() -> dict:
             "announcement_id": row.announcement_id,
             "title": row.announcement.title,
             "started_at": row.started_at.isoformat(),
+            "completed_at": row.completed_at.isoformat() if row.completed_at else None,
             "status": row.status,
             "recipient_count": row.recipient_count,
             "success_count": row.success_count,

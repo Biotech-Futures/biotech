@@ -264,6 +264,7 @@ class RecentEmailDeliverySerializer(serializers.Serializer):
     announcement_id = serializers.IntegerField(min_value=1)
     title = serializers.CharField()
     started_at = serializers.DateTimeField()
+    completed_at = serializers.DateTimeField(allow_null=True)
     status = serializers.CharField()
     recipient_count = serializers.IntegerField(min_value=0)
     success_count = serializers.IntegerField(min_value=0)
