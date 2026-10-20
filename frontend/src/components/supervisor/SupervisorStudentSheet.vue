@@ -34,7 +34,14 @@
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Region</span>
-            <AppSelect v-model="personalForm.stateId" class="student-sheet__input" :options="regionOptions" />
+            <AppSelect
+              v-model="personalForm.stateId"
+              class="student-sheet__input"
+              :options="regionOptions"
+              :required="inAustralia"
+              placeholder="Choose a state"
+              data-test="student-sheet-region"
+            />
           </label>
         </form>
         <dl class="student-sheet__list">
@@ -112,6 +119,25 @@
               {{ interest }}
             </label>
           </fieldset>
+          <label class="student-sheet__item">
+            <span class="student-sheet__label">Pronouns</span>
+            <AppSelect
+              v-model="detailsForm.pronounsChoice"
+              class="student-sheet__input"
+              data-test="student-sheet-pronouns"
+              :options="PRONOUN_SELECT_OPTIONS"
+              :searchable="false"
+            />
+          </label>
+          <label v-if="detailsForm.pronounsChoice === 'Other'" class="student-sheet__item">
+            <span class="student-sheet__label">Their pronouns</span>
+            <input
+              v-model="detailsForm.pronounsOther"
+              class="student-sheet__input"
+              data-test="student-sheet-pronouns-other"
+              maxlength="100"
+            />
+          </label>
           <p v-if="detailsError" class="student-sheet__error">{{ detailsError }}</p>
           <div class="student-sheet__actions">
             <button type="button" class="btn btn-outline btn-sm" :disabled="detailsSaving" @click="detailsEditing = false">
@@ -138,6 +164,10 @@
           <div class="student-sheet__item">
             <dt>Interests</dt>
             <dd>{{ student.interests.length ? student.interests.join(', ') : '—' }}</dd>
+          </div>
+          <div class="student-sheet__item" data-test="student-sheet-pronouns-view">
+            <dt>Pronouns</dt>
+            <dd>{{ display(student.pronouns) }}</dd>
           </div>
         </dl>
       </section>
@@ -225,6 +255,7 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_INTERESTS } from '@/utils/supervisedGroups'
+import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import {
   fetchStudentEditOptions,
   fullName,
@@ -315,7 +346,15 @@ const YEAR_OPTIONS: AppSelectOption[] = ['9', '10', '11', '12'].map((year) => ({
 const detailsEditing = ref(false)
 const detailsSaving = ref(false)
 const detailsError = ref('')
-const detailsForm = ref({ firstName: '', lastName: '', school: '', yearLevel: '', interests: [] as string[] })
+const detailsForm = ref({
+  firstName: '',
+  lastName: '',
+  school: '',
+  yearLevel: '',
+  interests: [] as string[],
+  pronounsChoice: '' as AppSelectOption['value'],
+  pronounsOther: '',
+})
 const { message: detailsSavedMessage, show: flashDetailsSaved } = useFlashMessage()
 
 // The countries, regions and interests the Edit forms offer, read once.
@@ -346,6 +385,9 @@ const startDetailsEdit = async () => {
     school: props.student.school_name,
     yearLevel: props.student.year_lvl,
     interests: [...props.student.interests],
+    // Their own words, not a listed choice, come back under Other.
+    pronounsChoice: pronounDraft(props.student.pronouns).choice,
+    pronounsOther: pronounDraft(props.student.pronouns).other,
   }
   detailsError.value = ''
   detailsEditing.value = true
@@ -354,6 +396,14 @@ const startDetailsEdit = async () => {
 
 const saveDetails = async () => {
   if (!props.student) return
+  const pronouns = pronounsToSave({
+    choice: String(detailsForm.value.pronounsChoice ?? ''),
+    other: detailsForm.value.pronounsOther,
+  })
+  if (pronouns === null) {
+    detailsError.value = 'Enter their pronouns.'
+    return
+  }
   detailsSaving.value = true
   detailsError.value = ''
   try {
@@ -364,6 +414,7 @@ const saveDetails = async () => {
       school_name: detailsForm.value.school.trim(),
       year_lvl: detailsForm.value.yearLevel,
       interests: detailsForm.value.interests,
+      pronouns,
     })
     emit('updated', updated)
     detailsEditing.value = false
@@ -391,8 +442,14 @@ const countryOptions = computed<AppSelectOption[]>(() => [
   { value: null, label: 'Not set' },
   ...editOptions.value.countries.map((country) => ({ value: country.id, label: country.country_name })),
 ])
+// In Australia a state is needed, as registering asks, so no "Not set".
+const inAustralia = computed(
+  () =>
+    editOptions.value.countries.find((country) => country.id === personalForm.value.countryId)?.country_name ===
+    'Australia',
+)
 const regionOptions = computed<AppSelectOption[]>(() => [
-  { value: null, label: 'Not set' },
+  ...(inAustralia.value ? [] : [{ value: null, label: 'Not set' }]),
   ...regionChoices.value.map((region) => ({ value: region.id, label: region.state_name })),
 ])
 
@@ -410,6 +467,10 @@ const startPersonalEdit = async () => {
 
 const savePersonal = async () => {
   if (!props.student) return
+  if (inAustralia.value && !personalForm.value.stateId) {
+    personalError.value = 'Choose their state or territory.'
+    return
+  }
   personalSaving.value = true
   personalError.value = ''
   try {

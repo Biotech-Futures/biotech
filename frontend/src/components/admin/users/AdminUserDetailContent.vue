@@ -1,5 +1,18 @@
 <template>
   <div class="admin-users-detail">
+    <section v-if="user" class="admin-users-detail__section" data-test="admin-photo">
+      <div class="admin-users-detail__heading">
+        <h3>Profile Photo</h3>
+      </div>
+      <img
+        v-if="user.profileImageUrl"
+        class="admin-users-detail__photo"
+        :src="user.profileImageUrl"
+        alt="Profile photo"
+      />
+      <p v-else class="admin-users-detail__no-photo">No photo uploaded.</p>
+    </section>
+
     <section v-if="user" class="admin-users-detail__section" data-test="admin-account">
       <div class="admin-users-detail__heading">
         <h3>Account</h3>
@@ -242,6 +255,27 @@
             {{ interest }}
           </label>
         </fieldset>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-detail-pronouns">Pronouns</label>
+          <AppSelect
+            size="large"
+            id="admin-detail-pronouns"
+            v-model="form.pronounsChoice"
+            class="admin-users-detail__input"
+            data-test="admin-pronouns-select"
+            :options="PRONOUN_SELECT_OPTIONS"
+            :searchable="false"
+          />
+        </div>
+        <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Their pronouns</span>
+          <input
+            v-model="form.pronounsOther"
+            class="admin-users-detail__input"
+            data-test="admin-pronouns-other"
+            maxlength="100"
+          />
+        </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
           <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
@@ -264,6 +298,10 @@
         <div class="admin-users-detail__item">
           <dt>Interests</dt>
           <dd>{{ joinInterests(user.interests) }}</dd>
+        </div>
+        <div class="admin-users-detail__item" data-test="admin-student-pronouns">
+          <dt>Pronouns</dt>
+          <dd>{{ user.pronouns || '—' }}</dd>
         </div>
       </dl>
     </section>
@@ -1029,6 +1067,7 @@ import {
   userName
 } from '@/utils/userFormat'
 import { INTEREST_OPTIONS } from '@/utils/userOptions'
+import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 
 const props = withDefaults(
   defineProps<{
@@ -1128,6 +1167,8 @@ const blankForm = () => ({
   schoolName: '',
   yearLevel: null as AppSelectOption['value'],
   interests: [] as string[],
+  pronounsChoice: '' as AppSelectOption['value'],
+  pronounsOther: '',
   guardianFirstName: '',
   guardianLastName: '',
   guardianEmail: '',
@@ -1172,6 +1213,9 @@ const startEdit = (part: Part) => {
       user.role === 'mentor'
         ? [...(user.interests || [])]
         : (user.interests || []).filter((interest) => INTEREST_OPTIONS.includes(interest)),
+    // Their own words, not a listed choice, come back under Other.
+    pronounsChoice: pronounDraft(user.pronouns).choice,
+    pronounsOther: pronounDraft(user.pronouns).other,
     // A placeholder guardian (the student's own name) is no guardian at all.
     guardianFirstName: guardian.value.name ? user.guardianFirstName || '' : '',
     guardianLastName: guardian.value.name ? user.guardianLastName || '' : '',
@@ -1245,12 +1289,15 @@ const payloadFor = (part: Part): Record<string, unknown> | string => {
   if (part === 'details') {
     if (form.yearLevel === null) return 'Choose a year level.'
     if (!form.interests.length) return 'Choose at least one interest.'
+    const pronouns = pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
+    if (pronouns === null) return 'Enter their pronouns.'
     return {
       firstName: form.firstName,
       lastName: form.lastName,
       schoolName: form.schoolName,
       yearLevel: form.yearLevel,
-      interests: form.interests
+      interests: form.interests,
+      pronouns
     }
   }
   const payload: Record<string, unknown> = {}
@@ -2150,6 +2197,22 @@ const sendConsentRequest = async () => {
 }
 
 /* A part's heading with its Edit beside it, as on the supervisor's panel. */
+/* The photo as the user's dashboard shows it: round, filling its circle. */
+.admin-users-detail__photo {
+  display: block;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center;
+  border: 1px solid var(--border-light);
+}
+
+.admin-users-detail__no-photo {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .admin-users-detail__heading {
   display: flex;
   align-items: center;

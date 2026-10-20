@@ -295,7 +295,7 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
 
 STUDENT_SELF_PROFILE_FIELDS: frozenset[str] = frozenset({
-    "first_name", "last_name", "school_name", "year_lvl",
+    "first_name", "last_name", "pronouns", "school_name", "year_lvl",
     "pg_firstname", "pg_lastname", "pg_email",
     "country_id", "state_id", "interest_ids",
 })
@@ -404,7 +404,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     cleaned["pg_email"] = cleaned["pg_email"] or None
                 user_fields = {
                     field: cleaned[field]
-                    for field in ("first_name", "last_name")
+                    for field in ("first_name", "last_name", "pronouns")
                     if field in cleaned
                 }
                 if user_fields:
@@ -540,6 +540,7 @@ class SupervisedStudentsView(APIView):
                 "id": profile.user_id,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
+                "pronouns": user.pronouns or "",
                 "email": user.email,
                 **_account_fields(user, consent),
                 "school_name": profile.school_name or "",
@@ -887,6 +888,7 @@ def _supervised_student_row(profile):
         "id": profile.user_id,
         "first_name": profile.user.first_name,
         "last_name": profile.user.last_name,
+        "pronouns": profile.user.pronouns or "",
         "email": profile.user.email,
         **_account_fields(profile.user, consent),
         "school_name": profile.school_name or "",
@@ -1038,6 +1040,9 @@ class SupervisedStudentDetailView(APIView):
         user.first_name = data["first_name"].strip()
         user.last_name = data["last_name"].strip()
         user_fields = ["first_name", "last_name"]
+        if "pronouns" in data:
+            user.pronouns = data["pronouns"].strip()
+            user_fields.append("pronouns")
         if "email" in data:
             new_email = data["email"].strip().lower()
             if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():

@@ -58,9 +58,27 @@
               type="button"
               @click="startNameEdit"
             >
-              Edit name
+              Edit
+            </button>
+            <!-- A student changes their country and region here. -->
+            <button
+              v-if="canEditStudentDetails && !placeEditing"
+              class="btn btn-outline profile-edit-button"
+              type="button"
+              data-test="place-edit"
+              @click="startPlaceEdit"
+            >
+              Edit
             </button>
           </div>
+          <form v-if="placeEditing" class="student-edit-form" data-test="place-edit-form" @submit.prevent="savePlace">
+            <label>Country<AppSelect v-model="placeDraft.country_id" :options="countrySelectOptions" @change="placeDraft.state_id = null" /></label>
+            <label>Region<AppSelect v-model="placeDraft.state_id" :options="regionSelectOptions" :required="draftInAustralia" placeholder="Choose a state" data-test="student-region" /></label>
+            <div class="student-edit-actions">
+              <button class="btn btn-outline" type="button" :disabled="placeSaving" @click="placeEditing = false">Cancel</button>
+              <button class="btn btn-primary" type="submit" :disabled="placeSaving">{{ placeSaving ? 'Saving…' : 'Save' }}</button>
+            </div>
+          </form>
           <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
             <label>First name<input v-model.trim="nameDraft.first_name" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="nameDraft.last_name" required maxlength="255" /></label>
@@ -134,18 +152,18 @@
         <div v-if="user.student.hasDetails" class="profile-section">
           <div class="profile-section-heading">
             <h3 class="profile-section-title">Student Details <span v-if="detailsLocked" class="registration-lock" role="img" :aria-label="lockReason" :data-tooltip="lockReason" data-test="details-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
-            <button v-if="canEditStudentDetails && !studentEditing" class="btn btn-outline profile-edit-button" type="button" @click="startStudentEdit">Edit details</button>
+            <button v-if="canEditStudentDetails && !studentEditing" class="btn btn-outline profile-edit-button" type="button" data-test="student-details-edit" @click="startStudentEdit">Edit</button>
           </div>
           <form v-if="studentEditing" class="student-edit-form" @submit.prevent="saveStudentDetails">
             <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
             <label>Year level<AppSelect v-model="studentDraft.year_lvl" :options="YEAR_LEVEL_OPTIONS" required /></label>
-            <label>Country<AppSelect v-model="studentDraft.country_id" :options="countrySelectOptions" @change="studentDraft.state_id = null" /></label>
-            <label>Region<AppSelect v-model="studentDraft.state_id" :options="regionSelectOptions" /></label>
-            <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
+            <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
+            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" :options="pronounSelectOptions" data-test="student-pronouns-select" /></label>
+            <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" maxlength="100" data-test="student-pronouns-other" /></label>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
-            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
+            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save Details' }}</button></div>
           </form>
           <template v-else>
           <div class="profile-field"><span class="profile-field-label">Name:</span><span class="profile-field-value">{{ user.name }}</span></div>
@@ -157,21 +175,22 @@
             <span class="profile-field-label">Year Level:</span>
             <span class="profile-field-value">{{ user.student.yearLevel }}</span>
           </div>
-          <div class="profile-field">
+          <div class="profile-field" data-test="student-interests">
             <span class="profile-field-label">Areas of Interest:</span>
             <span class="profile-field-value">
-              <span v-if="user.student.interests.length" class="profile-interest-list">
-                <span
-                  v-for="interest in user.student.interests"
-                  :key="interest"
-                  class="profile-interest"
-                >
-                  {{ interest }}
-                </span>
-              </span>
-              <span v-else>{{ unsetLabel }}</span>
+              {{ user.student.interests.length ? user.student.interests.join(', ') : unsetLabel }}
             </span>
           </div>
+          <div class="profile-field" data-test="student-pronouns">
+            <span class="profile-field-label">Pronouns:</span>
+            <span class="profile-field-value">{{ user.student.pronouns }}</span>
+          </div>
+          </template>
+        </div>
+
+        <!-- Their supervisor, apart from their own details. -->
+        <div v-if="user.student.hasDetails" class="profile-section" data-test="student-supervisor">
+          <h3 class="profile-section-title">Supervisor Details</h3>
           <div class="profile-field">
             <span class="profile-field-label">Supervisor:</span>
             <span class="profile-field-value">{{ user.student.supervisorName }}</span>
@@ -189,7 +208,6 @@
               <span v-else>{{ user.student.supervisorEmail }}</span>
             </span>
           </div>
-          </template>
         </div>
 
         <div v-if="user.student.hasDetails && !studentEditing" class="profile-section">
@@ -208,12 +226,12 @@
             <h3 class="profile-section-title">Guardian Details <span v-if="guardianLocked" class="registration-lock" role="img" :aria-label="GUARDIAN_LOCK_REASON" :data-tooltip="GUARDIAN_LOCK_REASON" data-test="guardian-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
             <button
               v-if="!guardianEditing && !guardianLocked"
-              class="btn btn-outline"
+              class="btn btn-outline profile-edit-button"
               type="button"
               data-test="guardian-edit"
               @click="guardianWarningOpen = true"
             >
-              Edit guardian
+              Edit
             </button>
           </div>
 
@@ -430,6 +448,7 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import AppSelect from '@/components/AppSelect.vue'
+import { PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
@@ -460,20 +479,28 @@ const studentDraft = ref({
   pg_firstname: '',
   pg_lastname: '',
   pg_email: '',
-  country_id: null,
-  state_id: null,
   interest_ids: [],
 })
+// Their pronouns as registering asks: a listed choice, or Other with their own.
+const pronounsDraft = ref({ choice: '', other: '' })
+// A student's country and region, edited under Personal Information.
+const placeEditing = ref(false)
+const placeSaving = ref(false)
+const placeDraft = ref({ country_id: null, state_id: null })
 const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
-const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
+const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === placeDraft.value.country_id))
 // The student details form's dropdown choices.
 const YEAR_LEVEL_OPTIONS = ['9', '10', '11', '12'].map(year => ({ value: year, label: year }))
 const countrySelectOptions = computed(() => [
   { value: null, label: 'Not set' },
   ...profileOptions.value.countries.map(country => ({ value: country.id, label: country.country_name })),
 ])
+// In Australia a state is needed, as registering asks, so no "Not set".
+const draftInAustralia = computed(() =>
+  profileOptions.value.countries.find(country => country.id === placeDraft.value.country_id)?.country_name === 'Australia'
+)
 const regionSelectOptions = computed(() => [
-  { value: null, label: 'Not set' },
+  ...(draftInAustralia.value ? [] : [{ value: null, label: 'Not set' }]),
   ...availableRegions.value.map(region => ({ value: region.id, label: region.state_name })),
 ])
 const guardianSending = ref(false)
@@ -649,25 +676,66 @@ const showTemporaryStatus = (message) => {
   }, 3200)
 }
 
-const startStudentEdit = async () => {
+// The countries, regions and interests the edit forms offer.
+const loadProfileOptions = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-options/`, { credentials: 'include', headers: buildSessionHeaders() })
     if (!response.ok) throw await apiErrorFromResponse(response)
     profileOptions.value = await response.json()
+    return true
   } catch (loadError) {
     error.value = loadError instanceof Error ? loadError.message : 'Profile options could not be loaded.'
+    return false
+  }
+}
+
+const startPlaceEdit = async () => {
+  if (!await loadProfileOptions()) return
+  placeDraft.value = { country_id: auth.user?.country?.id || null, state_id: auth.user?.state?.id || null }
+  error.value = ''
+  placeEditing.value = true
+}
+
+const savePlace = async () => {
+  if (!canEditStudentDetails.value) return
+  if (draftInAustralia.value && !placeDraft.value.state_id) {
+    error.value = 'Choose your state or territory.'
     return
   }
+  placeSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(placeDraft.value),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    placeEditing.value = false
+    showTemporaryStatus('Your details have been updated.')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your details could not be updated.'
+  } finally {
+    placeSaving.value = false
+  }
+}
+
+const startStudentEdit = async () => {
+  if (!await loadProfileOptions()) return
   const source = auth.user || {}
   studentDraft.value = {
     first_name: source.first_name || '',
     last_name: source.last_name || '',
     school_name: source.school_name || '',
     year_lvl: source.year_lvl || '9',
-    country_id: source.country?.id || null,
-    state_id: source.state?.id || null,
     interest_ids: [...profileOptions.value.selected_interest_ids],
   }
+  pronounsDraft.value = pronounDraft(source.pronouns)
   error.value = ''
   studentEditing.value = true
 }
@@ -734,6 +802,11 @@ const sendGuardianInvitation = async () => {
 
 const saveStudentDetails = async () => {
   if (!canEditStudentDetails.value) return
+  const pronouns = pronounsToSave(pronounsDraft.value)
+  if (pronouns === null) {
+    error.value = 'Enter your pronouns.'
+    return
+  }
   studentSaving.value = true
   error.value = ''
   try {
@@ -744,7 +817,10 @@ const saveStudentDetails = async () => {
       method: 'PATCH',
       credentials: 'include',
       headers: buildSessionHeaders({ includeCSRF: true }),
-      body: JSON.stringify(Object.fromEntries(Object.entries(studentDraft.value).filter(([key]) => !key.startsWith('pg_')))),
+      body: JSON.stringify({
+        ...Object.fromEntries(Object.entries(studentDraft.value).filter(([key]) => !key.startsWith('pg_'))),
+        pronouns,
+      }),
     })
     if (!response.ok) throw await apiErrorFromResponse(response)
     auth.loginWithUser(await response.json())
@@ -871,6 +947,7 @@ const user = computed(() => {
       schoolName: valueOrFallback(source?.school_name, unsetLabel),
       yearLevel: valueOrFallback(source?.year_lvl, unsetLabel),
       interests,
+      pronouns: valueOrFallback(source?.pronouns, unsetLabel),
       supervisorName: valueOrFallback(source?.supervisor_name, unsetLabel),
       supervisorEmail,
       supervisorEmailAddress,
@@ -1263,24 +1340,6 @@ onMounted(async () => {
   margin: 0;
 }
 
-.profile-interest-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.profile-interest {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.75rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
-  font-size: 0.9rem;
-  line-height: 1.2;
-}
-
 .consent-field {
   align-items: flex-start;
 }
@@ -1415,10 +1474,12 @@ onMounted(async () => {
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
 .student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
-.student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
+/* The interests in two columns, as registering shows them, in their box. */
+.student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:30px 16px; margin:0; padding:1.25rem 1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
-.student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }
-.student-edit-form .interest-options input { width:auto; }
+.student-edit-form .interest-options label { display:flex; align-items:flex-start; gap:10px; padding:0 12px 0 2px; color:var(--charcoal); font-weight:400; line-height:1.35; cursor:pointer; }
+/* Centred on the first line of its text, at any text size. */
+.student-edit-form .interest-options input { flex:0 0 auto; width:1.0625rem; height:1.0625rem; margin:calc((.85rem * 1.35 - 1.0625rem) / 2) 0 0; padding:0; accent-color:var(--dark-green); cursor:pointer; }
 .student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
 .student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
 .student-edit-actions .btn { margin:0; }

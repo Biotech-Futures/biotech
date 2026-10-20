@@ -50,15 +50,17 @@ const selection = computed({
 </script>
 
 <style scoped>
+/* In a box, its heading on the line, as the dashboard shows them. */
 .interest-selector {
   min-width: 0;
   margin: 0;
-  padding: 0;
-  border: 0;
+  padding: 10px 16px 22px;
+  border: 1px solid var(--registration-field-line);
+  border-radius: 6px;
 }
 
 legend {
-  padding: 0;
+  padding: 0 6px;
   color: var(--registration-ink);
   font-size: 0.92rem;
   font-weight: 600;
@@ -73,12 +75,12 @@ p {
 }
 
 /* The options in two columns, with no lines between them: as far below
-   the heading as they are from each other. */
+   the heading (with the box's padding) as they are from each other. */
 .interest-selector__options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 30px 16px;
-  margin-top: 30px;
+  margin-top: 20px;
 }
 
 label {

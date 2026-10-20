@@ -502,7 +502,7 @@ describe('admin user detail: a student edited part by part', () => {
     const wrapper = openDetail(student({ supervisorName: 'Sam Lee', supervisorEmail: 'sam@example.com', groupName: 'BTF1' }))
 
     const headings = wrapper.findAll('h3').map((h) => h.text())
-    expect(headings).toEqual(['Account', 'Supervisor and Group', 'Student Details', 'Guardian Details'])
+    expect(headings).toEqual(['Profile Photo', 'Account', 'Supervisor and Group', 'Student Details', 'Guardian Details'])
     for (const part of ['account', 'details', 'guardian', 'supervisor']) {
       expect(wrapper.find(`[data-test="admin-edit-${part}"]`).exists()).toBe(true)
     }
@@ -513,7 +513,7 @@ describe('admin user detail: a student edited part by part', () => {
   it('shows an admin their Admin Details, with no buttons below either', () => {
     const wrapper = openDetail(student({ role: 'admin' }))
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Admin Details'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Profile Photo', 'Account', 'Admin Details'])
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
     expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Close')
   })
@@ -640,11 +640,43 @@ describe('admin user detail: a student edited part by part', () => {
       lastName: 'Ward',
       schoolName: 'New High',
       yearLevel: 11,
-      interests: ['Biomedical Innovations']
+      interests: ['Biomedical Innovations'],
+      pronouns: ''
     })
     expect(wrapper.emitted('updated')).toEqual([[updated]])
     expect(wrapper.find('[data-test="admin-details-form"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="admin-details-form"]').exists()).toBe(false)
+  })
+
+  it('shows their profile photo before Account, or says there is none', () => {
+    const photo = 'https://files.example.com/users/7/photo.png'
+    const withPhoto = openDetail(student({ profileImageUrl: photo }))
+    expect(withPhoto.find('[data-test="admin-photo"] img').attributes('src')).toBe(photo)
+
+    const without = openDetail(student({ profileImageUrl: null }))
+    expect(without.find('[data-test="admin-photo"] img').exists()).toBe(false)
+    expect(without.find('[data-test="admin-photo"]').text()).toContain('No photo uploaded.')
+  })
+
+  it('shows pronouns after Interests, and edits them as registering offers them', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(student({ pronouns: 'Xe/xem' }))
+    expect(wrapper.find('[data-test="admin-student-pronouns"] dd').text()).toBe('Xe/xem')
+
+    await wrapper.find('[data-test="admin-edit-details"]').trigger('click')
+    // Their own words come back under Other.
+    expect(appSelectText(wrapper, '[data-test="admin-pronouns-select"]')).toBe('Other')
+    expect((wrapper.find('[data-test="admin-pronouns-other"]').element as HTMLInputElement).value).toBe('Xe/xem')
+
+    await wrapper.find('[data-test="admin-pronouns-other"]').setValue(' ')
+    await wrapper.find('[data-test="admin-details-form"]').trigger('submit')
+    expect(wrapper.text()).toContain('Enter their pronouns.')
+
+    await pick(wrapper, 'admin-pronouns-select', 'They/them')
+    expect(wrapper.find('[data-test="admin-pronouns-other"]').exists()).toBe(false)
+    await wrapper.find('[data-test="admin-details-form"]').trigger('submit')
+    await flushPromises()
+    expect(vi.mocked(updateAdminUser).mock.calls[0][1]).toMatchObject({ pronouns: 'They/them' })
   })
 
   it('needs at least one interest', async () => {
@@ -903,6 +935,7 @@ describe('admin user detail: a mentor edited part by part', () => {
     const wrapper = openDetail(mentor())
 
     expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Profile Photo',
       'Account',
       'Groups',
       'Mentor Details',
@@ -1146,7 +1179,7 @@ describe('admin user detail: a supervisor edited part by part', () => {
   it('shows Account, Groups, Supervisor Details and Supervisees, and nothing at the bottom', () => {
     const wrapper = openDetail(supervisor())
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Groups', 'Supervisor Details', 'Supervisees'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Profile Photo', 'Account', 'Groups', 'Supervisor Details', 'Supervisees'])
     expect(wrapper.find('[data-test="admin-edit-account"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="admin-edit-supervisor-details"]').exists()).toBe(true)
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)

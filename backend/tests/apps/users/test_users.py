@@ -521,6 +521,60 @@ class StudentProfileDashboardFieldsTests(TestCase):
         self.assertTrue(response.data["join_perm"])
         self.assertIsNotNone(response.data["joinperm_granted_at"])
 
+    def test_edit_options_offer_only_the_registration_interests_in_its_order(self):
+        from apps.users.models import AreasOfInterest
+        from apps.users.profile_options import AREAS_OF_INTEREST
+
+        client = APIClient()
+        student = User.objects.create_user(email="interest-options@test.com", first_name="Ivy", last_name="Student")
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", pg_email="pat@test.com",
+            school_name="Test High", year_lvl="10",
+        )
+        # As users 0023 loads them, backwards, beside an old or seeded area
+        # registration doesn't offer.
+        for name in reversed(AREAS_OF_INTEREST):
+            AreasOfInterest.objects.get_or_create(interest_desc=name)
+        AreasOfInterest.objects.create(interest_desc="Biochemistry")
+
+        client.force_authenticate(user=student)
+        response = client.get(reverse("student-profile-options"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["interest_desc"] for row in response.data["interests"]], AREAS_OF_INTEREST)
+
+    def _pronoun_student(self, **profile):
+        student = User.objects.create_user(
+            email="pronouns@test.com", first_name="Sam", last_name="Student", pronouns="He/him",
+        )
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", pg_email="pat@test.com",
+            school_name="Test High", year_lvl="10", **profile,
+        )
+        client = APIClient()
+        client.force_authenticate(user=student)
+        return student, client
+
+    def test_student_changes_or_clears_their_pronouns(self):
+        student, client = self._pronoun_student()
+
+        response = client.patch(reverse("MeListHTMLView"), {"pronouns": " Xe/xem "}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pronouns"], "Xe/xem")
+        client.patch(reverse("MeListHTMLView"), {"pronouns": ""}, format="json")
+        student.refresh_from_db()
+        self.assertEqual(student.pronouns, "")
+
+    def test_pronouns_are_the_supervisors_to_change_when_they_manage_the_student(self):
+        student, client = self._pronoun_student(supervisor_edited_at=timezone.now())
+
+        response = client.patch(reverse("MeListHTMLView"), {"pronouns": "They/them"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        student.refresh_from_db()
+        self.assertEqual(student.pronouns, "He/him")
+
 
 class ReceiveJoinPermissionTokenTests(TestCase):
     """The legacy ``AllowAny`` on ``ReceiveJoinPermissionView`` let any anonymous

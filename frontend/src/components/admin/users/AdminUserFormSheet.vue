@@ -652,27 +652,37 @@ const submitForm = async () => {
   color: var(--dark-green);
 }
 
+/* In a box, in two columns, as registering and the student dashboard
+   show them. */
 .admin-users-form__interests {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.45rem;
-  border: none;
-  padding: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 30px 16px;
   margin: 0.4rem 0 0;
+  padding: 1.1rem 1rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
 }
 
 .admin-users-form__interest {
   display: flex;
   align-items: flex-start;
-  gap: 0.5rem;
+  gap: 10px;
+  padding: 0 12px 0 2px;
   font-size: 0.9rem;
+  line-height: 1.35;
   color: var(--teal);
   cursor: pointer;
 }
 
+/* Centred on the first line of its text, at any text size. */
 .admin-users-form__interest input {
-  margin-top: 0.2rem;
+  flex: 0 0 auto;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  margin: calc((0.9rem * 1.35 - 1.0625rem) / 2) 0 0;
   accent-color: var(--dark-green);
+  cursor: pointer;
 }
 
 .admin-users-form__note {
@@ -815,7 +825,8 @@ const submitForm = async () => {
 }
 
 @media (max-width: 640px) {
-  .admin-users-form__grid {
+  .admin-users-form__grid,
+  .admin-users-form__interests {
     grid-template-columns: 1fr;
   }
 }

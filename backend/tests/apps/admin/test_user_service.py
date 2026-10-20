@@ -1765,6 +1765,45 @@ class AdminUserTypedStateTests(TestCase):
         self.assertIsNone(self._state())
 
 
+class AdminStudentPronounsTests(TestCase):
+    """Student Details shows and changes a student's pronouns."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="pronouns@example.com", first_name="Sam", last_name="Lee", pronouns="He/him",
+        )
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(user=self.user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        StudentProfile.objects.create(
+            user=self.user, school_name="Test High", year_lvl="10",
+            pg_first_name="Pat", pg_last_name="Lee", pg_email="pat@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+        UserInterest.objects.create(user=self.user, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def test_they_are_shown_changed_and_cleared(self):
+        result = update_user(self.user.id, {"pronouns": " Xe/xem "})
+
+        self.assertEqual(result["data"]["pronouns"], "Xe/xem")
+        update_user(self.user.id, {"pronouns": ""})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pronouns, "")
+
+    def test_the_panel_has_their_photo_or_none(self):
+        from apps.admin.services.user import build_user_dict
+
+        self.assertIsNone(build_user_dict(self.user)["profileImageUrl"])
+        self.user.profile_image_key = "users/1/photo.png"
+        self.user.profile_image_content_type = "image/png"
+        self.assertIn("users/1/photo.png", build_user_dict(self.user)["profileImageUrl"])
+
+    def test_too_long_or_not_text_is_refused(self):
+        self.assertEqual(update_user(self.user.id, {"pronouns": "x" * 101})["data"], None)
+        self.assertEqual(update_user(self.user.id, {"pronouns": 5})["data"], None)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pronouns, "He/him")
+
+
 class AdminMentorDetailsTests(TestCase):
     """A mentor's panel: what they registered with, their weekly times and
     groups, and an admin changing them as registering checks them."""

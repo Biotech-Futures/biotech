@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 import warnings
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
@@ -45,6 +46,22 @@ def validate_profile_image(uploaded_file) -> tuple[str, str]:
     finally:
         uploaded_file.seek(0)
     return content_type, extension
+
+
+def profile_image_url(user) -> str | None:
+    """Where the browser loads the user's photo, or None without one."""
+    if not user.profile_image_key:
+        return None
+    url = get_profile_image_storage().url(
+        user.profile_image_key,
+        content_type=user.profile_image_content_type or None,
+    )
+    # FileSystemStorage returns a relative ``/media/...`` URL. The SPA
+    # runs on another local origin (Vite :5173), so make that URL point at
+    # Django rather than accidentally requesting it from the frontend.
+    if url.startswith("/"):
+        return f"{settings.BACKEND_URL}{url}"
+    return url
 
 
 def save_profile_image(*, user, uploaded_file) -> str:

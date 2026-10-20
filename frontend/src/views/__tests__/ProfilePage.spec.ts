@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import ProfilePage from '@/views/ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
 import { formatDayMonthTime } from '@/utils/date'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/csrf', () => ({
   buildSessionHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -47,15 +48,95 @@ describe('Student profile', () => {
     wrapper.unmount()
   })
 
-  it('loads edit choices for geography and interests', async () => {
+  it('needs a state in Australia, with no Not set to pick', async () => {
+    Object.assign(useAuthStore().user!, { country: { id: 1, countryName: 'Australia' }, state: null })
     const wrapper = mount(ProfilePage)
     await flushPromises()
-    await wrapper.get('.profile-edit-button').trigger('click')
+    // Country and region are edited under Personal Information.
+    await wrapper.get('[data-test="place-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(await appSelectLabels(wrapper, '[data-test="student-region"]')).toEqual(['NSW'])
+    await wrapper.get('[data-test="place-edit-form"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Choose your state or territory.')
+    wrapper.unmount()
+  })
+
+  it('loads edit choices: geography under Personal Information, interests under Student Details', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="place-edit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="place-edit-form"]').text()).toContain('Australia')
+    await wrapper.get('[data-test="place-edit-form"]').findAll('button').find((b) => b.text() === 'Cancel')!.trigger('click')
+
+    const details = wrapper.find('[data-test="student-details-edit"]')
+    await details.trigger('click')
     await flushPromises()
     const form = wrapper.get('.student-edit-form')
-    expect(form.text()).toContain('Australia')
     expect(form.text()).toContain('Biology')
+    expect(form.text()).not.toContain('Country')
     expect(form.findAll('input[type="checkbox"]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('lists interests as text with pronouns after, and the supervisor in a section of its own', async () => {
+    Object.assign(useAuthStore().user!, {
+      interests: ['Genomics', 'Molecular Biology'], pronouns: 'She/her',
+      supervisor_name: 'Grace Green', supervisor_email: 'grace@school.edu',
+    })
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="student-interests"]').text()).toContain('Genomics, Molecular Biology')
+    expect(wrapper.find('.profile-interest').exists()).toBe(false)
+    expect(wrapper.get('[data-test="student-pronouns"]').text()).toContain('She/her')
+    const fields = wrapper.findAll('.profile-field-label').map((label) => label.text())
+    expect(fields.indexOf('Pronouns:')).toBe(fields.indexOf('Areas of Interest:') + 1)
+
+    const supervisor = wrapper.get('[data-test="student-supervisor"]')
+    expect(supervisor.get('.profile-section-title').text()).toBe('Supervisor Details')
+    expect(supervisor.text()).toContain('Grace Green')
+    expect(supervisor.get('a').attributes('href')).toBe('mailto:grace@school.edu')
+    // No longer among the student's own details.
+    expect(wrapper.get('[data-test="student-interests"]').element.parentElement!.textContent).not.toContain('Supervisor Email:')
+    wrapper.unmount()
+  })
+
+  it('edits pronouns as registering offers them, bringing their own back under Other', async () => {
+    Object.assign(useAuthStore().user!, { pronouns: 'Xe/xem' })
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="student-details-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(appSelectText(wrapper, '[data-test="student-pronouns-select"]')).toBe('Other')
+    expect((wrapper.get('[data-test="student-pronouns-other"]').element as HTMLInputElement).value).toBe('Xe/xem')
+    expect(await appSelectLabels(wrapper, '[data-test="student-pronouns-select"]')).toEqual([
+      'Not set', 'She/her', 'He/him', 'They/them', 'Prefer not to say', 'Other',
+    ])
+
+    await pickAppSelect(wrapper, '[data-test="student-pronouns-select"]', 'They/them')
+    expect(wrapper.find('[data-test="student-pronouns-other"]').exists()).toBe(false)
+    await wrapper.get('.student-edit-form').trigger('submit')
+    await flushPromises()
+    const patch = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'PATCH')!
+    expect(JSON.parse(String(patch[1]!.body)).pronouns).toBe('They/them')
+    wrapper.unmount()
+  })
+
+  it('asks for their pronouns when Other is left empty', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="student-details-edit"]').trigger('click')
+    await flushPromises()
+
+    await pickAppSelect(wrapper, '[data-test="student-pronouns-select"]', 'Other')
+    await wrapper.get('.student-edit-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Enter your pronouns.')
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
     wrapper.unmount()
   })
 
@@ -65,7 +146,9 @@ describe('Student profile', () => {
     })
     const wrapper = mount(ProfilePage)
     await flushPromises()
-    expect(wrapper.find('.profile-edit-button').exists()).toBe(false)
+    // Their details and their country and region are their supervisor's to change.
+    expect(wrapper.find('[data-test="student-details-edit"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="place-edit"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="details-lock"]').attributes('data-tooltip')).toBe(
       'Your supervisor, Grace Green (grace@school.edu), manages these details. Contact them to make changes.'
     )

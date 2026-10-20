@@ -18,6 +18,7 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
+from apps.users.profile_images import profile_image_url
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
@@ -693,6 +694,8 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         "id": user.id,
         "firstName": user.first_name,
         "lastName": user.last_name,
+        "pronouns": user.pronouns,
+        "profileImageUrl": profile_image_url(user),
         "email": user.email,
         "role": role_str,
         "country": _user_country_dict(user),
@@ -1013,6 +1016,8 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             "id": user.id,
             "firstName": user.first_name,
             "lastName": user.last_name,
+            "pronouns": user.pronouns,
+            "profileImageUrl": profile_image_url(user),
             "email": user.email,
             "role": role_map.get(uid),
             "country": _user_country_dict(user),
@@ -1778,6 +1783,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             )
             user.state_id = state_obj.id
 
+    # Pronouns as registering takes them: a listed choice or their own words,
+    # blank leaving them unsaid.
+    if "pronouns" in input_data:
+        pronouns = input_data["pronouns"]
+        if pronouns is not None and not isinstance(pronouns, str):
+            return {"msg": "Pronouns are not valid", "data": None}
+        pronouns = (pronouns or "").strip()
+        if len(pronouns) > 100:
+            return {"msg": "Pronouns must be 100 characters or fewer", "data": None}
+        user.pronouns = pronouns
+
     try:
         with transaction.atomic():
             # Update basic user fields
@@ -1787,7 +1803,7 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                 user.first_name = input_data["firstName"]
             if "lastName" in input_data:
                 user.last_name = input_data["lastName"]
-            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "email"]):
+            if any(k in input_data for k in ["countryId", "stateId", "stateName", "firstName", "lastName", "pronouns", "email"]):
                 user.save()
 
             if email_changed:

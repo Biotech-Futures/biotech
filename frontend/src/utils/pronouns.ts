@@ -1,0 +1,25 @@
+// Pronouns as registering asks for them: a listed choice, or Other with
+// their own words. Used where a student's pronouns are edited later.
+import { PRONOUN_OPTIONS } from '@/registration/registration'
+
+/** The choices, with Not set first for pronouns left unsaid. */
+export const PRONOUN_SELECT_OPTIONS = [
+  { value: '', label: 'Not set' },
+  ...PRONOUN_OPTIONS.map((pronoun) => ({ value: pronoun, label: pronoun })),
+]
+
+export type PronounDraft = { choice: string; other: string }
+
+/** Saved pronouns as a choice: their own words come back under Other. */
+export function pronounDraft(pronouns: string | null | undefined): PronounDraft {
+  const value = (pronouns || '').trim()
+  return !value || (PRONOUN_OPTIONS as readonly string[]).includes(value)
+    ? { choice: value, other: '' }
+    : { choice: 'Other', other: value }
+}
+
+/** The pronouns to save, or null when Other is chosen with nothing typed. */
+export function pronounsToSave({ choice, other }: PronounDraft): string | null {
+  if (choice !== 'Other') return choice
+  return other.trim() || null
+}

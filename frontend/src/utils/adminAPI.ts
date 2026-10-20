@@ -225,6 +225,10 @@ export interface AdminUser {
   id: number
   firstName: string | null
   lastName: string | null
+  /** As given registering, or since changed: blank when unsaid. */
+  pronouns?: string
+  /** Where their profile photo loads from, or null without one. */
+  profileImageUrl?: string | null
   email: string | null
   role: string | null
   country: AdminUserCountry | null

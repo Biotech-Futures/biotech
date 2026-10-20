@@ -6,6 +6,8 @@ export type SupervisedStudent = {
   id: number
   first_name: string
   last_name: string
+  /** As given registering, or since changed: blank when unsaid. */
+  pronouns?: string
   email: string
   country_id?: number | null
   country_name?: string
@@ -133,6 +135,7 @@ export async function updateSupervisedStudentProfile(
     school_name: string
     year_lvl: string
     interests?: string[]
+    pronouns?: string
     country_id?: number | null
     state_id?: number | null
   },

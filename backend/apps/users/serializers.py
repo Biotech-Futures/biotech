@@ -12,7 +12,6 @@ from .models import (
 from apps.groups.models import Countries, CountryStates
 from apps.resources.models import RoleAssignmentHistory
 from apps.common.role_names import ROLE_MENTOR, ROLE_STUDENT, ROLE_SUPERVISOR
-from apps.common.storage import get_profile_image_storage
 from django.db import DatabaseError
 from django.db.models import Q
 from django.conf import settings
@@ -290,6 +289,8 @@ class StudentSelfProfileUpdateSerializer(serializers.Serializer):
 
     first_name = serializers.CharField(max_length=255, required=False)
     last_name = serializers.CharField(max_length=255, required=False)
+    # Blank leaves them unsaid, as registering allows.
+    pronouns = serializers.CharField(max_length=100, required=False, allow_blank=True)
     school_name = serializers.CharField(max_length=255, required=False)
     year_lvl = serializers.ChoiceField(
         choices=[str(level) for level in range(9, 13)],
@@ -665,18 +666,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_profile_image_url(self, obj):
-        if not obj.profile_image_key:
-            return None
-        url = get_profile_image_storage().url(
-            obj.profile_image_key,
-            content_type=obj.profile_image_content_type or None,
-        )
-        # FileSystemStorage returns a relative ``/media/...`` URL. The SPA
-        # runs on another local origin (Vite :5173), so make that URL point at
-        # Django rather than accidentally requesting it from the frontend.
-        if url.startswith("/"):
-            return f"{settings.BACKEND_URL}{url}"
-        return url
+        from .profile_images import profile_image_url
+
+        return profile_image_url(obj)
 
     @extend_schema_field(serializers.BooleanField())
     def get_must_change_password(self, obj) -> bool:
@@ -712,6 +704,7 @@ class SupervisedStudentSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
+    pronouns = serializers.CharField(allow_blank=True)
     email = serializers.EmailField()
     country_id = serializers.IntegerField(allow_null=True)
     country_name = serializers.CharField(allow_blank=True)
@@ -813,6 +806,8 @@ class StudentGuardianUpdateSerializer(serializers.Serializer):
 class SupervisedStudentProfileUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=255)
     last_name = serializers.CharField(max_length=255)
+    # Blank leaves them unsaid, as registering allows.
+    pronouns = serializers.CharField(max_length=100, required=False, allow_blank=True)
     email = serializers.EmailField(required=False)
     # Where the student is, as their Personal information shows it.
     country_id = serializers.PrimaryKeyRelatedField(queryset=Countries.objects.all(), required=False, allow_null=True)
