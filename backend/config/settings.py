@@ -684,6 +684,10 @@ BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=fl
 # time from each mailbox; each starts this many seconds after the one before
 # it finished.
 BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
+# Once a mailbox's server can't be reached, the emails sent from it for this
+# many seconds are kept to send later at once (apps.services.waiting_email),
+# rather than each waiting on the server in turn.
+MAIL_SERVER_DOWN_SECONDS = config("MAIL_SERVER_DOWN_SECONDS", default=60, cast=int)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -769,8 +773,39 @@ QEV_API_KEY = config("QEV_API_KEY", default="")
 QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
 QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
 QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
-QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=600, cast=int)
+# Lookups allowed per UTC day; 0 (the default) means no limit.
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
 QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
 QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
 # Email checks run on a background thread after commit; tests run them inline.
 EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Tried when QEV_API_KEY (the free key) is out of credit; set only in the
+# deployment's environment. Low-credit alerts follow this key's balance.
+QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
+# Minutes before a key that ran out of credit is tried again (a new UTC day
+# also allows a retry).
+QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)
+
+# Check addresses before a registration is submitted, and warn about any
+# QuickEmailVerification answered as not existing (the user can confirm past
+# it). Off unless set.
+EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
+
+# Limits on checking addresses before a registration is submitted: addresses
+# in one request (fewer for anyone not signed in), new lookups one IP address
+# may cause an hour (the rest are left unchecked), and the seconds after which
+# a job that stops moving counts as stalled (the page then submits anyway).
+EMAIL_PRECHECK_MAX_ADDRESSES = config("EMAIL_PRECHECK_MAX_ADDRESSES", default=2000, cast=int)
+EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES = config("EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES", default=20, cast=int)
+EMAIL_PRECHECK_IP_HOURLY_LOOKUPS = config("EMAIL_PRECHECK_IP_HOURLY_LOOKUPS", default=200, cast=int)
+EMAIL_PRECHECK_STALL_SECONDS = config("EMAIL_PRECHECK_STALL_SECONDS", default=60, cast=int)
+
+# Threads checking registration addresses before submission, one address
+# each (QEV's bulk API isn't open to the free key). Backoff on HTTP 429
+# protects against QEV's unpublished rate limit.
+QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=8, cast=int)
+
+# Seconds a queued pre-submission check (waiting behind earlier ones) may go
+# without starting before it counts as stalled and the page submits anyway.
+EMAIL_PRECHECK_QUEUED_STALL_SECONDS = config("EMAIL_PRECHECK_QUEUED_STALL_SECONDS", default=300, cast=int)

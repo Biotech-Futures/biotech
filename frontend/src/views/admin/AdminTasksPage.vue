@@ -20,17 +20,15 @@
       >
         <label class="admin-tasks__bulk-status" for="task-bulk-status">
           <span class="sr-only">Set selected task status</span>
-          <select
+          <!-- An action: it stays on "Set status" once a status is set. -->
+          <AppSelect
             id="task-bulk-status"
-            value=""
+            :model-value="null"
+            :options="STATUS_OPTIONS"
+            placeholder="Set status"
             :disabled="taskActionBusy"
             @change="onBulkStatusChange"
-          >
-            <option value="" disabled>Set status</option>
-            <option v-for="status in TASK_STATUSES" :key="status" :value="status">
-              {{ taskStatusLabel(status) }}
-            </option>
-          </select>
+          />
         </label>
         <button type="button" class="btn btn-sm btn-danger" :disabled="taskActionBusy" @click="openBulkDelete">
           Delete
@@ -61,16 +59,13 @@
         <template #filters>
           <div class="admin-tasks__filter">
             <label class="admin-tasks__filter-label" for="task-type-filter">Type</label>
-            <select
+            <AppSelect
               id="task-type-filter"
-              :value="taskTypeFilter"
+              :model-value="taskTypeFilter"
+              :options="TYPE_OPTIONS"
               :disabled="loading || taskActionBusy"
               @change="onTaskTypeChange"
-            >
-              <option value="all">All</option>
-              <option value="group">Group</option>
-              <option value="individual">Individual</option>
-            </select>
+            />
           </div>
         </template>
         <template #search-side>
@@ -190,6 +185,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminTaskFormSheet from '@/components/admin/tasks/AdminTaskFormSheet.vue'
@@ -225,6 +221,15 @@ const TASK_STATUS_LABELS: Record<AdminTaskStatus, string> = {
   blocked: 'Blocked'
 }
 const TASK_STATUSES = Object.keys(TASK_STATUS_LABELS) as AdminTaskStatus[]
+const STATUS_OPTIONS: AppSelectOption[] = TASK_STATUSES.map((status) => ({
+  value: status,
+  label: TASK_STATUS_LABELS[status]
+}))
+const TYPE_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All' },
+  { value: 'group', label: 'Group' },
+  { value: 'individual', label: 'Individual' }
+]
 
 const columns: DataTableColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
@@ -558,10 +563,8 @@ const updateTaskStatusPayload = (task: AdminTask, status: AdminTaskStatus): Upda
   parent: task.parent
 })
 
-const onBulkStatusChange = async (event: Event) => {
-  const select = event.target as HTMLSelectElement
-  const status = select.value as AdminTaskStatus
-  select.value = ''
+const onBulkStatusChange = async (value: AppSelectValue) => {
+  const status = value as AdminTaskStatus
   if (!status || taskActionBusy.value) return
   const targets = selectedTaskList.value
   if (!targets.length) return
@@ -594,8 +597,8 @@ watch(searchInput, () => {
   }, 350)
 })
 
-const onTaskTypeChange = (event: Event) => {
-  taskTypeFilter.value = (event.target as HTMLSelectElement).value as TaskTypeFilter
+const onTaskTypeChange = (value: AppSelectValue) => {
+  taskTypeFilter.value = value as TaskTypeFilter
   clearSelection()
   reloadFromFirstPage()
 }
@@ -670,7 +673,7 @@ onMounted(() => {
   letter-spacing: 0.03em;
 }
 
-.admin-tasks__filter select {
+.admin-tasks__filter .app-select {
   min-width: 9rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
@@ -681,7 +684,11 @@ onMounted(() => {
   color: var(--teal);
 }
 
-.admin-tasks__bulk-status select {
+/* Its text centred in the 2rem box, as a select's is. */
+.admin-tasks__bulk-status .app-select {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-width: 140px;
   height: 2rem;
   padding: 0.25rem 0.5rem;
@@ -692,10 +699,11 @@ onMounted(() => {
   font: inherit;
 }
 
-.admin-tasks__bulk-status select:disabled {
+.admin-tasks__bulk-status .app-select.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
+  opacity: 1;
 }
 
 .admin-tasks__error {

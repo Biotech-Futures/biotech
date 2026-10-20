@@ -84,7 +84,7 @@ describe('AdminPeoplePage', () => {
 
     const active = tabButtons().find((button) => button.attributes('aria-selected') === 'true')
     expect(active?.text()).toBe('Students')
-    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'no')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'Not in a group')
   })
 
   it('renders the four tab labels', async () => {

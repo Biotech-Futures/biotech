@@ -85,7 +85,11 @@
 
         <div class="legacy-links">
           <!-- Unless Management > Registration has closed it. -->
-          <RouterLink v-if="registrationOpen" class="legacy-website-button" to="/register">
+          <RouterLink
+            v-if="registrationOpen"
+            class="legacy-website-button legacy-website-button--primary"
+            to="/register"
+          >
             Register now
           </RouterLink>
           <a
@@ -1468,6 +1472,30 @@ onBeforeUnmount(() => {
   color: var(--white, #ffffff);
   background-color: var(--dark-green, #2d5a3d);
   transform: translateY(-1px);
+}
+
+/* Register now: green, as the page's Sign in button is. */
+.legacy-website-button--primary,
+.legacy-website-button--primary:hover,
+.legacy-website-button--primary:focus-visible {
+  border-color: transparent;
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(18, 96, 80, 1), rgba(47, 164, 134, 0.96)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.14), transparent 28%);
+  /* Under the see-through border too, so the gradient doesn't start over
+     there as a dark line. */
+  background-origin: border-box;
+  box-shadow:
+    0 10px 22px rgba(31, 93, 79, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.legacy-website-button--primary:hover,
+.legacy-website-button--primary:focus-visible {
+  box-shadow:
+    0 14px 28px rgba(31, 93, 79, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 /*

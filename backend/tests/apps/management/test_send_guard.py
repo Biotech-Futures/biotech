@@ -2,10 +2,11 @@
 of a run is sent, shared across its workers, those that missed someone tried
 once more at the end, and the run's progress, and who it missed, kept for
 the page."""
+import threading
 from datetime import timedelta
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from apps.management.models import EmailSendRun, QueuedEmailSend
@@ -337,3 +338,14 @@ class QueuedJobTests(TestCase):
         self.assertEqual(JOB_RUNS, ["digest"])
         self.assertEqual(list(QueuedEmailSend.objects.values_list("key", flat=True)), ["rsvp_reminder"])
         self.assertEqual(send_guard.queue_key("connect"), f"{QUEUE_KEY}:connect")
+
+
+class KeepHeldTests(SimpleTestCase):
+    def test_a_jobs_hold_keeper_closes_its_connection_and_ends_cleanly(self):
+        # It runs on its own thread while a job sends; it once failed on its
+        # way out (a name it doesn't have), logging an error after every job.
+        stop = threading.Event()
+        stop.set()
+        with mock.patch.object(send_guard, "db_connection") as connection:
+            send_guard._keep_held("announcement", stop)
+        connection.close.assert_called_once()

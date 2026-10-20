@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from apps.submissions.email_sections import GREEN, RED, presentation_section, section_html, times_section
+
 
 # ``{{ tag_name }}`` with optional inner spaces. Lowercase snake_case only, so
 # Django-style ``{{ settings.SECRET_KEY }}`` or ``{{ User }}`` never match a tag.
@@ -68,6 +70,20 @@ _BRAND_TAGS = (
 # Each group's one email, as the send code addresses it (see
 # apps.submissions.emails.to_and_cc and apps.management.services.delivery).
 _GROUP_TO_AND_CC = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
+
+# The finalist confirmation's sections, built as the email builds them.
+_SAMPLE_PRESENTATION = presentation_section(
+    [{"label": "Presentation Slides", "submitted": True, "status": "Submitted", "detail": "2026_BTF01_Slides.pptx"}]
+)
+_SAMPLE_TIMES = times_section(["09:30 - 10:00 AEDT", "11:40 - 12:30 AEDT"], "Friday, 23 October 2026", "AEDT, UTC+11")
+_SAMPLE_REMINDER = section_html(
+    "Submission components",
+    [
+        {"label": "Presentation Slides", "status": "Uploaded", "detail": "2026_BTF01_Slides.pptx", "colour": GREEN},
+        {"label": "Availability", "status": "Not submitted", "colour": RED},
+    ],
+    "Both are required: submit your availability, then press Submit.",
+)
 
 _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
 
@@ -142,6 +158,50 @@ EMAIL_TYPES = (
         default_template="emails/registration_group.html",
         merge_tags=(
             _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_mentor",
+        name="Registration confirmation (to mentor)",
+        description="Sent to a mentor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_mentor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_supervisor",
+        name="Registered by supervisor (to student)",
+        description=(
+            "Sent to each student a supervisor registers: one student, a group, or an uploaded "
+            "file. Not sent when an admin registers students."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_admin",
+        name="Registered by admin (to student)",
+        description=(
+            "Sent to each student an admin registers on Management > Registration: one student, "
+            "a group, or an uploaded file. Names the supervisor the admin chose."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_admin.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
             *_BRAND_TAGS,
         ),
@@ -385,6 +445,41 @@ EMAIL_TYPES = (
             MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
             MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
             MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="finalist_submission_confirmation",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist submission confirmation",
+        description="Sent to a finalist team when they submit their presentation.",
+        default_subject="{{ brand_name }}: Presentation received for {{ group_name }}",
+        default_template="emails/finalist_submission_confirmation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("submitted_by", "Who submitted the presentation", "Alex Chen", "SUBMITTED_BY"),
+            MergeTag("slides_due", "Slides due date", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag("finalist_url", "Link to the finalist page", "https://biotechfutures.org/#/groups/12/finalist", "FINALIST_URL"),
+            MergeTag("presentation", "The slides received, as a styled section", _SAMPLE_PRESENTATION, "PRESENTATION_SECTION", html=True),
+            MergeTag("selected_times", "The times the team selected, as a styled section", _SAMPLE_TIMES, "TIMES_SECTION", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="finalist_submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist submission reminder",
+        description="Daily reminder in the final week before slides are due, until a finalist team submits.",
+        default_subject="{{ brand_name }}: Presentation reminder for {{ group_name }}",
+        default_template="emails/finalist_submission_reminder.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("slides_due", "Slides due date", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag("finalist_url", "Link to the finalist page", "https://biotechfutures.org/#/groups/12/finalist", "FINALIST_URL"),
+            MergeTag("submission_components", "Where the slides and times stand, as a styled section", _SAMPLE_REMINDER, "COMPONENTS_SECTION", html=True),
             *_BRAND_TAGS,
         ),
     ),

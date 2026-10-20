@@ -41,20 +41,20 @@
         />
         <label class="select-field">
           <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
-          <select
+          <AppSelect
             :id="fieldId('yearLevel')"
-            v-model="student.yearLevel"
+            :model-value="student.yearLevel"
+            :options="YEAR_LEVEL_OPTIONS"
+            placeholder="Select a year"
             :aria-invalid="Boolean(fieldError('yearLevel'))"
             :aria-describedby="
               fieldError('yearLevel') ? `${fieldId('yearLevel')}-error` : undefined
             "
             :required="markRequired"
-          >
-            <option value="" disabled>Select a year</option>
-            <option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">
-              Year {{ year }}
-            </option>
-          </select>
+            @update:model-value="
+              (value) => (student.yearLevel = String(value ?? '') as StudentDetails['yearLevel'])
+            "
+          />
           <span
             v-if="fieldError('yearLevel')"
             :id="`${fieldId('yearLevel')}-error`"
@@ -101,12 +101,12 @@
         <div class="student-editor__grid">
           <label class="select-field">
             <span>Pronouns <small>(Optional)</small></span>
-            <select :id="fieldId('pronouns')" v-model="student.pronouns">
-              <option value="">Select pronouns</option>
-              <option v-for="pronoun in PRONOUN_OPTIONS" :key="pronoun" :value="pronoun">
-                {{ pronoun }}
-              </option>
-            </select>
+            <AppSelect
+              :id="fieldId('pronouns')"
+              :model-value="student.pronouns"
+              :options="PRONOUN_SELECT_OPTIONS"
+              @update:model-value="(value) => (student.pronouns = String(value ?? ''))"
+            />
           </label>
           <RegistrationTextField
             v-if="student.pronouns === 'Other'"
@@ -194,6 +194,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import {
@@ -227,6 +228,16 @@ const emit = defineEmits<{
   'remove-photo': []
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
+
+const YEAR_LEVEL_OPTIONS: AppSelectOption[] = ['9', '10', '11', '12'].map((year) => ({
+  value: year,
+  label: `Year ${year}`,
+}))
+// "Select pronouns" first, a choice of its own that leaves them unsaid.
+const PRONOUN_SELECT_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'Select pronouns' },
+  ...PRONOUN_OPTIONS.map((pronoun) => ({ value: pronoun, label: pronoun })),
+]
 // The countries, and in Australia its states, from the database, for dropdowns.
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
@@ -309,7 +320,7 @@ const onPhotoChange = (event: Event) => {
 }
 
 /* As tall as the text boxes beside it (RegistrationTextField). */
-select {
+.app-select {
   width: 100%;
   min-height: 2.5rem;
   padding: 0.4rem 0.6rem;
@@ -321,12 +332,17 @@ select {
   font: inherit;
 }
 
-select:focus-visible {
+.app-select:focus-within {
   border-color: var(--registration-green);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
 }
 
-select[aria-invalid='true'] {
+/* Its border and soft ring only: no outline. */
+.select-field .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
+}
+
+.app-select:has([aria-invalid='true']) {
   border-color: #a93732;
 }
 

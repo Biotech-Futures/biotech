@@ -175,16 +175,16 @@ describe('parseRegistrationCsv', () => {
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
   })
 
-  it('rejects more than 500 student rows', () => {
+  it('rejects more than 1000 student rows', () => {
     const [header, example] = studentCsv().trim().split('\n')
-    const rows = Array.from({ length: 501 }, (_, index) =>
+    const rows = Array.from({ length: 1001 }, (_, index) =>
       example.replace(/[^,]+@[^,]+/, `student-${index}@example.test`),
     )
-    const accepted = parseRegistrationCsv([header, ...rows.slice(0, 500)].join('\n'))
-    expect(accepted.rows).toHaveLength(500)
+    const accepted = parseRegistrationCsv([header, ...rows.slice(0, 1000)].join('\n'))
+    expect(accepted.rows).toHaveLength(1000)
     expect(accepted.rows.every((row) => row.category === 'valid')).toBe(true)
     expect(parseRegistrationCsv([header, ...rows].join('\n')).errors).toEqual([
-      'Upload no more than 500 students per CSV.',
+      'Upload no more than 1000 students per CSV.',
     ])
   })
   it('parses quoted values and classifies complete rows as valid', () => {

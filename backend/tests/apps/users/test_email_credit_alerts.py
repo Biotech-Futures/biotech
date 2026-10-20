@@ -19,7 +19,11 @@ from .test_email_verification import KEY, QevTestCase, response
 HEADER = "X-QEV-Remaining-Credits"
 
 
-@override_settings(QEV_LOW_CREDIT_THRESHOLDS=(500, 100), QEV_ALERT_EMAIL="info@biotechfutures.org")
+# The paid key only: alerts follow its balance.
+@override_settings(
+    QEV_LOW_CREDIT_THRESHOLDS=(500, 100), QEV_ALERT_EMAIL="info@biotechfutures.org",
+    QEV_API_KEY="", QEV_PAID_API_KEY=KEY,
+)
 class AlertTestCase(QevTestCase):
     def read(self, remaining):
         """One QEV answer reporting ``remaining`` credits."""
@@ -205,7 +209,8 @@ class AlertFailureTests(AlertTestCase):
         self.assertEqual(self.alerted(), [500])
 
     def test_a_mail_server_failure_isnt_marked_sent_and_is_tried_next_reading(self):
-        failure = smtplib.SMTPServerDisconnected("connection unexpectedly closed")
+        # Turned away by the mail server (one it can't reach is kept to send later).
+        failure = smtplib.SMTPDataError(554, b"Message rejected")
         with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=failure) as send:
             with self.captured_logs() as records:
                 self.read(450)

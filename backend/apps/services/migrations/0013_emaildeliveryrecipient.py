@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('services', '0009_email_bounces'),
+        ('services', '0012_mail_api_status'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

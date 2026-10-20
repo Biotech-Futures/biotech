@@ -11,19 +11,15 @@
       {{ sending ? 'Sending…' : 'Send Test Email' }}
     </button>
     <span class="test-email__word">of</span>
-    <select
-      v-model="recipient"
+    <AppSelect
+      :model-value="recipient"
       class="test-email__select"
       aria-label="Send it as"
+      :options="recipientOptions"
       :disabled="!recipients.length"
-    >
-      <option v-if="!recipients.length" value="">
-        {{ loadError ? "Couldn't load the list" : 'Nobody yet' }}
-      </option>
-      <option v-for="option in recipients" :key="option.value" :value="option.value">
-        {{ option.label }}
-      </option>
-    </select>
+      searchable
+      @update:model-value="(value) => (recipient = String(value ?? ''))"
+    />
     <span class="test-email__word">to</span>
     <!-- Password managers leave this box alone. -->
     <input
@@ -50,7 +46,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import {
   fetchTestEmailRecipients,
   sendTestEmail,
@@ -73,6 +70,13 @@ const loadError = ref(false)
 const to = ref('')
 const sending = ref(false)
 const result = ref<{ ok: boolean; text: string } | null>(null)
+
+// With nobody to pick, the one line saying why.
+const recipientOptions = computed<AppSelectOption[]>(() =>
+  recipients.value.length
+    ? recipients.value
+    : [{ value: '', label: loadError.value ? "Couldn't load the list" : 'Nobody yet' }]
+)
 
 onMounted(async () => {
   try {
@@ -139,10 +143,15 @@ const send = async () => {
   max-width: 17rem;
 }
 
-.test-email__select:focus,
+.test-email__select:focus-within,
 .test-email__to:focus {
   outline: none;
   border-color: var(--dark-green);
+}
+
+/* Its border only, as the address box beside it: no outline. */
+.test-email .test-email__select:has(.app-select__input:focus-visible) {
+  outline: none;
 }
 
 .test-email__result {

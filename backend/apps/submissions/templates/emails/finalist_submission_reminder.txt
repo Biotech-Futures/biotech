@@ -1,0 +1,28 @@
+{# Keep the wording in step with finalist_submission_reminder.html. #}Hi Group {{ GROUP_NAME }},
+
+This is a reminder to submit your team's presentation for {{ BRAND_NAME }} {{ YEAR }}.
+
+Our records currently show the following:
+
+SUBMISSION COMPONENTS
+{% for item in COMPONENTS %}
+  {{ item.label }}
+  Status: {{ item.status }}{% if item.detail %}
+  {{ item.detail }}{% endif %}
+{% endfor %}
+{{ COMPONENTS_NOTE }}
+
+Slides are due on {{ SLIDES_DUE }}. Please submit by then.
+{% if FINALIST_URL %}
+Open your finalist page: {{ FINALIST_URL }}
+{% endif %}
+Thank you for all the work your team has put into the {{ BRAND_NAME }}
+Challenge. We are looking forward to your presentation!
+
+Kind regards,
+The {{ BRAND_NAME }} Team
+
+--
+{{ BRAND_NAME }}, NSW 2006 Australia
+Add {{ SENDER_EMAIL }} to your address book to keep receiving submission
+reminders.

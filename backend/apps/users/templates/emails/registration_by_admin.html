@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{# Sent to each student an admin registers on Management > Registration (one #}
+{# student, a group, or an uploaded file), naming the supervisor they chose. #}
+
+{% block title %}{{ BRAND_NAME }}: Registration{% endblock %}
+
+{% block preheader %}You've been registered for {{ BRAND_NAME }}.{% endblock %}
+
+{% block footer_reason %}emails about your registration{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 24px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ First_Name|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                You've been registered for <span style="color:#307054;">{{ BRAND_NAME }}</span>.
+              </h1>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                The {{ BRAND_NAME }} team has registered you for the {{ YEAR }} {{ BRAND_NAME }} Challenge, with {{ SUPERVISOR_NAME }} as your supervisor. Before you can use the platform, your parent or guardian needs to sign a permission form. We'll email them, or you if we don't have their details yet. We'll be in contact in the lead up to the challenge start date to connect you with your team.
+              </p>
+{% endblock %}

@@ -164,6 +164,6 @@ describe('the year dashboard', () => {
     const wrapper = await mountPage()
     const start = wrapper.findAll('button').find((b) => /Start new year/.test(b.text()))!
     expect(start.attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('still being built')
+    expect(wrapper.text()).not.toContain('still being built')
   })
 })

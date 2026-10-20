@@ -160,7 +160,9 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return 1
-            raise smtplib.SMTPRecipientsRefused({})
+            # A real refusal carries the server's reply code; one without a
+            # code reads as the connection dropping (see retry.lost_connection).
+            raise smtplib.SMTPRecipientsRefused({"refused@example.com": (550, b"5.1.1 unknown user")})
 
         with patch("apps.services.system_email.EmailMultiAlternatives.send", new=fake_send):
             result = send_announcement_email(self.announcement.id)
@@ -181,9 +183,12 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
     # SMTP connection itself can't even open: every recipient marked failed
     # and an error summary captures the connection cause.
     # ------------------------------------------------------------------
-    def test_connection_open_failure_marks_all_failed_with_summary(self):
+    def test_a_mail_server_that_cannot_be_reached_keeps_every_email_to_send_later(self):
+        from apps.services.models import WaitingEmail
+
         bad_connection = MagicMock()
         bad_connection.open.side_effect = Exception("network unreachable")
+        bad_connection.send_messages.side_effect = OSError("network unreachable")
 
         with patch(
             "apps.services.system_email.get_connection",
@@ -193,7 +198,10 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
 
         self.assertEqual(result["status"], AnnouncementDelivery.Status.FAILED)
         self.assertEqual(result["succeeded"], 0)
+        # Not delivered yet, so failed until they go: each is kept to send later.
         self.assertEqual(result["failed"], result["attempted"])
+        self.assertEqual(result["waiting"], result["attempted"])
+        self.assertEqual(WaitingEmail.objects.filter(key="announcement").count(), result["attempted"])
 
         delivery = AnnouncementDelivery.objects.get(pk=result["deliveryId"])
         self.assertIn("network unreachable", delivery.error_summary)
@@ -208,6 +216,81 @@ class AnnouncementEmailDeliveryServiceTests(TestCase):
     # The empty-group path is the same one ``test_no_recipients_returns_400``
     # uses for the HTTP layer.
     # ------------------------------------------------------------------
+    def test_emails_the_mail_server_is_lost_for_are_kept_and_counted_once_they_go(self):
+        import smtplib
+
+        from django.core import mail
+
+        from apps.services.models import WaitingEmail
+        from apps.services.system_email import sender_for
+        from apps.services.waiting_email import send_waiting
+
+        real_send = mail.EmailMultiAlternatives.send
+        tries = []
+
+        def first_then_down(self_msg, *args, **kwargs):
+            tries.append(self_msg.to[0])
+            if len(tries) == 1:
+                return real_send(self_msg, *args, **kwargs)
+            raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=first_then_down):
+            result = send_announcement_email(self.announcement.id)
+
+        attempted = result["attempted"]
+        self.assertGreater(attempted, 1)
+        # The first went; the rest, the connection lost and not opened again,
+        # are kept to send later, and failed until then.
+        self.assertEqual(
+            (result["status"], result["succeeded"], result["failed"], result["waiting"]),
+            (AnnouncementDelivery.Status.PARTIAL, 1, attempted - 1, attempted - 1),
+        )
+        self.assertEqual(WaitingEmail.objects.filter(key="announcement").count(), attempted - 1)
+        self.assertEqual(len(mail.outbox), 1)
+
+        # Once the server can be reached, they go and the delivery counts them.
+        send_waiting(sender_for("announcement").key)
+        self.assertEqual(len(mail.outbox), attempted)
+        self.assertEqual(sorted({m.to[0] for m in mail.outbox}), sorted(set(tries)))
+        delivery = AnnouncementDelivery.objects.get(pk=result["deliveryId"])
+        self.assertEqual(
+            (delivery.status, delivery.success_count, delivery.failure_count, delivery.failed_recipients),
+            (AnnouncementDelivery.Status.SUCCESS, attempted, 0, []),
+        )
+        self.assertFalse(WaitingEmail.objects.exists())
+
+    def test_kept_emails_record_their_recipients_once_they_go(self):
+        from django.core import mail
+
+        from apps.services.system_email import sender_for
+        from apps.services.waiting_email import send_waiting
+
+        real_send = mail.EmailMultiAlternatives.send
+        tries = []
+
+        def first_then_down(self_msg, *args, **kwargs):
+            tries.append(self_msg.to[0])
+            if len(tries) == 1:
+                return real_send(self_msg, *args, **kwargs)
+            raise smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+        with patch("apps.services.system_email.EmailMultiAlternatives.send", new=first_then_down):
+            result = send_announcement_email(self.announcement.id)
+
+        def recipients():
+            return sorted(
+                (row.email, row.status)
+                for row in EmailDeliveryRecipient.objects.filter(metric__email_type="announcement")
+            )
+
+        # Only the one that went is recorded; the kept ones aren't "delivered" yet.
+        self.assertEqual(recipients(), [(tries[0], "delivered")])
+
+        send_waiting(sender_for("announcement").key)
+        self.assertEqual(len(recipients()), result["attempted"])
+        self.assertEqual({email for email, _ in recipients()}, set(tries))
+        self.assertTrue(all(state == "delivered" for _, state in recipients()))
+
     def test_no_recipients_skipped_and_no_delivery_row(self):
         from apps.groups.models import Groups
         empty_group = Groups.objects.create(group_name="SERVICE_EMPTY")
@@ -813,7 +896,7 @@ class AnnouncementRetryTests(TestCase):
             author_user=self.admin, title="Hi", body="<p>body</p>", visibility_scope="global",
         )
 
-    def test_a_send_that_fails_once_goes_when_tried_again_after_the_rest(self):
+    def test_a_send_whose_connection_drops_goes_again_at_once_over_a_fresh_one(self):
         import smtplib
 
         from django.core import mail
@@ -832,10 +915,10 @@ class AnnouncementRetryTests(TestCase):
             result = send_announcement_email(self.announcement.id)
 
         self.assertEqual((result["status"], result["succeeded"], result["failed"]), ("success", 2, 0))
-        # The first one, tried again after the other.
+        # The first one, sent again straight away, before the other.
         self.assertEqual(len(tries), 3)
-        self.assertEqual(tries[-1], tries[0])
-        sleep.assert_called_once()
+        self.assertEqual(tries[1], tries[0])
+        sleep.assert_not_called()
         self.assertEqual(len(mail.outbox), 2)
 
 

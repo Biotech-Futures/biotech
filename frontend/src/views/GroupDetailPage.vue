@@ -94,16 +94,14 @@
                   <span v-if="availableGroups.length > 1" class="gd-title-picker">
                     <span>{{ group.name }}</span>
                     <i class="fas fa-chevron-down gd-title-picker__icon" aria-hidden="true"></i>
-                    <select
+                    <AppSelect
                       class="gd-title-picker__select"
                       aria-label="Group"
-                      :value="routeGroupId"
-                      @change="switchGroup"
-                    >
-                      <option v-for="option in availableGroups" :key="option.id" :value="option.id">
-                        {{ option.name }}
-                      </option>
-                    </select>
+                      :model-value="routeGroupId"
+                      :options="groupPickerOptions"
+                      :searchable="false"
+                      @update:model-value="switchGroup"
+                    />
                   </span>
                   <template v-else>{{ group.name }}</template>
                 </h2>
@@ -277,70 +275,27 @@
                       <!-- The tasks' order, first; Clear leaves it as it is. -->
                       <label class="task-filter-row">
                         <span>Sort by</span>
-                        <select v-model="taskFilters.ordering">
-                          <option
-                            v-for="option in TASK_ORDERING_OPTIONS"
-                            :key="option.value"
-                            :value="option.value"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.ordering" :options="TASK_ORDERING_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>Type</span>
-                        <select v-model="taskFilters.taskType">
-                          <option value="">All</option>
-                          <option value="group">Group</option>
-                          <option value="individual">Individual</option>
-                        </select>
+                        <AppSelect v-model="taskFilters.taskType" :options="TASK_TYPE_FILTER_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>Status</span>
-                        <select v-model="taskFilters.status">
-                          <option value="">All</option>
-                          <option
-                            v-for="option in TASK_STATUS_OPTIONS"
-                            :key="option.value"
-                            :value="option.value"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.status" :options="TASK_STATUS_FILTER_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>State</span>
-                        <select v-model="taskFilters.completed">
-                          <option value="">All</option>
-                          <option value="true">Done</option>
-                          <option value="false">Open</option>
-                        </select>
+                        <AppSelect v-model="taskFilters.completed" :options="TASK_STATE_FILTER_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>Assignee</span>
-                        <select v-model="taskFilters.assignedUser">
-                          <option value="">All members</option>
-                          <option
-                            v-for="member in taskAssigneeOptions"
-                            :key="member.userId"
-                            :value="String(member.userId)"
-                          >
-                            {{ member.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.assignedUser" :options="assigneeFilterOptions" />
                       </label>
                       <label class="task-filter-row">
                         <span>Subtasks of</span>
-                        <select v-model="taskFilters.parentId">
-                          <option value="">Any task</option>
-                          <option
-                            v-for="option in parentTaskFilterOptions"
-                            :key="option.id"
-                            :value="String(option.id)"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.parentId" :options="parentFilterOptions" />
                       </label>
 
 
@@ -872,16 +827,15 @@
                       >
                         {{ selectedTaskAssigneeLabel }}
                       </div>
-                      <select v-else id="task-dialog-assignee" v-model="taskForm.assignedUser" class="task-dialog-input" required>
-                        <option value="" disabled>Select assignee</option>
-                        <option
-                          v-for="option in individualTaskAssigneeOptions"
-                          :key="option.userId"
-                          :value="String(option.userId)"
-                        >
-                          {{ option.label }}
-                        </option>
-                      </select>
+                      <AppSelect
+                        v-else
+                        id="task-dialog-assignee"
+                        v-model="taskForm.assignedUser"
+                        class="task-dialog-input"
+                        :options="dialogAssigneeOptions"
+                        placeholder="Select assignee"
+                        required
+                      />
                     </div>
                   </div>
                 </div>
@@ -1007,12 +961,7 @@
               <div v-if="showSearchFilters" class="message-search-filters">
                 <label>
                   <span>Type</span>
-                  <select v-model="messageSearchFilters.type">
-                    <option value="">Any</option>
-                    <option value="text">Text</option>
-                    <option value="attachment">Attachments</option>
-                    <option value="resource">Resources</option>
-                  </select>
+                  <AppSelect v-model="messageSearchFilters.type" :options="MESSAGE_TYPE_FILTER_OPTIONS" />
                 </label>
                 <label>
                   <span>From</span>
@@ -1832,6 +1781,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDatePicker from '../components/AppDatePicker.vue'
+import AppSelect from '@/components/AppSelect.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import GroupSubmissionSection from '@/components/submission/GroupSubmissionSection.vue'
@@ -1884,6 +1834,10 @@ const isLoadingGroupDetail = ref(true)
 const isLoadingMembers = ref(false)
 const membersError = ref('')
 const availableGroups = ref([])
+// The title's picker: each group by its id, as the route has it.
+const groupPickerOptions = computed(() =>
+  availableGroups.value.map((option) => ({ value: String(option.id), label: option.name })),
+)
 const isLoadingGroupOptions = ref(false)
 const groupOptionsError = ref('')
 const showGroupMembersDialog = ref(false)
@@ -2060,6 +2014,25 @@ const TASK_ORDERING_OPTIONS = [
   { value: '-updated_at', label: 'Recently updated' },
   { value: 'status', label: 'Status' },
   { value: '-status', label: 'Status desc' },
+]
+
+// The task filters' and message search's dropdown choices.
+const TASK_TYPE_FILTER_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'group', label: 'Group' },
+  { value: 'individual', label: 'Individual' },
+]
+const TASK_STATUS_FILTER_OPTIONS = [{ value: '', label: 'All' }, ...TASK_STATUS_OPTIONS]
+const TASK_STATE_FILTER_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'true', label: 'Done' },
+  { value: 'false', label: 'Open' },
+]
+const MESSAGE_TYPE_FILTER_OPTIONS = [
+  { value: '', label: 'Any' },
+  { value: 'text', label: 'Text' },
+  { value: 'attachment', label: 'Attachments' },
+  { value: 'resource', label: 'Resources' },
 ]
 
 const messages = ref([])
@@ -2493,8 +2466,7 @@ const loadGroupOptions = async () => {
   isLoadingGroupOptions.value = false
 }
 
-const switchGroup = (event) => {
-  const id = event.target.value
+const switchGroup = (id) => {
   if (!id || id === routeGroupId.value) return
   // Stays on the section open (Submission, Finalist or Results).
   const name = onSectionPage.value ? String(route.name) : 'group-detail'
@@ -2649,6 +2621,11 @@ const activeGroupMemberOptions = computed(() =>
 
 const taskAssigneeOptions = computed(() => activeGroupMemberOptions.value)
 
+const assigneeFilterOptions = computed(() => [
+  { value: '', label: 'All members' },
+  ...taskAssigneeOptions.value.map((member) => ({ value: String(member.userId), label: member.label })),
+])
+
 const studentMemberUserIds = computed(
   () =>
     new Set(
@@ -2729,6 +2706,10 @@ const individualTaskAssigneeOptions = computed(() => {
 
   return []
 })
+
+const dialogAssigneeOptions = computed(() =>
+  individualTaskAssigneeOptions.value.map((option) => ({ value: String(option.userId), label: option.label })),
+)
 
 const isStudentOnlyIndividualAssignee = computed(
   () => auth.isStudent && taskDialogMode.value === 'create',
@@ -2843,6 +2824,11 @@ const parentTaskFilterOptions = computed(() =>
     }))
     .sort((a, b) => a.label.localeCompare(b.label)),
 )
+
+const parentFilterOptions = computed(() => [
+  { value: '', label: 'Any task' },
+  ...parentTaskFilterOptions.value.map((option) => ({ value: String(option.id), label: option.label })),
+])
 
 // Hide tasks that are completed AND past their due date by default. The
 // toolbar toggle (showCompletedOverdue) un-hides them; the popover State=Done
@@ -6627,7 +6613,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   color: #5b6770;
 }
-.task-filter-row select {
+.task-filter-row .app-select {
   width: 100%;
   height: 34px;
   padding: 0 0.55rem;
@@ -7578,7 +7564,8 @@ onBeforeUnmount(() => {
   font-size: 0.88rem;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.task-dialog-input:focus {
+.task-dialog-input:focus,
+.app-select.task-dialog-input:focus-within {
   outline: none;
   border-color: var(--air-force-blue, #26697d);
   box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
@@ -7962,7 +7949,7 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 }
 
-.message-search-filters select,
+.message-search-filters .app-select,
 .message-search-filters input[type="date"] {
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -10613,7 +10600,7 @@ onBeforeUnmount(() => {
 :root[data-theme='dark'] .task-toolbar-btn:not(.has-active),
 :root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
 :root[data-theme='dark'] .task-filter-panel,
-:root[data-theme='dark'] .task-filter-row select,
+:root[data-theme='dark'] .task-filter-row .app-select,
 :root[data-theme='dark'] .task-filter-clear,
 :root[data-theme='dark'] .task-filter-close,
 :root[data-theme='dark'] .task-state-menu,

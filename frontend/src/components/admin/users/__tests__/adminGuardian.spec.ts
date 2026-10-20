@@ -3,13 +3,25 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AdminUserFormSheet from '../AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '../AdminUserDetailSheet.vue'
 import {
+  changeSupervisees,
+  confirmMentorAssignments,
+  confirmStudentAssignments,
   downloadGuardianConsentRecord,
+  fetchAdminCountries,
+  fetchAdminGroupList,
+  fetchAdminStates,
+  fetchAdminUser,
+  fetchAdminUsers,
   fetchGuardianConsents,
+  removeGroupMember,
   sendGuardianConsentRequest,
+  setAdminUserActive,
+  unassignMentors,
   updateAdminUser
 } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
-import type { AdminUser } from '@/utils/adminAPI'
+import { appSelectLabels, appSelectText, openAppSelect, pickAppSelect } from '@/__tests__/appSelect'
+import type { AdminGroupDetail, AdminUser } from '@/utils/adminAPI'
 
 vi.mock('@/utils/adminAPI', () => ({
   createAdminUser: vi.fn(),
@@ -17,7 +29,17 @@ vi.mock('@/utils/adminAPI', () => ({
   setAdminUserActive: vi.fn(),
   sendGuardianConsentRequest: vi.fn(),
   fetchGuardianConsents: vi.fn(),
-  downloadGuardianConsentRecord: vi.fn()
+  downloadGuardianConsentRecord: vi.fn(),
+  fetchAdminUsers: vi.fn(),
+  fetchAdminUser: vi.fn(),
+  fetchAdminGroupList: vi.fn(),
+  confirmStudentAssignments: vi.fn(),
+  removeGroupMember: vi.fn(),
+  confirmMentorAssignments: vi.fn(),
+  changeSupervisees: vi.fn(),
+  unassignMentors: vi.fn(),
+  fetchAdminCountries: vi.fn(),
+  fetchAdminStates: vi.fn()
 }))
 
 const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
@@ -287,7 +309,20 @@ describe('admin user detail: guardian & consent', () => {
   it('flags consent with no signed form on record', () => {
     const wrapper = openDetail(student({ joinPermissionReceived: true, joinpermResponseId: null }))
 
-    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Marked received, no signed form on record')
+    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Yes (no signed form on record)')
+  })
+
+  it('gives permission as Yes and when it was given, or — while it is missing', () => {
+    const given = openDetail(student({
+      joinPermissionReceived: true,
+      joinpermResponseId: 'BTF-1',
+      joinPermissionGrantedAt: '2026-10-17T04:45:41Z'
+    }))
+    expect(given.find('[data-test="admin-consent"]').text()).toMatch(/^Yes, \d\d\/\d\d\/\d\d \d\d:\d\d$/)
+    // No separate Recorded row.
+    expect(given.text()).not.toContain('Recorded')
+
+    expect(openDetail(student()).find('[data-test="admin-consent"]').text()).toBe('—')
   })
 
   it('says who last edited the user', () => {
@@ -305,7 +340,7 @@ describe('admin user detail: guardian & consent', () => {
       pendingGuardian: { firstName: 'Robin', lastName: 'Carer', email: 'robin@example.com', requestedAt: '2026-10-01T00:00:00Z' }
     }))
 
-    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Received')
+    expect(wrapper.find('[data-test="admin-consent"]').text()).toBe('Yes')
     // The consent's response ID isn't shown.
     expect(wrapper.text()).not.toContain('R_1')
     expect(wrapper.find('[data-test="admin-pending-guardian"]').text()).toContain('Robin Carer')
@@ -395,12 +430,15 @@ describe('admin user detail: signed consent', () => {
     vi.mocked(fetchGuardianConsents).mockReset()
   })
 
-  it('shows the media consent answer', () => {
-    expect(openDetail(consented()).find('[data-test="admin-media-consent"]').text()).toContain('Yes')
-    expect(openDetail(consented({ mediaConsent: false })).find('[data-test="admin-media-consent"]').text())
-      .toContain('not permitted at in-person events')
-    expect(openDetail(consented({ joinpermResponseId: 'R_1', mediaConsent: null })).find('[data-test="admin-media-consent"]').text())
-      .toContain('Not recorded')
+  it('shows the media consent answer and when it was given', () => {
+    const answer = (overrides: Partial<AdminUser>) =>
+      openDetail(consented(overrides)).find('[data-test="admin-media-consent"] dd').text()
+
+    expect(answer({ mediaConsentAt: '2026-10-17T04:45:41Z' })).toMatch(/^Yes, \d\d\/\d\d\/\d\d \d\d:\d\d$/)
+    expect(answer({ mediaConsent: false, mediaConsentAt: '2026-10-17T04:45:41Z' })).toMatch(/^No, /)
+    // Recorded by an admin with no form saying so: no time to give.
+    expect(answer({ mediaConsentAt: null })).toBe('Yes')
+    expect(answer({ joinpermResponseId: 'R_1', mediaConsent: null })).toBe('—')
   })
 
   it('shows the signed form only for consent signed on the platform', () => {
@@ -447,5 +485,804 @@ describe('admin user detail: signed consent', () => {
     expect(wrapper.find('[data-test="admin-withdraw-media"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="admin-withdraw-consent"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('withdrawal')
+  })
+})
+
+describe('admin user detail: a student edited part by part', () => {
+  const openDetail = (user: AdminUser, props: Record<string, unknown> = {}) =>
+    mount(AdminUserDetailSheet, { props: { open: true, user, ...props }, global: { stubs: { teleport: true } } })
+
+  beforeEach(() => {
+    for (const fn of [updateAdminUser, confirmStudentAssignments, removeGroupMember, fetchAdminUser]) {
+      vi.mocked(fn).mockReset()
+    }
+  })
+
+  it('shows Account, then each part with its own Edit, and no buttons at the bottom', () => {
+    const wrapper = openDetail(student({ supervisorName: 'Sam Lee', supervisorEmail: 'sam@example.com', groupName: 'BTF1' }))
+
+    const headings = wrapper.findAll('h3').map((h) => h.text())
+    expect(headings).toEqual(['Account', 'Supervisor and Group', 'Student Details', 'Guardian Details'])
+    for (const part of ['account', 'details', 'guardian', 'supervisor']) {
+      expect(wrapper.find(`[data-test="admin-edit-${part}"]`).exists()).toBe(true)
+    }
+    expect(wrapper.find('[data-test="admin-supervisor-group"]').text()).toContain('BTF1')
+    expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
+  })
+
+  it('shows an admin their Admin Details, with no buttons below either', () => {
+    const wrapper = openDetail(student({ role: 'admin' }))
+
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Admin Details'])
+    expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
+    expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Close')
+  })
+
+  it('offers no Edit where the panel only views a student', () => {
+    const wrapper = openDetail(student(), { showEdit: false })
+
+    expect(wrapper.find('[data-test="admin-edit-details"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="admin-edit-guardian"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="admin-edit-supervisor"]').exists()).toBe(false)
+  })
+
+  const optionsOf = (wrapper: ReturnType<typeof openDetail>, select: string) =>
+    openAppSelect(wrapper, `[data-test="${select}"]`)
+
+  const pick = (wrapper: ReturnType<typeof openDetail>, select: string, label: string) =>
+    pickAppSelect(wrapper, `[data-test="${select}"]`, label)
+
+  // Australia (NSW, VIC) and New Zealand (Auckland); the student is in NSW.
+  const editAccount = async (wrapper: ReturnType<typeof openDetail>) => {
+    vi.mocked(fetchAdminCountries).mockResolvedValue([
+      { id: 1, countryName: 'Australia' },
+      { id: 2, countryName: 'New Zealand' }
+    ])
+    vi.mocked(fetchAdminStates).mockResolvedValue([
+      { id: 11, stateName: 'NSW', countryName: 'Australia' },
+      { id: 12, stateName: 'VIC', countryName: 'Australia' },
+      { id: 21, stateName: 'Auckland', countryName: 'New Zealand' }
+    ])
+    await wrapper.find('[data-test="admin-edit-account"]').trigger('click')
+    await flushPromises()
+  }
+  const inNsw = () => student({ state: { id: 11, stateName: 'NSW' } })
+
+  it('changes the login email on its own', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(inNsw())
+    await editAccount(wrapper)
+
+    const form = wrapper.find('[data-test="admin-account-form"]')
+    await form.find('input[type="email"]').setValue('New@Example.com')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(7, { email: 'new@example.com' })
+    expect(wrapper.find('[data-test="admin-account-form"]').exists()).toBe(false)
+  })
+
+  it("picks Australia's states, and types the state elsewhere", async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(inNsw())
+    await editAccount(wrapper)
+
+    expect(await appSelectLabels(wrapper, '[data-test="admin-state-select"]')).toEqual(['NSW', 'VIC'])
+    await wrapper.find('[data-test="admin-state-select"] input').trigger('blur')
+
+    // A new country clears the state, now typed.
+    await pick(wrapper, 'admin-country-select', 'New Zealand')
+    expect(wrapper.find('[data-test="admin-state-select"]').exists()).toBe(false)
+    const typed = wrapper.find('[data-test="admin-state-text"]')
+    expect((typed.element as HTMLInputElement).value).toBe('')
+    await typed.setValue('Auckland')
+
+    await wrapper.find('[data-test="admin-account-form"]').trigger('submit')
+    await flushPromises()
+    expect(updateAdminUser).toHaveBeenCalledWith(7, { countryId: 2, stateName: 'Auckland' })
+  })
+
+  it('picks Status without typing, as a plain dropdown', async () => {
+    const wrapper = openDetail(inNsw())
+    await editAccount(wrapper)
+
+    const box = wrapper.find('[data-test="admin-status-select"] input')
+    expect(box.attributes('readonly')).toBeDefined()
+    expect((box.element as HTMLInputElement).value).toBe('Active')
+  })
+
+  it('makes the student inactive, or active again', async () => {
+    const inactive = student({ isActive: false, accountStatus: 'deactivated' })
+    vi.mocked(setAdminUserActive).mockReset().mockResolvedValue({ msg: 'ok', data: inactive })
+    const wrapper = openDetail(inNsw())
+    await editAccount(wrapper)
+
+    await pick(wrapper, 'admin-status-select', 'Inactive')
+    await wrapper.find('[data-test="admin-account-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(setAdminUserActive).toHaveBeenCalledWith(7, false)
+    // Nothing else changed, so nothing else is sent.
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toEqual([[inactive]])
+  })
+
+  it('rejects an invalid email and saves nothing unchanged', async () => {
+    const wrapper = openDetail(inNsw())
+    await editAccount(wrapper)
+
+    const form = wrapper.find('[data-test="admin-account-form"]')
+    await form.find('input[type="email"]').setValue('not-an-email')
+    await form.trigger('submit')
+    expect(form.text()).toContain('Enter a valid email address.')
+
+    await form.find('input[type="email"]').setValue('ward@example.com')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="admin-account-form"]').exists()).toBe(false)
+  })
+
+  it('saves the student details and passes the updated student up', async () => {
+    const updated = student({ schoolName: 'New High' })
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: updated })
+    const wrapper = openDetail(student())
+
+    await wrapper.find('[data-test="admin-edit-details"]').trigger('click')
+    const form = wrapper.find('[data-test="admin-details-form"]')
+    await form.findAll('input')[2].setValue('New High')
+    await pick(wrapper, 'admin-year-select', '11')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(7, {
+      firstName: 'Wren',
+      lastName: 'Ward',
+      schoolName: 'New High',
+      yearLevel: 11,
+      interests: ['Biomedical Innovations']
+    })
+    expect(wrapper.emitted('updated')).toEqual([[updated]])
+    expect(wrapper.find('[data-test="admin-details-form"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="admin-details-form"]').exists()).toBe(false)
+  })
+
+  it('needs at least one interest', async () => {
+    const wrapper = openDetail(student())
+
+    await wrapper.find('[data-test="admin-edit-details"]').trigger('click')
+    const form = wrapper.find('[data-test="admin-details-form"]')
+    for (const box of form.findAll('input[type="checkbox"]')) await box.setValue(false)
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    expect(form.text()).toContain('Choose at least one interest.')
+  })
+
+  it('sends only the guardian fields that changed, and consent once ticked', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(student())
+
+    await wrapper.find('[data-test="admin-edit-guardian"]').trigger('click')
+    const form = wrapper.find('[data-test="admin-guardian-form"]')
+    await form.find('input[type="email"]').setValue('new@example.com')
+    await form.find('[data-test="admin-consent-given"]').setValue(true)
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(7, {
+      guardianEmail: 'new@example.com',
+      consentGiven: true,
+      mediaConsent: false
+    })
+  })
+
+  it('can still change the guardian once permission is in', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(student({ joinPermissionReceived: true, joinpermResponseId: 'R_1', mediaConsent: true }))
+
+    await wrapper.find('[data-test="admin-edit-guardian"]').trigger('click')
+    const form = wrapper.find('[data-test="admin-guardian-form"]')
+    const [first, last] = form.findAll('input')
+    await first.setValue('Robin')
+    await last.setValue('Carer')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(7, { guardianFirstName: 'Robin', guardianLastName: 'Carer' })
+  })
+
+  it('closes a guardian edit that changes nothing without saving', async () => {
+    const wrapper = openDetail(student())
+
+    await wrapper.find('[data-test="admin-edit-guardian"]').trigger('click')
+    await wrapper.find('[data-test="admin-guardian-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="admin-guardian-form"]').exists()).toBe(false)
+  })
+
+  const sam = student({ id: 9, role: 'supervisor', firstName: 'Sam', lastName: 'Lee', email: 'sam@example.com' })
+  const group = (id: number, name: string, students: number): AdminGroupDetail => ({
+    id,
+    name,
+    members: Array.from({ length: students }, (_, index) => ({
+      id: String(100 + index),
+      name: `Member ${index}`,
+      email: `m${index}@example.com`,
+      role: 'student',
+      membershipId: index
+    })),
+    mentor: null,
+    createdAt: '',
+    updatedAt: ''
+  })
+
+  // Supervisors and groups to pick from, loaded when Edit is pressed.
+  const editSupervisorAndGroup = async (wrapper: ReturnType<typeof openDetail>) => {
+    vi.mocked(fetchAdminUsers).mockResolvedValue({ items: [sam], total: 1, page: 1, limit: 200 } as never)
+    vi.mocked(fetchAdminGroupList).mockResolvedValue({
+      items: [group(1, 'BTF1', 5), group(2, 'BTF2', 2), group(10, 'BTF10', 0)],
+      total: 3,
+      page: 1,
+      limit: 200,
+      has_more: false
+    })
+    await wrapper.find('[data-test="admin-edit-supervisor"]').trigger('click')
+    await flushPromises()
+  }
+
+  it('picks a supervisor from a list, by name with the email under it', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    const wrapper = openDetail(student())
+    await editSupervisorAndGroup(wrapper)
+
+    const input = wrapper.find('[data-test="admin-supervisor-select"] input')
+    const [first] = await optionsOf(wrapper, 'admin-supervisor-select')
+    expect(first.textContent).toContain('Sam Lee')
+    expect(first.textContent).toContain('sam@example.com')
+    await input.setValue('nobody')
+    expect(wrapper.find('[data-test="admin-supervisor-select"]').text()).toContain('No supervisor matches')
+    await input.setValue('lee')
+
+    await pick(wrapper, 'admin-supervisor-select', 'Sam Lee')
+    expect((input.element as HTMLInputElement).value).toBe('Sam Lee')
+    await wrapper.find('[data-test="admin-supervisor-form"]').trigger('submit')
+    await flushPromises()
+
+    // They had none, so no popup.
+    expect(wrapper.find('[data-test="admin-replacing"]').exists()).toBe(false)
+    expect(updateAdminUser).toHaveBeenCalledWith(7, { supervisorEmail: 'sam@example.com' })
+    expect(confirmStudentAssignments).not.toHaveBeenCalled()
+  })
+
+  it('puts a student with no group into one, where full groups cannot be picked', async () => {
+    const moved = student({ groupId: 2, groupName: 'BTF2' })
+    vi.mocked(confirmStudentAssignments).mockResolvedValue({ msg: 'ok', assignedCount: 1 })
+    vi.mocked(fetchAdminUser).mockResolvedValue(moved)
+    const wrapper = openDetail(student())
+    await editSupervisorAndGroup(wrapper)
+
+    const options = await optionsOf(wrapper, 'admin-group-select')
+    // No group first, then by name with the seats taken.
+    expect(options.map((o) => o.querySelector('.app-select__label')?.textContent?.trim())).toEqual([
+      'No group',
+      'BTF1',
+      'BTF2',
+      'BTF10'
+    ])
+    expect(options[1].textContent).toContain('5/5 students · Full')
+    expect(options[1].getAttribute('aria-disabled')).toBe('true')
+    options[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-test="admin-group-select"]').find('.is-selected').text()).toContain('No group')
+
+    await pick(wrapper, 'admin-group-select', 'BTF2')
+    await wrapper.find('[data-test="admin-supervisor-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="admin-replacing"]').exists()).toBe(false)
+    expect(confirmStudentAssignments).toHaveBeenCalledWith([{ studentId: 7, groupId: 2 }])
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toEqual([[moved]])
+  })
+
+  it('asks before replacing a supervisor or group they already have', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: student() })
+    vi.mocked(removeGroupMember).mockResolvedValue('ok')
+    vi.mocked(fetchAdminUser).mockResolvedValue(student())
+    const wrapper = openDetail(student({
+      supervisorName: 'Old Supervisor',
+      supervisorEmail: 'old@example.com',
+      groupId: 2,
+      groupName: 'BTF2'
+    }))
+    await editSupervisorAndGroup(wrapper)
+
+    await pick(wrapper, 'admin-supervisor-select', 'Sam Lee')
+    await pick(wrapper, 'admin-group-select', 'No group')
+    await wrapper.find('[data-test="admin-supervisor-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).not.toHaveBeenCalled()
+    const popup = wrapper.find('.admin-modal--confirm')
+    expect(wrapper.find('[data-test="admin-replacing"]').text()).toContain(
+      'Change supervisor from Old Supervisor to Sam Lee.'
+    )
+    expect(wrapper.find('[data-test="admin-replacing"]').text()).toContain('Take them out of BTF2.')
+
+    // Cancel saves nothing; Save does both.
+    await popup.findAll('button').find((b) => b.text() === 'Cancel')!.trigger('click')
+    expect(wrapper.find('.admin-modal--confirm').exists()).toBe(false)
+    expect(updateAdminUser).not.toHaveBeenCalled()
+
+    await wrapper.find('[data-test="admin-supervisor-form"]').trigger('submit')
+    await wrapper.find('.admin-modal--confirm').findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(7, { supervisorEmail: 'sam@example.com' })
+    expect(removeGroupMember).toHaveBeenCalledWith(2, 7)
+    expect(wrapper.find('.admin-modal--confirm').exists()).toBe(false)
+    expect(wrapper.find('[data-test="admin-supervisor-form"]').exists()).toBe(false)
+  })
+
+  it('keeps the form open and shows why a save was refused', async () => {
+    vi.mocked(updateAdminUser).mockRejectedValue(new ApiError({ error: 'No supervisor with that email.', code: 'http_400', request_id: 'x' }, 400))
+    const wrapper = openDetail(student())
+    await editSupervisorAndGroup(wrapper)
+
+    await pick(wrapper, 'admin-supervisor-select', 'Sam Lee')
+    const form = wrapper.find('[data-test="admin-supervisor-form"]')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(form.text()).toContain('No supervisor with that email.')
+    expect(wrapper.emitted('updated')).toBeUndefined()
+  })
+})
+
+describe('admin user detail: a mentor edited part by part', () => {
+  const openDetail = (user: AdminUser) =>
+    mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
+
+  // A postgraduate mentor of BTF2, free Monday and Wednesday evenings.
+  const mentor = (overrides: Partial<AdminUser> = {}) =>
+    student({
+      id: 5,
+      firstName: 'Mia',
+      lastName: 'Ng',
+      role: 'mentor',
+      schoolName: null,
+      yearLevel: null,
+      interests: ['Biomedical Innovations', 'Structural Biology'],
+      mentorBackground: 'postgraduate',
+      mentorInstitution: 'Uni of Sydney',
+      mentorUniversityYear: '2',
+      mentorFieldOfStudy: 'Biology',
+      mentorCompany: '',
+      mentorReason: 'To help',
+      mentorRelevantBackground: 'Lab work',
+      mentorMentoringApproach: 'Weekly calls',
+      mentorMaxGroupCount: 3,
+      mentorWeeklyHours: 4,
+      mentorAvailability: [
+        { weekday: 0, start: '18:00', end: '20:00' },
+        { weekday: 2, start: '17:00', end: '19:00' }
+      ],
+      mentorGroups: [{ id: 2, name: 'BTF2', studentCount: 3 }],
+      ...overrides
+    })
+
+  const group = (id: number, name: string, mentorName: string | null): AdminGroupDetail => ({
+    id,
+    name,
+    members: [{ id: '100', name: 'A student', email: 's@example.com', role: 'student', membershipId: 1 }],
+    mentor: mentorName
+      ? { id: mentorName === 'Mia Ng' ? '5' : '9', name: mentorName, email: 'm@example.com', role: 'mentor', membershipId: 2 }
+      : null,
+    createdAt: '',
+    updatedAt: ''
+  })
+
+  beforeEach(() => {
+    for (const fn of [updateAdminUser, confirmMentorAssignments, unassignMentors, fetchAdminUser]) {
+      vi.mocked(fn).mockReset()
+    }
+    vi.mocked(fetchAdminGroupList).mockResolvedValue({
+      items: [group(2, 'BTF2', 'Mia Ng'), group(3, 'BTF3', 'Sam Lee'), group(4, 'BTF4', null)],
+      total: 3,
+      page: 1,
+      limit: 200,
+      has_more: false
+    })
+  })
+
+  it('shows Account, Groups, Mentor Details and Application Form, each with Edit, and nothing at the bottom', () => {
+    const wrapper = openDetail(mentor())
+
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Account',
+      'Groups',
+      'Mentor Details',
+      'Weekly Availability',
+      'Application Form'
+    ])
+    for (const edit of ['account', 'mentor-groups', 'mentor-details', 'availability', 'application']) {
+      expect(wrapper.find(`[data-test="admin-edit-${edit}"]`).exists(), edit).toBe(true)
+    }
+    expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
+  })
+
+  it('shows their groups in one row, what their background asks, and their hours per week', () => {
+    const wrapper = openDetail(mentor({ mentorGroups: [{ id: 2, name: 'BTF2', studentCount: 3 }, { id: 10, name: 'BTF10', studentCount: 1 }] }))
+
+    expect(wrapper.find('[data-test="admin-mentor-group-names"]').text()).toBe('BTF2, BTF10')
+    const details = wrapper.find('[data-test="admin-mentor-details"]').text()
+    for (const text of ['University Student - Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
+      expect(details).toContain(text)
+    }
+    expect(details).not.toContain('Company')
+    expect(wrapper.find('[data-test="admin-mentor-hours"]').text()).toBe('4 hours')
+    expect(openDetail(mentor({ mentorWeeklyHours: null })).find('[data-test="admin-mentor-hours"]').text()).toBe('—')
+    expect(wrapper.find('[data-test="admin-answer-view-mentorMentoringApproach"]').text()).toBe('Weekly calls')
+
+    const industry = openDetail(mentor({ mentorBackground: 'industry', mentorCompany: 'Acme Bio', mentorInstitution: '' }))
+    const industryDetails = industry.find('[data-test="admin-mentor-details"]').text()
+    expect(industryDetails).toContain('Acme Bio')
+    expect(industryDetails).not.toContain('Institution')
+    expect(industryDetails).not.toContain('Field of study')
+  })
+
+  it('offers Group 2 once Group 1 is filled, and adds a group without a mentor straight away', async () => {
+    const updated = mentor()
+    vi.mocked(confirmMentorAssignments).mockResolvedValue({ msg: 'ok', confirmedCount: 1 })
+    vi.mocked(fetchAdminUser).mockResolvedValue(updated)
+    const wrapper = openDetail(mentor())
+    await wrapper.find('[data-test="admin-edit-mentor-groups"]').trigger('click')
+    await flushPromises()
+
+    const form = wrapper.find('[data-test="admin-mentor-groups-form"]')
+    expect(form.findAll('.admin-users-detail__label').map((label) => label.text())).toEqual(['Group 1', 'Group 2'])
+    // Their own group isn't offered again; another's says whose it is.
+    expect(await appSelectLabels(wrapper, '[data-test="admin-mentor-group-1"]')).toEqual(['BTF3', 'BTF4'])
+    const [btf3] = await openAppSelect(wrapper, '[data-test="admin-mentor-group-1"]')
+    expect(btf3.textContent).toContain('mentor: Sam Lee')
+    await pickAppSelect(wrapper, '[data-test="admin-mentor-group-1"]', 'BTF4')
+    expect(form.findAll('.admin-users-detail__label').map((label) => label.text())).toEqual(['Group 1', 'Group 2', 'Group 3'])
+
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="admin-replacing"]').exists()).toBe(false)
+    expect(unassignMentors).not.toHaveBeenCalled()
+    expect(confirmMentorAssignments).toHaveBeenCalledWith([{ groupId: 4, mentorUserId: 5 }])
+    expect(wrapper.emitted('updated')).toEqual([[updated]])
+  })
+
+  it('asks before taking them off a group or replacing another mentor', async () => {
+    vi.mocked(unassignMentors).mockResolvedValue({ msg: 'ok', unassignedCount: 1 })
+    vi.mocked(confirmMentorAssignments).mockResolvedValue({ msg: 'ok', confirmedCount: 1 })
+    vi.mocked(fetchAdminUser).mockResolvedValue(mentor())
+    const wrapper = openDetail(mentor())
+    await wrapper.find('[data-test="admin-edit-mentor-groups"]').trigger('click')
+    await flushPromises()
+
+    await pickAppSelect(wrapper, '[data-test="admin-mentor-group-0"]', 'BTF3')
+    await wrapper.find('[data-test="admin-mentor-groups-form"]').trigger('submit')
+    await flushPromises()
+
+    const lines = wrapper.find('[data-test="admin-replacing"]').text()
+    expect(lines).toContain('Take them off BTF2.')
+    expect(lines).toContain("Replace Sam Lee as BTF3's mentor.")
+    expect(confirmMentorAssignments).not.toHaveBeenCalled()
+
+    await wrapper.find('.admin-modal--confirm').findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
+    await flushPromises()
+    expect(unassignMentors).toHaveBeenCalledWith([2])
+    expect(confirmMentorAssignments).toHaveBeenCalledWith([{ groupId: 3, mentorUserId: 5 }])
+  })
+
+  it('shows no more groups than their capacity', async () => {
+    const wrapper = openDetail(mentor({ mentorMaxGroupCount: 1 }))
+    await wrapper.find('[data-test="admin-edit-mentor-groups"]').trigger('click')
+    await flushPromises()
+
+    const form = wrapper.find('[data-test="admin-mentor-groups-form"]')
+    expect(form.findAll('.admin-users-detail__label').map((label) => label.text())).toEqual(['Group 1'])
+    expect(form.text()).toContain('capacity of 1 group')
+  })
+
+  it('saves their details, asking what their background needs and clearing the rest', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: mentor() })
+    const wrapper = openDetail(mentor())
+    await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
+
+    const form = () => wrapper.find('[data-test="admin-mentor-details-form"]')
+    // Expertise from outside the list stays, ticked.
+    const structural = form().findAll('input[type="checkbox"]').find((box) => (box.element as HTMLInputElement).value === 'Structural Biology')
+    expect((structural!.element as HTMLInputElement).checked).toBe(true)
+
+    await pickAppSelect(wrapper, '[data-test="admin-mentor-background"]', 'Industry')
+    expect(form().find('[data-test="admin-mentor-institution"]').exists()).toBe(false)
+    expect(form().find('[data-test="admin-mentor-year"]').exists()).toBe(false)
+    await form().trigger('submit')
+    await flushPromises()
+    expect(form().text()).toContain('Enter their company or organisation.')
+    expect(updateAdminUser).not.toHaveBeenCalled()
+
+    await form().find('[data-test="admin-mentor-company"]').setValue('Acme Bio')
+    await form().find('[data-test="admin-mentor-hours-input"]').setValue('6')
+    await form().trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(5, {
+      firstName: 'Mia',
+      lastName: 'Ng',
+      mentorBackground: 'industry',
+      mentorCompany: 'Acme Bio',
+      mentorInstitution: '',
+      mentorUniversityYear: '',
+      mentorFieldOfStudy: '',
+      interests: ['Biomedical Innovations', 'Structural Biology'],
+      mentorMaxGroupCount: 3,
+      mentorWeeklyHours: 6
+    })
+  })
+
+  it('takes hours per week as a whole number from 1 to 40', async () => {
+    const wrapper = openDetail(mentor())
+    await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
+    const hours = wrapper.find('[data-test="admin-mentor-hours-input"]')
+    // A number box with its arrows that refuses e, +, - and ., two digits at most.
+    expect(hours.attributes('type')).toBe('number')
+    const press = new KeyboardEvent('keydown', { key: 'e', cancelable: true })
+    hours.element.dispatchEvent(press)
+    expect(press.defaultPrevented).toBe(true)
+    await hours.setValue('412')
+    expect((hours.element as HTMLInputElement).value).toBe('41')
+    await wrapper.find('[data-test="admin-mentor-details-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Hours per week must be a whole number from 1 to 40.')
+    expect(updateAdminUser).not.toHaveBeenCalled()
+  })
+
+  it('shows each weekly time, and edits them as day and times', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: mentor() })
+    const wrapper = openDetail(mentor())
+    const times = wrapper.find('[data-test="admin-mentor-times"]')
+    expect(times.findAll('dt').map((day) => day.text())).toEqual(['Monday', 'Wednesday'])
+    expect(times.findAll('dd').map((time) => time.text())).toEqual(['18:00 – 20:00', '17:00 – 19:00'])
+    expect(openDetail(mentor({ mentorAvailability: [] })).find('[data-test="admin-mentor-times"]').text()).toContain('—')
+
+    await wrapper.find('[data-test="admin-edit-availability"]').trigger('click')
+    const form = () => wrapper.find('[data-test="admin-availability-form"]')
+    // A third time, then the first taken away.
+    await wrapper.find('[data-test="admin-mentor-add-slot"]').trigger('click')
+    await pickAppSelect(wrapper, '[data-test="admin-mentor-slot-2"]', 'Friday')
+    // Each time as its hour and its minutes, the minutes in 5-minute steps.
+    const slot = (part: string) => `[data-test="admin-mentor-slot-2-${part}"]`
+    expect(await appSelectLabels(wrapper, slot('start-minute'))).toEqual([
+      '00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'
+    ])
+    await wrapper.find(`${slot('start-minute')} input`).trigger('blur')
+    expect((await appSelectLabels(wrapper, slot('start-hour'))).length).toBe(24)
+    await wrapper.find(`${slot('start-hour')} input`).trigger('blur')
+    // An hour picked first takes :00.
+    await pickAppSelect(wrapper, slot('start-hour'), '10')
+    expect(appSelectText(wrapper, slot('start-minute'))).toBe('00')
+    await pickAppSelect(wrapper, slot('start-minute'), '30')
+    await pickAppSelect(wrapper, slot('end-hour'), '09')
+    await form().trigger('submit')
+    await flushPromises()
+    expect(form().text()).toContain('Each weekly time must end after it starts.')
+    expect(updateAdminUser).not.toHaveBeenCalled()
+
+    await pickAppSelect(wrapper, slot('end-hour'), '12')
+    // A saved time shows as its hour and minutes.
+    expect(appSelectText(wrapper, '[data-test="admin-mentor-slot-0-start-hour"]')).toBe('18')
+    await form().find('[data-test="admin-mentor-slot-0"] .admin-users-detail__slot-remove').trigger('click')
+    await form().trigger('submit')
+    await flushPromises()
+    expect(updateAdminUser).toHaveBeenCalledWith(5, {
+      mentorAvailability: [
+        { weekday: 2, start: '17:00', end: '19:00' },
+        { weekday: 4, start: '10:30', end: '12:00' }
+      ]
+    })
+  })
+
+  it('edits the three answers, each kept to 150 words', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: mentor() })
+    const wrapper = openDetail(mentor())
+    await wrapper.find('[data-test="admin-edit-application"]').trigger('click')
+
+    const form = wrapper.find('[data-test="admin-application-form"]')
+    expect(form.text()).toContain('Why would you like to mentor?')
+    await form.find('[data-test="admin-answer-mentorMentoringApproach"]').setValue('word '.repeat(151))
+    expect(form.text()).toContain('151/150 words')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(form.text()).toContain('Keep each answer to 150 words or fewer.')
+
+    await form.find('[data-test="admin-answer-mentorMentoringApproach"]').setValue('Fortnightly calls')
+    await form.trigger('submit')
+    await flushPromises()
+    expect(updateAdminUser).toHaveBeenCalledWith(5, {
+      mentorRelevantBackground: 'Lab work',
+      mentorReason: 'To help',
+      mentorMentoringApproach: 'Fortnightly calls'
+    })
+  })
+})
+
+describe('admin user detail: a supervisor edited part by part', () => {
+  const openDetail = (user: AdminUser) =>
+    mount(AdminUserDetailSheet, { props: { open: true, user }, global: { stubs: { teleport: true } } })
+
+  const supervisor = (overrides: Partial<AdminUser> = {}) =>
+    student({
+      id: 8,
+      firstName: 'Sam',
+      lastName: 'Lee',
+      role: 'supervisor',
+      schoolName: 'Cardinal College',
+      yearLevel: null,
+      supervisorGroups: [{ id: 5, name: 'BTF5', studentCount: 3 }, { id: 6, name: 'BTF6', studentCount: 2 }],
+      supervisees: [
+        { id: 21, name: 'Idris Novak', email: 'idris@example.com' },
+        { id: 22, name: 'Tariq Mensah', email: 'tariq@example.com' }
+      ],
+      ...overrides
+    })
+
+  beforeEach(() => {
+    vi.mocked(updateAdminUser).mockReset()
+    vi.mocked(changeSupervisees).mockReset()
+  })
+
+  it('shows Account, Groups, Supervisor Details and Supervisees, and nothing at the bottom', () => {
+    const wrapper = openDetail(supervisor())
+
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Groups', 'Supervisor Details', 'Supervisees'])
+    expect(wrapper.find('[data-test="admin-edit-account"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="admin-edit-supervisor-details"]').exists()).toBe(true)
+    expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
+
+    expect(wrapper.find('[data-test="admin-supervisor-group-names"]').text()).toBe('BTF5, BTF6')
+    const rows = wrapper.find('[data-test="admin-supervisees"]').findAll('.admin-users-detail__item')
+    expect(rows.map((row) => [row.find('dt').text(), row.find('dd').text()])).toEqual([
+      ['Idris Novak', 'idris@example.com'],
+      ['Tariq Mensah', 'tariq@example.com']
+    ])
+  })
+
+  it('shows — with no groups or students', () => {
+    const wrapper = openDetail(supervisor({ supervisorGroups: [], supervisees: [] }))
+    expect(wrapper.find('[data-test="admin-supervisor-group-names"]').text()).toBe('—')
+    expect(wrapper.find('[data-test="admin-supervisees"]').text()).toContain('—')
+  })
+
+  it('edits their name and school', async () => {
+    vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: supervisor() })
+    const wrapper = openDetail(supervisor())
+    await wrapper.find('[data-test="admin-edit-supervisor-details"]').trigger('click')
+
+    const form = wrapper.find('[data-test="admin-supervisor-details-form"]')
+    await form.find('[data-test="admin-supervisor-school"]').setValue('St Mary College')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(updateAdminUser).toHaveBeenCalledWith(8, {
+      firstName: 'Sam',
+      lastName: 'Lee',
+      supervisorSchoolName: 'St Mary College'
+    })
+    expect(wrapper.find('[data-test="admin-supervisor-details-form"]').exists()).toBe(false)
+  })
+
+  const listGroups = (...groups: [number, string, number][]) =>
+    vi.mocked(fetchAdminGroupList).mockResolvedValue({
+      items: groups.map(([id, name, students]) => ({
+        // The list gives ids as text.
+        id: String(id) as unknown as number,
+        name,
+        members: Array.from({ length: students }, (_, index) => ({
+          id: String(100 + index),
+          name: `S${index}`,
+          email: `s${index}@example.com`,
+          role: 'student',
+          membershipId: index
+        })),
+        mentor: null,
+        createdAt: '',
+        updatedAt: ''
+      })),
+      total: groups.length,
+      page: 1,
+      limit: 200,
+      has_more: false
+    })
+
+  it('adds a group, warning first of students moving from another supervisor', async () => {
+    listGroups([5, 'BTF5', 3], [6, 'BTF6', 2], [7, 'BTF7', 2])
+    vi.mocked(changeSupervisees)
+      .mockResolvedValueOnce({
+        changes: [
+          { studentId: 31, name: 'Ana Lee', group: 'BTF7', from: 'Pat Kim', to: 'Sam Lee' },
+          { studentId: 32, name: 'Ben Ng', group: 'BTF7', from: 'Pat Kim', to: 'Sam Lee' }
+        ]
+      })
+      .mockResolvedValueOnce({ changes: [], user: supervisor() })
+    const wrapper = openDetail(supervisor())
+    await wrapper.find('[data-test="admin-edit-supervisor-groups"]').trigger('click')
+    await flushPromises()
+
+    const form = wrapper.find('[data-test="admin-supervisor-groups-form"]')
+    expect(form.findAll('.admin-users-detail__label').map((label) => label.text())).toEqual(['Group 1', 'Group 2', 'Group 3'])
+    // Theirs is recognised though the list gives text ids, so BTF7 alone is new.
+    expect(await appSelectLabels(wrapper, '[data-test="admin-supervisor-group-2"]')).toEqual(['BTF7'])
+    await pickAppSelect(wrapper, '[data-test="admin-supervisor-group-2"]', 'BTF7')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(changeSupervisees).toHaveBeenCalledWith(8, { addGroupIds: [7], removeGroupIds: [], preview: true })
+    expect(wrapper.find('[data-test="admin-replacing"]').text()).toContain('BTF7: Ana Lee and Ben Ng move from Pat Kim to Sam Lee.')
+    await wrapper.find('.admin-modal--confirm').findAll('button').find((b) => b.text() === 'Save')!.trigger('click')
+    await flushPromises()
+    expect(changeSupervisees).toHaveBeenLastCalledWith(8, { addGroupIds: [7], removeGroupIds: [] })
+    expect(wrapper.emitted('updated')).toBeTruthy()
+  })
+
+  it('takes a student off, warning that they will have no supervisor', async () => {
+    vi.mocked(fetchAdminUsers).mockResolvedValue({ items: [], total: 0, page: 1, limit: 200, hasMore: false })
+    vi.mocked(changeSupervisees).mockResolvedValueOnce({
+      changes: [{ studentId: 21, name: 'Idris Novak', group: 'BTF5', from: 'Sam Lee', to: null }]
+    })
+    const wrapper = openDetail(supervisor())
+    await wrapper.find('[data-test="admin-edit-supervisees"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-test="admin-supervisee-0"] .admin-users-detail__slot-remove').trigger('click')
+    await wrapper.find('[data-test="admin-supervisees-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(changeSupervisees).toHaveBeenCalledWith(8, { addStudentIds: [], removeStudentIds: [21], preview: true })
+    expect(wrapper.find('[data-test="admin-replacing"]').text()).toContain('BTF5: Idris Novak will have no supervisor.')
+  })
+
+  it('adds a student with no supervisor straight away, showing whose each one is', async () => {
+    vi.mocked(fetchAdminUsers).mockResolvedValue({
+      items: [
+        student({ id: 40, firstName: 'Cara', lastName: 'Wu', email: 'cara@example.com', groupName: null, supervisorName: null }),
+        student({ id: 41, firstName: 'Dan', lastName: 'Ho', email: 'dan@example.com', groupName: 'BTF9', supervisorName: 'Pat Kim' })
+      ],
+      total: 2,
+      page: 1,
+      limit: 200,
+      hasMore: false
+    })
+    vi.mocked(changeSupervisees)
+      .mockResolvedValueOnce({ changes: [{ studentId: 40, name: 'Cara Wu', group: null, from: null, to: 'Sam Lee' }] })
+      .mockResolvedValueOnce({ changes: [], user: supervisor() })
+    const wrapper = openDetail(supervisor())
+    await wrapper.find('[data-test="admin-edit-supervisees"]').trigger('click')
+    await flushPromises()
+
+    const options = await openAppSelect(wrapper, '[data-test="admin-supervisee-add"]')
+    expect(options.map((option) => option.textContent)).toEqual([
+      expect.stringContaining('cara@example.com · no group · no supervisor'),
+      expect.stringContaining('dan@example.com · BTF9 · supervisor: Pat Kim')
+    ])
+    await pickAppSelect(wrapper, '[data-test="admin-supervisee-add"]', 'Cara Wu')
+    expect(wrapper.find('[data-test="admin-supervisee-2"]').text()).toContain('cara@example.com')
+    await wrapper.find('[data-test="admin-supervisees-form"]').trigger('submit')
+    await flushPromises()
+
+    // Nobody moves from anyone, so no warning.
+    expect(wrapper.find('[data-test="admin-replacing"]').exists()).toBe(false)
+    expect(changeSupervisees).toHaveBeenLastCalledWith(8, { addStudentIds: [40], removeStudentIds: [] })
   })
 })

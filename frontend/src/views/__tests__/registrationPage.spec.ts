@@ -7,6 +7,7 @@ import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
 import { setRegistrationState } from '@/composables/useRegistrationOpen'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 // Registration as it is by default: open, with no dates.
 const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
@@ -597,7 +598,7 @@ describe('canonical registration intake', () => {
     expect(setup.errors['studentTeam.teammates.0.yearLevel']).toBeTruthy()
   })
 
-  it("limits a mentor's answers to 150 words and checks their weekly times", async () => {
+  it("limits a mentor's answers to 150 words and asks their hours per week", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
     const setup = wrapper.vm as unknown as {
@@ -611,14 +612,15 @@ describe('canonical registration intake', () => {
           background: string
           motivation: string
           mentoringApproach: string
-          availability: { weekday: string; start: string; end: string }[]
+          weeklyHours: string
         }
       }
     }
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('How would you mentor BIOTech groups?')
-    expect(wrapper.text()).toContain('Weekly availability')
+    expect(wrapper.text()).toContain('Hours per week')
+    expect(wrapper.text()).not.toContain('Weekly availability')
     expect(wrapper.text()).toContain('0 / 150 words')
 
     Object.assign(setup.forms.mentor, {
@@ -628,15 +630,34 @@ describe('canonical registration intake', () => {
       motivation: 'To help.',
       mentoringApproach: 'Weekly check-ins.',
     })
-    setup.forms.mentor.availability[0] = { weekday: '0', start: '10:00', end: '09:00' }
+    setup.forms.mentor.weeklyHours = '41'
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('151 / 150 words')
     setup.validateCurrentStep()
     expect(setup.errors['mentor.background']).toBe('Keep this to 150 words or fewer.')
-    expect(setup.errors['mentor.availability.0']).toBe('End after it starts.')
+    expect(setup.errors['mentor.weeklyHours']).toBe('Enter a whole number of hours from 1 to 40.')
+
+    setup.forms.mentor.weeklyHours = ''
+    setup.validateCurrentStep()
+    expect(setup.errors['mentor.weeklyHours']).toBe('Enter how many hours a week you can give.')
+
+    // A number box with its arrows, taking whole numbers alone, two digits at most.
+    const hours = wrapper.get('#mentor-hours')
+    expect(hours.attributes()).toMatchObject({ type: 'number', min: '1', max: '40', step: '1' })
+    for (const key of ['e', '+', '-', '.']) {
+      const press = new KeyboardEvent('keydown', { key, cancelable: true })
+      hours.element.dispatchEvent(press)
+      expect(press.defaultPrevented, key).toBe(true)
+    }
+    const digit = new KeyboardEvent('keydown', { key: '4', cancelable: true })
+    hours.element.dispatchEvent(digit)
+    expect(digit.defaultPrevented).toBe(false)
+    await hours.setValue('456')
+    expect(setup.forms.mentor.weeklyHours).toBe('45')
+    await hours.setValue('4')
+    expect(setup.forms.mentor.weeklyHours).toBe('4')
 
     setup.forms.mentor.background = 'Ten years in biotech.'
-    setup.forms.mentor.availability[0] = { weekday: '0', start: '09:00', end: '11:00' }
     expect(setup.validateCurrentStep()).toBe(true)
   })
 
@@ -807,27 +828,21 @@ describe('canonical registration intake', () => {
     const asked = send.mock.calls.map(([url]) => String(url))
     expect(asked.some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
     expect(asked.some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
-    expect(country().element.tagName).toBe('SELECT')
-    expect(
-      country()
-        .findAll('option')
-        .slice(1)
-        .map((option) => option.attributes('value')),
-    ).toEqual(countries)
-    expect((country().element as HTMLSelectElement).value).toBe('Australia')
-    expect(state().element.tagName).toBe('SELECT')
+    // Dropdowns (a combobox's field), each choice as the database names it.
+    expect(country().attributes('role')).toBe('combobox')
+    expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-country')).toEqual(countries)
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-country')).toBe('Australia')
+    await country().trigger('blur')
+    expect(state().attributes('role')).toBe('combobox')
     expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State *')
-    expect(
-      state()
-        .findAll('option')
-        .slice(1)
-        .map((option) => option.attributes('value')),
-    ).toEqual(states)
-    await state().setValue('VIC')
-    expect((state().element as HTMLSelectElement).value).toBe('VIC')
+    expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-state')).toEqual(states)
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-state', 'VIC')
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-state')).toBe('VIC')
 
-    await country().setValue('New Zealand')
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-country', 'New Zealand')
+    // A text box to type in.
     expect(state().element.tagName).toBe('INPUT')
+    expect(state().attributes('role')).toBeUndefined()
     // Elsewhere a Region, optional; the Australian state isn't kept.
     expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('Region (Optional)')
     expect((state().element as HTMLInputElement).value).toBe('')

@@ -1,12 +1,4 @@
 <template>
-  <p
-    v-if="UNDER_CONSTRUCTION"
-    style="background: #fff8e1; border: 1px solid #f5d97e; border-radius: 8px; color: #8a6d1a; font-size: 0.85rem; padding: 0.6rem 0.85rem; margin: 0 0 0.75rem"
-  >
-    <i class="fas fa-hammer" aria-hidden="true"></i>
-    The backend for this page is still being built.
-  </p>
-
   <div class="year">
     <section class="card">
       <div class="card-header">
@@ -116,9 +108,6 @@ import {
   type ReleaseStatus,
   type SubmissionDeadline
 } from '@/utils/managementAPI'
-
-// Flip to false once the backend flow is signed off.
-const UNDER_CONSTRUCTION = true
 
 const deadline = ref<SubmissionDeadline | null>(null)
 const marks = ref<ReleaseStatus | null>(null)

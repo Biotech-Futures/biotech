@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, TypedDict, Optional, List, Dict, Any, Tuple
 from datetime import datetime
 import logging
@@ -20,7 +21,8 @@ from apps.groups.models import GroupMembership
 from apps.users.models import User
 from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, UNREACHABLE, note_send, reason_for
-from apps.services.retry import RetryLater, reset
+from apps.services.retry import WAITING, RetryLater, reset
+from apps.services.waiting_email import WAITING_REASON, send_or_wait
 from apps.services.system_email import (
     RenderedEmail,
     build_message,
@@ -606,16 +608,20 @@ def _deliver_announcement_to_recipients(
     announcement_id: int,
     emails: List[str],
     render_for: Callable[[str], RenderedEmail],
-) -> Tuple[int, List[Dict[str, str]], Optional[str]]:
+    delivery_id: Optional[int] = None,
+) -> Tuple[int, List[Dict[str, str]], Optional[str], List[str]]:
     """Run the SMTP loop for a single send attempt.
 
     ``render_for`` returns the email as one recipient should read it: an
     announcement may greet each of them by name (``{{ first_name }}``), so
     the wording is per recipient rather than shared.
 
-    Returns ``(succeeded_count, failed_entries, connection_error)`` where
-    ``connection_error`` is non-None only when the connection itself never
-    opened (i.e. no recipient was actually attempted at the wire).
+    Returns ``(succeeded_count, failed_entries, connection_error, waiting)``
+    where ``connection_error`` is non-None only when the connection couldn't
+    be opened at the start, and ``waiting`` is who couldn't be emailed because
+    the mail server couldn't be reached: their emails are kept and sent once
+    it can be, every 10 minutes (see ``waiting_email``), each counted on
+    ``delivery_id``'s delivery as it goes.
 
     This is extracted from :func:`send_announcement_email` so the
     bookkeeping path (delivery row create + finalize) does not share a
@@ -641,33 +647,44 @@ def _deliver_announcement_to_recipients(
         )
         for addr in emails:
             failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
-        return 0, failed, connection_error
+        return 0, failed, connection_error, []
 
+    connection_error = None
     try:
         connection.open()
     except Exception as exc:  # network / TLS / auth failure
         connection_error = _sanitize_error(exc)
+        # Each send below tries again, and keeps its email to send later
+        # when the server still can't be reached.
         logger.exception(
             "announcement_email.connection_failed announcement_id=%s",
             announcement_id,
         )
-        # Mark every recipient as failed since none could be attempted.
-        for addr in emails:
-            failed.append({"email": addr, "error": connection_error, "reason": UNREACHABLE})
-        return 0, failed, connection_error
 
+    # Once a kept email goes, or is given up on, the delivery counts it.
+    on_sent = {
+        "sent": "apps.admin.services.announcement.waiting_sent",
+        "missed": "apps.admin.services.announcement.waiting_missed",
+        "delivery_id": delivery_id,
+        # Which announcement, for Resend on the Log once it's given up on.
+        "ref": {"announcement_id": announcement_id, "delivery_id": delivery_id},
+    } if delivery_id else None
+    waiting: List[str] = []
     # Those that fail, kept to try once more once everyone has been tried.
     later = RetryLater(connection)
     try:
         for addr in emails:
             message = build_message(render_for(addr), addr, from_email=sender.from_email, connection=connection)
+            # A dropped connection is opened again and the email sent once
+            # more; when the server can't be reached, it's kept to send later.
+            send = partial(send_or_wait, message, key="announcement", on_sent=on_sent)
             try:
                 # ``send()`` returns the number of successfully delivered
                 # messages (1 on success). With ``fail_silently=False`` it
                 # raises on SMTP errors.
-                result = message.send(fail_silently=False)
+                result = send()
             except Exception as exc:
-                if later.keep(exc, addr, lambda message=message: message.send(fail_silently=False)):
+                if later.keep(exc, addr, send):
                     reset(connection)
                     continue
                 failed.append({
@@ -689,7 +706,9 @@ def _deliver_announcement_to_recipients(
                 except Exception:
                     pass
             else:
-                if result:
+                if result is WAITING:
+                    waiting.append(addr)
+                elif result:
                     succeeded += 1
                 else:
                     # Backend reported 0 sent without raising — treat as a
@@ -708,6 +727,9 @@ def _deliver_announcement_to_recipients(
         for addr, exc in later.run():
             if exc is None:
                 succeeded += 1
+                continue
+            if exc is WAITING:
+                waiting.append(addr)
                 continue
             failed.append({"email": addr, "error": _sanitize_error(exc), "reason": reason_for(exc)})
             logger.warning(
@@ -728,7 +750,59 @@ def _deliver_announcement_to_recipients(
                 announcement_id,
             )
 
-    return succeeded, failed, None
+    return succeeded, failed, connection_error, waiting
+
+
+def _renderer(announcement_id: int, row: Dict[str, Any], emails: List[str]) -> Callable[[str], RenderedEmail]:
+    """The announcement's email as each of ``emails`` reads it: rendered once,
+    its greeting tags (``{{ first_name }}``) filled with each reader's own
+    details."""
+    raw_body = row.get("body", "")
+    excerpt = _build_excerpt(raw_body)
+    # The portal gives a plain-text body its paragraphs and line breaks, and
+    # keeps HTML as written; the email must read the same way, so normalise
+    # it first. Bodies are authored in the admin editor (and may be
+    # seeded/imported), so sanitise before trusting the HTML too.
+    body_html = clean_email_body(body_to_html(raw_body))
+    platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
+    detail_url = f"{platform_url}/#/announcements/{announcement_id}"
+    # Plain text carries the whole announcement too — not a truncated excerpt.
+    body_text = html_to_text(body_html)
+    text_body = (
+        f"{row.get('title')}\n\n{body_text}\n\n"
+        f"View this announcement on the platform: {detail_url}"
+    )
+    # Rendered once for the shared wording; the greeting tags (if any) are
+    # filled per recipient below.
+    rendered = render_system_email(
+        "announcement",
+        {
+            "title": row.get("title", ""),
+            "body": body_html,
+            "excerpt": excerpt,
+            "detail_url": detail_url,
+        },
+        default_text=text_body,
+    )
+
+    # An announcement may greet each reader by name (``{{ first_name }}``).
+    # Filled with each recipient's own details, so the wording is theirs.
+    users_by_email = {
+        user.email: user
+        for user in User.objects.filter(email__in=emails, is_active=True)
+    }
+
+    def render_for(addr: str) -> RenderedEmail:
+        user = users_by_email.get(addr)
+        if user is None:
+            return rendered
+        return rendered._replace(
+            subject=fill_merge_tags(rendered.subject, user, escape=False),
+            html=fill_merge_tags(rendered.html, user, escape=True),
+            text=fill_merge_tags(rendered.text, user, escape=False),
+        )
+
+    return render_for
 
 
 def send_announcement_email(
@@ -789,50 +863,7 @@ def send_announcement_email(
     if not emails:
         return _skipped_send_result("No recipients found")
 
-    raw_body = row.get("body", "")
-    excerpt = _build_excerpt(raw_body)
-    # The portal gives a plain-text body its paragraphs and line breaks, and
-    # keeps HTML as written; the email must read the same way, so normalise
-    # it first. Bodies are authored in the admin editor (and may be
-    # seeded/imported), so sanitise before trusting the HTML too.
-    body_html = clean_email_body(body_to_html(raw_body))
-    platform_url = getattr(settings, "FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
-    detail_url = f"{platform_url}/#/announcements/{announcement_id}"
-    # Plain text carries the whole announcement too — not a truncated excerpt.
-    body_text = html_to_text(body_html)
-    text_body = (
-        f"{row.get('title')}\n\n{body_text}\n\n"
-        f"View this announcement on the platform: {detail_url}"
-    )
-    # Rendered once for the shared wording; the greeting tags (if any) are
-    # filled per recipient below.
-    rendered = render_system_email(
-        "announcement",
-        {
-            "title": row.get("title", ""),
-            "body": body_html,
-            "excerpt": excerpt,
-            "detail_url": detail_url,
-        },
-        default_text=text_body,
-    )
-
-    # An announcement may greet each reader by name (``{{ first_name }}``).
-    # Filled with each recipient's own details, so the wording is theirs.
-    users_by_email = {
-        user.email: user
-        for user in User.objects.filter(email__in=emails, is_active=True)
-    }
-
-    def render_for(addr: str) -> RenderedEmail:
-        user = users_by_email.get(addr)
-        if user is None:
-            return rendered
-        return rendered._replace(
-            subject=fill_merge_tags(rendered.subject, user, escape=False),
-            html=fill_merge_tags(rendered.html, user, escape=True),
-            text=fill_merge_tags(rendered.text, user, escape=False),
-        )
+    render_for = _renderer(announcement_id, row, emails)
 
     # Pessimistic delivery row: created up front as FAILED so a mid-send
     # crash still leaves a triageable audit trail. We finalize it after
@@ -846,8 +877,8 @@ def send_announcement_email(
     )
 
     try:
-        succeeded, failed, connection_error = _deliver_announcement_to_recipients(
-            announcement_id, emails, render_for,
+        succeeded, failed, connection_error, waiting = _deliver_announcement_to_recipients(
+            announcement_id, emails, render_for, delivery.pk,
         )
     except Exception as exc:  # belt-and-braces — anything truly unexpected
         connection_error = _sanitize_error(exc)
@@ -857,19 +888,26 @@ def send_announcement_email(
         )
         succeeded = 0
         failed = [{"email": addr, "error": connection_error, "reason": NOT_SENT} for addr in emails]
+        waiting = []
 
+    # Those waiting are noted once their emails go, or are given up on.
     note_send(
         "announcement",
         missed={item["email"]: item.get("reason", NOT_SENT) for item in failed},
         by=initiated_by,
-        attempted=len(emails),
+        attempted=len(emails) - len(waiting),
         delivered=succeeded,
         failed=len(failed),
         source_mailbox=sender_for("announcement").address,
         started_at=delivery.started_at,
-        recipients=emails,
+        # Waiting addresses are recorded with the send that finally reaches them.
+        recipients=[addr for addr in emails if addr not in set(waiting)],
+        # Which announcement, for Resend on the Log.
+        ref={"announcement_id": announcement_id, "delivery_id": delivery.pk},
     )
 
+    # Not delivered yet, so counted as failed until their emails go.
+    failed = failed + [{"email": addr, "error": WAITING_REASON, "reason": WAITING_REASON} for addr in waiting]
     failure_count = len(failed)
     if succeeded == 0:
         status_value = AnnouncementDelivery.Status.FAILED
@@ -886,6 +924,11 @@ def send_announcement_email(
         msg = (
             f"Announcement email partially sent "
             f"({succeeded}/{len(emails)} delivered)"
+        )
+    if waiting:
+        msg += (
+            f". {len(waiting)} couldn't be emailed because the mail server couldn't be "
+            f"reached: they're emailed once it can be, tried every 10 minutes"
         )
 
     capped_failed = failed[: AnnouncementDelivery.FAILED_RECIPIENTS_CAP]
@@ -929,6 +972,8 @@ def send_announcement_email(
         "attempted": len(emails),
         "succeeded": succeeded,
         "failed": failure_count,
+        # Of those failed, the ones whose emails are kept to send later.
+        "waiting": len(waiting),
         # API returns email strings only. The persisted shape on the model
         # is ``[{"email": ..., "error": ...}]`` — see the comment on
         # ``AnnouncementDelivery.failed_recipients``.
@@ -937,6 +982,147 @@ def send_announcement_email(
         # keep working.
         "sent": succeeded,
     }
+
+
+def waiting_sent(details: Dict[str, Any], addresses: List[str]) -> None:
+    """Kept announcement emails went (``waiting_email``): the delivery counts
+    them as delivered, and lists them as failed no more."""
+    _settle_waiting(details.get("delivery_id"), addresses, None)
+
+
+def waiting_missed(details: Dict[str, Any], missed: Dict[str, str]) -> None:
+    """Kept announcement emails were given up on, or turned away: the
+    delivery lists them with why."""
+    _settle_waiting(details.get("delivery_id"), list(missed), missed)
+
+
+def _settle_waiting(delivery_id, addresses: List[str], missed: Optional[Dict[str, str]]) -> None:
+    lowered = {address.lower() for address in addresses}
+    reasons = {address.lower(): reason for address, reason in (missed or {}).items()}
+    with transaction.atomic():
+        delivery = AnnouncementDelivery.objects.select_for_update().filter(pk=delivery_id).first()
+        if delivery is None:
+            return
+        entries = []
+        for entry in delivery.failed_recipients:
+            address = str(entry.get("email", "")).lower() if isinstance(entry, dict) else ""
+            if address in lowered and entry.get("reason") == WAITING_REASON:
+                if missed is None:
+                    continue
+                entry = {**entry, "error": reasons[address], "reason": reasons[address]}
+            entries.append(entry)
+        delivery.failed_recipients = entries
+        if missed is None:
+            delivery.success_count += len(addresses)
+            delivery.failure_count = max(0, delivery.failure_count - len(addresses))
+        if delivery.success_count == 0:
+            delivery.status = AnnouncementDelivery.Status.FAILED
+        elif delivery.failure_count == 0:
+            delivery.status = AnnouncementDelivery.Status.SUCCESS
+        else:
+            delivery.status = AnnouncementDelivery.Status.PARTIAL
+        delivery.save(update_fields=["status", "success_count", "failure_count", "failed_recipients"])
+
+
+# --- Resend on System Emails' Log -------------------------------------------
+
+
+def missed_by_announcement() -> Dict[Tuple[int, int], List[str]]:
+    """Who each announcement's email missed, as the Log lists them:
+    ``{(announcement_id, delivery_id): [address, ...]}``. A send noted before
+    sends named their announcement is matched to the delivery running then.
+    Only announcements still there."""
+    from apps.services.models import SystemEmailLog
+
+    log = SystemEmailLog.objects.filter(key="announcement").first()
+    found: Dict[Tuple[int, int], List[str]] = {}
+    for entry in (log.missed if log else []):
+        ref = entry.get("ref") or {}
+        announcement_id, delivery_id = ref.get("announcement_id"), ref.get("delivery_id")
+        if not announcement_id:
+            at = datetime.fromisoformat(entry["at"])
+            delivery = (
+                AnnouncementDelivery.objects.filter(started_at__lte=at, completed_at__gte=at)
+                .order_by("-started_at").first()
+            )
+            if delivery is None:
+                continue
+            announcement_id, delivery_id = delivery.announcement_id, delivery.pk
+        if not Announcement.objects.filter(pk=announcement_id).exists():
+            continue
+        addresses = found.setdefault((announcement_id, delivery_id), [])
+        for person in entry["missed"]:
+            if person["address"].lower() not in {address.lower() for address in addresses}:
+                addresses.append(person["address"])
+    return found
+
+
+def resend_missed(actor=None) -> Dict[str, int]:
+    """Resend on System Emails' Log: each announcement's email built again
+    and sent to only the people its send missed, its delivery counting those
+    it reaches. Those it misses again are listed again, with why; those the
+    mail server can't be reached for wait for it. Gives ``{"sent", "failed"}``."""
+    from apps.services.email_log import forget_missed
+
+    sent = failed_total = 0
+    for (announcement_id, delivery_id), addresses in missed_by_announcement().items():
+        row = _fetch_announcement(announcement_id)
+        if not row:
+            continue
+        render_for = _renderer(announcement_id, row, addresses)
+        succeeded, failed, _error, waiting = _deliver_announcement_to_recipients(
+            announcement_id, addresses, render_for, delivery_id,
+        )
+        missed = {item["email"]: item.get("reason", NOT_SENT) for item in failed}
+        lowered = {address.lower() for address in [*missed, *waiting]}
+        reached = [address for address in addresses if address.lower() not in lowered]
+        _settle_resend(delivery_id, reached, missed, waiting)
+        # Their earlier entry goes; this send is noted as one of its own.
+        forget_missed("announcement", addresses)
+        note_send(
+            "announcement",
+            missed=missed,
+            by=actor,
+            attempted=len(addresses) - len(waiting),
+            delivered=len(reached),
+            failed=len(missed),
+            source_mailbox=sender_for("announcement").address,
+            last_sent=bool(reached),
+            ref={"announcement_id": announcement_id, "delivery_id": delivery_id},
+        )
+        sent += len(reached)
+        failed_total += len(missed)
+    return {"sent": sent, "failed": failed_total}
+
+
+def _settle_resend(delivery_id, reached: List[str], missed: Dict[str, str], waiting: List[str]) -> None:
+    """The delivery after a Resend: those reached delivered, and listed as
+    failed no more; those missed again with why; those waiting as waiting."""
+    reasons = {address.lower(): reason for address, reason in missed.items()}
+    reasons.update({address.lower(): WAITING_REASON for address in waiting})
+    reached_lowered = {address.lower() for address in reached}
+    with transaction.atomic():
+        delivery = AnnouncementDelivery.objects.select_for_update().filter(pk=delivery_id).first()
+        if delivery is None:
+            return
+        entries = []
+        for entry in delivery.failed_recipients:
+            address = str(entry.get("email", "")).lower() if isinstance(entry, dict) else ""
+            if address in reached_lowered:
+                continue
+            if address in reasons:
+                entry = {**entry, "error": reasons[address], "reason": reasons[address]}
+            entries.append(entry)
+        delivery.failed_recipients = entries
+        delivery.success_count += len(reached)
+        delivery.failure_count = max(0, delivery.failure_count - len(reached))
+        if delivery.success_count == 0:
+            delivery.status = AnnouncementDelivery.Status.FAILED
+        elif delivery.failure_count == 0:
+            delivery.status = AnnouncementDelivery.Status.SUCCESS
+        else:
+            delivery.status = AnnouncementDelivery.Status.PARTIAL
+        delivery.save(update_fields=["status", "success_count", "failure_count", "failed_recipients"])
 
 
 def list_announcement_groups(requesting_user=None) -> Dict[str, Any]:
