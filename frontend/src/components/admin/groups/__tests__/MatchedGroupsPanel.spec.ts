@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
 import { pickAppSelect } from '@/__tests__/appSelect'
+import { setIdleDays } from '@/composables/admin/useIdleThreshold'
+import { DEFAULT_IDLE_DAYS } from '@/utils/mentorFormat'
 
 const activeGroup = {
   membershipId: 100,
@@ -172,6 +174,8 @@ const fetchMockFor = (
 let wrapper: VueWrapper | null = null
 
 afterEach(() => {
+  // The threshold is module-level, so it would otherwise leak between tests.
+  setIdleDays(DEFAULT_IDLE_DAYS)
   wrapper?.unmount()
   wrapper = null
   vi.unstubAllGlobals()
@@ -205,6 +209,31 @@ describe('MatchedGroupsPanel', () => {
     const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
     expect(replaceInactiveButton).toBeDefined()
     expect(replaceInactiveButton!.attributes('disabled')).toBeDefined()
+  })
+
+  it('counts by the threshold the Mentors page set, not a fixed 30 days', async () => {
+    // Active, and quiet for 20 days: not idle while the threshold is 30.
+    const quietGroup = {
+      ...activeGroup,
+      mentor: {
+        ...activeGroup.mentor,
+        lastMessageAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+      }
+    }
+    vi.stubGlobal('fetch', fetchMockFor([quietGroup]))
+    wrapper = mount(MatchedGroupsPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('to replace')
+
+    // The Mentors page drops it to a fortnight; this panel follows, instead of
+    // staying on its own hardcoded 30 and disagreeing about the count.
+    setIdleDays(14)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 to replace')
+    const button = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
+    expect(button!.attributes('disabled')).toBeUndefined()
   })
 
   it('expands a row to show its students', async () => {

@@ -202,6 +202,7 @@ import {
   type MentorListItem
 } from '@/utils/adminAPI'
 import { mentorConcern } from '@/utils/mentorFormat'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 import { logApiError } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
@@ -276,8 +277,12 @@ onMounted(load)
 // an idle one has gone quiet. The dialog labels each so an admin can tell them
 // apart. Previously this counted only deactivated accounts, which is why this
 // tab and the Mentors page reported different numbers.
+// The same threshold the Mentors page offers, so the two screens never report
+// different numbers of mentors needing replacement.
+const { idleDays } = useIdleThreshold()
+
 const inactiveGroups = computed(() =>
-  groups.value.filter((g) => mentorConcern(g.mentor) !== null)
+  groups.value.filter((g) => mentorConcern(g.mentor, idleDays.value) !== null)
 )
 const inactiveCount = computed(() => inactiveGroups.value.length)
 

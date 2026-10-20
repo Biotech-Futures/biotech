@@ -22,7 +22,7 @@
             Current:
             <span class="replace-dialog__danger">
               {{ group.mentor.name }}
-              ({{ mentorConcern(group.mentor) === 'idle' ? 'idle' : 'inactive' }})
+              ({{ mentorConcern(group.mentor, idleDays) === 'idle' ? 'idle' : 'inactive' }})
             </span>
           </p>
           <p v-if="topSuggestionFor(group.groupId)" class="replace-dialog__suggested">
@@ -86,7 +86,12 @@ import {
   unassignMentors
 } from '@/utils/adminAPI'
 import { mentorConcern } from '@/utils/mentorFormat'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 import { logApiError } from '@/utils/apiError'
+
+// The reason shown per row follows the threshold the admin set, like the
+// counts on the screens behind this dialog.
+const { idleDays } = useIdleThreshold()
 
 const UNASSIGN_VALUE = '__unassign__'
 

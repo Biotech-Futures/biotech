@@ -11,6 +11,7 @@ import {
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { mentorConcern } from '@/utils/mentorFormat'
+import { useIdleThreshold } from '@/composables/admin/useIdleThreshold'
 
 export type MentorSortKey =
   | 'name'
@@ -42,7 +43,9 @@ export function useAdminMentorsView() {
   const matchedGroups = ref<MatchedGroup[]>([])
   const mentorList = ref<MentorListItem[]>([])
 
-  const inactiveDays = ref(30)
+  // Shared with Matched Groups, so both screens count idle mentors the
+  // same way. Exposed under its existing name for the view.
+  const { idleDays: inactiveDays, setIdleDays } = useIdleThreshold()
   const selectedIds = ref<Set<number>>(new Set())
   const bulkAction = reactive<MentorBulkAction>({
     open: false,
@@ -167,8 +170,7 @@ export function useAdminMentorsView() {
   // -- Status -----------------------------------------------------------------
 
   const onInactiveDaysChange = (event: Event) => {
-    const value = Number((event.target as HTMLInputElement).value)
-    inactiveDays.value = Math.max(1, Number.isFinite(value) ? value : 1)
+    setIdleDays(Number((event.target as HTMLInputElement).value))
   }
 
   const toggleActive = async (mentor: AdminMentorDetail) => {
