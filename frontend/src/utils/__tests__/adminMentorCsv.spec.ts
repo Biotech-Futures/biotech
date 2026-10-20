@@ -127,7 +127,7 @@ describe('parseMentorCsv', () => {
 
   it('throws a file-level error when required columns are missing', () => {
     expect(() => parseMentorCsv('Email,First Name\nmentor@example.edu,Ada')).toThrow(
-      "This doesn't look like a Mentors export - missing columns: Surname, Country, Area(s) of Interest, Mentor Reason, Institution or Company, Capacity."
+      "This doesn't look like a Mentors export - missing columns: Surname, Country, Expertise, Mentor Reason, Institution or Company, Capacity."
     )
   })
 
@@ -141,7 +141,7 @@ describe('parseMentorCsv', () => {
       'State',
       'Mentor Reason',
       'Capacity',
-      'Area(s) of Interest',
+      'Expertise',
       'Background',
       'Institution or Company'
     ])

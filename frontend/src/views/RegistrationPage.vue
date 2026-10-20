@@ -1018,7 +1018,7 @@
                 <RegistrationInterestSelector
                   id="mentor-interests"
                   v-model="forms.mentor.interests"
-                  label="Relevant interests"
+                  label="Expertise"
                   description="Choose the areas where you could support a student group."
                   :error="errors['mentor.interests']"
                 />
@@ -2251,7 +2251,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
         {
           title: 'Mentoring',
           items: [
-            { label: 'Interests', value: interestSummary(forms.mentor.interests) },
+            { label: 'Expertise', value: interestSummary(forms.mentor.interests) },
             {
               label: 'Capacity',
               value: `${forms.mentor.capacity} group${forms.mentor.capacity === '1' ? '' : 's'}`,
@@ -2464,7 +2464,7 @@ const validateCurrentStep = () => {
     }
     if (step === 2) {
       if (!forms.mentor.interests.length)
-        clientErrors['mentor.interests'] = 'Choose at least one relevant interest.'
+        clientErrors['mentor.interests'] = 'Choose at least one area of expertise.'
       requireValue(
         'mentor.capacity',
         forms.mentor.capacity,

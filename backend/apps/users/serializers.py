@@ -324,6 +324,8 @@ class UserSerializer(serializers.ModelSerializer):
     ment_inst = serializers.SerializerMethodField()
     ment_reason = serializers.SerializerMethodField()
     ment_max_groups = serializers.SerializerMethodField()
+    # Their details as their admin panel shows them, for their own profile.
+    mentor_details = serializers.SerializerMethodField()
 
     # Profile page additions (read-only):
     #   * `interests` is the user's selected areas of interest (any role).
@@ -379,6 +381,7 @@ class UserSerializer(serializers.ModelSerializer):
             "ment_inst",
             "ment_reason",
             "ment_max_groups",
+            "mentor_details",
             "interests",
             "supervisor_name",
             "supervisor_email",
@@ -602,6 +605,20 @@ class UserSerializer(serializers.ModelSerializer):
         return None if mp is None else mp.institution
     
     @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_mentor_details(self, obj):
+        """A mentor's details as their admin panel has them (their background,
+        where they work or study, capacity, hours, weekly times and groups),
+        but not their application's answers; None for anyone else."""
+        mp = self._mentor_profile(obj)
+        if mp is None:
+            return None
+        from apps.admin.services.user import _mentor_dict, member_extras
+
+        details = _mentor_dict(mp, member_extras([obj.pk])[obj.pk])
+        for answer in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
+            details.pop(answer, None)
+        return details
+
     def get_ment_reason(self, obj):
         mp = self._mentor_profile(obj)
         return None if mp is None else mp.mentor_reason

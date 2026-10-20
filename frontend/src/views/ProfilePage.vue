@@ -60,6 +60,16 @@
             >
               Edit
             </button>
+            <!-- A mentor or admin changes their country and state here. -->
+            <button
+              v-if="(auth.isMentor || auth.isAdmin) && !mentorPlaceEditing"
+              class="btn btn-outline profile-edit-button"
+              type="button"
+              data-test="mentor-place-edit"
+              @click="startMentorPlaceEdit"
+            >
+              Edit
+            </button>
             <!-- A student changes their country and region here. -->
             <button
               v-if="canEditStudentDetails && !placeEditing"
@@ -71,6 +81,22 @@
               Edit
             </button>
           </div>
+          <form v-if="mentorPlaceEditing" class="student-edit-form" data-test="mentor-place-form" @submit.prevent="saveMentorPlace">
+            <label v-if="auth.isAdmin" class="student-edit-form__wide">Email<input v-model.trim="mentorPlace.email" type="email" maxlength="254" data-test="admin-email" /></label>
+            <label>Country<AppSelect v-model="mentorPlace.country" :options="mentorCountryOptions" placeholder="Select a country" data-test="mentor-country" @change="mentorPlace.state = ''" /></label>
+            <label>State
+              <AppSelect v-if="mentorStateOptions.length" v-model="mentorPlace.state" :options="mentorStateOptions" placeholder="Choose a state" data-test="mentor-state" />
+              <input v-else v-model.trim="mentorPlace.state" maxlength="255" data-test="mentor-state-name" />
+            </label>
+            <label v-if="auth.isAdmin">Status<AppSelect v-model="mentorPlace.status" :options="ADMIN_STATUS_OPTIONS" :searchable="false" data-test="admin-status" /></label>
+            <p v-if="auth.isAdmin && mentorPlace.status === 'inactive'" class="profile-note student-edit-form__wide">
+              Inactive, you won't be able to sign in until another admin makes you Active again.
+            </p>
+            <div class="student-edit-actions">
+              <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="mentorPlaceEditing = false">Cancel</button>
+              <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
+            </div>
+          </form>
           <form v-if="placeEditing" class="student-edit-form" data-test="place-edit-form" @submit.prevent="savePlace">
             <label>Country<AppSelect v-model="placeDraft.country_id" :options="countrySelectOptions" @change="placeDraft.state_id = null" /></label>
             <label>State<AppSelect v-model="placeDraft.state_id" :options="regionSelectOptions" :required="draftInAustralia" placeholder="Choose a state" data-test="student-region" /></label>
@@ -89,23 +115,26 @@
               <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save' }}</button>
             </div>
           </form>
-          <div class="profile-field">
+          <div v-if="!(auth.isAdmin && mentorPlaceEditing)" class="profile-field">
             <span class="profile-field-label">Email:</span>
             <span class="profile-field-value">{{ user.email }}</span>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Country:</span>
-            <span class="profile-field-value">{{ user.country }}</span>
-          </div>
-          <div class="profile-field">
-            <span class="profile-field-label">State:</span>
-            <span class="profile-field-value">{{ user.region }}</span>
-          </div>
+          <!-- Not while being edited just above. -->
+          <template v-if="!placeEditing && !mentorPlaceEditing">
+            <div class="profile-field">
+              <span class="profile-field-label">Country:</span>
+              <span class="profile-field-value">{{ user.country }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">State:</span>
+              <span class="profile-field-value">{{ user.region }}</span>
+            </div>
+          </template>
           <div class="profile-field">
             <span class="profile-field-label">Role:</span>
             <span class="profile-field-value">{{ capitalise(user.role) }}</span>
           </div>
-          <div class="profile-field">
+          <div v-if="!(auth.isAdmin && mentorPlaceEditing)" class="profile-field">
             <span class="profile-field-label">Account Status:</span>
             <span class="profile-field-value">{{ capitalise(user.accountStatus) }}</span>
           </div>
@@ -408,25 +437,142 @@
           </p>
         </div>
 
-        <div v-if="user.mentor.hasDetails" class="profile-section">
-          <h3 class="profile-section-title">Mentor Details</h3>
-          <div class="profile-field">
-            <span class="profile-field-label">Background:</span>
-            <span class="profile-field-value">{{ user.mentor.background }}</span>
+        <!-- A mentor's own parts, as their admin panel has them (not their
+             application's answers): their details, weekly times and groups. -->
+        <template v-if="user.mentor.hasDetails">
+          <div class="profile-section" data-test="mentor-details">
+            <div class="profile-section-heading">
+              <h3 class="profile-section-title">Mentor Details</h3>
+              <button
+                v-if="!mentorDetailsEditing"
+                class="btn btn-outline profile-edit-button"
+                type="button"
+                data-test="mentor-details-edit"
+                @click="startMentorDetailsEdit"
+              >
+                Edit
+              </button>
+            </div>
+            <form v-if="mentorDetailsEditing" class="student-edit-form" data-test="mentor-details-form" @submit.prevent="saveMentorDetails">
+              <label>First name<input v-model.trim="mentorDraft.firstName" maxlength="150" data-test="mentor-first-name" /></label>
+              <label>Last name<input v-model.trim="mentorDraft.lastName" maxlength="150" data-test="mentor-last-name" /></label>
+              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" :options="pronounSelectOptions" data-test="mentor-pronouns" /></label>
+              <label v-if="mentorPronouns.choice === 'Other'">Your pronouns<input v-model="mentorPronouns.other" maxlength="100" /></label>
+              <label>Background<AppSelect v-model="mentorDraft.background" :options="mentorBackgroundOptions" :searchable="false" placeholder="Choose a background" data-test="mentor-background" /></label>
+              <label v-if="mentorDraft.background === 'industry'">Company<input v-model.trim="mentorDraft.company" maxlength="255" data-test="mentor-company" /></label>
+              <label v-else>Institution<AppSuggestInput v-model="mentorDraft.institution" :suggestions="universityNames" maxlength="255" data-test="mentor-institution" /></label>
+              <label v-if="mentorDraftStudying">Year of study<AppSelect v-model="mentorDraft.universityYear" :options="STUDY_YEAR_OPTIONS" :searchable="false" placeholder="Choose a year" /></label>
+              <label v-if="mentorDraft.background !== 'industry'">Field of study<input v-model.trim="mentorDraft.fieldOfStudy" maxlength="255" /></label>
+              <fieldset class="interest-options"><legend>Expertise</legend><label v-for="interest in mentorInterestChoices" :key="interest"><input v-model="mentorDraft.interests" type="checkbox" :value="interest" /><span>{{ interest }}</span></label></fieldset>
+              <label>Capacity<AppSelect v-model="mentorDraft.capacity" :options="mentorCapacityOptions" :searchable="false" placeholder="Choose a capacity" /></label>
+              <label>Hours per week<input :value="mentorDraft.weeklyHours" type="number" inputmode="numeric" min="1" :max="MAX_WEEKLY_HOURS" data-test="mentor-hours" @input="onMentorHoursInput" @keydown="refuseNonDigitKey" @paste="refuseNonDigitPaste" /></label>
+              <div class="student-edit-actions">
+                <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="mentorDetailsEditing = false">Cancel</button>
+                <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
+              </div>
+            </form>
+            <template v-else>
+            <div class="profile-field" data-test="mentor-name">
+              <span class="profile-field-label">Name:</span>
+              <span class="profile-field-value">{{ user.name }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">Pronouns:</span>
+              <span class="profile-field-value">{{ user.mentor.pronouns }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">Background:</span>
+              <span class="profile-field-value">{{ user.mentor.background }}</span>
+            </div>
+            <div v-if="user.mentor.industry" class="profile-field">
+              <span class="profile-field-label">Company:</span>
+              <span class="profile-field-value">{{ user.mentor.company }}</span>
+            </div>
+            <div v-else class="profile-field">
+              <span class="profile-field-label">Institution:</span>
+              <span class="profile-field-value">{{ user.mentor.institution }}</span>
+            </div>
+            <div v-if="user.mentor.studying" class="profile-field">
+              <span class="profile-field-label">Year of study:</span>
+              <span class="profile-field-value">{{ user.mentor.studyYear }}</span>
+            </div>
+            <div v-if="!user.mentor.industry" class="profile-field">
+              <span class="profile-field-label">Field of study:</span>
+              <span class="profile-field-value">{{ user.mentor.fieldOfStudy }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">Expertise:</span>
+              <span class="profile-field-value">{{ user.mentor.interests }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">Capacity:</span>
+              <span class="profile-field-value">{{ user.mentor.capacity }}</span>
+            </div>
+            <div class="profile-field">
+              <span class="profile-field-label">Hours per week:</span>
+              <span class="profile-field-value">{{ user.mentor.weeklyHours }}</span>
+            </div>
+            </template>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Institution:</span>
-            <span class="profile-field-value">{{ user.mentor.institution }}</span>
+
+          <div class="profile-section" data-test="mentor-availability">
+            <div class="profile-section-heading">
+              <h3 class="profile-section-title">Weekly Availability</h3>
+              <button
+                v-if="!availabilityEditing"
+                class="btn btn-outline profile-edit-button"
+                type="button"
+                data-test="mentor-availability-edit"
+                @click="startAvailabilityEdit"
+              >
+                Edit
+              </button>
+            </div>
+            <!-- When they're free each week: a day and its times, as many as they like. -->
+            <form v-if="availabilityEditing" class="mentor-slots" data-test="mentor-availability-form" @submit.prevent="saveAvailability">
+              <div v-for="(slot, index) in availabilityDraft" :key="index" class="mentor-slot" :data-test="`mentor-slot-${index}`">
+                <AppSelect v-model="slot.weekday" class="mentor-slot__day" :aria-label="`Day ${index + 1}`" :options="WEEKDAY_OPTIONS" placeholder="Day" />
+                <span class="mentor-slot__time">
+                  <AppSelect :model-value="slot.startHour" class="mentor-slot__part" :aria-label="`From, hour, time ${index + 1}`" :options="HOUR_OPTIONS" :searchable="false" placeholder="--" @update:model-value="(value) => pickHour(slot, 'start', value)" />
+                  <span class="mentor-slot__muted">:</span>
+                  <AppSelect v-model="slot.startMinute" class="mentor-slot__part" :aria-label="`From, minutes, time ${index + 1}`" :options="minuteOptions(slot.startMinute)" :searchable="false" placeholder="--" />
+                </span>
+                <span class="mentor-slot__muted">to</span>
+                <span class="mentor-slot__time">
+                  <AppSelect :model-value="slot.endHour" class="mentor-slot__part" :aria-label="`To, hour, time ${index + 1}`" :options="HOUR_OPTIONS" :searchable="false" placeholder="--" @update:model-value="(value) => pickHour(slot, 'end', value)" />
+                  <span class="mentor-slot__muted">:</span>
+                  <AppSelect v-model="slot.endMinute" class="mentor-slot__part" :aria-label="`To, minutes, time ${index + 1}`" :options="minuteOptions(slot.endMinute)" :searchable="false" placeholder="--" />
+                </span>
+                <button type="button" class="mentor-slot__remove" :aria-label="`Remove time ${index + 1}`" @click="availabilityDraft.splice(index, 1)">
+                  <i class="fas fa-xmark" aria-hidden="true"></i>
+                </button>
+              </div>
+              <p v-if="!availabilityDraft.length" class="profile-field-value">No weekly times.</p>
+              <button v-if="availabilityDraft.length < MAX_SLOTS" type="button" class="btn btn-outline profile-edit-button" data-test="mentor-add-slot" @click="availabilityDraft.push(blankSlot())">
+                Add a time
+              </button>
+              <div class="student-edit-actions">
+                <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="availabilityEditing = false">Cancel</button>
+                <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
+              </div>
+            </form>
+            <template v-else>
+            <div v-for="slot in user.mentor.availability" :key="`${slot.weekday}-${slot.start}`" class="profile-field">
+              <span class="profile-field-label">{{ WEEKDAYS[slot.weekday] }}:</span>
+              <span class="profile-field-value">{{ slot.start }} to {{ slot.end }}</span>
+            </div>
+            <p v-if="!user.mentor.availability.length" class="profile-field-value">{{ unsetLabel }}</p>
+            </template>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Mentor Reason:</span>
-            <span class="profile-field-value">{{ user.mentor.reason }}</span>
+
+          <div class="profile-section" data-test="mentor-groups">
+            <h3 class="profile-section-title">Groups</h3>
+            <div class="profile-field">
+              <span class="profile-field-label">Groups:</span>
+              <span class="profile-field-value">{{ user.mentor.groups }}</span>
+            </div>
           </div>
-          <div class="profile-field">
-            <span class="profile-field-label">Max Groups:</span>
-            <span class="profile-field-value">{{ user.mentor.maxGroups }}</span>
-          </div>
-        </div>
+        </template>
 
         <div v-if="user.supervisor.hasDetails" class="profile-section">
           <h3 class="profile-section-title">Supervisor Details</h3>
@@ -438,6 +584,42 @@
             <span class="profile-field-label">Pronouns:</span>
             <span class="profile-field-value">{{ user.supervisor.pronouns }}</span>
           </div>
+        </div>
+
+        <!-- An admin's name and pronouns, as their admin panel's Admin Details. -->
+        <div v-if="user.admin.hasDetails" class="profile-section" data-test="admin-details">
+          <div class="profile-section-heading">
+            <h3 class="profile-section-title">Admin Details</h3>
+            <button
+              v-if="!adminDetailsEditing"
+              class="btn btn-outline profile-edit-button"
+              type="button"
+              data-test="admin-details-edit"
+              @click="startAdminDetailsEdit"
+            >
+              Edit
+            </button>
+          </div>
+          <form v-if="adminDetailsEditing" class="student-edit-form" data-test="admin-details-form" @submit.prevent="saveAdminDetails">
+            <label>First name<input v-model.trim="adminDraft.firstName" required maxlength="150" data-test="admin-first-name" /></label>
+            <label>Last name<input v-model.trim="adminDraft.lastName" required maxlength="150" data-test="admin-last-name" /></label>
+            <label>Pronouns<AppSelect v-model="adminPronouns.choice" :options="pronounSelectOptions" data-test="admin-pronouns" /></label>
+            <label v-if="adminPronouns.choice === 'Other'">Your pronouns<input v-model="adminPronouns.other" maxlength="100" /></label>
+            <div class="student-edit-actions">
+              <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="adminDetailsEditing = false">Cancel</button>
+              <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
+            </div>
+          </form>
+          <template v-else>
+            <div class="profile-field" data-test="admin-name">
+              <span class="profile-field-label">Name:</span>
+              <span class="profile-field-value">{{ user.name }}</span>
+            </div>
+            <div class="profile-field" data-test="admin-pronouns-view">
+              <span class="profile-field-label">Pronouns:</span>
+              <span class="profile-field-value">{{ user.admin.pronouns }}</span>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -455,6 +637,27 @@ import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import AppSelect from '@/components/AppSelect.vue'
 import { PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import {
+  HOUR_OPTIONS,
+  MAX_SLOTS,
+  MAX_WEEKLY_HOURS,
+  MENTOR_BACKGROUNDS,
+  STUDY_YEAR_OPTIONS,
+  WEEKDAYS,
+  WEEKDAY_OPTIONS,
+  availabilityTimes,
+  blankSlot,
+  capacityLabel,
+  isStudyingBackground,
+  mentorBackgroundCode,
+  minuteOptions,
+  pickHour,
+  splitSlot,
+} from '@/utils/mentorForm'
+import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
+import AppSuggestInput from '@/components/AppSuggestInput.vue'
+import { INTEREST_CATEGORIES, isAustralia } from '@/registration/registration'
+import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
@@ -671,6 +874,204 @@ const clearStatusMessageTimer = () => {
   if (!statusMessageTimer) return
   window.clearTimeout(statusMessageTimer)
   statusMessageTimer = null
+}
+
+// --- A mentor's or admin's own details: their place, and their parts ------
+// Saved through users/me/mentor/ (or me/admin/), checked as their admin
+// panel's edit is.
+const mentorSaving = ref(false)
+
+const saveMentor = async (changes, done) => {
+  mentorSaving.value = true
+  error.value = ''
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/${auth.isAdmin ? 'admin' : 'mentor'}/`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+      body: JSON.stringify(changes),
+    })
+    if (!response.ok) throw await apiErrorFromResponse(response)
+    auth.loginWithUser(await response.json())
+    done()
+    showTemporaryStatus('Your details have been updated.')
+  } catch (saveError) {
+    error.value = saveError instanceof Error ? saveError.message : 'Your details could not be updated.'
+  } finally {
+    mentorSaving.value = false
+  }
+}
+
+// An admin's name and pronouns.
+const adminDetailsEditing = ref(false)
+const adminDraft = ref({ firstName: '', lastName: '' })
+const adminPronouns = ref({ choice: '', other: '' })
+
+const startAdminDetailsEdit = () => {
+  adminDraft.value = { firstName: auth.user?.first_name || '', lastName: auth.user?.last_name || '' }
+  adminPronouns.value = pronounDraft(auth.user?.pronouns)
+  error.value = ''
+  adminDetailsEditing.value = true
+}
+
+const saveAdminDetails = () => {
+  const pronouns = pronounsToSave(adminPronouns.value)
+  if (pronouns === null) {
+    error.value = 'Enter your pronouns.'
+    return
+  }
+  saveMentor({ ...adminDraft.value, pronouns }, () => (adminDetailsEditing.value = false))
+}
+
+// Their country and state, as registering offers them (by name).
+const mentorPlaceEditing = ref(false)
+const mentorPlace = ref({ country: '', state: '', email: '', status: 'active' })
+// An admin's own status, beside their place.
+const ADMIN_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+]
+const mentorCountryOptions = useCountryOptions()
+// Offered as they type their institution (Management > Known Universities).
+const universityNames = useUniversityNames()
+const mentorStateOptions = useStateOptions(() => mentorPlace.value.country)
+
+const startMentorPlaceEdit = () => {
+  mentorPlace.value = {
+    country: auth.user?.country?.countryName || '',
+    state: auth.user?.state?.stateName || '',
+    email: auth.user?.email || '',
+    status: String(auth.user?.account_status || '').toLowerCase() === 'active' ? 'active' : 'inactive',
+  }
+  error.value = ''
+  mentorPlaceEditing.value = true
+}
+
+const saveMentorPlace = () => {
+  const { country, state, email, status } = mentorPlace.value
+  // An admin's email and status, only when changed.
+  const own = {}
+  if (auth.isAdmin) {
+    const address = email.toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+      error.value = 'Enter a valid email address.'
+      return
+    }
+    if (address !== String(auth.user?.email || '').toLowerCase()) own.email = address
+    const wasActive = String(auth.user?.account_status || '').toLowerCase() === 'active'
+    if ((status === 'active') !== wasActive) own.isActive = status === 'active'
+  }
+  if (!country) {
+    error.value = 'Choose your country.'
+    return
+  }
+  if (isAustralia(country) && !state) {
+    error.value = 'Choose your state or territory.'
+    return
+  }
+  saveMentor({ ...own, country, state }, () => (mentorPlaceEditing.value = false))
+}
+
+// Mentor Details: as their admin panel has them, nothing required.
+const mentorDetailsEditing = ref(false)
+const mentorDraft = ref({
+  firstName: '', lastName: '', background: null, company: '', institution: '', universityYear: null, fieldOfStudy: '',
+  interests: [], capacity: null, weeklyHours: '',
+})
+const mentorPronouns = ref({ choice: '', other: '' })
+const mentorDraftStudying = computed(() => isStudyingBackground(mentorDraft.value.background))
+// Registering's backgrounds, and one typed before them, as written.
+const mentorBackgroundOptions = computed(() => {
+  const current = mentorDraft.value.background
+  return current && !MENTOR_BACKGROUNDS.some(option => option.value === current)
+    ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
+    : MENTOR_BACKGROUNDS
+})
+// 1 to 5 groups as registering offers, and whatever they have now.
+const mentorCapacityOptions = computed(() => {
+  const counts = new Set([1, 2, 3, 4, 5])
+  if (mentorDraft.value.capacity != null) counts.add(mentorDraft.value.capacity)
+  return [...counts].sort((a, b) => a - b).map(count => ({ value: count, label: capacityLabel(count) }))
+})
+// The standard interests, and any expertise they have from outside them.
+const mentorInterestChoices = computed(() => [
+  ...INTEREST_CATEGORIES,
+  ...(auth.user?.interests || []).filter(interest => !INTEREST_CATEGORIES.includes(interest)),
+])
+
+const startMentorDetailsEdit = () => {
+  const details = auth.user?.mentor_details || {}
+  mentorDraft.value = {
+    firstName: auth.user?.first_name || '',
+    lastName: auth.user?.last_name || '',
+    background: mentorBackgroundCode(details.mentorBackground),
+    company: details.mentorCompany || '',
+    institution: details.mentorInstitution || '',
+    universityYear: details.mentorUniversityYear || null,
+    fieldOfStudy: details.mentorFieldOfStudy || '',
+    interests: [...(auth.user?.interests || [])],
+    capacity: details.mentorMaxGroupCount ?? null,
+    weeklyHours: details.mentorWeeklyHours ? String(details.mentorWeeklyHours) : '',
+  }
+  mentorPronouns.value = pronounDraft(auth.user?.pronouns)
+  error.value = ''
+  mentorDetailsEditing.value = true
+}
+
+// Hours per week: a number box taking two digits at most.
+const onMentorHoursInput = (event) => {
+  mentorDraft.value.weeklyHours = String(keptDigits(event.target, 2))
+}
+
+const saveMentorDetails = () => {
+  const draft = mentorDraft.value
+  const pronouns = pronounsToSave(mentorPronouns.value)
+  if (pronouns === null) {
+    error.value = 'Enter your pronouns.'
+    return
+  }
+  const hours = draft.weeklyHours.trim()
+  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
+    error.value = `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
+    return
+  }
+  // What their background doesn't ask for is cleared, as registering does.
+  const industry = draft.background === 'industry'
+  saveMentor({
+    firstName: draft.firstName,
+    lastName: draft.lastName,
+    pronouns,
+    mentorBackground: draft.background,
+    mentorCompany: industry ? draft.company : '',
+    mentorInstitution: industry ? '' : draft.institution,
+    mentorUniversityYear: mentorDraftStudying.value ? draft.universityYear : '',
+    mentorFieldOfStudy: industry ? '' : draft.fieldOfStudy,
+    interests: draft.interests,
+    ...(draft.capacity === null ? {} : { mentorMaxGroupCount: draft.capacity }),
+    mentorWeeklyHours: hours ? Number(hours) : null,
+  }, () => (mentorDetailsEditing.value = false))
+}
+
+// Weekly Availability: a day and its times, as many as they like.
+const availabilityEditing = ref(false)
+const availabilityDraft = ref([])
+
+const startAvailabilityEdit = () => {
+  availabilityDraft.value = (auth.user?.mentor_details?.mentorAvailability || []).map(splitSlot)
+  error.value = ''
+  availabilityEditing.value = true
+}
+
+const saveAvailability = () => {
+  const times = availabilityTimes(availabilityDraft.value)
+  if (typeof times === 'string') {
+    error.value = times
+    return
+  }
+  saveMentor({ mentorAvailability: times }, () => (availabilityEditing.value = false))
 }
 
 const showTemporaryStatus = (message) => {
@@ -944,7 +1345,11 @@ const user = computed(() => {
   const consentReceived = source?.join_perm === true
   const guardianName = `${source?.pg_firstname || ''} ${source?.pg_lastname || ''}`.trim()
   const placeholderGuardian = isPlaceholderGuardian(source?.pg_firstname, source?.pg_lastname, source?.first_name, source?.last_name)
-  const hasMentorDetails = roleKey === 'mentor' && [source?.ment_bg, source?.ment_inst, source?.ment_reason, source?.ment_max_groups].some(value => value !== null && value !== undefined && value !== '')
+  const hasMentorDetails = roleKey === 'mentor' && Boolean(source?.mentor_details)
+  // As their admin panel shows them: an old typed background as the list's choice it means.
+  const mentorDetails = source?.mentor_details || {}
+  const mentorBackground = mentorBackgroundCode(mentorDetails.mentorBackground)
+  const hours = mentorDetails.mentorWeeklyHours
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedCount > 0)
 
 
@@ -994,10 +1399,25 @@ const user = computed(() => {
     },
     mentor: {
       hasDetails: hasMentorDetails,
-      background: valueOrFallback(source?.ment_bg),
-      institution: valueOrFallback(source?.ment_inst),
-      reason: valueOrFallback(source?.ment_reason),
-      maxGroups: valueOrFallback(source?.ment_max_groups)
+      pronouns: valueOrFallback(source?.pronouns, unsetLabel),
+      background: MENTOR_BACKGROUNDS.find(option => option.value === mentorBackground)?.label
+        || valueOrFallback(mentorDetails.mentorBackground),
+      industry: mentorBackground === 'industry',
+      studying: isStudyingBackground(mentorBackground),
+      company: valueOrFallback(mentorDetails.mentorCompany),
+      institution: valueOrFallback(mentorDetails.mentorInstitution),
+      studyYear: STUDY_YEAR_OPTIONS.find(option => option.value === mentorDetails.mentorUniversityYear)?.label
+        || valueOrFallback(mentorDetails.mentorUniversityYear),
+      fieldOfStudy: valueOrFallback(mentorDetails.mentorFieldOfStudy),
+      interests: interests.length ? interests.join(', ') : unsetLabel,
+      capacity: mentorDetails.mentorMaxGroupCount == null ? unsetLabel : capacityLabel(mentorDetails.mentorMaxGroupCount),
+      weeklyHours: hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : unsetLabel,
+      availability: mentorDetails.mentorAvailability || [],
+      groups: (mentorDetails.mentorGroups || []).map(group => group.name).join(', ') || unsetLabel
+    },
+    admin: {
+      hasDetails: roleKey === 'admin',
+      pronouns: valueOrFallback(source?.pronouns, unsetLabel)
     },
     supervisor: {
       hasDetails: hasSupervisorDetails,
@@ -1485,10 +1905,24 @@ onMounted(async () => {
 .registration-lock::after { content:attr(data-tooltip); position:absolute; z-index:10; bottom:calc(100% + .5rem); left:50%; width:max-content; max-width:min(18rem, 70vw); padding:.45rem .6rem; border-radius:4px; background:#26332d; color:#fff; font-size:.75rem; font-weight:400; line-height:1.35; text-align:left; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%, .2rem); transition:opacity .15s ease, transform .15s ease; }
 .registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
 .profile-edit-button { margin:0; font-size:.85rem; }
+/* A weekly time: day, from, to, and its ×. */
+.student-edit-form :deep(.app-suggest input) { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-size:1rem; font-weight:400; }
+.student-edit-form__wide { grid-column:1 / -1; }
+.mentor-slots { display:grid; gap:.6rem; margin-top:1rem; }
+.mentor-slot { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.mentor-slots .app-select { padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); }
+.mentor-slots .mentor-slot__day { flex:1 1 7rem; min-width:7rem; }
+.mentor-slot__time { display:inline-flex; align-items:center; gap:.2rem; }
+/* Just wide enough for two digits and the arrow. */
+.mentor-slots .mentor-slot__part { width:3.5rem; padding-left:.5rem; padding-right:.5rem; }
+.mentor-slot__muted { color:var(--text-muted); font-size:.85rem; }
+.mentor-slot__remove { padding:.25rem .4rem; border:none; background:transparent; color:var(--text-muted); cursor:pointer; }
+.mentor-slots > .profile-edit-button { justify-self:start; }
 .guardian-locked-note { margin:.25rem 0 1rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-.student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
+/* The page's own text size, as the timezone box: not their label's smaller one. */
+.student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-size:1rem; font-weight:400; }
 /* The interests in two columns, as registering shows them, in their box. */
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:30px 16px; margin:0; padding:1.25rem 1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }

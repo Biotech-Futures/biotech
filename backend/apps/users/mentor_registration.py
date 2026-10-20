@@ -93,7 +93,7 @@ class MentorInput(StrictInput):
         if data["affiliation"] in STUDYING and not data["universityYear"]:
             errors["universityYear"] = "Enter your current year of study."
         if not data["interests"]:
-            errors["interests"] = "Choose at least one relevant interest."
+            errors["interests"] = "Choose at least one area of expertise."
         for field in WRITTEN:
             if len(data[field].split()) > MAX_WORDS:
                 errors[field] = f"Keep this to {MAX_WORDS} words or fewer."

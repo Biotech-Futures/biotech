@@ -199,7 +199,7 @@
              heading on the box's line as registering shows it. -->
         <div v-if="roleUsesInterests" class="form-field form-field--full">
           <fieldset class="admin-users-form__interests">
-            <legend>{{ form.role === 'mentor' ? 'Interests / Expertise' : 'Interests' }}</legend>
+            <legend>{{ form.role === 'mentor' ? 'Expertise' : 'Interests' }}</legend>
             <label v-for="option in INTEREST_OPTIONS" :key="option" class="admin-users-form__interest">
               <input
                 type="checkbox"

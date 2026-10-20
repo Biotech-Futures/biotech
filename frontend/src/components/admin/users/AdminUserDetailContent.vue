@@ -642,7 +642,7 @@
           <input v-model.trim="form.mentorFieldOfStudy" class="admin-users-detail__input" data-test="admin-mentor-field" maxlength="255" />
         </label>
         <fieldset class="admin-users-detail__item admin-users-detail__options">
-          <legend class="admin-users-detail__label">Interests</legend>
+          <legend class="admin-users-detail__label">Expertise</legend>
           <label v-for="interest in mentorInterestOptions" :key="interest">
             <input v-model="form.interests" type="checkbox" :value="interest" />
             {{ interest }}
@@ -711,7 +711,7 @@
           <dd>{{ user.mentorFieldOfStudy || '—' }}</dd>
         </div>
         <div class="admin-users-detail__item">
-          <dt>Interests</dt>
+          <dt>Expertise</dt>
           <dd>{{ joinInterests(user.interests) }}</dd>
         </div>
         <div class="admin-users-detail__item">

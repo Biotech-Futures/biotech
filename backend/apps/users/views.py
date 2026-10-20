@@ -18,6 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from.models import (
+    MentorProfile,
     User,
     StudentProfile,
     UserInterest,
@@ -311,6 +312,93 @@ SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
 SELF_PATCH_REJECTED_MESSAGE = (
     "This field cannot be changed via /users/me/. Contact an admin."
 )
+
+
+def _current_role_name(user):
+    """The role the user holds now, by their role assignments."""
+    now = timezone.now()
+    assignment = (
+        RoleAssignmentHistory.objects.filter(user=user)
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=now))
+        .select_related("role")
+        .first()
+    )
+    return assignment.role.role_name if assignment and assignment.role else None
+
+
+class _OwnDetailsView(APIView):
+    """PATCH: someone changes their own details on their profile: ``FIELDS``,
+    and their country and state (by name, as registering offers them),
+    checked as their admin panel's edit is. Only while they hold ``ROLE``,
+    which the save is told outright, so it never takes them for another."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+    FIELDS: tuple = ()
+    ROLE = ""
+
+    def allowed(self, user) -> bool:
+        return _current_role_name(user) == self.ROLE
+
+    def patch(self, request):
+        from apps.admin.services.user import update_status, update_user
+
+        user = request.user
+        if not self.allowed(user):
+            raise PermissionDenied("These details aren't yours to change here.")
+        data = request.data if isinstance(request.data, dict) else {}
+        status_field = {"isActive"} if "isActive" in self.FIELDS else set()
+        unknown = sorted(set(data) - set(self.FIELDS) - {"country", "state"} - status_field)
+        if unknown:
+            raise serializers.ValidationError({key: "This can't be changed here." for key in unknown})
+        changes = {key: data[key] for key in self.FIELDS if key in data and key != "isActive"}
+        changes["role"] = self.ROLE
+        # A country by its name, and its state as picked or typed (blank for none).
+        if "country" in data:
+            name = str(data.get("country") or "").strip()
+            country = Countries.objects.filter(country_name__iexact=name).first() if name else None
+            if country is None:
+                raise serializers.ValidationError({"country": "Choose a country."})
+            changes["countryId"] = country.pk
+            changes["stateName"] = str(data.get("state") or "").strip()
+        elif "state" in data:
+            changes["stateName"] = str(data.get("state") or "").strip()
+        result = update_user(user.pk, changes, initiated_by=user)
+        if result.get("data") is None:
+            raise serializers.ValidationError({"detail": result.get("msg") or "Your details could not be saved."})
+        if "isActive" in data:
+            if not isinstance(data["isActive"], bool):
+                raise serializers.ValidationError({"isActive": "Give a status of active or inactive."})
+            update_status(user.pk, data["isActive"], initiated_by=user)
+        user.refresh_from_db()
+        return Response(UserSerializer(user).data)
+
+
+class MeMentorDetailsView(_OwnDetailsView):
+    """A mentor's own name, pronouns, interests, Mentor Details, weekly times
+    and place. Their application's answers and their groups stay an admin's."""
+
+    FIELDS = (
+        "firstName", "lastName", "pronouns", "interests", "mentorBackground", "mentorCompany", "mentorInstitution",
+        "mentorUniversityYear", "mentorFieldOfStudy", "mentorMaxGroupCount", "mentorWeeklyHours",
+        "mentorAvailability",
+    )
+    ROLE = "mentor"
+
+    def allowed(self, user) -> bool:
+        return super().allowed(user) and MentorProfile.objects.filter(user=user).exists()
+
+
+class MeAdminDetailsView(_OwnDetailsView):
+    """An admin's own name, pronouns, email, place and status, as their Admin
+    Details and Account show them (an email change checked as the admin
+    panel's is)."""
+
+    FIELDS = ("firstName", "lastName", "pronouns", "email", "isActive")
+    ROLE = "admin"
+
+    def allowed(self, user) -> bool:
+        return super().allowed(user) and is_admin(user)
 
 
 #issue 40
