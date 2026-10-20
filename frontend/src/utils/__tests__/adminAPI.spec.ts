@@ -25,7 +25,23 @@ import {
   removeGroupMessage,
   removeGroupMember,
   bulkDeleteGroups,
-  replaceMentor
+  replaceMentor,
+  fetchAdminViews,
+  fetchAdminView,
+  createAdminView,
+  updateAdminView,
+  deleteAdminView,
+  bulkDeleteAdminViews,
+  runAdminView,
+  getAdminViewExportUrl,
+  fetchSystemEmailTemplates,
+  updateSystemEmailTemplate,
+  restoreSystemEmailTemplate,
+  previewSystemEmailTemplate,
+  testSendSystemEmailTemplate,
+  fetchSystemEmailTestRecipients,
+  fetchSystemEmailSettings,
+  updateSystemEmailSettings
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -915,5 +931,297 @@ describe('replaceMentor', () => {
     expect(init!.method).toBe('POST')
     expect(JSON.parse(String(init.body))).toEqual({ membershipId: 100, groupId: 1, newMentorUserId: 23 })
     expect(result.replaced).toBe(1)
+  })
+})
+
+describe('admin user views API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+  it('fetchAdminViews calls /view/ and returns items and total', async () => {
+    const mockData = {
+      items: [{ id: 1, name: 'All Users', isDefault: true }],
+      total: 1
+    }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ msg: 'Success', data: mockData }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminViews({ tab: 'default', search: 'Users' })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/view/?tab=default&search=Users')
+    expect(result).toEqual(mockData)
+  })
+
+  it('fetchAdminView calls /view/:id/ and returns view definition', async () => {
+    const mockView = { id: 10, name: 'Custom View', isDefault: false }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ msg: 'Success', data: mockView }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminView(10)
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/view/10/')
+    expect(result).toEqual(mockView)
+  })
+
+  it('createAdminView posts payload to /view/ and unwraps result', async () => {
+    const payload = { name: 'New Cohort', targetRoles: ['student'] }
+    const mockCreated = { id: 50, ...payload, isDefault: false }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Created', data: mockCreated }), { status: 201 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createAdminView(payload)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/view/')) as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual(payload)
+    expect(result).toEqual(mockCreated)
+  })
+
+  it('updateAdminView sends PUT to /view/:id/', async () => {
+    const payload = { name: 'Updated Cohort' }
+    const mockUpdated = { id: 50, ...payload }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Updated', data: mockUpdated }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await updateAdminView(50, payload)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/view/50/')) as [string, RequestInit]
+    expect(init.method).toBe('PUT')
+    expect(JSON.parse(String(init.body))).toEqual(payload)
+    expect(result).toEqual(mockUpdated)
+  })
+
+  it('deleteAdminView sends DELETE to /view/:id/', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Deleted', data: true }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminView(50)
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/view/50/')) as [string, RequestInit]
+    expect(init.method).toBe('DELETE')
+    expect(result).toBe(true)
+  })
+
+  it('bulkDeleteAdminViews sends POST to /view/bulk-delete/', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 }))
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'Deleted', data: { deletedCount: 3 } }), { status: 200 })
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await bulkDeleteAdminViews([1, 2, 3])
+
+    const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/view/bulk-delete/')) as [string, RequestInit]
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ viewIds: [1, 2, 3] })
+    expect(result).toEqual({ deletedCount: 3 })
+  })
+
+  it('runAdminView calls /view/:id/run/ with query params', async () => {
+    const mockRunResult = {
+      items: [{ id: 1, name: 'John Doe' }],
+      total: 1,
+      page: 1,
+      limit: 25,
+      hasMore: false,
+      view: { id: 5, name: 'Run Test' }
+    }
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ msg: 'Success', data: mockRunResult }), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await runAdminView(5, { page: 2, limit: 25, search: 'John' })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/view/5/run/?page=2&limit=25&search=John')
+    expect(result).toEqual(mockRunResult)
+  })
+
+  it('getAdminViewExportUrl generates correct CSV download URL', () => {
+    const url1 = getAdminViewExportUrl(5)
+    expect(url1).toContain('/view/5/export-csv/')
+
+    const url2 = getAdminViewExportUrl(5, 'test query')
+    expect(url2).toContain('/view/5/export-csv/?search=test%20query')
+  })
+})
+
+describe('system email API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const template = {
+    key: 'password_reset',
+    name: 'Password reset',
+    description: 'Sent when a user asks to reset their password.',
+    enabled: true,
+    locked: false,
+    usingSavedContent: false,
+    defaultSubject: 'Reset your password',
+    defaultBody: '<p>Hi Alex, reset your password.</p>',
+    subject: '',
+    body: '',
+    updatedBy: null,
+    updatedAt: null,
+    sender: 'info',
+    senders: [
+      { key: 'info', address: 'info@biotechfutures.org' },
+      { key: 'connect', address: 'connect@biotechfutures.org' }
+    ],
+    mergeTags: [
+      { name: 'first_name', description: 'Recipient first name', sample: 'Alex', html: false }
+    ]
+  }
+
+  const envelopeFetch = (data: unknown, msg = 'ok') =>
+    vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('/services/csrf/')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ csrfToken: 'test-token' }), { status: 200 })
+        )
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg, data }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+    })
+
+  it('unwraps the template list envelope', async () => {
+    const fetchMock = envelopeFetch({ items: [template] })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchSystemEmailTemplates()
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/admin/email-template/')
+    expect(result).toEqual([template])
+  })
+
+  it('PATCHes wording and parses the returned template', async () => {
+    const saved = { ...template, subject: 'Hello {{ first_name }}', usingSavedContent: true }
+    const fetchMock = envelopeFetch(saved)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await updateSystemEmailTemplate('password_reset', {
+      subject: 'Hello {{ first_name }}'
+    })
+
+    const [, init] = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes('/email-template/password_reset/')
+    ) as [string, RequestInit]
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(String(init.body))).toEqual({ subject: 'Hello {{ first_name }}' })
+    expect(result.subject).toBe('Hello {{ first_name }}')
+  })
+
+  it('encodes the key in template paths', async () => {
+    const fetchMock = envelopeFetch(template)
+    vi.stubGlobal('fetch', fetchMock)
+
+    await restoreSystemEmailTemplate('a/b c')
+
+    const calledUrl = String(
+      fetchMock.mock.calls.find(([u]) => String(u).includes('restore-default'))![0]
+    )
+    expect(calledUrl).toContain('/email-template/a%2Fb%20c/restore-default/')
+  })
+
+  it('POSTs unsaved wording for preview and parses the rendered email', async () => {
+    const fetchMock = envelopeFetch({
+      key: 'password_reset',
+      subject: 'Hi Alex',
+      html: '<!doctype html><html></html>',
+      text: 'Hi Alex'
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await previewSystemEmailTemplate('password_reset', { body: '<p>Hi</p>' })
+
+    const [url, init] = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes('/preview/')
+    ) as [string, RequestInit]
+    expect(url).toContain('/email-template/password_reset/preview/')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ body: '<p>Hi</p>' })
+    expect(result.subject).toBe('Hi Alex')
+  })
+
+  it('POSTs test sends and returns the recipient', async () => {
+    const fetchMock = envelopeFetch({ key: 'password_reset', sentTo: 'admin@example.com' })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await testSendSystemEmailTemplate('password_reset')
+
+    expect(String(fetchMock.mock.calls.find(([u]) => String(u).includes('/test-send/'))![0])).toContain(
+      '/email-template/password_reset/test-send/'
+    )
+    expect(result.sentTo).toBe('admin@example.com')
+  })
+
+  it('GETs who a test can be of, null when the email has no list', async () => {
+    const options = [{ value: '7', label: '(BTF1, mentor) Aga Smith' }]
+    const fetchMock = envelopeFetch({ key: 'login_code', recipients: options })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchSystemEmailTestRecipients('login_code')).toEqual(options)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/email-template/login_code/test-recipients/')
+
+    vi.stubGlobal('fetch', envelopeFetch({ key: 'announcement', recipients: null }))
+    expect(await fetchSystemEmailTestRecipients('announcement')).toBeNull()
+  })
+
+  it('gets and patches the global settings', async () => {
+    const fetchMock = envelopeFetch({ emailsEnabled: true, updatedAt: null })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect((await fetchSystemEmailSettings()).emailsEnabled).toBe(true)
+
+    vi.stubGlobal('fetch', envelopeFetch({ emailsEnabled: false, updatedAt: null }))
+    const updated = await updateSystemEmailSettings(false)
+    expect(updated.emailsEnabled).toBe(false)
+  })
+
+  it('rejects when the server omits the enabled flag', async () => {
+    const withoutEnabled: Record<string, unknown> = { ...template }
+    delete withoutEnabled.enabled
+    vi.stubGlobal('fetch', envelopeFetch(withoutEnabled))
+
+    await expect(
+      updateSystemEmailTemplate('password_reset', { subject: 'x' })
+    ).rejects.toThrow()
   })
 })

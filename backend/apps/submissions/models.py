@@ -1,4 +1,5 @@
 """Models for team competition submissions: questions, deadlines and entries."""
+from django.apps import apps
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -12,8 +13,11 @@ STAGE_REVISING = "revising"
 
 
 def _default_cohort() -> int:
-    """Fallback cohort for a draft; replaced with the real cohort on submit."""
-    return timezone.now().year
+    """Fallback cohort for a draft, the challenge year; replaced with the real
+    cohort on submit."""
+    from .services import current_cohort  # services imports this module
+
+    return current_cohort()
 
 
 class SubmissionQuestion(models.Model):
@@ -100,12 +104,16 @@ class Deadline(models.Model):
 
 
 class GroupExtension(models.Model):
-    """Extra time granted to one team."""
+    """Extra time granted to one team.
 
-    group = models.OneToOneField(
+    Revoked rows are kept as history; only one ACTIVE (un-revoked) extension
+    may exist per group — enforced by a partial unique constraint.
+    """
+
+    group = models.ForeignKey(
         "groups.Groups",
         on_delete=models.CASCADE,
-        related_name="submission_extension",
+        related_name="submission_extensions",
     )
     extended_until = models.DateTimeField()
     # Same quiet buffer as the global deadline: students see extended_until,
@@ -120,10 +128,27 @@ class GroupExtension(models.Model):
         blank=True,
         related_name="granted_submission_extensions",
     )
+    # Soft revoke: the row is kept as the audit trail (who revoked, when);
+    # readers that decide whether a team can still submit ignore revoked rows.
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="revoked_submission_extensions",
+    )
 
     class Meta:
         db_table = "submission_group_extension"
         verbose_name = "Group extension"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["group"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_extension_per_group",
+            )
+        ]
 
     def __str__(self):
         return f"{self.group} until {self.extended_until:%Y-%m-%d %H:%M} UTC"
@@ -147,6 +172,24 @@ class SubmissionReminder(models.Model):
         return f"{self.group} last reminded {self.last_sent_on}"
 
 
+class FinalistReminder(models.Model):
+    """The last day a finalist team was reminded about its presentation, so a rerun never emails twice."""
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="finalist_reminder",
+    )
+    last_sent_on = models.DateField()
+
+    class Meta:
+        db_table = "finalist_reminder"
+        verbose_name = "Finalist reminder"
+
+    def __str__(self):
+        return f"{self.group} last reminded {self.last_sent_on}"
+
+
 class Submission(models.Model):
     """One team's entry. Resubmitting updates this row rather than adding one."""
 
@@ -159,6 +202,8 @@ class Submission(models.Model):
     # Stored, since a grace window can put submitting in a different year.
     cohort = models.PositiveIntegerField(default=_default_cohort, db_index=True)
 
+    project_title = models.CharField(max_length=150, blank=True)
+
     # Keyed by question key.
     answers = models.JSONField(default=dict, blank=True)
 
@@ -166,18 +211,21 @@ class Submission(models.Model):
     poster = models.JSONField(null=True, blank=True)
     report = models.JSONField(null=True, blank=True)
     prototype = models.JSONField(null=True, blank=True)
-    prototype_url = models.URLField(blank=True)
+    prototype_url = models.URLField(max_length=500, blank=True)
 
     # What the format checks found at upload.
     poster_checks = models.JSONField(null=True, blank=True)
+    # The team's poster checklist, by item; reset whenever a new poster is uploaded.
+    poster_checklist = models.JSONField(default=dict, blank=True)
 
     # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
+    submitted_project_title = models.CharField(max_length=150, blank=True)
     submitted_answers = models.JSONField(null=True, blank=True)
     submitted_poster = models.JSONField(null=True, blank=True)
     submitted_poster_checks = models.JSONField(null=True, blank=True)
     submitted_report = models.JSONField(null=True, blank=True)
     submitted_prototype = models.JSONField(null=True, blank=True)
-    submitted_prototype_url = models.URLField(blank=True)
+    submitted_prototype_url = models.URLField(max_length=500, blank=True)
 
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(
@@ -191,6 +239,8 @@ class Submission(models.Model):
     reopened_at = models.DateTimeField(null=True, blank=True)
     # Recorded at submit, so a later deadline change cannot make an entry late.
     is_late = models.BooleanField(default=False)
+    # Submitted by the system after the team's cut-off, as their complete draft stood.
+    auto_submitted = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -217,6 +267,8 @@ class Submission(models.Model):
 
     @property
     def has_content(self) -> bool:
+        if self.project_title.strip():
+            return True
         if any(str(value).strip() for value in (self.answers or {}).values()):
             return True
         if self.prototype_url:
@@ -232,6 +284,7 @@ class Submission(models.Model):
 
     def snapshot(self, user):
         """Copy the working entry into the submitted set."""
+        self.submitted_project_title = self.project_title
         self.submitted_answers = dict(self.answers or {})
         for slot in self.FILE_SLOTS:
             setattr(self, f"submitted_{slot}", getattr(self, slot))
@@ -250,3 +303,103 @@ class Submission(models.Model):
             if key:
                 keys.add(key)
         return keys
+
+
+class FinalistDeadline(models.Model):
+    """Closing time for the finalist round, separate from the main deadline.
+
+    Not used for now: the finalist round stays open. Kept so a deadline can
+    come back without recreating the table.
+    """
+
+    closes_at = models.DateTimeField()
+    # Only the active row is consulted; past rows are kept on record.
+    is_active = models.BooleanField(default=True)
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_deadlines_set",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "submission_finalist_deadline"
+        verbose_name = "Finalist deadline"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Finalist deadline closing {self.closes_at:%Y-%m-%d %H:%M} UTC"
+
+
+class FinalistEntry(models.Model):
+    """A finalist team's presentation, as it works on it and submits it.
+
+    The times it can present are the team's one answer, kept with the
+    Finalist Presentation tab's times (grading's PresentationAvailability);
+    the submitted slides are also kept for that tab (grading's FinalistSlides).
+    """
+
+    group = models.OneToOneField(
+        "groups.Groups",
+        on_delete=models.CASCADE,
+        related_name="finalist_entry",
+    )
+    # Each file is {"storage_key", "name", "mime", "size"}.
+    presentation = models.JSONField(null=True, blank=True)
+
+    # The submitted copy, frozen at submit so an abandoned revision leaves it intact.
+    submitted_presentation = models.JSONField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="finalist_entries_submitted",
+    )
+    # Later than submitted_at means the team is editing again.
+    reopened_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "submission_finalist_entry"
+        verbose_name = "Finalist entry"
+        verbose_name_plural = "Finalist entries"
+
+    def __str__(self):
+        return f"{self.group} ({self.stage})"
+
+    @property
+    def is_submitted(self) -> bool:
+        return self.submitted_at is not None
+
+    @property
+    def is_locked(self) -> bool:
+        if self.submitted_at is None:
+            return False
+        return self.reopened_at is None or self.reopened_at <= self.submitted_at
+
+    @property
+    def stage(self) -> str:
+        if self.submitted_at is None:
+            # The team's times, even unsubmitted, count as it having started.
+            has_content = bool(self.presentation) or apps.get_model(
+                "management", "PresentationAvailability"
+            ).objects.filter(
+                group_id=self.group_id,
+                slots__isnull=False
+            ).exists()
+            return STAGE_IN_PROGRESS if has_content else STAGE_NOT_STARTED
+        return STAGE_SUBMITTED if self.is_locked else STAGE_REVISING
+
+    def snapshot(self, user):
+        """Copy the working entry into the submitted set."""
+        self.submitted_presentation = self.presentation
+        self.submitted_at = timezone.now()
+        self.submitted_by = user
+        self.reopened_at = None
+

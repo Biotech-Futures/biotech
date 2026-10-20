@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import StudentMatchingPanel from '@/components/admin/matching/StudentMatchingPanel.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 /**
  * Integration coverage for the Student Matching tab: the panel, its composable,
@@ -271,7 +272,7 @@ describe('StudentMatchingPanel', () => {
     expect(wrapper.text()).toContain('BTF11')
 
     // "Has recommended students" hides the group nobody was proposed for.
-    await wrapper.find('select').setValue('needs_action')
+    await pickAppSelect(wrapper, '.student-matching__select', 'Has recommended students')
     expect(wrapper.text()).toContain('BTF10')
     expect(wrapper.text()).not.toContain('BTF11')
   })

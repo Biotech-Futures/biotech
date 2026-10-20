@@ -1,0 +1,29 @@
+{% autoescape off %}{# Keep the wording in step with results_supervisor.html. #}Dear {{ SUPERVISOR_NAME }},
+
+Thank you once again for your invaluable support throughout the {{ YEAR }}
+{{ BRAND_NAME }} Challenge. Your guidance has played a key role in helping
+students bring their innovative ideas to life.
+
+Attached to this email, you will find:
+  - Merit certificates for each of your students
+  - The mentor commendation certificates
+  - A spreadsheet containing the marks for all your students’ Poster and SAQ
+    components
+
+Please note that marking was calibrated internally to ensure fairness and
+consistency across all submissions. As a result, the marking may differ from
+the level typically expected within your school or year group. However,
+appropriate measures were taken to ensure that results are consistent and
+comparable across the board.
+
+Thank you again for your continued enthusiasm and support of the
+{{ BRAND_NAME }} initiative. If you have any feedback, we'd welcome it by
+response to this email.
+
+Regards,
+{{ BRAND_NAME }} Team
+
+--
+You’re receiving this email because you supervised students in the
+{{ BRAND_NAME }} Challenge.
+{% endautoescape %}

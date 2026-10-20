@@ -1,0 +1,617 @@
+"""Every system email the platform sends, and the merge tags each one supports.
+
+This is the single source of truth shared by the send path
+(apps.services.system_email) and the admin editor (apps.admin.services.system_email):
+the editor only offers the tags listed here, and the send path only fills them.
+
+Merge tags are written ``{{ tag_name }}`` in an admin's subject or body. Each tag
+reads its value from ``context_key`` in the context the send point already builds,
+so send points keep passing their existing context and only the renderer maps names.
+"""
+
+import re
+from dataclasses import dataclass
+from typing import Optional
+
+from apps.submissions.email_sections import GREEN, RED, presentation_section, section_html, times_section
+
+
+# ``{{ tag_name }}`` with optional inner spaces. Lowercase snake_case only, so
+# Django-style ``{{ settings.SECRET_KEY }}`` or ``{{ User }}`` never match a tag.
+MERGE_TAG_RE = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\s*\}\}")
+
+
+@dataclass(frozen=True)
+class MergeTag:
+    name: str
+    description: str
+    sample: str
+    context_key: str
+    # True for snippets the code builds itself (e.g. a list of groups). Their
+    # values are trusted HTML and are not escaped when filled into the body.
+    html: bool = False
+
+
+@dataclass(frozen=True)
+class EmailType:
+    key: str
+    name: str
+    description: str
+    default_subject: str
+    default_template: str
+    merge_tags: tuple
+    # Locked types can be edited but never switched off, including by the
+    # global toggle, so nobody can lock every user out of the platform.
+    locked: bool = False
+    # Which of settings.EMAIL_SENDERS it goes from until System Emails picks
+    # another.
+    default_sender: str = "info"
+    # Who an email for a whole group goes to, shown above "Send from".
+    delivery: str = ""
+
+    def tag(self, name: str) -> Optional[MergeTag]:
+        for merge_tag in self.merge_tags:
+            if merge_tag.name == name:
+                return merge_tag
+        return None
+
+    @property
+    def tag_names(self) -> frozenset:
+        return frozenset(merge_tag.name for merge_tag in self.merge_tags)
+
+
+# Available on every email type; values come from brand_context().
+_BRAND_TAGS = (
+    MergeTag("brand_name", "Programme name", "BIOTech Futures", "BRAND_NAME"),
+    MergeTag("brand_connect", "Platform name", "BIOTech Connect", "BRAND_CONNECT"),
+    MergeTag("contact_email", "Support email address", "support@biotechfutures.org", "CONTACT_EMAIL"),
+)
+
+# Each group's one email, as the send code addresses it (see
+# apps.submissions.emails.to_and_cc and apps.management.services.delivery).
+_GROUP_TO_AND_CC = "Each group gets one email: its students in To, and its mentors and supervisors in CC."
+
+# The finalist confirmation's sections, built as the email builds them.
+_SAMPLE_PRESENTATION = presentation_section(
+    [{"label": "Presentation Slides", "submitted": True, "status": "Submitted", "detail": "2026_BTF01_Slides.pptx"}]
+)
+_SAMPLE_TIMES = times_section(["09:30 - 10:00 AEDT", "11:40 - 12:30 AEDT"], "Friday, 23 October 2026", "AEDT, UTC+11")
+_SAMPLE_REMINDER = section_html(
+    "Submission components",
+    [
+        {"label": "Presentation Slides", "status": "Uploaded", "detail": "2026_BTF01_Slides.pptx", "colour": GREEN},
+        {"label": "Availability", "status": "Not submitted", "colour": RED},
+    ],
+    "Both are required: submit your availability, then press Submit.",
+)
+
+_FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
+
+
+EMAIL_TYPES = (
+    EmailType(
+        key="login_code",
+        name="Login code",
+        description="Sent when a user signs in with their email address.",
+        default_subject="{{ brand_name }}: Log in securely",
+        default_template="emails/login.html",
+        locked=True,
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("magic_link", "One-click sign-in link", "https://api.biotechfutures.org/services/magic/?code=123456", "MAGIC_LINK"),
+            MergeTag("otp_code", "Six-digit sign-in code", "123456", "OTP_CODE"),
+            MergeTag("expiry_minutes", "Minutes until the code expires", "10", "EXPIRY_MINUTES"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="password_reset",
+        name="Password reset",
+        description="Sent when a user asks to reset their password.",
+        default_subject="{{ brand_name }}: Update your password",
+        default_template="emails/password_reset.html",
+        locked=True,
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("reset_link", "Link to set a new password", "https://biotechfutures.org/#/auth/reset-password?token=abc", "RESET_PASSWORD_LINK"),
+            MergeTag("expiry_minutes", "Minutes until the link expires", "30", "EXPIRY_MINUTES"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="password_changed",
+        name="Password changed",
+        description="Sent after a user's password is successfully changed.",
+        default_subject="{{ brand_name }}: Your password was changed",
+        default_template="emails/password_changed.html",
+        locked=True,
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("changed_at", "When the password was changed (UTC)", "18 Sep 2026, 10:30", "CHANGED_AT"),
+            MergeTag("request_ip", "IP address the change came from", "203.0.113.7", "REQUEST_IP"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    # Registration: sent once someone registers (apps.users.registration_emails).
+    EmailType(
+        key="registration_student",
+        name="Registration confirmation (to student)",
+        description=(
+            "Sent to a student when they register on their own, including with a late link."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_student.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_group",
+        name="Group registration confirmation (to students)",
+        description=(
+            "Sent to each student who registers as a team, each with their own copy, and to a "
+            "student who joins a group by its code."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_group.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_mentor",
+        name="Registration confirmation (to mentor)",
+        description="Sent to a mentor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_mentor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_supervisor",
+        name="Registered by supervisor (to student)",
+        description=(
+            "Sent to each student a supervisor registers: one student, a group, or an uploaded "
+            "file. Not sent when an admin registers students."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_admin",
+        name="Registered by admin (to student)",
+        description=(
+            "Sent to each student an admin registers on Management > Registration: one student, "
+            "a group, or an uploaded file. Names the supervisor the admin chose."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_admin.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_supervisor",
+        name="Registration confirmation (to supervisor)",
+        description=(
+            "Sent to a supervisor once they register students: one student, a group, or an "
+            "uploaded file. Not sent when an admin registers students for them."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "students_url", "Link to the supervisor's My Students",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="supervisor_registration_status",
+        name="Registration status (to supervisor)",
+        description=(
+            "Sent daily to each supervisor with a student whose permission form isn't signed yet: "
+            "how many of their students are complete, waiting for a signature, or waiting for "
+            "guardian details. Stops once all their students are complete."
+        ),
+        default_subject="{{ brand_name }}: Student Registration Status",
+        default_template="emails/supervisor_registration_status.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("complete_count", "How many of their students are complete", "4", "COMPLETE_COUNT"),
+            MergeTag(
+                "pending_signature_count", "How many wait for their guardian's signature", "2",
+                "PENDING_SIGNATURE_COUNT",
+            ),
+            MergeTag(
+                "pending_contact_count", "How many wait for their guardian's details", "1",
+                "PENDING_CONTACT_COUNT",
+            ),
+            MergeTag(
+                "challenge_start", "The challenge start date (Management > Challenge Start)", "27 July",
+                "CHALLENGE_START",
+            ),
+            MergeTag(
+                "students_url", "Link to the supervisor's My Students",
+                "https://biotechfutures.org/#/my-students", "STUDENTS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_details_request",
+        name="Guardian details needed",
+        description=(
+            "Sent daily to a student with no parent or guardian email on file, "
+            "until they add one on their profile."
+        ),
+        default_subject="Information Required: Parent/Guardian Contact",
+        default_template="emails/guardian_details_request.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag(
+                "details_url",
+                "Link to the student's profile to add their guardian",
+                "https://biotechfutures.org/#/profile?guardian=edit",
+                "DETAILS_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_details_received",
+        name="Guardian details received (to student)",
+        description=(
+            "Sent to a student when they add or change their parent or guardian on their profile "
+            "and the consent form has gone to that guardian. Sent instead of Guardian consent sent."
+        ),
+        default_subject="Parent/Guardian Contact Received",
+        default_template="emails/guardian_details_received.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_student_notice",
+        name="Guardian consent sent (to student)",
+        description=(
+            "Sent to a student when their parent or guardian is first emailed the consent form "
+            "by an admin or the daily run, asking them to remind their guardian. A student who "
+            "added the guardian themselves gets Guardian details received instead."
+        ),
+        default_subject="Parent/Guardian Action Required - Permission Form",
+        default_template="emails/guardian_consent_student_notice.html",
+        merge_tags=(
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("guardian_email", "Guardian's email the form went to", "pat@example.com", "GUARDIAN_EMAIL"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_request",
+        name="Guardian consent request (to guardian)",
+        description=(
+            "Sent to a student's parent or guardian with the consent form: when the student adds "
+            "them, when the student or an admin sends it, and every day until they sign."
+        ),
+        default_subject="Action Required: Sign parent/guardian permission form",
+        default_template="emails/guardian_consent_request.html",
+        merge_tags=(
+            MergeTag("guardian_first_name", "Guardian's first name", "Pat", "GUARDIAN_FIRST_NAME"),
+            MergeTag("student_first_name", "Student's first name", "Alex", "STUDENT_FIRST_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            MergeTag("consent_url", "Link to this guardian's consent form", "https://biotechfutures.org/#/consent/abc", "CONSENT_URL"),
+            MergeTag("expiry_days", "Days until the link expires", "14", "EXPIRY_DAYS"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="guardian_consent_received",
+        name="Guardian permission received (to guardian)",
+        description=(
+            "Sent to a parent or guardian once they sign the consent form on the platform, "
+            "thanking them. Not sent when an admin records consent."
+        ),
+        default_subject="Parent/Guardian Permission Received",
+        default_template="emails/guardian_consent_received.html",
+        merge_tags=(
+            MergeTag("guardian_name", "Guardian's full name, as signed", "Pat Chen", "GUARDIAN_NAME"),
+            MergeTag("student_name", "Student's full name", "Alex Chen", "STUDENT_NAME"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="unread_messages",
+        name="Unread messages digest",
+        description="Scheduled summary of unread group chat messages.",
+        default_subject="You have {{ unread_summary }} on {{ brand_connect }}",
+        default_template="emails/unread_messages.html",
+        # Its own mailbox, under its own sending limit.
+        default_sender="connect",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("unread_summary", "Unread count with wording, e.g. \"3 unread messages\"", "3 unread messages", "UNREAD_SUMMARY"),
+            MergeTag("total_unread", "Total number of unread messages", "3", "TOTAL_UNREAD"),
+            MergeTag("group_count", "Number of groups with unread messages", "2", "GROUP_COUNT"),
+            MergeTag("platform_url", "Link to the platform", "https://biotechfutures.org", "PLATFORM_URL"),
+            MergeTag("unread_group_list", "List of groups and their unread counts", "<ul><li>CRISPR Research: 2</li><li>Protein Folding: 1</li></ul>", "UNREAD_GROUP_LIST", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="rsvp_reminder",
+        name="Event RSVP reminder",
+        description=(
+            "Scheduled reminders before an event: a day-before reminder, a "
+            "day-before request to respond, and a starting-soon reminder."
+        ),
+        default_subject="{{ reminder_subject }}",
+        default_template="emails/rsvp_reminder.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("reminder_subject", "Subject for this reminder, e.g. \"Reminder: BIOTech Symposium\"", "Reminder: BIOTech Symposium", "REMINDER_SUBJECT"),
+            MergeTag("headline", "Heading for this reminder, e.g. \"Starting soon\"", "Your event is tomorrow", "HEADLINE"),
+            MergeTag("intro", "Opening line for this reminder", "This is a friendly reminder that you have an upcoming event tomorrow.", "INTRO"),
+            MergeTag("closing", "Closing line for this reminder", "We look forward to seeing you there!", "CLOSING"),
+            MergeTag("event_name", "Event name", "BIOTech Symposium", "EVENT_NAME"),
+            MergeTag("event_when", "Full date and time in the recipient's timezone", "Friday, 18 September 2026 at 10:00 AM AEST", "EVENT_WHEN_TEXT"),
+            MergeTag("event_date", "Event date", "Friday, 18 September 2026", "EVENT_DATE"),
+            MergeTag("event_time", "Event start time", "10:00 AM AEST", "EVENT_TIME"),
+            MergeTag("event_location", "Event location", "Room 201, Science Building", "EVENT_LOCATION_TEXT"),
+            MergeTag("event_map_url", "Map link for the location", "https://maps.google.com/?q=Science+Building", "EVENT_LOCATION_MAP_URL"),
+            MergeTag("event_description", "Event description", "An afternoon of student project presentations.", "EVENT_DESCRIPTION"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="event_promotion",
+        name="Waitlist promotion",
+        description="Sent when someone cancels and a waitlisted user gets their spot.",
+        default_subject="You're in: {{ event_name }}",
+        default_template="emails/event_promotion.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("event_name", "Event name", "BIOTech Symposium", "EVENT_NAME"),
+            MergeTag("event_when", "Full date and time in the recipient's timezone", "Friday, 18 September 2026 at 10:00 AM AEST", "EVENT_WHEN_TEXT"),
+            MergeTag("event_location", "Event location", "Room 201, Science Building", "EVENT_LOCATION_TEXT"),
+            MergeTag("event_join_link", "Online joining link", "https://zoom.us/j/123456789", "EVENT_JOIN_LINK"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="announcement",
+        name="Announcement notification",
+        description="Sent when an admin clicks Notify on an announcement.",
+        default_subject="[{{ brand_name }}] {{ title }}",
+        default_template="emails/announcement.html",
+        merge_tags=(
+            MergeTag("title", "Announcement title", "Poster session scheduled", "title"),
+            MergeTag("body", "Full announcement text", "<p>The poster session will run on Friday afternoon in the Great Hall.</p>", "body", html=True),
+            MergeTag("excerpt", "Short plain-text preview of the announcement", "The poster session will run on Friday afternoon in the Great Hall.", "excerpt"),
+            MergeTag("detail_url", "Link to the announcement on the platform", "https://biotechfutures.org/#/announcements/42", "detail_url"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
+        name="Submission reminder",
+        description="Daily reminder in the final week before a group's deadline.",
+        default_subject="{{ brand_name }}: Submission reminder for {{ group_name }}",
+        default_template="emails/submission_reminder.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
+            MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
+            MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
+            MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="submission_confirmation",
+        delivery=_GROUP_TO_AND_CC,
+        name="Submission confirmation",
+        description="Sent to a group when they submit their entry.",
+        default_subject="{{ brand_name }}: Submission received for {{ group_name }}",
+        default_template="emails/submission_confirmation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("deadline", "Submission deadline", "Friday, 25 September 2026 at 11:59 PM AEST", "DEADLINE"),
+            MergeTag("submitted_by", "Who submitted the entry", "Alex Chen", "SUBMITTED_BY"),
+            MergeTag("submission_url", "Link to the submission page", "https://biotechfutures.org/#/submission/12", "SUBMISSION_URL"),
+            MergeTag("required_components_list", "Required components and whether each was submitted", "<ul><li>Scientific report: submitted</li><li>A2 poster: missing</li></ul>", "REQUIRED_COMPONENTS_LIST", html=True),
+            MergeTag("optional_components_list", "Optional components and whether each was submitted", "<ul><li>Prototype: submitted</li></ul>", "OPTIONAL_COMPONENTS_LIST", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="finalist_submission_confirmation",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist submission confirmation",
+        description="Sent to a finalist team when they submit their presentation.",
+        default_subject="{{ brand_name }}: Presentation received for {{ group_name }}",
+        default_template="emails/finalist_submission_confirmation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("submitted_by", "Who submitted the presentation", "Alex Chen", "SUBMITTED_BY"),
+            MergeTag("slides_due", "Slides due date", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag("finalist_url", "Link to the finalist page", "https://biotechfutures.org/#/groups/12/finalist", "FINALIST_URL"),
+            MergeTag("presentation", "The slides received, as a styled section", _SAMPLE_PRESENTATION, "PRESENTATION_SECTION", html=True),
+            MergeTag("selected_times", "The times the team selected, as a styled section", _SAMPLE_TIMES, "TIMES_SECTION", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="finalist_submission_reminder",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist submission reminder",
+        description="Daily reminder in the final week before slides are due, until a finalist team submits.",
+        default_subject="{{ brand_name }}: Presentation reminder for {{ group_name }}",
+        default_template="emails/finalist_submission_reminder.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("slides_due", "Slides due date", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag("finalist_url", "Link to the finalist page", "https://biotechfutures.org/#/groups/12/finalist", "FINALIST_URL"),
+            MergeTag("submission_components", "Where the slides and times stand, as a styled section", _SAMPLE_REMINDER, "COMPONENTS_SECTION", html=True),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="finalist_notification",
+        delivery=_GROUP_TO_AND_CC,
+        name="Finalist notification",
+        description="Sent to finalist teams from Notify Finalists.",
+        default_subject="Congratulations – You’re a {{ brand_name }} Finalist!",
+        default_template="emails/finalist_notification.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag("confirm_by", "Confirm attendance by", "Sunday, 4 October 2026", "CONFIRM_BY"),
+            MergeTag("slides_due", "Slides due", "Friday, 16 October 2026", "SLIDES_DUE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="nonfinalist_invitation",
+        delivery=_GROUP_TO_AND_CC,
+        name="Non-finalist invitation",
+        description="Sent to teams not picked as finalists, from Notify Nonfinalist.",
+        default_subject="Thank you for your submission – Invitation to the Symposium",
+        default_template="emails/nonfinalist_invitation.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="nonsubmission_notice",
+        delivery=_GROUP_TO_AND_CC,
+        name="Non-submission notice",
+        description="Sent to teams that didn't submit, from Notify Nonfinalist.",
+        default_subject="{{ brand_name }} – No Submission Received",
+        default_template="emails/nonsubmission_notice.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("symposium_date", "Symposium date", "Friday, 23 October 2026", "SYMPOSIUM_DATE"),
+            MergeTag(
+                "registration_url",
+                "Symposium registration link",
+                "https://events.humanitix.com/biotech-futures-symposium",
+                "REGISTER_URL",
+            ),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="results_team",
+        # Its students and mentors each get the group's certificates.
+        delivery="Each group gets one email: its students and mentors in To.",
+        name="Results (to groups)",
+        description="Sent to each group's students and mentors from Release Results.",
+        default_subject="Your {{ year }} {{ brand_name }} Challenge results",
+        default_template="emails/results_team.html",
+        merge_tags=(
+            MergeTag("group_name", "Group name", "CRISPR Research 01", "GROUP_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag(
+                "survey_url",
+                "Feedback survey link",
+                "https://sydney.au1.qualtrics.com/jfe/form/SV_cCKb80Gg7IhgBpA",
+                "SURVEY_URL",
+            ),
+            MergeTag("survey_closes", "Survey closes", "30th of November", "SURVEY_CLOSES"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="results_supervisor",
+        name="Results (to supervisors)",
+        description="Sent to their supervisors from Release Results.",
+        default_subject="Your students’ {{ year }} {{ brand_name }} Challenge results",
+        default_template="emails/results_supervisor.html",
+        merge_tags=(
+            MergeTag("supervisor_name", "Supervisor's name", "Dr Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="email_credits_low",
+        name="Email verification credits low",
+        description=(
+            "Sent to QEV_ALERT_EMAIL (info@ by default) when the QuickEmailVerification account "
+            "drops below 500, then 100, credits. Once per level, until it's topped up."
+        ),
+        default_subject="{{ brand_name }}: Email verification credits low ({{ remaining }} left)",
+        default_template="emails/email_credits_low.html",
+        # Running out of credits stops new addresses being checked, so this
+        # alert can't be switched off.
+        locked=True,
+        merge_tags=(
+            MergeTag("remaining", "Credits left", "450", "REMAINING"),
+            MergeTag("threshold", "Alert level dropped below", "500", "THRESHOLD"),
+            *_BRAND_TAGS,
+        ),
+    ),
+)
+
+EMAIL_REGISTRY = {email_type.key: email_type for email_type in EMAIL_TYPES}
+
+
+def get_email_type(key: str) -> EmailType:
+    """Return the registry entry for ``key``. Raises KeyError for unknown keys."""
+    return EMAIL_REGISTRY[key]
+
+
+def is_known_email_type(key: str) -> bool:
+    return key in EMAIL_REGISTRY
+
+
+def extract_merge_tags(text: str) -> set:
+    """Every ``{{ tag_name }}`` used in ``text``, whether or not it's allowed."""
+    return set(MERGE_TAG_RE.findall(text or ""))
+
+
+def unknown_merge_tags(key: str, text: str) -> set:
+    """Tags used in ``text`` that the email type ``key`` doesn't support."""
+    return extract_merge_tags(text) - get_email_type(key).tag_names

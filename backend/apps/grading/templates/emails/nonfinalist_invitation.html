@@ -1,0 +1,54 @@
+{% extends "emails/base.html" %}
+{# The client's non-finalist email (sent from Power Automate in 2025), in the  #}
+{# shared layout. The date and link come from the Notify Finalists page.       #}
+{# Keep the wording in step with nonfinalist_invitation.txt.                   #}
+
+{% block title %}Thank you for your submission &ndash; Invitation to the Symposium{% endblock %}
+
+{% block preheader %}You&rsquo;re warmly invited to join us in person for the {{ BRAND_NAME }} Symposium.{% endblock %}
+
+{% block content %}
+              <h1 class="headline" style="margin:0 0 8px 0; color:#017151; font-size:22px; line-height:1.3; font-weight:700;">
+                Thank you for your submission &ndash; Invitation to the Symposium
+              </h1>
+
+              <p style="margin:0 0 14px 0; color:#153226; font-size:16px; line-height:1.6;">
+                Dear members of <strong>{{ GROUP_NAME }}</strong>,
+              </p>
+              <p style="margin:0 0 14px 0; color:#153226; font-size:16px; line-height:1.6;">
+                Thank you for your submission to the {{ BRAND_NAME }} Challenge. Unfortunately, based on the judging criteria and the
+                <strong>high quality (and unprecedented number) of entries this year</strong>, your team was not selected as a finalist.
+              </p>
+
+              <div style="margin:16px 0; padding:12px 14px; border:1px dashed #017151; border-radius:10px; background:#e9f6f1; color:#153226; font-size:16px; line-height:1.6;">
+                <strong style="color:#017151;">Good news:</strong> You&rsquo;re warmly invited to join us <strong>in person</strong> at the University of Sydney for the
+                <strong>Symposium on {{ SYMPOSIUM_DATE }}</strong> (in-person only).
+              </div>
+
+              <h2 style="margin:18px 0 8px 0; color:#0f3a2e; font-size:18px; line-height:1.3;">Why attend?</h2>
+              <ul style="margin:0 0 14px 22px; padding:0; color:#153226; font-size:16px; line-height:1.6;">
+                <li style="margin:6px 0;">View finalist presentations.</li>
+                <li style="margin:6px 0;"><strong>Show off your own project at the Science Fair</strong> (additional prizes available).</li>
+                <li style="margin:6px 0;">Meet mentors and partner organisations in person.</li>
+                <li style="margin:6px 0;">Hear from guest speakers and take part in a hands-on workshop.</li>
+              </ul>
+
+              <div style="margin:16px 0;">
+                <a class="cta-link" href="{{ REGISTER_URL }}" style="display:inline-block; background:#017151; color:#ffffff; text-decoration:none; padding:12px 18px; border-radius:10px; font-weight:700; font-size:16px; text-align:center;">
+                  Register to Attend (In-Person)
+                </a>
+              </div>
+
+              <p style="margin:0 0 14px 0; color:#153226; font-size:16px; line-height:1.6;">
+                A full copy of your marks and certificates will be provided <strong>after the Symposium</strong>.
+              </p>
+
+              <p style="margin:8px 0 0 0; color:#153226; font-size:16px; line-height:1.6;">
+                Warm regards,<br><strong>The {{ BRAND_NAME }} Team</strong>
+              </p>
+{% endblock %}
+
+{% block footer_note %}
+                You&rsquo;re receiving this email because your team participated in the {{ BRAND_NAME }} Challenge.
+                <a href="https://www.biotechfutures.org/" style="color:#307054; text-decoration:underline;">biotechfutures.org</a>
+{% endblock %}

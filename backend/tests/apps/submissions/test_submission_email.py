@@ -1,6 +1,7 @@
 """Tests for the submission confirmation email."""
 from datetime import timedelta
 
+from django.conf import settings
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -10,11 +11,12 @@ from rest_framework.test import APIClient
 from apps.common.storage import reset_managed_storage_caches
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
+from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.emails import build_components, recipients_for
 from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import CONFIRMED_CHECKLIST, install_question_set
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False, AUTH_EMAIL_DISPATCH_SYNC=True)
@@ -63,13 +65,29 @@ class SubmissionEmailTests(TestCase):
 
     def _complete_and_submit(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {
             "storage_key": "x/poster.pdf", "name": "poster.pdf",
             "mime": "application/pdf", "size": 100,
         }
+        submission.poster_checklist = CONFIRMED_CHECKLIST
         submission.save()
         return self.client.post(self.submit_url, {}, format="json")
+
+    def test_an_automated_submission_sends_no_email(self):
+        # Closed before the draft exists, so both sit in the same year even just after New Year.
+        Deadline.objects.update(closes_at=timezone.now() - timedelta(hours=1), grace_hours=0)
+        submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
+        submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
+        submission.poster = {"storage_key": "x/poster.pdf", "name": "poster.pdf", "mime": "application/pdf", "size": 100}
+        submission.poster_checklist = CONFIRMED_CHECKLIST
+        submission.save()
+
+        self.assertEqual(auto_submit_due()["submitted"], ["BTF-EMAIL"])
+
+        self.assertEqual(mail.outbox, [])
 
     def test_mentors_and_supervisors_are_emailed_like_students(self):
         self.assertEqual(
@@ -80,24 +98,18 @@ class SubmissionEmailTests(TestCase):
             ],
         )
 
-    def test_everyone_on_the_team_is_emailed(self):
+    def test_the_team_gets_one_email_students_in_to_and_staff_in_cc(self):
         self._complete_and_submit()
 
-        self.assertCountEqual(
-            [message.to[0] for message in mail.outbox],
-            [
-                "mentor@test.local", "student1@test.local",
-                "student2@test.local", "supervisor@test.local",
-            ],
-        )
-
-    def test_no_student_can_see_a_teammates_address(self):
-        self._complete_and_submit()
-
-        for message in mail.outbox:
-            self.assertEqual(len(message.to), 1)
-            self.assertFalse(message.cc)
-            self.assertFalse(message.bcc)
+        # One email for the team, as the Notify emails go.
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertCountEqual(message.to, ["student1@test.local", "student2@test.local"])
+        self.assertCountEqual(message.cc, ["mentor@test.local", "supervisor@test.local"])
+        self.assertFalse(message.bcc)
+        # Replies go back to the sender, info@.
+        self.assertEqual(message.reply_to, [])
+        self.assertIn(settings.EMAIL_FROM_ADDRESS, message.from_email)
 
     def test_everyone_on_the_team_receives_the_same_email(self):
         self._complete_and_submit()
@@ -145,8 +157,10 @@ class SubmissionEmailTests(TestCase):
 
     def test_a_prototype_link_alone_counts_as_submitted(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in SubmissionQuestion.active()}
         submission.poster = {"storage_key": "x/p.pdf", "name": "p.pdf", "mime": "", "size": 1}
+        submission.poster_checklist = CONFIRMED_CHECKLIST
         submission.prototype_url = "https://example.com/demo"
         submission.save()
         self.client.post(self.submit_url, {}, format="json")
@@ -164,3 +178,58 @@ class SubmissionEmailTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(Submission.objects.get(group=self.group).submitted_at)
+
+    # --- admin editing and on/off switches --------------------------------
+
+    def test_unedited_email_keeps_its_subject_and_plain_text(self):
+        self._complete_and_submit()
+        message = mail.outbox[0]
+
+        self.assertEqual(message.subject, "BIOTech Futures: Submission received for BTF-EMAIL")
+        # The hand-written .txt template, not text derived from the HTML.
+        self.assertTrue(message.body.startswith("Hi Group BTF-EMAIL,"))
+        self.assertIn("THANK YOU FOR SUBMITTING YOUR WORK", message.body)
+        self.assertIn("REQUIRED COMPONENTS", message.body)
+        self.assertEqual(message.mixed_subtype, "related")  # logo attached
+
+    def test_switched_off_sends_nothing_and_the_submission_still_succeeds(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(key="submission_confirmation", is_enabled=False)
+        response = self._complete_and_submit()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(Submission.objects.get(group=self.group).submitted_at)
+        self.assertEqual(mail.outbox, [])
+
+    def test_edited_email_uses_saved_wording_and_component_lists(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(
+            key="submission_confirmation",
+            subject="Got it, {{ group_name }}",
+            body_html="<p>Thanks {{ group_name }}.</p>{{ required_components_list }}",
+        )
+        self._complete_and_submit()
+
+        message = mail.outbox[0]
+        html = message.alternatives[0][0]
+        self.assertEqual(message.subject, "Got it, BTF-EMAIL")
+        self.assertIn("<p>Thanks BTF-EMAIL.</p>", html)
+        self.assertIn("<li><strong>Poster</strong>: Submitted (poster.pdf)</li>", html)
+        self.assertIn("<li><strong>Short Answer Questions (SAQs)</strong>: Submitted</li>", html)
+        # Every member still gets the same email.
+        self.assertEqual(len({m.alternatives[0][0] for m in mail.outbox}), 1)
+
+    def test_component_list_escapes_values(self):
+        from apps.submissions.emails import components_list_html
+
+        html = components_list_html([
+            {"label": "<b>Poster</b>", "status": "Submitted", "detail": "<script>x</script>.pdf"},
+        ])
+        self.assertEqual(
+            html,
+            "<ul><li><strong>&lt;b&gt;Poster&lt;/b&gt;</strong>: Submitted "
+            "(&lt;script&gt;x&lt;/script&gt;.pdf)</li></ul>",
+        )
+        self.assertEqual(components_list_html([]), "")

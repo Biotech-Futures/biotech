@@ -28,6 +28,10 @@ class Resources(models.Model):
     file_size = models.BigIntegerField(null=True, blank=True)
     storage_key = models.CharField(max_length=255, null=True, blank=True)
 
+    slides_mime_type = models.CharField(max_length=100, null=True, blank=True)
+    slides_file_size = models.BigIntegerField(null=True, blank=True)
+    slides_storage_key = models.CharField(max_length=255, null=True, blank=True)
+
     group = models.ForeignKey("groups.Groups", on_delete=models.SET_NULL, null=True, blank=True, related_name="resources")
     labels = models.ManyToManyField("ResourceLabel", blank=True, related_name="resources")
     visibility_scope = models.CharField(

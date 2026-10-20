@@ -86,11 +86,12 @@
           placeholder="Search by group or tutor"
           aria-label="Search by group or tutor"
         />
-        <select v-model="groupFilter" class="student-matching__select" aria-label="Filter groups">
-          <option v-for="option in groupFilters" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
+        <AppSelect
+          v-model="groupFilter"
+          class="student-matching__select"
+          aria-label="Filter groups"
+          :options="groupFilters"
+        />
       </div>
 
       <!-- Waiting area -->
@@ -213,6 +214,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import draggable from 'vuedraggable'
+import AppSelect from '@/components/AppSelect.vue'
 import { GROUP_FILTERS, useStudentMatching } from '@/composables/admin/useStudentMatching'
 import StudentChip from '@/components/admin/matching/StudentChip.vue'
 import type { RecommendedStudent } from '@/utils/adminMatching'
@@ -350,7 +352,7 @@ const onConfirm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -359,7 +361,7 @@ const onConfirm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.9rem;
 }
 
@@ -462,7 +464,7 @@ const onConfirm = () => {
 .student-matching__capacity {
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  background-color: var(--charcoal);
+  background-color: var(--teal);
   color: var(--white);
   font-size: 0.75rem;
   font-weight: 700;

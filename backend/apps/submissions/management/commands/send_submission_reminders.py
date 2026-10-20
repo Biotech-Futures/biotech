@@ -31,6 +31,9 @@ class Command(BaseCommand):
             return
 
         result = send_due_reminders()
+        if result.get("disabled"):
+            self.stdout.write(self.style.WARNING("Submission reminders are turned off."))
+            return
         self.stdout.write(
             self.style.SUCCESS(
                 f"Reminders sent: {result['sent']}. "

@@ -53,7 +53,7 @@ export const LOGIN_MESSAGES = {
     backToSignIn: 'Back to sign in',
     accountInactiveTitle: 'Account inactive',
     accountInactiveBody:
-      'This account has been suspended or deactivated, so it cannot be used to sign in. An administrator must reactivate it before you can access the portal.',
+      'This account is inactive, so it cannot be used to sign in. An administrator must reactivate it before you can access the portal.',
     accountInactiveContact: 'Email us to request reactivation:',
     aboutTitle: `Welcome to the ${BRAND_NAME} Mentoring Portal`,
     aboutP1: 'This platform helps students, mentors, supervisors, and administrators stay connected throughout the mentoring program.',

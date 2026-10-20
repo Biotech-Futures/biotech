@@ -1,6 +1,7 @@
 from typing import TypedDict, Optional, List, Dict, Any
 
 from django.db import transaction
+from django.db.models import Q
 
 from apps.common.rbac import is_admin
 from apps.tasks.models import Task, TaskStatus, TaskType, CreatorRole
@@ -76,6 +77,7 @@ def list_admin_tasks(
     task_type: Optional[str] = None,
     sort_by: str = "createdAt",
     sort_order: str = "desc",
+    search: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     List tasks visible to the requesting admin with optional type filter.
@@ -85,6 +87,7 @@ def list_admin_tasks(
         page: Page number (1-indexed)
         limit: Items per page
         task_type: Optional filter — "group" or "individual"
+        search: Optional text matched against the name and description
 
     Returns:
         Dictionary with tasks list and pagination info
@@ -109,6 +112,8 @@ def list_admin_tasks(
     )
     if task_type:
         qs = qs.filter(task_type=task_type)
+    if search:
+        qs = qs.filter(Q(name__icontains=search) | Q(description__icontains=search))
 
     offset = (page - 1) * limit
     total = qs.count()

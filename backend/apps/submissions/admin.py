@@ -2,6 +2,7 @@ from django.contrib import admin
 
 from .models import (
     Deadline,
+    FinalistEntry,
     GroupExtension,
     Submission,
     SubmissionInstruction,
@@ -72,3 +73,16 @@ class SubmissionAdmin(admin.ModelAdmin):
         if not flag.get("has_text", True):
             return "No text to check"
         return "OK" if not warnings else f"{len(warnings)} warning(s)"
+
+
+@admin.register(FinalistEntry)
+class FinalistEntryAdmin(admin.ModelAdmin):
+    list_display = ("group", "is_submitted", "submitted_at", "updated_at")
+    search_fields = ("group__group_name",)
+    readonly_fields = ("created_at", "updated_at")
+    list_select_related = ("group",)
+
+    @admin.display(boolean=True, description="Submitted")
+    def is_submitted(self, obj):
+        return obj.is_submitted
+

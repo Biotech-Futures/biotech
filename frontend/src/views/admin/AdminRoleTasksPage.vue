@@ -158,7 +158,7 @@ import {
   type UpdateAdminRoleTaskPayload
 } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
-import { formatDateAU } from '@/utils/date'
+import { formatShortDate } from '@/utils/date'
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
 
@@ -440,7 +440,7 @@ const onSelectedChange = (value: Array<string | number>) => {
   updateSelectedRoleTaskSnapshots(value)
 }
 
-const formatDueDate = (value: string | null) => value ? formatDateAU(value) : '-'
+const formatDueDate = (value: string | null) => value ? formatShortDate(value) : '-'
 
 const progressTitle = (roleTask: AdminRoleTask) =>
   roleTask.holder_count === 0

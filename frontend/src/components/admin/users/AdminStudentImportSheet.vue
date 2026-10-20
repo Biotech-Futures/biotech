@@ -46,7 +46,7 @@
           {{ validRows.length }} ready
         </span>
         <span v-else class="student-import__summary-message">
-          No valid rows to import — check the skipped list below.
+          No valid rows to import - check the skipped list below.
         </span>
         <span v-if="invalidRows.length" class="student-import__badge">
           {{ invalidRows.length }} skipped
@@ -343,7 +343,7 @@ const runImport = async () => {
 .student-import__section-head h3 {
   margin: 0;
   font-size: 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .student-import__section-head span,

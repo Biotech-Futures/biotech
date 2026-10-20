@@ -13,7 +13,7 @@ from apps.submissions.models import Deadline, GroupExtension, Submission
 from apps.submissions.services import current_cohort
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import CONFIRMED_CHECKLIST, install_question_set
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False, AUTH_EMAIL_DISPATCH_SYNC=True)
@@ -42,11 +42,13 @@ class SubmissionCohortTests(TestCase):
 
     def _submit(self):
         submission, _ = Submission.objects.get_or_create(group=self.group)
+        submission.project_title = "Our Project"
         submission.answers = {q.key: "An answer." for q in self.questions}
         submission.poster = {
             "storage_key": "c/poster.pdf", "name": "poster.pdf",
             "mime": "application/pdf", "size": 10,
         }
+        submission.poster_checklist = CONFIRMED_CHECKLIST
         submission.save()
         return self.client.post(self.submit_url, {}, format="json")
 

@@ -177,36 +177,42 @@ class ReminderTests(TestCase):
         self.assertIn("BTF-TO", mail.outbox[0].subject)
 
 
-@override_settings(USE_AZURE_BLOB_STORAGE=False, SUBMISSION_REMINDER_TOKEN="s3cret")
+@override_settings(USE_AZURE_BLOB_STORAGE=False, EMAIL_JOBS_TOKEN="s3cret")
 class ReminderTriggerEndpointTests(TestCase):
     def setUp(self):
         from django.urls import reverse
 
         self.url = reverse("submission-send-reminders")
 
-    def test_the_right_token_runs_the_job(self):
-        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="s3cret")
+    def test_the_right_token_queues_the_job(self):
+        from apps.management.models import EmailSendRun
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("sent", response.data)
+        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="s3cret")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data, {"status": "queued"})
+        # Run in its turn: at once under test settings.
+        self.assertIsNotNone(EmailSendRun.objects.get(key="submission_reminder").finished_at)
 
     def test_a_wrong_token_is_refused(self):
-        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="wrong")
+        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="wrong")
 
         self.assertEqual(response.status_code, 401)
 
     def test_no_token_at_all_is_refused(self):
         self.assertEqual(self.client.post(self.url).status_code, 401)
 
-    @override_settings(SUBMISSION_REMINDER_TOKEN="")
+    @override_settings(EMAIL_JOBS_TOKEN="")
     def test_an_unconfigured_trigger_refuses_rather_than_standing_open(self):
-        response = self.client.post(self.url, HTTP_X_REMINDER_TOKEN="")
+        response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="")
 
         self.assertEqual(response.status_code, 503)
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
-class IndividualDeliveryTests(TestCase):
+class TeamDeliveryTests(TestCase):
+    """One reminder email for the team, as the Notify emails go."""
+
     def setUp(self):
         self.role = Roles.objects.create(role_name="student")
         install_question_set()
@@ -226,52 +232,62 @@ class IndividualDeliveryTests(TestCase):
                 group=self.group, user=user, membership_role="student"
             )
 
-    def test_every_student_gets_their_own_message(self):
+    def test_the_team_gets_one_email_with_every_student_in_to(self):
+        from django.conf import settings
+
+        result = send_due_reminders()
+
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(sorted(message.to), ["ada@test.local", "alan@test.local", "grace@test.local"])
+        # No mentor or supervisor on this team to copy in.
+        self.assertFalse(message.cc)
+        self.assertFalse(message.bcc)
+        # Replies go back to the sender, info@.
+        self.assertEqual(message.reply_to, [])
+        self.assertIn(settings.EMAIL_FROM_ADDRESS, message.from_email)
+        self.assertEqual(result["sent"], 1)
+
+    def test_it_goes_from_the_sender_picked_on_system_emails(self):
+        from apps.services.models import SystemEmailTemplate
+
+        SystemEmailTemplate.objects.create(key="submission_reminder", sender="connect")
+        send_due_reminders()
+        self.assertEqual(mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>")
+
+    def test_mentors_and_supervisors_are_copied_in(self):
+        for email, role in (("mentor@test.local", "mentor"), ("sup@test.local", "supervisor")):
+            user = User.objects.create_user(email=email, password="testUser@123")
+            GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
+
         send_due_reminders()
 
-        self.assertEqual(len(mail.outbox), 3)
-        self.assertEqual(
-            sorted(m.to[0] for m in mail.outbox),
-            ["ada@test.local", "alan@test.local", "grace@test.local"],
-        )
+        message = mail.outbox[0]
+        self.assertEqual(len(message.to), 3)
+        self.assertEqual(sorted(message.cc), ["mentor@test.local", "sup@test.local"])
 
-    def test_no_student_can_see_a_teammates_address(self):
-        send_due_reminders()
-
-        for message in mail.outbox:
-            self.assertEqual(len(message.to), 1)
-            self.assertFalse(message.cc)
-            self.assertFalse(message.bcc)
-
-    def test_everyone_receives_the_same_email(self):
-        send_due_reminders()
-
-        subjects = {m.subject for m in mail.outbox}
-        bodies = {m.body for m in mail.outbox}
-        self.assertEqual(len(subjects), 1)
-        self.assertEqual(len(bodies), 1, "students were sent differing text")
-
-    def test_one_bad_address_does_not_cost_the_rest_of_the_team_their_copy(self):
+    def test_a_team_whose_reminder_is_turned_away_is_tried_again_tomorrow(self):
+        import smtplib
         from unittest.mock import patch
 
-        real_send = mail.EmailMessage.send
-
-        def flaky(self, *args, **kwargs):
-            if self.to == ["grace@test.local"]:
-                raise OSError("mailbox unavailable")
-            return real_send(self, *args, **kwargs)
-
-        with patch.object(mail.EmailMessage, "send", flaky):
-            result = send_due_reminders()
-
-        self.assertEqual(len(mail.outbox), 2)
-        self.assertEqual(result["sent"], 1, "the team should still count as reminded")
-
-    def test_a_team_nobody_could_be_reached_on_is_tried_again_tomorrow(self):
-        from unittest.mock import patch
-
-        with patch.object(mail.EmailMessage, "send", side_effect=OSError("relay down")):
+        rejected = smtplib.SMTPDataError(554, b"Message rejected")
+        with patch.object(mail.EmailMessage, "send", side_effect=rejected):
             result = send_due_reminders()
 
         self.assertEqual(result["failed"], 1)
         self.assertFalse(SubmissionReminder.objects.exists())
+
+    def test_a_reminder_the_mail_server_cant_take_yet_is_kept_until_the_deadline(self):
+        from unittest.mock import patch
+
+        from apps.services.models import WaitingEmail
+
+        with patch.object(mail.EmailMessage, "send", side_effect=OSError("relay down")):
+            result = send_due_reminders()
+
+        # Kept to send once the server can be reached, so it counts as sent
+        # and isn't sent again tomorrow; out of date, so given up, at the deadline.
+        self.assertEqual((result["sent"], result["failed"]), (1, 0))
+        self.assertTrue(SubmissionReminder.objects.exists())
+        kept = WaitingEmail.objects.get(key="submission_reminder")
+        self.assertEqual(kept.give_up_at, self.deadline.closes_at)

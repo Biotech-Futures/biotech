@@ -18,6 +18,7 @@ django-storages==1.14.6
 python-docx==1.2.0
 lxml==6.1.1
 MarkupSafe==3.0.3
+nh3>=0.3.7
 djangorestframework==3.16.1
 drf-nested-routers==0.95.0
 drf-spectacular==0.28.0
@@ -34,6 +35,8 @@ psycopg==3.2.9
 psycopg-binary==3.2.9
 psycopg2-binary==2.9.10
 pypdf==6.16.2
+pycrdt==0.14.8
+fpdf2==2.8.9
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 pytz==2025.2

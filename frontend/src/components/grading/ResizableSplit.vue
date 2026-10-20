@@ -18,21 +18,46 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from '@/utils/storage'
 
 const props = defineProps<{
   /** Cap for the right pane before any drag — the left pane takes the rest. */
   rightMax?: string
+  /** Remember where the divider was left under this name, so it stays put
+   *  across groups (the page rebuilds while the next one loads) and visits. */
+  memory?: string
 }>()
 
 const MIN_PCT = 25
 const MAX_PCT = 75
 
+const clamp = (pct: number) => Math.min(MAX_PCT, Math.max(MIN_PCT, pct))
+
+const storageKey = props.memory ? `grading-split:${props.memory}` : null
+const remembered = (): number | null => {
+  const pct = Number(storageKey ? safeLocalStorageGet(storageKey) : null)
+  return pct > 0 ? clamp(pct) : null
+}
+
 const pane = ref<HTMLDivElement | null>(null)
 // null = untouched: the right pane sizes to its content cap (rightMax) and
 // the left pane gets everything else. A drag switches to explicit percentages.
-const leftPct = ref<number | null>(null)
+const leftPct = ref<number | null>(remembered())
 const dragging = ref(false)
+
+watch(leftPct, (pct) => {
+  if (storageKey && pct !== null) safeLocalStorageSet(storageKey, String(Math.round(pct * 10) / 10))
+})
+
+// For the marking page's Reset view: whether the divider was moved from
+// where it starts, and putting it back (forgetting where it was left).
+const moved = computed(() => leftPct.value !== null)
+const reset = () => {
+  leftPct.value = null
+  if (storageKey) safeLocalStorageRemove(storageKey)
+}
+defineExpose({ moved, reset })
 
 const paneStyle = computed(() => {
   if (leftPct.value === null) {
@@ -41,8 +66,6 @@ const paneStyle = computed(() => {
   }
   return { '--split-cols': `${leftPct.value}% auto minmax(0, 1fr)` }
 })
-
-const clamp = (pct: number) => Math.min(MAX_PCT, Math.max(MIN_PCT, pct))
 
 const startDrag = (event: PointerEvent) => {
   const el = pane.value

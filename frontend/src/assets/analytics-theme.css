@@ -1,0 +1,1278 @@
+/* BIOTech Futures
+
+   Primary:
+   Dark Green  #017151
+   White       #FFFFFF
+   Black       #000000
+   Teal        #174243
+
+   Secondary:
+   Light Green #BAD7B8
+
+   Tertiary:
+   Air Force Blue #39687B
+   Mint Green     #5EA99E
+   Yellow         #F1E5A6
+
+   Typography:
+   Arial Regular for all interface text.
+   Times New Roman Italic may be used only when an italic serif accent is intentionally required.
+*/
+
+:root {
+  --btf-dark-green: #017151;
+  --btf-white: #FFFFFF;
+  --btf-black: #000000;
+  --btf-teal: #174243;
+
+  --btf-light-green: #BAD7B8;
+
+  --btf-air-force-blue: #39687B;
+  --btf-mint-green: #5EA99E;
+  --btf-yellow: #F1E5A6;
+
+  --btf-border: #D7E2DE;
+  --btf-muted: #667873;
+  --btf-surface: #F7FAF9;
+  --btf-track: #E9EFEC;
+
+  --analytics-green: var(--btf-dark-green);
+  --analytics-green-dark: var(--btf-teal);
+  --analytics-green-soft: var(--btf-light-green);
+  --analytics-green-mid: var(--btf-mint-green);
+
+  --analytics-gray-50: var(--btf-surface);
+  --analytics-gray-100: var(--btf-track);
+  --analytics-gray-200: var(--btf-border);
+  --analytics-gray-300: #C4CFCA;
+  --analytics-gray-400: #96A39E;
+  --analytics-gray-500: var(--btf-muted);
+  --analytics-gray-600: #52615C;
+  --analytics-gray-700: var(--btf-teal);
+  --analytics-text: var(--btf-teal);
+  --analytics-white: var(--btf-white);
+}
+
+/* Keep every analytics KPI on the same three horizontal tracks: title,
+   number and helper share one left edge beside the icon, and start from the
+   top of the card so numbers stay level across a row even when a title or
+   helper wraps onto a second line. */
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) {
+  display: flex !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  align-self: stretch;
+  flex-direction: column;
+  justify-content: flex-start;
+  row-gap: 0 !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > :is(.kpi-label, span:first-child) {
+  display: flex !important;
+  /* Room for a two-line title, so a wrapped title never pushes its number
+     down. 2lh is exact even where a page sets its own line height. */
+  min-height: 2.5em;
+  min-height: 2lh;
+  line-height: 1.25;
+  align-items: flex-start;
+  margin: 0 !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > strong:not(.text-value):not(.resource-name) {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 40px;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  margin: 0 !important;
+  text-align: left !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) .analytics-value-row,
+.analytics-page .summary-card .analytics-value-row {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 40px;
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > small {
+  display: block !important;
+  min-height: 34px;
+  margin: 0 !important;
+}
+
+/* Mentor utilisation adds a progress bar. Reserve the same slot in every
+   mentor card so its title, value and helper remain level with the others. */
+.mentors-analytics-page .kpi-card .kpi-copy {
+  display: grid !important;
+  min-width: 0 !important;
+  flex: 1 1 0% !important;
+  align-self: stretch;
+  grid-template-rows: 30px 40px 9px minmax(30px, auto);
+  align-content: start;
+}
+
+.mentors-analytics-page .kpi-card .kpi-label {
+  grid-row: 1;
+  margin: 0 !important;
+}
+
+.mentors-analytics-page .kpi-card .analytics-value-row {
+  display: flex !important;
+  width: 100% !important;
+  min-height: 40px;
+  grid-row: 2;
+  align-items: center !important;
+  justify-content: flex-start !important;
+}
+
+/* Icons sit level with the title at the top of every KPI card, and copy
+   columns laid out as grids start from the top as well. */
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-grid .kpi-card {
+  align-items: flex-start !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-grid .kpi-card > :is(.kpi-icon, [class*="kpi-icon"]) {
+  align-self: flex-start !important;
+}
+
+:is(
+  .messages-analytics-page,
+  .resources-analytics-page
+) .kpi-grid .kpi-card > div:not(.kpi-icon) {
+  align-content: start !important;
+}
+
+:is(
+  .messages-analytics-page,
+  .resources-analytics-page
+) .kpi-grid .kpi-card > div:not(.kpi-icon) > :is(strong, .analytics-value-row) {
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+
+.mentors-analytics-page .kpi-card .progress-track {
+  grid-row: 3;
+  width: 100%;
+  margin: 0 !important;
+}
+
+.mentors-analytics-page .kpi-card .kpi-copy > small {
+  grid-row: 4;
+  margin: 0 !important;
+}
+
+
+.analytics-refresh-button {
+  height: 46px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--btf-dark-green);
+  background: var(--btf-white);
+  border: 1px solid var(--btf-mint-green);
+  border-radius: 9px;
+  font: 700 14px Arial, sans-serif;
+  cursor: pointer;
+}
+
+.analytics-export-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: 0 0 auto;
+  padding-bottom: 29px;
+}
+
+.page-actions.page-actions .analytics-export-stack > .export-button {
+  align-self: flex-end;
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.analytics-update-status {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  width: max-content;
+  max-width: calc(100vw - 40px);
+}
+
+.page-actions.page-actions:has(> .analytics-export-stack) {
+  align-items: flex-start !important;
+  width: max-content !important;
+  max-width: 100%;
+}
+
+.page-actions:has(> .analytics-export-stack) > :not(.analytics-export-stack) {
+  align-self: flex-start !important;
+  flex: 0 0 auto !important;
+}
+
+.analytics-refresh-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--btf-light-green) 45%, white);
+}
+
+.analytics-refresh-button:disabled,
+.analytics-page .export-button:disabled,
+.users-analytics-page .export-button:disabled,
+.activity-analytics-page .export-button:disabled,
+.registration-analytics-page .export-button:disabled,
+.resources-analytics-page .export-button:disabled,
+.email-monitoring-page .export-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Typography: BTF specifies Arial Regular as the primary font. */
+.analytics-page,
+.users-analytics-page,
+.groups-analytics-page,
+.messages-analytics-page,
+.activity-analytics-page,
+.email-monitoring-page,
+.analytics-page button,
+.analytics-page input,
+.analytics-page select,
+.users-analytics-page button,
+.users-analytics-page input,
+.users-analytics-page select,
+.groups-analytics-page button,
+.groups-analytics-page input,
+.groups-analytics-page select,
+.messages-analytics-page button,
+.messages-analytics-page input,
+.messages-analytics-page select,
+.activity-analytics-page button,
+.activity-analytics-page input,
+.activity-analytics-page select,
+.email-monitoring-page button,
+.email-monitoring-page input,
+.email-monitoring-page select {
+  font-family: Arial, sans-serif !important;
+  font-style: normal;
+}
+
+/* Optional serif italic accent, only when intentionally used. */
+.btf-times-italic {
+  font-family: "Times New Roman", Times, serif !important;
+  font-style: italic;
+}
+
+/* Page foundations */
+.analytics-page,
+.users-analytics-page,
+.groups-analytics-page,
+.messages-analytics-page,
+.activity-analytics-page,
+.email-monitoring-page {
+  color: var(--btf-teal);
+  background: var(--btf-surface);
+}
+
+.analytics-page h1,
+.analytics-page h2,
+.analytics-page h3,
+.users-analytics-page h1,
+.users-analytics-page h2,
+.users-analytics-page h3,
+.groups-analytics-page h1,
+.groups-analytics-page h2,
+.groups-analytics-page h3,
+.messages-analytics-page h1,
+.messages-analytics-page h2,
+.messages-analytics-page h3,
+.activity-analytics-page h1,
+.activity-analytics-page h2,
+.activity-analytics-page h3,
+.email-monitoring-page h1,
+.email-monitoring-page h2,
+.email-monitoring-page h3 {
+  color: var(--btf-teal) !important;
+  font-family: Arial, sans-serif !important;
+  font-style: normal !important;
+}
+
+/* Cards */
+.analytics-page .summary-card,
+.analytics-page .module-card,
+.analytics-page .attention-panel,
+.users-analytics-page .kpi-card,
+.users-analytics-page .analytics-card,
+.groups-analytics-page .kpi-card,
+.groups-analytics-page .analytics-card,
+.messages-analytics-page .kpi-card,
+.messages-analytics-page .filter-card,
+.messages-analytics-page .analytics-card,
+.activity-analytics-page .kpi-card,
+.activity-analytics-page .filter-card,
+.activity-analytics-page .analytics-card,
+.email-monitoring-page .kpi-card,
+.email-monitoring-page .analytics-card,
+.email-monitoring-page .overall-stat-card {
+  background: var(--btf-white) !important;
+  border-color: var(--btf-border) !important;
+}
+
+/* Controls */
+.analytics-page .year-control,
+.analytics-page .date-range,
+.analytics-page .export-button,
+.users-analytics-page .year-control,
+.users-analytics-page .export-button,
+.groups-analytics-page .year-control,
+.groups-analytics-page .export-button,
+.messages-analytics-page .year-control,
+.messages-analytics-page .export-button,
+.messages-analytics-page .reset-button,
+.messages-analytics-page .filter-card select,
+.messages-analytics-page .mini-period-control select,
+.activity-analytics-page .year-control,
+.activity-analytics-page .export-button,
+.activity-analytics-page .reset-button,
+.activity-analytics-page .filter-card select {
+  color: var(--btf-dark-green) !important;
+  border-color: var(--btf-mint-green) !important;
+  background: var(--btf-white) !important;
+}
+
+.analytics-page .export-button:hover,
+.users-analytics-page .export-button:hover,
+.groups-analytics-page .export-button:hover,
+.messages-analytics-page .export-button:hover,
+.messages-analytics-page .reset-button:hover,
+.activity-analytics-page .export-button:hover,
+.activity-analytics-page .reset-button:hover {
+  background: color-mix(in srgb, var(--btf-light-green) 45%, white) !important;
+}
+
+/* Demo/mock badge */
+.analytics-page .demo-badge,
+.analytics-page .mock-label,
+.users-analytics-page .demo-badge,
+.groups-analytics-page .demo-badge,
+.messages-analytics-page .demo-badge,
+.activity-analytics-page .demo-badge {
+  color: var(--btf-teal) !important;
+  border-color: var(--btf-light-green) !important;
+  background: color-mix(in srgb, var(--btf-yellow) 55%, white) !important;
+}
+
+/* Icons */
+.analytics-page [class*="tone-"],
+.analytics-page [class*="attention-"],
+.users-analytics-page .kpi-icon,
+.groups-analytics-page .kpi-icon,
+.messages-analytics-page .kpi-icon,
+.activity-analytics-page .kpi-icon,
+.analytics-page .summary-icon,
+.analytics-page .module-icon,
+.analytics-page .attention-icon {
+  color: var(--btf-dark-green) !important;
+}
+
+.users-analytics-page .kpi-icon,
+.groups-analytics-page .kpi-icon,
+.messages-analytics-page .kpi-icon,
+.activity-analytics-page .kpi-icon,
+.analytics-page .summary-icon,
+.analytics-page .module-icon,
+.analytics-page .attention-icon {
+  background: color-mix(in srgb, var(--btf-light-green) 55%, white) !important;
+}
+
+/* Secondary / inactive items */
+.analytics-page .mock-dot,
+.users-analytics-page .grey-dot,
+.groups-analytics-page .grey-dot,
+.users-analytics-page .muted,
+.groups-analytics-page .muted,
+.messages-analytics-page .muted,
+.activity-analytics-page .muted {
+  background: var(--btf-track) !important;
+  color: var(--btf-muted) !important;
+}
+
+/* Progress / bars */
+.analytics-page .progress-track,
+.users-analytics-page .progress-track,
+.groups-analytics-page .horizontal-track,
+.groups-analytics-page .rank-track,
+.messages-analytics-page .horizontal-track,
+.messages-analytics-page .rank-track,
+.activity-analytics-page .rate-track,
+.activity-analytics-page .recency-track {
+  background: var(--btf-track) !important;
+}
+
+.analytics-page .progress-track span,
+.users-analytics-page .progress-track span,
+.groups-analytics-page .horizontal-fill,
+.groups-analytics-page .rank-track span,
+.messages-analytics-page .horizontal-fill,
+.messages-analytics-page .rank-track span,
+.activity-analytics-page .rate-track i,
+.activity-analytics-page .recency-track i,
+.users-analytics-page .region-bar-fill {
+  background: var(--btf-dark-green) !important;
+}
+
+/* Secondary bar series use official tertiary/secondary colours */
+.users-analytics-page .blue-bar,
+.groups-analytics-page .blue-bar {
+  background: var(--btf-air-force-blue) !important;
+}
+
+.users-analytics-page .purple-bar,
+.groups-analytics-page .purple-bar {
+  background: var(--btf-mint-green) !important;
+}
+
+.messages-analytics-page .least-rank-track span {
+  background: var(--btf-mint-green) !important;
+}
+
+/* SVG chart defaults.
+   Individual data series are coloured in each page so legends and chart
+   marks always use exactly the same official BTF palette colour. */
+/* Grid / axes */
+.analytics-page .line-baseline,
+.users-analytics-page .grid-line,
+.users-analytics-page .chart-grid,
+.groups-analytics-page .grid-line,
+.messages-analytics-page .grid-line,
+.activity-analytics-page .grid-line {
+  stroke: var(--btf-border) !important;
+}
+
+.analytics-page .y-axis,
+.users-analytics-page .y-axis,
+.groups-analytics-page .y-axis,
+.messages-analytics-page .y-axis,
+.activity-analytics-page .y-axis,
+.analytics-page .axis-caption,
+.users-analytics-page .axis-caption,
+.groups-analytics-page .axis-caption,
+.messages-analytics-page .axis-caption,
+.activity-analytics-page .axis-caption,
+.analytics-page .y-axis-title,
+.users-analytics-page .y-axis-title,
+.groups-analytics-page .y-axis-title,
+.messages-analytics-page .y-axis-title,
+.activity-analytics-page .y-axis-title {
+  color: var(--btf-muted) !important;
+}
+
+/* Donut/ring charts
+   Segment colours are supplied by the page data/computed series.
+   Do not override them here, otherwise the legend and ring can disagree. */
+
+/* Toggle / selected states */
+.messages-analytics-page .breakdown-toggle button.active,
+.users-analytics-page .interactive-role-row.selected,
+.groups-analytics-page .donut-legend-row.selected {
+  color: var(--btf-dark-green) !important;
+  border-color: var(--btf-light-green) !important;
+  background: color-mix(in srgb, var(--btf-light-green) 42%, white) !important;
+}
+
+/* Tables */
+.messages-analytics-page th,
+.activity-analytics-page th {
+  background: color-mix(in srgb, var(--btf-light-green) 35%, white) !important;
+  color: var(--btf-teal) !important;
+}
+
+.messages-analytics-page tbody tr:hover,
+.activity-analytics-page tbody tr:hover {
+  background: color-mix(in srgb, var(--btf-light-green) 28%, white) !important;
+}
+
+/* Insights / attention */
+.analytics-page .attention-panel,
+.messages-analytics-page .insights-card,
+.activity-analytics-page .insights-card,
+.groups-analytics-page [class*="insight-"] {
+  border-color: var(--btf-border) !important;
+  background: var(--btf-white) !important;
+}
+
+.messages-analytics-page .insight-icon,
+.messages-analytics-page .insight-row strong,
+.activity-analytics-page .insight-row strong,
+.groups-analytics-page .insight-row strong,
+.analytics-page .attention-icon {
+  color: var(--btf-dark-green) !important;
+}
+
+/* Tooltip */
+.chart-tooltip {
+  background: var(--btf-teal) !important;
+  color: var(--btf-white) !important;
+  font-family: Arial, sans-serif !important;
+}
+
+/* Scrollbars */
+.messages-analytics-page .horizontal-bars::-webkit-scrollbar-thumb {
+  background: var(--btf-light-green) !important;
+}
+
+/* Muted content */
+.analytics-page small,
+.analytics-page p,
+.users-analytics-page small,
+.users-analytics-page p,
+.groups-analytics-page small,
+.groups-analytics-page p,
+.messages-analytics-page small,
+.messages-analytics-page p,
+.activity-analytics-page small,
+.activity-analytics-page p {
+  color: var(--btf-muted);
+}
+
+
+/* ---------- Official chart palette helpers ---------- */
+/* Client guideline: use solid palette colours in graphs/tables; no gradients or patterns. */
+.chart-btf-dark-green { color: #017151 !important; background: #017151 !important; }
+.chart-btf-teal { color: #174243 !important; background: #174243 !important; }
+.chart-btf-air-force-blue { color: #39687B !important; background: #39687B !important; }
+.chart-btf-mint { color: #5EA99E !important; background: #5EA99E !important; }
+.chart-btf-light-green { color: #BAD7B8 !important; background: #BAD7B8 !important; }
+.chart-btf-yellow { color: #174243 !important; background: #F1E5A6 !important; }
+
+
+/* Final brand-only accent cleanup */
+.analytics-page .positive,
+.users-analytics-page .positive,
+.groups-analytics-page .trend-up {
+  color: #017151 !important;
+}
+
+.analytics-page .negative,
+.users-analytics-page .negative,
+.groups-analytics-page .trend-down {
+  color: #39687B !important;
+}
+
+.analytics-page .breadcrumb a:hover,
+.users-analytics-page .breadcrumb a:hover,
+.groups-analytics-page .breadcrumb a:hover,
+.messages-analytics-page .breadcrumb a:hover,
+.activity-analytics-page .breadcrumb a:hover {
+  color: #017151 !important;
+}
+
+.analytics-page .details-button,
+.analytics-page .view-all-button,
+.users-analytics-page .expand-button,
+.groups-analytics-page .export-button,
+.messages-analytics-page .breakdown-toggle button.active {
+  color: #017151 !important;
+}
+
+.messages-analytics-page .breakdown-toggle button.active {
+  background: #FFFFFF !important;
+  border-color: #BAD7B8 !important;
+}
+
+.groups-analytics-page .insight-red strong {
+  background: #BAD7B8 !important;
+  color: #174243 !important;
+}
+.groups-analytics-page .insight-orange strong {
+  background: #F1E5A6 !important;
+  color: #174243 !important;
+}
+.groups-analytics-page .insight-purple strong {
+  background: #5EA99E !important;
+  color: #FFFFFF !important;
+}
+.groups-analytics-page .insight-blue strong {
+  background: #39687B !important;
+  color: #FFFFFF !important;
+}
+
+
+
+
+/* =========================================================
+   Analytics desktop scale
+   Makes browser 100% visually/layout-wise close to the
+   previous 90% browser zoom, without changing browser zoom.
+   ========================================================= */
+
+:root {
+  --analytics-page-scale: 0.9;
+}
+
+/* On normal desktop/laptop screens, shrink the Analytics content to 90%
+   and compensate its layout width so it keeps the denser desktop grid. */
+@media (min-width: 1280px) {
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .messages-analytics-page,
+  .activity-analytics-page,
+  .email-monitoring-page,
+  .resources-analytics-page {
+    zoom: var(--analytics-page-scale);
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .analytics-page *,
+  .users-analytics-page *,
+  .groups-analytics-page *,
+  .messages-analytics-page *,
+  .activity-analytics-page *,
+  .email-monitoring-page *,
+  .resources-analytics-page * {
+    box-sizing: border-box;
+  }
+
+
+  .analytics-page .summary-grid > *,
+  .analytics-page .module-grid > *,
+  .users-analytics-page .kpi-grid > *,
+  .users-analytics-page .analytics-grid > *,
+  .groups-analytics-page .kpi-grid > *,
+  .groups-analytics-page .analytics-grid > *,
+  .messages-analytics-page .kpi-grid > *,
+  .messages-analytics-page .top-grid > *,
+  .messages-analytics-page .lower-grid > *,
+  .resources-analytics-page .kpi-grid > *,
+  .resources-analytics-page .analytics-grid > * {
+    min-width: 0 !important;
+  }
+
+  .messages-analytics-page .page-actions,
+  .users-analytics-page .page-actions,
+  .groups-analytics-page .page-actions,
+  .analytics-page .page-actions,
+  .resources-analytics-page .page-actions {
+    max-width: 100%;
+  }
+
+  /* Keep the original desktop column layouts instead of reflowing early. */
+  .analytics-page .summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .analytics-page .module-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .users-analytics-page .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  .users-analytics-page .analytics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .groups-analytics-page .kpi-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .groups-analytics-page .analytics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .messages-analytics-page .kpi-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  }
+
+
+  .messages-analytics-page .kpi-grid {
+    gap: 10px !important;
+  }
+
+  .messages-analytics-page .kpi-card {
+    padding: 14px 12px !important;
+  }
+
+  .messages-analytics-page .kpi-label {
+    font-size: 11px !important;
+  }
+
+  .messages-analytics-page .kpi-card strong {
+    font-size: 27px !important;
+  }
+
+  .messages-analytics-page .kpi-card strong.text-value {
+    font-size: 23px !important;
+  }
+
+
+  .messages-analytics-page .top-grid,
+  .messages-analytics-page .lower-grid,
+.activity-analytics-page .main-grid,
+.activity-analytics-page .lower-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr) !important;
+  }
+
+
+  .activity-analytics-page .kpi-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+
+  .activity-analytics-page .main-grid,
+  .activity-analytics-page .lower-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr) !important;
+  }
+
+  .email-monitoring-page .kpi-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+  }
+
+  .email-monitoring-page .overall-stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  .email-monitoring-page .kpi-card,
+  .email-monitoring-page .overall-stat-card {
+    min-width: 0 !important;
+  }
+
+  /* Prevent long KPI labels from escaping their card at the denser scale. */
+  .messages-analytics-page .kpi-card,
+  .messages-analytics-page .kpi-card > div,
+  .groups-analytics-page .kpi-card,
+  .users-analytics-page .kpi-card {
+    min-width: 0;
+  }
+
+  .messages-analytics-page .kpi-label,
+  .messages-analytics-page .text-value {
+    overflow-wrap: anywhere;
+  }
+
+  .analytics-page svg,
+  .users-analytics-page svg,
+  .groups-analytics-page svg,
+  .messages-analytics-page svg,
+  .activity-analytics-page svg {
+    max-width: 100%;
+  }
+}
+
+/* Only reflow when the viewport is genuinely narrow. */
+@media (max-width: 1279px) {
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .messages-analytics-page,
+  .activity-analytics-page,
+  .email-monitoring-page {
+    zoom: 1;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .analytics-page .summary-grid,
+  .analytics-page .module-grid,
+  .users-analytics-page .kpi-grid,
+  .groups-analytics-page .kpi-grid,
+  .messages-analytics-page .kpi-grid,
+  .activity-analytics-page .kpi-grid,
+  .email-monitoring-page .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .users-analytics-page .analytics-grid,
+  .groups-analytics-page .analytics-grid,
+  .messages-analytics-page .top-grid,
+  .messages-analytics-page .lower-grid,
+.activity-analytics-page .main-grid,
+.activity-analytics-page .lower-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .analytics-page .page-heading,
+  .users-analytics-page .page-heading,
+  .groups-analytics-page .page-heading,
+  .messages-analytics-page .page-heading,
+  .activity-analytics-page .page-heading,
+  .email-monitoring-page .page-heading,
+  .resources-analytics-page .page-heading {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* On these pages the export button leads the actions row, so once the
+     actions drop below the title it sits at the left edge; the status line
+     runs rightwards from it instead of past the content area. */
+  .messages-analytics-page .analytics-update-status,
+  .activity-analytics-page .analytics-update-status,
+  .email-monitoring-page .analytics-update-status {
+    left: 0;
+    right: auto;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 680px) {
+  .analytics-page .summary-grid,
+  .analytics-page .module-grid,
+  .users-analytics-page .kpi-grid,
+  .groups-analytics-page .kpi-grid,
+  .messages-analytics-page .kpi-grid,
+  .activity-analytics-page .kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+/* Resources Analytics uses the same shared 90% desktop scale and header system. */
+@media (min-width: 1280px) {
+  .resources-analytics-page {
+    zoom: var(--analytics-page-scale);
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .resources-analytics-page * {
+    box-sizing: border-box;
+  }
+
+  .resources-analytics-page .kpi-grid > *,
+  .resources-analytics-page .analytics-grid > * {
+    min-width: 0 !important;
+  }
+}
+
+.resources-analytics-page,
+.resources-analytics-page button,
+.resources-analytics-page input,
+.resources-analytics-page select {
+  font-family: Arial, sans-serif;
+}
+
+.resources-analytics-page .page-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+
+.resources-analytics-page h1 {
+  margin: 0;
+  color: #163f3c;
+  font-size: 36px;
+  line-height: 1.15;
+  font-weight: 800;
+}
+
+.resources-analytics-page .heading-copy > p {
+  margin: 8px 0 0;
+  color: #617572;
+  font-size: 16px;
+}
+
+.resources-analytics-page .export-button {
+  width: 142px;
+  height: 46px;
+  border: 1px solid #9fd8c7;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #017151;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+@media (max-width: 1279px) {
+  .resources-analytics-page {
+    zoom: 1;
+  }
+}
+
+/* Definitive Resources Analytics scaling: identical to the other Analytics pages. */
+@media (min-width: 1280px) {
+  .resources-analytics-page {
+    zoom: var(--analytics-page-scale) !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+}
+
+@media (max-width: 1279px) {
+  .resources-analytics-page {
+    zoom: 1 !important;
+  }
+}
+
+
+/* =========================================================
+   Registration Analytics + Mentors Analytics
+   Shared BIOTech analytics theme integration
+   ========================================================= */
+
+.registration-analytics-page,
+.mentors-analytics-page,
+.registration-analytics-page button,
+.registration-analytics-page input,
+.registration-analytics-page select,
+.mentors-analytics-page button,
+.mentors-analytics-page input,
+.mentors-analytics-page select {
+  font-family: Arial, sans-serif !important;
+  font-style: normal;
+}
+
+.registration-analytics-page,
+.mentors-analytics-page {
+  color: var(--btf-teal);
+  background: var(--btf-surface);
+}
+
+.registration-analytics-page h1,
+.registration-analytics-page h2,
+.registration-analytics-page h3,
+.mentors-analytics-page h1,
+.mentors-analytics-page h2,
+.mentors-analytics-page h3 {
+  color: var(--btf-teal) !important;
+  font-family: Arial, sans-serif !important;
+  font-style: normal !important;
+}
+
+.registration-analytics-page .filter-card,
+.registration-analytics-page .kpi-card,
+.registration-analytics-page .analytics-card,
+.mentors-analytics-page .kpi-card,
+.mentors-analytics-page .analytics-card {
+  background: var(--btf-white) !important;
+  border-color: var(--btf-border) !important;
+}
+
+.registration-analytics-page .export-button,
+.registration-analytics-page .reset-button,
+.registration-analytics-page .filter-card input,
+.registration-analytics-page .filter-card select,
+.mentors-analytics-page .range-control,
+.mentors-analytics-page .export-button,
+.mentors-analytics-page .custom-range input {
+  color: var(--btf-dark-green) !important;
+  border-color: var(--btf-mint-green) !important;
+  background: var(--btf-white) !important;
+}
+
+.registration-analytics-page .export-button:hover,
+.registration-analytics-page .reset-button:hover,
+.mentors-analytics-page .export-button:hover {
+  background: color-mix(in srgb, var(--btf-light-green) 45%, white) !important;
+}
+
+.registration-analytics-page .demo-badge,
+.mentors-analytics-page .demo-badge {
+  color: var(--btf-teal) !important;
+  border-color: var(--btf-light-green) !important;
+  background: color-mix(in srgb, var(--btf-yellow) 55%, white) !important;
+}
+
+.registration-analytics-page .kpi-icon,
+.mentors-analytics-page .kpi-icon {
+  color: var(--btf-dark-green) !important;
+  background: color-mix(in srgb, var(--btf-light-green) 55%, white) !important;
+}
+
+.registration-analytics-page .funnel-track,
+.mentors-analytics-page .progress-track,
+.mentors-analytics-page .rank-track {
+  background: var(--btf-track) !important;
+}
+
+.registration-analytics-page .grid-line,
+.mentors-analytics-page .grid-line {
+  stroke: var(--btf-border) !important;
+}
+
+.registration-analytics-page small,
+.registration-analytics-page p,
+.mentors-analytics-page small,
+.mentors-analytics-page p {
+  color: var(--btf-muted);
+}
+
+/* Keep the two added pages at the same desktop density as the rest
+   of the Analytics suite. */
+@media (min-width: 1280px) {
+  .registration-analytics-page,
+  .mentors-analytics-page {
+    zoom: var(--analytics-page-scale);
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .registration-analytics-page *,
+  .mentors-analytics-page * {
+    box-sizing: border-box;
+  }
+
+  .registration-analytics-page .page-actions,
+  .mentors-analytics-page .page-actions {
+    max-width: 100%;
+  }
+
+  .registration-analytics-page .kpi-grid > *,
+  .registration-analytics-page .primary-grid > *,
+  .registration-analytics-page .status-grid > *,
+  .registration-analytics-page .secondary-grid > *,
+  .mentors-analytics-page .kpi-grid > *,
+  .mentors-analytics-page .chart-grid > *,
+  .mentors-analytics-page .activity-grid > *,
+  .mentors-analytics-page .bottom-grid > * {
+    min-width: 0 !important;
+  }
+
+  .registration-analytics-page svg,
+  .mentors-analytics-page svg {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 1279px) {
+  .registration-analytics-page,
+  .mentors-analytics-page {
+    zoom: 1;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .registration-analytics-page .page-heading,
+  .mentors-analytics-page .page-heading {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* =========================================================
+   Browser-zoom and intermediate-width resilience
+
+   Browser zoom reduces the CSS viewport. Treat the 1000–1279px range as
+   responsive rather than forcing dense desktop grids into cards that no
+   longer have enough usable width. Native date/select controls also need an
+   explicit zero minimum or their intrinsic width can push a grid/flex item
+   outside its card.
+   ========================================================= */
+@media (max-width: 1279px) {
+  .analytics-page,
+  .users-analytics-page,
+  .groups-analytics-page,
+  .messages-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .mentors-analytics-page,
+  .resources-analytics-page {
+    zoom: 1 !important;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .analytics-page .summary-card,
+  .analytics-page .summary-copy,
+  .analytics-page .summary-visual,
+  .registration-analytics-page .filter-card > *,
+  .messages-analytics-page .filter-card > *,
+  .activity-analytics-page .filter-card > * {
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  .analytics-page .summary-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(80px, 35%);
+    align-items: stretch;
+  }
+
+  .analytics-page .summary-visual {
+    width: 100%;
+  }
+
+  .analytics-page .summary-helper,
+  .analytics-page .card-label {
+    overflow-wrap: anywhere;
+  }
+
+  .registration-analytics-page .filter-card {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .registration-analytics-page .filter-card input,
+  .registration-analytics-page .filter-card select,
+  .messages-analytics-page .filter-card select,
+  .activity-analytics-page .filter-card input,
+  .activity-analytics-page .filter-card select {
+    width: 100%;
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  .messages-analytics-page .filter-card {
+    display: flex;
+    flex-wrap: wrap !important;
+  }
+
+  .messages-analytics-page .filter-card label,
+  .messages-analytics-page .filter-card > label:first-child {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: 1 1 180px !important;
+  }
+
+  .messages-analytics-page .filter-card .reset-button {
+    flex: 0 1 auto;
+    margin-left: 0;
+  }
+
+  .groups-analytics-page .groups-custom-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .groups-analytics-page .group-status-card,
+  .groups-analytics-page .mentor-coverage-card,
+  .groups-analytics-page .group-size-card,
+  .groups-analytics-page .ratio-card,
+  .groups-analytics-page .compact-insights-card,
+  .groups-analytics-page .group-activity-card {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .analytics-page .summary-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .registration-analytics-page .filter-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .messages-analytics-page .filter-card label,
+  .messages-analytics-page .filter-card > label:first-child,
+  .messages-analytics-page .filter-card .reset-button {
+    flex-basis: 100% !important;
+    width: 100% !important;
+  }
+}
+.analytics-value-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.analytics-value-row > strong {
+  flex: 0 1 auto;
+}
+
+/* =========================================================
+   Dropdowns: one chevron with breathing room on the right.
+   Native select arrows sit flush against the border and differ
+   by browser, so every Analytics select draws the same chevron
+   12px in from its right edge. The :not() filters only raise
+   specificity above the page-scoped filter rules that reset
+   padding with !important.
+   ========================================================= */
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) select:not([multiple]):not([size]):not([data-native-arrow]) {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding-right: 34px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23017151' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 12px 12px !important;
+  text-overflow: ellipsis;
+}

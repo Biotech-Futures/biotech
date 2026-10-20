@@ -2,6 +2,7 @@
 from django.test import SimpleTestCase
 
 from apps.submissions.poster_checks import (
+    A2_SIZE,
     A_SERIES_MM,
     A_SERIES_SIZE,
     POINTS_PER_MM,
@@ -50,8 +51,13 @@ def _build_pdf(width, height, *, text="", pages=1, rotate=0) -> bytes:
 
         body = b""
         if text:
-            escaped = text.replace("(", r"\(").replace(")", r"\)")
-            body = f"BT /F1 12 Tf 40 40 Td ({escaped}) Tj ET".encode()
+            # A list draws each item as a separate text box, as a poster's title block does.
+            runs = [text] if isinstance(text, str) else text
+            escaped = [run.replace("(", r"\(").replace(")", r"\)") for run in runs]
+            body = " ".join(
+                f"BT /F1 12 Tf 40 {40 + 14 * (len(escaped) - 1 - i)} Td ({run}) Tj ET"
+                for i, run in enumerate(escaped)
+            ).encode()
         objects[cid] = (
             b"<< /Length " + str(len(body)).encode() + b" >>\nstream\n" + body + b"\nendstream"
         )
@@ -137,24 +143,37 @@ class PosterShapeTests(SimpleTestCase):
             with self.subTest(size=name):
                 self.assertEqual(_check(_build_pdf(*_mm(*dims))).blocking, [])
 
-    def test_non_metric_sizes_are_refused(self):
-        for size in (US_LETTER, POSTER_18_BY_24, INSTRUCTION_DECK):
-            with self.subTest(size=size):
-                self.assertEqual(_codes(_check(_build_pdf(*size)).blocking), {A_SERIES_SIZE})
+    def test_every_a_series_size_passes_the_size_check(self):
+        for name, dims in A_SERIES_MM.items():
+            with self.subTest(size=name):
+                self.assertNotIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(*dims))).warnings))
 
-    def test_a_size_a_few_millimetres_out_is_still_accepted(self):
-        self.assertEqual(_check(_build_pdf(*_mm(420, 592))).blocking, [])
+    def test_sizes_outside_the_a_series_are_refused(self):
+        for size in (US_LETTER, POSTER_18_BY_24, INSTRUCTION_DECK, _mm(190.5, 275.1)):
+            with self.subTest(size=size):
+                self.assertIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*size)).blocking))
+
+    def test_a_size_within_ten_millimetres_is_accepted(self):
+        result = _check(_build_pdf(*_mm(420, 586)))
+
+        self.assertEqual(result.blocking, [])
+        self.assertNotIn(A2_SIZE, _codes(result.warnings))
 
     def test_a_size_beyond_the_tolerance_is_refused(self):
-        result = _check(_build_pdf(*_mm(420, 588)))
-
-        self.assertEqual(_codes(result.blocking), {A_SERIES_SIZE})
+        self.assertIn(A_SERIES_SIZE, _codes(_check(_build_pdf(*_mm(420, 580))).blocking))
 
     def test_the_refusal_states_the_size_in_millimetres(self):
-        (check,) = _check(_build_pdf(*US_LETTER)).blocking
+        (check,) = [c for c in _check(_build_pdf(*US_LETTER)).blocking if c.code == A_SERIES_SIZE]
 
         self.assertIn("216 × 279 mm", check.message)
-        self.assertTrue(check.explicit)
+
+    def test_another_a_series_size_is_accepted_silently(self):
+        result = _check(_build_pdf(*_mm(594, 841)))
+        (check,) = [c for c in result.content if c.code == A2_SIZE]
+
+        self.assertEqual(result.blocking, [])
+        self.assertFalse(check.passed)
+        self.assertEqual(check.message, "")
 
     def test_landscape_a2_is_refused_for_orientation_not_size(self):
         result = _check(_build_pdf(A2[1], A2[0]))
@@ -200,6 +219,11 @@ class PosterContentTests(SimpleTestCase):
 
         self.assertIn(TEAM_CODE, _codes(result.warnings))
 
+    def test_a_team_code_in_its_own_text_run_is_found(self):
+        result = _check(_build_pdf(*A2, text=["2026", "BTF1", "Our Project"]), team_code="BTF1")
+
+        self.assertNotIn(TEAM_CODE, _codes(result.warnings))
+
     def test_a_lowercase_team_code_still_counts(self):
         result = _check(_build_pdf(*A2, text="btf1 - a@b.com"), team_code="BTF1")
 
@@ -210,7 +234,7 @@ class PosterContentTests(SimpleTestCase):
 
         self.assertFalse(result.has_text)
         self.assertEqual(result.warnings, [])
-        self.assertEqual(result.content, [])
+        self.assertFalse(_codes(result.content) & {TEAM_CODE, SUPERVISOR_EMAIL})
 
 
 class UnreadablePosterTests(SimpleTestCase):

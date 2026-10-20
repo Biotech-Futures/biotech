@@ -15,9 +15,9 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import SubmissionComponent
+from apps.common.rbac import IsStaffOrAdmin
 
-from ..permissions import IsGrader
+from ..models import SubmissionComponent
 from ..services.upload import commit_marks_upload, parse_marks_upload
 
 
@@ -27,7 +27,7 @@ class BulkUploadMarksView(APIView):
     Multipart body: ``file`` (xlsx/csv), ``dry_run`` ("true"/"false", default "true").
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsGrader]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
     parser_classes = [MultiPartParser]
 
     def post(self, request, code: str):

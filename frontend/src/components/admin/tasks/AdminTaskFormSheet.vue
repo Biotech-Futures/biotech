@@ -15,34 +15,43 @@
             <label class="form-label" for="task-type">
               Task type <span class="admin-task-form__required">*</span>
             </label>
-            <select id="task-type" v-model="form.task_type" class="form-input" :disabled="busy">
-              <option value="group">Group Task</option>
-              <option value="individual">Individual Task</option>
-            </select>
+            <AppSelect
+              id="task-type"
+              v-model="form.task_type"
+              class="form-input"
+              :options="TASK_TYPE_OPTIONS"
+              :disabled="busy"
+            />
           </div>
 
           <div v-if="form.task_type === 'group'" class="form-field">
             <label class="form-label" for="task-group">
               Group <span class="admin-task-form__required">*</span>
             </label>
-            <select id="task-group" v-model="form.group" class="form-input" :disabled="busy">
-              <option value="">{{ groups.length ? 'Select group' : 'No groups available' }}</option>
-              <option v-for="group in groups" :key="group.id" :value="String(group.id)">
-                {{ groupLabel(group) }}
-              </option>
-            </select>
+            <AppSelect
+              id="task-group"
+              v-model="form.group"
+              class="form-input"
+              :options="groupOptions"
+              :placeholder="groups.length ? 'Select group' : 'No groups available'"
+              searchable
+              :disabled="busy"
+            />
           </div>
 
           <div v-else class="form-field">
             <label class="form-label" for="task-user">
               User <span class="admin-task-form__required">*</span>
             </label>
-            <select id="task-user" v-model="form.assigned_user" class="form-input" :disabled="busy">
-              <option value="">{{ users.length ? 'Select user' : 'No users available' }}</option>
-              <option v-for="user in users" :key="user.id" :value="String(user.id)">
-                {{ userLabel(user) }}
-              </option>
-            </select>
+            <AppSelect
+              id="task-user"
+              v-model="form.assigned_user"
+              class="form-input"
+              :options="userOptions"
+              :placeholder="users.length ? 'Select user' : 'No users available'"
+              searchable
+              :disabled="busy"
+            />
           </div>
         </div>
       </template>
@@ -75,12 +84,13 @@
 
         <div class="form-field">
           <label class="form-label" for="task-status">Status</label>
-          <select id="task-status" v-model="form.status" class="form-input" :disabled="busy">
-            <option value="todo">To Do</option>
-            <option value="in_progress">In Progress</option>
-            <option value="done">Done</option>
-            <option value="blocked">Blocked</option>
-          </select>
+          <AppSelect
+            id="task-status"
+            v-model="form.status"
+            class="form-input"
+            :options="STATUS_OPTIONS"
+            :disabled="busy"
+          />
         </div>
       </div>
 
@@ -99,6 +109,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import type {
   AdminGroup,
@@ -222,6 +233,26 @@ const userLabel = (user: AdminUser) => {
   return user.email ? `${name} (${user.email})` : name
 }
 
+const TASK_TYPE_OPTIONS: AppSelectOption[] = [
+  { value: 'group', label: 'Group Task' },
+  { value: 'individual', label: 'Individual Task' }
+]
+
+const STATUS_OPTIONS: AppSelectOption[] = [
+  { value: 'todo', label: 'To Do' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'done', label: 'Done' },
+  { value: 'blocked', label: 'Blocked' }
+]
+
+const groupOptions = computed<AppSelectOption[]>(() =>
+  props.groups.map((group) => ({ value: String(group.id), label: groupLabel(group) }))
+)
+
+const userOptions = computed<AppSelectOption[]>(() =>
+  props.users.map((user) => ({ value: String(user.id), label: userLabel(user) }))
+)
+
 const onCancel = () => {
   if (props.busy) return
   open.value = false
@@ -299,7 +330,7 @@ const submitForm = () => {
   margin-bottom: 0.3rem;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .form-input {
@@ -308,14 +339,20 @@ const submitForm = () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 
-.form-input:disabled {
+.form-input:disabled,
+.app-select.form-input.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
+}
+
+/* Drawn as the disabled inputs, without the dropdown's own fading. */
+.app-select.form-input.is-disabled {
+  opacity: 1;
 }
 
 .admin-task-form__required {

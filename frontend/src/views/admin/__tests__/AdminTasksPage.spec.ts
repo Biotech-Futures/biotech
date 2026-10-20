@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DATA_TABLE_TWO_LINE_ROW_HEIGHT, fitPageSize } from '@/utils/dataTable'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminTasksPage from '@/views/admin/AdminTasksPage.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const baseTask = {
   id: 1,
@@ -161,7 +163,7 @@ const lastTaskListUrl = (fetchMock: ReturnType<typeof vi.fn>) => {
 
 const sortableButton = (wrapper: VueWrapper, label: string) =>
   wrapper
-    .findAll('.admin-table__sort-btn')
+    .findAll('.data-table-sort-btn')
     .find((button) => button.text().replace(/[^\w ]/g, '').trim() === label)
 
 const mountPage = () => mount(AdminTasksPage, { global: { stubs: { Teleport: true, RouterLink: true } } })
@@ -210,14 +212,14 @@ describe('AdminTasksPage', () => {
     const url = lastTaskListUrl(fetchMock)
     expect(url.pathname).toBe('/api/v1/admin/task/')
     expect(url.searchParams.get('page')).toBe('1')
-    expect(url.searchParams.get('limit')).toBe('25')
+    expect(url.searchParams.get('limit')).toBe(String(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT)))
     expect(url.searchParams.get('sortBy')).toBe('due')
     expect(url.searchParams.get('sortOrder')).toBe('asc')
     expect(url.searchParams.has('task_type')).toBe(false)
 
     // Legacy individual tasks (created before TK4, or via a group's own
-    // environment) still list and render correctly — only *creating* a new
-    // one from this page is gone.
+    // environment) still list and render correctly; only the role fan-out
+    // creation flow is replaced by the separate Role Tasks page.
     expect(wrapper.text()).toContain('Submit reflection')
     expect(wrapper.text()).toContain('Write a short weekly update')
     expect(wrapper.text()).toContain('Individual')
@@ -227,10 +229,11 @@ describe('AdminTasksPage', () => {
     expect(wrapper.text()).toContain('In Progress')
 
     const headers = wrapper
-      .findAll('.admin-table__head')
+      .findAll('.data-table-head')
       .map((header) => header.text().replace(/[^\w ]/g, '').trim())
-    expect(headers).toEqual(['Name', 'Type', 'Target', 'Status', 'Due', 'Actions'])
-    expect(wrapper.findAll('.admin-table__sort-btn').map((button) => button.text().replace(/[^\w ]/g, '').trim()))
+    // Edit and Delete each have a column, both headed Actions for screen readers.
+    expect(headers).toEqual(['Name', 'Type', 'Target', 'Status', 'Due', 'Actions', 'Actions'])
+    expect(wrapper.findAll('.data-table-sort-btn').map((button) => button.text().replace(/[^\w ]/g, '').trim()))
       .toEqual(['Name', 'Type', 'Target', 'Status', 'Due'])
   })
 
@@ -244,7 +247,7 @@ describe('AdminTasksPage', () => {
     await flushPromises()
     expect(lastTaskListUrl(fetchMock).searchParams.get('page')).toBe('1')
 
-    await wrapper.find<HTMLSelectElement>('#task-type-filter').setValue('group')
+    await pickAppSelect(wrapper, '#task-type-filter', 'Group')
     await flushPromises()
 
     const params = lastTaskListUrl(fetchMock).searchParams
@@ -288,14 +291,14 @@ describe('AdminTasksPage', () => {
 
     let params = lastTaskListUrl(fetchMock).searchParams
     expect(params.get('page')).toBe('2')
-    expect(params.get('limit')).toBe('25')
+    expect(params.get('limit')).toBe(String(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT)))
 
-    await wrapper.find<HTMLSelectElement>('.admin-table__page-size select').setValue('50')
+    await pickAppSelect(wrapper, '.data-table-page-size', '30 Entries')
     await flushPromises()
 
     params = lastTaskListUrl(fetchMock).searchParams
     expect(params.get('page')).toBe('1')
-    expect(params.get('limit')).toBe('50')
+    expect(params.get('limit')).toBe('30')
   })
 
   it('supports row selection with the existing admin table pattern', async () => {
@@ -372,7 +375,8 @@ describe('AdminTasksPage', () => {
   })
 
   it('clamps to the new last page after deleting the final row on the final page', async () => {
-    const fetchMock = fetchMockFor([buildTask({ id: 51 })], 51, { trackDeletedTotal: true })
+    // Two full pages and one row on a third, at the page size that fits the window.
+    const fetchMock = fetchMockFor([buildTask({ id: 51 })], 2 * fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT) + 1, { trackDeletedTotal: true })
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
     await flushPromises()
@@ -428,9 +432,10 @@ describe('AdminTasksPage', () => {
   })
 
   it('clamps to the new last page after bulk deleting final rows on the final page', async () => {
+    // Two full pages and two rows on a third, at the page size that fits the window.
     const fetchMock = fetchMockFor(
       [buildTask({ id: 51 }), buildTask({ id: 52, name: 'Prepare slides', assigned_user: 43 })],
-      52,
+      2 * fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT) + 2,
       { trackDeletedTotal: true }
     )
     vi.stubGlobal('fetch', fetchMock)
@@ -473,7 +478,7 @@ describe('AdminTasksPage', () => {
     await rowCheckboxes[2].setValue(true)
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
+    await pickAppSelect(wrapper, '#task-bulk-status', 'Done')
     await flushPromises()
 
     const patchCalls = fetchMock.mock.calls.filter(
@@ -495,9 +500,9 @@ describe('AdminTasksPage', () => {
     await rowCheckboxes[1].setValue(true)
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#task-bulk-status').setValue('done')
+    await pickAppSelect(wrapper, '#task-bulk-status', 'Done')
 
-    expect(wrapper.find<HTMLSelectElement>('#task-type-filter').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('#task-type-filter').attributes('disabled')).toBeDefined()
     expect(buttonByText(wrapper, 'Add Task')!.attributes('disabled')).toBeDefined()
 
     await new Promise((resolve) => setTimeout(resolve, 60))
@@ -531,7 +536,7 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 
@@ -557,7 +562,7 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
     await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-10-04')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
@@ -581,7 +586,7 @@ describe('AdminTasksPage', () => {
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeDefined()
 
-    await wrapper.find<HTMLSelectElement>('#task-group').setValue('7')
+    await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
     expect(submitButton(wrapper)!.attributes('disabled')).toBeUndefined()
   })
 
@@ -592,9 +597,9 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
-    await wrapper.find<HTMLSelectElement>('#task-type').setValue('individual')
+    await pickAppSelect(wrapper, '#task-type', 'Individual Task')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Message mentor')
-    await wrapper.find<HTMLSelectElement>('#task-user').setValue('42')
+    await pickAppSelect(wrapper, '#task-user', 'Ada Lovelace (ada@example.edu)')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 
@@ -631,7 +636,7 @@ describe('AdminTasksPage', () => {
 
     await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Updated reflection')
-    await wrapper.find<HTMLSelectElement>('#task-status').setValue('in_progress')
+    await pickAppSelect(wrapper, '#task-status', 'In Progress')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 

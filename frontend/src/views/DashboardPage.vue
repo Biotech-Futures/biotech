@@ -9,7 +9,7 @@
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
       <section class="dashboard-welcome-header">
-          <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
+          <h1 class="hero-title">Welcome back, {{ welcomeName }}</h1>
         </section>
 
         <div
@@ -30,7 +30,7 @@
             <div class="dashboard-hero-main">
               <div class="dashboard-hero-copy">
                 <p class="dashboard-hero-message">
-                  Welcome to {{ BRAND_CONNECT }} — your central hub for the {{ BRAND_NAME }} Challenge.
+                  Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
                   Connect with your team, collaborate and share ideas, access program-wide
                   resources, register for events, and stay up to date with the latest announcements
                   and opportunities across the program.
@@ -300,7 +300,7 @@
                       <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
 
                       <div class="list-row-meta">
-                        {{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}
+                        {{ getAnnouncementDate(announcement) }}
                       </div>
 
                       <div
@@ -432,7 +432,7 @@
                         <span :class="{ 'role-task-done': roleTask.completed }">{{ roleTask.name }}</span>
                       </label>
                       <span v-if="roleTask.due_date" class="role-task-due">
-                        Due {{ formatAnnouncementDateAU(roleTask.due_date) }}
+                        Due {{ formatDayMonth(roleTask.due_date) }}
                       </span>
                     </div>
                     <p v-if="roleTask.description" class="role-task-description">
@@ -492,10 +492,12 @@ import { useAuthStore } from '@/stores/auth'
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 
 import {
-  formatAnnouncementDateAU,
+  formatDayMonth,
   formatEventDate,
   formatEventTimeRange,
+  getSetTimeZone,
 } from '@/utils/date'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
@@ -506,6 +508,8 @@ import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
 const { isAdmin, isMentor, isSupervisor, displayName, user, timeZone } = storeToRefs(auth)
+// The welcome: just their first name (their full name, or email, without one).
+const welcomeName = computed(() => user.value?.first_name?.trim() || displayName.value)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const EVENTS_API_BASE = `${API_BASE_URL}/events/v1`
 const DASHBOARD_ENDPOINTS = {
@@ -693,6 +697,8 @@ const headerHighlights = computed(() => {
 const announcementsCount = computed(() => announcements.value.length)
 const resourcesCount = computed(() => resources.value.length)
 const groupsCount = computed(() => groups.value.length)
+// How many there are in all (the server's count): only the first 20 are fetched.
+const groupsTotal = ref(0)
 const shouldBlockGroupsNavigation = computed(() => !isAdmin.value && groupsCount.value === 0)
 const hasNoAssignedMembership = computed(() => !isAdmin.value && groupsCount.value === 0)
 
@@ -704,9 +710,12 @@ const announcementsPreview = computed(() => {
   return announcements.value.slice(0, 3)
 })
 
-const resourcesPreview = computed(() => {
-  return resources.value.slice(0, 12)
-})
+// The 3 latest updated.
+const resourcesPreview = computed(() =>
+  [...resources.value]
+    .sort((a, b) => (Date.parse(b.updated) || 0) - (Date.parse(a.updated) || 0))
+    .slice(0, 3),
+)
 
 const groupsPreview = computed(() => {
   return groups.value.slice(0, isAdmin.value ? 4 : 3)
@@ -835,10 +844,10 @@ const summaryWidgets = computed(() => {
 })
 
 const groupsSectionTitle = computed(() => {
-  if (isAdmin.value) return `Active Mentoring Groups (${groupsCount.value})`
-  if (isMentor.value) return `My Mentoring Groups (${groupsCount.value})`
-  if (isSupervisor.value) return `Supervised Groups (${groupsCount.value})`
-  return `My Active Groups (${groupsCount.value})`
+  if (isAdmin.value) return `Active Mentoring Groups (${groupsTotal.value})`
+  if (isMentor.value) return `My Mentoring Groups (${groupsTotal.value})`
+  if (isSupervisor.value) return `Supervised Groups (${groupsTotal.value})`
+  return `My Active Groups (${groupsTotal.value})`
 })
 
 function showNoMembershipPopup() {
@@ -990,9 +999,12 @@ function sanitizeDashboardAnnouncementRichText(value) {
       return
     }
 
+    // The editor's colours, sizes and gaps stay; any other attribute goes.
+    const style = cleanEmailStyle(element.getAttribute('style'))
     for (const attribute of Array.from(element.attributes)) {
       element.removeAttribute(attribute.name)
     }
+    if (style) element.setAttribute('style', style)
 
     Array.from(element.childNodes).forEach(cleanNode)
   }
@@ -1010,10 +1022,6 @@ function getAnnouncementBody(announcement) {
     announcement?.excerpt ||
     ''
   )
-}
-
-function formatEventTime(startValue, endValue) {
-  return formatEventTimeRange(startValue, endValue, timeZone.value)
 }
 
 function normalizeEventFormat(event) {
@@ -1113,7 +1121,7 @@ function normalizeResource(resource) {
     type: resolveResourceIconType(typeLabel),
     category: typeLabel,
     updated:
-      resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
+      resource?.uploaded_at || resource?.updated || resource?.date || resource?.created_at,
     role: normalizedRoles[0] || 'all',
     roles: normalizedRoles,
   }
@@ -1158,7 +1166,8 @@ function normalizeEvent(event) {
     id: event?.id,
     title: event?.event_name || event?.title || event?.name || 'Untitled event',
     date: start,
-    time: formatEventTimeRange(start, end, eventTimezone) || event?.time || '',
+    // In the set time, labelled with that zone, like the Events page.
+    time: formatEventTimeRange(start, end, getSetTimeZone()) || event?.time || '',
     location: hasPhysicalPlace ? event.location : format === 'virtual' ? 'Online' : 'Location TBC',
     mode: getEventModeLabel(format),
     link: format === 'virtual' || format === 'hybrid' ? event?.location_link || event?.link : '',
@@ -1170,7 +1179,7 @@ function normalizeEvent(event) {
 function deriveDashboardSummary() {
   if (isAdmin.value && adminOperationsSummary.value) {
     dashboardSummary.value = {
-      activeGroups: Number(adminOperationsSummary.value.active_groups || groups.value.length),
+      activeGroups: Number(adminOperationsSummary.value.active_groups || groupsTotal.value),
       upcomingEvents: Number(adminOperationsSummary.value.upcoming_events ?? upcomingEventsCount.value),
       resources: resources.value.length,
       announcements: announcements.value.length,
@@ -1179,7 +1188,8 @@ function deriveDashboardSummary() {
   }
 
   dashboardSummary.value = {
-    activeGroups: groups.value.length,
+    // All of theirs, not only the first 20 fetched.
+    activeGroups: groupsTotal.value,
     upcomingEvents: upcomingEventsCount.value,
     resources: resources.value.length,
     announcements: announcements.value.length,
@@ -1325,6 +1335,7 @@ async function loadGroups() {
       : [DASHBOARD_ENDPOINTS.groupsMine]
     const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
     const groupItems = extractCollectionItems(data)
+    groupsTotal.value = Number.isFinite(Number(data?.count)) ? Number(data.count) : groupItems.length
 
     if (
       Array.isArray(groupItems) &&
@@ -1343,6 +1354,7 @@ async function loadGroups() {
     groups.value = groupItems.map((group) => normalizeGroup(group, []))
   } catch {
     groups.value = []
+    groupsTotal.value = 0
   } finally {
     groupsLoading.value = false
   }
@@ -1499,8 +1511,9 @@ function getAnnouncementTitle(item) {
   return item?.title || item?.name || item?.subject || 'Untitled announcement'
 }
 
-function getAnnouncementMeta(item) {
-  return item?.updated || item?.date || item?.created_at || 'Recently posted'
+// "9 Oct", in the set time.
+function getAnnouncementDate(item) {
+  return formatDayMonth(item?.updated || item?.date || item?.created_at) || 'Recently posted'
 }
 
 function getAnnouncementSnippet(item) {
@@ -1522,8 +1535,9 @@ function getResourceTitle(item) {
   return item?.title || item?.name || 'Untitled resource'
 }
 
+// "9 Oct", in the set time, after "Updated".
 function getResourceMeta(item) {
-  return item?.updated || item?.date || item?.created_at || 'Recently updated'
+  return formatDayMonth(item?.updated || item?.date || item?.created_at) || 'recently'
 }
 
 function getResourceCategory(item) {
@@ -1731,7 +1745,6 @@ onMounted(async () => {
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
   gap: 1.4rem;
   align-items: stretch;
-  padding-top: 2.6rem;
 }
 
 .dashboard-hero-copy,
@@ -1786,11 +1799,11 @@ onMounted(async () => {
 
 .hero-title {
   margin: 0;
-  font-size: clamp(2rem, 3vw, 3.08rem);
+  font-size: 2.25rem;
   line-height: 0.98;
   font-weight: 850;
   letter-spacing: -0.05em;
-  color: var(--charcoal);
+  color: var(--teal);
   text-wrap: balance;
   text-shadow: none;
 }
@@ -1938,13 +1951,15 @@ onMounted(async () => {
   position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 38px;
+  min-height: 34px;
   padding: 0.42rem 0.94rem;
   border-radius: 999px;
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
   color: var(--text-primary);
-  font-size: 0.82rem;
+  font-size: 0.7rem;
   font-weight: 800;
+  /* Its height from its text, not the page's looser line spacing. */
+  line-height: 1.2;
   overflow: hidden;
   isolation: isolate;
 }
@@ -2718,7 +2733,7 @@ onMounted(async () => {
    ────────────────────────────────────────────────────────────── */
 .resource-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.15rem;
 }
 
@@ -3247,7 +3262,7 @@ onMounted(async () => {
   border-radius: 8px;
   background: var(--white);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
-  color: var(--charcoal);
+  color: var(--teal);
   text-align: center;
 }
 
@@ -3263,7 +3278,7 @@ onMounted(async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #f8f9fa;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -3282,7 +3297,7 @@ onMounted(async () => {
 
 .dashboard-modal h3 {
   margin: 0 0 0.65rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.2rem;
   font-weight: 800;
 }
@@ -3316,7 +3331,6 @@ onMounted(async () => {
 @media (max-width: 1180px) {
   .dashboard-hero-main {
     grid-template-columns: 1fr;
-    padding-top: 3rem;
   }
   .dashboard-hero-copy {
     padding: 1.2rem 1.15rem 1.22rem;
@@ -3353,9 +3367,6 @@ onMounted(async () => {
     align-items: center;
     gap: 0.72rem;
   }
-  .dashboard-hero-main {
-    padding-top: 0;
-  }
   .dashboard-hero-copy,
   .dashboard-hero-calendar {
     display: block;
@@ -3383,9 +3394,6 @@ onMounted(async () => {
   .surface-card,
   .summary-card {
     border-radius: 20px;
-  }
-  .hero-title {
-    font-size: 1.75rem;
   }
   .dashboard-subtext,
   .dashboard-hero-message {
@@ -3618,19 +3626,9 @@ onMounted(async () => {
 }
 
 /* ================================================================
-   Typography and text-color refinement override
+   Typography and text-color refinement override. One font throughout:
+   the site's own (main.css), as on every other page.
    ================================================================ */
-.dashboard-page-shell {
-  --font-display:
-    'Aptos Display', 'Segoe UI Variable Display', 'Inter', 'SF Pro Display', 'Helvetica Neue',
-    Arial, sans-serif;
-  --font-body:
-    'Aptos', 'Segoe UI Variable Text', 'Inter', 'SF Pro Text', system-ui, -apple-system,
-    BlinkMacSystemFont, sans-serif;
-  --font-label: 'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
-  --font-number: 'Bahnschrift', 'Inter', 'Segoe UI', sans-serif;
-  font-family: var(--font-body);
-}
 
 .dashboard-page-shell,
 .dashboard-page-shell * {
@@ -3645,13 +3643,13 @@ onMounted(async () => {
 .progress-value,
 .hero-meta-chip-value,
 .list-row-title {
-  font-family: var(--font-display);
   letter-spacing: -0.03em;
 }
 
 .hero-title {
   color: var(--text-primary);
-  font-size: clamp(2rem, 3.4vw, 2.95rem);
+  /* As every page's title (.page-title), on any window. */
+  font-size: 2.25rem;
   font-weight: 820;
 }
 .surface-card-title,
@@ -3666,7 +3664,6 @@ onMounted(async () => {
 .summary-card-value,
 .progress-value,
 .event-date-day {
-  font-family: var(--font-number);
   color: var(--text-primary);
   letter-spacing: -0.05em;
 }
@@ -3676,9 +3673,7 @@ onMounted(async () => {
 .hero-meta-chip-label,
 .progress-label,
 .status-pill,
-.list-row-meta,
 .event-date-rest {
-  font-family: var(--font-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -3698,7 +3693,6 @@ onMounted(async () => {
 .empty-state,
 .dashboard-alert {
   color: var(--text-secondary);
-  font-family: var(--font-body);
   line-height: 1.7;
 }
 
@@ -3732,7 +3726,6 @@ onMounted(async () => {
 .primary-chip,
 .surface-link {
   color: var(--text-link);
-  font-family: var(--font-display);
   font-weight: 720;
 }
 .primary-chip {
@@ -3760,7 +3753,7 @@ onMounted(async () => {
 
 /* Clean white/grey dashboard palette, aligned with Events and Resources pages. */
 .dashboard-page-shell {
-  --text-primary: var(--charcoal) !important;
+  --text-primary: var(--teal) !important;
   --text-secondary: #6c757d !important;
   --text-muted: #8a949e !important;
   --text-link: #4f5f6f !important;
@@ -3785,7 +3778,7 @@ onMounted(async () => {
   --page-glow-one: transparent !important;
   --page-glow-two: transparent !important;
   --page-glow-three: transparent !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   background: var(--bg-light) !important;
   padding: 2rem;
 }
@@ -3863,9 +3856,6 @@ onMounted(async () => {
   box-shadow: none !important;
 }
 
-.dashboard-hero-main {
-  padding-top: 3rem;
-}
 .primary-chip,
 .surface-link {
   color: #4f5f6f !important;
@@ -3875,7 +3865,7 @@ onMounted(async () => {
 }
 .primary-chip:hover,
 .surface-link:hover {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   background: #eef1f3 !important;
   border-color: #cfd6dc !important;
 }
@@ -3888,7 +3878,7 @@ onMounted(async () => {
 .progress-value,
 .hero-meta-chip-value,
 .list-row-title {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   letter-spacing: 0 !important;
 }
 .dashboard-subtext,
@@ -3943,10 +3933,6 @@ onMounted(async () => {
 @media (max-width: 880px) {
   .dashboard-page-shell {
     padding: 1.25rem;
-  }
-
-  .dashboard-hero-main {
-    padding-top: 0;
   }
 }
 .dashboard-hero-card:hover,
@@ -4008,7 +3994,7 @@ onMounted(async () => {
 .dashboard-announcement-body :deep(h5),
 .dashboard-announcement-body :deep(h6) {
   margin: 0 0 0.28rem;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   font-size: 0.9rem;
   font-weight: 800;
   line-height: 1.35;
@@ -4034,7 +4020,7 @@ onMounted(async () => {
   padding: 0.04rem 0.22rem;
   background: #eef1f3;
   border-radius: 4px;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.84rem;
 }
 
