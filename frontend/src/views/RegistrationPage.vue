@@ -585,6 +585,8 @@
                       :prefix="`studentTeam.teammates.${index}`"
                       section="teammate"
                       :errors="errors"
+                      :school-suggestions="teamSchoolsBesides(index)"
+                      :region-suggestions="teamRegionsBesides(index)"
                       allow-guardian-defer
                     />
                   </div>
@@ -1649,6 +1651,31 @@ const joinError = computed(
         : undefined),
 )
 
+// What the rest of a student group gave (Member 1 and the other members),
+// each once, offered as a member's own is typed.
+const teamOthers = (index: number) => {
+  const team = forms.studentTeam
+  return [team.creator, ...team.teammates.filter((_, other) => other !== index)]
+}
+const distinct = (values: string[]) => {
+  const kept = new Map<string, string>()
+  for (const value of values.map((item) => (item || '').trim())) {
+    if (value && !kept.has(value.toLowerCase())) kept.set(value.toLowerCase(), value)
+  }
+  return [...kept.values()]
+}
+const teamSchoolsBesides = (index: number) => distinct(teamOthers(index).map((member) => member.school))
+// Regions from members in the same country only: Ontario is no help in New Zealand.
+const teamRegionsBesides = (index: number) => {
+  const country = (forms.studentTeam.teammates[index]?.country || '').trim().toLowerCase()
+  if (!country) return []
+  return distinct(
+    teamOthers(index)
+      .filter((member) => (member.country || '').trim().toLowerCase() === country)
+      .map((member) => member.state),
+  )
+}
+
 // Create a student group: its code held when its Group step opens (once per
 // registration), to show and copy there.
 const groupCodeLoading = ref(false)
@@ -2350,8 +2377,21 @@ const focusErrors = async () => {
   else errorSummaryRef.value?.focus()
 }
 
+// A step opens at its start, not wherever Continue was pressed (low on the
+// last step, which left the next one showing Member 1): straight there, not
+// gliding. Within Management > Registration, the form's top comes into view.
+const showStepStart = () => {
+  if (props.embedded) {
+    const surface = stepHeadingRef.value?.closest<HTMLElement>('.form-surface')
+    if (surface && surface.getBoundingClientRect().top < 0) surface.scrollIntoView?.({ block: 'start' })
+    return
+  }
+  window.scrollTo({ top: 0, behavior: 'auto' })
+}
+
 const focusStep = async () => {
   await nextTick()
+  showStepStart()
   stepHeadingRef.value?.focus({ preventScroll: true })
 }
 
@@ -2476,11 +2516,27 @@ const continueJoining = () => {
   handlePrimaryAction()
 }
 
+// A member added starts in Member 1's country, the likeliest; it can be changed.
 const addStudentTeammate = () => {
   if (forms.studentTeam.teammates.length < 4) {
-    forms.studentTeam.teammates.push(createPendingPeer())
+    const teammate = createPendingPeer()
+    teammate.country = forms.studentTeam.creator.country || teammate.country
+    forms.studentTeam.teammates.push(teammate)
   }
 }
+
+// Member 1 changing country takes along the members still in their old one
+// with no region given yet (Member 2 starts before Member 1 picks); one who
+// chose another country keeps it.
+watch(
+  () => forms.studentTeam.creator.country,
+  (country, before) => {
+    if (!country || country === before) return
+    for (const teammate of forms.studentTeam.teammates) {
+      if (teammate.country === before && !teammate.state.trim()) teammate.country = country
+    }
+  },
+)
 
 const removeStudentTeammate = (index: number) => {
   if (forms.studentTeam.teammates.length > 0) {

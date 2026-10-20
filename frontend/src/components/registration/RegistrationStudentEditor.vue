@@ -36,6 +36,7 @@
           v-model="student.school"
           label="School"
           autocomplete="organization"
+          :suggestions="schoolSuggestions"
           :error="fieldError('school')"
           :required="markRequired"
         />
@@ -81,6 +82,7 @@
           :label="stateLabel(student.country)"
           autocomplete="address-level1"
           :options="stateOptions.length ? stateOptions : undefined"
+          :suggestions="regionSuggestions"
           :placeholder="stateOptions.length ? 'Select a state' : undefined"
           :error="fieldError('state')"
           :required="markRequired && isAustralia(student.country)"
@@ -214,12 +216,19 @@ const props = withDefaults(
     showOptionalProfile?: boolean
     showInterests?: boolean
     previewUrl?: string
+    /** Schools the others in their group gave, offered as theirs is typed. */
+    schoolSuggestions?: string[]
+    /** Regions the others in their group gave, for a typed region (outside
+     *  Australia, whose states are a dropdown). */
+    regionSuggestions?: string[]
   }>(),
   {
     allowGuardianDefer: false,
     showOptionalProfile: false,
     showInterests: true,
     previewUrl: '',
+    schoolSuggestions: () => [],
+    regionSuggestions: () => [],
   },
 )
 

@@ -569,6 +569,34 @@ describe('canonical registration intake', () => {
     expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
   })
 
+  it("starts each member in Member 1's country, and offers the group's schools", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Student')
+    await clickButton(wrapper, 'I have a group')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      forms: { studentTeam: { creator: { country: string; school: string }; teammates: { country: string; state: string }[] } }
+      addStudentTeammate: () => void
+    }
+    // Member 2 starts before Member 1 picks: it follows Member 1's country.
+    setup.forms.studentTeam.creator.country = 'New Zealand'
+    setup.forms.studentTeam.creator.school = 'Kiwi High'
+    await wrapper.vm.$nextTick()
+    expect(setup.forms.studentTeam.teammates[0].country).toBe('New Zealand')
+    // One added later starts there too; one who chose another keeps it.
+    setup.forms.studentTeam.teammates[0].country = 'Fiji'
+    setup.addStudentTeammate()
+    expect(setup.forms.studentTeam.teammates[1].country).toBe('New Zealand')
+    setup.forms.studentTeam.creator.country = 'Australia'
+    await wrapper.vm.$nextTick()
+    expect(setup.forms.studentTeam.teammates.map((teammate) => teammate.country)).toEqual(['Fiji', 'Australia'])
+
+    setup.currentStep = 2
+    await wrapper.vm.$nextTick()
+    await wrapper.get('#studentTeam-teammates-0-school').trigger('focus')
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual(['Kiwi High'])
+  })
+
   it("asks every group member for their school, year and location, as Member 1's", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Student')
