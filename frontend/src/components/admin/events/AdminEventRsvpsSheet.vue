@@ -395,42 +395,39 @@ const rsvpRows = computed(() =>
 }
 
 .admin-event-rsvps__stat-label {
-  color: var(--text-muted);
   font-weight: 600;
 }
 
 .admin-event-rsvps__stat-val {
   font-weight: 700;
-  color: var(--teal);
 }
 
-.admin-event-rsvps__stat-pill--accepted {
-  background-color: rgba(1, 113, 81, 0.08);
-  border-color: rgba(1, 113, 81, 0.25);
-}
-.admin-event-rsvps__stat-pill--accepted .admin-event-rsvps__stat-val {
+.admin-event-rsvps__stat-pill--accepted,
+.rsvp-badge-accepted {
+  background-color: rgba(195, 236, 202, 0.45);
+  border-color: #c3ecca;
   color: var(--dark-green);
 }
 
-.admin-event-rsvps__stat-pill--tentative {
-  background-color: rgba(243, 230, 157, 0.4);
-  border-color: rgba(180, 150, 50, 0.3);
+.admin-event-rsvps__stat-pill--tentative,
+.rsvp-badge-tentative {
+  background-color: rgba(243, 230, 157, 0.45);
+  border-color: #f3e69d;
+  color: var(--teal);
 }
 
-.admin-event-rsvps__stat-pill--waitlisted {
-  background-color: rgba(38, 105, 125, 0.1);
-  border-color: rgba(38, 105, 125, 0.25);
-}
-.admin-event-rsvps__stat-pill--waitlisted .admin-event-rsvps__stat-val {
+.admin-event-rsvps__stat-pill--waitlisted,
+.rsvp-badge-waitlisted {
+  background-color: rgba(38, 105, 125, 0.12);
+  border-color: #26697d;
   color: #26697d;
 }
 
-.admin-event-rsvps__stat-pill--declined {
-  background-color: rgba(220, 53, 69, 0.06);
-  border-color: rgba(220, 53, 69, 0.2);
-}
-.admin-event-rsvps__stat-pill--declined .admin-event-rsvps__stat-val {
-  color: var(--danger);
+.admin-event-rsvps__stat-pill--declined,
+.rsvp-badge-declined {
+  background-color: rgba(255, 80, 80, 0.12);
+  border-color: #ff5050;
+  color: #ff5050;
 }
 
 .admin-event-rsvps__toolbar {
@@ -598,34 +595,15 @@ const rsvpRows = computed(() =>
   display: inline-block;
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
+  border: 1px solid transparent;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: capitalize;
 }
 
-.rsvp-badge-accepted {
-  background: var(--light-green);
-  color: var(--dark-green);
-}
-
-.rsvp-badge-tentative {
-  background: var(--warning, #f3e69d);
-  color: var(--teal);
-}
-
-.rsvp-badge-waitlisted {
-  background: rgba(38, 105, 125, 0.15);
-  color: #26697d;
-}
-
-.rsvp-badge-declined {
-  background: var(--bg-light);
-  color: var(--text-muted);
-}
-
 .rsvp-badge-pending {
-  background: #f0e6f6;
-  color: #6a329f;
+  color: #5e5e5e;
+  background: #e8e8e8;
 }
 
 .admin-event-rsvps__media-flag {
