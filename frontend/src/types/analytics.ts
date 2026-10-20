@@ -89,6 +89,7 @@ export type GroupsAnalyticsYear = {
   smallGroups: number
   inactiveRecent: number
   nearCapacity: number
+  overCapacity: number
   groupSizeDistribution: Array<{ label: string; value: number }>
   groupStatus: Array<{ label: string; value: number; color: string }>
   ratioDistribution: Array<{ label: string; value: number }>
@@ -168,8 +169,25 @@ export interface AnalyticsMentor {
   capacity: number
   groupIds: string[]
   studentIds: string[]
+  // Whether the mentor's account is activated (account_status "active").
+  accountActive?: boolean
+  // Account status as sent by the mentor source, e.g. "active" or "deactivated".
+  accountStatus?: string | null
+  email?: string
+  // Last successful login on the account (ISO timestamp), when the mentor
+  // source provides it; undefined falls back to login events.
+  lastLogin?: string | null
 }
 export type DemoMentor = AnalyticsMentor
+
+/** One resource's usage on one UTC day. */
+export interface ResourceDailyUsage {
+  date: string
+  resourceId: number
+  name: string
+  clicks: number
+  uniqueUsers: number
+}
 export interface MentorEvent {
   mentorId: string
   date: string
@@ -184,8 +202,21 @@ export type EmailLog = {
   recipient: string
   recipientEmail: string
   title: string
+  type: string
   sentAt: string
+  // ISO 8601 UTC time of the send, for exports.
+  sentAtIso: string
   status: 'Delivered' | 'Partial' | 'Opened' | 'Failed'
+  attempted: number
+  delivered: number
+  failed: number
+  // The send behind the row (null for legacy announcement rows) and how many
+  // of its recipients were recorded, for exporting the recipient list.
+  sendId: number | null
+  recipientsRecorded: number
+  // Set when the row is one recipient's copy (recipient search): why it did
+  // not reach them, or "" when it did.
+  recipientReason?: string
 }
 
 export type EmailMonitoringData = {
@@ -193,8 +224,8 @@ export type EmailMonitoringData = {
   sentLastHour: number
   peakHourLabel: string
   peakHourValue: number
-  hourlyUsage: Array<{ label: string; info: number; connect: number }>
-  verificationDaily: Array<{ label: string; value: number }>
+  hourlyUsage: Array<{ hour: string; label: string; info: number; connect: number }>
+  verificationDaily: Array<{ date: string; label: string; value: number }>
   verificationDailyBaseLimit: number
   statusByRole: Array<{
     role: 'Students' | 'Mentors' | 'Supervisors'

@@ -681,6 +681,7 @@ def _send_audience_reminders(event, audience):
     # Kept to send once the mail server can be reached, before the event starts.
     waiting = 0
     missed = {}
+    attempted_emails = []
     for rsvp in rsvps:
         user = rsvp.user
         email = (getattr(user, "email", "") or "").strip()
@@ -707,6 +708,7 @@ def _send_audience_reminders(event, audience):
             "EVENT_DESCRIPTION": event.description or "",
         }
 
+        attempted_emails.append(email)
         resend = partial(
             _send_one_reminder,
             subject=subject,
@@ -760,6 +762,7 @@ def _send_audience_reminders(event, audience):
             delivered=sent,
             failed=failed,
             source_mailbox=sender.address,
+            recipients=attempted_emails,
         )
     return sent, failed
 

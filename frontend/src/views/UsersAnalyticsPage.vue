@@ -28,10 +28,7 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION, DETAILS_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -270,6 +267,9 @@
             </div>
           </div>
         </div>
+        <p v-if="sortedInterests.length" class="interest-count">
+          {{ sortedInterests.length }} areas of interest · scroll the list to see all
+        </p>
       </article>
     </div>
 
@@ -338,29 +338,31 @@
           </div>
         </div>
 
-        <div class="chart-with-y-axis">
-          <div class="y-axis">
-            <span v-for="tick in axisTicks(maxRegistration)" :key="tick">{{ tick }}</span>
-          </div>
-          <div class="y-axis-line">
-            <div class="trend-chart">
-          <svg viewBox="0 0 620 228" role="img" aria-label="User registration trend">
-            <line
-              x1="0"
-              x2="620"
-              y1="195"
-              y2="195"
-              class="grid-line registration-baseline"
-            />
-            <line
-              v-for="y in [40, 80, 120, 160]"
-              :key="y"
-              x1="0"
-              x2="620"
-              :y1="195 - y"
-              :y2="195 - y"
-              class="grid-line"
-            />
+        <div ref="registrationPlot" class="registration-plot">
+          <svg
+            :viewBox="`0 0 ${registrationChart.width} ${registrationChart.height}`"
+            :width="registrationChart.width"
+            :height="registrationChart.height"
+            role="img"
+            aria-label="User registration trend"
+          >
+            <g v-for="tick in registrationTicks" :key="`tick-${tick}`">
+              <line
+                :x1="registrationChart.plotLeft"
+                :x2="registrationChart.plotRight"
+                :y1="registrationY(tick)"
+                :y2="registrationY(tick)"
+                class="grid-line"
+                :class="{ 'registration-baseline': tick === 0 }"
+              />
+              <text
+                :x="registrationChart.plotLeft - 10"
+                :y="registrationY(tick)"
+                text-anchor="end"
+                class="registration-axis-label"
+              >{{ tick }}</text>
+            </g>
+
             <polyline v-show="!hiddenRegistrationRoles.includes('students')" :points="trendPoints(visibleRegistrationSeries.students)" class="trend-line students" />
             <polyline v-show="!hiddenRegistrationRoles.includes('mentors')" :points="trendPoints(visibleRegistrationSeries.mentors)" class="trend-line mentors" />
             <polyline
@@ -403,10 +405,11 @@
               />
             </g>
 
+            <!-- Zero months sit on the baseline, so only non-zero values are labelled. -->
             <g class="registration-label-layer">
               <g v-for="role in visibleRegistrationRoles" :key="role">
                 <text
-                  v-for="point in registrationDots[role]"
+                  v-for="point in registrationDots[role].filter((dot) => dot.value > 0)"
                   :key="point.index"
                   :x="point.x + registrationLabelXOffsets[role]"
                   :y="registrationLabelY(point.y)"
@@ -420,21 +423,19 @@
               v-for="(month, index) in visibleRegistrationMonths"
               :key="`month-${month}`"
               :x="trendX(index, visibleRegistrationMonths.length)"
-              y="222"
+              :y="registrationChart.baseline + 18"
               text-anchor="middle"
               class="trend-month-label"
             >
               {{ month }}
             </text>
           </svg>
-
-          <div class="trend-legend">
-            <span v-show="!hiddenRegistrationRoles.includes('students')"><i class="dot student"></i>Students</span>
-            <span v-show="!hiddenRegistrationRoles.includes('mentors')"><i class="dot mentor"></i>Mentors</span>
-            <span v-show="!hiddenRegistrationRoles.includes('supervisors')"><i class="dot supervisor"></i>Supervisors</span>
-          </div>
         </div>
-          </div>
+
+        <div class="trend-legend">
+          <span v-show="!hiddenRegistrationRoles.includes('students')"><i class="dot student"></i>Students</span>
+          <span v-show="!hiddenRegistrationRoles.includes('mentors')"><i class="dot mentor"></i>Mentors</span>
+          <span v-show="!hiddenRegistrationRoles.includes('supervisors')"><i class="dot supervisor"></i>Supervisors</span>
         </div>
         <div class="y-axis-title">Registrations</div>
       </article>
@@ -487,6 +488,12 @@
             </tbody>
           </table>
         </div>
+
+        <p class="activity-status-role-note">
+          <strong>Active</strong> means the user logged in within the last {{ ACTIVE_STATUS_WINDOW_DAYS }} days
+          (up to {{ analyticsAsOfLabel }}). <strong>Inactive</strong> users last logged in before that;
+          <strong>Never Logged In</strong> users have no recorded login.
+        </p>
       </article>
 
       <div class="expandable-side-card region-side-card">
@@ -833,13 +840,32 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { UserAnalyticsYear } from '@/types/analytics'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import type { AdminUser } from '@/utils/liveAnalyticsApi'
+import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  activityStatusLabel,
+  daysSince,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoDay,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 import {
   buildUsersAnalytics,
   liveAnalyticsAsOf,
@@ -875,9 +901,10 @@ const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exporting = ref(false)
 const exportError = ref('')
 const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
+// Current participants (students, mentors, supervisors) for the details export.
+const participants = ref<AdminUser[]>([])
 
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
@@ -900,6 +927,9 @@ async function loadAnalytics(force = false, preserveFilters = false) {
       selectedYear.value = year
     }
     liveData.value = buildUsersAnalytics(bundle)
+    participants.value = bundle.users.filter((user) =>
+      !user.isAdmin && ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
+    )
     isEmpty.value = liveData.value.totalUsers === 0
     hasLoaded.value = true
     markUpdated()
@@ -1257,18 +1287,30 @@ const lastLoginTicks = computed(() =>
   Array.from({ length: 6 }, (_, index) => lastLoginAxisMax.value * (5 - index) / 5),
 )
 
+// Activity Status by Role uses its own 14-day login window; the daily, weekly
+// and monthly active-user windows elsewhere are unchanged.
+const ACTIVE_STATUS_WINDOW_DAYS = ACTIVE_WINDOW_DAYS
+
+const analyticsAsOfLabel = computed(() => {
+  const date = analyticsAsOf.value ? new Date(`${analyticsAsOf.value}T00:00:00Z`) : null
+  return date && !Number.isNaN(date.getTime())
+    ? date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+    : 'the latest recorded date'
+})
+
 const activityStatusByRole = computed(() => {
   const roles = ['Student', 'Mentor', 'Supervisor'] as const
 
   return roles.map((role) => {
-    const rows = data.value.userLastLogins.filter((user) => user.role === role)
-
-    return {
-      role,
-      active: rows.filter((user) => user.status === 'Recent').length,
-      inactive: rows.filter((user) => user.status === 'Inactive').length,
-      never: rows.filter((user) => user.status === 'Never' || user.lastLogin === 'Never').length,
+    const counts = { role, active: 0, inactive: 0, never: 0 }
+    for (const user of data.value.userLastLogins) {
+      if (user.role !== role) continue
+      const daysInactive = resolvedDaysInactive(user)
+      if (daysInactive === null) counts.never += 1
+      else if (daysInactive < ACTIVE_STATUS_WINDOW_DAYS) counts.active += 1
+      else counts.inactive += 1
     }
+    return counts
   })
 })
 
@@ -1345,8 +1387,33 @@ const registrationLabelXOffsets: Record<(typeof registrationRoles)[number], numb
 }
 
 function registrationLabelY(pointY: number) {
-  return Math.max(14, pointY - 9)
+  return Math.max(12, pointY - 10)
 }
+
+// The SVG is drawn at the plot's real pixel size so it fills the card at any
+// width and keeps its text at a readable, unscaled size.
+const registrationPlot = ref<HTMLElement | null>(null)
+const registrationPlotSize = ref({ width: 620, height: 260 })
+const registrationChart = computed(() => {
+  const { width, height } = registrationPlotSize.value
+  const plotLeft = 44
+  const plotRight = width - 12
+  const plotTop = 22
+  const baseline = height - 30
+  return { width, height, plotLeft, plotRight, plotTop, baseline }
+})
+const registrationTicks = computed(() => axisTicks(maxRegistration.value))
+
+watch(registrationPlot, (element, _previous, onCleanup) => {
+  if (!element || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(([entry]) => {
+    const width = Math.round(entry?.contentRect.width ?? 0)
+    const height = Math.round(entry?.contentRect.height ?? 0)
+    if (width > 0 && height > 0) registrationPlotSize.value = { width, height }
+  })
+  observer.observe(element)
+  onCleanup(() => observer.disconnect())
+})
 
 const countryHoverAnchors = [
   { name: 'Canada', lon: -106, lat: 57 },
@@ -1757,46 +1824,131 @@ function mapColor(value: number) {
 }
 
 function trendX(index: number, count: number) {
-  if (count <= 1) return 310
-
-  const left = 28
-  const right = 592
+  const { plotLeft, plotRight } = registrationChart.value
+  // Inset the first and last months so their dots and labels clear the axis.
+  const left = plotLeft + 14
+  const right = plotRight - 14
+  if (count <= 1) return (left + right) / 2
   return left + index * ((right - left) / (count - 1))
 }
 
-function trendDots(values: number[]) {
-  const max = registrationAxisMax.value
+function registrationY(value: number) {
+  const { baseline, plotTop } = registrationChart.value
+  return baseline - (value / registrationAxisMax.value) * (baseline - plotTop)
+}
 
+function trendDots(values: number[]) {
   return values.map((value, index) => ({
     index,
     value,
     x: trendX(index, values.length),
-    y: 195 - (value / max) * 160,
+    y: registrationY(value),
   }))
 }
 
 function trendPoints(values: number[]) {
-  const max = registrationAxisMax.value
-
   return values
-    .map((value, index) => {
-      const x = trendX(index, values.length)
-      const y = 195 - (value / max) * 160
-      return `${x},${y}`
-    })
+    .map((value, index) => `${trendX(index, values.length)},${registrationY(value)}`)
     .join(' ')
 }
 
-async function exportCsv() {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({ report: 'users', year: String(selectedYear.value) }), 'users')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const roleTitle = (role: string | null) => {
+  const value = (role ?? '').toLowerCase()
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : ''
+}
+
+function usersSummary() {
+  const current = data.value
+  const year = selectedYear.value
+  const rows: SummaryRow[] = [
+    figure('Users', 'Total users', current.totalUsers, 'users'),
+    figure('Users', 'Students', current.students, 'users'),
+    figure('Users', 'Mentors', current.mentors, 'users'),
+    figure('Users', 'Supervisors', current.supervisors, 'users'),
+    ...([
+      ['Total users', current.totalGrowth],
+      ['Students', current.studentGrowth],
+      ['Mentors', current.mentorGrowth],
+      ['Supervisors', current.supervisorGrowth],
+    ] as const)
+      .filter(([, change]) => change !== null)
+      .map(([label, change]) => figure('Change vs previous year', label, change, '%', `Compared with ${year - 1}`)),
+    ...loginRates.value.map((rate) => figure('Logged in at least once', rate.label, rate.value, '%')),
+    ...activityStatusByRole.value.flatMap((row) => [
+      figure(`Activity status (${row.role}s)`, 'Active', row.active, 'users', `Logged in within the last ${ACTIVE_WINDOW_DAYS} days`),
+      figure(`Activity status (${row.role}s)`, 'Inactive', row.inactive, 'users'),
+      figure(`Activity status (${row.role}s)`, 'Never logged in', row.never, 'users'),
+    ]),
+    ...lastLoginRoles.flatMap((role) =>
+      lastLoginStacks.value.map((bucket) => figure(`Last login (${role.label}s)`, bucket.label, bucket[role.key], 'users')),
+    ),
+    ...(['students', 'mentors', 'supervisors'] as const).flatMap((role) =>
+      visibleRegistrationMonths.value.map((_, month) => figure(
+        `Registrations (${roleTitle(role.slice(0, -1))}s)`,
+        `${year}-${String(month + 1).padStart(2, '0')}`,
+        visibleRegistrationSeries.value[role][month] ?? 0,
+        'users',
+      )),
+    ),
+    ...sortedInterests.value.flatMap((interest) => [
+      figure('Areas of interest (Students)', interest.name, interest.students, 'users'),
+      figure('Areas of interest (Mentors)', interest.name, interest.mentors, 'users'),
+    ]),
+    ...current.regions.map((region) => figure('Users by region', region.name, region.value, 'users')),
+    ...current.dailyActivity.labels.map((label, index) =>
+      figure('Daily activity', label, current.dailyActivity.total[index] ?? 0, 'users'),
+    ),
+  ]
+  return {
+    fileName: exportFileName('users', 'summary', String(year)),
+    csv: summaryCsv({
+      page: 'Users',
+      covers: `Current participants; registrations for ${year}`,
+      dataAsOf: analyticsAsOf.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function usersDetails() {
+  const asOfDay = analyticsAsOf.value || isoDay(new Date())
+  const asOf = new Date(`${asOfDay}T00:00:00Z`)
+  const roleOrder = ['student', 'mentor', 'supervisor']
+  const rows = [...participants.value]
+    .sort((a, b) =>
+      roleOrder.indexOf((a.role ?? '').toLowerCase()) - roleOrder.indexOf((b.role ?? '').toLowerCase())
+      || `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
+    )
+    .map((user) => {
+      const days = daysSince(user.lastLogin, asOf)
+      return [
+        user.id,
+        `${user.firstName} ${user.lastName}`.trim(),
+        user.email,
+        roleTitle(user.role),
+        accountStatusLabel(user.accountStatus, user.isActive),
+        activityStatusLabel(days),
+        isoUtc(user.lastLogin),
+        days,
+        isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+        user.groupName,
+        user.schoolName,
+        user.country?.countryName,
+        user.state?.stateName,
+        user.interests.join('; '),
+      ]
+    })
+  return {
+    fileName: exportFileName('users', 'details', asOfDay),
+    csv: detailsCsv([
+      'User ID', 'Name', 'Email', 'Role', 'Account Status', `Activity Status (${ACTIVE_WINDOW_DAYS} days)`,
+      'Last Login (UTC)', 'Days Since Last Login', 'Registered (UTC)', 'Group', 'School', 'Country', 'State', 'Interests',
+    ], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? usersSummary : usersDetails)
 }
 </script>
 
@@ -4953,9 +5105,41 @@ nline-expanded-region .world-map {
   width: 100% !important;
 }
 
-/* Interest list stays internally scrollable when there are many items. */
+/* Interest list fills the card and scrolls inside it, with a scrollbar that
+   stays visible so every area of interest is clearly reachable. */
+.users-analytics-page .first-row .interests-card {
+  display: flex;
+  flex-direction: column;
+}
+
 .users-analytics-page .first-row .interests-card .interest-list {
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 180px;
+  max-height: none;
+  overflow-y: scroll;
+}
+
+.users-analytics-page .first-row .interests-card .interest-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.users-analytics-page .first-row .interests-card .interest-list::-webkit-scrollbar-track {
+  border-radius: 3px;
+  background: #eef3f1;
+}
+
+.users-analytics-page .first-row .interests-card .interest-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: #9fbfb9;
+}
+
+.users-analytics-page .interests-card .interest-count {
+  flex: 0 0 auto;
+  margin: 8px 0 0;
+  color: #7a8c88;
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* Responsive fallback */
@@ -5267,31 +5451,61 @@ nline-expanded-region .world-map {
 
 .users-analytics-page .trend-card .trend-month-label {
   fill: #748683;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 500;
   pointer-events: none;
 }
 
-/* Extra spacing for registration x-axis labels */
-.users-analytics-page .trend-card .trend-chart {
-  min-height: 205px !important;
+/* Registration trend fills the whole card: the plot takes the space left
+   under the heading and the SVG is absolutely positioned inside it, so the
+   chart follows the card instead of the card following a fixed SVG size. */
+.users-analytics-page .trend-card {
+  display: flex !important;
+  flex-direction: column;
+}
+
+.users-analytics-page .trend-card .registration-plot {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 240px;
+  margin-top: 10px;
+}
+
+.users-analytics-page .trend-card .registration-plot svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+}
+
+.users-analytics-page .trend-card .registration-axis-label {
+  fill: #748683;
+  font-size: 11px;
+  dominant-baseline: middle;
 }
 
 .users-analytics-page .trend-card .trend-legend {
-  margin-top: 8px !important;
+  margin-top: 6px !important;
+  font-size: 12px;
 }
 
 .users-analytics-page .trend-card .trend-month-label {
-  font-size: 9px;
+  font-size: 11px;
   dominant-baseline: middle;
 }
 
 /* Users summary only: operational user-by-user login details live in Activity Analytics. */
 .users-analytics-page .activity-status-role-card {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
+/* The table stretches to the card's height so its rows share the space
+   instead of leaving an empty band under the last role. */
 .users-analytics-page .activity-status-role-table-wrap {
+  display: flex;
+  flex: 1 1 auto;
   margin-top: 14px;
   overflow: hidden;
   border: 1px solid #e0e8e5;
@@ -5300,9 +5514,25 @@ nline-expanded-region .world-map {
 
 .users-analytics-page .activity-status-role-table {
   width: 100%;
+  height: 100%;
   table-layout: fixed;
   border-collapse: collapse;
+  font-size: 14px;
+}
+
+.users-analytics-page .activity-status-role-table td strong {
+  font-size: 18px;
+}
+
+.users-analytics-page .activity-status-role-note {
+  margin: 12px 2px 0;
+  color: #60726f;
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.users-analytics-page .activity-status-role-note strong {
+  color: #174243;
 }
 
 .users-analytics-page .activity-status-role-table th {

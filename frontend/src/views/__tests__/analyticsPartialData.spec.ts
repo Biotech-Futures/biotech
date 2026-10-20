@@ -2,19 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import * as api from '@/utils/liveAnalyticsApi'
 import * as data from '@/utils/liveAnalyticsData'
-import { downloadReportCsv } from '@/utils/reportExport'
 import GroupsPage from '@/views/GroupsAnalyticsPage.vue'
 import MentorsPage from '@/views/MentorsAnalyticsPage.vue'
 import MessagesPage from '@/views/MessagesAnalyticsPage.vue'
 import ResourcesPage from '@/views/ResourcesAnalyticsPage.vue'
 import ActivityPage from '@/views/ActivityAnalyticsPage.vue'
+import UsersPage from '@/views/UsersAnalyticsPage.vue'
 
 vi.mock('@/utils/liveAnalyticsApi', () => ({
   fetchAllUsers: vi.fn(), fetchAllGroups: vi.fn(), fetchMentors: vi.fn(),
   fetchGroupActivity: vi.fn(), fetchLoginActivity: vi.fn(),
   fetchResourceAnalytics: vi.fn(), fetchEmailDeliveryAnalytics: vi.fn(), fetchAllResources: vi.fn(),
 }))
-vi.mock('@/utils/reportExport', () => ({ downloadReportCsv: vi.fn().mockResolvedValue('report.csv') }))
 const routerPush = vi.hoisted(() => vi.fn())
 const routeState = vi.hoisted(() => ({ query: {} as Record<string, string>, hash: '' }))
 vi.mock('vue-router', () => ({
@@ -105,7 +104,9 @@ async function show(component: Parameters<typeof mount>[0]) {
   await flushPromises()
   return wrapper
 }
-async function downloadedCsv(wrapper: VueWrapper) {
+// Opens the Export CSV menu, picks the option whose label starts with
+// `option` (or exports directly when the page offers one file) and returns the CSV.
+async function downloadedCsv(wrapper: VueWrapper, option = 'Summary') {
   let captured: Blob | undefined
   const BrowserURL = URL
   vi.stubGlobal('URL', class extends BrowserURL {
@@ -115,6 +116,8 @@ async function downloadedCsv(wrapper: VueWrapper) {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   expect(wrapper.get('.export-button').attributes('disabled')).toBeUndefined()
   await wrapper.get('.export-button').trigger('click')
+  const item = wrapper.findAll('[role="menuitem"]').find((node) => node.text().startsWith(option))
+  if (item) await item.trigger('click')
   expect(captured).toBeInstanceOf(Blob)
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -197,6 +200,8 @@ describe('independent analytics sources', () => {
   it('keeps messages without groups, and group structure without activity', async () => {
     vi.mocked(api.fetchAllGroups).mockRejectedValue(error)
     expect(data.buildMessagesAnalytics(await data.loadMessagesAnalyticsBundle()).totalMessages).toBe(23)
+    // Pages share cached sources, so start the second scenario from a cold cache.
+    data.clearLiveAnalyticsCache()
     vi.mocked(api.fetchAllGroups).mockResolvedValue(groups)
     vi.mocked(api.fetchGroupActivity).mockRejectedValue(error)
     const bundle = await data.loadGroupsAnalyticsBundle()
@@ -262,6 +267,17 @@ describe('partial analytics pages', () => {
     expect(w.get('[aria-label="Filter by activity status"]').element).toHaveProperty('value', 'Inactive')
     expect(w.get('#user-activity-details tbody').text()).toContain('Inactive Mentor')
     expect(w.find('.activity-issue-context').exists()).toBe(false)
+  })
+
+  it('shows Activity before a ranged login comparison returns', async () => {
+    const loginActivity = await api.fetchLoginActivity()
+    vi.mocked(api.fetchLoginActivity).mockImplementation((start?: string) => start
+      ? new Promise(() => {})
+      : Promise.resolve({ ...loginActivity, latest_activity_date: '2026-10-14' }))
+
+    const w = await show(ActivityPage)
+    expect(api.fetchLoginActivity).toHaveBeenCalledWith('2026-08-17', '2026-10-15')
+    expect(w.find('#user-activity-details').exists()).toBe(true)
   })
 
   it('opens the matching Admin filters from group issue rows', async () => {
@@ -355,7 +371,9 @@ describe('partial analytics pages', () => {
     expect(w.text()).toContain('Selected day')
     expect(w.text()).toContain('7 days ending on selected date')
     expect(w.text()).toContain('30 days ending on selected date')
-    expect(api.fetchLoginActivity).toHaveBeenCalledWith('2026-08-17', '2026-10-15')
+    // The default end date is the latest login date, so the loaded response is reused.
+    expect(api.fetchLoginActivity).toHaveBeenCalledTimes(1)
+    expect(api.fetchLoginActivity).toHaveBeenCalledWith()
   })
   it('keeps resource activity without inventing category or audience metadata', async () => {
     vi.mocked(api.fetchAllResources).mockRejectedValue(error)
@@ -375,57 +393,87 @@ describe('partial analytics pages', () => {
     expect(w.text()).not.toContain('1 of 1 mentors assigned')
     expect(w.text()).not.toContain('Over capacity')
   })
-  it('does not mark every mentor as lacking a recorded login when activity fails', async () => {
+  it('keeps account last logins when message activity fails', async () => {
     vi.mocked(api.fetchGroupActivity).mockRejectedValue(error)
     const w = await show(MentorsPage)
     expect(w.find('[aria-label="Mentor snapshot summary"]').exists()).toBe(true)
-    expect(w.text()).not.toContain('No recorded login')
-    expect(w.text()).not.toContain('Last Login Distribution')
+    // Last login comes from the mentor account, not from message activity.
+    expect(w.text()).toContain('Last Login Distribution')
+    const neverLoggedIn = w.findAll('.key-insights-row').find((row) => row.text().includes('Never logged in'))
+    expect(neverLoggedIn?.get('strong').text()).toBe('0')
   })
 
-  it('exports group summaries even if the user endpoint fails', async () => {
+  it('exports group summaries and details even if the user endpoint fails', async () => {
     vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
     const w = await show(GroupsPage)
-    expect(w.text()).not.toContain('CSV export is disabled')
     expect(w.get('.export-button').attributes('disabled')).toBeUndefined()
-    await w.get('.export-button').trigger('click')
-    expect(downloadReportCsv).toHaveBeenCalledOnce()
-    const [params, report] = vi.mocked(downloadReportCsv).mock.calls[0]!
-    expect(report).toBe('groups')
-    expect(params.get('report')).toBe('groups')
+    const summary = await downloadedCsv(w)
+    expect(summary).toContain('Section,Metric,Value,Unit,Notes\r\n')
+    expect(summary).toContain('Groups,Total groups,1,groups,')
+    expect(summary).toContain('Report,Unavailable data,participant details,')
+    expect(await downloadedCsv(w, 'Details')).toContain('\r\n7,Sample group,')
   })
-  it('exports group messages independently and blocks user reports with missing role metadata', async () => {
+  it('turns off the students-without-a-group export when participants are unavailable', async () => {
+    vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
+    const w = await show(GroupsPage)
+    await w.get('.export-button').trigger('click')
+    const item = w.findAll('[role="menuitem"]').find((node) => node.text().startsWith('Students without a group'))
+    expect(item?.attributes('disabled')).toBeDefined()
+  })
+  it('exports group messages independently and blocks user details with missing role metadata', async () => {
     vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
     const w = await show(MessagesPage)
-    expect(w.get('.export-button').attributes('disabled')).toBeUndefined()
-    await w.get('.export-button').trigger('click')
-    expect(vi.mocked(downloadReportCsv).mock.calls[0]?.[0].get('mode')).toBe('groups')
+    expect(await downloadedCsv(w)).toContain('Messages,Messages (all time),23,messages,')
+    expect(await downloadedCsv(w, 'Details')).toContain('\r\n7,Sample group,23,')
     await w.get('[aria-label="Select message analytics view"]').setValue('users')
-    expect(w.get('.export-button').attributes('disabled')).toBeDefined()
+    await w.get('.export-button').trigger('click')
+    const details = w.findAll('[role="menuitem"]').find((node) => node.text().startsWith('Details'))
+    expect(details?.attributes('disabled')).toBeDefined()
   })
-  it('exports available resources and explicitly marks missing activity instead of zero', async () => {
+  it('exports available resources and leaves missing activity empty instead of zero', async () => {
     vi.mocked(api.fetchResourceAnalytics).mockRejectedValue(error)
-    const csv = await downloadedCsv(await show(ResourcesPage))
-    expect(csv).toContain('"Sample handbook","Document","Unavailable","Unavailable"')
+    const w = await show(ResourcesPage)
+    expect(await downloadedCsv(w, 'Details')).toMatch(/\r\n8,Sample handbook,Document,[^\r\n]*,,\r\n/)
+    expect(await downloadedCsv(w)).toContain('Report,Unavailable data,resource activity,')
   })
   it('exports mentor allocation without treating unavailable background data as Unknown counts', async () => {
     vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
     const csv = await downloadedCsv(await show(MentorsPage))
-    expect(csv).toContain('"Summary","Assigned Mentors","1"')
-    expect(csv).toContain('"Background","Availability","Unavailable"')
-    expect(csv).not.toContain('"Background","Unknown","1"')
+    expect(csv).toContain('Mentors,Mentors with a group,1,mentors,')
+    expect(csv).toContain('Background,Availability,,,The data for this section could not be loaded')
+    expect(csv).not.toContain('Background,Unknown,1')
   })
   it('exports mentor counts with explicit unavailable allocation when groups fail', async () => {
     vi.mocked(api.fetchAllGroups).mockRejectedValue(error)
     const csv = await downloadedCsv(await show(MentorsPage))
-    expect(csv).toContain('"Summary","Total Mentors","1"')
-    expect(csv).toContain('"Summary","Assigned Mentors","Unavailable"')
-    expect(csv).toContain('"Capacity","Availability","Unavailable"')
+    expect(csv).toContain('Mentors,Total mentors,1,mentors,')
+    expect(csv).not.toContain('Mentors with a group')
+    expect(csv).toContain('Capacity pool,Availability,,,The data for this section could not be loaded')
+    expect(csv).toContain('Capacity split,Availability,,,')
   })
   it('exports group activity without requiring participant data', async () => {
     vi.mocked(api.fetchAllUsers).mockRejectedValue(error)
-    const csv = await downloadedCsv(await show(ActivityPage))
-    expect(csv).toContain('"7","Sample group","Sample Mentor"')
+    const csv = await downloadedCsv(await show(ActivityPage), 'Details')
+    expect(csv).toContain('Group ID,Group,Mentors,')
+    expect(csv).toContain('\r\n7,Sample group,Sample Mentor,')
+  })
+  it('exports participant details with contact, account and activity status', async () => {
+    const csv = await downloadedCsv(await show(UsersPage), 'Details')
+    expect(csv).toContain(
+      'User ID,Name,Email,Role,Account Status,Activity Status (14 days),Last Login (UTC),Days Since Last Login,'
+      + 'Registered (UTC),Group,School,Country,State,Interests',
+    )
+    expect(csv).toContain('\r\n1,Sample Student,student@example.test,Student,Active,Active,2026-10-15T00:00:00Z,0,2026-08-01T00:00:00Z,Sample group,')
+  })
+  it('reports account status and login recency separately in Activity details', async () => {
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      { ...student, isActive: false, accountStatus: 'deactivated' },
+      { ...student, id: 2, role: 'mentor', mentorBackground: 'industry' },
+    ])
+    const csv = await downloadedCsv(await show(ActivityPage), 'Details')
+    expect(csv).toContain('User ID,Name,Email,Role,Account Status,Activity Status (14 days),Last Login (UTC),Days Since Last Login')
+    // Deactivated, yet logged in on the latest recorded day.
+    expect(csv).toContain('\r\n1,Sample Student,student@example.test,Student,Deactivated,Active,2026-10-15T00:00:00Z,0')
   })
 
 })

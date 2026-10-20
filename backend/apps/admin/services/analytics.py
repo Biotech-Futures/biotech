@@ -2,8 +2,8 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone as datetime_timezone
 
 from django.conf import settings
-from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Sum, Value
-from django.db.models.functions import Coalesce, TruncDate, TruncHour
+from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, Window
+from django.db.models.functions import Coalesce, RowNumber, TruncDate, TruncHour
 from django.utils import timezone
 
 from apps.announcements.models import (
@@ -15,7 +15,8 @@ from apps.audit.models import AuditLog
 from apps.chat.models import Messages
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
-from apps.services.models import EmailDeliveryMetric
+from apps.services.email_registry import get_email_type, is_known_email_type
+from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
 from apps.users.models import User
 
 
@@ -460,6 +461,9 @@ def get_resource_analytics(
 
     Date bounds and daily groups use the current Django timezone. Only dates
     and resources with events are returned; uncategorized events form one group.
+    ``clicks_by_resource_by_day`` gives each resource's daily clicks and
+    distinct users, so per-resource trends can be compared; daily distinct
+    users cannot be summed into a period total.
     """
     events = ResourceAccessEvent.objects.all()
     if start_date is not None:
@@ -489,6 +493,19 @@ def get_resource_analytics(
         .annotate(click_count=Count("id"), unique_users=Count("user_id", distinct=True))
         .order_by("-click_count", "resource_id")
     ]
+    clicks_by_resource_by_day = [
+        {
+            "date": row["date"],
+            "resource_id": row["resource_id"],
+            "resource_name": row["resource__name"],
+            "click_count": row["click_count"],
+            "unique_users": row["unique_users"],
+        }
+        for row in events.annotate(date=TruncDate("created_at"))
+        .values("date", "resource_id", "resource__name")
+        .annotate(click_count=Count("id"), unique_users=Count("user_id", distinct=True))
+        .order_by("date", "resource_id")
+    ]
     clicks_by_category = [
         {
             "category_id": row["resource__type_id"],
@@ -503,9 +520,161 @@ def get_resource_analytics(
         **totals,
         "clicks_by_day": clicks_by_day,
         "top_resources": top_resources,
+        "clicks_by_resource_by_day": clicks_by_resource_by_day,
         "clicks_by_category": clicks_by_category,
         "query_range": {"start": start_date, "end": end_date},
     }
+
+
+# Kept per email type, so frequent sends (login codes) cannot push rarer ones
+# (announcements) out of the list or out of its type filter.
+RECENT_SENDS_PER_TYPE = 100
+
+
+def _email_type_label(key: str) -> str:
+    """System Emails name for a send type, or a readable form of its key."""
+    if is_known_email_type(key):
+        return get_email_type(key).name
+    return key.replace("_", " ").replace("-", " ").strip().capitalize() or "Email"
+
+
+def _recent_email_sends() -> list[dict]:
+    """The latest ``RECENT_SENDS_PER_TYPE`` sends of each email type, newest first.
+
+    ``EmailDeliveryMetric`` records one row per real send operation for system
+    emails, announcements, chat digests and management bulk sends, so it is the
+    one source that covers every type. Announcement sends are matched to their
+    delivery row (recorded with the same start time) to show the title.
+    """
+    rows = list(
+        EmailDeliveryMetric.objects.select_related("initiated_by")
+        .annotate(
+            type_rank=Window(
+                RowNumber(),
+                partition_by=[F("email_type")],
+                order_by=[F("started_at").desc(), F("id").desc()],
+            )
+        )
+        .filter(type_rank__lte=RECENT_SENDS_PER_TYPE)
+        .order_by("-started_at", "-id")
+    )
+    recorded = dict(
+        EmailDeliveryRecipient.objects.filter(metric_id__in=[row.id for row in rows])
+        .values("metric_id")
+        .annotate(total=Count("id"))
+        .values_list("metric_id", "total")
+    )
+    return [
+        {**send, "recipients_recorded": recorded.get(send["id"], 0)}
+        for send in _send_rows(rows)
+    ]
+
+
+def _send_rows(rows) -> list[dict]:
+    """``EmailDeliveryMetric`` rows as the Email Logs list them. Announcement
+    sends are matched to their delivery row (recorded with the same start
+    time) to show the title."""
+    announcement_starts = [row.started_at for row in rows if row.email_type == "announcement"]
+    announcements_by_start = {
+        delivery.started_at: delivery
+        for delivery in AnnouncementDelivery.objects.filter(
+            started_at__in=announcement_starts
+        ).select_related("announcement")
+    } if announcement_starts else {}
+
+    sends = []
+    for row in rows:
+        delivery = (
+            announcements_by_start.get(row.started_at)
+            if row.email_type == "announcement"
+            else None
+        )
+        sends.append(
+            {
+                "id": row.id,
+                "email_type": row.email_type,
+                "email_type_label": _email_type_label(row.email_type),
+                "title": delivery.announcement.title if delivery else None,
+                "announcement_id": delivery.announcement_id if delivery else None,
+                "source_mailbox": row.source_mailbox,
+                "started_at": row.started_at.isoformat(),
+                "status": row.status,
+                "attempted": row.attempted_count,
+                "delivered": row.delivered_count,
+                "failed": row.failed_count,
+                "initiated_by_name": (
+                    f"{row.initiated_by.first_name} {row.initiated_by.last_name}".strip()
+                    if row.initiated_by
+                    else "System"
+                ),
+                "initiated_by_email": row.initiated_by.email if row.initiated_by else "",
+            }
+        )
+    return sends
+
+
+def _recipient_row(recipient: EmailDeliveryRecipient) -> dict:
+    user = recipient.user
+    return {
+        "email": recipient.email,
+        "user_id": recipient.user_id,
+        "name": f"{user.first_name} {user.last_name}".strip() if user else "",
+        "status": recipient.status,
+        "reason": recipient.reason,
+    }
+
+
+def get_email_send_recipients(send_id: int) -> dict | None:
+    """Everyone one send was addressed to, and whether it reached them.
+
+    ``None`` when the send does not exist. A send made before recipients were
+    recorded returns an empty list with ``recipients_recorded`` False.
+    """
+    metric = (
+        EmailDeliveryMetric.objects.select_related("initiated_by")
+        .filter(pk=send_id)
+        .first()
+    )
+    if metric is None:
+        return None
+    recipients = [
+        _recipient_row(recipient)
+        for recipient in metric.recipients.select_related("user").order_by("email", "id")
+    ]
+    return {
+        "send": _send_rows([metric])[0],
+        "recipients_recorded": bool(recipients),
+        "recipients": recipients,
+    }
+
+
+RECIPIENT_SEARCH_LIMIT = 200
+RECIPIENT_SEARCH_MIN_LENGTH = 3
+
+
+def find_email_sends_for_recipient(query: str) -> list[dict]:
+    """Emails sent to the recipients matching ``query``, newest first.
+
+    ``query`` matches part of a recipient address or of the name on the
+    account it belongs to. Each result is one send to one matching recipient,
+    with whether that send reached them.
+    """
+    terms = (query or "").strip()
+    if len(terms) < RECIPIENT_SEARCH_MIN_LENGTH:
+        return []
+    name_match = Q()
+    for word in terms.split():
+        name_match &= Q(user__first_name__icontains=word) | Q(user__last_name__icontains=word)
+    matches = list(
+        EmailDeliveryRecipient.objects.select_related("user", "metric", "metric__initiated_by")
+        .filter(Q(email__icontains=terms) | name_match)
+        .order_by("-metric__started_at", "-metric_id", "email")[:RECIPIENT_SEARCH_LIMIT]
+    )
+    sends = {send["id"]: send for send in _send_rows(list({m.metric_id: m.metric for m in matches}.values()))}
+    return [
+        {**sends[match.metric_id], "recipient": _recipient_row(match)}
+        for match in matches
+    ]
 
 
 def get_email_delivery_analytics() -> dict:
@@ -609,6 +778,7 @@ def get_email_delivery_analytics() -> dict:
             "hourly": [],
             "daily": [],
             "status_by_role": empty_role_status(),
+            "recent_sends": [],
             "role_attribution": role_attribution(
                 tracked_delivery_runs=0,
                 unattributed_delivery_runs=0,
@@ -875,4 +1045,5 @@ def get_email_delivery_analytics() -> dict:
         "status_by_role": status_by_role,
         "role_attribution": attribution,
         "recent_deliveries": recent_deliveries,
+        "recent_sends": _recent_email_sends(),
     }

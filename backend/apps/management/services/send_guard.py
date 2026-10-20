@@ -30,7 +30,7 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from importlib import import_module
 from typing import Callable
@@ -217,6 +217,9 @@ class Work:
 
     people: list[str]
     send: Callable[[object, dict], list[dict]]
+    # The address behind each of ``people``, in the same order, so the run can
+    # keep its recipient list (see ``_record_run_metrics``).
+    addresses: list[str] = field(default_factory=list)
 
 
 # What each email's send emails: ``BUILDERS[key](actor, options)`` gives its
@@ -483,17 +486,35 @@ def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
         EmailSendRun.objects.filter(key=key).update(
             held_until=None, finished_at=completed_at
         )
-        _record_run_metrics(key, completed_at)
+        _record_run_metrics(key, completed_at, work)
 
 
-def _record_run_metrics(key: str, completed_at) -> None:
-    """Record the final, de-duplicated recipient outcome for one bulk run."""
+def _record_run_metrics(key: str, completed_at, work: list[Work] = ()) -> None:
+    """Record the final, de-duplicated recipient outcome for one bulk run,
+    with every address ``work`` emailed and the reason for each one the run
+    still missed."""
     try:
         run = EmailSendRun.objects.filter(key=key).first()
         if run is None:
             return
-        # Those waiting for the mail server are counted once their emails go.
-        failed = len([entry for entry in run.missed if not _waiting(entry)])
+        address_of = {
+            label: address
+            for item in work
+            for label, address in zip(item.people, item.addresses)
+        }
+        # Those waiting for the mail server are counted, and their addresses
+        # recorded, once their emails go.
+        waiting = {address_of.get(_missed_entry(entry)["who"]) for entry in run.missed if _waiting(entry)}
+        missed = {}
+        failed = 0
+        for entry in run.missed:
+            if _waiting(entry):
+                continue
+            failed += 1
+            entry = _missed_entry(entry)
+            address = address_of.get(entry["who"])
+            if address:
+                missed[address] = entry["reason"] or NOT_SENT
         record_email_delivery(
             key,
             source_mailbox=sender_for(key).address,
@@ -503,6 +524,8 @@ def _record_run_metrics(key: str, completed_at) -> None:
             initiated_by=run.started_by,
             started_at=run.started_at,
             completed_at=completed_at,
+            recipients=[address for address in address_of.values() if address not in waiting] if address_of else None,
+            missed=missed,
         )
     except Exception:  # noqa: BLE001 - metrics must never break the send queue
         logger.exception("email run %s: metric write failed", key)

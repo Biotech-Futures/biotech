@@ -28,10 +28,7 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="loading || !!loadError" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -468,12 +465,28 @@ import {
   analyticsYears,
   buildGroupsAnalytics,
   groupYearComparison,
+  liveAnalyticsAsOf,
   liveAnalyticsYear,
   loadGroupsAnalyticsBundle,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import type { AdminGroup, AdminUser } from '@/utils/liveAnalyticsApi'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoDay,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const route = useRoute()
 const router = useRouter()
@@ -509,6 +522,7 @@ const liveData = ref<GroupsAnalyticsYear>({
   smallGroups: 0,
   inactiveRecent: 0,
   nearCapacity: 0,
+  overCapacity: 0,
   groupSizeDistribution: [],
   groupStatus: [],
   ratioDistribution: [],
@@ -520,7 +534,6 @@ const unavailableSources = ref<AnalyticsSource[]>([])
 const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const loading = ref(true)
-const exporting = ref(false)
 const exportError = ref('')
 const groupBundle = ref<CoreAnalyticsBundle | null>(null)
 
@@ -604,7 +617,10 @@ const groupInsightItems = computed(() => [
   },
   { key: 'small', value: data.value.smallGroups, text: 'groups have fewer than 3 students.' },
   ...(sourceAvailable('groupActivity') ? [{ key: 'inactive', value: data.value.inactiveRecent, text: 'groups have had no activity in the past 7 days.' }] : []),
-  { key: 'capacity', value: data.value.nearCapacity, text: 'groups are nearing capacity (10+ students).' },
+  { key: 'capacity', value: data.value.nearCapacity, text: 'groups are full (5 students, the maximum).' },
+  ...(data.value.overCapacity
+    ? [{ key: 'over-capacity', value: data.value.overCapacity, text: 'groups have more than 5 students, above the limit.' }]
+    : []),
 ])
 
 const studentsNotAssignedRows = computed(() =>
@@ -627,18 +643,7 @@ const groupsWithoutMentorRows = computed(() =>
 
 
 
-const groupSizeDistributionForChart = computed(() => {
-  const items = [...data.value.groupSizeDistribution]
-
-  if (!items.some((item) => item.label === '20+')) {
-    items.push({
-      label: '20+',
-      value: 0,
-    })
-  }
-
-  return items
-})
+const groupSizeDistributionForChart = computed(() => data.value.groupSizeDistribution)
 
 const maxGroupSizeCount = computed(() =>
   Math.max(...groupSizeDistributionForChart.value.map((item) => item.value), 1),
@@ -782,16 +787,120 @@ watch(
   { immediate: true },
 )
 
-async function exportCsv() {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({ report: 'groups', year: String(selectedYear.value) }), 'groups')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'One row per group: members, mentors and messages' },
+  {
+    kind: 'unassigned',
+    label: 'Students without a group',
+    description: 'Every student not yet placed in a group',
+    disabled: !sourceAvailable('users'),
+  },
+])
+
+function groupsSummary() {
+  const current = data.value
+  const year = selectedYear.value
+  const previous = current.comparisonPreviousYear
+  const rows: SummaryRow[] = [
+    figure('Groups', 'Total groups', current.totalGroups, 'groups'),
+    figure('Groups', 'Average group size', current.averageGroupSize, 'students', 'Students per group'),
+    figure('Groups', `Average group size (${current.averageGroupSizePreviousYear})`, current.averageGroupSizePrevious, 'students'),
+    figure('Groups', 'Groups with mentor', current.groupsWithMentor, 'groups'),
+    figure('Groups', `Groups with mentor (${previous})`, current.groupsWithMentorPrevious, 'groups'),
+    figure('Groups', 'Groups without mentor', current.groupsWithoutMentor, 'groups'),
+    figure('Groups', `Groups without mentor (${previous})`, current.groupsWithoutMentorPrevious, 'groups'),
+    figure('Groups', 'Students per mentor', current.mentorStudentRatio, 'students', 'Mentor-to-student ratio 1 : value'),
+    figure('Groups', `Students per mentor (${previous})`, current.mentorStudentRatioPrevious, 'students'),
+    figure('Groups', 'Students not assigned to a group', studentsNotAssignedCount.value, 'students'),
+    ...groupInsightItems.value.map((item) => figure('Key insights', item.text, item.value, 'groups')),
+    ...current.groupStatus.map((item) => figure('Group status', item.label, item.value, 'groups')),
+    ...current.groupSizeDistribution.map((item) => figure('Group size (students)', item.label, item.value, 'groups')),
+    ...current.ratioDistribution.map((item) => figure('Mentor-to-student ratio by group', item.label, item.value, 'groups')),
+    ...current.groupActivity.flatMap((month) => [
+      figure('Group activity by month', `${month.month}: active`, month.active, 'groups'),
+      figure('Group activity by month', `${month.month}: inactive`, month.inactive, 'groups'),
+    ]),
+  ]
+  return {
+    fileName: exportFileName('groups', 'summary', String(year)),
+    csv: summaryCsv({
+      page: 'Groups',
+      covers: `Current groups; comparisons and monthly activity for ${year}`,
+      dataAsOf: groupBundle.value ? liveAnalyticsAsOf(groupBundle.value) : null,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function groupsDetails() {
+  const activity = groupBundle.value?.groupActivity
+  const asOf = groupBundle.value ? liveAnalyticsAsOf(groupBundle.value) : isoDay(new Date())
+  const recentStart = new Date(`${asOf}T00:00:00Z`)
+  recentStart.setUTCDate(recentStart.getUTCDate() - 6)
+  const recentFrom = isoDay(recentStart)
+  const totals = new Map((activity?.messages_by_group ?? []).map((row) => [String(row.group_id), row.message_count]))
+  const recent = new Map<string, number>()
+  const lastDay = new Map<string, string>()
+  for (const row of activity?.messages_by_group_by_day ?? []) {
+    const id = String(row.group_id)
+    if (row.message_count > 0 && row.date > (lastDay.get(id) ?? '')) lastDay.set(id, row.date)
+    if (row.date >= recentFrom && row.date <= asOf) recent.set(id, (recent.get(id) ?? 0) + row.message_count)
+  }
+  const rows = [...liveGroups.value]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((group) => {
+      const id = String(group.id)
+      const byRole = (role: string) => group.members.filter((member) => member.role.toLowerCase() === role)
+      const mentors = group.mentors ?? (group.mentor ? [group.mentor] : [])
+      const messages = totals.get(id) ?? 0
+      const lastWeek = recent.get(id) ?? 0
+      const status = lastWeek > 0 ? 'Active' : messages === 0 && group.members.length === 0 ? 'Not started' : 'Inactive'
+      return [
+        group.id,
+        group.name,
+        isoUtc(group.createdAt),
+        byRole('student').length,
+        mentors.length,
+        byRole('supervisor').length,
+        mentors.map((mentor) => mentor.name).join('; '),
+        messages,
+        lastWeek,
+        lastDay.get(id) ?? '',
+        status,
+      ]
+    })
+  return {
+    // Membership is current, so the file is named for the day it was exported.
+    fileName: exportFileName('groups', 'details', isoDay(new Date())),
+    csv: detailsCsv([
+      'Group ID', 'Group', 'Created (UTC)', 'Students', 'Mentors', 'Supervisors', 'Mentor Names',
+      'Messages (All Time)', `Messages (7 Days to ${asOf})`, 'Last Message Day (UTC)', 'Status',
+    ], rows),
+  }
+}
+
+function unassignedStudents() {
+  const rows = liveUsers.value
+    .filter((user) => (user.role ?? '').toLowerCase() === 'student' && !user.groupId)
+    .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+    .map((user) => [
+      user.id,
+      `${user.firstName} ${user.lastName}`.trim(),
+      user.email,
+      user.schoolName,
+      user.supervisorName,
+      isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+    ])
+  return {
+    fileName: exportFileName('groups', 'students-without-group', isoDay(new Date())),
+    csv: detailsCsv(['Student ID', 'Student', 'Email', 'School', 'Supervisor', 'Registered (UTC)'], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  const build = kind === 'summary' ? groupsSummary : kind === 'unassigned' ? unassignedStudents : groupsDetails
+  exportError.value = runExport(build)
 }
 </script>
 
@@ -1739,19 +1848,23 @@ async function exportCsv() {
     grid-row: 1;
   }
 
+  /* Key Insights runs down both chart rows so every insight fits at the
+     shared Key Insights text size. */
   .compact-insights-card {
     grid-column: 67 / 85 !important;
-    grid-row: 1;
+    grid-row: 1 / 3;
+    height: auto !important;
   }
 
-  /* Row 2: give the denser group-size distribution more room. */
+  /* Row 2: group size (0–5 students) and the ratio chart share the width
+     beside Key Insights. */
   .group-size-card {
-    grid-column: 1 / 50 !important;
+    grid-column: 1 / 34 !important;
     grid-row: 2;
   }
 
   .ratio-card {
-    grid-column: 50 / 85 !important;
+    grid-column: 34 / 67 !important;
     grid-row: 2;
   }
 

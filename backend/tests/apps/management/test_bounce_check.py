@@ -224,6 +224,22 @@ class CheckBouncesTests(TestCase):
         self.assertFalse(SystemEmailLog.objects.exists())
         self.assertTrue(EmailDelivery.objects.exists())
 
+    def test_a_bounce_marks_the_recipient_of_that_send_as_not_delivered(self):
+        from apps.services.email_metrics import record_email_delivery
+        from apps.services.models import EmailDeliveryRecipient
+
+        record_email_delivery(
+            "finalist_notification", source_mailbox=self.ours, attempted=2, delivered=2, failed=0,
+            recipients=["amy@example.com", "bo@example.com"], started_at=self.now - timedelta(hours=1),
+        )
+        check_bounces(self.now)
+
+        rows = {row.email: (row.status, row.reason) for row in EmailDeliveryRecipient.objects.all()}
+        self.assertEqual(rows, {
+            "amy@example.com": ("failed", "bounced: no such mailbox"),
+            "bo@example.com": ("delivered", ""),
+        })
+
     def test_a_bounce_matching_no_email_is_skipped(self):
         self.api.source.return_value = report(("someone@else.example", "failed", "5.1.1", "x"), subject="Hello there")
         result = check_bounces(self.now)

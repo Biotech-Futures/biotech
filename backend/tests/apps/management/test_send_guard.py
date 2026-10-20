@@ -82,6 +82,28 @@ class SendRunTests(TestCase):
         self.assertEqual((run["due"], run["emailed"], run["failed"], run["missed"]), (5, 2, 0, []))
         self.assertIn("was switched off on System Emails", run["error"])
 
+    def test_a_finished_run_keeps_who_it_reached_and_who_it_missed(self):
+        from apps.services.models import EmailDeliveryRecipient
+
+        addresses = ["amy@example.com", "bo@example.com", "cy@example.com"]
+        labels = [f"{address} (BTF1)" for address in addresses]
+
+        def send(connection, cache):
+            # Bo's address is refused on both tries.
+            return [{"who": labels[1], "reason": "address refused"}]
+
+        self._press("test_email", [Work(labels, send, addresses)])
+
+        rows = {
+            row.email: (row.status, row.reason)
+            for row in EmailDeliveryRecipient.objects.filter(metric__email_type="test_email")
+        }
+        self.assertEqual(rows, {
+            "amy@example.com": ("delivered", ""),
+            "bo@example.com": ("failed", "address refused"),
+            "cy@example.com": ("delivered", ""),
+        })
+
     def test_every_item_is_sent_and_the_progress_kept(self):
         work = [self._item(f"BTF{n}", 3) for n in range(5)] + [self._item("BTF9", 2, reached=1)]
         self._press("test_email", work)

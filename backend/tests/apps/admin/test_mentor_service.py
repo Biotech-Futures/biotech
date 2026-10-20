@@ -51,6 +51,17 @@ class MentorServiceTests(TestCase):
         self.assertEqual(mentor["currentAssignedCount"], 0)
         self.assertEqual(mentor["remainingCapacity"], 3)
         self.assertTrue(mentor["isActive"])
+        self.assertEqual(mentor["accountStatus"], "active")
+
+    def test_get_mentor_list_reports_account_status(self):
+        self.mentor.is_active = False
+        self.mentor.account_status = User.AccountStatus.INVITED
+        self.mentor.save(update_fields=["is_active", "account_status"])
+
+        mentor = get_mentor_list(requesting_user=self.admin_user)[0]
+
+        self.assertFalse(mentor["isActive"])
+        self.assertEqual(mentor["accountStatus"], "invited")
 
     def test_get_mentor_list_counts_assigned_groups(self):
         group = Groups.objects.create(group_name="Group A")

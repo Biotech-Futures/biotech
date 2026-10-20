@@ -37,7 +37,7 @@ from django.template.loader import get_template
 from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
-from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
+from apps.services.email_log import email_log, mark_failures_seen, reason_for, unseen_failures
 from apps.services.email_metrics import record_email_delivery
 from apps.services.email_registry import (
     EMAIL_TYPES,
@@ -520,6 +520,8 @@ def send_test_email(
             delivered=0,
             failed=1,
             initiated_by=requested_by,
+            recipients=[recipient],
+            missed={recipient: reason_for(exc)},
         )
         # Not logger.exception: SMTP errors can carry the address in their args.
         logger.error(
@@ -539,6 +541,7 @@ def send_test_email(
         delivered=1,
         failed=0,
         initiated_by=requested_by,
+        recipients=[recipient],
     )
 
     return {

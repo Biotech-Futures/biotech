@@ -324,6 +324,7 @@ def send_unread_message_digests(*, dry_run=False):
             delivered=0,
             failed=considered,
             source_mailbox=sender_for("unread_messages").address,
+            recipients=[candidate["email"] for candidate, _ in pending],
         )
         return considered, 0, len(pending)
 
@@ -332,6 +333,7 @@ def send_unread_message_digests(*, dry_run=False):
     # Claimed, and kept to send once the mail server can be reached.
     waiting = 0
     missed = {}
+    attempted_emails = []
     # Those that fail, kept to try once more once everyone has been tried.
     later = RetryLater(connection)
     try:
@@ -342,6 +344,7 @@ def send_unread_message_digests(*, dry_run=False):
             # (a newer message) — acceptable for a low-stakes reminder.
             if not _claim_user(candidate["user_id"], new_hwm, cutoff, now):
                 continue
+            attempted_emails.append(candidate["email"])
             resend = partial(_render_and_send, connection, candidate, summary, sender)
             try:
                 # The run tries it again at its end, so only then is a failure kept for Resend.
@@ -393,6 +396,7 @@ def send_unread_message_digests(*, dry_run=False):
             delivered=sent,
             failed=failed,
             source_mailbox=sender.address,
+            recipients=attempted_emails,
         )
     return considered, sent, failed
 
