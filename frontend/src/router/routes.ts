@@ -57,13 +57,9 @@
 import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 import { useAuthStore } from '@/stores/auth';
-import { SUPPORT_EMAIL } from '@/constants/brand';
 import { loadSupervisorResults } from '@/composables/useSupervisorResults';
 import { publicRegistrationRoute } from './publicRegistrationRoute';
 import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
-
-const NO_GROUP_MEMBERSHIP_MESSAGE =
-  `Please contact the administrator via ${SUPPORT_EMAIL}`;
 
 const requireSupervisor = () => {
   const auth = useAuthStore();
@@ -86,13 +82,14 @@ const resolveGroupsLanding = async () => {
   const auth = useAuthStore();
   const store = useGroupsStore();
   await store.ensureLoaded();
+
   const first = store.firstGroup;
   if (first) return { name: 'group-detail', params: { id: first.id }, replace: true };
   if (auth.isAdmin) return { name: 'admin-groups', replace: true };
   // A supervisor in no group yet has their students to place, under My Groups.
   if (auth.isSupervisor) return { name: 'my-groups', replace: true };
-  window.alert(NO_GROUP_MEMBERSHIP_MESSAGE);
-  return { name: 'dashboard', replace: true };
+  // No group assigned: the dashboard shows its no-group notice.
+  return { name: 'dashboard', query: { notice: 'no-group' }, replace: true };
 };
 
 const routes: RouteRecordRaw[] = [
@@ -124,6 +121,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/my-results', name: 'my-results', component: () => import('@/views/SupervisorResultsPage.vue'), beforeEnter: requireSupervisorResults },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
+  { path: '/groups/:id/meetings', name: 'group-meetings', component: () => import('@/views/GroupMeetingsPage.vue') },
+  { path: '/groups/:id/meetings/:meetingId', name: 'group-meeting-detail', component: () => import('@/views/GroupMeetingDetailPage.vue') },
   { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/finalist', name: 'group-finalist', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/results', name: 'group-results', component: () => import('@/views/GroupDetailPage.vue') },

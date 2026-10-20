@@ -227,6 +227,7 @@
         </nav>
 
         <button
+          v-if="!isNoGroupNotice"
           type="button"
           class="sidebar-collapse-toggle"
           :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
@@ -358,6 +359,10 @@ import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
 const route = useRoute()
+const isNoGroupNotice = computed(() =>
+  route.path === '/dashboard' &&
+  route.query.notice === 'no-group'
+)
 const router = useRouter()
 const auth = useAuthStore()
 const groupsStore = useGroupsStore()
@@ -923,13 +928,14 @@ onBeforeUnmount(() => {
 :global(body),
 :global(#app) {
   width: 100%;
+  height: 100%;
   max-width: none;
   margin: 0;
   padding: 0;
 }
 
 :global(body) {
-  overflow-x: hidden;
+  overflow: hidden;
   background: var(--bg-light);
 }
 
@@ -972,8 +978,9 @@ select {
 .app-container {
   width: 100%;
   max-width: none;
-  min-height: 100vh;
+  height: 100vh;
   margin: 0;
+  overflow: hidden;
   background-color: var(--bg-light);
 }
 
@@ -1290,6 +1297,8 @@ select {
   max-width: 1680px;
   margin: 0 auto;
   width: 100%;
+  height: calc(100vh - 64px);
+  overflow: hidden;
   background-color: var(--white);
 }
 
@@ -1603,6 +1612,15 @@ select {
   padding: 1rem 0.85rem 0;
 }
 
+.sidebar-nav,
+.sidebar-list {
+  flex: 0 0 auto;
+}
+
+.sidebar-group-switcher {
+  flex-shrink: 0;
+}
+
 .sidebar.is-collapsed .sidebar-group-switcher {
   display: none;
 }
@@ -1672,7 +1690,32 @@ select {
 .main-content {
   flex: 1;
   min-width: 0;
+  height: 100%;
+  overflow-y: auto;
   padding: 1rem;
+}
+
+:global(html[data-theme='dark'] .main-content) {
+  scrollbar-color: #53615d #111d1a;
+  scrollbar-width: thin;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar) {
+  width: 10px;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-track) {
+  background: #111d1a;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-thumb) {
+  background: #53615d;
+  border: 2px solid #111d1a;
+  border-radius: 999px;
+}
+
+:global(html[data-theme='dark'] .main-content::-webkit-scrollbar-thumb:hover) {
+  background: #687773;
 }
 
 .main-content--events {
@@ -1895,21 +1938,37 @@ select {
   }
 
   .main-layout {
+    display: flex;
     flex-direction: column;
-    min-height: auto;
+    flex: 1;
+    width: 100%;
+    max-width: 1680px;
+    margin: 0 auto;
+    height: calc(100vh - 64px);
+    min-height: 0;
+    overflow: hidden;
+    background-color: var(--white);
   }
 
   .sidebar {
+    --sidebar-toggle-offset: 0px;
+
     position: static;
     top: auto;
-    left: auto;
-    height: auto;
-    min-height: auto;
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
     width: 100%;
-    min-width: 100%;
-    overflow-y: visible;
-    padding: 0.75rem;
-    z-index: auto;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    max-height: 45vh;
+    flex: 0 0 auto;
+    overflow-y: auto;
+    padding: 0.75rem 0;
+    background-color: var(--white);
+    border-right: none;
+    border-bottom: 1px solid var(--border-light);
   }
 
   .sidebar.is-collapsed {
@@ -1961,9 +2020,13 @@ select {
   }
 
   .main-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
     width: 100%;
-    margin-left: 0;
-    padding: 0.85rem;
+    height: auto;
+    overflow-y: auto;
+    padding: 1rem;
   }
 
   .main-content--events {
@@ -1978,4 +2041,27 @@ select {
     max-width: none;
   }
 }
+
+/* =========================================================
+   Dark mode — header search bar
+   ========================================================= */
+
+html[data-theme='dark'] .search-bar {
+  background: #18231f;
+  color: #e8eeee;
+  border-color: #34413d;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+html[data-theme='dark'] .search-bar::placeholder {
+  color: #899793;
+}
+
+html[data-theme='dark'] .search-bar:focus {
+  background: #18231f;
+  color: #ffffff;
+  border-color: #4d625d;
+  box-shadow: 0 0 0 3px rgba(32, 201, 166, 0.15);
+}
+
 </style>
