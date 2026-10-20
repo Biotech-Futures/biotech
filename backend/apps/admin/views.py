@@ -36,6 +36,7 @@ from apps.admin.services.user import (
 from apps.admin.services import guardian_consent
 from apps.admin.services.email_verification import get_credit_balance
 from apps.admin.services.known_university import (
+    MISSING as KNOWN_UNIVERSITY_MISSING,
     add_known_university,
     delete_known_university,
     list_known_universities,
@@ -1896,9 +1897,22 @@ class EmailVerificationCreditsView(APIView):
         return Response(get_credit_balance())
 
 
+def _known_university_fields(data) -> dict:
+    """The full name ("fullName", or "name" as before), acronym and country a
+    request gives; a field it leaves out is MISSING."""
+    data = data if isinstance(data, dict) else {}
+    name_key = "fullName" if "fullName" in data else "name"
+    return {
+        "name": data.get(name_key, KNOWN_UNIVERSITY_MISSING),
+        "acronym": data.get("acronym", KNOWN_UNIVERSITY_MISSING),
+        "country": data.get("country", KNOWN_UNIVERSITY_MISSING),
+    }
+
+
 class KnownUniversityListCreateView(APIView):
-    """GET/POST /api/v1/admin/known-university/ — the names the registration
-    school check treats as universities (optional ``?search=`` on name)."""
+    """GET/POST /api/v1/admin/known-university/ — the universities the
+    registration school check knows ({"fullName" or "name", "acronym",
+    "country"}; optional ``?search=`` on any of them)."""
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
@@ -1906,20 +1920,29 @@ class KnownUniversityListCreateView(APIView):
         return Response(list_known_universities(request.query_params.get("search")))
 
     def post(self, request):
-        name = request.data.get("name") if isinstance(request.data, dict) else None
-        result, code = add_known_university(name, actor=request.user)
+        fields = {
+            key: None if value is KNOWN_UNIVERSITY_MISSING else value
+            for key, value in _known_university_fields(request.data).items()
+        }
+        result, code = add_known_university(
+            fields["name"], acronym=fields["acronym"], country=fields["country"], actor=request.user,
+        )
         return Response(result, status=code)
 
 
 class KnownUniversityDetailView(APIView):
-    """PATCH /api/v1/admin/known-university/<id>/ — rename it ({"name"});
-    DELETE — take it off the list."""
+    """PATCH /api/v1/admin/known-university/<id>/ — change its full name,
+    acronym or country (a field left out keeps its value); DELETE — take it
+    off the list."""
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def patch(self, request, university_id):
-        name = request.data.get("name") if isinstance(request.data, dict) else None
-        result, code = rename_known_university(university_id, name, actor=request.user)
+        fields = _known_university_fields(request.data)
+        result, code = rename_known_university(
+            university_id, fields["name"], acronym=fields["acronym"], country=fields["country"],
+            actor=request.user,
+        )
         return Response(result, status=code)
 
     def delete(self, request, university_id):

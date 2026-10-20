@@ -488,7 +488,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         body = copy.deepcopy(self.body)
         student = body["payload"]["students"][0]
         student.update(firstName="William", lastName="Nixon", email="wiliam.nixon@example.com", school="USYD")
-        KnownUniversity.objects.get_or_create(name="USYD")
+        KnownUniversity.objects.get_or_create(full_name="USYD")
         return body
 
     def test_all_soft_warnings_have_canonical_paths_and_do_not_burn_link(self):
@@ -634,7 +634,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
             self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
     def test_known_university_alias_normalizes_and_legacy_serializer_uses_same_warning(self):
-        KnownUniversity.objects.create(name="  Example   Institute ")
+        KnownUniversity.objects.create(full_name="  Example   Institute ")
         self.assertTrue(KnownUniversity.matches(" example institute "))
         from apps.users.registration_intake import validation_body
         body = validation_body(self.body["payload"]["students"][0], self.body["payload"]["supervisor"])

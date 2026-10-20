@@ -7,7 +7,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
@@ -263,7 +265,7 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         self.assertFalse(StudentProfile.objects.get().parent_guardian_flag)
 
     def test_all_warnings_are_acknowledged_by_original_student_index(self):
-        KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(full_name="USYD")
         body = batch("supervisor_csv", 2)
         for item in body["payload"]["students"]:
             item["school"] = "USYD"
@@ -277,8 +279,24 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["student_count"], 2)
 
+    def test_the_known_university_list_is_read_once_per_submission(self):
+        KnownUniversity.objects.create(full_name="University of Technology Sydney", acronym="UTS", country="Australia")
+        for count in (1, 30):
+            with self.subTest(count=count):
+                body = batch("supervisor_csv", count)
+                for index, item in enumerate(body["payload"]["students"]):
+                    item["school"] = " uts " if index % 3 == 0 else f"High School {index}"
+                with CaptureQueriesContext(connection) as queries:
+                    response = self.post_batch(body)
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertEqual(
+                    {item["field"] for item in response.data["warnings"]},
+                    {f"students.{index}.school" for index in range(0, count, 3)},
+                )
+                self.assertEqual(sum('"known_university"' in query["sql"] for query in queries.captured_queries), 1)
+
     def test_hard_errors_suppress_warnings_and_no_partial_batch_is_saved(self):
-        KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(full_name="USYD")
         body = batch("supervisor_csv", 2)
         body["payload"]["students"][0]["school"] = "USYD"
         body["payload"]["students"][1]["email"] = self.supervisor.email
