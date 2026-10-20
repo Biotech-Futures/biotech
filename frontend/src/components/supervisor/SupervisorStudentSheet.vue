@@ -78,13 +78,13 @@
         <form v-if="personalEditing" id="student-sheet-personal" @submit.prevent="savePersonal">
           <label class="student-sheet__item">
             <span class="student-sheet__label">Email</span>
-            <input v-model="personalForm.email" class="student-sheet__input" type="email" required />
+            <input v-model="personalForm.email" class="student-sheet__input app-input" type="email" required />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Country</span>
             <AppSelect
               v-model="personalForm.countryId"
-              class="student-sheet__input"
+              class="student-sheet__input app-input"
               :options="countryOptions"
               @change="personalForm.stateId = null"
             />
@@ -93,7 +93,7 @@
             <span class="student-sheet__label">State</span>
             <AppSelect
               v-model="personalForm.stateId"
-              class="student-sheet__input"
+              class="student-sheet__input app-input"
               :options="regionOptions"
               :required="inAustralia"
               placeholder="Choose a state"
@@ -160,19 +160,19 @@
         <form v-if="detailsEditing" @submit.prevent="saveDetails">
           <label class="student-sheet__item">
             <span class="student-sheet__label">First name</span>
-            <input v-model="detailsForm.firstName" class="student-sheet__input" required maxlength="255" />
+            <input v-model="detailsForm.firstName" class="student-sheet__input app-input" required maxlength="255" />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Last name</span>
-            <input v-model="detailsForm.lastName" class="student-sheet__input" required maxlength="255" />
+            <input v-model="detailsForm.lastName" class="student-sheet__input app-input" required maxlength="255" />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">School</span>
-            <input v-model="detailsForm.school" class="student-sheet__input" required maxlength="255" />
+            <input v-model="detailsForm.school" class="student-sheet__input app-input" required maxlength="255" />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Year Level</span>
-            <AppSelect v-model="detailsForm.yearLevel" class="student-sheet__input" :options="YEAR_OPTIONS" required />
+            <AppSelect v-model="detailsForm.yearLevel" class="student-sheet__input app-input" :options="YEAR_OPTIONS" required />
           </label>
           <fieldset class="student-sheet__item student-sheet__interest-options">
             <legend class="student-sheet__label">Interests</legend>
@@ -185,7 +185,7 @@
             <span class="student-sheet__label">Pronouns</span>
             <AppSelect
               v-model="detailsForm.pronounsChoice"
-              class="student-sheet__input"
+              class="student-sheet__input app-input"
               data-test="student-sheet-pronouns"
               :options="PRONOUN_SELECT_OPTIONS"
               :searchable="false"
@@ -195,7 +195,7 @@
             <span class="student-sheet__label">Their pronouns</span>
             <input
               v-model="detailsForm.pronounsOther"
-              class="student-sheet__input"
+              class="student-sheet__input app-input"
               data-test="student-sheet-pronouns-other"
               maxlength="100"
             />
@@ -253,15 +253,15 @@
         <form v-if="editing" id="student-sheet-guardian" @submit.prevent="saveGuardian">
           <label class="student-sheet__item">
             <span class="student-sheet__label">First name</span>
-            <input v-model="guardianForm.firstName" class="student-sheet__input" required />
+            <input v-model="guardianForm.firstName" class="student-sheet__input app-input" required />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Last name</span>
-            <input v-model="guardianForm.lastName" class="student-sheet__input" required />
+            <input v-model="guardianForm.lastName" class="student-sheet__input app-input" required />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Email</span>
-            <input v-model="guardianForm.email" class="student-sheet__input" type="email" />
+            <input v-model="guardianForm.email" class="student-sheet__input app-input" type="email" />
           </label>
         </form>
         <dl class="student-sheet__list">
@@ -734,15 +734,9 @@ const saveGuardian = async () => {
   flex-shrink: 0;
 }
 
+/* The shared box (app-input), growing beside its label. */
 .student-sheet__input {
   flex: 1;
-  max-width: 320px;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font: inherit;
-  color: var(--teal);
-  background: var(--surface-elevated);
 }
 
 .student-sheet__item:has(.student-sheet__input) {

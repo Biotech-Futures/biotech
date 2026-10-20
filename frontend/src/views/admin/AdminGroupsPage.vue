@@ -132,7 +132,7 @@
       <template #filters>
         <label class="admin-groups__filter-field">
           <span class="admin-groups__filter-label">Mentor status</span>
-          <AppSelect v-model="mentorStatus" aria-label="Mentor status" :options="MENTOR_STATUS_OPTIONS" />
+          <AppSelect v-model="mentorStatus" class="table-filter" aria-label="Mentor status" :options="MENTOR_STATUS_OPTIONS" />
         </label>
       </template>
       <template #cell-name="{ row }">
@@ -821,17 +821,6 @@ const submitForm = async () => {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
-}
-
-.admin-groups__filter-field .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .admin-groups__error {

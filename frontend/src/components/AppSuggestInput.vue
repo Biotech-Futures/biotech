@@ -1,7 +1,7 @@
 <template>
   <!-- A text box that offers suggestions as it's typed, in the site's
        dropdown list style; anything else can be typed too. Attributes
-       (id, maxlength, data-test...) go on the box itself. -->
+       (class, id, maxlength, data-test...) go on the box itself. -->
   <span class="app-suggest">
     <input
       v-bind="$attrs"
@@ -102,6 +102,11 @@ const onKeydown = (event: KeyboardEvent) => {
 .app-suggest {
   position: relative;
   display: block;
+}
+
+/* As wide as the shared box (app-input) in it, so its list is too. */
+.app-suggest:has(> .app-input:not(.app-input--wide)) {
+  max-width: 320px;
 }
 
 /* As the site's dropdown lists (AppSelect's). */

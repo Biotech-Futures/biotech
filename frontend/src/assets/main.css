@@ -494,6 +494,81 @@ h5 {
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.1);
 }
 
+/* The text box (and dropdown) every form outside a table uses: the page's
+   text in a light grey box about 50px tall, filling its column up to 320px.
+   A page keeps its own layout, colours and focus; it sets none of these. */
+.app-input {
+  width: 100%;
+  max-width: 320px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+/* A date's fields without the 1px Chrome puts above and below them, so a
+   date is as tall as a text box. */
+.app-input::-webkit-datetime-edit,
+.app-input::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+
+/* One that takes its whole row: long answers, emails, a subject. */
+.app-input--wide {
+  max-width: none;
+}
+
+/* The boxes a table uses, in its toolbar and beside it: smaller text, about
+   42px tall. A filter is at least 180px wide. */
+.table-filter {
+  min-width: 9rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: normal;
+}
+
+/* A table's search, with room on the left for its magnifier. */
+.table-search {
+  width: 100%;
+  padding: 0.45rem 0 0.45rem 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.table-filter:focus,
+.table-filter:focus-within,
+.table-search:focus {
+  outline: none;
+  border-color: var(--dark-green);
+}
+
+/* Rows per page, in a table's footer. */
+.table-page-size {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--white);
+  color: var(--teal);
+  font-size: 0.875rem;
+}
+
 /* Grid System */
 .grid {
   display: grid;

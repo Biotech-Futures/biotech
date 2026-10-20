@@ -18,7 +18,7 @@
             <AppSelect
               id="task-type"
               v-model="form.task_type"
-              class="form-input"
+              class="form-input app-input"
               :options="TASK_TYPE_OPTIONS"
               :disabled="busy"
             />
@@ -31,7 +31,7 @@
             <AppSelect
               id="task-group"
               v-model="form.group"
-              class="form-input"
+              class="form-input app-input"
               :options="groupOptions"
               :placeholder="groups.length ? 'Select group' : 'No groups available'"
               searchable
@@ -47,7 +47,7 @@
               <AppSelect
                 id="task-assign-mode"
                 v-model="form.assign_mode"
-                class="form-input"
+                class="form-input app-input"
                 :options="ASSIGN_MODE_OPTIONS"
                 :disabled="busy"
               />
@@ -60,7 +60,7 @@
               <AppSelect
                 id="task-user"
                 v-model="form.assigned_user"
-                class="form-input"
+                class="form-input app-input"
                 :options="userOptions"
                 :placeholder="users.length ? 'Select user' : 'No users available'"
                 searchable
@@ -75,7 +75,7 @@
               <AppSelect
                 id="task-role"
                 v-model="form.assigned_role"
-                class="form-input"
+                class="form-input app-input"
                 :options="roleOptions"
                 :placeholder="roles.length ? 'Select role' : 'No roles available'"
                 :disabled="busy"
@@ -116,7 +116,7 @@
           <label class="form-label" for="task-name">
             Name <span class="admin-task-form__required">*</span>
           </label>
-          <input id="task-name" v-model.trim="form.name" class="form-input" :disabled="busy" placeholder="Task name" />
+          <input id="task-name" v-model.trim="form.name" class="form-input app-input app-input--wide" :disabled="busy" placeholder="Task name" />
         </div>
 
         <div class="form-field form-field--full">
@@ -124,7 +124,7 @@
           <textarea
             id="task-description"
             v-model.trim="form.description"
-            class="form-input"
+            class="form-input app-input app-input--wide admin-task-form__description"
             rows="3"
             :disabled="busy"
             placeholder="Optional description"
@@ -133,7 +133,7 @@
 
         <div class="form-field">
           <label class="form-label" for="task-due-date">Due date</label>
-          <input id="task-due-date" v-model="form.due_date" type="date" class="form-input" :disabled="busy" />
+          <input id="task-due-date" v-model="form.due_date" type="date" class="form-input app-input" :disabled="busy" />
         </div>
 
         <div class="form-field">
@@ -141,7 +141,7 @@
           <AppSelect
             id="task-status"
             v-model="form.status"
-            class="form-input"
+            class="form-input app-input"
             :options="STATUS_OPTIONS"
             :disabled="busy"
           />
@@ -493,14 +493,14 @@ const submitForm = () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input), on the sheet's own background. */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--teal);
-  font: inherit;
+}
+
+/* Three lines, as tall as it was before the shared box. */
+.admin-task-form__description {
+  min-height: 6rem;
 }
 
 .form-input:disabled,

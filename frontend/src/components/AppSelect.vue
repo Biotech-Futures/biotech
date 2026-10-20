@@ -406,8 +406,10 @@ const onKeydown = (event: KeyboardEvent) => {
   text-overflow: ellipsis;
 }
 
-/* Large: the page's line height, as the text boxes beside it have. */
-.app-select.is-large .app-select__input {
+/* Large, or the shared text box (app-input): the page's line height, as
+   the text boxes beside it have, so it's as tall as they are. */
+.app-select.is-large .app-select__input,
+.app-select.app-input .app-select__input {
   line-height: inherit;
 }
 

@@ -73,13 +73,13 @@
       <template #filters>
         <label class="resource-filter">
           <span class="resource-filter-label">Label</span>
-          <AppSelect v-model="selectedLabelId" aria-label="Filter by label" :options="labelFilterOptions" />
+          <AppSelect v-model="selectedLabelId" class="table-filter" aria-label="Filter by label" :options="labelFilterOptions" />
           <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
         </label>
 
         <label class="resource-filter">
           <span class="resource-filter-label">Type</span>
-          <AppSelect v-model="selectedType" aria-label="Filter by type" :options="typeFilterOptions" />
+          <AppSelect v-model="selectedType" class="table-filter" aria-label="Filter by type" :options="typeFilterOptions" />
         </label>
 
       </template>
@@ -570,17 +570,6 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.resource-filter .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .field-error {

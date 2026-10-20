@@ -8,6 +8,7 @@
     <textarea
       v-if="multiline"
       :id="id"
+      class="app-input app-input--wide"
       :value="modelValue"
       :rows="rows"
       :placeholder="placeholder"
@@ -21,6 +22,8 @@
     <AppSelect
       v-else-if="options"
       :id="id"
+      class="app-input"
+      :class="{ 'app-input--wide': wide }"
       :model-value="modelValue"
       :options="options"
       :placeholder="placeholder ?? 'Select one'"
@@ -35,6 +38,8 @@
     <span v-else class="registration-field__control">
       <input
         :id="id"
+        class="app-input"
+        :class="{ 'app-input--wide': wide }"
         :value="modelValue"
         :type="digits ? 'number' : type"
         :autocomplete="suggestions?.length ? 'off' : autocomplete"
@@ -222,6 +227,11 @@ const wordCount = computed(() => countWords(props.modelValue))
   display: block;
 }
 
+/* As wide as the shared box (app-input) in it, so its list is too. */
+.registration-field__control:has(> .app-input:not(.app-input--wide)) {
+  max-width: 320px;
+}
+
 /* As the site's dropdown lists (AppSelect's). */
 .registration-field__suggestions {
   position: absolute;
@@ -281,30 +291,24 @@ const wordCount = computed(() => countWords(props.modelValue))
   font-weight: 500;
 }
 
-/* As big as the platform's other form boxes (e.g. the student sheet's). */
+/* The shared box (app-input), in registration's colours. */
 input,
 .app-select,
 textarea {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);
-  font: inherit;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
     background 160ms ease;
 }
 
+/* A long answer: room for a few lines at least. */
 textarea {
   min-height: 112px;
-  padding-block: 13px;
   resize: vertical;
-  line-height: 1.5;
 }
 
 input::placeholder,

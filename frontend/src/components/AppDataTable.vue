@@ -21,7 +21,7 @@
           <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
           <input
             v-model="search"
-            class="data-table-search-input"
+            class="data-table-search-input table-search"
             type="search"
             :placeholder="searchPlaceholder"
             @keydown.enter="emit('search-enter', search)"
@@ -222,6 +222,7 @@
         <span class="sr-only">Rows per page</span>
         <AppSelect
           :model-value="pageSize"
+          class="table-page-size"
           :options="sizeChoices"
           aria-label="Rows per page"
           @change="onPageSizeChange"
@@ -872,15 +873,6 @@ const togglePageSelection = () => {
   background-color: var(--light-green);
 }
 
-.data-table-page-size .app-select {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background-color: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
-}
-
 /* The search card and box from Group Marks on Select Finalists. */
 .data-table-search-card {
   display: flex;
@@ -953,22 +945,6 @@ const togglePageSelection = () => {
   color: var(--text-muted);
   font-size: 0.8rem;
   pointer-events: none;
-}
-
-.data-table-search-input {
-  width: 100%;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0 0.45rem 2rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
-}
-
-.data-table-search-input:focus {
-  outline: none;
-  border-color: var(--dark-green);
 }
 
 .data-table-bulk {

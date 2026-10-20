@@ -82,13 +82,13 @@
             </button>
           </div>
           <form v-if="mentorPlaceEditing" class="student-edit-form" data-test="mentor-place-form" @submit.prevent="saveMentorPlace">
-            <label v-if="auth.isAdmin" class="student-edit-form__wide">Email<input v-model.trim="mentorPlace.email" type="email" maxlength="254" data-test="admin-email" /></label>
-            <label>Country<AppSelect v-model="mentorPlace.country" :options="mentorCountryOptions" placeholder="Select a country" data-test="mentor-country" @change="mentorPlace.state = ''" /></label>
+            <label v-if="auth.isAdmin" class="student-edit-form__wide">Email<input v-model.trim="mentorPlace.email" class="app-input" type="email" maxlength="254" data-test="admin-email" /></label>
+            <label>Country<AppSelect v-model="mentorPlace.country" class="app-input" :options="mentorCountryOptions" placeholder="Select a country" data-test="mentor-country" @change="mentorPlace.state = ''" /></label>
             <label>State
-              <AppSelect v-if="mentorStateOptions.length" v-model="mentorPlace.state" :options="mentorStateOptions" placeholder="Choose a state" data-test="mentor-state" />
-              <input v-else v-model.trim="mentorPlace.state" maxlength="255" data-test="mentor-state-name" />
+              <AppSelect v-if="mentorStateOptions.length" v-model="mentorPlace.state" class="app-input" :options="mentorStateOptions" placeholder="Choose a state" data-test="mentor-state" />
+              <input v-else v-model.trim="mentorPlace.state" class="app-input" maxlength="255" data-test="mentor-state-name" />
             </label>
-            <label v-if="auth.isAdmin">Status<AppSelect v-model="mentorPlace.status" :options="ADMIN_STATUS_OPTIONS" :searchable="false" data-test="admin-status" /></label>
+            <label v-if="auth.isAdmin">Status<AppSelect v-model="mentorPlace.status" class="app-input" :options="ADMIN_STATUS_OPTIONS" :searchable="false" data-test="admin-status" /></label>
             <p v-if="auth.isAdmin && mentorPlace.status === 'inactive'" class="profile-note student-edit-form__wide">
               Inactive, you won't be able to sign in until another admin makes you Active again.
             </p>
@@ -98,18 +98,18 @@
             </div>
           </form>
           <form v-if="placeEditing" class="student-edit-form" data-test="place-edit-form" @submit.prevent="savePlace">
-            <label>Country<AppSelect v-model="placeDraft.country_id" :options="countrySelectOptions" @change="placeDraft.state_id = null" /></label>
-            <label>State<AppSelect v-model="placeDraft.state_id" :options="regionSelectOptions" :required="draftInAustralia" placeholder="Choose a state" data-test="student-region" /></label>
+            <label>Country<AppSelect v-model="placeDraft.country_id" class="app-input" :options="countrySelectOptions" @change="placeDraft.state_id = null" /></label>
+            <label>State<AppSelect v-model="placeDraft.state_id" class="app-input" :options="regionSelectOptions" :required="draftInAustralia" placeholder="Choose a state" data-test="student-region" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="placeSaving" @click="placeEditing = false">Cancel</button>
               <button class="btn btn-primary" type="submit" :disabled="placeSaving">{{ placeSaving ? 'Saving…' : 'Save' }}</button>
             </div>
           </form>
           <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
-            <label>First name<input v-model.trim="nameDraft.first_name" required maxlength="255" /></label>
-            <label>Last name<input v-model.trim="nameDraft.last_name" required maxlength="255" /></label>
-            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" :options="pronounSelectOptions" data-test="supervisor-pronouns-select" /></label>
-            <label v-if="supervisorPronouns.choice === 'Other'">Your pronouns<input v-model="supervisorPronouns.other" maxlength="100" data-test="supervisor-pronouns-other" /></label>
+            <label>First name<input v-model.trim="nameDraft.first_name" class="app-input" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="nameDraft.last_name" class="app-input" required maxlength="255" /></label>
+            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="supervisor-pronouns-select" /></label>
+            <label v-if="supervisorPronouns.choice === 'Other'">Your pronouns<input v-model="supervisorPronouns.other" class="app-input" maxlength="100" data-test="supervisor-pronouns-other" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
               <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save' }}</button>
@@ -156,7 +156,7 @@
               <AppSelect
                 id="timezone-input"
                 v-model="selectedTimeZone"
-                class="timezone-input"
+                class="timezone-input app-input"
                 :options="timeZoneSelectOptions"
               />
               <div class="timezone-actions">
@@ -186,13 +186,13 @@
             <button v-if="canEditStudentDetails && !studentEditing" class="btn btn-outline profile-edit-button" type="button" data-test="student-details-edit" @click="startStudentEdit">Edit</button>
           </div>
           <form v-if="studentEditing" class="student-edit-form" @submit.prevent="saveStudentDetails">
-            <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
-            <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
-            <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
-            <label>Year level<AppSelect v-model="studentDraft.year_lvl" :options="YEAR_LEVEL_OPTIONS" required /></label>
+            <label>First name<input v-model.trim="studentDraft.first_name" class="app-input" required maxlength="255" /></label>
+            <label>Last name<input v-model.trim="studentDraft.last_name" class="app-input" required maxlength="255" /></label>
+            <label>School<input v-model.trim="studentDraft.school_name" class="app-input" required maxlength="255" /></label>
+            <label>Year level<AppSelect v-model="studentDraft.year_lvl" class="app-input" :options="YEAR_LEVEL_OPTIONS" required /></label>
             <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
-            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" :options="pronounSelectOptions" data-test="student-pronouns-select" /></label>
-            <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" maxlength="100" data-test="student-pronouns-other" /></label>
+            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" data-test="student-pronouns-select" /></label>
+            <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" class="app-input" maxlength="100" data-test="student-pronouns-other" /></label>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save Details' }}</button></div>
           </form>
@@ -300,7 +300,7 @@
                 <input
                   id="guardian-first-name"
                   v-model.trim="guardianForm.first_name"
-                  class="guardian-input"
+                  class="guardian-input app-input"
                   type="text"
                   autocomplete="off"
                   required
@@ -314,7 +314,7 @@
                 <input
                   id="guardian-last-name"
                   v-model.trim="guardianForm.last_name"
-                  class="guardian-input"
+                  class="guardian-input app-input"
                   type="text"
                   autocomplete="off"
                   required
@@ -328,7 +328,7 @@
                 <input
                   id="guardian-email"
                   v-model.trim="guardianForm.email"
-                  class="guardian-input"
+                  class="guardian-input app-input"
                   type="email"
                   autocomplete="off"
                   required
@@ -454,18 +454,18 @@
               </button>
             </div>
             <form v-if="mentorDetailsEditing" class="student-edit-form" data-test="mentor-details-form" @submit.prevent="saveMentorDetails">
-              <label>First name<input v-model.trim="mentorDraft.firstName" maxlength="150" data-test="mentor-first-name" /></label>
-              <label>Last name<input v-model.trim="mentorDraft.lastName" maxlength="150" data-test="mentor-last-name" /></label>
-              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" :options="pronounSelectOptions" data-test="mentor-pronouns" /></label>
-              <label v-if="mentorPronouns.choice === 'Other'">Your pronouns<input v-model="mentorPronouns.other" maxlength="100" /></label>
-              <label>Background<AppSelect v-model="mentorDraft.background" :options="mentorBackgroundOptions" :searchable="false" placeholder="Choose a background" data-test="mentor-background" /></label>
-              <label v-if="mentorDraft.background === 'industry'">Company<input v-model.trim="mentorDraft.company" maxlength="255" data-test="mentor-company" /></label>
-              <label v-else>Institution<AppSuggestInput v-model="mentorDraft.institution" :suggestions="universityNames" maxlength="255" data-test="mentor-institution" /></label>
-              <label v-if="mentorDraftStudying">Year of study<AppSelect v-model="mentorDraft.universityYear" :options="STUDY_YEAR_OPTIONS" :searchable="false" placeholder="Choose a year" /></label>
-              <label v-if="mentorDraft.background !== 'industry'">Field of study<input v-model.trim="mentorDraft.fieldOfStudy" maxlength="255" /></label>
+              <label>First name<input v-model.trim="mentorDraft.firstName" class="app-input" maxlength="150" data-test="mentor-first-name" /></label>
+              <label>Last name<input v-model.trim="mentorDraft.lastName" class="app-input" maxlength="150" data-test="mentor-last-name" /></label>
+              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="mentor-pronouns" /></label>
+              <label v-if="mentorPronouns.choice === 'Other'">Your pronouns<input v-model="mentorPronouns.other" class="app-input" maxlength="100" /></label>
+              <label>Background<AppSelect v-model="mentorDraft.background" class="app-input" :options="mentorBackgroundOptions" :searchable="false" placeholder="Choose a background" data-test="mentor-background" /></label>
+              <label v-if="mentorDraft.background === 'industry'">Company<input v-model.trim="mentorDraft.company" class="app-input" maxlength="255" data-test="mentor-company" /></label>
+              <label v-else>Institution<AppSuggestInput v-model="mentorDraft.institution" class="app-input" :suggestions="universityNames" maxlength="255" data-test="mentor-institution" /></label>
+              <label v-if="mentorDraftStudying">Year of study<AppSelect v-model="mentorDraft.universityYear" class="app-input" :options="STUDY_YEAR_OPTIONS" :searchable="false" placeholder="Choose a year" /></label>
+              <label v-if="mentorDraft.background !== 'industry'">Field of study<input v-model.trim="mentorDraft.fieldOfStudy" class="app-input" maxlength="255" /></label>
               <fieldset class="interest-options"><legend>Expertise</legend><label v-for="interest in mentorInterestChoices" :key="interest"><input v-model="mentorDraft.interests" type="checkbox" :value="interest" /><span>{{ interest }}</span></label></fieldset>
-              <label>Capacity<AppSelect v-model="mentorDraft.capacity" :options="mentorCapacityOptions" :searchable="false" placeholder="Choose a capacity" /></label>
-              <label>Hours per week<input :value="mentorDraft.weeklyHours" type="number" inputmode="numeric" min="1" :max="MAX_WEEKLY_HOURS" data-test="mentor-hours" @input="onMentorHoursInput" @keydown="refuseNonDigitKey" @paste="refuseNonDigitPaste" /></label>
+              <label>Capacity<AppSelect v-model="mentorDraft.capacity" class="app-input" :options="mentorCapacityOptions" :searchable="false" placeholder="Choose a capacity" /></label>
+              <label>Hours per week<input class="app-input" :value="mentorDraft.weeklyHours" type="number" inputmode="numeric" min="1" :max="MAX_WEEKLY_HOURS" data-test="mentor-hours" @input="onMentorHoursInput" @keydown="refuseNonDigitKey" @paste="refuseNonDigitPaste" /></label>
               <div class="student-edit-actions">
                 <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="mentorDetailsEditing = false">Cancel</button>
                 <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
@@ -601,10 +601,10 @@
             </button>
           </div>
           <form v-if="adminDetailsEditing" class="student-edit-form" data-test="admin-details-form" @submit.prevent="saveAdminDetails">
-            <label>First name<input v-model.trim="adminDraft.firstName" required maxlength="150" data-test="admin-first-name" /></label>
-            <label>Last name<input v-model.trim="adminDraft.lastName" required maxlength="150" data-test="admin-last-name" /></label>
-            <label>Pronouns<AppSelect v-model="adminPronouns.choice" :options="pronounSelectOptions" data-test="admin-pronouns" /></label>
-            <label v-if="adminPronouns.choice === 'Other'">Your pronouns<input v-model="adminPronouns.other" maxlength="100" /></label>
+            <label>First name<input v-model.trim="adminDraft.firstName" class="app-input" required maxlength="150" data-test="admin-first-name" /></label>
+            <label>Last name<input v-model.trim="adminDraft.lastName" class="app-input" required maxlength="150" data-test="admin-last-name" /></label>
+            <label>Pronouns<AppSelect v-model="adminPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="admin-pronouns" /></label>
+            <label v-if="adminPronouns.choice === 'Other'">Your pronouns<input v-model="adminPronouns.other" class="app-input" maxlength="100" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="adminDetailsEditing = false">Cancel</button>
               <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
@@ -1751,11 +1751,8 @@ onMounted(async () => {
   gap: 0.75rem;
 }
 
+/* The shared box (app-input) with the page's colour. */
 .timezone-input {
-  width: min(100%, 360px);
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
   color: var(--teal);
 }
 
@@ -1847,11 +1844,8 @@ onMounted(async () => {
   gap: 0.3rem;
 }
 
+/* The shared box (app-input) with the page's colour. */
 .guardian-input {
-  width: min(100%, 360px);
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
   color: var(--teal);
 }
 
@@ -1906,7 +1900,6 @@ onMounted(async () => {
 .registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
 .profile-edit-button { margin:0; font-size:.85rem; }
 /* A weekly time: day, from, to, and its ×. */
-.student-edit-form :deep(.app-suggest input) { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-size:1rem; font-weight:400; }
 .student-edit-form__wide { grid-column:1 / -1; }
 .mentor-slots { display:grid; gap:.6rem; margin-top:1rem; }
 .mentor-slot { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
@@ -1921,8 +1914,6 @@ onMounted(async () => {
 .guardian-locked-note { margin:.25rem 0 1rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-/* The page's own text size, as the timezone box: not their label's smaller one. */
-.student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-size:1rem; font-weight:400; }
 /* The interests in two columns, as registering shows them, in their box. */
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:30px 16px; margin:0; padding:1.25rem 1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }

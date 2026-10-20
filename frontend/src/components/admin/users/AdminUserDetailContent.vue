@@ -76,7 +76,7 @@
       <form v-if="editing === 'account'" data-test="admin-account-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Email</span>
-          <input v-model.trim="form.email" class="admin-users-detail__input" type="email" required maxlength="254" />
+          <input v-model.trim="form.email" class="admin-users-detail__input app-input" type="email" required maxlength="254" />
         </label>
         <div class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-detail-country">Country</label>
@@ -84,7 +84,7 @@
             size="large"
             id="admin-detail-country"
             :model-value="form.countryId"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-country-select"
             :options="countryOptions"
             :loading="placesLoading"
@@ -98,7 +98,7 @@
           <span class="admin-users-detail__label">State</span>
           <input
             v-model.trim="form.stateName"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-state-text"
             maxlength="255"
             placeholder="State or province"
@@ -110,7 +110,7 @@
             size="large"
             id="admin-detail-state"
             v-model="form.stateId"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-state-select"
             :options="stateOptions"
             :loading="placesLoading"
@@ -125,7 +125,7 @@
             size="large"
             id="admin-detail-status"
             v-model="form.status"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-status-select"
             :options="STATUS_OPTIONS"
             :searchable="false"
@@ -214,7 +214,7 @@
             size="large"
             id="admin-detail-supervisor"
             v-model="form.supervisorEmail"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-supervisor-select"
             searchable
             :options="supervisorOptions"
@@ -229,7 +229,7 @@
             size="large"
             id="admin-detail-group"
             v-model="form.groupId"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-group-select"
             searchable
             :options="groupOptions"
@@ -276,15 +276,15 @@
       <form v-if="editing === 'details'" data-test="admin-details-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
-          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="255" />
+          <input v-model.trim="form.firstName" class="admin-users-detail__input app-input" required maxlength="255" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Last name</span>
-          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="255" />
+          <input v-model.trim="form.lastName" class="admin-users-detail__input app-input" required maxlength="255" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">School</span>
-          <input v-model.trim="form.schoolName" class="admin-users-detail__input" required maxlength="255" />
+          <input v-model.trim="form.schoolName" class="admin-users-detail__input app-input" required maxlength="255" />
         </label>
         <div class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-detail-year">Year Level</label>
@@ -292,7 +292,7 @@
             size="large"
             id="admin-detail-year"
             v-model="form.yearLevel"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-year-select"
             :options="YEAR_OPTIONS"
             :searchable="false"
@@ -312,7 +312,7 @@
             size="large"
             id="admin-detail-pronouns"
             v-model="form.pronounsChoice"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
             :searchable="false"
@@ -322,7 +322,7 @@
           <span class="admin-users-detail__label">Their pronouns</span>
           <input
             v-model="form.pronounsOther"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-pronouns-other"
             maxlength="100"
           />
@@ -379,15 +379,15 @@
         </p>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
-          <input v-model.trim="form.guardianFirstName" class="admin-users-detail__input" />
+          <input v-model.trim="form.guardianFirstName" class="admin-users-detail__input app-input" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Last name</span>
-          <input v-model.trim="form.guardianLastName" class="admin-users-detail__input" />
+          <input v-model.trim="form.guardianLastName" class="admin-users-detail__input app-input" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Email</span>
-          <input v-model.trim="form.guardianEmail" class="admin-users-detail__input" type="email" />
+          <input v-model.trim="form.guardianEmail" class="admin-users-detail__input app-input" type="email" />
         </label>
         <!-- Ticked when given: ticking records it, unticking records a withdrawal.
              Each on its own line, as the fields above: words left, box right. -->
@@ -537,7 +537,7 @@
             :id="`admin-mentor-group-${index}`"
             size="large"
             :model-value="groupId"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             :data-test="`admin-mentor-group-${index}`"
             :options="mentorGroupOptions(index)"
             :loading="picksLoading"
@@ -583,11 +583,11 @@
       <form v-if="editing === 'mentorDetails'" data-test="admin-mentor-details-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
-          <input v-model.trim="form.firstName" class="admin-users-detail__input" maxlength="150" />
+          <input v-model.trim="form.firstName" class="admin-users-detail__input app-input" maxlength="150" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Last name</span>
-          <input v-model.trim="form.lastName" class="admin-users-detail__input" maxlength="150" />
+          <input v-model.trim="form.lastName" class="admin-users-detail__input app-input" maxlength="150" />
         </label>
         <div class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-mentor-pronouns">Pronouns</label>
@@ -595,7 +595,7 @@
             size="large"
             id="admin-mentor-pronouns"
             v-model="form.pronounsChoice"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-mentor-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
             :searchable="false"
@@ -603,7 +603,7 @@
         </div>
         <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
           <span class="admin-users-detail__label">Their pronouns</span>
-          <input v-model="form.pronounsOther" class="admin-users-detail__input" maxlength="100" />
+          <input v-model="form.pronounsOther" class="admin-users-detail__input app-input" maxlength="100" />
         </label>
         <div class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-mentor-background">Background</label>
@@ -611,7 +611,7 @@
             id="admin-mentor-background"
             v-model="form.mentorBackground"
             size="large"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-mentor-background"
             :options="mentorBackgroundOptions"
             placeholder="Choose a background"
@@ -619,11 +619,11 @@
         </div>
         <label v-if="form.mentorBackground === 'industry'" class="admin-users-detail__item">
           <span class="admin-users-detail__label">Company</span>
-          <input v-model.trim="form.mentorCompany" class="admin-users-detail__input" data-test="admin-mentor-company" maxlength="255" />
+          <input v-model.trim="form.mentorCompany" class="admin-users-detail__input app-input" data-test="admin-mentor-company" maxlength="255" />
         </label>
         <label v-else class="admin-users-detail__item">
           <span class="admin-users-detail__label">Institution</span>
-          <input v-model.trim="form.mentorInstitution" class="admin-users-detail__input" data-test="admin-mentor-institution" maxlength="255" />
+          <input v-model.trim="form.mentorInstitution" class="admin-users-detail__input app-input" data-test="admin-mentor-institution" maxlength="255" />
         </label>
         <div v-if="mentorStudying" class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-mentor-year">Year of study</label>
@@ -631,7 +631,7 @@
             id="admin-mentor-year"
             v-model="form.mentorUniversityYear"
             size="large"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-mentor-year"
             :options="STUDY_YEAR_OPTIONS"
             placeholder="Choose a year"
@@ -639,7 +639,7 @@
         </div>
         <label v-if="form.mentorBackground !== 'industry'" class="admin-users-detail__item">
           <span class="admin-users-detail__label">Field of study</span>
-          <input v-model.trim="form.mentorFieldOfStudy" class="admin-users-detail__input" data-test="admin-mentor-field" maxlength="255" />
+          <input v-model.trim="form.mentorFieldOfStudy" class="admin-users-detail__input app-input" data-test="admin-mentor-field" maxlength="255" />
         </label>
         <fieldset class="admin-users-detail__item admin-users-detail__options">
           <legend class="admin-users-detail__label">Expertise</legend>
@@ -654,7 +654,7 @@
             id="admin-mentor-capacity"
             v-model="form.mentorCapacity"
             size="large"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-mentor-capacity"
             :options="mentorCapacityOptions"
           />
@@ -668,7 +668,7 @@
             min="1"
             :max="MAX_WEEKLY_HOURS"
             step="1"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-mentor-hours-input"
             @input="onHoursInput"
             @keydown="refuseNonDigitKey"
@@ -921,7 +921,7 @@
             :id="`admin-supervisor-group-${index}`"
             size="large"
             :model-value="groupId"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             :data-test="`admin-supervisor-group-${index}`"
             :options="supervisorGroupOptions(index)"
             :loading="picksLoading"
@@ -964,17 +964,17 @@
       <form v-if="editing === 'supervisorDetails'" data-test="admin-supervisor-details-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
-          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="150" />
+          <input v-model.trim="form.firstName" class="admin-users-detail__input app-input" required maxlength="150" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Last name</span>
-          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="150" />
+          <input v-model.trim="form.lastName" class="admin-users-detail__input app-input" required maxlength="150" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">School</span>
           <input
             v-model.trim="form.supervisorSchoolName"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-supervisor-school"
             maxlength="255"
           />
@@ -985,7 +985,7 @@
             size="large"
             id="admin-supervisor-pronouns"
             v-model="form.pronounsChoice"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-supervisor-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
             :searchable="false"
@@ -993,7 +993,7 @@
         </div>
         <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
           <span class="admin-users-detail__label">Their pronouns</span>
-          <input v-model="form.pronounsOther" class="admin-users-detail__input" maxlength="100" />
+          <input v-model="form.pronounsOther" class="admin-users-detail__input app-input" maxlength="100" />
         </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
@@ -1057,7 +1057,7 @@
             id="admin-supervisee-add"
             size="large"
             :model-value="null"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-supervisee-add"
             :options="studentOptions"
             :loading="picksLoading"
@@ -1102,11 +1102,11 @@
       <form v-if="editing === 'adminDetails'" data-test="admin-admin-details-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
-          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="150" />
+          <input v-model.trim="form.firstName" class="admin-users-detail__input app-input" required maxlength="150" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Last name</span>
-          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="150" />
+          <input v-model.trim="form.lastName" class="admin-users-detail__input app-input" required maxlength="150" />
         </label>
         <div class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-admin-pronouns">Pronouns</label>
@@ -1114,7 +1114,7 @@
             size="large"
             id="admin-admin-pronouns"
             v-model="form.pronounsChoice"
-            class="admin-users-detail__input"
+            class="admin-users-detail__input app-input"
             data-test="admin-admin-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
             :searchable="false"
@@ -1122,7 +1122,7 @@
         </div>
         <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
           <span class="admin-users-detail__label">Their pronouns</span>
-          <input v-model="form.pronounsOther" class="admin-users-detail__input" maxlength="100" />
+          <input v-model="form.pronounsOther" class="admin-users-detail__input app-input" maxlength="100" />
         </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
@@ -2386,6 +2386,12 @@ const sendConsentRequest = async () => {
 
 .admin-users-detail__input {
   flex: 1;
+}
+
+/* The weekly times and the application's answers keep their own box; the
+   rest are the shared one (app-input). */
+.admin-users-detail__slot .admin-users-detail__input,
+.admin-users-detail__textarea {
   max-width: 320px;
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--border-light);

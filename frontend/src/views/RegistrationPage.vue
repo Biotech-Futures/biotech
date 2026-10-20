@@ -1026,6 +1026,7 @@
                   <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
                   <AppSelect
                     id="mentor-capacity"
+                    class="app-input"
                     :model-value="forms.mentor.capacity"
                     :options="CAPACITY_OPTIONS"
                     placeholder="Select group capacity"
@@ -4233,17 +4234,13 @@ form,
   font-weight: 500;
 }
 
-/* As tall as the text boxes beside it (RegistrationTextField). */
+/* The shared box (app-input), as the text boxes beside it, in
+   registration's colours. */
 .select-field .app-select {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);
-  font: inherit;
 }
 
 .select-field .app-select:focus-within {

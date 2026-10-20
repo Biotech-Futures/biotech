@@ -17,7 +17,7 @@
           <AppSelect
             id="res-kind"
             v-model="form.kind"
-            class="form-input filter-select"
+            class="form-input app-input filter-select"
             :options="KIND_OPTIONS"
             :disabled="isEditing"
           />
@@ -33,7 +33,7 @@
             id="res-name"
             v-model.trim="form.name"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Mentor Handbook 2026"
             required
             maxlength="255"
@@ -46,7 +46,7 @@
           <textarea
             id="res-desc"
             v-model.trim="form.description"
-            class="form-input"
+            class="form-input app-input app-input--wide"
             rows="3"
             placeholder="Short description for admins and users."
             required
@@ -89,7 +89,7 @@
             id="res-labels"
             v-model.trim="form.labelInput"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Do's and Don'ts, Group tips"
           />
           <p class="admin-resource-form__hint">
@@ -103,7 +103,7 @@
           <AppSelect
             id="res-type"
             v-model="form.typeId"
-            class="form-input filter-select"
+            class="form-input app-input filter-select"
             :options="typeOptions"
           />
         </div>
@@ -772,15 +772,10 @@ const submitForm = async () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input). */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
   color: var(--teal);
-  font: inherit;
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 

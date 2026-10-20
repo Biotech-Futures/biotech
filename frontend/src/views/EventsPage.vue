@@ -44,7 +44,7 @@
             <input
               v-model.trim="filters.search"
               type="search"
-              class="filter-input"
+              class="filter-input app-input"
               placeholder="Title or description"
               @input="onSearchInput"
             />
@@ -64,7 +64,7 @@
           <span class="filter-label">Category</span>
           <AppSelect
             v-model="filters.category"
-            class="filter-input filter-select"
+            class="filter-input filter-select app-input"
             :options="categoryFilterOptions"
             @change="loadEvents()"
           />
@@ -74,7 +74,7 @@
           <span class="filter-label">RSVP</span>
           <AppSelect
             v-model="filters.rsvpStatus"
-            class="filter-input filter-select"
+            class="filter-input filter-select app-input"
             :options="rsvpStatusFilterOptions"
             @change="loadEvents()"
           />
@@ -1641,17 +1641,14 @@ const onFormEditorDelete = () => {
   font-size: 0.85rem;
 }
 
+/* The shared box (app-input). */
 .filter-input {
-  width: 100%;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background: var(--white);
   color: var(--teal);
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
+/* Room for the magnifier and the clear button. */
 .filter-search-input-wrap .filter-input {
   padding-left: 2.25rem;
   padding-right: 2.25rem;
@@ -1666,7 +1663,6 @@ const onFormEditorDelete = () => {
 
 /* AppSelect draws its own arrow. */
 .filter-select {
-  padding-right: 2rem;
   cursor: pointer;
 }
 

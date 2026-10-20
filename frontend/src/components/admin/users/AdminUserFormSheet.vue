@@ -15,7 +15,7 @@
             id="f-email"
             v-model.trim="form.email"
             type="email"
-            class="form-input"
+            class="form-input app-input"
             :disabled="isEditing && isSupervisorMode"
             :readonly="isEditing && isSupervisorMode"
             :aria-describedby="isEditing && !isSupervisorMode ? 'f-email-hint' : undefined"
@@ -27,14 +27,14 @@
         </div>
         <div v-if="!isEditing" class="form-field">
           <label class="form-label" for="f-role">Role <span class="required-mark" aria-hidden="true">*</span></label>
-          <AppSelect id="f-role" v-model="form.role" class="form-input" :options="ROLE_OPTIONS" :disabled="!!fixedRole" />
+          <AppSelect id="f-role" v-model="form.role" class="form-input app-input" :options="ROLE_OPTIONS" :disabled="!!fixedRole" />
         </div>
         <div v-if="isEditing" class="form-field">
           <label class="form-label" for="f-role-edit">Role</label>
           <AppSelect
             id="f-role-edit"
             v-model="form.role"
-            class="form-input"
+            class="form-input app-input"
             :options="ROLE_OPTIONS"
             :disabled="!!fixedRole"
           />
@@ -51,7 +51,7 @@
               <AppSelect
                 id="f-country"
                 :model-value="form.countryId ?? null"
-                class="form-input"
+                class="form-input app-input"
                 :options="countryOptions"
                 @update:model-value="(value) => (form.countryId = value === null ? undefined : Number(value))"
                 @change="onFormCountryChange"
@@ -66,7 +66,7 @@
                 v-if="formStates.length || form.countryId === undefined"
                 id="f-state"
                 :model-value="form.stateId ?? null"
-                class="form-input"
+                class="form-input app-input"
                 :options="stateOptions"
                 :searchable="false"
                 :disabled="form.countryId === undefined"
@@ -77,7 +77,7 @@
                 v-else
                 id="f-state"
                 v-model.trim="form.stateName"
-                class="form-input"
+                class="form-input app-input"
                 data-test="form-state-name"
                 maxlength="255"
               />
@@ -88,7 +88,7 @@
             <AppSelect
               id="f-status"
               :model-value="form.active ? 'active' : 'inactive'"
-              class="form-input"
+              class="form-input app-input"
               data-test="form-status"
               :options="STATUS_OPTIONS"
               :searchable="false"
@@ -104,24 +104,24 @@
       <div class="admin-users-form__grid">
         <div class="form-field">
           <label class="form-label" for="f-first">First name</label>
-          <input id="f-first" v-model.trim="form.firstName" class="form-input" />
+          <input id="f-first" v-model.trim="form.firstName" class="form-input app-input" />
         </div>
         <div class="form-field">
           <label class="form-label" for="f-last">Last name</label>
-          <input id="f-last" v-model.trim="form.lastName" class="form-input" />
+          <input id="f-last" v-model.trim="form.lastName" class="form-input app-input" />
         </div>
 
         <template v-if="form.role === 'student'">
           <div class="form-field">
             <label class="form-label" for="f-school">School</label>
-            <input id="f-school" v-model.trim="form.schoolName" class="form-input" />
+            <input id="f-school" v-model.trim="form.schoolName" class="form-input app-input" />
           </div>
           <div class="form-field">
             <label class="form-label" for="f-year">Year level</label>
             <AppSelect
               id="f-year"
               :model-value="form.yearLevel ?? null"
-              class="form-input"
+              class="form-input app-input"
               :options="YEAR_OPTIONS"
               :searchable="false"
               placeholder="Choose a year"
@@ -133,7 +133,7 @@
         <template v-if="form.role === 'supervisor'">
           <div class="form-field form-field--full">
             <label class="form-label" for="f-sschool">School</label>
-            <input id="f-sschool" v-model.trim="form.supervisorSchoolName" class="form-input" />
+            <input id="f-sschool" v-model.trim="form.supervisorSchoolName" class="form-input app-input" />
           </div>
         </template>
 
@@ -145,14 +145,14 @@
             <AppSelect
               id="f-mpronouns"
               v-model="form.pronounsChoice"
-              class="form-input"
+              class="form-input app-input"
               :options="PRONOUN_SELECT_OPTIONS"
               :searchable="false"
             />
           </div>
           <div v-if="form.pronounsChoice === 'Other'" class="form-field">
             <label class="form-label" for="f-mpronouns-other">Their pronouns</label>
-            <input id="f-mpronouns-other" v-model="form.pronounsOther" class="form-input" maxlength="100" />
+            <input id="f-mpronouns-other" v-model="form.pronounsOther" class="form-input app-input" maxlength="100" />
           </div>
         </template>
 
@@ -164,7 +164,7 @@
             <AppSelect
               id="f-mbg"
               v-model="form.mentorBackground"
-              class="form-input"
+              class="form-input app-input"
               :options="mentorBackgroundOptions"
               :searchable="false"
               placeholder="Choose a background"
@@ -172,18 +172,18 @@
           </div>
           <div v-if="form.mentorBackground === 'industry'" class="form-field">
             <label class="form-label" for="f-mcompany">Company</label>
-            <input id="f-mcompany" v-model.trim="form.mentorCompany" class="form-input" maxlength="255" />
+            <input id="f-mcompany" v-model.trim="form.mentorCompany" class="form-input app-input" maxlength="255" />
           </div>
           <div v-else class="form-field">
             <label class="form-label" for="f-minst">Institution</label>
-            <input id="f-minst" v-model.trim="form.mentorInstitution" class="form-input" maxlength="255" />
+            <input id="f-minst" v-model.trim="form.mentorInstitution" class="form-input app-input" maxlength="255" />
           </div>
           <div v-if="mentorStudying" class="form-field">
             <label class="form-label" for="f-myear">Year of study</label>
             <AppSelect
               id="f-myear"
               v-model="form.mentorUniversityYear"
-              class="form-input"
+              class="form-input app-input"
               :options="STUDY_YEAR_OPTIONS"
               :searchable="false"
               placeholder="Choose a year"
@@ -191,7 +191,7 @@
           </div>
           <div v-if="form.mentorBackground !== 'industry'" class="form-field">
             <label class="form-label" for="f-mfield">Field of study</label>
-            <input id="f-mfield" v-model.trim="form.mentorFieldOfStudy" class="form-input" maxlength="255" />
+            <input id="f-mfield" v-model.trim="form.mentorFieldOfStudy" class="form-input app-input" maxlength="255" />
           </div>
         </template>
 
@@ -219,7 +219,7 @@
             <AppSelect
               id="f-mcap"
               :model-value="form.mentorMaxGroupCount ?? null"
-              class="form-input"
+              class="form-input app-input"
               :options="capacityOptions"
               :searchable="false"
               placeholder="Choose a capacity"
@@ -231,7 +231,7 @@
             <input
               id="f-mhours"
               :value="form.mentorWeeklyHours"
-              class="form-input"
+              class="form-input app-input"
               type="number"
               inputmode="numeric"
               min="1"
@@ -250,14 +250,14 @@
             <AppSelect
               id="f-pronouns"
               v-model="form.pronounsChoice"
-              class="form-input"
+              class="form-input app-input"
               :options="PRONOUN_SELECT_OPTIONS"
               :searchable="false"
             />
           </div>
           <div v-if="form.pronounsChoice === 'Other'" class="form-field">
             <label class="form-label" for="f-pronouns-other">Their pronouns</label>
-            <input id="f-pronouns-other" v-model="form.pronounsOther" class="form-input" maxlength="100" />
+            <input id="f-pronouns-other" v-model="form.pronounsOther" class="form-input app-input" maxlength="100" />
           </div>
         </template>
       </div>
@@ -272,7 +272,7 @@
             <AppSelect
               id="f-supervisor"
               v-model="form.supervisorEmail"
-              class="form-input"
+              class="form-input app-input"
               searchable
               :options="supervisorOptions"
               placeholder="Search by name or email"
@@ -284,7 +284,7 @@
             <AppSelect
               id="f-group"
               v-model="form.groupId"
-              class="form-input"
+              class="form-input app-input"
               searchable
               :options="groupOptions"
               :loading="groupsLoading"
@@ -307,15 +307,15 @@
         <div class="admin-users-form__grid">
           <div class="form-field">
             <label class="form-label" for="f-gfirst">Guardian first name</label>
-            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input" />
+            <input id="f-gfirst" v-model.trim="form.guardianFirstName" class="form-input app-input" />
           </div>
           <div class="form-field">
             <label class="form-label" for="f-glast">Guardian last name</label>
-            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input" />
+            <input id="f-glast" v-model.trim="form.guardianLastName" class="form-input app-input" />
           </div>
           <div class="form-field form-field--full">
             <label class="form-label" for="f-gemail">Guardian email</label>
-            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input" />
+            <input id="f-gemail" v-model.trim="form.guardianEmail" type="email" class="form-input app-input" />
           </div>
           <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
           <div class="form-field form-field--full admin-users-form__consents" data-test="form-consent">
@@ -1377,10 +1377,17 @@ const submitForm = async () => {
 
 .form-input {
   width: 100%;
+  background-color: var(--white);
+}
+
+/* The weekly times and the application's answers keep their own box; the
+   rest are the shared one (app-input). */
+.admin-users-form__day,
+.admin-users-form__time-part,
+.admin-users-form__textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
-  background-color: var(--white);
   color: var(--teal);
   font: inherit;
 }

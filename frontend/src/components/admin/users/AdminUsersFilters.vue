@@ -6,6 +6,7 @@
     <div v-if="!isRoleFixed" class="admin-users__filter">
       <label class="admin-users__filter-label" for="role-filter">Role</label>
       <AppSelect
+        class="table-filter"
         id="role-filter"
         :model-value="filters.role"
         :options="roleOptions"
@@ -17,6 +18,7 @@
     <div class="admin-users__filter">
       <label class="admin-users__filter-label" for="country-filter">Country</label>
       <AppSelect
+        class="table-filter"
         id="country-filter"
         :model-value="filters.country"
         :options="countryOptions"
@@ -29,6 +31,7 @@
     <div class="admin-users__filter">
       <label class="admin-users__filter-label" for="state-filter">State</label>
       <AppSelect
+        class="table-filter"
         id="state-filter"
         :model-value="filters.state"
         :options="stateOptions"
@@ -40,6 +43,7 @@
     <div v-if="isStudentMode" class="admin-users__filter">
       <label class="admin-users__filter-label" for="in-group-filter">In group</label>
       <AppSelect
+        class="table-filter"
         id="in-group-filter"
         :model-value="filters.inGroup"
         :options="IN_GROUP_OPTIONS"
@@ -51,6 +55,7 @@
     <div class="admin-users__filter">
       <label class="admin-users__filter-label" for="status-filter">Status</label>
       <AppSelect
+        class="table-filter"
         id="status-filter"
         :model-value="filters.status"
         :options="STATUS_OPTIONS"
@@ -143,22 +148,6 @@ const emitPatch = (field: FilterField, value: AppSelectValue) => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-}
-
-.admin-users__filter .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-}
-
-.admin-users__filter .app-select:focus-within {
-  outline: none;
-  border-color: var(--dark-green);
 }
 
 .admin-users__filter-label {

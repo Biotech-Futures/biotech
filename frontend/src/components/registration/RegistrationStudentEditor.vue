@@ -44,6 +44,7 @@
           <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
           <AppSelect
             :id="fieldId('yearLevel')"
+            class="app-input"
             :model-value="student.yearLevel"
             :options="YEAR_LEVEL_OPTIONS"
             placeholder="Select a year"
@@ -105,6 +106,7 @@
             <span>Pronouns <small>(Optional)</small></span>
             <AppSelect
               :id="fieldId('pronouns')"
+              class="app-input"
               :model-value="student.pronouns"
               :options="PRONOUN_SELECT_OPTIONS"
               @update:model-value="(value) => (student.pronouns = String(value ?? ''))"
@@ -329,17 +331,13 @@ const onPhotoChange = (event: Event) => {
   font-weight: 500;
 }
 
-/* As tall as the text boxes beside it (RegistrationTextField). */
+/* The shared box (app-input), as the text boxes beside it, in
+   registration's colours. */
 .app-select {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);
-  font: inherit;
 }
 
 .app-select:focus-within {

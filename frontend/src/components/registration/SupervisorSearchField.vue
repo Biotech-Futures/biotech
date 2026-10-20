@@ -10,6 +10,7 @@
       <i class="fas fa-magnifying-glass supervisor-search__icon" aria-hidden="true"></i>
       <input
         :id="id"
+        class="app-input app-input--wide"
         :value="modelValue"
         type="text"
         autocomplete="off"
@@ -115,12 +116,11 @@ const pick = (supervisor: RegistrationSupervisor) => {
   pointer-events: none;
 }
 
+/* The shared box (app-input), with room on the left for the magnifier, in
+   registration's colours. */
 input {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem 0.4rem 2.1rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+  padding-left: 2.1rem;
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);

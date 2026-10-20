@@ -35,7 +35,7 @@
           <input
             v-model.trim="searchFilter"
             type="search"
-            class="admin-event-rsvps__search-input"
+            class="admin-event-rsvps__search-input table-search"
             placeholder="Search attendees by name or email..."
             aria-label="Search attendees"
           />
@@ -52,7 +52,7 @@
 
         <AppSelect
           v-model="statusFilter"
-          class="admin-event-rsvps__status-select"
+          class="admin-event-rsvps__status-select table-filter"
           aria-label="Filter by RSVP status"
           :options="STATUS_OPTIONS"
         />
@@ -453,14 +453,10 @@ const rsvpRows = computed(() =>
   pointer-events: none;
 }
 
+/* The table's search box, with room on the right for its clear button. */
 .admin-event-rsvps__search-input {
-  width: 100%;
-  padding: 0.5rem 2rem 0.5rem 2.2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  padding-right: 2rem;
   background: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
 }
 
 .admin-event-rsvps__search-input:focus {
@@ -481,13 +477,9 @@ const rsvpRows = computed(() =>
   border-radius: 999px;
 }
 
+/* The table's filter box. */
 .admin-event-rsvps__status-select {
-  padding: 0.5rem 0.6rem 0.5rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
   cursor: pointer;
 }
 

@@ -102,6 +102,7 @@
             <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
             <AppSelect
               id="view-group-by"
+              class="table-filter"
               :model-value="groupBy"
               :options="GROUP_BY_OPTIONS"
               @change="(value) => onGroupByChange(value as GroupByOption)"
@@ -464,17 +465,6 @@ onMounted(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-view-executed__group-by .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .admin-view-executed__group-by-hint {

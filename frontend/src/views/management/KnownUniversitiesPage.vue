@@ -31,7 +31,7 @@
         <form class="known-universities__add" data-test="university-add" @submit.prevent="add">
           <input
             v-model="newName"
-            class="known-universities__input"
+            class="known-universities__input table-filter"
             maxlength="255"
             placeholder="Add a university, e.g. USYD"
             aria-label="Add a university"
@@ -47,7 +47,7 @@
         <input
           v-if="editingId === row.id"
           v-model="editName"
-          class="known-universities__input"
+          class="known-universities__input table-filter"
           maxlength="255"
           :aria-label="`New name for ${row.name}`"
           data-test="university-edit-name"
@@ -268,20 +268,9 @@ onMounted(load)
   flex-shrink: 0;
 }
 
+/* The table's filter box, as Search beside it is. */
 .known-universities__input {
   width: min(100%, 20rem);
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font: inherit;
-  font-size: 0.9rem;
-  color: var(--teal);
-  background: var(--surface-elevated);
-}
-
-.known-universities__input:focus {
-  outline: none;
-  border-color: var(--dark-green);
 }
 
 .known-universities__actions {
