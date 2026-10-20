@@ -723,20 +723,41 @@ export function analyticsYears(bundle: Pick<LiveBundle, 'users' | 'groupActivity
     const date = registrationDate(user)
     if (date) years.add(date.getUTCFullYear())
   }
-  if (!years.size) years.add(new Date().getUTCFullYear())
-  return [...years].sort((a, b) => b - a)
+  return [...years].filter(Number.isFinite).sort((a, b) => b - a)
+}
+
+export function groupAnalyticsYears(bundle: CoreAnalyticsBundle) {
+  const years = new Set<number>([new Date().getUTCFullYear()])
+  for (const group of bundle.groups) {
+    const created = safeDate(group.createdAt)
+    if (created) years.add(created.getUTCFullYear())
+  }
+  for (const row of bundle.groupActivity.messages_by_day) years.add(Number(row.date.slice(0, 4)))
+  for (const row of bundle.groupActivity.average_group_size_by_year ?? []) years.add(row.year)
+  for (const row of bundle.groupActivity.group_summary_by_year ?? []) years.add(row.year)
+  return [...years].filter(Number.isFinite).sort((a, b) => b - a)
 }
 
 export function buildGroupsAnalytics(
   bundle: CoreAnalyticsBundle,
   activityYear = liveAnalyticsYear(bundle),
 ): GroupsAnalyticsYear {
-  const groups = bundle.groups
-  const groupMessages = new Map(bundle.groupActivity.messages_by_group.map((row) => [String(row.group_id), row.message_count]))
+  const systemYear = new Date().getUTCFullYear()
+  const groups = bundle.groups.filter((group) => {
+    const created = safeDate(group.createdAt)
+    return created ? created.getUTCFullYear() <= activityYear : activityYear === systemYear
+  })
+  const selectedSummary = bundle.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === activityYear)
+  const selectedAverage = bundle.groupActivity.average_group_size_by_year
+    ?.find((row) => row.year === activityYear)
   const sizes = groups.map((group) => group.members.filter((member) => member.role.toLowerCase() === 'student').length)
-  const withMentor = groups.filter((group) => groupMentors(group).length > 0).length
+  const localWithMentor = groups.filter((group) => groupMentors(group).length > 0).length
+  const withMentor = selectedSummary?.groups_with_mentor ?? localWithMentor
+  const totalGroups = selectedSummary?.group_count ?? groups.length
   const totalStudents = sizes.reduce((sum, value) => sum + value, 0)
-  const averageGroupSize = groups.length ? Number((totalStudents / groups.length).toFixed(1)) : 0
+  const averageGroupSize = selectedAverage?.average_group_size
+    ?? (groups.length ? Number((totalStudents / groups.length).toFixed(1)) : 0)
   const previousAverageGroupSize = bundle.groupActivity.average_group_size_by_year
     ?.find((row) => row.year === activityYear - 1)?.average_group_size ?? null
   const previousGroupSummary = bundle.groupActivity.group_summary_by_year
@@ -750,16 +771,12 @@ export function buildGroupsAnalytics(
   const overCapacity = sizes.filter((size) => size > MAX_STUDENTS_PER_GROUP).length
   if (overCapacity) groupSizeDistribution.push({ label: `Over ${MAX_STUDENTS_PER_GROUP}`, value: overCapacity })
 
-  const ratioMap = new Map<string, number>()
-  for (const group of groups) {
-    const size = new Set(group.members.filter((m) => m.role.toLowerCase() === 'student').map((m) => m.id)).size
-    const mentorIds = new Set(groupMentors(group).map((mentor) => mentor.id))
-    const perMentor = mentorIds.size ? size / mentorIds.size : null
-    const label = perMentor === null ? 'No mentor' : perMentor >= 12 ? '1:12+' : `1:${Number(perMentor.toFixed(2))}`
-    ratioMap.set(label, (ratioMap.get(label) ?? 0) + 1)
-  }
-
-  const recentEnd = liveAnalyticsAsOf(bundle)
+  const activityDates = bundle.groupActivity.messages_by_day
+    .map((row) => row.date)
+    .filter((date) => Number(date.slice(0, 4)) === activityYear)
+    .sort()
+  const recentEnd = activityDates[activityDates.length - 1]
+    ?? (activityYear === systemYear ? liveAnalyticsAsOf(bundle) : `${activityYear}-12-31`)
   const recentStartDate = new Date(`${recentEnd}T00:00:00Z`)
   recentStartDate.setUTCDate(recentStartDate.getUTCDate() - 6)
   const recentStart = recentStartDate.toISOString().slice(0, 10)
@@ -768,14 +785,19 @@ export function buildGroupsAnalytics(
       .filter((row) => row.date >= recentStart && row.date <= recentEnd && row.message_count > 0)
       .map((row) => String(row.group_id)),
   )
+  const messagesThroughSelectedYear = new Set(
+    bundle.groupActivity.messages_by_group_by_day
+      .filter((row) => Number(row.date.slice(0, 4)) <= activityYear && row.message_count > 0)
+      .map((row) => String(row.group_id)),
+  )
   const active = groups.filter((group) => recentGroupIds.has(String(group.id))).length
   const notStarted = groups.filter(
-    (group) => (groupMessages.get(String(group.id)) ?? 0) === 0 && group.members.length === 0,
+    (group) => !messagesThroughSelectedYear.has(String(group.id)) && group.members.length === 0,
   ).length
-  const inactive = Math.max(0, groups.length - active - notStarted)
+  const inactive = Math.max(0, totalGroups - active - notStarted)
 
   return {
-    totalGroups: groups.length,
+    totalGroups,
     groupGrowth: null,
     averageGroupSize,
     averageGroupSizePrevious: previousAverageGroupSize,
@@ -784,8 +806,16 @@ export function buildGroupsAnalytics(
       ? Number((((averageGroupSize - previousAverageGroupSize) / previousAverageGroupSize) * 100).toFixed(1))
       : null,
     groupsWithMentor: withMentor,
-    groupsWithoutMentor: groups.length - withMentor,
-    mentorStudentRatio: bundle.groupActivity.students_per_mentor,
+    groupsWithoutMentor: selectedSummary?.groups_without_mentor ?? Math.max(groups.length - withMentor, 0),
+    mentorStudentRatio: selectedSummary?.students_per_mentor ?? (() => {
+      const mentoredGroups = groups.filter((group) => groupMentors(group).length > 0)
+      const mentorAssignments = mentoredGroups.reduce((sum, group) => sum + groupMentors(group).length, 0)
+      const assignedStudents = mentoredGroups.reduce(
+        (sum, group) => sum + group.members.filter((member) => member.role.toLowerCase() === 'student').length,
+        0,
+      )
+      return mentorAssignments ? Number((assignedStudents / mentorAssignments).toFixed(2)) : null
+    })(),
     comparisonPreviousYear: activityYear - 1,
     groupsWithMentorPrevious: previousGroupSummary?.groups_with_mentor ?? null,
     groupsWithoutMentorPrevious: previousGroupSummary?.groups_without_mentor ?? null,
@@ -800,16 +830,6 @@ export function buildGroupsAnalytics(
       { label: 'Inactive', value: inactive, color: BTF_COLORS.mintGreen },
       { label: 'Not started', value: notStarted, color: BTF_COLORS.lightGreen },
     ],
-    ratioDistribution: [...ratioMap.entries()]
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => {
-        if (a.label === 'No mentor') return 1
-        if (b.label === 'No mentor') return -1
-        const ratioValue = (label: string) => label === '1:12+'
-          ? 12
-          : Number(label.slice(2))
-        return ratioValue(b.label) - ratioValue(a.label)
-      }),
     groupActivity: Array.from({ length: 12 }, (_, month) => {
       const activeGroupIds = new Set(
         bundle.groupActivity.messages_by_group_by_day

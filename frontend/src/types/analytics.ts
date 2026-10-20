@@ -92,7 +92,6 @@ export type GroupsAnalyticsYear = {
   overCapacity: number
   groupSizeDistribution: Array<{ label: string; value: number }>
   groupStatus: Array<{ label: string; value: number; color: string }>
-  ratioDistribution: Array<{ label: string; value: number }>
   groupActivity: Array<{ month: string; active: number; inactive: number }>
 }
 

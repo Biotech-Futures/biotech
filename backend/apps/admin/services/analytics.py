@@ -246,6 +246,15 @@ def get_group_activity_analytics(
         .distinct()
         .count()
     )
+    mentor_assignments = active_memberships.filter(
+        membership_role=GroupMembership.MembershipRoleChoices.MENTOR
+    )
+    mentor_assignment_count = mentor_assignments.count()
+    mentored_group_ids = mentor_assignments.values("group_id")
+    students_in_mentored_groups = active_memberships.filter(
+        membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        group_id__in=mentored_group_ids,
+    ).count()
 
     comparison_year = (end_date or timezone.localdate()).year
     average_group_size_by_year = []
@@ -285,6 +294,12 @@ def get_group_activity_analytics(
         groups_with_mentor = (
             mentor_memberships_at_year_end.values("group_id").distinct().count()
         )
+        historical_mentor_assignments = mentor_memberships_at_year_end.count()
+        historical_students_in_mentored_groups = (
+            student_memberships_at_year_end.filter(
+                group_id__in=mentor_memberships_at_year_end.values("group_id")
+            ).count()
+        )
         average_group_size_by_year.append(
             {
                 "year": year,
@@ -304,8 +319,12 @@ def get_group_activity_analytics(
                 "mentor_count": historical_mentor_count,
                 "student_count": historical_student_count,
                 "students_per_mentor": (
-                    round(historical_student_count / historical_mentor_count, 2)
-                    if historical_mentor_count
+                    round(
+                        historical_students_in_mentored_groups
+                        / historical_mentor_assignments,
+                        2,
+                    )
+                    if historical_mentor_assignments
                     else None
                 ),
             }
@@ -321,7 +340,9 @@ def get_group_activity_analytics(
         "mentor_count": mentor_count,
         "student_count": student_count,
         "students_per_mentor": (
-            round(student_count / mentor_count, 2) if mentor_count else None
+            round(students_in_mentored_groups / mentor_assignment_count, 2)
+            if mentor_assignment_count
+            else None
         ),
         "average_group_size_by_year": average_group_size_by_year,
         "group_summary_by_year": group_summary_by_year,
