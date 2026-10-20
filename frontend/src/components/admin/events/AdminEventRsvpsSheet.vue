@@ -10,10 +10,6 @@
     <div class="admin-event-rsvps">
       <!-- Summary Counts Bar -->
       <div v-if="!loading && rsvps.length" class="admin-event-rsvps__stats">
-        <div class="admin-event-rsvps__stat-pill">
-          <span class="admin-event-rsvps__stat-label">Total</span>
-          <span class="admin-event-rsvps__stat-val">{{ rsvps.length }}</span>
-        </div>
         <div class="admin-event-rsvps__stat-pill admin-event-rsvps__stat-pill--accepted">
           <span class="admin-event-rsvps__stat-label">Going</span>
           <span class="admin-event-rsvps__stat-val">{{ countByStatus('accepted') }}</span>
