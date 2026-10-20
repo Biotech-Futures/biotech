@@ -795,11 +795,15 @@ describe('AdminEmailsPage', () => {
 
     expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { to: 'tester@example.com' })
     expect(control.text()).toContain('Test sent to tester@example.com.')
-    // Save is the green button; Restore default and Send Test share the outlined look.
+    // Save is the green button; Restore default and Send Test share the outlined look,
+    // all full size, as tall as the boxes beside them.
     const button = (label: string) => wrapper.findAll('button').find((b) => b.text() === label)!
-    expect(button('Save changes').classes()).toEqual(expect.arrayContaining(['btn', 'btn-primary', 'btn-sm']))
+    expect(button('Save changes').classes()).toEqual(expect.arrayContaining(['btn', 'btn-primary']))
+    for (const label of ['Save changes', 'Restore default', 'Send Test']) {
+      expect(button(label).classes()).not.toContain('btn-sm')
+    }
     for (const label of ['Restore default', 'Send Test']) {
-      expect(button(label).classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline', 'btn-sm']))
+      expect(button(label).classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline']))
     }
     // An email with nothing of a person's own has no "of" list.
     expect(control.find('[data-test="test-of"]').exists()).toBe(false)

@@ -2,10 +2,7 @@
   <!-- An existing supervisor, found by their email and picked from the list
        (their name and school beside it): laid out as the form's other fields. -->
   <label class="supervisor-search registration-field--wide">
-    <span :id="`${id}-label`" class="supervisor-search__label">
-      {{ label }}
-      <small>(Optional)</small>
-    </span>
+    <span :id="`${id}-label`" class="supervisor-search__label">{{ label }}</span>
     <span class="supervisor-search__box">
       <i class="fas fa-magnifying-glass supervisor-search__icon" aria-hidden="true"></i>
       <input
@@ -93,12 +90,6 @@ const pick = (supervisor: RegistrationSupervisor) => {
   color: var(--registration-ink);
   font-size: 0.9rem;
   font-weight: 600;
-}
-
-.supervisor-search__label small {
-  color: var(--registration-muted);
-  font-size: 0.78rem;
-  font-weight: 500;
 }
 
 .supervisor-search__box {

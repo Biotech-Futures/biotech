@@ -73,7 +73,7 @@
         <form class="deadline__form" @submit.prevent="confirmOpen = true">
           <label class="deadline__field">
             <span>Closes at</span>
-            <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input" />
+            <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input app-input app-input--compact" />
           </label>
           <label class="deadline__field">
             <span>Grace hours</span>
@@ -82,7 +82,7 @@
               type="number"
               min="0"
               max="72"
-              class="deadline__input deadline__input--narrow"
+              class="deadline__input deadline__input--narrow app-input app-input--compact"
             />
           </label>
           <button
@@ -277,14 +277,10 @@ onMounted(() => void load())
   color: var(--teal);
 }
 
+/* The shared compact box (app-input), at its own width. */
 .deadline__input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
 }
 
 .deadline__input:focus {

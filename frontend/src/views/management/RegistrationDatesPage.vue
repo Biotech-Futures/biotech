@@ -43,6 +43,7 @@
         <label class="registration-dates__field">
           <span>Opens</span>
           <input
+            class="app-input app-input--compact"
             :value="opensLocal"
             type="datetime-local"
             data-test="registration-opens"
@@ -52,6 +53,7 @@
         <label class="registration-dates__field">
           <span>Closes</span>
           <input
+            class="app-input app-input--compact"
             :value="closesLocal"
             type="datetime-local"
             data-test="registration-closes"
@@ -228,14 +230,10 @@ onMounted(async () => {
   color: var(--teal);
 }
 
+/* The shared compact box (app-input), at its own width. */
 .registration-dates__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
 }
 
 .registration-dates__field input:focus {

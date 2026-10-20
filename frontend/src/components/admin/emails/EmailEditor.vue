@@ -113,12 +113,12 @@
 
     <footer class="editor__actions">
       <div class="editor__actions-primary">
-        <button type="button" class="btn btn-primary btn-sm" :disabled="!dirty || busy" @click="emit('save')">
+        <button type="button" class="btn btn-primary" :disabled="!dirty || busy" @click="emit('save')">
           {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline"
           :disabled="!emailTemplate.usingSavedContent || busy"
           @click="emit('restore')"
         >
@@ -151,7 +151,7 @@
         <!-- A critical email (sign-in, passwords) can't be test sent. -->
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline"
           :disabled="emailTemplate.locked || busy || testRecipientsLoading || !testTo.trim()"
           :title="emailTemplate.locked ? lockedTestReason : undefined"
           @click="sendTest"
@@ -362,7 +362,7 @@ const onToggleEnabled = (enabled: boolean) => {
 
 /* The shared box (app-input), as is the list above it: 320px, narrowing to
    13rem when room is short. The list is as wide, or wider when a name needs
-   it, up to the shared 320px. */
+   it, up to the shared box's widest. */
 .email-editor__test-to {
   width: 16rem;
   max-width: 100%;

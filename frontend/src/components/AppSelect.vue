@@ -455,6 +455,27 @@ const onKeydown = (event: KeyboardEvent) => {
   display: block;
 }
 
+/* The shared box (app-input) fills its column, so its longest option
+   mustn't widen the column past the boxes beside it. */
+.app-select.app-input .app-select__sizer {
+  width: 0;
+  padding-right: 0;
+}
+
+/* A compact one (app-input--compact) keeps its own width: as wide as its
+   longest option, up to what its page allows. */
+.app-select.app-input--compact .app-select__sizer {
+  width: auto;
+  padding-right: 1.25rem;
+}
+
+/* Its text centred in its height, as a text box's is, rather than pushed
+   down by padding its line doesn't fit inside. */
+.app-select.app-input--compact {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
 .app-select__validator {
   position: absolute;
   bottom: 0;

@@ -39,11 +39,11 @@
         <div class="finalist-presentation__add">
           <label class="finalist-presentation__field">
             <span>Start</span>
-            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time" />
+            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time app-input app-input--compact" />
           </label>
           <label class="finalist-presentation__field">
             <span>End</span>
-            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time" />
+            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time app-input app-input--compact" />
           </label>
           <button
             type="button"
@@ -651,8 +651,9 @@ const remove = async (id: number) => {
   color: var(--text-muted);
 }
 
-/* Same boxes as the date fields on Notify Finalists. */
-.finalist-presentation__time {
+/* The times in the table's rows. The Add row's are the shared compact box
+   (app-input), at their own width. */
+.finalist-presentation__time:not(.app-input) {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 0.35rem 0.55rem;
@@ -660,6 +661,11 @@ const remove = async (id: number) => {
   font-family: inherit;
   background: var(--surface-elevated);
   color: var(--teal);
+}
+
+.finalist-presentation__time.app-input {
+  width: auto;
+  max-width: none;
 }
 
 .finalist-presentation__time:focus {

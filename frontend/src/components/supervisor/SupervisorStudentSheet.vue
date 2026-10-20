@@ -739,6 +739,20 @@ const saveGuardian = async () => {
   flex: 1;
 }
 
+/* A box beside its label is as wide as every other, whatever its label:
+   --app-input-panel-width, or less when the row leaves its label under 6rem
+   (a longer label wraps). A searchable dropdown doesn't widen it for its
+   search text. */
+.student-sheet__item > .student-sheet__input.app-input:not(.app-input--wide) {
+  flex: 0 0 min(var(--app-input-panel-width), 100% - 6rem);
+  min-width: 0;
+}
+
+.student-sheet__item:has(> .app-input:not(.app-input--wide)) > .student-sheet__label {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
 .student-sheet__item:has(.student-sheet__input) {
   align-items: center;
 }

@@ -13,7 +13,7 @@
     <span class="test-email__word">of</span>
     <AppSelect
       :model-value="recipient"
-      class="test-email__select"
+      class="test-email__select app-input app-input--compact app-input--small"
       aria-label="Send it as"
       :options="recipientOptions"
       :disabled="!recipients.length"
@@ -25,7 +25,7 @@
     <input
       v-model="to"
       type="email"
-      class="test-email__to"
+      class="test-email__to app-input app-input--compact app-input--small"
       placeholder="Email address"
       aria-label="Send the test to"
       autocomplete="off"
@@ -121,15 +121,10 @@ const send = async () => {
   font-size: 0.85rem;
 }
 
+/* The shared compact box (app-input), at its own width. */
 .test-email__select,
 .test-email__to {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
 }
 
 .test-email__select {

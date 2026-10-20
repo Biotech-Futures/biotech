@@ -106,7 +106,7 @@ const onKeydown = (event: KeyboardEvent) => {
 
 /* As wide as the shared box (app-input) in it, so its list is too. */
 .app-suggest:has(> .app-input:not(.app-input--wide)) {
-  max-width: 320px;
+  max-width: var(--app-input-max-width);
 }
 
 /* As the site's dropdown lists (AppSelect's). */
