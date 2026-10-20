@@ -13,7 +13,7 @@ from rest_framework.test import APITestCase
 
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.tasks.models import CreatorRole, RoleTask, RoleTaskCompletion, Task, TaskType
+from apps.tasks.models import CreatorRole, RoleTask, RoleTaskCompletion, Task, TaskStatus, TaskType
 from apps.users.models import AdminScope
 
 User = get_user_model()
@@ -133,12 +133,41 @@ class RoleTaskToggleTests(_World, APITestCase):
         self.assertTrue(response.data["completed"])
         completion = RoleTaskCompletion.objects.get(role_task=self.role_task, user=self.mentor)
         self.assertTrue(completion.completed)
+        self.assertEqual(completion.status, TaskStatus.DONE)
+        self.assertEqual(response.data["status"], TaskStatus.DONE)
 
     def test_toggle_flips_back(self):
         self.client.force_authenticate(user=self.mentor)
         self.client.post(_toggle_url(self.role_task.id))
         response = self.client.post(_toggle_url(self.role_task.id))
         self.assertFalse(response.data["completed"])
+        self.assertEqual(response.data["status"], TaskStatus.TODO)
+        completion = RoleTaskCompletion.objects.get(role_task=self.role_task, user=self.mentor)
+        self.assertFalse(completion.completed)
+        self.assertEqual(completion.status, TaskStatus.TODO)
+
+    def test_explicit_values_repair_inconsistent_status_and_match_the_list(self):
+        self.client.force_authenticate(user=self.mentor)
+        for completed, stale_status, expected in (
+            (True, TaskStatus.TODO, TaskStatus.DONE),
+            (False, TaskStatus.DONE, TaskStatus.TODO),
+        ):
+            with self.subTest(completed=completed):
+                completion, _ = RoleTaskCompletion.objects.update_or_create(
+                    role_task=self.role_task, user=self.mentor,
+                    defaults={"completed": completed, "status": stale_status},
+                )
+                response = self.client.post(
+                    _toggle_url(self.role_task.id), {"completed": completed}, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data["status"], expected)
+                completion.refresh_from_db()
+                self.assertEqual(completion.completed, completed)
+                self.assertEqual(completion.status, expected)
+                listed = self.client.get(MINE_URL).data[0]
+                self.assertEqual(listed["completed"], completed)
+                self.assertEqual(listed["status"], expected)
 
     def test_explicit_completed_value_is_respected(self):
         self.client.force_authenticate(user=self.mentor)

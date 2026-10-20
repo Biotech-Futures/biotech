@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.admin.services.role_task import (
     count_role_recipients,
@@ -53,6 +54,46 @@ class AdminRoleTaskServiceTests(TestCase):
         result = create_admin_role_task(self.admin, {"name": "No Role"})
         self.assertEqual(result["msg"], "Role task requires a role")
         self.assertIsNone(result["data"])
+
+    def test_create_and_update_trim_text(self):
+        created = create_admin_role_task(self.admin, {
+            "name": "  Original  ", "description": "  First description  ", "role": "mentor",
+        })
+        self.assertEqual(created["data"]["name"], "Original")
+        self.assertEqual(created["data"]["description"], "First description")
+        result = update_admin_role_task(self.admin, created["data"]["id"], {
+            "name": "  Updated  ", "description": "  Updated description  ",
+        })
+        task = RoleTask.objects.get(id=created["data"]["id"])
+        self.assertEqual(result["data"]["name"], "Updated")
+        self.assertEqual(task.name, "Updated")
+        self.assertEqual(task.description, "Updated description")
+        update_admin_role_task(self.admin, task.id, {"description": None})
+        task.refresh_from_db()
+        self.assertEqual(task.description, "")
+
+    def test_api_rejects_blank_names_without_creating_or_changing_tasks(self):
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        created = create_admin_role_task(self.admin, {
+            "name": "Original", "description": "Keep this", "role": "mentor",
+        })
+        task_id = created["data"]["id"]
+        for name in ("", "   ", None):
+            with self.subTest(name=name):
+                response = client.post("/api/v1/admin/role-task/", {
+                    "name": name, "role": "mentor",
+                }, format="json")
+                self.assertEqual(response.status_code, 400)
+                response = client.patch(f"/api/v1/admin/role-task/{task_id}/", {
+                    "name": name, "description": "Do not save this",
+                }, format="json")
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["msg"], "Role task name is required")
+        self.assertEqual(RoleTask.objects.count(), 1)
+        task = RoleTask.objects.get(id=task_id)
+        self.assertEqual(task.name, "Original")
+        self.assertEqual(task.description, "Keep this")
 
     def test_create_role_task_rejects_unknown_role(self):
         result = create_admin_role_task(self.admin, {"name": "Nope", "role": "wizard"})
@@ -121,6 +162,29 @@ class AdminRoleTaskServiceTests(TestCase):
         result = get_admin_role_task_by_id(self.admin, 9999)
         self.assertEqual(result["msg"], "Role task not found")
         self.assertIsNone(result["data"])
+
+    def test_due_date_sort_keeps_undated_tasks_last_in_both_directions(self):
+        now = timezone.now()
+        ids = []
+        for name, due in (("Undated", None), ("Later", now + timedelta(days=2)),
+                          ("Sooner", now), ("Same date", now)):
+            result = create_admin_role_task(self.admin, {
+                "name": name, "role": "mentor", "due_date": due,
+            })
+            ids.append(result["data"]["id"])
+        for direction, expected in (
+            ("asc", [ids[2], ids[3], ids[1], ids[0]]),
+            ("desc", [ids[1], ids[2], ids[3], ids[0]]),
+        ):
+            with self.subTest(direction=direction):
+                # Check pagination too: equal dates retain stable ID ordering.
+                actual = []
+                for page in (1, 2):
+                    result = list_admin_role_tasks(
+                        self.admin, page=page, limit=2, sort_by="due", sort_order=direction,
+                    )
+                    actual.extend(item["id"] for item in result["data"]["items"])
+                self.assertEqual(actual, expected)
 
     def test_update_admin_role_task_is_the_bulk_edit_point(self):
         # This single PATCH is what "bulk-edit in one place" means: no

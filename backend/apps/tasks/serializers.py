@@ -147,7 +147,7 @@ class RoleTaskMineSerializer(serializers.ModelSerializer):
         return obj.role.role_name
 
     def _my_completion(self, obj):
-        # RoleTaskToggleQueryMixin/the view attaches this via a Prefetch
+        # _with_my_completion in role_task_views attaches this via a Prefetch
         # filtered to request.user, so no query happens per-row here.
         rows = getattr(obj, "my_completions", None)
         return rows[0] if rows else None

@@ -25,6 +25,7 @@ const fetchMockFor = (
   options: {
     roleRecipientCount?: number
     failDeleteIds?: number[]
+    roles?: { id: number; roleName: string }[]
   } = {}
 ) =>
   vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -59,7 +60,10 @@ const fetchMockFor = (
         data: { items: roleTasks, total, page: 1, limit: 25, has_more: false }
       }
     } else if (path.includes('/api/v1/admin/event/meta/roles/')) {
-      payload = { msg: 'Roles retrieved successfully', data: [{ id: 2, roleName: 'mentor' }] }
+      payload = {
+        msg: 'Roles retrieved successfully',
+        data: options.roles ?? [{ id: 2, roleName: 'mentor' }]
+      }
     } else {
       payload = {}
     }
@@ -98,6 +102,26 @@ afterEach(() => {
 })
 
 describe('AdminRoleTasksPage', () => {
+  it('offers each role name once when role metadata contains duplicates', async () => {
+    vi.stubGlobal('fetch', fetchMockFor([], 0, {
+      roles: [
+        { id: 2, roleName: 'mentor' },
+        { id: 3, roleName: 'mentor' },
+        { id: 4, roleName: 'student' }
+      ]
+    }))
+    wrapper = mountPage()
+    await flushPromises()
+    await buttonByText(wrapper, 'Add Role Task')!.trigger('click')
+    const select = wrapper.find<HTMLSelectElement>('#role-task-role')
+    expect(select.findAll('option').map(option => option.element.value)).toEqual([
+      '', 'mentor', 'student'
+    ])
+    await select.setValue('mentor')
+    await flushPromises()
+    expect(wrapper.text()).toContain('5 active users currently have this role')
+  })
+
   it('loads and renders role tasks', async () => {
     const fetchMock = fetchMockFor([buildRoleTask()])
     vi.stubGlobal('fetch', fetchMock)

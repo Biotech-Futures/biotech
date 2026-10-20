@@ -1416,6 +1416,8 @@ class AdminRoleTaskDetailView(APIView):
         result = update_admin_role_task(request.user, role_task_id, request.data)
         if result.get("msg") == "Role task not found":
             return Response(result, status=status.HTTP_404_NOT_FOUND)
+        if result.get("data") is None:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)
 
     def delete(self, request, role_task_id):

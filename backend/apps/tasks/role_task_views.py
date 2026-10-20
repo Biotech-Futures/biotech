@@ -74,7 +74,8 @@ class RoleTaskToggleView(generics.GenericAPIView):
                 defaults={"status": TaskStatus.TODO},
             )
             completion.completed = (not completion.completed) if new_value is None else new_value
-            completion.save(update_fields=["completed", "updated_at"])
+            completion.status = TaskStatus.DONE if completion.completed else TaskStatus.TODO
+            completion.save(update_fields=["completed", "status", "updated_at"])
 
         role_task = _with_my_completion(
             RoleTask.objects.filter(pk=role_task.pk).select_related("role"),

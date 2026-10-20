@@ -1,6 +1,7 @@
 from typing import TypedDict, Optional, List, Dict, Any, Tuple
 
 from django.db import transaction
+from django.db.models import F
 
 from apps.common.rbac import is_admin, users_with_role
 from apps.common.role_names import ROLE_ADMIN, try_get_role_by_name
@@ -126,7 +127,13 @@ def list_admin_role_tasks(
         "createdAt": ["created_at", "id"],
     }
     order_by = sort_map.get(sort_by, sort_map["createdAt"])
-    if sort_order == "desc":
+    if sort_by == "due":
+        due_order = F("due_date")
+        order_by = [
+            due_order.desc(nulls_last=True) if sort_order == "desc" else due_order.asc(nulls_last=True),
+            "id",
+        ]
+    elif sort_order == "desc":
         order_by = [f"-{field}" if field != "id" else field for field in order_by]
 
     qs = _admin_visible_role_tasks().order_by(*order_by)
@@ -204,8 +211,12 @@ def create_admin_role_task(requesting_user, input_data: dict) -> RoleTaskRespons
     if role_row is None:
         return {"msg": f"Role '{role_name}' is not seeded in the Roles table", "data": None}
 
+    name = (input_data.get("name") or "").strip()
+    if not name:
+        return {"msg": "Role task name is required", "data": None}
+
     role_task = RoleTask.objects.create(
-        name=(input_data.get("name") or "").strip(),
+        name=name,
         description=(input_data.get("description") or "").strip(),
         due_date=input_data.get("due_date") or None,
         role=role_row,
@@ -231,9 +242,12 @@ def update_admin_role_task(requesting_user, role_task_id: int, input_data: dict)
         return {"msg": "Role task not found", "data": None}
 
     if "name" in input_data:
-        role_task.name = input_data["name"]
+        name = (input_data["name"] or "").strip()
+        if not name:
+            return {"msg": "Role task name is required", "data": None}
+        role_task.name = name
     if "description" in input_data:
-        role_task.description = input_data["description"]
+        role_task.description = (input_data["description"] or "").strip()
     if "due_date" in input_data:
         role_task.due_date = input_data["due_date"] or None
 

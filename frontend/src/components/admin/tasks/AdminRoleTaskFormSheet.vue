@@ -18,13 +18,13 @@
               Role <span class="admin-role-task-form__required">*</span>
             </label>
             <select id="role-task-role" v-model="form.role" class="form-input" :disabled="busy">
-              <option value="">{{ roles.length ? 'Select role' : 'No roles available' }}</option>
+              <option value="">{{ uniqueRoleNames.length ? 'Select role' : 'No roles available' }}</option>
               <option
-                v-for="(role, index) in roles"
-                :key="role.id ?? `${role.roleName}-${index}`"
-                :value="role.roleName"
+                v-for="roleName in uniqueRoleNames"
+                :key="roleName"
+                :value="roleName"
               >
-                Everyone with the {{ role.roleName }} role
+                Everyone with the {{ roleName }} role
               </option>
             </select>
             <div v-if="form.role">
@@ -154,6 +154,7 @@ const open = computed({
   set: (value: boolean) => emit('update:modelValue', value)
 })
 const isEditing = computed(() => Boolean(props.roleTask))
+const uniqueRoleNames = computed(() => [...new Set(props.roles.map(role => role.roleName))])
 const displayError = computed(() => formError.value || props.submitError || '')
 const hasName = computed(() => Boolean(form.name.trim()))
 const hasValidAssignment = computed(() => isEditing.value || Boolean(form.role))
