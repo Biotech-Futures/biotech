@@ -95,6 +95,13 @@ export type GroupActivityResponse = {
     mentor_count: number
     student_count: number
     students_per_mentor: number | null
+    group_size_distribution?: Array<{ student_count: number; group_count: number }>
+    small_groups?: number
+    full_groups?: number
+    over_capacity_groups?: number
+    active_groups?: number
+    inactive_groups?: number
+    not_started_groups?: number
   }>
   query_range: { start: string | null; end: string | null }
 }

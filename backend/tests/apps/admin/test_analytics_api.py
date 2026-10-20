@@ -290,6 +290,23 @@ class GroupActivityAnalyticsApiTests(APITestCase):
         self.assertEqual(summaries[2025]["mentor_count"], 1)
         self.assertEqual(summaries[2025]["student_count"], 2)
         self.assertEqual(summaries[2025]["students_per_mentor"], 2.0)
+        self.assertEqual(
+            summaries[2025]["group_size_distribution"],
+            [
+                {"student_count": 0, "group_count": 0},
+                {"student_count": 1, "group_count": 0},
+                {"student_count": 2, "group_count": 1},
+                {"student_count": 3, "group_count": 0},
+                {"student_count": 4, "group_count": 0},
+                {"student_count": 5, "group_count": 0},
+            ],
+        )
+        self.assertEqual(summaries[2025]["small_groups"], 1)
+        self.assertEqual(summaries[2025]["full_groups"], 0)
+        self.assertEqual(summaries[2025]["over_capacity_groups"], 0)
+        self.assertEqual(summaries[2025]["active_groups"], 0)
+        self.assertEqual(summaries[2025]["inactive_groups"], 1)
+        self.assertEqual(summaries[2025]["not_started_groups"], 0)
 
     def test_date_range_filters_message_counts_inclusively(self):
         Messages.objects.create(

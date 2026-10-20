@@ -222,4 +222,25 @@ describe('buildEmailMonitoring', () => {
 
     expect(result.logs[0]).toMatchObject({ status: 'Sending', senderEmail: 'ada@example.com' })
   })
+
+  it('shows an abandoned legacy announcement send as failed after 30 minutes', () => {
+    const result = data.buildEmailMonitoring(bundle({
+      ...baseEmailAnalytics,
+      recent_deliveries: [{
+        id: 3,
+        announcement_id: 5,
+        title: 'Programme update',
+        started_at: '2026-10-19T23:00:00Z',
+        completed_at: null,
+        status: 'failed',
+        recipient_count: 12,
+        success_count: 0,
+        failure_count: 0,
+        initiated_by_name: 'Ada Admin',
+        initiated_by_email: 'ada@example.com',
+      }],
+    }))
+
+    expect(result.logs[0]).toMatchObject({ status: 'Failed' })
+  })
 })

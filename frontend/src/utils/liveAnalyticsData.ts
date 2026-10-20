@@ -488,7 +488,7 @@ export function buildUsersAnalytics(
     label: 'Never',
     value: users.filter((user) => {
       const last = safeDate(user.lastLogin)
-      return !last || last > asOf
+      return !last
     }).length,
   })
 
@@ -536,9 +536,16 @@ export function buildUsersAnalytics(
     },
     dailyActivity: { labels: dailyLabels, total: dailyTotal },
     lastLogin: recency,
-    userLastLogins: users.map((user) => {
+    // A last login after a historical cutoff proves only that the account
+    // logged in later; it cannot tell us whether the user had never logged in
+    // by the selected year. Leave those rows out instead of mislabelling them
+    // as "Never".
+    userLastLogins: users.filter((user) => {
       const recordedLastLogin = safeDate(user.lastLogin)
-      const lastLoginDate = recordedLastLogin && recordedLastLogin <= asOf ? recordedLastLogin : null
+      return !recordedLastLogin || recordedLastLogin <= asOf
+    }).map((user) => {
+      const recordedLastLogin = safeDate(user.lastLogin)
+      const lastLoginDate = recordedLastLogin
       const activityStatus = lastLoginDate ? loginStatus(user, asOf) : 'Never'
       const status: 'Recent' | 'Inactive' | 'Never' =
         activityStatus === 'Active' ? 'Recent' : activityStatus
@@ -727,14 +734,15 @@ export function analyticsYears(bundle: Pick<LiveBundle, 'users' | 'groupActivity
 }
 
 export function groupAnalyticsYears(bundle: CoreAnalyticsBundle) {
-  const years = new Set<number>([new Date().getUTCFullYear()])
-  for (const group of bundle.groups) {
-    const created = safeDate(group.createdAt)
-    if (created) years.add(created.getUTCFullYear())
-  }
-  for (const row of bundle.groupActivity.messages_by_day) years.add(Number(row.date.slice(0, 4)))
-  for (const row of bundle.groupActivity.average_group_size_by_year ?? []) years.add(row.year)
-  for (const row of bundle.groupActivity.group_summary_by_year ?? []) years.add(row.year)
+  // Only offer years for which the backend supplied a complete year-end
+  // snapshot. Group creation and message dates alone cannot reconstruct
+  // historical membership distributions.
+  const years = new Set<number>(
+    (bundle.groupActivity.group_summary_by_year ?? [])
+      .filter((row) => row.group_size_distribution !== undefined)
+      .map((row) => row.year),
+  )
+  if (!years.size) years.add(new Date().getUTCFullYear())
   return [...years].filter(Number.isFinite).sort((a, b) => b - a)
 }
 
@@ -751,6 +759,7 @@ export function buildGroupsAnalytics(
     ?.find((row) => row.year === activityYear)
   const selectedAverage = bundle.groupActivity.average_group_size_by_year
     ?.find((row) => row.year === activityYear)
+  const historicalSummary = activityYear === systemYear ? undefined : selectedSummary
   const sizes = groups.map((group) => group.members.filter((member) => member.role.toLowerCase() === 'student').length)
   const localWithMentor = groups.filter((group) => groupMentors(group).length > 0).length
   const withMentor = selectedSummary?.groups_with_mentor ?? localWithMentor
@@ -762,14 +771,24 @@ export function buildGroupsAnalytics(
     ?.find((row) => row.year === activityYear - 1)?.average_group_size ?? null
   const previousGroupSummary = bundle.groupActivity.group_summary_by_year
     ?.find((row) => row.year === activityYear - 1)
-  const groupSizeDistribution = Array.from({ length: MAX_STUDENTS_PER_GROUP + 1 }, (_, size) => ({
-    label: String(size),
-    value: sizes.filter((value) => value === size).length,
-  }))
+  const groupSizeDistribution = historicalSummary?.group_size_distribution
+    ?.map((bucket) => ({
+      label: bucket.student_count > MAX_STUDENTS_PER_GROUP
+        ? `Over ${MAX_STUDENTS_PER_GROUP}`
+        : String(bucket.student_count),
+      value: bucket.group_count,
+    }))
+    ?? Array.from({ length: MAX_STUDENTS_PER_GROUP + 1 }, (_, size) => ({
+      label: String(size),
+      value: sizes.filter((value) => value === size).length,
+    }))
   // Groups above the limit are shown only when they exist, so data problems
   // stay visible without a permanently empty bucket.
-  const overCapacity = sizes.filter((size) => size > MAX_STUDENTS_PER_GROUP).length
-  if (overCapacity) groupSizeDistribution.push({ label: `Over ${MAX_STUDENTS_PER_GROUP}`, value: overCapacity })
+  const overCapacity = historicalSummary?.over_capacity_groups
+    ?? sizes.filter((size) => size > MAX_STUDENTS_PER_GROUP).length
+  if (!historicalSummary && overCapacity) {
+    groupSizeDistribution.push({ label: `Over ${MAX_STUDENTS_PER_GROUP}`, value: overCapacity })
+  }
 
   const activityDates = bundle.groupActivity.messages_by_day
     .map((row) => row.date)
@@ -790,11 +809,14 @@ export function buildGroupsAnalytics(
       .filter((row) => Number(row.date.slice(0, 4)) <= activityYear && row.message_count > 0)
       .map((row) => String(row.group_id)),
   )
-  const active = groups.filter((group) => recentGroupIds.has(String(group.id))).length
-  const notStarted = groups.filter(
-    (group) => !messagesThroughSelectedYear.has(String(group.id)) && group.members.length === 0,
-  ).length
-  const inactive = Math.max(0, totalGroups - active - notStarted)
+  const active = historicalSummary?.active_groups
+    ?? groups.filter((group) => recentGroupIds.has(String(group.id))).length
+  const notStarted = historicalSummary?.not_started_groups
+    ?? groups.filter(
+      (group) => !messagesThroughSelectedYear.has(String(group.id)) && group.members.length === 0,
+    ).length
+  const inactive = historicalSummary?.inactive_groups
+    ?? Math.max(0, totalGroups - active - notStarted)
 
   return {
     totalGroups,
@@ -820,9 +842,10 @@ export function buildGroupsAnalytics(
     groupsWithMentorPrevious: previousGroupSummary?.groups_with_mentor ?? null,
     groupsWithoutMentorPrevious: previousGroupSummary?.groups_without_mentor ?? null,
     mentorStudentRatioPrevious: previousGroupSummary?.students_per_mentor ?? null,
-    smallGroups: sizes.filter((size) => size < 3).length,
+    smallGroups: historicalSummary?.small_groups ?? sizes.filter((size) => size < 3).length,
     inactiveRecent: inactive + notStarted,
-    nearCapacity: sizes.filter((size) => size === MAX_STUDENTS_PER_GROUP).length,
+    nearCapacity: historicalSummary?.full_groups
+      ?? sizes.filter((size) => size === MAX_STUDENTS_PER_GROUP).length,
     overCapacity,
     groupSizeDistribution,
     groupStatus: [
@@ -1207,10 +1230,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
             row.status,
             row.success_count,
             row.failure_count,
-            row.completed_at === null
-              || (row.completed_at === undefined
-                && row.recipient_count > 0
-                && row.success_count + row.failure_count === 0),
+            isRecentIncompleteAnnouncement(row, email.snapshot_at),
           ),
           attempted: row.recipient_count,
           delivered: row.success_count,
@@ -1253,6 +1273,25 @@ function logStatus(status: string, delivered: number, failed: number, sending = 
   if (status === 'partial') return 'Partial'
   if (status === 'failed') return 'Failed'
   return 'Delivered'
+}
+
+const EMAIL_SENDING_GRACE_MS = 30 * 60 * 1000
+
+function isRecentIncompleteAnnouncement(
+  row: EmailDeliveryAnalyticsResponse['recent_deliveries'][number],
+  snapshotAt: string | null,
+) {
+  const incomplete = row.completed_at === null
+    || (row.completed_at === undefined
+      && row.recipient_count > 0
+      && row.success_count + row.failure_count === 0)
+  if (!incomplete) return false
+
+  const started = safeDate(row.started_at)
+  const snapshot = safeDate(snapshotAt) ?? new Date()
+  if (!started) return false
+  const elapsed = snapshot.getTime() - started.getTime()
+  return elapsed >= 0 && elapsed <= EMAIL_SENDING_GRACE_MS
 }
 
 const recipientCount = (count: number) => `${count} recipient${count === 1 ? '' : 's'}`

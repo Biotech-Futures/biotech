@@ -25,6 +25,7 @@ SUPPORTED_ANALYTICS_ROLES = {
     "mentor": "Mentor",
     "supervisor": "Supervisor",
 }
+MAX_STUDENTS_PER_GROUP = 5
 
 
 def _utc_date_range_filter(
@@ -300,6 +301,57 @@ def get_group_activity_analytics(
                 group_id__in=mentor_memberships_at_year_end.values("group_id")
             ).count()
         )
+        student_counts_by_group = {
+            row["group_id"]: row["student_count"]
+            for row in student_memberships_at_year_end.values("group_id").annotate(
+                student_count=Count("id")
+            )
+        }
+        group_ids = list(groups_at_year_end.values_list("id", flat=True))
+        group_sizes = [student_counts_by_group.get(group_id, 0) for group_id in group_ids]
+        group_size_distribution = [
+            {
+                "student_count": size,
+                "group_count": group_sizes.count(size),
+            }
+            for size in range(MAX_STUDENTS_PER_GROUP + 1)
+        ]
+        over_capacity_groups = sum(
+            size > MAX_STUDENTS_PER_GROUP for size in group_sizes
+        )
+        if over_capacity_groups:
+            group_size_distribution.append(
+                {
+                    "student_count": MAX_STUDENTS_PER_GROUP + 1,
+                    "group_count": over_capacity_groups,
+                }
+            )
+
+        messages_through_year = Messages.objects.filter(
+            deleted_at__isnull=True,
+            group_id__in=group_ids,
+            sent_at__lte=period_end,
+        )
+        recent_start = period_end - timedelta(days=7)
+        active_group_ids = set(
+            messages_through_year.filter(sent_at__gt=recent_start)
+            .values_list("group_id", flat=True)
+            .distinct()
+        )
+        started_group_ids = set(
+            messages_through_year.values_list("group_id", flat=True).distinct()
+        )
+        occupied_group_ids = set(
+            memberships_at_year_end.values_list("group_id", flat=True).distinct()
+        )
+        not_started_group_ids = {
+            group_id
+            for group_id in group_ids
+            if group_id not in started_group_ids and group_id not in occupied_group_ids
+        }
+        inactive_groups = max(
+            group_count - len(active_group_ids) - len(not_started_group_ids), 0
+        )
         average_group_size_by_year.append(
             {
                 "year": year,
@@ -327,6 +379,13 @@ def get_group_activity_analytics(
                     if historical_mentor_assignments
                     else None
                 ),
+                "group_size_distribution": group_size_distribution,
+                "small_groups": sum(size < 3 for size in group_sizes),
+                "full_groups": group_sizes.count(MAX_STUDENTS_PER_GROUP),
+                "over_capacity_groups": over_capacity_groups,
+                "active_groups": len(active_group_ids),
+                "inactive_groups": inactive_groups,
+                "not_started_groups": len(not_started_group_ids),
             }
         )
 

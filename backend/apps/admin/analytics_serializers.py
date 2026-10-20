@@ -89,6 +89,11 @@ class YearlyAverageGroupSizeSerializer(serializers.Serializer):
     average_group_size = serializers.FloatField(min_value=0)
 
 
+class YearlyGroupSizeBucketSerializer(serializers.Serializer):
+    student_count = serializers.IntegerField(min_value=0)
+    group_count = serializers.IntegerField(min_value=0)
+
+
 class YearlyGroupSummarySerializer(serializers.Serializer):
     year = serializers.IntegerField(min_value=1, max_value=9999)
     group_count = serializers.IntegerField(min_value=0)
@@ -97,6 +102,13 @@ class YearlyGroupSummarySerializer(serializers.Serializer):
     mentor_count = serializers.IntegerField(min_value=0)
     student_count = serializers.IntegerField(min_value=0)
     students_per_mentor = serializers.FloatField(min_value=0, allow_null=True)
+    group_size_distribution = YearlyGroupSizeBucketSerializer(many=True)
+    small_groups = serializers.IntegerField(min_value=0)
+    full_groups = serializers.IntegerField(min_value=0)
+    over_capacity_groups = serializers.IntegerField(min_value=0)
+    active_groups = serializers.IntegerField(min_value=0)
+    inactive_groups = serializers.IntegerField(min_value=0)
+    not_started_groups = serializers.IntegerField(min_value=0)
 
 
 class GroupActivityAnalyticsDataSerializer(serializers.Serializer):

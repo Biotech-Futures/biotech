@@ -51,8 +51,28 @@ const activity: api.GroupActivityResponse = {
     { year: 2026, group_count: 1, student_memberships: 1, average_group_size: 1 },
   ],
   group_summary_by_year: [
-    { year: 2025, group_count: 3, groups_with_mentor: 2, groups_without_mentor: 1, mentor_count: 2, student_count: 12, students_per_mentor: 5 },
-    { year: 2026, group_count: 1, groups_with_mentor: 1, groups_without_mentor: 0, mentor_count: 1, student_count: 1, students_per_mentor: 1 },
+    {
+      year: 2025, group_count: 3, groups_with_mentor: 2, groups_without_mentor: 1,
+      mentor_count: 2, student_count: 12, students_per_mentor: 5,
+      group_size_distribution: [
+        { student_count: 0, group_count: 0 }, { student_count: 1, group_count: 0 },
+        { student_count: 2, group_count: 0 }, { student_count: 3, group_count: 0 },
+        { student_count: 4, group_count: 3 }, { student_count: 5, group_count: 0 },
+      ],
+      small_groups: 0, full_groups: 0, over_capacity_groups: 0,
+      active_groups: 1, inactive_groups: 2, not_started_groups: 0,
+    },
+    {
+      year: 2026, group_count: 1, groups_with_mentor: 1, groups_without_mentor: 0,
+      mentor_count: 1, student_count: 1, students_per_mentor: 1,
+      group_size_distribution: [
+        { student_count: 0, group_count: 0 }, { student_count: 1, group_count: 1 },
+        { student_count: 2, group_count: 0 }, { student_count: 3, group_count: 0 },
+        { student_count: 4, group_count: 0 }, { student_count: 5, group_count: 0 },
+      ],
+      small_groups: 1, full_groups: 0, over_capacity_groups: 0,
+      active_groups: 1, inactive_groups: 0, not_started_groups: 0,
+    },
   ],
   query_range: { start: null, end: null },
 }
@@ -190,6 +210,31 @@ describe('independent analytics sources', () => {
     expect(w.get('.kpi-grid').text()).toContain('Students0')
   })
 
+  it('does not label a later login as Never in an earlier year', () => {
+    const futureLogin = {
+      ...student,
+      id: 2,
+      role: 'mentor',
+      invitedAt: '2025-08-01T00:00:00Z',
+      activatedAt: '2025-08-01T00:00:00Z',
+      lastLogin: '2026-10-15T00:00:00Z',
+    }
+    const historical = data.buildUsersAnalytics({
+      users: [futureLogin],
+      groupActivity: activity,
+      loginActivity: {
+        by_day: [{ date: '2025-09-01', students: 0, mentors: 1, supervisors: 0, total: 1 }],
+        by_year: [{ year: 2025, students: 0, mentors: 1, supervisors: 0, total: 1 }],
+        active_users: { daily: 0, weekly: 0, monthly: 0 },
+        latest_activity_date: '2025-09-01', query_range: { start: null, end: null },
+      },
+    }, 2025)
+
+    expect(historical.lastLogin.find((row) => row.label === 'Never')?.value).toBe(0)
+    expect(historical.userLastLogins).toEqual([])
+    expect(historical.loginRates.mentors).toBe(100)
+  })
+
   it('lists historical group years and rebuilds the group summary for the selected year', async () => {
     const bundle = { users, groups, groupActivity: activity }
     expect(data.groupAnalyticsYears(bundle)).toEqual([2026, 2025])
@@ -200,6 +245,9 @@ describe('independent analytics sources', () => {
     expect(historical.groupsWithMentor).toBe(2)
     expect(historical.groupsWithoutMentor).toBe(1)
     expect(historical.mentorStudentRatio).toBe(5)
+    expect(historical.groupSizeDistribution.find((bucket) => bucket.label === '4')?.value).toBe(3)
+    expect(historical.smallGroups).toBe(0)
+    expect(historical.inactiveRecent).toBe(2)
 
     const w = await show(GroupsPage)
     const yearSelect = w.get('[aria-label="Select analytics year"]')
