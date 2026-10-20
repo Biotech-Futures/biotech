@@ -36,6 +36,10 @@ class PlanTaskQuerySet(models.QuerySet):
     def active(self):
         return self.filter(deleted_at__isnull=True, stage__deleted_at__isnull=True)
 
+    def in_plan_order(self):
+        """Display order only; leave distinct/grouped reporting queries unordered."""
+        return self.order_by("stage__position", "stage_id", "position", "id")
+
 
 class PlanTask(models.Model):
     class CompletionMode(models.TextChoices):
@@ -72,7 +76,6 @@ class PlanTask(models.Model):
 
     class Meta:
         db_table = "plan_task"
-        ordering = ["stage__position", "stage_id", "position", "id"]
         indexes = [models.Index(fields=["stage", "deleted_at", "position"])]
 
     def __str__(self):

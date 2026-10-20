@@ -13,11 +13,14 @@ from apps.submissions.services import current_cohort
 
 year = current_cohort()  # Read once per request.
 groups = current_plan_groups(year)
-tasks = PlanTask.objects.active().select_related("stage")
+tasks = PlanTask.objects.active().select_related("stage").in_plan_order()
 memberships = active_audience_memberships(groups.values_list("id", flat=True))
 ```
 
-- Stage/task ordering follows numeric position, then ID (stage first).
+- Use `.in_plan_order()` for task lists: stage position, stage ID, task position,
+  then task ID. Tasks have no implicit model ordering, so distinct/grouped
+  reporting queries do not inherit display-order columns. Build reporting from
+  an unordered queryset; use `.order_by()` first if reusing a display queryset.
 - `PlanTask.objects.active()` excludes both deleted tasks and deleted stages.
 - Audience values: `student`, `mentor`, `supervisor`; modes: `per_person` (default),
   `per_group`. A nullable `DateField` stores date-only due dates.
@@ -43,6 +46,7 @@ Run foundation tests from `backend/`:
 python manage.py test tests.apps.plans --settings=config.settings_test
 ```
 
-Apply `plans/0001_initial` with migrations enabled on a local development database.
+Run `python manage.py migrate plans` with migrations enabled on a local development
+database. Migration `0002` removes implicit task ordering without changing stored data.
 Normal test settings disable migrations. See the repository's `docs/` technical
 plan for the full contract and the outstanding client student-ticking decision.

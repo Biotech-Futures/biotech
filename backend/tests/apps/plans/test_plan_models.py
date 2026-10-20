@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 from django.db.models.deletion import ProtectedError
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
@@ -58,7 +59,29 @@ class PlanModelTests(TestCase):
             audience_role="mentor",
             due_date=timezone.localdate() - timezone.timedelta(days=5),
         )
-        self.assertEqual(list(PlanTask.objects.active()), [first, tied, self.task, later])
+        self.assertEqual(
+            list(PlanTask.objects.active().in_plan_order()), [first, tied, self.task, later]
+        )
+
+    def test_distinct_audiences_do_not_include_hidden_ordering_columns(self):
+        other_stage = PlanStage.objects.create(name="Research", position=1)
+        PlanTask.objects.create(
+            stage=other_stage, name="Another student task", audience_role="student", position=3,
+        )
+        self.assertEqual(
+            list(PlanTask.objects.active().values_list("audience_role", flat=True).distinct()),
+            ["student"],
+        )
+
+    def test_reporting_groups_across_stages_and_positions(self):
+        other_stage = PlanStage.objects.create(name="Research", position=1)
+        PlanTask.objects.create(
+            stage=other_stage, name="Another student task", audience_role="student", position=3,
+        )
+        self.assertEqual(
+            list(PlanTask.objects.active().values("audience_role").annotate(total=Count("id"))),
+            [{"audience_role": "student", "total": 2}],
+        )
 
     def test_soft_delete_hides_task_without_removing_its_ticks(self):
         completion = self.complete(completed=True)
