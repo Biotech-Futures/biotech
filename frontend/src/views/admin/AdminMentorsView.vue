@@ -247,6 +247,11 @@ const filteredMentors = computed(() => {
       mentor.countryName,
       mentor.institution,
       ...mentor.interests,
+      mentor.isActive ? 'Active' : 'Inactive',
+      `${mentor.currentAssignedCount}/${mentor.maxGroupCount}`,
+      `${mentor.remainingCapacity} left`,
+      mentor.lastMessageAt ? relativeDays(mentor.lastMessageAt) : 'Never',
+      mentor.hasLoggedIn ? 'Yes logged in' : 'No never logged in',
     ].some((value) => value?.toLowerCase().includes(query))
     return matchesCapacity && matchesSearch
   })

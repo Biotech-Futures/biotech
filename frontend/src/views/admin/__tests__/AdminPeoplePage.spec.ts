@@ -100,6 +100,48 @@ describe('AdminPeoplePage', () => {
       .toBe('Available capacity')
   })
 
+  it('keeps mentor status, capacity and login fields searchable', async () => {
+    routeState.query = { tab: 'mentors', search: 'Inactive' }
+    const mentor = {
+      mentorId: 8,
+      firstName: 'Grace',
+      lastName: 'Ali',
+      name: 'Grace Ali',
+      email: 'grace@example.com',
+      isActive: false,
+      institution: 'Sample Institute',
+      countryName: 'Australia',
+      maxGroupCount: 3,
+      currentAssignedCount: 1,
+      remainingCapacity: 2,
+      interests: ['Genomics'],
+      lastMessageAt: null,
+      hasLoggedIn: false,
+      lastLogin: null,
+      availability: [],
+      certificates: [],
+    }
+    const fetchWithMentor = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/mentor/')) {
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: [mentor] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return fetchMock(url)
+    })
+    vi.stubGlobal('fetch', fetchWithMentor)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Grace Ali')
+    const search = wrapper.get('.data-table-search-input')
+    await search.setValue('2 left')
+    expect(wrapper.text()).toContain('Grace Ali')
+    await search.setValue('never logged in')
+    expect(wrapper.text()).toContain('Grace Ali')
+  })
+
   it('renders the four tab labels', async () => {
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(AdminPeoplePage)
