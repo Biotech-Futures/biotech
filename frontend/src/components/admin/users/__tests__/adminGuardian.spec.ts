@@ -1143,26 +1143,26 @@ describe('admin user detail: a supervisor edited part by part', () => {
     vi.mocked(changeSupervisees).mockReset()
   })
 
-  it('shows Account, Groups, Supervisor Details and Supervisees, and nothing at the bottom', () => {
+  it('shows Account, Groups, Supervisor Details and Students, and nothing at the bottom', () => {
     const wrapper = openDetail(supervisor())
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Groups', 'Supervisor Details', 'Supervisees'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Account', 'Groups', 'Supervisor Details', 'Students (2)'])
     expect(wrapper.find('[data-test="admin-edit-account"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="admin-edit-supervisor-details"]').exists()).toBe(true)
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
 
     expect(wrapper.find('[data-test="admin-supervisor-group-names"]').text()).toBe('BTF5, BTF6')
-    const rows = wrapper.find('[data-test="admin-supervisees"]').findAll('.admin-users-detail__item')
-    expect(rows.map((row) => [row.find('dt').text(), row.find('dd').text()])).toEqual([
+    const rows = wrapper.find('[data-test="admin-supervisees"]').findAll('.admin-users-detail__student')
+    expect(rows.map((row) => [row.find('.admin-users-detail__student-name').text(), row.find('.admin-users-detail__student-email').text()])).toEqual([
       ['Idris Novak', 'idris@example.com'],
       ['Tariq Mensah', 'tariq@example.com']
     ])
   })
 
-  it('shows — with no groups or students', () => {
+  it('shows — with no groups, and an empty students list', () => {
     const wrapper = openDetail(supervisor({ supervisorGroups: [], supervisees: [] }))
     expect(wrapper.find('[data-test="admin-supervisor-group-names"]').text()).toBe('—')
-    expect(wrapper.find('[data-test="admin-supervisees"]').text()).toContain('—')
+    expect(wrapper.find('[data-test="admin-supervisees"]').text()).toContain('No students yet.')
   })
 
   it('edits their name and school', async () => {
