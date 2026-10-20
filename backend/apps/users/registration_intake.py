@@ -464,10 +464,12 @@ def resolve_location(student):
 
 def save_student(student, supervisor, now, *, registered_by):
     country, state = resolve_location(student) if student["country"] else (None, None)
+    # Active as soon as they're registered: a student is never Pending.
     user = User.objects.create_user(
         email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
         country=country, state=state,
         pronouns=student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"],
+        account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
     )
     RoleAssignmentHistory.objects.create(
         user=user, role=get_role_by_name(ROLE_STUDENT), valid_from=now,
@@ -640,8 +642,10 @@ def register(request):
         raise serializers.ValidationError(errors)
     payload = parser.validated_data["payload"]
     journey = parser.validated_data["journey"]
-    # The old form's wrapper predates the box; the form now has it.
-    if not legacy:
+    # The old form's wrapper predates the box; the form now has it. Only a
+    # student registering themselves agrees: a supervisor or admin registering
+    # students isn't agreeing for them.
+    if not legacy and journey not in SUPERVISOR_JOURNEYS:
         require_policies(parser.validated_data)
     students = payload["students"]
     # None nominated: blank details, as the supervisor is optional.
@@ -778,12 +782,10 @@ def register(request):
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None
-            # Who ticked the policies: whoever registered the students for a
-            # supervisor's (or admin's) journey, else the student registering
-            # (Member 1, or a student joining by a group's code).
-            if not legacy:
-                agreed_by = actor_user if journey in SUPERVISOR_JOURNEYS and actor_user else users[0]
-                User.objects.filter(pk=agreed_by.pk).update(policies_agreed_at=now)
+            # Who ticked the policies: the student registering (Member 1, or a
+            # student joining by a group's code). None for a supervisor's journeys.
+            if not legacy and journey not in SUPERVISOR_JOURNEYS:
+                User.objects.filter(pk=users[0].pk).update(policies_agreed_at=now)
             group = (
                 save_group(users, payload, actor_user, joining=joining) if journey in GROUP_JOURNEYS else None
             )

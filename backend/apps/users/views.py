@@ -54,7 +54,7 @@ from .serializers import (
 from apps.audit.services import log_audit_event
 from .guardian_consent import latest_signature_data_url
 from .guardian_reminders import email_new_guardian
-from .profile_images import save_profile_image
+from .profile_images import profile_image_url, remove_profile_image, save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
 from config.errors import (
@@ -351,13 +351,15 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
 
-        # A supervisor changes their own name on their profile, and nothing
-        # else of theirs; the rest of the student fields stay students' only.
+        # A supervisor changes their own name and pronouns on their profile,
+        # and nothing else of theirs; the rest of the student fields stay
+        # students' only.
+        own_fields = ("first_name", "last_name", "pronouns")
         if (
             not StudentProfile.objects.filter(user=user).exists()
             and SupervisorProfile.objects.filter(user=user).exists()
         ):
-            name_data = {key: data[key] for key in ("first_name", "last_name") if key in data}
+            name_data = {key: data[key] for key in own_fields if key in data}
             if name_data:
                 names = SelfNameSerializer(data=name_data)
                 names.is_valid(raise_exception=True)
@@ -365,7 +367,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     setattr(user, field, value.strip())
                 user.save(update_fields=list(names.validated_data))
                 _log_edit(user, user.id, "profile_update", {"fields": sorted(names.validated_data)})
-            data = {key: value for key, value in data.items() if key not in ("first_name", "last_name")}
+            data = {key: value for key, value in data.items() if key not in own_fields}
 
         student_update_data = {
             key: value for key, value in data.items() if key in STUDENT_SELF_PROFILE_FIELDS
@@ -850,6 +852,10 @@ def _account_fields(user, consent):
         ),
         # When that answer was given: the form's signing, or the withdrawal.
         "media_consent_at": None if consent is None else consent.media_withdrawn_at or consent.signed_at,
+        "profile_image_url": profile_image_url(user),
+        # When they agreed to the policies, registering themselves; None if
+        # they didn't (their supervisor registered them, say).
+        "policies_agreed_at": user.policies_agreed_at,
     }
 
 
@@ -1012,6 +1018,40 @@ class SupervisedStudentOptionsView(APIView):
             "regions": list(CountryStates.objects.order_by("state_name").values("id", "country_id", "state_name")),
             "interests": list(AreasOfInterest.objects.order_by("interest_desc").values_list("interest_desc", flat=True)),
         })
+
+
+class SupervisedStudentProfileImageView(APIView):
+    """POST: replace one of the supervisor's students' profile photo
+    (``image``, checked as the dashboard's upload is). DELETE: take it off.
+    Admins too, as for the student's other details."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _profile(self, request, pk):
+        profile = _student_scope(request.user).select_related("user").filter(user_id=pk).first()
+        if profile is None:
+            raise PermissionDenied("This student is not on your roster.")
+        return profile
+
+    def _changed(self, request, profile, change):
+        _log_edit(request.user, profile.user_id, "update", {"profile_photo": change})
+        profile.refresh_from_db()
+        profile.user.refresh_from_db()
+        return Response(SupervisedStudentSerializer(_supervised_student_row(profile)).data)
+
+    def post(self, request, pk):
+        profile = self._profile(request, pk)
+        image = request.FILES.get("image")
+        if image is None:
+            raise serializers.ValidationError({"image": "Choose a photo to upload."})
+        save_profile_image(user=profile.user, uploaded_file=image)
+        return self._changed(request, profile, "replaced")
+
+    def delete(self, request, pk):
+        profile = self._profile(request, pk)
+        remove_profile_image(user=profile.user)
+        return self._changed(request, profile, "removed")
 
 
 class SupervisedStudentDetailView(APIView):

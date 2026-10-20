@@ -101,7 +101,8 @@ export const buildProductionRegistrationRequest = (
   overrideFlags: Record<string, boolean> = {},
 ) => {
   // The policies agreed to: the page sends nothing until they're ticked
-  // (RegistrationPage's last step), and the backend needs them.
+  // (RegistrationPage's last step), and the backend needs them from a student
+  // or mentor registering themselves; a supervisor's journeys don't ask.
   if (request.journey === 'mentor') {
     return { journey: request.journey, payload: { mentor: request.payload.mentor }, policiesAgreed: true }
   }
@@ -194,5 +195,6 @@ export const buildProductionRegistrationRequest = (
         : request.journey === 'supervisor_group'
           ? { group: { interests: request.payload.interests } }
           : {}
-  return { journey: request.journey, payload: { students, source, ...supervisor, ...group }, policiesAgreed: true }
+  const agreed = request.journey.startsWith('supervisor_') ? {} : { policiesAgreed: true }
+  return { journey: request.journey, payload: { students, source, ...supervisor, ...group }, ...agreed }
 }

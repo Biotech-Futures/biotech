@@ -9,6 +9,63 @@
     @close="emit('close')"
   >
     <div v-if="student" class="student-sheet">
+      <!-- Their photo, as the admin's user panel has it: changed with Save. -->
+      <section class="student-sheet__section" data-test="student-sheet-photo">
+        <div class="student-sheet__heading">
+          <h3>Profile Photo</h3>
+          <button v-if="!photoEditing" type="button" class="btn btn-outline btn-sm" @click="startPhotoEdit">
+            Edit
+          </button>
+        </div>
+        <form v-if="photoEditing" data-test="student-sheet-photo-form" @submit.prevent="savePhoto">
+          <div class="student-sheet__item student-sheet__photo-row">
+            <span class="student-sheet__label">Photo</span>
+            <div class="student-sheet__photo-edit">
+              <img v-if="photoShown" class="student-sheet__photo" :src="photoShown" alt="Profile photo" />
+              <span v-else>—</span>
+              <label class="btn btn-outline btn-sm">
+                Choose photo
+                <input
+                  type="file"
+                  class="sr-only"
+                  :accept="PROFILE_PHOTO_ACCEPT"
+                  data-test="student-sheet-photo-input"
+                  @change="choosePhoto"
+                />
+              </label>
+              <button
+                v-if="photoShown"
+                type="button"
+                class="btn btn-outline btn-sm"
+                data-test="student-sheet-photo-remove"
+                @click="removePhotoDraft"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          <p class="student-sheet__photo-note">PNG, JPEG or WebP, smaller than 5 MB.</p>
+          <p v-if="photoError" class="student-sheet__error">{{ photoError }}</p>
+          <div class="student-sheet__actions">
+            <button type="button" class="btn btn-outline btn-sm" :disabled="photoSaving" @click="cancelPhotoEdit">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="photoSaving">
+              {{ photoSaving ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </form>
+        <dl v-else class="student-sheet__list">
+          <div class="student-sheet__item student-sheet__photo-row">
+            <dt>Photo</dt>
+            <dd>
+              <img v-if="student.profile_image_url" class="student-sheet__photo" :src="student.profile_image_url" alt="Profile photo" />
+              <template v-else>—</template>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
       <section class="student-sheet__section">
         <div class="student-sheet__heading">
           <h3>Personal information</h3>
@@ -62,6 +119,11 @@
           <div class="student-sheet__item">
             <dt>Role</dt>
             <dd>Student</dd>
+          </div>
+          <!-- When they agreed to the policies, registering themselves. -->
+          <div class="student-sheet__item" data-test="student-sheet-policies">
+            <dt>Policies</dt>
+            <dd>{{ student.policies_agreed_at ? answeredAt('Agreed', student.policies_agreed_at) : '—' }}</dd>
           </div>
           <div class="student-sheet__item">
             <dt>Account Status</dt>
@@ -256,11 +318,14 @@ import { useFlashMessage } from '@/composables/useFlashMessage'
 import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_INTERESTS } from '@/utils/supervisedGroups'
 import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
 import {
   fetchStudentEditOptions,
   fullName,
+  removeSupervisedStudentPhoto,
   saveGuardianDetails,
   updateSupervisedStudentProfile,
+  uploadSupervisedStudentPhoto,
   type StudentEditOptions,
   type SupervisedStudent,
 } from '@/utils/supervisedStudents'
@@ -281,6 +346,79 @@ const emit = defineEmits<{
 }>()
 
 const display = (value?: string | null) => String(value ?? '').trim() || '—'
+
+// --- Profile Photo: a new one, or none, saved with Save ----------------------
+const photoEditing = ref(false)
+const photoSaving = ref(false)
+const photoError = ref('')
+const photoFile = ref<File | null>(null)
+const photoPreview = ref('')
+const photoRemoved = ref(false)
+// What Save would leave: the chosen photo, none, or the one they have.
+const photoShown = computed(() =>
+  photoRemoved.value ? '' : photoPreview.value || props.student?.profile_image_url || '',
+)
+
+function clearPhotoDraft() {
+  if (photoPreview.value) URL.revokeObjectURL(photoPreview.value)
+  photoFile.value = null
+  photoPreview.value = ''
+  photoRemoved.value = false
+}
+
+const startPhotoEdit = () => {
+  clearPhotoDraft()
+  photoError.value = ''
+  photoEditing.value = true
+}
+
+const cancelPhotoEdit = () => {
+  clearPhotoDraft()
+  photoError.value = ''
+  photoEditing.value = false
+}
+
+const choosePhoto = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // So choosing the same file again still counts.
+  input.value = ''
+  if (!file) return
+  if (!isProfilePhoto(file)) {
+    photoError.value = PROFILE_PHOTO_PROBLEM
+    return
+  }
+  clearPhotoDraft()
+  photoError.value = ''
+  photoFile.value = file
+  photoPreview.value = URL.createObjectURL(file)
+}
+
+const removePhotoDraft = () => {
+  clearPhotoDraft()
+  photoRemoved.value = true
+}
+
+const savePhoto = async () => {
+  if (!props.student || photoSaving.value) return
+  if (!photoFile.value && !photoRemoved.value) {
+    cancelPhotoEdit()
+    return
+  }
+  photoSaving.value = true
+  photoError.value = ''
+  try {
+    const updated = photoFile.value
+      ? await uploadSupervisedStudentPhoto(props.student.id, photoFile.value)
+      : await removeSupervisedStudentPhoto(props.student.id)
+    cancelPhotoEdit()
+    emit('updated', updated)
+  } catch (error) {
+    photoError.value = error instanceof Error ? error.message : 'The photo could not be saved.'
+  } finally {
+    photoSaving.value = false
+  }
+}
 
 // Scrolled to the top of the panel when opened to edit the guardian.
 const guardianSection = ref<HTMLElement | null>(null)
@@ -541,6 +679,42 @@ const saveGuardian = async () => {
 }
 
 /* Guardian Details' heading with its Edit button on the right. */
+/* The photo as the student's dashboard shows it: round, filling its circle. */
+.student-sheet__photo {
+  display: block;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center;
+  border: 1px solid var(--border-light);
+}
+
+.student-sheet__item.student-sheet__photo-row {
+  align-items: center;
+}
+
+.student-sheet__photo-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Choose photo is a label (for its file box), which would take the page's
+   taller line; both buttons take the button's, so they match. */
+.student-sheet__photo-edit .btn {
+  margin: 0;
+  font-family: inherit;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.student-sheet__photo-note {
+  margin: 0.4rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 .student-sheet__heading {
   display: flex;
   align-items: center;

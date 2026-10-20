@@ -943,6 +943,18 @@ class SupervisedStudentsViewTests(TestCase):
         school = self.client.patch("/api/v1/users/me/", {"school_name": "Elsewhere"}, format="json")
         self.assertEqual(school.status_code, 400)
 
+    def test_supervisor_changes_or_clears_their_own_pronouns(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.patch("/api/v1/users/me/", {"pronouns": " She/her "}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.supervisor.refresh_from_db()
+        self.assertEqual(self.supervisor.pronouns, "She/her")
+        self.client.patch("/api/v1/users/me/", {"pronouns": ""}, format="json")
+        self.supervisor.refresh_from_db()
+        self.assertEqual(self.supervisor.pronouns, "")
+
     def test_supervisor_can_record_guardian_details(self):
         self.client.force_login(self.supervisor)
         response = self.client.patch(

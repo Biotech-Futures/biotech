@@ -253,7 +253,7 @@ class ManagementTests(RegistrationSetup, TestCase):
 
 
 class IntakeTests(RegistrationSetup, TestCase):
-    def test_open_registration_saves_pending_student_and_real_receipt(self):
+    def test_open_registration_saves_an_active_student_and_real_receipt(self):
         response = self.submit()
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(set(response.data), {"reference_code", "journey", "student_count", "created_at"})
@@ -263,12 +263,13 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertEqual(row.created_at.isoformat(), response.data["created_at"])
         user = row.student
         profile = StudentProfile.objects.get(user=user)
-        self.assertEqual(user.account_status, User.AccountStatus.PENDING)
-        self.assertFalse(user.is_active)
+        # Active straight away: a student is never Pending.
+        self.assertEqual(user.account_status, User.AccountStatus.ACTIVE)
+        self.assertTrue(user.is_active)
         self.assertFalse(user.has_usable_password())
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
-        self.assertIsNone(user.activated_at)
+        self.assertIsNotNone(user.activated_at)
         self.assertFalse(profile.has_join_permission)
         self.assertIsNone(profile.joinperm_responseID)
         self.assertEqual(profile.pg_email, "guardian@example.com")

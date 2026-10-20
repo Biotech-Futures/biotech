@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import SupervisorStudentSheet from '../SupervisorStudentSheet.vue'
 import { appSelectText, pickAppSelect } from '@/__tests__/appSelect'
-import { updateSupervisedStudentProfile, type SupervisedStudent } from '@/utils/supervisedStudents'
+import {
+  updateSupervisedStudentProfile,
+  uploadSupervisedStudentPhoto,
+  type SupervisedStudent,
+} from '@/utils/supervisedStudents'
 
 vi.mock('@/utils/supervisedStudents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/supervisedStudents')>()),
@@ -11,6 +15,7 @@ vi.mock('@/utils/supervisedStudents', async (importOriginal) => ({
     ...student(),
     ...payload,
   })),
+  uploadSupervisedStudentPhoto: vi.fn(async () => ({ ...student(), profile_image_url: 'https://files.example.com/new.png' })),
 }))
 
 const student = (overrides: Partial<SupervisedStudent> = {}): SupervisedStudent => ({
@@ -69,5 +74,39 @@ describe('supervisor student panel: pronouns', () => {
   it('shows a dash when they are unsaid', () => {
     const wrapper = open({ pronouns: '' })
     expect(wrapper.find('[data-test="student-sheet-pronouns-view"] dd').text()).toBe('—')
+  })
+})
+
+describe('supervisor student panel: photo and policies', () => {
+  it('shows their photo first, and when they agreed to the policies above Account Status', () => {
+    const wrapper = open({ profile_image_url: 'https://files.example.com/amy.png', policies_agreed_at: '2026-10-21T00:15:00Z' })
+    expect(wrapper.findAll('h3')[0].text()).toBe('Profile Photo')
+    expect(wrapper.get('[data-test="student-sheet-photo"] dd img').attributes('src')).toBe('https://files.example.com/amy.png')
+    const terms = wrapper.findAll('dt').map((term) => term.text())
+    expect(terms.indexOf('Policies')).toBe(terms.indexOf('Account Status') - 1)
+    expect(wrapper.get('[data-test="student-sheet-policies"] dd').text()).toMatch(/^Agreed, /)
+
+    const never = open({ profile_image_url: null, policies_agreed_at: null })
+    expect(never.get('[data-test="student-sheet-photo"] dd').text()).toBe('—')
+    expect(never.get('[data-test="student-sheet-policies"] dd').text()).toBe('—')
+  })
+
+  it('uploads a chosen photo on Save and passes the student up', async () => {
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:chosen', revokeObjectURL: () => {} }))
+    const wrapper = open({ profile_image_url: null })
+    const section = wrapper.get('[data-test="student-sheet-photo"]')
+    await section.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
+
+    const file = new File(['png'], 'amy.png', { type: 'image/png' })
+    const input = wrapper.get('[data-test="student-sheet-photo-input"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    expect(wrapper.get('[data-test="student-sheet-photo-form"] img').attributes('src')).toBe('blob:chosen')
+
+    await wrapper.get('[data-test="student-sheet-photo-form"]').trigger('submit')
+    await flushPromises()
+    expect(uploadSupervisedStudentPhoto).toHaveBeenCalledWith(4, file)
+    expect(wrapper.emitted('updated')![0][0]).toMatchObject({ profile_image_url: 'https://files.example.com/new.png' })
+    vi.unstubAllGlobals()
   })
 })

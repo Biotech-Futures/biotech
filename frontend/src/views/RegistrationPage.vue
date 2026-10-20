@@ -641,6 +641,8 @@
                     prefix="supervisorIndividual.student"
                     section="full"
                     :errors="errors"
+                    :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
+                    :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     allow-guardian-defer
                   />
                 </div>
@@ -664,6 +666,8 @@
                     :prefix="`supervisorIndividual.extraStudents.${index}`"
                     section="full"
                     :errors="errors"
+                    :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
+                    :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     allow-guardian-defer
                   />
                 </div>
@@ -672,16 +676,6 @@
 
             <template v-else-if="journey === 'supervisor_group'">
               <div v-if="currentStep === 0" class="step-stack">
-                <RegistrationInterestSelector
-                  id="supervisor-group-interests"
-                  v-model="forms.supervisorGroup.interests"
-                  label="Mutual Areas of Interest"
-                  description="Choose the areas of interest for this group."
-                  :error="errors['supervisorGroup.interests']"
-                />
-              </div>
-
-              <div v-else-if="currentStep === 1" class="step-stack">
                 <!-- Add student is in the footer, beside Continue. -->
                 <div class="section-divider section-divider--first">
                   <h3>Students</h3>
@@ -697,9 +691,10 @@
                 >
                   <div class="student-entry__heading">
                     <h3>Student {{ index + 1 }}</h3>
-                    <!-- A group always has Students 1 and 2; only those after can go. -->
+                    <!-- Student 1 always stays; down to them alone, it becomes
+                         Register one student. -->
                     <button
-                      v-if="index >= 2"
+                      v-if="index >= 1"
                       type="button"
                       class="btn btn-outline-danger btn-sm"
                       @click="removeSupervisorGroupStudent(index)"
@@ -712,9 +707,26 @@
                     :prefix="`supervisorGroup.students.${index}`"
                     section="full"
                     :errors="errors"
+                    :school-suggestions="supervisedSchoolsBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
+                    :region-suggestions="supervisedStatesBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     allow-guardian-defer
                   />
                 </div>
+              </div>
+
+              <!-- After the students: those all of them chose ticked when it
+                   first opens, and every area by how many of them chose it. -->
+              <div v-else-if="currentStep === 1" class="step-stack">
+                <RegistrationInterestSelector
+                  id="supervisor-group-interests"
+                  v-model="forms.supervisorGroup.interests"
+                  label="Mutual Areas of Interest"
+                  description="Those all the students chose are ticked. Every area is listed by how many of them chose it."
+                  :options="groupInterestOrder"
+                  :counts="groupInterestCounts"
+                  :total="forms.supervisorGroup.students.length"
+                  :error="errors['supervisorGroup.interests']"
+                />
               </div>
             </template>
 
@@ -1115,8 +1127,9 @@
             </div>
 
             <!-- BIOTech Futures' policies, agreed to before submitting: the
-                 last step, whichever journey (Upload has no Review). -->
-            <div v-if="currentStep === steps.length - 1" class="policies-agree">
+                 last step of a student's or mentor's own registration (not a
+                 supervisor's or admin's registering students for them). -->
+            <div v-if="currentStep === steps.length - 1 && policiesAsked" class="policies-agree">
               <label class="policies-agree__check">
                 <input
                   ref="policiesRef"
@@ -1146,7 +1159,7 @@
             <p
               v-if="
                 (journey === 'supervisor_individual' && currentStep === 0) ||
-                (journey === 'supervisor_group' && currentStep === 1)
+                (journey === 'supervisor_group' && currentStep === 0)
               "
               class="form-footer-note"
             >
@@ -1162,7 +1175,7 @@
               Add student
             </button>
             <button
-              v-if="journey === 'supervisor_group' && currentStep === 1"
+              v-if="journey === 'supervisor_group' && currentStep === 0"
               type="button"
               class="secondary-action"
               :disabled="isSubmitting || forms.supervisorGroup.students.length >= 5"
@@ -1204,6 +1217,7 @@
 
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { RouterLink } from 'vue-router'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
@@ -1239,6 +1253,7 @@ import {
   createRegistrationForms,
   CSV_HEADERS,
   createStudent,
+  INTEREST_CATEGORIES,
   createPendingPeer,
   countWords,
   findCrossRoleEmailConflicts,
@@ -1433,14 +1448,14 @@ const journeyOptions: JourneyOption[] = [
     description: 'Create a pre-formed group with 2-5 complete student entries.',
     steps: [
       {
-        label: 'Group',
-        title: 'Describe the group',
-        description: 'Choose the areas of interest for the group.',
-      },
-      {
         label: 'Students',
         title: 'Add 2–5 students',
         description: 'Each student later completes their own action and guardian journey.',
+      },
+      {
+        label: 'Group',
+        title: 'Describe the group',
+        description: 'Choose the areas of interest for the group.',
       },
       {
         label: 'Review',
@@ -1685,6 +1700,81 @@ const teamOthers = (index: number) => {
   const team = forms.studentTeam
   return [team.creator, ...team.teammates.filter((_, other) => other !== index)]
 }
+// The signed-in supervisor's own school, country and state: their students'
+// likeliest. Each of their students starts in their country, and is offered
+// their school and state as theirs is typed. None for an admin registering
+// (Management > Registration): theirs aren't their students'.
+const auth = useAuthStore()
+const supervisorSelf = computed(() => {
+  const user = auth.user
+  if (!isSupervisorMode.value || !user || !auth.isSupervisor) return { school: '', country: '', state: '' }
+  return {
+    school: user.supervisor_school_name || '',
+    country: user.country?.countryName || '',
+    state: user.state?.stateName || '',
+  }
+})
+// Register a student group's Mutual Areas of Interest: how many of its
+// students chose each, every area by that (most first; ties as listed), and
+// those all of them chose ticked each time the step opens, beside any ticked
+// already (a saved draft's, or ticked before going back to the students).
+const groupInterestCounts = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const student of forms.supervisorGroup.students) {
+    for (const interest of new Set(student.interests)) counts[interest] = (counts[interest] ?? 0) + 1
+  }
+  return counts
+})
+const groupInterestOrder = computed(() =>
+  [...INTEREST_CATEGORIES].sort(
+    (a, b) => (groupInterestCounts.value[b] ?? 0) - (groupInterestCounts.value[a] ?? 0),
+  ),
+)
+watch(
+  () => journey.value === 'supervisor_group' && currentStep.value === 1,
+  (onInterests) => {
+    if (!onInterests) return
+    const total = forms.supervisorGroup.students.length
+    const ticked = new Set(forms.supervisorGroup.interests)
+    const shared = INTEREST_CATEGORIES.filter(
+      (interest) => total > 0 && groupInterestCounts.value[interest] === total && !ticked.has(interest),
+    )
+    if (shared.length) forms.supervisorGroup.interests = [...forms.supervisorGroup.interests, ...shared]
+  },
+  { immediate: true },
+)
+
+const supervisorIndividualStudents = computed(() => [
+  forms.supervisorIndividual.student,
+  ...forms.supervisorIndividual.extraStudents,
+])
+const sameCountry = (one: string, other: string) => one.trim().toLowerCase() === other.trim().toLowerCase()
+// The supervisor's school, then the other students' in this registration.
+const supervisedSchoolsBesides = (student: StudentDetails, students: StudentDetails[]) =>
+  distinct([supervisorSelf.value.school, ...students.filter((other) => other !== student).map((other) => other.school)])
+// The supervisor's state and the other students', from the same country only.
+const supervisedStatesBesides = (student: StudentDetails, students: StudentDetails[]) => {
+  if (!student.country.trim()) return []
+  const { country, state } = supervisorSelf.value
+  return distinct([
+    ...(country && sameCountry(country, student.country) ? [state] : []),
+    ...students
+      .filter((other) => other !== student && sameCountry(other.country, student.country))
+      .map((other) => other.state),
+  ])
+}
+// A student with no country yet starts in the supervisor's.
+const startInSupervisorCountry = (student: StudentDetails) => {
+  if (!student.country && supervisorSelf.value.country) student.country = supervisorSelf.value.country
+}
+watch(
+  journey,
+  (current) => {
+    if (current === 'supervisor_individual') supervisorIndividualStudents.value.forEach(startInSupervisorCountry)
+    if (current === 'supervisor_group') forms.supervisorGroup.students.forEach(startInSupervisorCountry)
+  },
+)
+
 const distinct = (values: string[]) => {
   const kept = new Map<string, string>()
   for (const value of values.map((item) => (item || '').trim())) {
@@ -1795,6 +1885,9 @@ const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
 // again for each registration (a new journey, or after one is sent).
 const POLICIES_URL = 'https://www.biotechfutures.org/policies'
 const policiesAgreed = ref(false)
+// Asked of those registering themselves; a supervisor or admin registering
+// students isn't agreeing for them.
+const policiesAsked = computed(() => !(journey.value && SUPERVISOR_JOURNEYS.includes(journey.value)))
 const policiesError = ref('')
 const policiesRef = ref<HTMLInputElement | null>(null)
 watch(policiesAgreed, (agreed) => {
@@ -2311,16 +2404,16 @@ const validateCurrentStep = () => {
     }
   } else if (journey.value === 'supervisor_group') {
     if (step === 0) {
-      if (!forms.supervisorGroup.interests.length)
-        clientErrors['supervisorGroup.interests'] = 'Choose at least one group interest.'
-    }
-    if (step === 1) {
       if (forms.supervisorGroup.students.length < 2 || forms.supervisorGroup.students.length > 5) {
         clientErrors['supervisorGroup.size'] = 'A supervisor group must include 2–5 students.'
       }
       forms.supervisorGroup.students.forEach((student, index) =>
         validateStudentFull(student, `supervisorGroup.students.${index}`),
       )
+    }
+    if (step === 1) {
+      if (!forms.supervisorGroup.interests.length)
+        clientErrors['supervisorGroup.interests'] = 'Choose at least one group interest.'
     }
   } else if (journey.value === 'supervisor_csv') {
     if (step === 0 && !forms.supervisorCsv.rows.length) {
@@ -2589,7 +2682,9 @@ const removeStudentTeammate = (index: number) => {
 
 const addSupervisorGroupStudent = () => {
   if (forms.supervisorGroup.students.length < 5) {
-    forms.supervisorGroup.students.push(createStudent({ deferGuardian: true }))
+    const student = createStudent({ deferGuardian: true })
+    startInSupervisorCountry(student)
+    forms.supervisorGroup.students.push(student)
   }
 }
 
@@ -2597,7 +2692,9 @@ const addSupervisorGroupStudent = () => {
 // to 5 in all, registered together as one group (see oneStudentAsGroup).
 const addExtraStudent = () => {
   if (forms.supervisorIndividual.extraStudents.length < 4) {
-    forms.supervisorIndividual.extraStudents.push(createStudent({ deferGuardian: true }))
+    const student = createStudent({ deferGuardian: true })
+    startInSupervisorCountry(student)
+    forms.supervisorIndividual.extraStudents.push(student)
   }
 }
 
@@ -2631,10 +2728,25 @@ const fromOneStudentGroup = (path: string) => {
 }
 
 const removeSupervisorGroupStudent = (index: number) => {
-  if (forms.supervisorGroup.students.length > 2) {
-    forms.supervisorGroup.students.splice(index, 1)
+  const students = forms.supervisorGroup.students
+  if (students.length > 2) {
+    students.splice(index, 1)
     reindexStudentErrors('supervisorGroup.students', index)
+    return
   }
+  if (students.length !== 2) return
+  // Down to one: a group of one is Register one student, which it becomes,
+  // that student kept, on its single page (no steps to show).
+  const kept = students[index === 0 ? 1 : 0]!
+  forms.supervisorIndividual.student = kept
+  forms.supervisorIndividual.extraStudents = []
+  forms.supervisorGroup.students = [createStudent({ deferGuardian: true }), createStudent({ deferGuardian: true })]
+  forms.supervisorGroup.interests = []
+  journey.value = 'supervisor_individual'
+  currentStep.value = 0
+  maxReachedStep.value = 0
+  clearErrors()
+  void focusStep()
 }
 
 const reindexErrorMap = (
@@ -2845,7 +2957,7 @@ const submitRegistration = async () => {
     warningSummaryRef.value?.focus()
     return
   }
-  if (!policiesAgreed.value) {
+  if (policiesAsked.value && !policiesAgreed.value) {
     policiesError.value = 'Tick the box to agree to the BIOTech Futures policies.'
     policiesRef.value?.focus()
     return

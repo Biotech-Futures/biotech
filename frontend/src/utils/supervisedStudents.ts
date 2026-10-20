@@ -19,6 +19,11 @@ export type SupervisedStudent = {
   media_consent?: boolean | null
   /** When that answer was given: the form's signing, or the withdrawal. */
   media_consent_at?: string | null
+  /** Where their profile photo loads from, or null without one. */
+  profile_image_url?: string | null
+  /** When they agreed to the BIOTech Futures policies, registering
+   *  themselves; null when they didn't (their supervisor registered them). */
+  policies_agreed_at?: string | null
   school_name: string
   year_lvl: string
   interests: string[]
@@ -123,6 +128,34 @@ export async function saveGuardianDetails(payload: {
   if (!response.ok) {
     throw await apiErrorFromResponse(response)
   }
+  return response.json()
+}
+
+/** One of the supervisor's students' profile photo replaced, checked as the
+ *  dashboard's upload is. */
+export async function uploadSupervisedStudentPhoto(studentId: number, file: File): Promise<SupervisedStudent> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const form = new FormData()
+  form.append('image', file)
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/${studentId}/profile-image/`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: buildSessionHeaders({ includeCSRF: true, isFormData: true, headers: { Accept: 'application/json' } }),
+    body: form,
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
+  return response.json()
+}
+
+/** One of the supervisor's students' profile photo taken off. */
+export async function removeSupervisedStudentPhoto(studentId: number): Promise<SupervisedStudent> {
+  await ensureCsrfCookie(API_BASE_URL)
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/${studentId}/profile-image/`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: buildSessionHeaders({ includeCSRF: true, headers: { Accept: 'application/json' } }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
   return response.json()
 }
 

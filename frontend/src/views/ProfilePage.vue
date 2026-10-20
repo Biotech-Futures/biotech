@@ -82,9 +82,11 @@
           <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
             <label>First name<input v-model.trim="nameDraft.first_name" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="nameDraft.last_name" required maxlength="255" /></label>
+            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" :options="pronounSelectOptions" data-test="supervisor-pronouns-select" /></label>
+            <label v-if="supervisorPronouns.choice === 'Other'">Your pronouns<input v-model="supervisorPronouns.other" maxlength="100" data-test="supervisor-pronouns-other" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
-              <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save name' }}</button>
+              <button class="btn btn-primary" type="submit" :disabled="nameSaving">{{ nameSaving ? 'Saving…' : 'Save' }}</button>
             </div>
           </form>
           <div class="profile-field">
@@ -432,6 +434,10 @@
             <span class="profile-field-label">School:</span>
             <span class="profile-field-value">{{ user.supervisor.schoolName }}</span>
           </div>
+          <div class="profile-field" data-test="supervisor-pronouns">
+            <span class="profile-field-label">Pronouns:</span>
+            <span class="profile-field-value">{{ user.supervisor.pronouns }}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -744,14 +750,22 @@ const startStudentEdit = async () => {
 const nameEditing = ref(false)
 const nameSaving = ref(false)
 const nameDraft = ref({ first_name: '', last_name: '' })
+// Their pronouns, edited with their name.
+const supervisorPronouns = ref({ choice: '', other: '' })
 
 const startNameEdit = () => {
   nameDraft.value = { first_name: auth.user?.first_name || '', last_name: auth.user?.last_name || '' }
+  supervisorPronouns.value = pronounDraft(auth.user?.pronouns)
   error.value = ''
   nameEditing.value = true
 }
 
 const saveName = async () => {
+  const pronouns = pronounsToSave(supervisorPronouns.value)
+  if (pronouns === null) {
+    error.value = 'Enter your pronouns.'
+    return
+  }
   nameSaving.value = true
   error.value = ''
   try {
@@ -762,12 +776,12 @@ const saveName = async () => {
       method: 'PATCH',
       credentials: 'include',
       headers: buildSessionHeaders({ includeCSRF: true }),
-      body: JSON.stringify(nameDraft.value),
+      body: JSON.stringify({ ...nameDraft.value, pronouns }),
     })
     if (!response.ok) throw await apiErrorFromResponse(response)
     auth.loginWithUser(await response.json())
     nameEditing.value = false
-    showTemporaryStatus('Your name has been updated.')
+    showTemporaryStatus('Your details have been updated.')
   } catch (saveError) {
     error.value = saveError instanceof Error ? saveError.message : 'Your name could not be updated.'
   } finally {
@@ -987,7 +1001,8 @@ const user = computed(() => {
     },
     supervisor: {
       hasDetails: hasSupervisorDetails,
-      schoolName: valueOrFallback(source?.supervisor_school_name)
+      schoolName: valueOrFallback(source?.supervisor_school_name),
+      pronouns: valueOrFallback(source?.pronouns, unsetLabel)
     }
   }
 })

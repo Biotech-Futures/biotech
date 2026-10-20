@@ -3,7 +3,7 @@
     <legend>{{ label }} <span v-if="showRequired" class="required-mark" aria-hidden="true">*</span></legend>
     <p v-if="description">{{ description }}</p>
     <div class="interest-selector__options">
-      <label v-for="interest in INTEREST_CATEGORIES" :key="interest">
+      <label v-for="interest in options ?? INTEREST_CATEGORIES" :key="interest">
         <input
           v-model="selection"
           type="checkbox"
@@ -11,7 +11,12 @@
           :value="interest"
           :aria-invalid="Boolean(error)"
         />
-        <span>{{ interest }}</span>
+        <span>
+          {{ interest }}
+          <small v-if="counts" class="interest-selector__count">
+            {{ counts[interest] ?? 0 }} of {{ total }}
+          </small>
+        </span>
       </label>
     </div>
     <span v-if="error" :id="`${id}-error`" class="interest-selector__error">{{ error }}</span>
@@ -32,12 +37,20 @@ const props = withDefaults(
     error?: string
     /** Whether its label has the * of a required field. */
     showRequired?: boolean
+    /** The areas in this order (all of them), else as listed. */
+    options?: readonly string[]
+    /** How many chose each area, shown "2 of 3" with ``total``. */
+    counts?: Record<string, number>
+    total?: number
   }>(),
   {
     label: 'Relevant interests',
     description: undefined,
     error: undefined,
     showRequired: true,
+    options: undefined,
+    counts: undefined,
+    total: 0,
   },
 )
 
@@ -66,9 +79,9 @@ legend {
   font-weight: 600;
 }
 
-/* The options' own space comes below it. */
+/* Close under the heading, with room below it before the options. */
 p {
-  margin: 5px 0 0;
+  margin: -4px 0 0;
   color: var(--registration-muted);
   font-size: 0.86rem;
   line-height: 1.45;
@@ -81,6 +94,10 @@ p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 30px 16px;
   margin-top: 20px;
+}
+
+p + .interest-selector__options {
+  margin-top: 30px;
 }
 
 label {
@@ -102,6 +119,13 @@ input {
   height: 1.0625rem;
   margin-top: calc((0.85rem * 1.35 - 1.0625rem) / 2);
   accent-color: var(--registration-green);
+}
+
+.interest-selector__count {
+  margin-left: 4px;
+  color: var(--registration-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 input:focus-visible {

@@ -278,10 +278,12 @@ class JoinPermissionRequestSerializer(serializers.Serializer):
 
 
 class SelfNameSerializer(serializers.Serializer):
-    """The name a supervisor may change on their own profile."""
+    """The name and pronouns a supervisor may change on their own profile."""
 
     first_name = serializers.CharField(max_length=255, required=False)
     last_name = serializers.CharField(max_length=255, required=False)
+    # Blank leaves them unsaid.
+    pronouns = serializers.CharField(max_length=100, required=False, allow_blank=True)
 
 
 class StudentSelfProfileUpdateSerializer(serializers.Serializer):
@@ -713,6 +715,8 @@ class SupervisedStudentSerializer(serializers.Serializer):
     account_status = serializers.CharField()
     media_consent = serializers.BooleanField(allow_null=True)
     media_consent_at = serializers.DateTimeField(allow_null=True)
+    profile_image_url = serializers.CharField(allow_null=True, required=False)
+    policies_agreed_at = serializers.DateTimeField(allow_null=True, required=False)
     school_name = serializers.CharField(allow_blank=True)
     year_lvl = serializers.CharField(allow_blank=True)
     interests = serializers.ListField(child=serializers.CharField())

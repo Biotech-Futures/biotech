@@ -244,3 +244,34 @@ describe('Student profile', () => {
     wrapper.unmount()
   })
 })
+
+describe('Supervisor profile', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = {
+      id: 9, email: 'grace@school.edu', first_name: 'Grace', last_name: 'Green',
+      current_role_name: 'supervisor', supervisor_school_name: 'Test High', pronouns: 'She/her',
+    }
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn(async (_input: string, init?: RequestInit) =>
+      new Response(JSON.stringify(init?.method === 'PATCH' ? { ...auth.user, ...JSON.parse(String(init.body)) } : [])),
+    ))
+  })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('shows their pronouns after their school, and edits them with their name', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    expect(wrapper.get('[data-test="supervisor-pronouns"]').text()).toContain('She/her')
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
+    await pickAppSelect(wrapper, '[data-test="supervisor-pronouns-select"]', 'They/them')
+    await wrapper.get('.student-edit-form').trigger('submit')
+    await flushPromises()
+
+    const patch = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'PATCH')!
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ first_name: 'Grace', last_name: 'Green', pronouns: 'They/them' })
+    wrapper.unmount()
+  })
+})
