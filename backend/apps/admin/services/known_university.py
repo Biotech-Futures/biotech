@@ -36,17 +36,27 @@ def list_known_universities(search=None) -> dict:
     }
 
 
+def _checked_name(name, *, other_than=None) -> tuple[str, dict | None]:
+    """``name`` with its spacing tidied, and why it's refused (or None): blank,
+    too long, or already listed in any casing (``other_than`` aside, the one
+    being renamed)."""
+    if not isinstance(name, str) or not KnownUniversity.normalise(name):
+        return "", _refused("University name is required")
+    name = KnownUniversity.normalise(name)
+    if len(name) > NAME_MAX_LENGTH:
+        return name, _refused(f"University name must be {NAME_MAX_LENGTH} characters or fewer")
+    if KnownUniversity.objects.filter(name__iexact=name).exclude(pk=other_than).exists():
+        return name, _refused(f"'{name}' is already on the list")
+    return name, None
+
+
 def add_known_university(name, *, actor=None) -> tuple[dict, int]:
     """Add ``name`` (spacing tidied), unless it's blank, too long or already
     listed in any casing or spacing. Returns the response and its status."""
-    if not isinstance(name, str) or not KnownUniversity.normalise(name):
-        return _refused("University name is required"), 400
-    name = KnownUniversity.normalise(name)
-    if len(name) > NAME_MAX_LENGTH:
-        return _refused(f"University name must be {NAME_MAX_LENGTH} characters or fewer"), 400
+    name, refusal = _checked_name(name)
+    if refusal:
+        return refusal, 400
     duplicate = _refused(f"'{name}' is already on the list")
-    if KnownUniversity.objects.filter(name__iexact=name).exists():
-        return duplicate, 400
     try:
         with transaction.atomic():
             university = KnownUniversity.objects.create(name=name)
@@ -58,6 +68,33 @@ def add_known_university(name, *, actor=None) -> tuple[dict, int]:
         # Added by someone else since the check above.
         return duplicate, 400
     return {"msg": "Known university added successfully", "data": _serialize(university)}, 201
+
+
+def rename_known_university(university_id: int, name, *, actor=None) -> tuple[dict, int]:
+    """Rename a university on the list, checked as an added name is (its own
+    name in another casing is fine). Returns the response and its status."""
+    with transaction.atomic():
+        university = KnownUniversity.objects.select_for_update().filter(pk=university_id).first()
+        if university is None:
+            return _refused("Known university not found"), 404
+        name, refusal = _checked_name(name, other_than=university.pk)
+        if refusal:
+            return refusal, 400
+        if name == university.name:
+            return {"msg": "Known university unchanged", "data": _serialize(university)}, 200
+        before = university.name
+        try:
+            with transaction.atomic():
+                university.name = name
+                university.save(update_fields=["name"])
+        except IntegrityError:
+            # Added by someone else since the check above.
+            return _refused(f"'{name}' is already on the list"), 400
+        log_audit_event(
+            actor=actor, entity_type="known_university", entity_id=university.pk,
+            action="update", before_state={"name": before}, after_state={"name": university.name},
+        )
+    return {"msg": "Known university renamed successfully", "data": _serialize(university)}, 200
 
 
 def delete_known_university(university_id: int, *, actor=None) -> tuple[dict, int]:

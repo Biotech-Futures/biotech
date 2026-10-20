@@ -52,6 +52,7 @@ class PermissionTests(KnownUniversityApiTestCase):
             for method, url, data in (
                 ("get", LIST_URL, None),
                 ("post", LIST_URL, {"name": "UNSW"}),
+                ("patch", detail_url(listed.pk), {"name": "UNSW"}),
                 ("delete", detail_url(listed.pk), None),
             ):
                 with self.subTest(who=who, method=method):
@@ -157,6 +158,53 @@ class AddTests(KnownUniversityApiTestCase):
 
         self.assertRefused(response, status.HTTP_400_BAD_REQUEST, "already on the list")
         self.assertFalse(AuditLog.objects.filter(entity_type="known_university").exists())
+
+
+class RenameTests(KnownUniversityApiTestCase):
+    def rename(self, university, name):
+        return self.client.patch(detail_url(university.pk), {"name": name}, format="json")
+
+    def test_renames_a_name_with_its_spacing_tidied_and_records_it(self):
+        university = KnownUniversity.objects.create(name="USYD")
+
+        response = self.rename(university, "  Sydney   Uni ")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["data"]["name"], "Sydney Uni")
+        self.assertEqual(self.names(), ["Sydney Uni"])
+        log = AuditLog.objects.get(entity_type="known_university", action="update")
+        self.assertEqual(
+            (log.actor_user, log.entity_id, log.before_state, log.after_state),
+            (self.admin, university.pk, {"name": "USYD"}, {"name": "Sydney Uni"}),
+        )
+
+    def test_its_own_name_in_another_casing_is_fine(self):
+        university = KnownUniversity.objects.create(name="usyd")
+        response = self.rename(university, "USYD")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(self.names(), ["USYD"])
+
+    def test_another_listed_name_or_a_bad_one_is_refused(self):
+        university = KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(name="UNSW")
+
+        self.assertRefused(self.rename(university, " unsw "), status.HTTP_400_BAD_REQUEST, "already on the list")
+        self.assertRefused(self.rename(university, "   "), status.HTTP_400_BAD_REQUEST, "required")
+        self.assertRefused(self.rename(university, 42), status.HTTP_400_BAD_REQUEST, "required")
+        self.assertRefused(self.rename(university, "x" * 256), status.HTTP_400_BAD_REQUEST, "255 characters")
+        self.assertEqual(self.names(), ["UNSW", "USYD"])
+        self.assertFalse(AuditLog.objects.filter(entity_type="known_university", action="update").exists())
+
+    def test_the_same_name_changes_nothing(self):
+        university = KnownUniversity.objects.create(name="USYD")
+        response = self.rename(university, "USYD")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(AuditLog.objects.filter(entity_type="known_university", action="update").exists())
+
+    def test_a_missing_id_is_not_found(self):
+        self.assertRefused(
+            self.client.patch(detail_url(999999), {"name": "UNSW"}, format="json"), status.HTTP_404_NOT_FOUND, "not found",
+        )
 
 
 class DeleteTests(KnownUniversityApiTestCase):

@@ -550,6 +550,65 @@ export const fetchAdminStates = (): Promise<AdminUserState[]> =>
   adminGet<AdminEnvelope<AdminUserState[]>>('/user/states/').then((env) => env.data)
 
 // ---------------------------------------------------------------------------
+// Email checks: QuickEmailVerification's credit, for Management > Email Checks
+// ---------------------------------------------------------------------------
+
+/** One key's state: set or not (never the key), its balance as last
+ *  reported, and whether it's out of credit until ``retryAt``. */
+export interface EmailCheckKey {
+  configured: boolean
+  remaining: number | null
+  updatedAt: string | null
+  exhausted: boolean
+  exhaustedAt: string | null
+  retryAt: string | null
+}
+
+export interface EmailCheckCredits {
+  free: EmailCheckKey
+  /** The paid key, with the alert levels already sent for it. */
+  paid: EmailCheckKey & { alertedThresholds: number[] }
+  /** The low-credit alert levels, highest first. */
+  thresholds: number[]
+  lookupsToday: number
+  lookupsOn: string | null
+  /** 0: no daily limit. */
+  dailyCap: number
+  /** Checks against the test service, using no real credit. */
+  sandbox: boolean
+}
+
+export const fetchEmailCheckCredits = () =>
+  adminGet<AdminEnvelope<EmailCheckCredits>>('/email-verification/credits/').then((env) => env.data)
+
+// ---------------------------------------------------------------------------
+// Known universities: names registration treats as a university, not a school
+// ---------------------------------------------------------------------------
+
+export interface KnownUniversity {
+  id: number
+  name: string
+  createdAt: string | null
+}
+
+/** Every listed name, by name. */
+export const fetchKnownUniversities = () =>
+  adminGet<AdminEnvelope<{ items: KnownUniversity[]; total: number }>>('/known-university/').then(
+    (env) => env.data.items
+  )
+
+/** Add one; refused when blank, too long or already listed in any casing. */
+export const addKnownUniversity = (name: string) =>
+  adminPost<AdminEnvelope<KnownUniversity>>('/known-university/', { name }).then((env) => env.data)
+
+/** Rename one, checked as an added name is. */
+export const renameKnownUniversity = (id: number, name: string) =>
+  adminPatch<AdminEnvelope<KnownUniversity>>(`/known-university/${id}/`, { name }).then((env) => env.data)
+
+export const deleteKnownUniversity = (id: number) =>
+  adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
+
+// ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
 

@@ -38,6 +38,8 @@ const isOpen = (to: string) => route.path === to || route.path.startsWith(`${to}
 // opens at that address.
 const tabs = [
   { label: 'Late Registration', to: '/management/late-registration' },
+  { label: 'Known Universities', to: '/management/known-universities' },
+  { label: 'Email Checks', to: '/management/email-checks' },
   { label: 'Challenge Start', to: '/management/challenge-start' },
   { label: 'Submission Deadline', to: '/management/submission-deadline' },
   { label: 'Notify Finalists', to: '/management/notify-finalists' },
