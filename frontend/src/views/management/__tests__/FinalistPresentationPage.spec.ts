@@ -14,6 +14,7 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { ApiError } from '@/utils/apiError'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/managementAPI', () => ({
   allocatePresentationSlot: vi.fn(),
@@ -244,12 +245,13 @@ describe('Finalist Presentation', () => {
     // When it answered, as Finalist Submissions writes it; who, on hover.
     expect(cells[1]!.text()).toMatch(/^29\/09\/26 \d{2}:10$/)
     expect(cells[1]!.find('[title]').attributes('title')).toBe('By Zoe Lee')
-    expect((cells[2]!.find('select').element as HTMLSelectElement).value).toBe('1')
-    expect(cells[2]!.findAll('option').map((o) => o.text())).toEqual([
+    expect(appSelectText(cells[2]!, '.finalist-presentation__allocate-select')).toBe('09:30 - 10:00 AEDT')
+    expect(await appSelectLabels(cells[2]!, '.finalist-presentation__allocate-select')).toEqual([
       'Not allocated',
       '09:30 - 10:00 AEDT',
       '13:00 - 13:30 AEDT'
     ])
+    await cells[2]!.find('.finalist-presentation__allocate-select input').trigger('blur')
     // It can make the morning (the time it has), not the afternoon.
     expect(cells[3]!.find('.fa-check').exists()).toBe(true)
     expect(cells[3]!.classes()).toContain('is-allocated')
@@ -264,14 +266,14 @@ describe('Finalist Presentation', () => {
     allocateMock.mockResolvedValueOnce({ group_id: 2, slot_id: 2 })
     allocateMock.mockResolvedValueOnce({ group_id: 2, slot_id: null })
     const wrapper = await mountPage()
-    const select = wrapper.find('.finalist-presentation__allocate select')
-    await select.setValue('2')
+    const allocateSelect = '.finalist-presentation__allocate .finalist-presentation__allocate-select'
+    await pickAppSelect(wrapper, allocateSelect, '13:00 - 13:30 AEDT')
     await flushPromises()
     expect(allocateMock).toHaveBeenLastCalledWith(2, 2)
     const cells = wrapper.find('.finalist-presentation__allocate tbody tr').findAll('td')
     expect(cells[4]!.classes()).toContain('is-allocated')
 
-    await select.setValue('')
+    await pickAppSelect(wrapper, allocateSelect, 'Not allocated')
     await flushPromises()
     expect(allocateMock).toHaveBeenLastCalledWith(2, null)
     expect(cells[3]!.classes()).not.toContain('is-allocated')
@@ -283,10 +285,11 @@ describe('Finalist Presentation', () => {
       new ApiError({ error: "That time isn't one of this year's.", code: 'x', request_id: 'x' })
     )
     const wrapper = await mountPage()
-    const select = wrapper.find('.finalist-presentation__allocate select')
-    await select.setValue('2')
+    const allocateSelect = '.finalist-presentation__allocate .finalist-presentation__allocate-select'
+    await pickAppSelect(wrapper, allocateSelect, '13:00 - 13:30 AEDT')
     await flushPromises()
-    expect((select.element as HTMLSelectElement).value).toBe('1')
+    // Still the time it has.
+    expect(appSelectText(wrapper, allocateSelect)).toBe('09:30 - 10:00 AEDT')
     expect(wrapper.find('.finalist-presentation__allocate [role="alert"]').text()).toBe(
       "BTF2: That time isn't one of this year's."
     )

@@ -4,6 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AdminSystemLogsPage from '@/views/admin/AdminSystemLogsPage.vue'
 import { downloadSystemLogs, fetchSystemLog, fetchSystemLogs, type SystemLogRow } from '@/utils/adminAPI'
 import { registerProfileTimeZone } from '@/utils/date'
+import { appSelectLabels } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/adminAPI', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/adminAPI')>()),
@@ -208,7 +209,7 @@ describe('AdminSystemLogsPage', () => {
   it('does not offer All rows per page, as the server caps a page at 200', async () => {
     await mountPage()
 
-    const options = wrapper!.findAll('.data-table-page-size option').map((option) => option.text())
+    const options = await appSelectLabels(wrapper!, '.data-table-page-size')
     expect(options).not.toContain('All Entries')
     expect(options.length).toBeGreaterThan(0)
   })

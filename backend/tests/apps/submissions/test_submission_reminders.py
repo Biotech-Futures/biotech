@@ -266,11 +266,28 @@ class TeamDeliveryTests(TestCase):
         self.assertEqual(len(message.to), 3)
         self.assertEqual(sorted(message.cc), ["mentor@test.local", "sup@test.local"])
 
-    def test_a_team_nobody_could_be_reached_on_is_tried_again_tomorrow(self):
+    def test_a_team_whose_reminder_is_turned_away_is_tried_again_tomorrow(self):
+        import smtplib
         from unittest.mock import patch
 
-        with patch.object(mail.EmailMessage, "send", side_effect=OSError("relay down")):
+        rejected = smtplib.SMTPDataError(554, b"Message rejected")
+        with patch.object(mail.EmailMessage, "send", side_effect=rejected):
             result = send_due_reminders()
 
         self.assertEqual(result["failed"], 1)
         self.assertFalse(SubmissionReminder.objects.exists())
+
+    def test_a_reminder_the_mail_server_cant_take_yet_is_kept_until_the_deadline(self):
+        from unittest.mock import patch
+
+        from apps.services.models import WaitingEmail
+
+        with patch.object(mail.EmailMessage, "send", side_effect=OSError("relay down")):
+            result = send_due_reminders()
+
+        # Kept to send once the server can be reached, so it counts as sent
+        # and isn't sent again tomorrow; out of date, so given up, at the deadline.
+        self.assertEqual((result["sent"], result["failed"]), (1, 0))
+        self.assertTrue(SubmissionReminder.objects.exists())
+        kept = WaitingEmail.objects.get(key="submission_reminder")
+        self.assertEqual(kept.give_up_at, self.deadline.closes_at)

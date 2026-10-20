@@ -163,6 +163,50 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="registration_mentor",
+        name="Registration confirmation (to mentor)",
+        description="Sent to a mentor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_mentor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_supervisor",
+        name="Registered by supervisor (to student)",
+        description=(
+            "Sent to each student a supervisor registers: one student, a group, or an uploaded "
+            "file. Not sent when an admin registers students."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="registration_by_admin",
+        name="Registered by admin (to student)",
+        description=(
+            "Sent to each student an admin registers on Management > Registration: one student, "
+            "a group, or an uploaded file. Names the supervisor the admin chose."
+        ),
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_by_admin.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="registration_supervisor",
         name="Registration confirmation (to supervisor)",
         description=(

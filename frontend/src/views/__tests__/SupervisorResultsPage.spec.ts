@@ -153,7 +153,7 @@ describe('SupervisorResultsPage', () => {
     expect(headings()).toEqual(['Group', 'Students', 'Mentor', 'PM1', 'Poster Comment 1', 'MTotal'])
   })
 
-  it("colours each criterion's mark from red (0) to green (5), but not the total", async () => {
+  it("colours each criterion's mark from red (0) to green (5) with Show marks only, but not the total", async () => {
     const wrapper = await mountPage(results({
       groups: [
         { group_id: 10, TeamCode: 'BTF01', Students: 'Amy Chen', Mentor: '', PM1: '0', MTotal: '40' },
@@ -161,6 +161,8 @@ describe('SupervisorResultsPage', () => {
         { group_id: 12, TeamCode: 'BTF03', Students: 'Cara Ng', Mentor: '', PM1: '', MTotal: '30' },
       ],
     }))
+    // Every column showing: no colour.
+    expect(wrapper.find('tbody [class*="mark-score-"]').exists()).toBe(false)
     await button(wrapper, 'Show marks only')!.trigger('click')
     // Group, PM1, MTotal: highest total first.
     const cells = wrapper.findAll('tbody tr.data-table-row').map((row) => row.findAll('td'))

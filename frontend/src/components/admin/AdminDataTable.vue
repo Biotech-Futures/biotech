@@ -113,15 +113,13 @@
       <div class="admin-table__footer-left">
         <label v-if="pageSizeOptions.length" class="admin-table__page-size">
           <span class="sr-only">Rows per page</span>
-          <select
-            :value="pageSize"
+          <AppSelect
+            :model-value="pageSize"
+            :options="pageSizeChoices"
             :disabled="loading"
+            aria-label="Rows per page"
             @change="onPageSizeChange"
-          >
-            <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }}
-            </option>
-          </select>
+          />
         </label>
         <span class="admin-table__page-info">
           Page {{ page }} of {{ totalPages }}
@@ -155,6 +153,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 
 import { usePagerAnchor } from '@/composables/usePagerAnchor'
 
@@ -303,9 +302,12 @@ watch([() => props.pageSize, () => props.totalCount, () => props.sortState], res
 
 const onPageChange = (page: number) => turnPage(() => emit('page-change', page))
 
-const onPageSizeChange = (event: Event) => {
-  const value = Number((event.target as HTMLSelectElement).value)
-  emit('page-size-change', value)
+const pageSizeChoices = computed<AppSelectOption[]>(() =>
+  props.pageSizeOptions.map((size) => ({ value: size, label: String(size) }))
+)
+
+const onPageSizeChange = (value: AppSelectValue) => {
+  emit('page-size-change', Number(value))
 }
 
 const renderCell = (value: unknown) => {
@@ -466,7 +468,7 @@ const renderCell = (value: unknown) => {
   gap: 0.9rem;
 }
 
-.admin-table__page-size select {
+.admin-table__page-size .app-select {
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;

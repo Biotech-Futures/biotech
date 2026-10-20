@@ -5,6 +5,7 @@ import AdminUserDetailSheet from '../AdminUserDetailSheet.vue'
 import { createAdminUser, updateAdminUser } from '@/utils/adminAPI'
 import type { AdminUser } from '@/utils/adminAPI'
 import { mentorBackgroundLabel } from '@/utils/userFormat'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/adminAPI', () => ({
   createAdminUser: vi.fn().mockResolvedValue({ msg: 'ok', data: null }),
@@ -145,7 +146,7 @@ describe('mentor background', () => {
       await wrapper.find('#f-first').setValue('Ada')
       await wrapper.find('#f-last').setValue('Lovelace')
       await wrapper.find('#f-email').setValue('ada@example.edu')
-      await wrapper.find('#f-country').setValue(1)
+      await pickAppSelect(wrapper, '#f-country', 'Australia')
       await wrapper.find('#f-minst').setValue('Lab One')
       await wrapper.find('#f-mreason').setValue('Help students')
       await wrapper.find('input[type="checkbox"][value="Biomedical Innovations"]').setValue(true)

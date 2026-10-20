@@ -86,11 +86,12 @@
           placeholder="Search by group or tutor"
           aria-label="Search by group or tutor"
         />
-        <select v-model="groupFilter" class="student-matching__select" aria-label="Filter groups">
-          <option v-for="option in groupFilters" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
+        <AppSelect
+          v-model="groupFilter"
+          class="student-matching__select"
+          aria-label="Filter groups"
+          :options="groupFilters"
+        />
       </div>
 
       <!-- Waiting area -->
@@ -213,6 +214,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import draggable from 'vuedraggable'
+import AppSelect from '@/components/AppSelect.vue'
 import { GROUP_FILTERS, useStudentMatching } from '@/composables/admin/useStudentMatching'
 import StudentChip from '@/components/admin/matching/StudentChip.vue'
 import type { RecommendedStudent } from '@/utils/adminMatching'

@@ -104,19 +104,12 @@
           <div class="profile-field timezone-field">
             <label class="profile-field-label" for="timezone-input">Set timezone:</label>
             <div class="timezone-control">
-              <select
+              <AppSelect
                 id="timezone-input"
                 v-model="selectedTimeZone"
                 class="timezone-input"
-              >
-                <option
-                  v-for="zone in timeZoneOptions"
-                  :key="zone"
-                  :value="zone"
-                >
-                  {{ formatTimeZoneLabel(zone) }}
-                </option>
-              </select>
+                :options="timeZoneSelectOptions"
+              />
               <div class="timezone-actions">
                 <button
                   class="btn btn-outline"
@@ -147,9 +140,9 @@
             <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
-            <label>Year level<select v-model="studentDraft.year_lvl" required><option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">{{ year }}</option></select></label>
-            <label>Country<select v-model="studentDraft.country_id" @change="studentDraft.state_id = null"><option :value="null">Not set</option><option v-for="country in profileOptions.countries" :key="country.id" :value="country.id">{{ country.country_name }}</option></select></label>
-            <label>Region<select v-model="studentDraft.state_id"><option :value="null">Not set</option><option v-for="region in availableRegions" :key="region.id" :value="region.id">{{ region.state_name }}</option></select></label>
+            <label>Year level<AppSelect v-model="studentDraft.year_lvl" :options="YEAR_LEVEL_OPTIONS" required /></label>
+            <label>Country<AppSelect v-model="studentDraft.country_id" :options="countrySelectOptions" @change="studentDraft.state_id = null" /></label>
+            <label>Region<AppSelect v-model="studentDraft.state_id" :options="regionSelectOptions" /></label>
             <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
@@ -436,6 +429,7 @@ import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
+import AppSelect from '@/components/AppSelect.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
@@ -472,6 +466,16 @@ const studentDraft = ref({
 })
 const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
 const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
+// The student details form's dropdown choices.
+const YEAR_LEVEL_OPTIONS = ['9', '10', '11', '12'].map(year => ({ value: year, label: year }))
+const countrySelectOptions = computed(() => [
+  { value: null, label: 'Not set' },
+  ...profileOptions.value.countries.map(country => ({ value: country.id, label: country.country_name })),
+])
+const regionSelectOptions = computed(() => [
+  { value: null, label: 'Not set' },
+  ...availableRegions.value.map(region => ({ value: region.id, label: region.state_name })),
+])
 const guardianSending = ref(false)
 // Ticks so "send again in N minutes" counts down.
 const now = ref(Date.now())
@@ -558,6 +562,9 @@ const commonTimeZones = [
   'Africa/Johannesburg'
 ]
 
+const timeZoneSelectOptions = computed(() =>
+  timeZoneOptions.value.map(zone => ({ value: zone, label: formatTimeZoneLabel(zone) })),
+)
 const timeZoneOptions = computed(() => {
   return Array.from(new Set([
     auth.timeZone,
@@ -1407,7 +1414,7 @@ onMounted(async () => {
 .guardian-locked-note { margin:.25rem 0 1rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
 .student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }

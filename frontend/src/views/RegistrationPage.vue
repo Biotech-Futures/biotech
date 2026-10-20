@@ -182,9 +182,6 @@
           </span>
         </button>
       </div>
-      <p class="setup-signin">
-        Already have an account? <RouterLink to="/login">Sign in</RouterLink>
-      </p>
       <p v-if="!invitationToken" class="supervisor-guidance">
         If you are a supervisor, please
         contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
@@ -340,6 +337,7 @@
               >
             </label>
           </section>
+          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
@@ -1011,20 +1009,20 @@
                 />
                 <label class="select-field">
                   <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
-                  <select
+                  <AppSelect
                     id="mentor-capacity"
-                    v-model="forms.mentor.capacity"
+                    :model-value="forms.mentor.capacity"
+                    :options="CAPACITY_OPTIONS"
+                    placeholder="Select group capacity"
                     :aria-invalid="Boolean(errors['mentor.capacity'])"
                     :aria-describedby="
                       errors['mentor.capacity'] ? 'mentor-capacity-error' : undefined
                     "
                     required
-                  >
-                    <option value="" disabled>Select group capacity</option>
-                    <option v-for="count in ['1', '2', '3', '4', '5']" :key="count" :value="count">
-                      {{ count }} {{ count === '1' ? 'group' : 'groups' }}
-                    </option>
-                  </select>
+                    @update:model-value="
+                      (value) => (forms.mentor.capacity = String(value ?? '') as typeof forms.mentor.capacity)
+                    "
+                  />
                   <span
                     v-if="errors['mentor.capacity']"
                     id="mentor-capacity-error"
@@ -1033,11 +1031,17 @@
                     {{ errors['mentor.capacity'] }}
                   </span>
                 </label>
-                <RegistrationAvailabilityField
-                  id="mentor-availability"
-                  v-model="forms.mentor.availability"
-                  prefix="mentor.availability"
-                  :errors="errors"
+                <RegistrationTextField
+                  id="mentor-hours"
+                  v-model="forms.mentor.weeklyHours"
+                  label="Hours per week"
+                  class="mentor-hours"
+                  digits
+                  :max-length="2"
+                  :min="1"
+                  :max="MAX_WEEKLY_HOURS"
+                  :error="errors['mentor.weeklyHours']"
+                  required
                 />
                 <RegistrationTextField
                   id="mentor-background"
@@ -1176,9 +1180,9 @@
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
-import RegistrationAvailabilityField from '@/components/registration/RegistrationAvailabilityField.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import SupervisorSearchField from '@/components/registration/SupervisorSearchField.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
@@ -1195,6 +1199,8 @@ import {
 } from '@/registration/groupCode'
 import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
+import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
 import { formatDayMonthTime } from '@/utils/date'
 import {
   buildRegistrationRequest,
@@ -1220,8 +1226,7 @@ import {
   revalidateRegistrationCsvRows,
   stateLabel,
   supervisorSummary,
-  WEEKDAY_NAMES,
-  type AvailabilitySlot,
+  MAX_WEEKLY_HOURS,
   type CsvCategory,
   type CsvHeader,
   type CsvRow,
@@ -1461,7 +1466,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'Mentoring',
         title: 'How you would mentor',
-        description: 'Choose interests, capacity, availability and tell us about yourself.',
+        description: 'Choose interests, capacity and hours, and tell us about yourself.',
       },
       {
         label: 'Review',
@@ -1480,6 +1485,12 @@ const STUDY_YEAR_OPTIONS = [
   { value: '4', label: 'Year 4' },
   { value: '5+', label: 'Year 5 or later' },
 ]
+
+// How many groups a mentor can take on.
+const CAPACITY_OPTIONS: AppSelectOption[] = ['1', '2', '3', '4', '5'].map((count) => ({
+  value: count,
+  label: `${count} ${count === '1' ? 'group' : 'groups'}`,
+}))
 
 const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
   { value: 'undergraduate', label: 'Undergraduate student' },
@@ -1527,6 +1538,8 @@ const invitationToken = computed(() =>
   props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
 )
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
+// Checking the email addresses before submitting, when the gateway can.
+const { progress: emailCheckProgress, check: checkEmails } = useEmailPrecheck()
 const unavailableGateway: RegistrationGateway = {
   async submit() {
     return {
@@ -1781,7 +1794,11 @@ const includedCsvRows = computed(() =>
   ),
 )
 const warningSubject = (warning: RegistrationWarning) => {
-  const field = warning.field.endsWith('.school') ? 'School' : 'Student email'
+  const field = warning.field.endsWith('.school')
+    ? 'School'
+    : warning.field.endsWith('.guardian.email')
+      ? 'Guardian email'
+      : 'Student email'
   const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
@@ -1843,21 +1860,6 @@ const guardianName = (guardian: GuardianDetails) =>
     : 'Deferred or not provided'
 const interestSummary = (interests: string[]) => interests.join(', ') || 'Not provided'
 // "09:30" as "9:30 am".
-const clockTime = (time: string) => {
-  const [hours = 0, minutes = 0] = time.split(':').map(Number)
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'am' : 'pm'}`
-}
-
-// A mentor's weekly times on Review: each one given in full.
-const availabilitySummary = (slots: AvailabilitySlot[]) =>
-  slots
-    .filter((slot) => slot.weekday && slot.start && slot.end)
-    .map(
-      (slot) =>
-        `${WEEKDAY_NAMES[Number(slot.weekday)]} ${clockTime(slot.start)} – ${clockTime(slot.end)}`,
-    )
-    .join(' · ')
-
 // A student group's teammates as registered: those left empty aren't.
 const filledTeammates = computed(() =>
   forms.studentTeam.teammates.filter((student) => !isBlankStudent(student)),
@@ -2092,7 +2094,10 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
               label: 'Capacity',
               value: `${forms.mentor.capacity} group${forms.mentor.capacity === '1' ? '' : 's'}`,
             },
-            { label: 'Availability', value: availabilitySummary(forms.mentor.availability) },
+            {
+              label: 'Hours per week',
+              value: `${forms.mentor.weeklyHours} hour${forms.mentor.weeklyHours === '1' ? '' : 's'}`,
+            },
           ],
         },
       ]
@@ -2323,14 +2328,12 @@ const validateCurrentStep = () => {
         if (countWords(forms.mentor[field]) > MENTOR_MAX_WORDS)
           clientErrors[`mentor.${field}`] = `Keep this to ${MENTOR_MAX_WORDS} words or fewer.`
       }
-      // A time given in full (day, from, to), ending after it starts.
-      forms.mentor.availability.forEach((slot, index) => {
-        const given = [slot.weekday, slot.start, slot.end].filter(Boolean).length
-        if (!given) return
-        if (given < 3) clientErrors[`mentor.availability.${index}`] = 'Choose a day and both times.'
-        else if (slot.end <= slot.start)
-          clientErrors[`mentor.availability.${index}`] = 'End after it starts.'
-      })
+      // Hours a week: a whole number from 1 to 40.
+      const hours = String(forms.mentor.weeklyHours ?? '').trim()
+      if (!hours) clientErrors['mentor.weeklyHours'] = 'Enter how many hours a week you can give.'
+      else if (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)
+        clientErrors['mentor.weeklyHours'] =
+          `Enter a whole number of hours from 1 to ${MAX_WEEKLY_HOURS}.`
     }
   }
 
@@ -2783,6 +2786,13 @@ const submitRegistration = async () => {
       forms.supervisorGroup.students.forEach((student, index) =>
         attach(student, `supervisorGroup.students.${index}`),
       )
+    // Any address found not to exist then comes back as a warning to correct
+    // or confirm. Skipped whenever it can't be done; never holds this up.
+    await checkEmails(registrationGateway, request, {
+      invitationToken: invitationToken.value,
+      overrides: { ...warningOverrides.value },
+      supervisorEmail: supervisorEmail || undefined,
+    })
     const result = await registrationGateway.submit(request, {
       attachments,
       invitationToken: invitationToken.value,
@@ -2946,6 +2956,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* A mentor's hours per week: a number, so a third of the row. */
+.mentor-hours {
+  width: calc(100% / 3);
+  min-width: 10rem;
+}
+
 .registration-warnings {
   margin-block: 1rem;
   padding: 1rem;
@@ -3173,18 +3189,8 @@ onBeforeUnmount(() => {
 }
 
 /* Lined up under the cards, as the rest of the page is. */
-.setup-signin {
-  margin: 30px 0 0;
-  color: var(--registration-muted);
-}
-
-.setup-signin a {
-  color: var(--registration-green-dark);
-  font-weight: 700;
-}
-
 .supervisor-guidance {
-  margin: 12px 0 0;
+  margin: 30px 0 0;
   color: var(--registration-muted);
   font-size: 0.9rem;
 }
@@ -4012,7 +4018,7 @@ form,
 }
 
 /* As tall as the text boxes beside it (RegistrationTextField). */
-.select-field select {
+.select-field .app-select {
   width: 100%;
   min-height: 2.5rem;
   padding: 0.4rem 0.6rem;
@@ -4024,9 +4030,14 @@ form,
   font: inherit;
 }
 
-.select-field select:focus-visible {
+.select-field .app-select:focus-within {
   border-color: var(--registration-green);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
+}
+
+/* Its border and soft ring only: no outline. */
+.select-field .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
 }
 
 .review-section dl {

@@ -873,9 +873,10 @@ describe('GroupDetailModal', () => {
     // Renders the student details sections matching AdminUserDetailSheet
     expect(dialog()!.textContent).toContain('Account')
     expect(dialog()!.textContent).toContain('ada@example.com')
-    expect(dialog()!.textContent).toContain('Student Profile')
+    expect(dialog()!.textContent).toContain('Student Details')
     expect(dialog()!.textContent).toContain('Science High')
-    expect(dialog()!.textContent).toContain('Guardian & Consent')
+    expect(dialog()!.textContent).toContain('Guardian Details')
+    expect(dialog()!.textContent).toContain('Supervisor and Group')
     expect(dialog()!.textContent).toContain('Lord Byron')
     expect(dialog()!.textContent).toContain('byron@example.com')
 

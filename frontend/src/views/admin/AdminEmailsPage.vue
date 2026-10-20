@@ -85,7 +85,13 @@
       </aside>
 
       <div v-if="logOpen" class="admin-emails__main" data-test="emails-log-panel">
-        <EmailLog :emails="log" :selected-key="logKey" :loading="logLoading" :error="logError" />
+        <EmailLog
+          :emails="log"
+          :selected-key="logKey"
+          :loading="logLoading"
+          :error="logError"
+          :mail-api="mailApi"
+        />
       </div>
 
       <div class="admin-emails__main" v-else-if="selected">
@@ -149,11 +155,12 @@ import EmailTypeList from '@/components/admin/emails/EmailTypeList.vue'
 import { useSystemEmails } from '@/composables/admin/useSystemEmails'
 import {
   fetchSystemEmailLog,
+  fetchSystemEmailMailApi,
   fetchSystemEmailUnseenFailures,
   markSystemEmailFailuresSeen
 } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import type { SystemEmailLogEntry } from '@/utils/systemEmail'
+import type { SystemEmailLogEntry, SystemEmailMailApi } from '@/utils/systemEmail'
 
 const {
   loading,
@@ -197,6 +204,7 @@ const logKey = ref('')
 const log = ref<SystemEmailLogEntry[]>([])
 const logLoading = ref(false)
 const logError = ref('')
+const mailApi = ref<SystemEmailMailApi | null>(null)
 
 // The red count on its button: who sends couldn't reach since an admin last
 // looked. Opening it, or leaving any of its pages, counts as looking, for
@@ -238,6 +246,10 @@ const toggleLog = async () => {
   // Read afresh each time: emails go out while the page is open.
   logLoading.value = true
   logError.value = ''
+  // Whether bounces can be checked: said at the top, never in the way.
+  void fetchSystemEmailMailApi()
+    .then((state) => (mailApi.value = state))
+    .catch(() => (mailApi.value = null))
   try {
     log.value = await fetchSystemEmailLog()
   } catch (err) {

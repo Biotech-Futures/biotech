@@ -14,7 +14,7 @@ is reconciled with current main and the newer intake contract.
 | `student_team` | 2-5 | Public; complete creator, pending identity-only peers, real group and shared interests |
 | `supervisor_individual` | 1 | Current supervisor session/profile; optional deferred guardian |
 | `supervisor_group` | 2-5 | Current supervisor session/profile; real group and shared interests |
-| `supervisor_csv` | 1-500 | Current supervisor session/profile; atomic batch with original CSV row numbers |
+| `supervisor_csv` | 1-1000 | Current supervisor session/profile; atomic batch with original CSV row numbers |
 
 Supervisor identity is resolved from the session and its existing profile,
 never from a payload claim. A current supervisor role (or staff/admin authority)
@@ -123,9 +123,11 @@ and the adapter use one shared soft-warning helper. Hard errors return field
 paths without warnings. Soft HTTP 400 responses include all unacknowledged
 `warnings:[{code,field,override_field,message}]`, using the original `students.N.*`
 indices. All students' hard checks run before any soft warnings are returned.
-Only literal boolean `ConfirmSchoolOverride` and
-`ConfirmNameEmailOverride` flags under `students.N.overrides` are accepted;
-they never override hard errors. Failures and warnings do not consume links.
+Only literal boolean `ConfirmSchoolOverride`, `ConfirmNameEmailOverride`,
+`ConfirmEmailInvalidOverride` and `ConfirmGuardianEmailInvalidOverride` flags
+under `students.N.overrides` are accepted (the last two are described under
+[Email check before submission](#email-check-before-submission)); they never
+override hard errors. Failures and warnings do not consume links.
 
 Intake and management lock the current registration-year row before the
 invitation, recheck idempotency after waiting, and save every student, group, receipt
@@ -133,6 +135,177 @@ and consumption in one transaction. A failure on any row or later photo rolls
 back the entire batch and removes files already saved. A final conditional update guards
 against revocation, expiry or use during processing. Unique constraints
 protect email, idempotency key, student receipt and invitation receipt.
+
+## Email check before submission
+
+Before a registration is submitted, the page can check that its students' and
+guardians' email addresses exist (QuickEmailVerification), so the person
+registering can correct one while they're still on the form. It is off unless
+`EMAIL_PRECHECK_ENABLED` is true, and it never holds a registration up: any
+time it can't run, the page submits as it would without it.
+
+### How it works
+
+1. The page sends the registration to `POST /api/v1/registration/email-check/`.
+2. The backend starts a job checking every address without a recent answer on
+   file, and the page polls `GET /api/v1/registration/email-check/<jobId>/`
+   about once a second, showing its progress.
+3. When the job is done, the page submits the registration as usual.
+   `register()` then warns about any address QuickEmailVerification answered as
+   not existing (see [The two warnings](#the-two-warnings)), and the person
+   corrects it or confirms it.
+4. Every submit runs the check again, so a corrected address is checked before
+   it's resubmitted. Addresses already answered come back at once.
+
+### Starting a check
+
+`POST /api/v1/registration/email-check/` takes the same normalized
+`{journey, payload}` as the intake endpoint, with the same session and CSRF
+token, and an `X-Registration-Invitation` header for a late link (checking does
+not use the link up). Photos are not sent. Mentor registrations aren't checked.
+
+| Response | Meaning |
+| --- | --- |
+| `202 {"status": "started", "jobId", "total", "done"}` | A job is checking `total` addresses; `done` already have an answer on file or were skipped. |
+| `202 {"status": "done", "jobId", "total", "done"}` | Nothing needed checking (all answered already, or all over the budget). |
+| `200 {"status": "disabled"}` | `EMAIL_PRECHECK_ENABLED` is off. |
+| `200 {"status": "closed"}` | Registration isn't open: no open window, no valid late link, and not a supervisor allowed to register after close. |
+| `200 {"status": "too_many"}` | More addresses than one request may carry (see [Limits](#limits)). |
+| `400` field errors | The registration itself is invalid (submitting it would be refused too). |
+| `403` | A supervisor journey without a current supervisor session. |
+
+Every address is lower-cased and checked once, students' and guardians' alike.
+
+### Polling a check
+
+`GET /api/v1/registration/email-check/<jobId>/` returns
+
+```json
+{"status": "running", "total": 260, "done": 112, "invalid": 3, "errors": 0,
+ "skipped": 0, "estimatedSecondsRemaining": 47}
+```
+
+| `status` | Meaning |
+| --- | --- |
+| `queued` | Waiting for earlier checks before its first address starts. `estimatedSecondsRemaining` is `null`. |
+| `running` | Checking. `estimatedSecondsRemaining` is the time left (below). |
+| `done` | Finished; `estimatedSecondsRemaining` is `0`. |
+| `failed` | The job couldn't be handed to the workers. |
+| `stalled` | A running job that hasn't moved for `EMAIL_PRECHECK_STALL_SECONDS`, or a queued one that hasn't started within `EMAIL_PRECHECK_QUEUED_STALL_SECONDS` (a restart loses a job). `estimatedSecondsRemaining` is `null`. |
+
+`invalid` counts addresses answered as not existing, `errors` addresses that
+couldn't be checked (they pass), and `skipped` addresses left unchecked because
+they were over the hourly budget (they pass too). An unknown job is
+`404 {"status": "not_found"}`; with the switch off, `200 {"status": "disabled"}`.
+
+`estimatedSecondsRemaining` is the addresses still to check, times the job's
+average seconds per lookup so far (an assumed 2 seconds before its first
+lookup), divided among the workers, rounded up. When fewer addresses are left
+than there are workers, they run side by side, so it's divided by those left.
+
+A job keeps counts only, never the addresses, and is deleted a day after it
+starts. Each answer is kept as an `EmailVerification`, which is what
+`register()` reads.
+
+### Limits
+
+- **Open registration only.** The same gate as submitting: an open window, a
+  valid late link, or a supervisor allowed to register after close.
+- **Addresses per request.** At most `EMAIL_PRECHECK_MAX_ADDRESSES` (2000)
+  when signed in, and `EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES` (20) when not.
+  Over the limit, the answer is `too_many` and nothing is checked.
+- **Hourly lookups per IP address.** Anyone not registering as a supervisor
+  may cause at most `EMAIL_PRECHECK_IP_HOURLY_LOOKUPS` (200) new lookups an
+  hour from one IP address; addresses over that are left unchecked
+  (`skipped`). Supervisor journeys (a signed-in supervisor or admin) aren't
+  held to it. Answers already on file cost nothing and don't count.
+- **No address is paid for twice.** An answer younger than
+  `QEV_RESULT_MAX_AGE_DAYS` is reused, and an address another job is already
+  checking is waited for rather than looked up again.
+- **Workers.** Addresses are checked one per lookup (the free key can't use
+  QuickEmailVerification's bulk API) on a pool of threads sized by
+  `QEV_PRECHECK_WORKERS`. When QuickEmailVerification answers 429 (too many
+  requests), every worker pauses, for 1, 2, 4, 8 then 16 seconds, after which
+  the address counts as not checked. Jobs are taken in the order they arrive,
+  so a job behind a large one may show as `queued` for a while.
+
+The per-IP budget, the "already checking" guard and the 429 pause are kept in
+the Django cache, so they are shared between server processes only when
+`REDIS_URL` is set.
+
+### The two warnings
+
+With `EMAIL_PRECHECK_ENABLED` on, `register()` looks up every student's and
+guardian's stored answer in one query per submission. An address whose answer
+is "invalid" and younger than `QEV_RESULT_MAX_AGE_DAYS` gets a soft warning,
+shaped like the others:
+
+| `code` | `field` | `override_field` |
+| --- | --- | --- |
+| `email_invalid` | `students.N.email` | `students.N.overrides.ConfirmEmailInvalidOverride` |
+| `guardian_email_invalid` | `students.N.guardian.email` | `students.N.overrides.ConfirmGuardianEmailInvalidOverride` |
+
+The message reads "This email address doesn't appear to exist." (or "The
+guardian's email address…"), adding "Did you mean ‹address›?" when
+QuickEmailVerification suggested one. A valid, unknown, missing or older
+answer gives no warning: an address that couldn't be checked is never
+blocked. Confirming the warning (the override set to `true`) lets it through
+and leaves nothing behind for staff. Legacy `{body: ...}` callers can send the
+same two flags. With the switch off there are no email warnings, even for
+answers on file.
+
+### What the page does
+
+The page runs the check before every submit, through the production gateway
+only (`configuredRegistrationGateway`, which derives the check's address from
+the registration endpoint). While it runs, the form shows "Waiting for earlier
+checks to finish…" with an indeterminate bar while the job is `queued`, then
+"12 of 260 checked · About 1 min 15 s left" with a bar while it's `running`.
+
+The page skips the check and submits exactly as it would without it whenever:
+the answer has no `jobId` (`disabled`, `closed`, `too_many`); the start request
+fails (any other status, or an unreadable answer); the job becomes `failed`,
+`stalled` or `not_found`; a poll fails or can't be read; the network is down;
+or a secure session can't be set up. After a `disabled` answer the page doesn't
+ask again until it's reloaded. The warning box shows the new warnings like the
+others, labelled "Student email" or "Guardian email".
+
+### Turning it on
+
+1. Apply the migrations through `users.0034_email_check_job` (`0026`, `0027`
+   and `0032`-`0034` add the email verification answers, credit balance and
+   check jobs).
+2. Set at least one QuickEmailVerification key in the deployment's
+   environment (never in the repository): `QEV_API_KEY` (the free key, tried
+   first) and/or `QEV_PAID_API_KEY` (used when the free key is out of credit).
+3. Set `REDIS_URL`, so the limits and the guard are shared between processes.
+4. Deploy the frontend with the email check (the page and its gateway).
+5. Set `EMAIL_PRECHECK_ENABLED=true`. Until it is, the endpoints answer
+   `disabled`, `register()` gives no email warnings, and the page submits
+   without checking.
+
+To try it without spending credits, set `QEV_USE_SANDBOX=true`: lookups go to
+QuickEmailVerification's free sandbox, which answers by the test address used
+(for example `rejected-email@example.com` is invalid).
+
+### Settings
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `EMAIL_PRECHECK_ENABLED` | `false` | Turns the check and its warnings on. |
+| `EMAIL_PRECHECK_MAX_ADDRESSES` | 2000 | Addresses one signed-in request may carry. |
+| `EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES` | 20 | Addresses one request may carry when not signed in. |
+| `EMAIL_PRECHECK_IP_HOURLY_LOOKUPS` | 200 | New lookups one IP address may cause an hour (not for supervisor journeys). |
+| `EMAIL_PRECHECK_STALL_SECONDS` | 60 | A running job that hasn't moved this long is `stalled`. |
+| `EMAIL_PRECHECK_QUEUED_STALL_SECONDS` | 300 | A queued job not started this long is `stalled`. |
+| `QEV_PRECHECK_WORKERS` | set in `config/settings.py` | Threads checking addresses, one each. |
+| `QEV_API_KEY`, `QEV_PAID_API_KEY` | blank | The free and paid keys; with neither set, nothing is looked up. |
+| `QEV_EXHAUSTED_RETRY_MINUTES` | 60 | A key out of credit is tried again after this, or at the next UTC midnight. |
+| `QEV_RESULT_MAX_AGE_DAYS` | 180 | How long an answer is reused and can give a warning. |
+| `QEV_DAILY_LOOKUP_CAP` | 0 | Lookups a UTC day; 0 means no limit. |
+| `QEV_TIMEOUT_SECONDS` | 5 | How long one lookup may take. |
+| `QEV_USE_SANDBOX` | `false` | Use QuickEmailVerification's free test endpoint. |
+| `QEV_ALERT_EMAIL` | `info@biotechfutures.org` | Where low-credit alerts go (the paid key's balance, below 500 then 100). |
 
 ## Compatibility and deployment
 

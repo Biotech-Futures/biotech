@@ -29,30 +29,24 @@
             <!-- Field picker -->
             <div class="conditions-builder__field">
               <label :for="`cond-field-${index}`" class="sr-only">Field</label>
-              <select
+              <AppSelect
                 :id="`cond-field-${index}`"
                 v-model="row.field"
                 class="form-input form-select"
+                :options="FIELD_OPTIONS"
                 @change="onFieldChange(row)"
-              >
-                <option v-for="f in FIELD_OPTIONS" :key="f.value" :value="f.value">
-                  {{ f.label }}
-                </option>
-              </select>
+              />
             </div>
 
             <!-- Operator picker -->
             <div class="conditions-builder__operator">
               <label :for="`cond-op-${index}`" class="sr-only">Operator</label>
-              <select
+              <AppSelect
                 :id="`cond-op-${index}`"
                 v-model="row.operator"
                 class="form-input form-select"
-              >
-                <option v-for="op in OPERATOR_OPTIONS" :key="op.value" :value="op.value">
-                  {{ op.label }}
-                </option>
-              </select>
+                :options="OPERATOR_OPTIONS"
+              />
             </div>
 
             <!-- Value input / picker -->
@@ -70,50 +64,30 @@
               </template>
 
               <template v-else-if="row.field === 'country'">
-                <select
+                <AppSelect
                   :id="`cond-val-${index}`"
                   v-model="row.value"
                   class="form-input form-select"
-                >
-                  <option value="">Select country...</option>
-                  <option
-                    v-for="c in countries"
-                    :key="c.id"
-                    :value="c.countryName"
-                  >
-                    {{ c.countryName }}
-                  </option>
-                </select>
+                  :options="countryOptions"
+                />
               </template>
 
               <template v-else-if="row.field === 'state'">
-                <select
+                <AppSelect
                   :id="`cond-val-${index}`"
                   v-model="row.value"
                   class="form-input form-select"
-                >
-                  <option value="">Select state...</option>
-                  <option
-                    v-for="s in states"
-                    :key="s.id"
-                    :value="s.stateName"
-                  >
-                    {{ s.stateName }}
-                  </option>
-                </select>
+                  :options="stateOptions"
+                />
               </template>
 
               <template v-else-if="row.field === 'role'">
-                <select
+                <AppSelect
                   :id="`cond-val-${index}`"
                   v-model="row.value"
                   class="form-input form-select"
-                >
-                  <option value="student">Student</option>
-                  <option value="mentor">Mentor</option>
-                  <option value="supervisor">Supervisor</option>
-                  <option value="admin">Admin</option>
-                </select>
+                  :options="ROLE_OPTIONS"
+                />
               </template>
 
               <template v-else>
@@ -155,7 +129,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import {
   fetchAdminCountries,
   fetchAdminStates,
@@ -172,7 +147,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: ViewCondition[]): void
 }>()
 
-const FIELD_OPTIONS = [
+const FIELD_OPTIONS: AppSelectOption[] = [
   { value: 'country', label: 'Country' },
   { value: 'state', label: 'State' },
   { value: 'school', label: 'School / Institution' },
@@ -182,7 +157,7 @@ const FIELD_OPTIONS = [
   { value: 'group', label: 'Group' },
 ]
 
-const OPERATOR_OPTIONS = [
+const OPERATOR_OPTIONS: AppSelectOption[] = [
   { value: 'equals', label: 'equals' },
   { value: 'not_equals', label: 'not equals' },
   { value: 'contains', label: 'contains' },
@@ -190,8 +165,26 @@ const OPERATOR_OPTIONS = [
   { value: 'is_set', label: 'is set' },
 ]
 
+const ROLE_OPTIONS: AppSelectOption[] = [
+  { value: 'student', label: 'Student' },
+  { value: 'mentor', label: 'Mentor' },
+  { value: 'supervisor', label: 'Supervisor' },
+  { value: 'admin', label: 'Admin' },
+]
+
 const countries = ref<AdminUserCountry[]>([])
 const states = ref<AdminUserState[]>([])
+
+// "Select …" first, as a choice that leaves the value empty.
+const countryOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'Select country...' },
+  ...countries.value.map((c) => ({ value: c.countryName, label: c.countryName })),
+])
+
+const stateOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'Select state...' },
+  ...states.value.map((s) => ({ value: s.stateName, label: s.stateName })),
+])
 
 onMounted(async () => {
   try {
@@ -340,7 +333,8 @@ const onFieldChange = (row: ViewCondition) => {
   transition: border-color 0.15s ease-in-out;
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-within {
   outline: none;
   border-color: var(--dark-green);
 }

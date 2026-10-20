@@ -4,6 +4,7 @@ import AdminUserFormSheet from '../AdminUserFormSheet.vue'
 import AdminUserDetailContent from '../AdminUserDetailContent.vue'
 import { createAdminUser, updateAdminUser } from '@/utils/adminAPI'
 import type { AdminUser } from '@/utils/adminAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/adminAPI', () => ({
   createAdminUser: vi.fn(),
@@ -226,7 +227,7 @@ describe('Admin User Notes: Form Sheet Component', () => {
     await wrapper.find('#f-first').setValue('New')
     await wrapper.find('#f-last').setValue('User')
     await wrapper.find('#f-email').setValue('new.user@example.com')
-    await wrapper.find('#f-country').setValue(1)
+    await pickAppSelect(wrapper, '#f-country', 'Australia')
     await wrapper.find('#f-school').setValue('Sydney High')
     await wrapper.find('#f-year').setValue(10)
     await wrapper.find('.admin-users-form__interest input').setValue(true)

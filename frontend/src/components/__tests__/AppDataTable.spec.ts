@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import { appSelectLabels } from '@/__tests__/appSelect'
 
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '' },
@@ -94,9 +95,9 @@ describe('rows that open something', () => {
 describe('the bottom bar', () => {
   const many = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, icon: 'x', name: `Name ${i + 1}`, school: 'S' }))
 
-  it('offers rows per page as Entries', () => {
+  it('offers rows per page as Entries', async () => {
     const wrapper = mountTable({ rows: many, pageSize: 5 })
-    expect(wrapper.findAll('.data-table-page-size option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(wrapper, '.data-table-page-size')).toEqual([
       '5 Entries',
       '7 Entries',
       '15 Entries',
@@ -156,14 +157,14 @@ describe('the bottom bar', () => {
 
 describe('rows per page', () => {
   const pageSizeOptions = (wrapper: ReturnType<typeof mountTable>) =>
-    wrapper.findAll('.data-table-page-size option').map((option) => option.text())
+    appSelectLabels(wrapper, '.data-table-page-size')
 
-  it('offers All by default, as every other table does', () => {
-    expect(pageSizeOptions(mountTable())).toContain('All Entries')
+  it('offers All by default, as every other table does', async () => {
+    expect(await pageSizeOptions(mountTable())).toContain('All Entries')
   })
 
-  it('leaves All out when a page turns it off', () => {
-    const options = pageSizeOptions(mountTable({ allowAllRows: false }))
+  it('leaves All out when a page turns it off', async () => {
+    const options = await pageSizeOptions(mountTable({ allowAllRows: false }))
 
     expect(options).not.toContain('All Entries')
     expect(options.length).toBeGreaterThan(0)

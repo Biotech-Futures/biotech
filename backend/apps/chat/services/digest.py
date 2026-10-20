@@ -31,7 +31,8 @@ from apps.chat.models import ChatDigestState, Messages, MessageStatus
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
 from apps.services.email_log import UNREACHABLE, note_send, reason_for
-from apps.services.retry import RetryLater, reset
+from apps.services.retry import WAITING, RetryLater, reset
+from apps.services.waiting_email import send_or_wait
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -231,7 +232,7 @@ def _group_list_html(per_group) -> str:
     return format_html("<ul>{}</ul>", items)
 
 
-def _render_and_send(connection, candidate, summary, sender):
+def _render_and_send(connection, candidate, summary, sender, later=False):
     total, per_group, _new_hwm = summary
     plural = "" if total == 1 else "s"
     ctx = {
@@ -258,7 +259,9 @@ def _render_and_send(connection, candidate, summary, sender):
         from_email=sender.from_email,
         connection=connection,
     )
-    msg.send(fail_silently=False)
+    # A dropped connection is opened again and the email sent once more; when
+    # the server can't be reached, it's kept to send later (``WAITING``).
+    return send_or_wait(msg, key="unread_messages", later=later)
 
 
 def send_unread_message_digests(*, dry_run=False):
@@ -326,6 +329,8 @@ def send_unread_message_digests(*, dry_run=False):
 
     sent = 0
     failed = 0
+    # Claimed, and kept to send once the mail server can be reached.
+    waiting = 0
     missed = {}
     # Those that fail, kept to try once more once everyone has been tried.
     later = RetryLater(connection)
@@ -339,7 +344,8 @@ def send_unread_message_digests(*, dry_run=False):
                 continue
             resend = partial(_render_and_send, connection, candidate, summary, sender)
             try:
-                resend()
+                # The run tries it again at its end, so only then is a failure kept for Resend.
+                outcome = resend(later=True)
             except Exception as exc:
                 # Reset the SMTP transaction so a per-address failure doesn't
                 # poison the next recipient on the shared connection.
@@ -353,11 +359,17 @@ def send_unread_message_digests(*, dry_run=False):
                     candidate["user_id"], exc,
                 )
             else:
-                sent += 1
+                if outcome is WAITING:
+                    waiting += 1
+                else:
+                    sent += 1
         # Once more, a few seconds on, over a fresh connection (see ``retry``).
         for candidate, exc in later.run():
             if exc is None:
                 sent += 1
+                continue
+            if exc is WAITING:
+                waiting += 1
                 continue
             failed += 1
             missed[candidate["email"]] = reason_for(exc)
@@ -371,6 +383,8 @@ def send_unread_message_digests(*, dry_run=False):
         except Exception:
             logger.exception("unread_digest.connection_close_failed")
 
+    if waiting:
+        logger.warning("unread_digest.waiting_for_mail_server count=%s", waiting)
     if sent or missed:
         note_send(
             "unread_messages",

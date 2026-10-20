@@ -62,19 +62,12 @@
         <template #filters>
           <div class="admin-views__filter">
             <label class="admin-views__filter-label" for="view-type-filter">Type</label>
-            <select id="view-type-filter" v-model="activeTab">
-              <option value="all">All types</option>
-              <option value="default">Default</option>
-              <option value="custom">Custom</option>
-            </select>
+            <AppSelect id="view-type-filter" v-model="activeTab" :options="TYPE_OPTIONS" />
           </div>
 
           <div class="admin-views__filter">
             <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
-            <select id="view-role-filter" v-model="roleFilter">
-              <option value="all">All roles</option>
-              <option v-for="role in USER_ROLES" :key="role" :value="role">{{ roleLabel(role) }}</option>
-            </select>
+            <AppSelect id="view-role-filter" v-model="roleFilter" :options="ROLE_OPTIONS" />
           </div>
         </template>
       </AdminViewsDirectoryTable>
@@ -100,6 +93,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminViewQueryDrawer from '@/components/admin/views/AdminViewQueryDrawer.vue'
@@ -108,6 +102,17 @@ import { bulkDeleteAdminViews, fetchAdminViews, getAdminViewExportUrl, type Admi
 import { logApiError } from '@/utils/apiError'
 import { roleLabel } from '@/utils/userFormat'
 import { USER_ROLES } from '@/utils/userOptions'
+
+const TYPE_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All types' },
+  { value: 'default', label: 'Default' },
+  { value: 'custom', label: 'Custom' }
+]
+
+const ROLE_OPTIONS: AppSelectOption[] = [
+  { value: 'all', label: 'All roles' },
+  ...USER_ROLES.map((role) => ({ value: role, label: roleLabel(role) }))
+]
 
 type TabKey = 'all' | 'default' | 'custom'
 
@@ -275,7 +280,7 @@ onMounted(load)
   gap: 0.3rem;
 }
 
-.admin-views__filter select {
+.admin-views__filter .app-select {
   min-width: 9rem;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border-light);
@@ -286,7 +291,7 @@ onMounted(load)
   color: var(--teal);
 }
 
-.admin-views__filter select:focus {
+.admin-views__filter .app-select:focus-within {
   outline: none;
   border-color: var(--dark-green);
 }

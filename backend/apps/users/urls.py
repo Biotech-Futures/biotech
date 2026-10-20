@@ -35,6 +35,7 @@ from .views import (
     SupervisedStudentSignaturesView,
     SupervisedStudentsView,
 )
+from .email_precheck import EmailCheckStartView, EmailCheckStatusView
 from .registration_sheet import RegistrationSheetView
 from .registration_intake import (
     RegistrationCountriesView,
@@ -92,6 +93,12 @@ urlpatterns = [
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
     # Upload student details, from an .xlsx: its first sheet as CSV text.
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
+    # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).
+    path("registration/email-check/", EmailCheckStartView.as_view(), name="registration-email-check"),
+    path(
+        "registration/email-check/<uuid:job_id>/", EmailCheckStatusView.as_view(),
+        name="registration-email-check-status",
+    ),
     path("registration-management/", RegistrationManagementView.as_view(), name="registration-management"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),
     path("consent/<str:token>/", GuardianConsentView.as_view(), name="guardian-consent"),

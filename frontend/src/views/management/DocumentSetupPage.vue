@@ -127,17 +127,15 @@
                 >
                   {{ testing === 'marks-summary-person' ? 'Rendering…' : 'Download Group Marks' }}
                 </button>
-                <select
-                  v-model="person['marks-summary']"
+                <AppSelect
+                  :model-value="person['marks-summary']"
                   class="grading-settings__person-select"
                   aria-label="Group"
+                  :options="personOptions('marks-summary')"
                   :disabled="!people['marks-summary'].length"
-                >
-                  <option v-if="!people['marks-summary'].length" value="">No groups yet</option>
-                  <option v-for="option in people['marks-summary']" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
+                  searchable
+                  @update:model-value="(value) => (person['marks-summary'] = String(value ?? ''))"
+                />
               </div>
             </div>
             <p v-if="summaryTpl" class="grading-settings__save-hint">
@@ -197,17 +195,15 @@
                 >
                   {{ testing === 'certificate-person' ? 'Rendering…' : 'Download Student Certificate' }}
                 </button>
-                <select
-                  v-model="person['certificate']"
+                <AppSelect
+                  :model-value="person['certificate']"
                   class="grading-settings__person-select"
                   aria-label="Student"
+                  :options="personOptions('certificate')"
                   :disabled="!people['certificate'].length"
-                >
-                  <option v-if="!people['certificate'].length" value="">Nobody yet</option>
-                  <option v-for="option in people['certificate']" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
+                  searchable
+                  @update:model-value="(value) => (person['certificate'] = String(value ?? ''))"
+                />
               </div>
             </div>
             <p v-if="certTpl" class="grading-settings__save-hint">
@@ -267,17 +263,15 @@
                 >
                   {{ testing === 'mentor-certificate-person' ? 'Rendering…' : 'Download Mentor Certificate' }}
                 </button>
-                <select
-                  v-model="person['mentor-certificate']"
+                <AppSelect
+                  :model-value="person['mentor-certificate']"
                   class="grading-settings__person-select"
                   aria-label="Mentor"
+                  :options="personOptions('mentor-certificate')"
                   :disabled="!people['mentor-certificate'].length"
-                >
-                  <option v-if="!people['mentor-certificate'].length" value="">Nobody yet</option>
-                  <option v-for="option in people['mentor-certificate']" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </select>
+                  searchable
+                  @update:model-value="(value) => (person['mentor-certificate'] = String(value ?? ''))"
+                />
               </div>
             </div>
             <p v-if="mentorTpl" class="grading-settings__save-hint">
@@ -318,6 +312,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import {
@@ -634,6 +629,12 @@ const person = ref<Record<TemplateKind, string>>({
   certificate: '',
   'mentor-certificate': ''
 })
+
+// With nobody on the list, the one line saying so.
+const personOptions = (kind: TemplateKind): AppSelectOption[] =>
+  people.value[kind].length
+    ? people.value[kind]
+    : [{ value: '', label: kind === 'marks-summary' ? 'No groups yet' : 'Nobody yet' }]
 
 const loadPeople = async () => {
   await Promise.all(

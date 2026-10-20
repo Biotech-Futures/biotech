@@ -46,6 +46,9 @@ from apps.groups.models.groups import Groups
 from apps.services.email_registry import get_email_type
 from apps.services.email_metrics import record_email_delivery
 from apps.services.system_email import is_email_enabled, sender_connection, sender_for, senders
+from apps.services.waiting_email import JOB as WAITING_JOB
+from apps.services.resend import JOB as RESEND_JOB
+from apps.services.waiting_email import WAITING_NOTE, WAITING_REASON
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
@@ -87,11 +90,22 @@ JOBS: dict[str, str] = {
     "guardian_details_request": "apps.users.guardian_details:reminder_job",
     "guardian_consent_request": "apps.users.guardian_reminders:reminder_job",
     "supervisor_registration_status": "apps.users.supervisor_status:digest_job",
+    # Emails kept while the mail server couldn't be reached, sent every 10
+    # minutes once it can be: one run per mailbox ("waiting_emails:info").
+    **{
+        f"{WAITING_JOB}:{mailbox}": "apps.services.waiting_email:waiting_job"
+        for mailbox in settings.EMAIL_SENDERS
+    },
+    # Resend on System Emails' Log, one run per mailbox ("resend:info").
+    **{f"{RESEND_JOB}:{mailbox}": "apps.services.resend:resend_job" for mailbox in settings.EMAIL_SENDERS},
 }
 
 
 def lane(key: str) -> str:
-    """The mailbox ``key``'s email goes from, whose queue it waits in."""
+    """The mailbox ``key``'s email goes from, whose queue it waits in. A run
+    of waiting emails, or of a Resend, names its mailbox: "waiting_emails:info"."""
+    if key.startswith((f"{WAITING_JOB}:", f"{RESEND_JOB}:")):
+        return key.split(":", 1)[1]
     return sender_for(key).key
 
 
@@ -437,9 +451,8 @@ def _keep_held(key: str, stop: threading.Event) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("email job %s: couldn't keep its hold", key)
     finally:
+        # Always on its own thread: its database connection goes with it.
         db_connection.close()
-        if threaded:
-            db_connection.close()
 
 
 def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
@@ -479,7 +492,8 @@ def _record_run_metrics(key: str, completed_at) -> None:
         run = EmailSendRun.objects.filter(key=key).first()
         if run is None:
             return
-        failed = len(run.missed)
+        # Those waiting for the mail server are counted once their emails go.
+        failed = len([entry for entry in run.missed if not _waiting(entry)])
         record_email_delivery(
             key,
             source_mailbox=sender_for(key).address,
@@ -519,9 +533,9 @@ def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
         try:
             connection.open()
         except Exception as exc:  # noqa: BLE001
+            # Each email tries again, and is kept to send later when the
+            # server still can't be reached (see ``delivery``).
             logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-            failures.extend((item, [{"who": p, "reason": NO_SERVER} for p in item.people]) for item in items)
-            return
         cache: dict = {}
         for item in items:
             # Switched off part way: the rest of this share isn't sent.
@@ -530,7 +544,13 @@ def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
                 _stop(key, off)
                 return
             missed = _send(key, item, connection, cache)
-            _note(key, emailed=len(item.people) - len(missed))
+            waiting = [entry for entry in missed if _waiting(entry)]
+            missed = [entry for entry in missed if not _waiting(entry)]
+            # Those waiting are listed now, and come off once their emails go.
+            _note(
+                key, emailed=len(item.people) - len(missed) - len(waiting), missed=waiting,
+                error=WAITING_NOTE if waiting else "",
+            )
             if missed:
                 failures.append((item, missed))
     finally:
@@ -556,17 +576,21 @@ def _retry(key: str, failures: list[tuple[Work, list[dict]]]) -> None:
     try:
         connection.open()
     except Exception as exc:  # noqa: BLE001
+        # Each email tries again, and is kept to send later when the server
+        # still can't be reached.
         logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-        for _, missed in failures:
-            _note(key, failed=1, missed=missed, error=UNREACHABLE)
-        return
     try:
         cache: dict = {}
         for item, missed in failures:
             # Only someone missed the first time can still be missed.
             first = {m["who"] for m in missed}
-            still = [m for m in _send(key, item, connection, cache) if m["who"] in first]
-            _note(key, emailed=len(missed) - len(still), failed=1 if still else 0, missed=still)
+            result = [m for m in _send(key, item, connection, cache) if m["who"] in first]
+            waiting = [m for m in result if _waiting(m)]
+            still = [m for m in result if not _waiting(m)]
+            _note(
+                key, emailed=len(missed) - len(still) - len(waiting), failed=1 if still else 0,
+                missed=still + waiting, error=WAITING_NOTE if waiting else "",
+            )
     finally:
         _close(connection)
 
@@ -587,6 +611,11 @@ def _note(key: str, *, emailed: int = 0, failed: int = 0, missed: list[dict] = (
         run.error = error or run.error
         run.held_until = held_until
         run.save(update_fields=["emailed", "failed", "missed", "error", "held_until"])
+
+
+def _waiting(entry) -> bool:
+    """A missed entry whose email is kept until the mail server can be reached."""
+    return isinstance(entry, dict) and entry.get("reason") == WAITING_REASON
 
 
 def _missed_entry(entry) -> dict:
@@ -644,6 +673,10 @@ def _with_addresses(entries: list[dict]) -> list[dict]:
 
 def _email_name(key: str) -> str:
     """"Finalist notification", as System Emails names it."""
+    if key.startswith(f"{WAITING_JOB}:"):
+        return "Emails waiting to send"
+    if key.startswith(f"{RESEND_JOB}:"):
+        return "Resend"
     try:
         return get_email_type(key).name
     except Exception:  # noqa: BLE001

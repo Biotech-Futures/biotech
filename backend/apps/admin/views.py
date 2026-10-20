@@ -80,6 +80,8 @@ from apps.admin.services.mentor_match import (
 )
 from apps.admin.services.system_email import (
     get_email_log,
+    get_mail_api_state,
+    resend_email,
     get_email_settings,
     get_unseen_failures,
     see_failures,
@@ -185,6 +187,21 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+class UserSuperviseesView(APIView):
+    """POST: add students to a supervisor or take them off, by student or by
+    group; with ``preview``, only say who would move."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        from apps.admin.services.supervisees import change_supervisees
+
+        result = change_supervisees(int(user_id), request.data, initiated_by=request.user)
+        if result.get("data") is not None:
+            return Response(result)
+        missing = result["msg"].endswith("not found")
+        return Response(result, status=status.HTTP_404_NOT_FOUND if missing else status.HTTP_400_BAD_REQUEST)
 
 
 GUARDIAN_CONSENT_STATUS_CODES = {
@@ -1758,6 +1775,29 @@ class SystemEmailLogView(APIView):
 
     def get(self, request):
         return Response(get_email_log())
+
+
+class SystemEmailMailApiView(APIView):
+    """GET /api/v1/admin/email-log/mail-api/ — whether bounced emails can be
+    checked through Hostinger's Mail API (see ``email_log.mail_api_state``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_mail_api_state())
+
+
+class SystemEmailResendView(APIView):
+    """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
+    email again to the people it missed, queued to send in its turn (202),
+    or 400 with why it can't go."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = resend_email(key, requested_by=request.user)
+        code = status.HTTP_202_ACCEPTED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class SystemEmailUnseenFailuresView(APIView):

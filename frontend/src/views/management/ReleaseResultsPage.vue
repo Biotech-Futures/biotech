@@ -90,17 +90,15 @@
               >
                 {{ downloadingSheet ? 'Downloading…' : 'Download Supervisor Marks' }}
               </button>
-              <select
-                v-model="sheetSupervisor"
+              <AppSelect
+                :model-value="sheetSupervisor"
                 class="release-results__supervisor-select"
                 aria-label="Supervisor"
+                :options="sheetSupervisorOptions"
                 :disabled="!sheetSupervisors.length"
-              >
-                <option v-if="!sheetSupervisors.length" value="">Nobody yet</option>
-                <option v-for="option in sheetSupervisors" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
+                searchable
+                @update:model-value="(value) => (sheetSupervisor = String(value ?? ''))"
+              />
             </div>
           </div>
         </div>
@@ -274,6 +272,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import { describeRun, isBusy, queuedMessage, queuedNote, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
@@ -398,6 +397,9 @@ const downloadSample = async () => {
 // A supervisor's real marks spreadsheet, from the supervisors due the email.
 const sheetSupervisors = ref<TestEmailRecipient[]>([])
 const sheetSupervisor = ref('')
+const sheetSupervisorOptions = computed<AppSelectOption[]>(() =>
+  sheetSupervisors.value.length ? sheetSupervisors.value : [{ value: '', label: 'Nobody yet' }]
+)
 const downloadingSheet = ref(false)
 
 const loadSheetSupervisors = async () => {

@@ -248,19 +248,15 @@
 
           <!-- One dropdown however many groups there are: an admin's is every
                group. Picking one opens it. -->
-          <select
+          <AppSelect
             v-else
             id="sidebar-group-select"
             class="sidebar-group-select"
-            :value="activeSidebarGroupId"
-            @change="openSidebarGroup"
-          >
-            <option v-if="!activeSidebarGroupId" value="" disabled>Choose a group</option>
-            <option v-for="groupOption in sidebarGroups" :key="groupOption.id" :value="groupOption.id">
-              {{ groupOption.name
-              }}{{ groupOption.hasUnread && !isSidebarGroupActive(groupOption.id) ? ' • New' : '' }}
-            </option>
-          </select>
+            :model-value="activeSidebarGroupId"
+            :options="sidebarGroupOptions"
+            placeholder="Choose a group"
+            @update:model-value="openSidebarGroup"
+          />
         </section>
       </aside>
 
@@ -328,6 +324,7 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
@@ -766,9 +763,16 @@ const hasOtherGroupUnread = computed(() =>
   ),
 )
 
-const openSidebarGroup = (event: Event) => {
-  const id = (event.target as HTMLSelectElement).value
-  if (id) void router.push({ name: 'group-detail', params: { id } })
+// Each group, marked New when it has unread messages and isn't the one open.
+const sidebarGroupOptions = computed<AppSelectOption[]>(() =>
+  sidebarGroups.value.map((groupOption) => ({
+    value: groupOption.id,
+    label: `${groupOption.name}${groupOption.hasUnread && !isSidebarGroupActive(groupOption.id) ? ' • New' : ''}`,
+  })),
+)
+
+const openSidebarGroup = (id: AppSelectValue) => {
+  if (id) void router.push({ name: 'group-detail', params: { id: String(id) } })
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -1608,7 +1612,7 @@ select {
   cursor: pointer;
 }
 
-.sidebar-group-select:focus {
+.sidebar-group-select:focus-within {
   outline: 2px solid var(--dark-green);
   outline-offset: 1px;
 }

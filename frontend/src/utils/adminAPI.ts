@@ -17,6 +17,8 @@ import type { MentorImportRow } from './adminMentorCsv'
 import {
   systemEmailLogSchema,
   systemEmailUnseenSchema,
+  systemEmailMailApiSchema,
+  type SystemEmailMailApi,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -206,6 +208,8 @@ export interface AdminUserState {
 }
 
 export interface AdminUserSupervisee {
+  /** The student's user id, for changing who supervises them. */
+  id?: number
   name: string
   email: string
 }
@@ -232,6 +236,23 @@ export interface AdminUser {
   mentorInstitution: string | null
   mentorReason: string | null
   mentorMaxGroupCount: number | null
+  /** From registering: an industry mentor's company; a student mentor's year
+   *  ("1" to "4", "5+"); a student's or academic's field of study. */
+  mentorCompany?: string | null
+  mentorUniversityYear?: string | null
+  mentorFieldOfStudy?: string | null
+  /** Their application's answers, beside mentorReason. */
+  mentorRelevantBackground?: string | null
+  mentorMentoringApproach?: string | null
+  /** How many hours a week they can give (1 to 40), as registering asks. */
+  mentorWeeklyHours?: number | null
+  /** When they're free each week (Monday is 0, times "HH:MM"): kept from
+   *  when registering asked, but no longer shown here. */
+  mentorAvailability?: { weekday: number; start: string; end: string }[]
+  /** Every group they mentor, by name, with its students counted. */
+  mentorGroups?: { id: number; name: string; studentCount: number }[]
+  /** Every group a supervisor is in (their students' groups), by name. */
+  supervisorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
   guardianFirstName: string | null
   guardianLastName: string | null
@@ -242,6 +263,8 @@ export interface AdminUser {
   pendingGuardian: AdminPendingGuardian | null
   /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
   mediaConsent: boolean | null
+  /** When that answer was given, from the signed form: null when it isn't. */
+  mediaConsentAt?: string | null
   consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
@@ -382,6 +405,32 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     msg: env.msg,
     data: env.data
   }))
+
+/** A supervisor's students added or taken off, by student or by group. */
+export interface SuperviseesChangeInput {
+  addStudentIds?: number[]
+  removeStudentIds?: number[]
+  addGroupIds?: number[]
+  removeGroupIds?: number[]
+  /** Only say who would move. */
+  preview?: boolean
+}
+
+/** A student moving: ``to`` null when left with no supervisor, ``from`` null
+ *  when they had none. */
+export interface SuperviseeChange {
+  studentId: number
+  name: string
+  group: string | null
+  from: string | null
+  to: string | null
+}
+
+export const changeSupervisees = (userId: string | number, input: SuperviseesChangeInput) =>
+  adminPost<AdminEnvelope<{ changes: SuperviseeChange[]; user?: AdminUser }>>(
+    `/user/${userId}/supervisees/`,
+    input
+  ).then((env) => env.data)
 
 export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
@@ -1652,6 +1701,16 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 /** Seen by every admin from now on; returns the count left, normally 0. */
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether bounced emails can be checked, for the top of the Log. */
+export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/mail-api/').then((env) => systemEmailMailApiSchema.parse(env.data))
+
+/** Resend on the Log: the email again to the people it missed, queued to
+ *  send in its turn. Resolves to what to tell the admin; rejects with why
+ *  it can't go. */
+export const resendSystemEmail = (key: string): Promise<string> =>
+  adminPost<AdminEnvelope<unknown>>(`/email-log/${encodeURIComponent(key)}/resend/`).then((env) => env.msg)
 
 // ---------------------------------------------------------------------------
 // Admin User Views

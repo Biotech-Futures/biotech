@@ -25,21 +25,16 @@
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Country</span>
-            <select v-model="personalForm.countryId" class="student-sheet__input" @change="personalForm.stateId = null">
-              <option :value="null">Not set</option>
-              <option v-for="country in editOptions.countries" :key="country.id" :value="country.id">
-                {{ country.country_name }}
-              </option>
-            </select>
+            <AppSelect
+              v-model="personalForm.countryId"
+              class="student-sheet__input"
+              :options="countryOptions"
+              @change="personalForm.stateId = null"
+            />
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Region</span>
-            <select v-model="personalForm.stateId" class="student-sheet__input">
-              <option :value="null">Not set</option>
-              <option v-for="region in regionChoices" :key="region.id" :value="region.id">
-                {{ region.state_name }}
-              </option>
-            </select>
+            <AppSelect v-model="personalForm.stateId" class="student-sheet__input" :options="regionOptions" />
           </label>
         </form>
         <dl class="student-sheet__list">
@@ -108,12 +103,10 @@
           </label>
           <label class="student-sheet__item">
             <span class="student-sheet__label">Year Level</span>
-            <select v-model="detailsForm.yearLevel" class="student-sheet__input" required>
-              <option v-for="year in YEAR_LEVELS" :key="year" :value="year">{{ year }}</option>
-            </select>
+            <AppSelect v-model="detailsForm.yearLevel" class="student-sheet__input" :options="YEAR_OPTIONS" required />
           </label>
           <fieldset class="student-sheet__item student-sheet__interest-options">
-            <legend class="student-sheet__label">Areas of Interests</legend>
+            <legend class="student-sheet__label">Interests</legend>
             <label v-for="interest in interestChoices" :key="interest">
               <input v-model="detailsForm.interests" type="checkbox" :value="interest" />
               {{ interest }}
@@ -143,14 +136,8 @@
             <dd>{{ display(student.year_lvl) }}</dd>
           </div>
           <div class="student-sheet__item">
-            <dt>Areas of Interests</dt>
-            <!-- Green bubbles, as the student's page had them. -->
-            <dd v-if="student.interests.length" class="student-sheet__interests">
-              <span v-for="interest in student.interests" :key="interest" class="student-sheet__interest">
-                {{ interest }}
-              </span>
-            </dd>
-            <dd v-else>—</dd>
+            <dt>Interests</dt>
+            <dd>{{ student.interests.length ? student.interests.join(', ') : '—' }}</dd>
           </div>
         </dl>
       </section>
@@ -233,8 +220,10 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
+import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_INTERESTS } from '@/utils/supervisedGroups'
 import {
   fetchStudentEditOptions,
@@ -286,14 +275,20 @@ const guardianName = computed(() => {
   return name === studentName.value ? '—' : name
 })
 
+// An answer and when it was given: "Yes, 14/10/26 21:30".
+const answeredAt = (answer: string, at: string | null | undefined) =>
+  [answer, formatShortDateTime(at)].filter(Boolean).join(', ')
+
 // Only a given permission is recorded; a guardian never answers no.
-const permission = computed(() => (props.student?.has_join_permission ? 'Yes' : '—'))
+const permission = computed(() =>
+  props.student?.has_join_permission ? answeredAt('Yes', props.student.joinperm_granted_at) : '—',
+)
 
 // From the signed form; consent marked received without one has no answer.
 const mediaConsent = computed(() => {
   const answer = props.student?.media_consent
   if (answer == null) return '—'
-  return answer ? 'Yes' : 'No'
+  return answeredAt(answer ? 'Yes' : 'No', props.student?.media_consent_at)
 })
 
 // Guardian Details' Edit: the section turns into a form.
@@ -316,7 +311,7 @@ const startEditing = () => {
 }
 
 // Student Details' Edit: name, school, year and interests.
-const YEAR_LEVELS = ['9', '10', '11', '12']
+const YEAR_OPTIONS: AppSelectOption[] = ['9', '10', '11', '12'].map((year) => ({ value: year, label: year }))
 const detailsEditing = ref(false)
 const detailsSaving = ref(false)
 const detailsError = ref('')
@@ -390,6 +385,16 @@ const { message: personalSavedMessage, show: flashPersonalSaved } = useFlashMess
 const regionChoices = computed(() =>
   editOptions.value.regions.filter((region) => region.country_id === personalForm.value.countryId),
 )
+
+// Country and Region's choices, after "Not set".
+const countryOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'Not set' },
+  ...editOptions.value.countries.map((country) => ({ value: country.id, label: country.country_name })),
+])
+const regionOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'Not set' },
+  ...regionChoices.value.map((region) => ({ value: region.id, label: region.state_name })),
+])
 
 const startPersonalEdit = async () => {
   if (!props.student) return
@@ -569,24 +574,6 @@ const saveGuardian = async () => {
   font-weight: 600;
   color: var(--text-muted);
   flex-shrink: 0;
-}
-
-.student-sheet__interests {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.4rem;
-}
-
-.student-sheet__interest {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.75rem;
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  background: var(--accent-green-soft);
-  color: var(--dark-green);
-  font-size: 0.9rem;
 }
 
 .student-sheet__item dd {

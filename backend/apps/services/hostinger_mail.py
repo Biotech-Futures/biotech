@@ -27,7 +27,12 @@ PER_PAGE = 100
 
 
 class MailApiError(Exception):
-    """The Mail API couldn't be read: no answer, or an error status."""
+    """The Mail API couldn't be read: no answer, or an error status
+    (``status``, None when it didn't answer)."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -52,7 +57,7 @@ def _get(path: str, params: dict | None = None) -> requests.Response:
         # Not the exception's text: it carries the URL.
         raise MailApiError(f"Couldn't reach the Mail API ({type(exc).__name__}).") from None
     if response.status_code != 200:
-        raise MailApiError(f"The Mail API answered {response.status_code}.")
+        raise MailApiError(f"The Mail API answered {response.status_code}.", status=response.status_code)
     return response
 
 
