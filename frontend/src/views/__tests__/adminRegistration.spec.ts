@@ -63,6 +63,13 @@ describe('admin registration', () => {
       firstName: 'Alex', lastName: 'Morgan', email: 'alex@example.com', emailConfirm: 'alex@example.com',
       school: 'Example High', yearLevel: '10', country: 'Australia', state: 'NSW', guardianDeferred: true,
     })
+    await search.setValue('')
+    expect(search.attributes('required')).toBeDefined()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(send).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Choose a supervisor from the list.')
+
     await search.setValue('someone@else.test')
     await wrapper.get('form').trigger('submit')
     await flushPromises()

@@ -16,9 +16,10 @@ is reconciled with current main and the newer intake contract.
 | `supervisor_group` | 2-5 | Current supervisor session/profile; real group and shared interests |
 | `supervisor_csv` | 1-1000 | Current supervisor session/profile; atomic batch with original CSV row numbers |
 
-Supervisor identity is resolved from the session and its existing profile,
-never from a payload claim. A current supervisor role (or staff/admin authority)
-and an existing supervisor profile are required. Anonymous, suspended/deactivated
+Supervisor identity is resolved from the session and its existing profile.
+An admin without a supervisor profile must select an existing supervisor using
+`payload.supervisorEmail`; omitting the selection is rejected. A current
+supervisor role (or staff/admin authority) is required. Anonymous, suspended/deactivated
 or unauthorized users cannot use supervisor journeys.
 Registration never creates a supervisor or grants a public caller that role.
 
@@ -83,18 +84,20 @@ not bypass the window for a team or supervisor batch.
       "overrides": {}
     }],
     "source": {"method": "student_individual"},
-    "supervisorMode": "school",
     "supervisor": {
       "firstName": "Sam", "lastName": "Teacher",
-      "email": "teacher@example.com", "school": "Example High"
+      "email": "teacher@example.com"
     }
   }
 }
 ```
 
-The nominated supervisor is required for public individual/team intake; mode defaults to
-`school`. `parent` mode permits a blank supervisor school, but the supervisor
-must match the named guardian. Guardian contact is always required for
+A supervisor's first name, last name and valid email are required for public
+individual intake and creating a student group. Missing, blank and whitespace-only
+values are rejected. Joining by `group.joinCode` inherits the group's assigned
+supervisor or original recorded nomination; a group with neither cannot accept
+a registration. Nomination records contact details and does not create a
+supervisor account or grant a role. Guardian contact is always required for
 self-registration and for a team's creator. Supervisor journeys omit the
 supervisor object; each complete student may set `guardianDeferred:true`.
 Teams/groups supply `group:{"interests":[...]}` and empty personal-interest

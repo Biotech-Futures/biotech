@@ -145,10 +145,10 @@ class UserRegisterBodySerializer(serializers.Serializer):
     Surname = serializers.CharField(max_length=255)
     Country = serializers.CharField(max_length=255)
     Region = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    # A nominated supervisor is optional (a supervisor registering is one).
-    SupervisorEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
-    SupervisorFirstName = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    SupervisorSurname = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    # Every student needs supervisor contact details at registration.
+    SupervisorEmail = serializers.EmailField(max_length=254)
+    SupervisorFirstName = serializers.CharField(max_length=255)
+    SupervisorSurname = serializers.CharField(max_length=255)
     # Required unless a peer or supervisor is registering the student; see validate().
     GuardianEmail = serializers.EmailField(max_length=254, required=False, allow_blank=True)
     GuardianName = serializers.CharField(max_length=255, required=False, allow_blank=True)

@@ -308,3 +308,12 @@ class KnownUniversityTests(RegistrationValidationTestCase):
     def test_the_same_name_cannot_be_listed_twice_whatever_its_casing(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
             KnownUniversity.objects.create(name="usyd")
+
+
+class RequiredSupervisorTests(RegistrationValidationTestCase):
+    def test_supervisor_fields_cannot_be_missing_blank_or_whitespace(self):
+        for field in ("SupervisorEmail", "SupervisorFirstName", "SupervisorSurname"):
+            for value in (None, "", "   "):
+                with self.subTest(field=field, value=value):
+                    errors = self.assertRefused(**{field: value})
+                    self.assertIn(field, errors)

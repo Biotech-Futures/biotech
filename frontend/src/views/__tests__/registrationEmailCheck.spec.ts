@@ -52,6 +52,11 @@ const prepareStudent = async (wrapper: VueWrapper) => {
     email: 'taylor@example.com',
     relationship: 'Parent',
   })
+  Object.assign(setup.forms.studentIndividual.supervisor, {
+    firstName: 'Sam',
+    lastName: 'Teacher',
+    email: 'sam@school.test',
+  })
   await wrapper.vm.$nextTick()
 }
 

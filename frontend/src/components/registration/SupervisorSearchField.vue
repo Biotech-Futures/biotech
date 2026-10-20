@@ -4,7 +4,7 @@
   <label class="supervisor-search registration-field--wide">
     <span :id="`${id}-label`" class="supervisor-search__label">
       {{ label }}
-      <small>(Optional)</small>
+      <span class="required-mark" aria-hidden="true">*</span>
     </span>
     <span class="supervisor-search__box">
       <i class="fas fa-magnifying-glass supervisor-search__icon" aria-hidden="true"></i>
@@ -12,6 +12,7 @@
         :id="id"
         :value="modelValue"
         type="text"
+        required
         autocomplete="off"
         placeholder="Search by email"
         :aria-invalid="Boolean(error)"

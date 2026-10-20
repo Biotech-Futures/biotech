@@ -5,7 +5,6 @@ import {
   parseRegistrationInterests,
   type StudentDetails,
   type RegistrationIntakeJourney,
-  hasSupervisor,
 } from './registration'
 import type { RegistrationRequest } from './registrationGateway'
 
@@ -172,9 +171,8 @@ export const buildProductionRegistrationRequest = (
       : { method: request.journey }
   const supervisor =
     request.journey === 'student_individual' || request.journey === 'student_team'
-      ? // Only a supervisor that was given (it's optional), and none when
-        // joining a group (it has its own).
-        hasSupervisor(request.payload.supervisor) && !joiningGroup(request)
+      ? // Joining a group inherits its supervisor from the server.
+        !joiningGroup(request)
         ? { supervisor: request.payload.supervisor }
         : {}
       : {}
