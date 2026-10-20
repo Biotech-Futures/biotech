@@ -1952,9 +1952,10 @@ def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str,
         return {"msg": "User not found", "data": None}
 
     before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-    user.is_active = is_active
-    user.account_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
-    user.save()
+    if is_active:
+        user.activate()
+    else:
+        user.deactivate()
     log_audit_event(
         actor=initiated_by,
         entity_type="user",
@@ -2003,9 +2004,10 @@ def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) 
                 unchanged_ids.append(user.id)
                 continue
             before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-            user.is_active = is_active
-            user.account_status = next_status
-            user.save()
+            if is_active:
+                user.activate()
+            else:
+                user.deactivate()
             log_audit_event(
                 actor=initiated_by,
                 entity_type="user",
