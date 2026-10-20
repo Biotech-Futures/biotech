@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'apps.user_sessions',
     'apps.matching_runtime',
     'apps.tasks',
+    'apps.plans',
     'apps.workshops',
     'apps.certificates',
     'apps.submissions',
