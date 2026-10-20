@@ -249,6 +249,7 @@ class RegistrationTests(MultiStudentSetup, TestCase):
             "Title": STUDENT, "FirstName": "Jordan", "Surname": "Lee", "Country": "Australia", "Region": "NSW",
             "SchoolName": "Example High", "YearLevel": "10", "Areaofinterest": "Biotechnology",
             "GuardianEmail": GUARDIAN, "GuardianName": "Taylor", "GuardianSurname": "Lee",
+            "SupervisorEmail": "teacher@example.test", "SupervisorFirstName": "Sam", "SupervisorSurname": "Teacher",
         }}
 
         held = self.client.post("/api/v1/registration", body, format="json")

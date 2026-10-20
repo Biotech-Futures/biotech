@@ -82,6 +82,21 @@ class MultiStudentSetup(RegistrationSetup):
 
 
 class MultiStudentTests(MultiStudentSetup, TestCase):
+    def test_student_journeys_require_complete_supervisor_details(self):
+        for journey in ("student_individual", "student_team"):
+            for details in (None, {}, {"firstName": "Sam", "lastName": "Teacher", "email": "   "}):
+                with self.subTest(journey=journey, details=details):
+                    body = batch(journey)
+                    if details is None:
+                        del body["payload"]["supervisor"]
+                    else:
+                        body["payload"]["supervisor"] = details
+                    response = self.post_batch(body)
+                    self.assertEqual(response.status_code, 400, response.data)
+                    self.assertTrue(any(key.startswith("supervisor") for key in response.data["fields"]))
+                    self.assertFalse(StudentProfile.objects.exists())
+                    self.assertFalse(Groups.objects.exists())
+
     def test_all_five_journeys_persist_correlated_receipts_and_pending_students(self):
         journeys = ("student_individual", "student_team", "supervisor_individual", "supervisor_group", "supervisor_csv")
         for offset, journey in enumerate(journeys):
@@ -440,18 +455,22 @@ class MultiStudentPhotoTests(MultiStudentSetup, TestCase):
 
 class AdminRegistrationTests(MultiStudentSetup, TestCase):
     """Management > Registration: an admin who isn't a supervisor registers
-    students as a supervisor does, as no one's supervisor."""
+    students as a supervisor does, choosing an existing supervisor."""
 
-    def test_an_admin_registers_students_with_no_supervisor(self):
-        response = self.submit(body=batch("supervisor_individual"), client=self.staff_client)
-        self.assertEqual(response.status_code, 201, response.data)
-        profile = StudentProfile.objects.get()
-        self.assertEqual((profile.registered_by, profile.supervisor_id), (StudentProfile.RegisteredBy.ADMIN, None))
-        # Theirs to change: no supervisor manages them.
-        self.assertFalse(profile.details_locked)
+    def test_an_admin_must_choose_a_supervisor_for_every_journey(self):
+        for journey in ("supervisor_individual", "supervisor_group", "supervisor_csv"):
+            with self.subTest(journey=journey):
+                response = self.submit(body=batch(journey), client=self.staff_client)
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn("supervisorEmail", response.data["fields"])
+                self.assertFalse(StudentProfile.objects.exists())
+                self.assertFalse(RegistrationSubmission.objects.exists())
+                self.assertFalse(Groups.objects.exists())
 
     def test_an_admins_group_is_formed_by_an_admin(self):
-        response = self.submit(body=batch("supervisor_group", offset=10), client=self.staff_client)
+        body = batch("supervisor_group", offset=10)
+        body["payload"]["supervisorEmail"] = self.supervisor.email
+        response = self.submit(body=body, client=self.staff_client)
         self.assertEqual(response.status_code, 201, response.data)
         group = Groups.objects.get()
         self.assertEqual((group.formed_by, group.created_by), (Groups.FormedBy.ADMIN, self.staff))
