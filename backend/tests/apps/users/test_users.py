@@ -2,6 +2,7 @@ from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from datetime import timedelta
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -648,12 +649,12 @@ class RegistrationGeographyTests(TestCase):
         self.assertEqual(user.state.state_name, "NSW")
         self.assertEqual(user.state.country_id, user.country_id)
 
-    def test_supervisor_inherits_the_students_geography(self):
+    def test_supervisor_nomination_does_not_create_a_privileged_account(self):
         self._register("Australia", region="NSW")
-        sup = User.objects.get(email="sup@example.com")
-        student = User.objects.get(email="kid@example.com")
-        self.assertEqual(sup.country_id, student.country_id)
-        self.assertEqual(sup.state_id, student.state_id)
+        from apps.users.models import RegistrationSubmission
+        self.assertFalse(User.objects.filter(email="sup@example.com").exists())
+        submission = RegistrationSubmission.objects.get(student__email="kid@example.com")
+        self.assertEqual(submission.supervisor_details["email"], "sup@example.com")
 
     def test_country_casing_variant_reuses_the_existing_country(self):
         Countries.objects.create(country_name="Australia")
@@ -721,13 +722,15 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["pg_email"], "")
         self.assertEqual(row["joinperm_response_id"], "")
         self.assertIsNone(row["joinperm_granted_at"])
-        self.assertIsNone(row["signature"])
+        # Signatures are fetched when a consent form is opened, not listed.
+        self.assertNotIn("signature", row)
         self.assertEqual(row["country_name"], "")
         self.assertEqual(row["state_name"], "")
         self.assertEqual(row["account_status"], "Active")
         self.assertIsNone(row["media_consent"])
+        self.assertIsNone(row["media_consent_at"])
 
-    def test_roster_includes_drawn_consent_signature(self):
+    def test_drawn_consent_signature_is_fetched_on_its_own(self):
         import io
 
         from PIL import Image, ImageDraw
@@ -741,7 +744,7 @@ class SupervisedStudentsViewTests(TestCase):
         image.save(buffer, format="PNG")
 
         profile = StudentProfile.objects.get(user=self.student)
-        GuardianConsent.objects.create(
+        consent = GuardianConsent.objects.create(
             student=profile,
             guardian_full_name="Pat Parent",
             guardian_email="pat@example.com",
@@ -751,8 +754,20 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.client.force_login(self.supervisor)
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
-        self.assertTrue(row["signature"].startswith("data:image/png;base64,"))
+        self.assertNotIn("signature", row)
         self.assertTrue(row["media_consent"])
+        # Given when the form was signed.
+        self.assertEqual(parse_datetime(row["media_consent_at"]), consent.signed_at)
+
+        url = "/api/v1/users/supervised-students/signatures/"
+        response = self.client.get(url, {"ids": str(self.student.id)})
+        self.assertEqual(response.status_code, 200)
+        signature = response.json()["signatures"][str(self.student.id)]
+        self.assertTrue(signature.startswith("data:image/png;base64,"))
+
+        # Only students on the user's roster.
+        self.assertEqual(self.client.get(url, {"ids": str(self.outsider.id)}).status_code, 403)
+        self.assertEqual(self.client.get(url, {"ids": "nope"}).status_code, 400)
 
     def test_roster_shows_withdrawn_media_consent_as_no(self):
         from django.utils import timezone
@@ -760,18 +775,21 @@ class SupervisedStudentsViewTests(TestCase):
         from apps.users.consent_form import CURRENT_VERSION
         from apps.users.models import GuardianConsent, StudentProfile
 
+        withdrawn_at = timezone.now()
         GuardianConsent.objects.create(
             student=StudentProfile.objects.get(user=self.student),
             guardian_full_name="Pat Parent",
             guardian_email="pat@example.com",
             media_consent=True,
-            media_withdrawn_at=timezone.now(),
+            media_withdrawn_at=withdrawn_at,
             signature_png=b"",
             consent_version=CURRENT_VERSION,
         )
         self.client.force_login(self.supervisor)
         row = self.client.get("/api/v1/users/supervised-students/").json()[0]
         self.assertFalse(row["media_consent"])
+        # Answered no when it was withdrawn.
+        self.assertEqual(parse_datetime(row["media_consent_at"]), withdrawn_at)
 
     def test_roster_includes_country_and_state(self):
         from apps.groups.models import Countries, CountryStates
@@ -1420,8 +1438,8 @@ class MeGuardianDetailsTests(TestCase):
 
 
 class MeGuardianUpdateTests(TestCase):
-    """Students update their guardian; one consenting guardian stays on file
-    until a new guardian consents."""
+    """Students update their guardian: a new guardian replaces the old one at
+    once, and clears permission they'd already given until the new one signs."""
 
     def setUp(self):
         from apps.resources.models import RoleAssignmentHistory
@@ -1486,20 +1504,63 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
         self.assertIsNone(response.json()["pending_guardian"])
 
-    def test_after_consent_the_consenting_guardian_stays_on_file(self):
+    def test_changing_the_guardian_after_consent_clears_permission(self):
         self._grant_consent()
 
         response = self.client.put(self.url, self.new_guardian, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.joinperm_granted_at)
+        self.assertIsNone(self.profile.media_consent)
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertIsNone(response.json()["pending_guardian"])
+
+    def _managed_by_supervisor(self):
+        from apps.users.models import StudentProfile
+
+        self.profile.registered_by = StudentProfile.RegisteredBy.SUPERVISOR
+        self.profile.save()
+
+    def test_a_supervisors_student_cant_change_a_guardian_who_gave_permission(self):
+        self._managed_by_supervisor()
+        self._grant_consent()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Contact BIOTech Support", str(response.data))
+        self.profile.refresh_from_db()
         self.assertEqual(self.profile.pg_first_name, "Pat")
-        self.assertEqual(self.profile.pg_email, "pat.parent@test.com")
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertTrue(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+
+    def test_while_permission_is_pending_a_supervisors_student_still_can(self):
+        self._managed_by_supervisor()
+
+        self.assertFalse(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+
+    def test_saving_the_same_guardian_keeps_permission(self):
+        self._grant_consent()
+        self.profile.refresh_from_db()
+        same = {
+            "first_name": self.profile.pg_first_name, "last_name": self.profile.pg_last_name,
+            "email": self.profile.pg_email,
+        }
+
+        self.client.put(self.url, same, format="json")
+
+        self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertEqual(self.profile.joinperm_granted_at, self.granted_at)
-        pending = response.json()["pending_guardian"]
-        self.assertEqual(pending["first_name"], "Robin")
-        self.assertEqual(pending["email"], "robin.carer@test.com")
 
     def test_new_guardians_consent_replaces_the_old_guardian(self):
         self._grant_consent()
@@ -1530,8 +1591,14 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
 
     def test_withdrawing_a_pending_change(self):
+        # A change still held as pending from before changes cleared permission.
         self._grant_consent()
-        self.client.put(self.url, self.new_guardian, format="json")
+        self.profile.refresh_from_db()
+        self.profile.pending_pg_first_name = "Robin"
+        self.profile.pending_pg_last_name = "Carer"
+        self.profile.pending_pg_email = "robin.carer@test.com"
+        self.profile.pending_pg_requested_at = timezone.now()
+        self.profile.save()
 
         response = self.client.delete(self.url)
 

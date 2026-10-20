@@ -1,9 +1,15 @@
 <template>
   <div class="deadline">
-    <section class="card deadline__status-card">
+    <!-- One card: what times are in, the deadline as it is, then the form to
+         change it. Headed as a Management page's first card is. -->
+    <section class="card deadline__card">
       <div class="card-header">
-        <h3 class="card-title">Current Deadline</h3>
+        <h3 class="card-title">Submission Deadline</h3>
       </div>
+      <p class="deadline__hint">
+        Times are in your local timezone ({{ localTimeZone }}). Students see the closing time; the
+        server quietly keeps accepting for the grace hours after it.
+      </p>
 
       <p v-if="isLoading" class="deadline__hint">Loading…</p>
 
@@ -62,36 +68,34 @@
           </p>
         </template>
       </template>
-    </section>
 
-    <section class="card deadline__form-card">
-      <h3 class="deadline__section-title">{{ deadline ? 'Change Deadline' : 'Set Deadline' }}</h3>
-      <p class="deadline__hint">
-        Times are in your local timezone ({{ localTimeZone }}). Students see the closing
-        time; the server quietly keeps accepting for the grace hours after it.
-      </p>
+      <div class="deadline__change">
+        <form class="deadline__form" @submit.prevent="confirmOpen = true">
+          <label class="deadline__field">
+            <span>Closes at</span>
+            <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input" />
+          </label>
+          <label class="deadline__field">
+            <span>Grace hours</span>
+            <input
+              v-model.number="graceHours"
+              type="number"
+              min="0"
+              max="72"
+              class="deadline__input deadline__input--narrow"
+            />
+          </label>
+          <button
+            type="submit"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving || !closesAtLocal"
+          >
+            {{ isSaving ? 'Saving…' : 'Save Deadline' }}
+          </button>
+        </form>
 
-      <form class="deadline__form" @submit.prevent="confirmOpen = true">
-        <label class="deadline__field">
-          <span>Closes at</span>
-          <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input" />
-        </label>
-        <label class="deadline__field">
-          <span>Grace hours</span>
-          <input
-            v-model.number="graceHours"
-            type="number"
-            min="0"
-            max="72"
-            class="deadline__input deadline__input--narrow"
-          />
-        </label>
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !closesAtLocal">
-          {{ isSaving ? 'Saving…' : 'Save Deadline' }}
-        </button>
-      </form>
-
-      <p v-if="actionError" class="deadline__banner deadline__banner--error">{{ actionError }}</p>
+        <p v-if="actionError" class="deadline__banner deadline__banner--error">{{ actionError }}</p>
+      </div>
     </section>
 
     <div v-if="confirmOpen" class="deadline__overlay" @click.self="confirmOpen = false">
@@ -102,8 +106,8 @@
         <p class="deadline__dialog-body">
           Submissions will close on
           <strong>{{ pendingLabel }}</strong>
-          <template v-if="graceHours"> (+ {{ graceHours }}h quiet grace)</template>.
-          Students see the new closing time immediately.
+          <template v-if="graceHours"> (+ {{ graceHours }}h quiet grace)</template>. Students see
+          the new closing time immediately.
         </p>
         <div class="deadline__dialog-actions">
           <button type="button" class="btn btn-outline btn-sm" @click="confirmOpen = false">
@@ -123,7 +127,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   fetchSubmissionDeadline,
   saveSubmissionDeadline,
-  type SubmissionDeadline
+  type SubmissionDeadline,
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { describeBrowserTimeZone, formatStatementTime, getBrowserTimeZone } from '@/utils/date'
@@ -151,7 +155,9 @@ const confirmOpen = ref(false)
 // Human-readable version of the picked time, for the confirm dialog. It was
 // typed in the computer's time, so it reads back the same way.
 const pendingLabel = computed(() =>
-  closesAtLocal.value ? formatStatementTime(new Date(closesAtLocal.value), getBrowserTimeZone()) : ''
+  closesAtLocal.value
+    ? formatStatementTime(new Date(closesAtLocal.value), getBrowserTimeZone())
+    : '',
 )
 
 // open: before the announced closing time; grace: past it but the server is
@@ -209,10 +215,9 @@ onMounted(() => void load())
 
 <style scoped>
 /* A section heading, as "Set Details" on Notify Finalists. */
-.deadline__section-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin-bottom: 0.75rem;
+/* The form, a gap below the deadline as it is. */
+.deadline__change {
+  margin-top: 1rem;
 }
 
 .deadline {

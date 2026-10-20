@@ -40,20 +40,23 @@ def _registration(registered_by=None, email="kid@example.com"):
 
 class RegistrationLockTests(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         self.client = APIClient()
         for name in [ROLE_STUDENT, ROLE_SUPERVISOR]:
             Roles.objects.get_or_create(role_name=name)
+        supervisor = User.objects.create_user(email="sup@example.com", first_name="Sam", last_name="Super")
+        SupervisorProfile.objects.create(user=supervisor, school_name="Test High")
 
     def _register(self, registered_by=None):
-        response = self.client.post(reverse("registration"), _registration(registered_by), format="json")
+        email = f"kid-{StudentProfile.objects.count()}@example.com"
+        response = self.client.post(reverse("registration"), _registration(registered_by, email), format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return StudentProfile.objects.get(user__email="kid@example.com")
+        return StudentProfile.objects.get(user__email=email)
 
     def test_a_supervisors_registration_locks_the_students_details(self):
         for said in ("Supervisor", "teacher"):
             with self.subTest(said=said):
-                StudentProfile.objects.all().delete()
-                User.objects.filter(email="kid@example.com").delete()
                 profile = self._register(said)
                 self.assertEqual(profile.registered_by, StudentProfile.RegisteredBy.SUPERVISOR)
                 self.assertTrue(profile.details_locked)
@@ -61,8 +64,6 @@ class RegistrationLockTests(TestCase):
     def test_a_student_or_peer_registration_leaves_them_free_to_edit(self):
         for said, recorded in (("Self", "self"), ("Peer", "peer")):
             with self.subTest(said=said):
-                StudentProfile.objects.all().delete()
-                User.objects.filter(email="kid@example.com").delete()
                 profile = self._register(said)
                 self.assertEqual(profile.registered_by, recorded)
                 # Their supervisor is linked all the same.

@@ -101,6 +101,17 @@ const query = ref('')
 // Each email's group, with a heading above it, in the order the list shows them.
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
+  // Someone registering themselves, then a supervisor registering students.
+  ['Self registration', ['registration_student', 'registration_group', 'registration_mentor']],
+  [
+    'Supervisor registration',
+    [
+      'registration_by_supervisor',
+      'registration_by_admin',
+      'registration_supervisor',
+      'supervisor_registration_status'
+    ]
+  ],
   [
     'Guardians',
     [
@@ -113,7 +124,7 @@ const GROUPS: [string, string[]][] = [
   ],
   ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
   ['Submissions', ['submission_reminder', 'submission_confirmation']],
-  ['Symposium', ['finalist_notification', 'nonfinalist_invitation', 'nonsubmission_notice']],
+  ['Symposium', ['finalist_notification', 'finalist_submission_reminder', 'finalist_submission_confirmation', 'nonfinalist_invitation', 'nonsubmission_notice']],
   ['Results', ['results_team', 'results_supervisor']]
 ]
 const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))

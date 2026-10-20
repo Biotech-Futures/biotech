@@ -7,6 +7,7 @@ platform's consent page, that a failed send leaves no working link, and that
 the student is told their guardian was sent the form.
 """
 import re
+import smtplib
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -222,7 +223,9 @@ class GuardianConsentRequestTests(TestCase):
         first = self._link_token(mail.outbox[0])
         GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
 
-        with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("down")):
+        # Turned away by the mail server (one it can't reach is kept to send later).
+        rejected = smtplib.SMTPDataError(554, b"Message rejected")
+        with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=rejected):
             response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)

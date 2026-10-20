@@ -15,6 +15,8 @@ export type SupervisedStudent = {
   account_status?: string
   /** From the signed form: null when there's none on the platform. */
   media_consent?: boolean | null
+  /** When that answer was given: the form's signing, or the withdrawal. */
+  media_consent_at?: string | null
   school_name: string
   year_lvl: string
   interests: string[]
@@ -25,9 +27,11 @@ export type SupervisedStudent = {
   has_join_permission: boolean
   joinperm_response_id: string | null
   joinperm_granted_at: string | null
-  signature?: string | null
   group_id: number | null
   group_name: string | null
+  /** Their group from registering, while it's there: where My Groups' Waiting
+   *  Area puts them back. None for a student who registered without one. */
+  registration_group_id?: number | null
 }
 
 export type StudentRegistrationBucket =
@@ -68,10 +72,35 @@ export const toStudentRow = (student: SupervisedStudent) => ({
     ? formatShortDateTime(student.joinperm_granted_at) || 'Recorded'
     : '—',
   permissionGivenAt: student.joinperm_granted_at,
-  signature: student.signature || '',
   groupId: student.group_id,
   groupName: student.group_name,
 })
+
+/** The guardians' drawn signatures for ``studentIds`` (each a PNG data URL,
+ *  or null), fetched when their consent forms are opened: the roster leaves
+ *  them out, as they're large. */
+export async function fetchConsentSignatures(
+  studentIds: number[],
+): Promise<Record<string, string | null>> {
+  if (!studentIds.length) return {}
+  const query = new URLSearchParams({ ids: studentIds.join(',') })
+  const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/signatures/?${query}`, {
+    credentials: 'include',
+    headers: buildSessionHeaders({ headers: { Accept: 'application/json' } }),
+  })
+  if (!response.ok) throw await apiErrorFromResponse(response)
+  const body = await response.json()
+  return body?.signatures ?? {}
+}
+
+/** ``rows`` with their guardians' signatures, for their consent forms. */
+export async function withConsentSignatures<T extends { id: unknown }>(
+  rows: T[],
+): Promise<Array<T & { signature: string }>> {
+  const ids = [...new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0))]
+  const signatures = await fetchConsentSignatures(ids)
+  return rows.map((row) => ({ ...row, signature: signatures[String(row.id)] || '' }))
+}
 
 export async function saveGuardianDetails(payload: {
   student_ids: number[]

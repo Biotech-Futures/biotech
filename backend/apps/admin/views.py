@@ -34,6 +34,12 @@ from apps.admin.services.user import (
     bulk_delete_users, bulk_delete_users_by_filter, has_ungrouped_students,
 )
 from apps.admin.services import guardian_consent
+from apps.admin.services.email_verification import get_credit_balance
+from apps.admin.services.known_university import (
+    add_known_university,
+    delete_known_university,
+    list_known_universities,
+)
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -74,6 +80,8 @@ from apps.admin.services.mentor_match import (
 )
 from apps.admin.services.system_email import (
     get_email_log,
+    get_mail_api_state,
+    resend_email,
     get_email_settings,
     get_unseen_failures,
     see_failures,
@@ -179,6 +187,21 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+class UserSuperviseesView(APIView):
+    """POST: add students to a supervisor or take them off, by student or by
+    group; with ``preview``, only say who would move."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, user_id):
+        from apps.admin.services.supervisees import change_supervisees
+
+        result = change_supervisees(int(user_id), request.data, initiated_by=request.user)
+        if result.get("data") is not None:
+            return Response(result)
+        missing = result["msg"].endswith("not found")
+        return Response(result, status=status.HTTP_404_NOT_FOUND if missing else status.HTTP_400_BAD_REQUEST)
 
 
 GUARDIAN_CONSENT_STATUS_CODES = {
@@ -327,7 +350,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -345,7 +368,7 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "")
+        result = bulk_create_users(users, "", created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -380,7 +403,7 @@ class GroupListView(APIView):
     """POST /api/v1/group - Create a new group"""
 
     def post(self, request):
-        result = create_group(name=request.data.get("name"))
+        result = create_group(name=request.data.get("name"), created_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -562,7 +585,7 @@ class MatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_student_assignments(request.data)
+        result = confirm_student_assignments(request.data, created_by=request.user)
         return Response({"msg": "Assignments confirmed successfully", "data": result})
 
 
@@ -1746,6 +1769,29 @@ class SystemEmailLogView(APIView):
         return Response(get_email_log())
 
 
+class SystemEmailMailApiView(APIView):
+    """GET /api/v1/admin/email-log/mail-api/ — whether bounced emails can be
+    checked through Hostinger's Mail API (see ``email_log.mail_api_state``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_mail_api_state())
+
+
+class SystemEmailResendView(APIView):
+    """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
+    email again to the people it missed, queued to send in its turn (202),
+    or 400 with why it can't go."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def post(self, request, key):
+        result = resend_email(key, requested_by=request.user)
+        code = status.HTTP_202_ACCEPTED if result.get("data") else status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
+
+
 class SystemEmailUnseenFailuresView(APIView):
     """GET /api/v1/admin/email-log/unseen/ — how many people sends couldn't
     reach since an admin last looked at Failed Sending Emails. POST marks
@@ -1781,5 +1827,36 @@ class SystemEmailSettingsView(APIView):
         return Response(result)
 
 
+class EmailVerificationCreditsView(APIView):
+    """GET /api/v1/admin/email-verification/credits/ — the QuickEmailVerification
+    balance, its low-credit alert levels and today's lookups. Read-only."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_credit_balance())
 
 
+class KnownUniversityListCreateView(APIView):
+    """GET/POST /api/v1/admin/known-university/ — the names the registration
+    school check treats as universities (optional ``?search=`` on name)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_known_universities(request.query_params.get("search")))
+
+    def post(self, request):
+        name = request.data.get("name") if isinstance(request.data, dict) else None
+        result, code = add_known_university(name, actor=request.user)
+        return Response(result, status=code)
+
+
+class KnownUniversityDetailView(APIView):
+    """DELETE /api/v1/admin/known-university/<id>/ — take a name off the list."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def delete(self, request, university_id):
+        result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)

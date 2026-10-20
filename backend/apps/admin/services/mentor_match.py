@@ -523,6 +523,7 @@ def get_matched_groups(requesting_user=None) -> List[Dict[str, Any]]:
         if group_id not in students_by_group:
             students_by_group[group_id] = []
         students_by_group[group_id].append({
+            'id': row['user_id'],
             'name': f"{row['first_name']} {row['last_name']}".strip(),
             'hasLoggedIn': row['last_login'] is not None,
             'interests': interests_by_user.get(row['user_id'], []),

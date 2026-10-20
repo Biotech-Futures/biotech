@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import { appSelectLabels } from '@/__tests__/appSelect'
 
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '' },
@@ -88,5 +89,68 @@ describe('rows that open something', () => {
     expect(bodyRows(wrapper).some((row) => row.classes('data-table-row--opens'))).toBe(false)
     await bodyRows(wrapper)[0]!.find('.data-table-cell--primary').trigger('click')
     expect(wrapper.emitted('row-click')).toBeUndefined()
+  })
+})
+
+describe('the bottom bar', () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, icon: 'x', name: `Name ${i + 1}`, school: 'S' }))
+
+  it('offers rows per page as Entries', async () => {
+    const wrapper = mountTable({ rows: many, pageSize: 5 })
+    expect(await appSelectLabels(wrapper, '.data-table-page-size')).toEqual([
+      '5 Entries',
+      '7 Entries',
+      '15 Entries',
+      '30 Entries',
+      'All Entries'
+    ])
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 5 out of 12')
+  })
+
+  // Turns a page with the bar at ``from`` on screen, drawn at ``to`` on the
+  // next, scrolled ``scrolled`` down; the table box ``tall`` px.
+  const turnPage = async (from: number, to: number, scrolled: number, tall = 230) => {
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => {})
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: scrolled })
+    const wrapper = mountTable({ rows: many, pageSize: 5 })
+    const bar = wrapper.find('.data-table-bottom').element as HTMLElement
+    const box = wrapper.find('.data-table-wrap').element as HTMLElement
+    Object.defineProperty(box, 'offsetHeight', { configurable: true, value: tall })
+    vi.spyOn(bar, 'getBoundingClientRect')
+      .mockReturnValueOnce({ top: from } as DOMRect)
+      .mockReturnValueOnce({ top: to } as DOMRect)
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await flushPromises()
+    return { wrapper, box, scrollBy }
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 })
+  })
+
+  it('stays where it is on screen when a page is taller, scrolling down by as much', async () => {
+    const { wrapper, box, scrollBy } = await turnPage(500, 560, 0)
+    expect(wrapper.find('.data-table-page-info').text()).toBe('Page 2 of 3')
+    expect(scrollBy).toHaveBeenCalledWith(0, 60)
+    expect(box.style.minHeight).toBe('')
+  })
+
+  it('stays where it is on screen when a page is shorter, scrolling up rather than leaving room', async () => {
+    const { box, scrollBy } = await turnPage(500, 400, 300)
+    expect(scrollBy).toHaveBeenCalledWith(0, -100)
+    expect(box.style.minHeight).toBe('')
+  })
+
+  it('near the top, scrolls up as far as it can and keeps room for the rest', async () => {
+    const { wrapper, box, scrollBy } = await turnPage(500, 400, 30)
+    expect(scrollBy).toHaveBeenCalledWith(0, -30)
+    // 70px it couldn't scroll up by, held below the rows.
+    expect(box.style.minHeight).toBe('300px')
+
+    // A new search lets that room go.
+    await wrapper.find('.data-table-search-input').setValue('Name 1')
+    await flushPromises()
+    expect(box.style.minHeight).toBe('')
   })
 })

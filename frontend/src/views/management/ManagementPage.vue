@@ -13,9 +13,9 @@
         :key="tab.to"
         :to="tab.to"
         role="tab"
-        :aria-selected="route.path.startsWith(tab.to)"
+        :aria-selected="isOpen(tab.to)"
         class="tab-pill"
-        :class="{ active: route.path.startsWith(tab.to) }"
+        :class="{ active: isOpen(tab.to) }"
       >
         {{ tab.label }}
       </RouterLink>
@@ -30,13 +30,19 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
+// The tab open: its own path or one under it, not one that only starts the
+// same (Registration isn't open on /management/registration-dates, say).
+const isOpen = (to: string) => route.path === to || route.path.startsWith(`${to}/`)
+
+// Registration (/management/registration) is hidden for now: its page still
+// opens at that address.
 const tabs = [
-  { label: 'Supervisor Visibility', to: '/management/supervisor-visibility' },
+  { label: 'Late Registration', to: '/management/late-registration' },
+  { label: 'Challenge Start', to: '/management/challenge-start' },
   { label: 'Submission Deadline', to: '/management/submission-deadline' },
-  { label: 'Extend Deadline', to: '/management/extend-deadline' },
   { label: 'Notify Finalists', to: '/management/notify-finalists' },
-  { label: 'Notify Nonfinalist', to: '/management/email-nonfinalist' },
   { label: 'Finalist Presentation', to: '/management/finalist-presentation' },
+  { label: 'Results', to: '/management/results' },
   { label: 'Release Results', to: '/management/release-results' },
   { label: 'Document Setup', to: '/management/document-setup' },
   { label: 'New Year', to: '/management/new-year' }

@@ -104,19 +104,12 @@
           <div class="profile-field timezone-field">
             <label class="profile-field-label" for="timezone-input">Set timezone:</label>
             <div class="timezone-control">
-              <select
+              <AppSelect
                 id="timezone-input"
                 v-model="selectedTimeZone"
                 class="timezone-input"
-              >
-                <option
-                  v-for="zone in timeZoneOptions"
-                  :key="zone"
-                  :value="zone"
-                >
-                  {{ formatTimeZoneLabel(zone) }}
-                </option>
-              </select>
+                :options="timeZoneSelectOptions"
+              />
               <div class="timezone-actions">
                 <button
                   class="btn btn-outline"
@@ -147,9 +140,9 @@
             <label>First name<input v-model.trim="studentDraft.first_name" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="studentDraft.last_name" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" required maxlength="255" /></label>
-            <label>Year level<select v-model="studentDraft.year_lvl" required><option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">{{ year }}</option></select></label>
-            <label>Country<select v-model="studentDraft.country_id" @change="studentDraft.state_id = null"><option :value="null">Not set</option><option v-for="country in profileOptions.countries" :key="country.id" :value="country.id">{{ country.country_name }}</option></select></label>
-            <label>Region<select v-model="studentDraft.state_id"><option :value="null">Not set</option><option v-for="region in availableRegions" :key="region.id" :value="region.id">{{ region.state_name }}</option></select></label>
+            <label>Year level<AppSelect v-model="studentDraft.year_lvl" :options="YEAR_LEVEL_OPTIONS" required /></label>
+            <label>Country<AppSelect v-model="studentDraft.country_id" :options="countrySelectOptions" @change="studentDraft.state_id = null" /></label>
+            <label>Region<AppSelect v-model="studentDraft.state_id" :options="regionSelectOptions" /></label>
             <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" />{{ interest.interest_desc }}</label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save details' }}</button></div>
@@ -212,17 +205,34 @@
 
         <div v-if="user.guardian.hasDetails" class="profile-section" data-test="guardian-details">
           <div class="guardian-heading">
-            <h3 class="profile-section-title">Guardian Details</h3>
+            <h3 class="profile-section-title">Guardian Details <span v-if="guardianLocked" class="registration-lock" role="img" :aria-label="GUARDIAN_LOCK_REASON" :data-tooltip="GUARDIAN_LOCK_REASON" data-test="guardian-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg></span></h3>
             <button
-              v-if="!guardianEditing"
+              v-if="!guardianEditing && !guardianLocked"
               class="btn btn-outline"
               type="button"
               data-test="guardian-edit"
-              @click="startGuardianEdit"
+              @click="guardianWarningOpen = true"
             >
               Edit guardian
             </button>
           </div>
+
+          <!-- Locked once their guardian has given permission: changes go through support. -->
+          <p v-if="guardianLocked" class="profile-note guardian-locked-note" data-test="guardian-locked">
+            Your guardian has given permission, so their details can't be changed here. If they need to
+            change, contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a>.
+          </p>
+
+          <!-- A warning before editing: a new guardian clears permission given. -->
+          <ConfirmDialog
+            v-model="guardianWarningOpen"
+            title="Change your guardian's details?"
+            :message="guardianWarning"
+            confirm-label="Continue"
+            variant="warning"
+            data-test="guardian-warning"
+            @confirm="startGuardianEdit"
+          />
 
           <form
             v-if="guardianEditing"
@@ -232,7 +242,7 @@
             @submit.prevent="saveGuardian"
           >
             <p v-if="user.guardian.consentReceived" class="consent-hint guardian-form-hint">
-              {{ user.guardian.consentingName }} has already given consent and stays on file
+              Saving a new guardian clears the permission {{ user.guardian.consentingName }} gave,
               until your new guardian completes the consent form.
             </p>
             <div class="profile-field guardian-form-field">
@@ -419,6 +429,9 @@ import { useAuthStore } from '@/stores/auth'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
+import AppSelect from '@/components/AppSelect.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
+import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
   formatDayMonth,
   formatDayMonthTime,
@@ -453,6 +466,16 @@ const studentDraft = ref({
 })
 const profileOptions = ref({ countries: [], regions: [], interests: [], selected_interest_ids: [] })
 const availableRegions = computed(() => profileOptions.value.regions.filter(region => region.country_id === studentDraft.value.country_id))
+// The student details form's dropdown choices.
+const YEAR_LEVEL_OPTIONS = ['9', '10', '11', '12'].map(year => ({ value: year, label: year }))
+const countrySelectOptions = computed(() => [
+  { value: null, label: 'Not set' },
+  ...profileOptions.value.countries.map(country => ({ value: country.id, label: country.country_name })),
+])
+const regionSelectOptions = computed(() => [
+  { value: null, label: 'Not set' },
+  ...availableRegions.value.map(region => ({ value: region.id, label: region.state_name })),
+])
 const guardianSending = ref(false)
 // Ticks so "send again in N minutes" counts down.
 const now = ref(Date.now())
@@ -539,6 +562,9 @@ const commonTimeZones = [
   'Africa/Johannesburg'
 ]
 
+const timeZoneSelectOptions = computed(() =>
+  timeZoneOptions.value.map(zone => ({ value: zone, label: formatTimeZoneLabel(zone) })),
+)
 const timeZoneOptions = computed(() => {
   return Array.from(new Set([
     auth.timeZone,
@@ -552,6 +578,10 @@ const timezoneChanged = computed(() => selectedTimeZone.value !== auth.timeZone)
 // changes these details. A student who registered themselves (or through a
 // peer) changes their own. Guardian details are the student's either way.
 const detailsLocked = computed(() => Boolean(auth.user?.details_locked))
+// Their guardian too, once permission is given: changes then go through support.
+const guardianLocked = computed(() => Boolean(auth.user?.guardian_locked))
+const GUARDIAN_LOCK_REASON =
+  'Your guardian has given permission. Contact BIOTech Support if their details need to change.'
 const canEditStudentDetails = computed(() => user.value?.student?.hasDetails && !detailsLocked.value)
 const lockReason = computed(() => {
   const name = String(auth.user?.supervisor_name || '').trim()
@@ -938,6 +968,16 @@ const reminderLine = computed(() => {
   return `${last} They'll be emailed again ${when}.`
 })
 
+// The warning before editing the guardian: what changing them does.
+const guardianWarningOpen = ref(false)
+const guardianWarning = computed(() =>
+  user.value.guardian.consentReceived
+    ? `Changing your guardian's details clears the permission ${user.value.guardian.consentingName} gave. ` +
+      "Your new guardian will be emailed the consent form, and until they complete it you won't be able to " +
+      'take part in most of the program.'
+    : 'Your new guardian will be emailed the consent form to complete.',
+)
+
 const startGuardianEdit = () => {
   const { guardian } = user.value
   // Editing a pending change picks up where the student left off.
@@ -980,8 +1020,8 @@ const saveGuardian = async () => {
   try {
     await auth.updateGuardian({ ...guardianForm.value })
     guardianEditing.value = false
-    noteGuardian(true, hadConsent && user.value.guardian.pending
-      ? 'Saved. Your new guardian needs to complete the consent form.'
+    noteGuardian(true, hadConsent && !user.value.guardian.consentReceived
+      ? 'Saved. Your guardian permission is cleared until your new guardian completes the consent form.'
       : 'Your guardian details have been updated.')
   } catch (saveError) {
     const fields = saveError?.fields || {}
@@ -1371,9 +1411,10 @@ onMounted(async () => {
 .registration-lock::after { content:attr(data-tooltip); position:absolute; z-index:10; bottom:calc(100% + .5rem); left:50%; width:max-content; max-width:min(18rem, 70vw); padding:.45rem .6rem; border-radius:4px; background:#26332d; color:#fff; font-size:.75rem; font-weight:400; line-height:1.35; text-align:left; white-space:normal; opacity:0; pointer-events:none; transform:translate(-50%, .2rem); transition:opacity .15s ease, transform .15s ease; }
 .registration-lock:hover::after { opacity:1; transform:translate(-50%, 0); }
 .profile-edit-button { margin:0; font-size:.85rem; }
+.guardian-locked-note { margin:.25rem 0 1rem; }
 .student-edit-form { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
 .student-edit-form label { display:grid; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
-.student-edit-form input, .student-edit-form select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
+.student-edit-form input, .student-edit-form .app-select { width:100%; padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); font:inherit; font-weight:400; }
 .student-edit-form fieldset { grid-column:1 / -1; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin:0; padding:1rem; border:1px solid var(--border-light); border-radius:6px; }
 .student-edit-form legend { padding:0 .35rem; color:#4c5750; font-size:.85rem; font-weight:700; }
 .student-edit-form .interest-options label { display:flex; align-items:center; gap:.5rem; }

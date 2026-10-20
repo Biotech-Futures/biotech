@@ -15,17 +15,26 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .email_registry import EMAIL_TYPES
-from .models import SystemEmailLog, SystemEmailSettings
+from .email_metrics import record_email_delivery
+from .models import EmailBounce, SystemEmailLog, SystemEmailSettings
 
 logger = logging.getLogger(__name__)
 
 # How many of an email's sends that missed someone the Log keeps.
 MISSED_KEPT = 20
+# How many of an email's checks that found bounces the Log lists, newest first.
+BOUNCES_KEPT = 20
+# A bounce a Management page lists among who its send missed: the Log lists it
+# under Bounced emails instead (see ``check_bounced_emails``).
+BOUNCED = "bounced: "
 
 # Why someone was missed when there's nothing more specific to say.
 NOT_SENT = "couldn't be sent"
 # Why everyone was missed when the mail server couldn't be reached at all.
 UNREACHABLE = "couldn't reach the mail server"
+# Why someone hasn't had an email yet, while it's kept until the mail server
+# can be reached (see ``waiting_email``).
+WAITING_REASON = "couldn't reach the mail server, trying again every 10 minutes"
 
 
 def reason_for(exc: Exception) -> str:
@@ -36,26 +45,93 @@ def reason_for(exc: Exception) -> str:
     return failure_reason(exc)
 
 
-def note_send(key: str, *, missed=None, by=None) -> None:
+def note_send(
+    key: str,
+    *,
+    missed=None,
+    by=None,
+    attempted: int | None = None,
+    delivered: int | None = None,
+    failed: int | None = None,
+    source_mailbox: str | None = None,
+    started_at=None,
+    last_sent: bool = True,
+    ref: dict | None = None,
+) -> None:
     """Note a send of ``key`` now: ``missed`` ({address: reason}) for those it
-    didn't reach, ``by`` the signed-in person who sent it, if anyone."""
+    didn't reach, ``by`` the signed-in person who sent it, if anyone. Without
+    ``last_sent`` (an email kept to send later, given up on), when it last
+    went out stays as it was. ``ref`` is what the send was of, kept with who
+    it missed, for Resend: an announcement's, ``{"announcement_id",
+    "delivery_id"}``."""
     by_id = by.pk if getattr(by, "is_authenticated", False) else None
     now = timezone.now()
     try:
         # Its own savepoint: a note that fails leaves the caller's work be.
         with transaction.atomic():
             log, _ = SystemEmailLog.objects.select_for_update().get_or_create(key=key)
-            log.last_sent_at = now
-            log.last_sent_by_id = by_id
+            if last_sent:
+                log.last_sent_at = now
+                log.last_sent_by_id = by_id
             if missed:
                 entry = {
                     "at": now.isoformat(),
                     "missed": [{"address": address, "reason": reason} for address, reason in missed.items()],
                 }
+                if ref:
+                    entry["ref"] = ref
                 log.missed = [entry, *log.missed][:MISSED_KEPT]
             log.save()
     except Exception:  # noqa: BLE001
         logger.exception("email_log.note_failed key=%s", key)
+
+    if attempted is not None:
+        record_email_delivery(
+            key,
+            source_mailbox=source_mailbox,
+            attempted=attempted,
+            delivered=delivered or 0,
+            failed=failed or 0,
+            initiated_by=by,
+            started_at=started_at,
+        )
+
+
+def mail_api_state() -> dict:
+    """Whether the bounce check can read the sending mailboxes through
+    Hostinger's Mail API, for the top of Failed Sending Emails:
+    ``{"problem", "at", "status"}``. ``problem`` is "unset" (no key, so
+    bounces aren't checked), "rejected" (Hostinger refused the key, at
+    ``at``), "failed" (the last check couldn't get through, at ``at``, with
+    the ``status`` answered, none when nothing was), or "" when it can."""
+    from django.conf import settings
+
+    if not settings.HOSTINGER_MAIL_API_KEY:
+        return {"problem": "unset", "at": None, "status": None}
+    row = SystemEmailSettings.objects.filter(pk=SystemEmailSettings.SINGLETON_PK).first()
+    if row is None or row.mail_api_failed_at is None:
+        return {"problem": "", "at": None, "status": None}
+    problem = "rejected" if row.mail_api_status in (401, 403) else "failed"
+    return {"problem": problem, "at": row.mail_api_failed_at.isoformat(), "status": row.mail_api_status}
+
+
+def forget_missed(key: str, addresses) -> None:
+    """Take ``addresses`` off ``key``'s missed list in the Log: Resend sent
+    them again (and notes any it missed again as a send of its own)."""
+    lowered = {address.lower() for address in addresses}
+    if not lowered:
+        return
+    with transaction.atomic():
+        log = SystemEmailLog.objects.select_for_update().filter(key=key).first()
+        if log is None:
+            return
+        entries = []
+        for entry in log.missed:
+            left = [person for person in entry["missed"] if person["address"].lower() not in lowered]
+            if left:
+                entries.append({**entry, "missed": left})
+        log.missed = entries
+        log.save(update_fields=["missed"])
 
 
 def unseen_failures() -> int:
@@ -72,7 +148,23 @@ def unseen_failures() -> int:
     runs = EmailSendRun.objects.filter(started_at__isnull=False).exclude(missed=[])
     if seen is not None:
         runs = runs.filter(started_at__gt=seen)
-    return count + sum(len(run.missed) for run in runs)
+    count += sum(1 for run in runs for entry in run.missed if not _bounced(entry) and not _waiting(entry))
+    # Bounces by when each was found, whenever the email they bounced went.
+    bounces = EmailBounce.objects.all()
+    if seen is not None:
+        bounces = bounces.filter(detected_at__gt=seen)
+    return count + bounces.count()
+
+
+def _bounced(entry) -> bool:
+    """A Management send's missed entry that's a bounce."""
+    return isinstance(entry, dict) and str(entry.get("reason", "")).startswith(BOUNCED)
+
+
+def _waiting(entry) -> bool:
+    """A Management send's missed entry whose email is kept until the mail
+    server can be reached: listed as waiting, not failed."""
+    return isinstance(entry, dict) and entry.get("reason") == WAITING_REASON
 
 
 def mark_failures_seen() -> int:
@@ -138,30 +230,57 @@ def _person(user) -> str:
 def email_log() -> list[dict]:
     """Every system email, in the order System Emails lists them: when it
     last went out and who sent it, where mail it couldn't deliver comes back
-    to, and who its latest sends couldn't reach, newest first, as
-    ``{"at", "people": [{"who", "reason"}]}``."""
+    to, who its latest sends couldn't reach, newest first, as
+    ``{"at", "people": [{"who", "reason"}]}``, who it bounced back from
+    (``check_bounced_emails``), grouped by when they were found, newest first,
+    in the same shape, who it's waiting to reach while the mail server
+    can't be reached, ``[{"who", "until"}]`` (see ``waiting_email``), and
+    whether its Resend has anyone to email (see ``resend``)."""
     from apps.management.models import EmailSendRun
-    from apps.management.services.send_guard import _missed_entry, _with_addresses
+    from apps.management.services.send_guard import JOBS, _missed_entry, _with_addresses
 
+    from apps.admin.services.announcement import missed_by_announcement
+
+    from .resend import resendable
     from .system_email import sender_for
+    from .waiting_email import NEVER_WAIT, kept_for_resend, waiting_for
 
     logs = {log.key: log for log in SystemEmailLog.objects.select_related("last_sent_by")}
     runs = {
         run.key: run
         for run in EmailSendRun.objects.filter(started_at__isnull=False).select_related("started_by")
     }
+    waiting = waiting_for()
+    kept = kept_for_resend()
     labels = _labels({
-        missed["address"] for log in logs.values() for entry in log.missed for missed in entry["missed"]
+        *(missed["address"] for log in logs.values() for entry in log.missed for missed in entry["missed"]),
+        *(item["address"] for items in waiting.values() for item in items),
     })
+    # Each email's bounces, grouped by when they were found, newest first.
+    bounced: dict[str, list[dict]] = {}
+    for bounce in EmailBounce.objects.order_by("-detected_at", "id"):
+        found = bounced.setdefault(bounce.key, [])
+        at = bounce.detected_at.isoformat()
+        if not found or found[-1]["at"] != at:
+            if len(found) == BOUNCES_KEPT:
+                continue
+            found.append({"at": at, "people": []})
+        found[-1]["people"].append({"who": bounce.who, "reason": bounce.reason})
 
     emails = []
     for email_type in EMAIL_TYPES:
         key = email_type.key
         run, log = runs.get(key), logs.get(key)
-        if run:
+        # A queued job (an announcement, a reminder, a digest) runs too, but
+        # its run keeps only counts: who it missed is in the email's own log.
+        if run and key not in JOBS:
             # A Management bulk email: its last run, and who that still missed.
             last_at, last_by = run.started_at, _person(run.started_by)
-            people = _with_addresses([_missed_entry(entry) for entry in run.missed])
+            # Its bounces are listed apart, under Bounced emails, and those
+            # waiting for the mail server under Waiting to send.
+            people = _with_addresses([
+                _missed_entry(entry) for entry in run.missed if not _bounced(entry) and not _waiting(entry)
+            ])
             missed = [{"at": run.started_at.isoformat(), "people": people}] if people else []
         elif log:
             last_at, last_by = log.last_sent_at, _person(log.last_sent_by)
@@ -187,5 +306,20 @@ def email_log() -> list[dict]:
             # One email per group, so the rest of a group still gets it.
             "toGroups": bool(email_type.delivery),
             "missed": missed,
+            "bounced": bounced.get(key, []),
+            # A login code or reset link: never resent, as they expire within minutes.
+            "expires": key in NEVER_WAIT,
+            "resendable": resendable(
+                key, run=run, kept=kept, waiting=set(waiting),
+                announcements=missed_by_announcement() if key == "announcement" else None,
+            ),
+            "waiting": [
+                {
+                    "who": labels.get(item["address"], item["address"]),
+                    "at": item["at"].isoformat(),
+                    "until": item["until"].isoformat(),
+                }
+                for item in waiting.get(key, [])
+            ],
         })
     return emails

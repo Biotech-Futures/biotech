@@ -68,7 +68,7 @@
                 v-for="column in columns"
                 :key="column.key"
                 class="data-table-head"
-                :class="column.align && `data-table-head--${column.align}`"
+                :class="[column.align && `data-table-head--${column.align}`, column.headClass]"
                 scope="col"
                 :title="column.title"
                 :aria-sort="canSort(column) ? ariaSort(column.key) : undefined"
@@ -220,11 +220,12 @@
     <div ref="bottomEl" class="data-table-bottom">
       <label class="data-table-page-size">
         <span class="sr-only">Rows per page</span>
-        <select :value="pageSize" @change="onPageSizeChange">
-          <option v-for="size in sizeOptions" :key="size" :value="size">
-            {{ size === DATA_TABLE_ALL ? 'All' : `${size} / page` }}
-          </option>
-        </select>
+        <AppSelect
+          :model-value="pageSize"
+          :options="sizeChoices"
+          aria-label="Rows per page"
+          @change="onPageSizeChange"
+        />
       </label>
       <p class="data-table-summary">{{ summaryText }}</p>
       <!-- The admin tables' pager, with the page number typed in. -->
@@ -235,7 +236,7 @@
           class="data-table-page-btn"
           :disabled="page <= 1 || loading"
           aria-label="Previous page"
-          @click="page -= 1"
+          @click="prevPage"
         >
           <i class="fas fa-chevron-left" aria-hidden="true"></i>
         </button>
@@ -254,7 +255,7 @@
           class="data-table-page-btn"
           :disabled="page >= totalPages || loading"
           aria-label="Next page"
-          @click="page += 1"
+          @click="nextPage"
         >
           <i class="fas fa-chevron-right" aria-hidden="true"></i>
         </button>
@@ -266,6 +267,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
+import { usePagerAnchor } from '@/composables/usePagerAnchor'
 import { useTopScrollbar } from '@/composables/useTopScrollbar'
 import {
   DATA_TABLE_ALL,
@@ -291,6 +294,8 @@ export type DataTableColumn = {
   title?: string
   // Text alignment for the heading and cells; left when not given.
   align?: 'left' | 'center' | 'right'
+  // Classes for the heading.
+  headClass?: string
   // Classes for a cell, worked out from its row.
   cellClass?: (row: Record<string, unknown>) => string | Record<string, boolean> | undefined
   linkTo?: (row: Record<string, unknown>) => RouteLocationRaw | null | undefined
@@ -309,6 +314,9 @@ const props = withDefaults(
   defineProps<{
     columns: DataTableColumn[]
     rows: Record<string, unknown>[]
+    // The columns the search looks through, when more than those shown (some
+    // hidden for now); the shown columns otherwise.
+    searchColumns?: DataTableColumn[]
     rowKey?: string
     // How many columns the actions slot fills; the slot is told which one.
     actionColumns?: number
@@ -464,7 +472,7 @@ const filteredRows = computed(() => {
   const source = !query
     ? [...props.rows]
     : props.rows.filter((row) =>
-        props.columns.some((column) =>
+        (props.searchColumns ?? props.columns).some((column) =>
           displayCell(row, column).toLowerCase().includes(query),
         ),
       )
@@ -687,7 +695,26 @@ const refitToWindow = () => {
   else void nextTick(countRowsThatFit)
 }
 
-watch(pagedRows, () => void nextTick(countRowsThatFit))
+// Paging keeps the bottom bar still on screen, its < and > under the mouse,
+// whatever the rows' heights (see usePagerAnchor); a new search, sort, size or
+// count of rows lets go of any room it held below the rows.
+const {
+  turn: turnPage,
+  settle: settlePager,
+  reset: resetPager,
+} = usePagerAnchor(bottomEl, wrapEl)
+const prevPage = () => turnPage(() => {
+  page.value -= 1
+})
+const nextPage = () => turnPage(() => {
+  page.value += 1
+})
+watch([search, sortKey, sortDir, pageSize, total], resetPager)
+
+watch(pagedRows, () => void nextTick(() => {
+  countRowsThatFit()
+  settlePager()
+}))
 onMounted(() => {
   void nextTick(countRowsThatFit)
   window.addEventListener('resize', refitToWindow)
@@ -718,9 +745,17 @@ const fitSearchWidth = () => {
 onMounted(fitSearchWidth)
 watch(() => props.searchPlaceholder, () => void nextTick(fitSearchWidth))
 
-const onPageSizeChange = (event: Event) => {
+// "7 Entries" … "All Entries".
+const sizeChoices = computed<AppSelectOption[]>(() =>
+  sizeOptions.value.map((size) => ({
+    value: size,
+    label: `${size === DATA_TABLE_ALL ? 'All' : size} Entries`
+  }))
+)
+
+const onPageSizeChange = (value: AppSelectValue) => {
   fitting.value = false
-  pageSize.value = Number((event.target as HTMLSelectElement).value)
+  pageSize.value = Number(value)
 }
 
 const onPageDraftInput = (event: Event) => {
@@ -729,7 +764,9 @@ const onPageDraftInput = (event: Event) => {
 
 const jumpToPage = () => {
   const next = Math.min(totalPages.value, Math.max(1, Math.floor(Number(pageDraft.value) || 1)))
-  page.value = next
+  if (next !== page.value) turnPage(() => {
+    page.value = next
+  })
   pageDraft.value = String(next)
 }
 
@@ -835,7 +872,7 @@ const togglePageSelection = () => {
   background-color: var(--light-green);
 }
 
-.data-table-page-size select {
+.data-table-page-size .app-select {
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-light);
   border-radius: 6px;

@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import {
+  CURSOR_EXPIRES_MS,
   MAX_TEXT_LENGTH,
+  RESEND_CURSOR_MS,
+  SEND_CURSOR_MS,
+  TYPING_RESTART_MS,
   RESEND_TYPING_MS,
   SEND_TEXT_MS,
   STOP_TYPING_MS,
@@ -421,5 +425,97 @@ describe('identity and cursor', () => {
     live.sendText('q1', 'abcdef', 2)
 
     expect(latest().sent).toContainEqual({ type: 'text', field: 'q1', text: 'abcdef', caret: 2 })
+  })
+})
+
+describe('cursors', () => {
+  const cursorsSent = () =>
+    (latest().sent as Array<{ type: string; at?: string | null; typed?: boolean }>)
+      .filter((m) => m.type === 'cursor')
+      .map((m) => [m.at, m.typed])
+  const cursor = (id: number, name: string, at: string | null, typed = false) => ({
+    type: 'cursor',
+    user: { id, name },
+    field: 'q1',
+    at,
+    typed
+  })
+
+  it('sends a cursor at once, then at most every 200ms, ending on the latest and keeping a keystroke', () => {
+    mountRoom()
+    latest().open()
+
+    live.sendCursor('q1', 'A', true)
+    live.sendCursor('q1', 'B', true)
+    live.sendCursor('q1', 'C')
+    vi.advanceTimersByTime(SEND_CURSOR_MS)
+
+    expect(cursorsSent()).toEqual([
+      ['A', true],
+      ['C', true]
+    ])
+  })
+
+  it('sends a still cursor again now and then, and stops once it leaves the field', () => {
+    mountRoom()
+    latest().open()
+
+    live.sendCursor('q1', 'A')
+    vi.advanceTimersByTime(RESEND_CURSOR_MS)
+    expect(cursorsSent()).toEqual([
+      ['A', false],
+      ['A', false]
+    ])
+    vi.advanceTimersByTime(SEND_CURSOR_MS)
+    live.sendCursor('q1', null)
+    vi.advanceTimersByTime(RESEND_CURSOR_MS * 2)
+
+    expect(cursorsSent().at(-1)).toEqual([null, false])
+    expect(cursorsSent()).toHaveLength(3)
+  })
+
+  it("shows a teammate's cursor, remembering when they last typed, until they leave the field", () => {
+    vi.setSystemTime(1_000)
+    mountRoom()
+    latest().open()
+
+    latest().receive(cursor(2, 'Ben', 'A', true))
+    vi.setSystemTime(5_000)
+    latest().receive(cursor(2, 'Ben', 'B'))
+    expect(live.cursorsIn('q1')).toEqual([{ id: 2, name: 'Ben', at: 'B', typedAt: 1_000, startedAt: 1_000 }])
+
+    latest().receive(cursor(2, 'Ben', null))
+    expect(live.cursorsIn('q1')).toEqual([])
+  })
+
+  it('counts typing as starting only after a pause, so the name shows once, not all the while', () => {
+    vi.setSystemTime(1_000)
+    mountRoom()
+    latest().open()
+    const startedAt = () => live.cursorsIn('q1')[0]!.startedAt
+
+    latest().receive(cursor(2, 'Ben', 'A', true))
+    vi.setSystemTime(3_000)
+    latest().receive(cursor(2, 'Ben', 'B', true))
+    vi.setSystemTime(6_000)
+    latest().receive(cursor(2, 'Ben', 'C', true))
+    expect(startedAt()).toBe(1_000)
+
+    vi.setSystemTime(6_000 + TYPING_RESTART_MS)
+    latest().receive(cursor(2, 'Ben', 'D', true))
+    expect(startedAt()).toBe(6_000 + TYPING_RESTART_MS)
+  })
+
+  it("drops a teammate's cursor when nothing more arrives, or when this connection drops", () => {
+    mountRoom()
+    latest().open()
+
+    latest().receive(cursor(2, 'Ben', 'A'))
+    vi.advanceTimersByTime(CURSOR_EXPIRES_MS)
+    expect(live.cursorsIn('q1')).toEqual([])
+
+    latest().receive(cursor(2, 'Ben', 'A'))
+    latest().close(1006)
+    expect(live.cursorsIn('q1')).toEqual([])
   })
 })
