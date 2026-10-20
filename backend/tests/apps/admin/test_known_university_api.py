@@ -30,7 +30,7 @@ class KnownUniversityApiTestCase(APITestCase):
         return self.client.post(LIST_URL, {"name": name}, format="json")
 
     def names(self):
-        return list(KnownUniversity.objects.values_list("name", flat=True))
+        return list(KnownUniversity.objects.values_list("full_name", flat=True))
 
     def assertRefused(self, response, code, msg_part):
         self.assertEqual(response.status_code, code, response.content)
@@ -41,7 +41,7 @@ class KnownUniversityApiTestCase(APITestCase):
 
 class PermissionTests(KnownUniversityApiTestCase):
     def test_anonymous_and_non_admin_users_are_refused_on_every_method(self):
-        listed = KnownUniversity.objects.create(name="USYD")
+        listed = KnownUniversity.objects.create(full_name="USYD")
         callers = {
             "anonymous": None,
             "student": User.objects.create_user(email="student@example.com"),
@@ -64,9 +64,9 @@ class PermissionTests(KnownUniversityApiTestCase):
 
 class ListTests(KnownUniversityApiTestCase):
     def test_lists_every_name_alphabetically(self):
-        KnownUniversity.objects.create(name="UNSW")
-        usyd = KnownUniversity.objects.create(name="USYD")
-        KnownUniversity.objects.create(name="Monash University")
+        KnownUniversity.objects.create(full_name="UNSW")
+        usyd = KnownUniversity.objects.create(full_name="USYD")
+        KnownUniversity.objects.create(full_name="Monash University")
 
         response = self.client.get(LIST_URL)
 
@@ -77,16 +77,20 @@ class ListTests(KnownUniversityApiTestCase):
         self.assertEqual([item["name"] for item in body["data"]["items"]], ["Monash University", "UNSW", "USYD"])
         self.assertEqual(
             body["data"]["items"][2],
-            {"id": usyd.pk, "name": "USYD", "createdAt": usyd.created_at.isoformat()},
+            {
+                "id": usyd.pk, "fullName": "USYD", "acronym": "", "country": "", "name": "USYD",
+                "createdAt": usyd.created_at.isoformat(),
+                "updatedAt": usyd.updated_at.isoformat(),
+            },
         )
 
     def test_an_empty_list(self):
         self.assertEqual(self.client.get(LIST_URL).json()["data"], {"items": [], "total": 0})
 
     def test_search_matches_part_of_a_name_in_any_casing(self):
-        KnownUniversity.objects.create(name="University of Sydney")
-        KnownUniversity.objects.create(name="Sydney Uni")
-        KnownUniversity.objects.create(name="UNSW")
+        KnownUniversity.objects.create(full_name="University of Sydney")
+        KnownUniversity.objects.create(full_name="Sydney Uni")
+        KnownUniversity.objects.create(full_name="UNSW")
 
         data = self.client.get(LIST_URL, {"search": " sydney "}).json()["data"]
 
@@ -94,7 +98,7 @@ class ListTests(KnownUniversityApiTestCase):
         self.assertEqual(data["total"], 2)
 
     def test_a_blank_search_lists_everything(self):
-        KnownUniversity.objects.create(name="UNSW")
+        KnownUniversity.objects.create(full_name="UNSW")
 
         self.assertEqual(self.client.get(LIST_URL, {"search": "  "}).json()["data"]["total"], 1)
 
@@ -108,17 +112,19 @@ class AddTests(KnownUniversityApiTestCase):
         self.assertEqual(body["msg"], "Known university added successfully")
         university = KnownUniversity.objects.get()
         self.assertEqual(body["data"], {
-            "id": university.pk, "name": "Monash Uni", "createdAt": university.created_at.isoformat(),
+            "id": university.pk, "fullName": "Monash Uni", "acronym": "", "country": "", "name": "Monash Uni",
+            "updatedAt": university.updated_at.isoformat(),
+            "createdAt": university.created_at.isoformat(),
         })
 
     def test_the_add_is_recorded_in_the_audit_log(self):
         university_id = self.add("USYD").json()["data"]["id"]
 
         log = AuditLog.objects.get(entity_type="known_university", action="create")
-        self.assertEqual((log.actor_user, log.entity_id, log.after_state), (self.admin, university_id, {"name": "USYD"}))
+        self.assertEqual((log.actor_user, log.entity_id, log.after_state), (self.admin, university_id, {"name": "USYD", "acronym": "", "country": ""}))
 
     def test_a_name_already_listed_in_any_casing_or_spacing_is_refused(self):
-        KnownUniversity.objects.create(name="Monash Uni")
+        KnownUniversity.objects.create(full_name="Monash Uni")
 
         for name in ("Monash Uni", "monash uni", "  MONASH   UNI  "):
             with self.subTest(name=name):
@@ -165,7 +171,7 @@ class RenameTests(KnownUniversityApiTestCase):
         return self.client.patch(detail_url(university.pk), {"name": name}, format="json")
 
     def test_renames_a_name_with_its_spacing_tidied_and_records_it(self):
-        university = KnownUniversity.objects.create(name="USYD")
+        university = KnownUniversity.objects.create(full_name="USYD")
 
         response = self.rename(university, "  Sydney   Uni ")
 
@@ -175,18 +181,19 @@ class RenameTests(KnownUniversityApiTestCase):
         log = AuditLog.objects.get(entity_type="known_university", action="update")
         self.assertEqual(
             (log.actor_user, log.entity_id, log.before_state, log.after_state),
-            (self.admin, university.pk, {"name": "USYD"}, {"name": "Sydney Uni"}),
+            (self.admin, university.pk, {"name": "USYD", "acronym": "", "country": ""},
+             {"name": "Sydney Uni", "acronym": "", "country": ""}),
         )
 
     def test_its_own_name_in_another_casing_is_fine(self):
-        university = KnownUniversity.objects.create(name="usyd")
+        university = KnownUniversity.objects.create(full_name="usyd")
         response = self.rename(university, "USYD")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(self.names(), ["USYD"])
 
     def test_another_listed_name_or_a_bad_one_is_refused(self):
-        university = KnownUniversity.objects.create(name="USYD")
-        KnownUniversity.objects.create(name="UNSW")
+        university = KnownUniversity.objects.create(full_name="USYD")
+        KnownUniversity.objects.create(full_name="UNSW")
 
         self.assertRefused(self.rename(university, " unsw "), status.HTTP_400_BAD_REQUEST, "already on the list")
         self.assertRefused(self.rename(university, "   "), status.HTTP_400_BAD_REQUEST, "required")
@@ -196,7 +203,7 @@ class RenameTests(KnownUniversityApiTestCase):
         self.assertFalse(AuditLog.objects.filter(entity_type="known_university", action="update").exists())
 
     def test_the_same_name_changes_nothing(self):
-        university = KnownUniversity.objects.create(name="USYD")
+        university = KnownUniversity.objects.create(full_name="USYD")
         response = self.rename(university, "USYD")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(AuditLog.objects.filter(entity_type="known_university", action="update").exists())
@@ -209,7 +216,7 @@ class RenameTests(KnownUniversityApiTestCase):
 
 class DeleteTests(KnownUniversityApiTestCase):
     def test_deletes_a_name_and_records_it(self):
-        university = KnownUniversity.objects.create(name="USYD")
+        university = KnownUniversity.objects.create(full_name="USYD")
 
         response = self.client.delete(detail_url(university.pk))
 
@@ -217,13 +224,13 @@ class DeleteTests(KnownUniversityApiTestCase):
         self.assertEqual(response.json(), {"msg": "Known university deleted successfully", "data": True})
         self.assertEqual(self.names(), [])
         log = AuditLog.objects.get(entity_type="known_university", action="delete")
-        self.assertEqual((log.actor_user, log.entity_id, log.before_state), (self.admin, university.pk, {"name": "USYD"}))
+        self.assertEqual((log.actor_user, log.entity_id, log.before_state), (self.admin, university.pk, {"name": "USYD", "acronym": "", "country": ""}))
 
     def test_a_missing_id_is_not_found(self):
         self.assertRefused(self.client.delete(detail_url(999999)), status.HTTP_404_NOT_FOUND, "not found")
 
     def test_a_deleted_name_can_be_added_again(self):
-        university = KnownUniversity.objects.create(name="USYD")
+        university = KnownUniversity.objects.create(full_name="USYD")
         self.client.delete(detail_url(university.pk))
 
         self.assertEqual(self.add("usyd").status_code, status.HTTP_201_CREATED)
@@ -262,3 +269,89 @@ class SchoolWarningTests(KnownUniversityApiTestCase):
         self.client.delete(detail_url(university_id))
 
         self.assertWarned("USYD", False)
+
+
+class FullNameAcronymCountryTests(KnownUniversityApiTestCase):
+    def post(self, **body):
+        return self.client.post(LIST_URL, body, format="json")
+
+    def patch(self, university, **body):
+        return self.client.patch(detail_url(university.pk), body, format="json")
+
+    def test_adds_a_full_name_acronym_and_country_and_still_answers_with_name(self):
+        response = self.post(fullName=" University of  Technology Sydney ", acronym=" UTS ", country="Australia")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        data = response.json()["data"]
+        self.assertEqual(
+            {key: data[key] for key in ("fullName", "acronym", "country", "name")},
+            {"fullName": "University of Technology Sydney", "acronym": "UTS", "country": "Australia",
+             "name": "University of Technology Sydney"},
+        )
+        log = AuditLog.objects.get(entity_type="known_university", action="create")
+        self.assertEqual(log.after_state, {"name": "University of Technology Sydney", "acronym": "UTS", "country": "Australia"})
+
+    def test_name_is_still_accepted_and_acronym_and_country_are_optional(self):
+        data = self.post(name="Monash University").json()["data"]
+        self.assertEqual((data["fullName"], data["acronym"], data["country"]), ("Monash University", "", ""))
+
+    def test_two_universities_may_share_an_acronym_but_not_a_full_name(self):
+        self.assertEqual(self.post(fullName="University of Technology Sydney", acronym="UTS").status_code, 201)
+        self.assertEqual(self.post(fullName="University of Technology Sarawak", acronym="uts").status_code, 201)
+        self.assertRefused(
+            self.post(fullName="UNIVERSITY OF TECHNOLOGY SYDNEY", acronym="X"), status.HTTP_400_BAD_REQUEST,
+            "already on the list",
+        )
+        self.assertEqual(KnownUniversity.objects.filter(acronym__iexact="uts").count(), 2)
+
+    def test_an_acronym_or_country_too_long_or_not_text_is_refused(self):
+        self.assertRefused(self.post(fullName="A", acronym="U" * 65), 400, "Acronym must be 64 characters or fewer")
+        self.assertRefused(self.post(fullName="A", country="C" * 101), 400, "Country must be 100 characters or fewer")
+        self.assertRefused(self.post(fullName="A", acronym=["U"]), 400, "Acronym must be text")
+        self.assertRefused(self.post(fullName="A", country=7), 400, "Country must be text")
+        self.assertEqual(self.post(fullName="A", acronym="U" * 64, country="C" * 100).status_code, 201)
+
+    def test_patch_changes_only_what_it_gives_and_blank_clears(self):
+        university = KnownUniversity.objects.create(full_name="Macquarie University", acronym="MQ", country="Australia")
+
+        data = self.patch(university, acronym="MQU").json()["data"]
+        self.assertEqual((data["fullName"], data["acronym"], data["country"]), ("Macquarie University", "MQU", "Australia"))
+
+        data = self.patch(university, country="").json()["data"]
+        self.assertEqual((data["acronym"], data["country"]), ("MQU", ""))
+
+        data = self.patch(university, fullName="Macquarie Uni", country="Australia").json()["data"]
+        self.assertEqual((data["name"], data["acronym"], data["country"]), ("Macquarie Uni", "MQU", "Australia"))
+
+        log = AuditLog.objects.filter(entity_type="known_university", action="update").order_by("id").first()
+        self.assertEqual(
+            (log.before_state, log.after_state),
+            ({"name": "Macquarie University", "acronym": "MQ", "country": "Australia"},
+             {"name": "Macquarie University", "acronym": "MQU", "country": "Australia"}),
+        )
+
+    def test_patch_with_nothing_to_change_is_refused(self):
+        university = KnownUniversity.objects.create(full_name="USYD")
+        self.assertRefused(self.patch(university), 400, "name is required")
+
+    def test_patch_length_messages(self):
+        university = KnownUniversity.objects.create(full_name="USYD")
+        self.assertRefused(self.patch(university, acronym="U" * 65), 400, "64 characters")
+        self.assertRefused(self.patch(university, country="C" * 101), 400, "100 characters")
+
+    def test_search_matches_full_name_acronym_or_country(self):
+        KnownUniversity.objects.create(full_name="The University of Sydney", acronym="USYD", country="Australia")
+        KnownUniversity.objects.create(full_name="Aalto University", acronym="", country="Finland")
+
+        def found(search):
+            return [item["fullName"] for item in self.client.get(LIST_URL, {"search": search}).json()["data"]["items"]]
+
+        self.assertEqual(found("usyd"), ["The University of Sydney"])
+        self.assertEqual(found("finland"), ["Aalto University"])
+        self.assertEqual(found("university"), ["Aalto University", "The University of Sydney"])
+
+    def test_an_acronym_added_here_makes_the_school_warning_fire(self):
+        self.post(fullName="Royal Melbourne Institute of Technology", acronym="RMIT", country="Australia")
+        for school, warned in (("rmit", True), ("Royal Melbourne Institute of Technology", True), ("Australia", False)):
+            with self.subTest(school=school):
+                self.assertEqual(SchoolWarningTests.registration(school).is_valid(), not warned)

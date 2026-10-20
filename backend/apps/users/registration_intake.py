@@ -741,6 +741,7 @@ def register(request):
             email_answers = stored_email_answers(
                 address for student in students for address in (student["email"], student["guardian"].get("email"))
             )
+            known_schools = KnownUniversity.matching(student.get("school", "") for student in students)
             for index, student in enumerate(students):
                 registered_by = (
                     (
@@ -769,7 +770,7 @@ def register(request):
                 warnings.extend([{
                     **warning, "field": registration_field(warning["field"], index),
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
-                } for warning in registration_warnings(validator.validated_data, email_answers)])
+                } for warning in registration_warnings(validator.validated_data, email_answers, known_schools)])
             if errors:
                 raise serializers.ValidationError(errors)
             if warnings:
@@ -963,7 +964,7 @@ class RegistrationUniversitiesView(APIView):
     authentication_classes = []
 
     def get(self, request):
-        names = KnownUniversity.objects.order_by("name").values_list("name", flat=True)
+        names = KnownUniversity.objects.order_by("full_name").values_list("full_name", flat=True)
         return Response({"universities": list(names)})
 
 

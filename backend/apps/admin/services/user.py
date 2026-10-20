@@ -19,6 +19,11 @@ from apps.users.models import (
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
 from apps.users.profile_images import profile_image_url
+from apps.users.email_verification import check_one_address, invalid_address_message
+from apps.users.mentor_registration import (
+    MAX_WEEKLY_HOURS as MENTOR_MAX_WEEKLY_HOURS, MAX_WORDS as MENTOR_MAX_WORDS,
+    STUDY_YEARS as MENTOR_STUDY_YEARS,
+)
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
@@ -574,9 +579,7 @@ def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
 
 # What a mentor gives registering (apps.users.mentor_registration), checked
 # the same way when an admin changes it.
-MENTOR_STUDY_YEARS = ("1", "2", "3", "4", "5+")
 STUDENT_YEARS = ("9", "10", "11", "12")
-MENTOR_MAX_WORDS = 150
 
 # Payload key: mentor profile field.
 MENTOR_FIELDS = {
@@ -591,7 +594,6 @@ MENTOR_FIELDS = {
     "mentorMaxGroupCount": "max_group_count",
     "mentorWeeklyHours": "weekly_hours",
 }
-MENTOR_MAX_WEEKLY_HOURS = 40
 # What only Add user's full mentor form sends, not a mentor import.
 FULL_MENTOR_KEYS = (
     "mentorCompany", "mentorFieldOfStudy", "mentorUniversityYear", "mentorWeeklyHours",
@@ -1652,6 +1654,8 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             return {"msg": "Email is not a valid email address", "data": None}
         if User.objects.filter(email__iexact=new_email).exclude(pk=user_id).exists():
             return {"msg": "Account email already exists", "data": None}
+        if invalid := check_one_address(new_email, current=user.email):
+            return {"msg": invalid_address_message(invalid), "data": None}
     email_changed = new_email != user.email.strip().lower()
 
     if email_changed:
@@ -1708,6 +1712,9 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     return {"msg": "Guardian email is not a valid email address", "data": None}
                 if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
+                current_guardian = StudentProfile.objects.filter(user_id=user_id).values_list("pg_email", flat=True).first()
+                if invalid := check_one_address(guardian_email, current=current_guardian):
+                    return {"msg": invalid_address_message(invalid, "The guardian's email address"), "data": None}
     
     mentor_values: Dict[str, Any] = {}
     mentor_slots = None
@@ -1963,9 +1970,10 @@ def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str,
         return {"msg": "User not found", "data": None}
 
     before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-    user.is_active = is_active
-    user.account_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
-    user.save()
+    if is_active:
+        user.activate()
+    else:
+        user.deactivate()
     log_audit_event(
         actor=initiated_by,
         entity_type="user",
@@ -2014,9 +2022,10 @@ def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) 
                 unchanged_ids.append(user.id)
                 continue
             before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-            user.is_active = is_active
-            user.account_status = next_status
-            user.save()
+            if is_active:
+                user.activate()
+            else:
+                user.deactivate()
             log_audit_event(
                 actor=initiated_by,
                 entity_type="user",

@@ -268,8 +268,8 @@ class OptionalGuardianTests(RegistrationValidationTestCase):
 
 class KnownUniversityTests(RegistrationValidationTestCase):
     def setUp(self):
-        KnownUniversity.objects.create(name="USYD")
-        KnownUniversity.objects.create(name="Massachusetts Institute of Technology")
+        KnownUniversity.objects.create(full_name="USYD")
+        KnownUniversity.objects.create(full_name="Massachusetts Institute of Technology")
 
     def test_a_school_on_the_list_is_held_for_confirmation(self):
         for school in ("USYD", "usyd", "  Usyd ", "massachusetts  institute of TECHNOLOGY"):
@@ -287,12 +287,12 @@ class KnownUniversityTests(RegistrationValidationTestCase):
     def test_a_school_added_to_the_list_starts_being_held(self):
         self.assertAccepted(SchoolName="UNSW")
 
-        KnownUniversity.objects.create(name="UNSW")
+        KnownUniversity.objects.create(full_name="UNSW")
 
         self.assertRefusedWith("looks like a university", SchoolName="unsw")
 
     def test_a_school_taken_off_the_list_stops_being_held(self):
-        KnownUniversity.objects.filter(name="USYD").delete()
+        KnownUniversity.objects.filter(full_name="USYD").delete()
 
         self.assertAccepted(SchoolName="USYD")
 
@@ -300,11 +300,33 @@ class KnownUniversityTests(RegistrationValidationTestCase):
         self.assertRefusedWith("looks like a university", SchoolName="Western Sydney University")
 
     def test_names_are_stored_without_stray_spaces(self):
-        entry = KnownUniversity.objects.create(name="  Monash   Uni ")
+        entry = KnownUniversity.objects.create(full_name="  Monash   Uni ")
 
-        self.assertEqual(entry.name, "Monash Uni")
+        self.assertEqual(entry.full_name, "Monash Uni")
         self.assertEqual(str(entry), "Monash Uni")
+
+    def test_a_school_matching_an_acronym_is_held_but_a_country_is_not(self):
+        KnownUniversity.objects.create(full_name="Queensland University of Technology", acronym="QUT", country="Australia")
+        for school in ("QUT", " qut ", "Queensland  University of Technology"):
+            with self.subTest(school=school):
+                self.assertRefusedWith("looks like a university", SchoolName=school)
+        self.assertAccepted(SchoolName="Australia")
+
+    def test_matching_reads_both_columns_in_one_query(self):
+        KnownUniversity.objects.create(full_name="Edith Cowan University", acronym="ECU")
+        with self.assertNumQueries(1):
+            found = KnownUniversity.matching([" ecu ", "USYD", "massachusetts institute of technology", "Perth Modern", ""])
+        self.assertEqual(found, {"ecu", "usyd", "massachusetts institute of technology"})
+        with self.assertNumQueries(0):
+            self.assertEqual(KnownUniversity.matching(["", "  "]), set())
+
+    def test_an_acronym_and_country_are_optional_and_not_unique(self):
+        KnownUniversity.objects.create(full_name="University of Technology Sydney", acronym="UTS")
+        KnownUniversity.objects.create(full_name="University of Technology Sarawak", acronym="uts", country="Malaysia")
+        self.assertEqual(KnownUniversity.objects.get(full_name="USYD").acronym, "")
+        self.assertEqual(KnownUniversity.objects.get(full_name="USYD").country, "")
+        self.assertEqual(KnownUniversity.objects.filter(acronym__iexact="UTS").count(), 2)
 
     def test_the_same_name_cannot_be_listed_twice_whatever_its_casing(self):
         with self.assertRaises(IntegrityError), transaction.atomic():
-            KnownUniversity.objects.create(name="usyd")
+            KnownUniversity.objects.create(full_name="usyd")

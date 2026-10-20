@@ -51,7 +51,7 @@ class RegistrationUniversitiesTests(TestCase):
         from apps.users.models import KnownUniversity
 
         for name in ("UNSW Sydney", "The University of Sydney", "Monash University"):
-            KnownUniversity.objects.create(name=name)
+            KnownUniversity.objects.create(full_name=name)
 
         response = APIClient().get("/api/v1/registration/universities/")
 

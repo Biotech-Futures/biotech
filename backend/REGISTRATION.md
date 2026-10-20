@@ -2,8 +2,9 @@
 
 The consolidated frontend/backend change on current `main` implements **five student journeys** at
 `POST /api/v1/registration` (both slash variants and `registration-intake/`
-are aliases). Mentor intake remains explicitly unsupported, without a legacy
-fallback. It combines the
+are aliases). Mentors register at the same endpoint with `journey: "mentor"`
+(normalized JSON only, no legacy fallback); see
+[Mentor registration](#mentor-registration). It combines the
 full `registration` branch and the production changes from frontend #475 and
 backend #476. Registration history is retained while its older frontend wiring
 is reconciled with current main and the newer intake contract.
@@ -136,6 +137,76 @@ back the entire batch and removes files already saved. A final conditional updat
 against revocation, expiry or use during processing. Unique constraints
 protect email, idempotency key, student receipt and invitation receipt.
 
+## Mentor registration
+
+A mentor applies on the public registration page. `register()` hands
+`journey: "mentor"` to `apps/users/mentor_registration.py` before any student
+handling. The request needs the same session, `X-CSRFToken` and UUID
+`Idempotency-Key` as a student's, and no files.
+
+```json
+{
+  "journey": "mentor",
+  "payload": {
+    "mentor": {
+      "firstName": "Jordan", "lastName": "Ng", "email": "jordan.ng@example.com",
+      "country": "Australia", "state": "NSW",
+      "affiliation": "postgraduate", "institution": "University of Sydney",
+      "company": "", "universityYear": "2", "fieldOfStudy": "Bioengineering",
+      "interests": ["Biomedical Innovations"],
+      "capacity": "3", "weeklyHours": "4",
+      "background": "...", "motivation": "...", "mentoringApproach": "..."
+    }
+  }
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `firstName`, `lastName` | Required, up to 150 characters |
+| `email` | Required email, up to 254 characters; saved in lower case |
+| `country` | Required |
+| `state` | Required when the country is Australia |
+| `affiliation` | `undergraduate`, `postgraduate`, `hdr`, `academic` or `industry` |
+| `company` | Required for `industry` |
+| `institution`, `fieldOfStudy` | Required unless `industry` |
+| `universityYear` | `1` to `4` or `5+`; required for `undergraduate` and `postgraduate` |
+| `interests` | At least one, at most 100 |
+| `capacity` | `1` to `5`; becomes the mentor's maximum number of groups |
+| `weeklyHours` | Required whole number from 1 to 40 |
+| `background`, `motivation`, `mentoringApproach` | Required, 150 words each (split on spaces, as the form counts them) |
+| `availability` | Optional weekly slots `{weekday: "0"-"6" (Monday is 0), start, end}` as `HH:MM`; the form no longer sends them, but they're saved when given |
+
+Unknown fields are refused. Every rule the form checks is checked again here,
+and each error comes back on its own field (`mentor.<field>`).
+
+A mentor is saved in one transaction:
+
+- an account that is **pending and inactive** (no password), so they can't
+  sign in until an admin activates them on Admin > Mentors;
+- the `mentor` role from now, with **no end date**;
+- a mentor profile with every field above (the background text is
+  `relevant_background`, the motivation `mentor_reason`);
+- their interests (a name not already listed is added) and any weekly slots.
+
+The answer is the usual receipt with **`student_count: 0`**:
+`{reference_code, journey: "mentor", student_count: 0, created_at}`, HTTP 201,
+or HTTP 200 with the same receipt for an unchanged retry. A changed request
+with a used key returns HTTP 409, and the per-IP limit returns HTTP 429, as for
+students. A retry still gets its receipt when the limit is reached.
+
+Mentors follow the student registration dates: when registration is closed the
+answer is "Registration is closed". Late links are for `student_individual`
+only, so a mentor request carrying one is refused, and the supervisor
+exception after close doesn't apply. An email that already has an account
+(student, supervisor or anyone else) is refused on `mentor.email`.
+
+Once the save commits, the mentor gets the **Registration confirmation (to
+mentor)** email (the `registration_mentor` template, System Emails > Registration).
+
+Mentors aren't covered by the name/email typo warning, or by the
+[email check before submission](#email-check-before-submission).
+
 ## Email check before submission
 
 Before a registration is submitted, the page can check that its students' and
@@ -162,7 +233,8 @@ time it can't run, the page submits as it would without it.
 `POST /api/v1/registration/email-check/` takes the same normalized
 `{journey, payload}` as the intake endpoint, with the same session and CSRF
 token, and an `X-Registration-Invitation` header for a late link (checking does
-not use the link up). Photos are not sent. Mentor registrations aren't checked.
+not use the link up). Photos are not sent. Mentor registrations aren't checked:
+the page skips the check for them, and this endpoint refuses `journey: "mentor"`.
 
 | Response | Meaning |
 | --- | --- |
@@ -343,8 +415,10 @@ Before deployment:
    custom headers are included in the CORS allowlist.
 4. For photos, provision the private Azure `AZURE_PROFILE_IMAGE_CONTAINER`
    (default `profile-images`) and its normal managed-storage credentials.
-5. Deploy all five student journeys with this adapter. Mentor applications
-   still require a separate backend implementation; do not advertise that flow as operational.
+5. Deploy all five student journeys and the mentor journey with this adapter.
+   Mentor registration needs `users.0032_mentor_registration` and
+   `users.0033_mentor_weekly_hours` (joined to the email check migrations by
+   `users.0035`).
 
 ### Migration compatibility with main
 
@@ -400,5 +474,5 @@ requests; they require an **isolated PostgreSQL test database** and are
 explicitly skipped on SQLite (which cannot exercise row locks). Never run
 these checks against a shared demo or production database.
 
-No supervisor late grants, management UI, mentor adapter, fixture
+No supervisor late grants, management UI, fixture
 datasets, demonstration server, or unrelated dashboard/deadline work is included.
