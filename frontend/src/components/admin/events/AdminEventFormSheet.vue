@@ -466,7 +466,10 @@ function localInTzToUtcIso(value: string, timeZone: string = 'UTC'): string {
 
 const loadMeta = async () => {
   try {
-    roles.value = await fetchAdminEventMetaRoles()
+    const loadedRoles = await fetchAdminEventMetaRoles()
+    roles.value = loadedRoles.filter(
+      (role) => role.roleName.trim().toLowerCase() !== 'admin'
+    )
   } catch (err) {
     console.warn('Failed to load event metadata (roles):', err)
   }
