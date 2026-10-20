@@ -16,8 +16,8 @@ admin.site.register(SupervisorProfile)
 
 @admin.register(KnownUniversity)
 class KnownUniversityAdmin(admin.ModelAdmin):
-    list_display = ("name", "created_at")
-    search_fields = ("name",)
+    list_display = ("full_name", "acronym", "country", "created_at")
+    search_fields = ("full_name", "acronym", "country")
 
 
 class ReadOnlyAdmin(admin.ModelAdmin):

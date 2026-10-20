@@ -84,14 +84,20 @@ def _invalid_email_warning(answers, address, *, code, field, override, whose):
     }
 
 
-def registration_warnings(data, email_answers=None):
+def registration_warnings(data, email_answers=None, known_schools=None):
     """The soft warnings for one student's registration details, each with
     the override that confirms past it. ``email_answers`` is
     ``stored_email_answers`` for the submission: an address answered invalid
-    gets a warning, and one with no answer gets none (it isn't blocked)."""
+    gets a warning, and one with no answer gets none (it isn't blocked).
+    ``known_schools`` is ``KnownUniversity.matching`` for the submission's
+    school names; without it, this student's is looked up on its own."""
     warnings = []
     school = data.get("SchoolName", "").strip().lower()
-    if ("university" in school or KnownUniversity.matches(school)) and not data.get("ConfirmSchoolOverride"):
+    known = (
+        KnownUniversity.normalise(school).lower() in known_schools if known_schools is not None
+        else KnownUniversity.matches(school)
+    )
+    if ("university" in school or known) and not data.get("ConfirmSchoolOverride"):
         warnings.append({
             "code": "university_school",
             "field": "SchoolName",

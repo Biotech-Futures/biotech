@@ -23,7 +23,7 @@ class LoadKnownUniversitiesTests(TestCase):
         return out.getvalue()
 
     def _names(self):
-        return list(KnownUniversity.objects.values_list("name", flat=True))
+        return list(KnownUniversity.objects.values_list("full_name", flat=True))
 
     def test_adds_each_name_in_the_file(self):
         output = self._run("name,country\nUSYD,Australia\nMonash  Uni ,Australia\n")
@@ -32,7 +32,7 @@ class LoadKnownUniversitiesTests(TestCase):
         self.assertIn("Added 2 universities, skipped 0.", output)
 
     def test_skips_blank_listed_and_repeated_names(self):
-        KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(full_name="USYD")
 
         output = self._run("name\nusyd\nUNSW\nunsw\n   \n")
 

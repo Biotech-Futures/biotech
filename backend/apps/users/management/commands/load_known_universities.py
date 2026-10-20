@@ -39,14 +39,14 @@ class Command(BaseCommand):
         except OSError as exc:
             raise CommandError(f"Could not read {options['csv_path']}: {exc}")
 
-        listed = {name.lower() for name in KnownUniversity.objects.values_list("name", flat=True)}
+        listed = {name.lower() for name in KnownUniversity.objects.values_list("full_name", flat=True)}
         new, skipped = [], 0
         for name in names:
             if not name or len(name) > 255 or name.lower() in listed:
                 skipped += 1
                 continue
             listed.add(name.lower())
-            new.append(KnownUniversity(name=name))
+            new.append(KnownUniversity(full_name=name))
 
         if not options["dry_run"]:
             KnownUniversity.objects.bulk_create(new)
