@@ -362,7 +362,7 @@ export const isBlankStudent = (student: StudentDetails) =>
   ].some((value) => value.trim()) &&
   !student.interests.length
 
-/** Whether any of a (optional) nominated supervisor's details were given. */
+/** Whether any of a nominated supervisor's details were given. */
 export const hasSupervisor = (supervisor: SupervisorDetails) =>
   Boolean(supervisor.firstName.trim() || supervisor.lastName.trim() || supervisor.email.trim())
 

@@ -61,6 +61,28 @@ afterEach(() => {
 })
 
 describe('canonical registration intake', () => {
+  it.each(['individual', 'team'])(
+    'requires supervisor details for a student %s registration',
+    async (kind) => {
+      const wrapper = mountPage()
+      await clickButton(wrapper, 'Student')
+      await clickButton(wrapper, kind === 'team' ? 'I have a group' : "I don't have a group")
+      const setup = wrapper.vm as unknown as { currentStep: number }
+      setup.currentStep = 2
+      await wrapper.vm.$nextTick()
+      const prefix = kind === 'team' ? 'student-team' : 'student-individual'
+      for (const field of ['first', 'last', 'email']) {
+        expect(wrapper.get(`#${prefix}-supervisor-${field}`).attributes('required')).toBeDefined()
+      }
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.text()).toContain('Enter the supervisor first name.')
+      expect(wrapper.text()).toContain('Enter the supervisor last name.')
+      expect(wrapper.text()).toContain('Enter the supervisor email.')
+      expect(setup.currentStep).toBe(2)
+      wrapper.unmount()
+    },
+  )
+
   it('renders compact headings and flat white panels with the target platform green', () => {
     const css = /<style scoped>([\s\S]+)<\/style>/.exec(pageSource)?.[1]
     if (!css) throw new Error('Expected registration stylesheet')
@@ -565,7 +587,7 @@ describe('canonical registration intake', () => {
     }
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
+    expect(wrapper.text()).toContain("Enter your supervisor's name and email. These details are required.")
     // A * on each of the supervisor's fields.
     for (const id of ['first', 'last', 'email']) {
       expect(wrapper.get(`#student-individual-supervisor-${id}-label`).text()).toContain('*')
@@ -575,8 +597,8 @@ describe('canonical registration intake', () => {
     expect(setup.errors).toMatchObject({
       'studentIndividual.supervisor.firstName': 'Enter the supervisor first name.',
       'studentIndividual.supervisor.lastName': 'Enter the supervisor last name.',
+      'studentIndividual.supervisor.email': expect.any(String),
     })
-    expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
 
     setup.forms.studentIndividual.supervisor.firstName = 'Sam'
     setup.validateCurrentStep()
@@ -1171,7 +1193,7 @@ describe('canonical registration intake', () => {
     expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(html.indexOf('interest-selector'))
     expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
     // Their guardian on Your profile, after their profile; their supervisor on Group.
-    expect(wrapper.text()).not.toContain('A supervisor is usually a teacher, but can also be a guardian.')
+    expect(wrapper.text()).not.toContain("Enter your supervisor's name and email. These details are required.")
     expect(wrapper.text()).not.toContain('Add guardian contact (optional)')
     expect(
       wrapper.get('#studentTeam-creator-guardian-firstName').attributes('required'),
@@ -1186,8 +1208,8 @@ describe('canonical registration intake', () => {
     setup.maxReachedStep = 2
     await wrapper.vm.$nextTick()
     // The supervisor before Member 1, and no shared interests.
-    expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
-    expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
+    expect(wrapper.text()).toContain("Enter your supervisor's name and email. These details are required.")
+    expect(wrapper.text()).not.toContain('Mutual Areas of Interest')
     const group = wrapper.html()
     expect(group.indexOf('student-team-supervisor-first')).toBeLessThan(
       group.indexOf('Group members'),
