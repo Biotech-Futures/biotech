@@ -175,13 +175,13 @@
       </article>
 
       <article class="analytics-card">
-        <h2>Users Logged In This Year ({{ currentYear }})</h2>
-        <div class="login-rate-grid">
+        <h2>{{ isCurrentYear ? 'Users Logged In This Year' : 'Users Logged In' }} ({{ selectedYear }})</h2>
+        <div v-if="data.loginRatesAvailable" class="login-rate-grid">
           <div
             v-for="item in loginRates"
             :key="item.label"
             class="login-rate-item interactive-chart-row"
-            @mouseenter="showTooltip($event, item.label, `${item.value}% logged in`, 'Current user records')"
+            @mouseenter="showTooltip($event, item.label, `${item.value}% logged in`, isCurrentYear ? 'Current user records' : 'Recorded login activity')"
             @mousemove="moveTooltip"
             @mouseleave="hideTooltip"
           >
@@ -194,9 +194,12 @@
             >
               <div class="rate-ring-inner">{{ item.value }}%</div>
             </div>
-            <small>Current users with a recorded login in {{ currentYear }} (UTC)</small>
+            <small>{{ loginRateCaption }}</small>
           </div>
         </div>
+        <p v-else class="login-rate-unavailable">
+          No login activity was recorded for {{ selectedYear }}, so login rates are unavailable.
+        </p>
       </article>
 
       <article class="analytics-card interests-card">
@@ -844,6 +847,7 @@ import {
   buildUsersAnalytics,
   loadUsersAnalyticsBundle,
   participantYearComparison,
+  registeredByYear,
   usersAnalyticsAsOf,
 } from '@/utils/liveAnalyticsData'
 
@@ -863,6 +867,7 @@ const liveData = ref<UserAnalyticsYear>({
   mentorGrowth: null,
   supervisorGrowth: null,
   loginRates: { students: 0, mentors: 0, supervisors: 0 },
+  loginRatesAvailable: true,
   dailyActivity: { labels: [], total: [] },
   lastLogin: [],
   userLastLogins: [],
@@ -1164,6 +1169,9 @@ const loginRates = computed(() => [
   { label: 'Mentors', value: data.value.loginRates.mentors, color: '#017151' },
   { label: 'Supervisors', value: data.value.loginRates.supervisors, color: '#5EA99E' },
 ])
+const loginRateCaption = computed(() => isCurrentYear.value
+  ? `Current users with a recorded login in ${selectedYear.value} (UTC)`
+  : `Users registered by ${selectedYear.value} with a recorded login that year (UTC)`)
 
 type RoleSegment = {
   label: string
@@ -1836,7 +1844,9 @@ function usersSummary() {
     ] as const)
       .filter(([, change]) => change !== null)
       .map(([label, change]) => figure('Change vs previous year', label, change, '%', `Compared with ${year - 1}`)),
-    ...loginRates.value.map((rate) => figure('Logged in at least once', rate.label, rate.value, '%')),
+    ...(current.loginRatesAvailable
+      ? loginRates.value.map((rate) => figure('Logged in at least once', rate.label, rate.value, '%'))
+      : []),
     ...activityStatusByRole.value.flatMap((row) => [
       figure(`Activity status (${row.role}s)`, 'Active', row.active, 'users', `Logged in within the last ${ACTIVE_WINDOW_DAYS} days`),
       figure(`Activity status (${row.role}s)`, 'Inactive', row.inactive, 'users'),
@@ -1876,21 +1886,26 @@ function usersSummary() {
 function usersDetails() {
   const asOfDay = analyticsAsOf.value || isoDay(new Date())
   const asOf = new Date(`${asOfDay}T00:00:00Z`)
+  // A past year lists those registered by then. A login after its asOf day
+  // happened later, so that user's activity in the selected year is unknown.
+  const cutoff = isCurrentYear.value ? null : asOf.getTime() + 86_400_000
   const roleOrder = ['student', 'mentor', 'supervisor']
-  const rows = [...participants.value]
+  const rows = participants.value
+    .filter((user) => registeredByYear(user, selectedYear.value))
     .sort((a, b) =>
       roleOrder.indexOf((a.role ?? '').toLowerCase()) - roleOrder.indexOf((b.role ?? '').toLowerCase())
       || `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
     )
     .map((user) => {
-      const days = daysSince(user.lastLogin, asOf)
+      const loggedInLater = cutoff !== null && !!user.lastLogin && new Date(user.lastLogin).getTime() >= cutoff
+      const days = loggedInLater ? null : daysSince(user.lastLogin, asOf)
       return [
         user.id,
         `${user.firstName} ${user.lastName}`.trim(),
         user.email,
         roleTitle(user.role),
         accountStatusLabel(user.accountStatus, user.isActive),
-        activityStatusLabel(days),
+        loggedInLater ? `Logged in after ${asOfDay}` : activityStatusLabel(days),
         isoUtc(user.lastLogin),
         days,
         isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
@@ -2317,6 +2332,16 @@ function exportCsv(kind: ExportKind) {
   gap: 10px;
   align-items: center;
   height: 238px;
+}
+
+.login-rate-unavailable {
+  display: grid;
+  height: 238px;
+  margin: 0;
+  place-items: center;
+  color: #687a76;
+  font-size: 12px;
+  text-align: center;
 }
 
 .login-rate-item {

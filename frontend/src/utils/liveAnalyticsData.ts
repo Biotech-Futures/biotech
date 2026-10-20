@@ -385,12 +385,15 @@ function participantCounts(users: AdminUser[]): ParticipantYearCounts {
   }
 }
 
+/** Registered by the end of `year`. Undated legacy accounts can only be
+ *  represented safely in the live year. */
+export function registeredByYear(user: AdminUser, year: number) {
+  const joined = registrationDate(user)
+  return joined ? joined.getUTCFullYear() <= year : year === new Date().getUTCFullYear()
+}
+
 export function participantYearComparison(users: AdminUser[], year: number) {
-  const systemYear = new Date().getUTCFullYear()
-  const currentRows = roleUsers(users).filter((user) => {
-    const joined = registrationDate(user)
-    return joined ? joined.getUTCFullYear() <= year : year === systemYear
-  })
+  const currentRows = roleUsers(users).filter((user) => registeredByYear(user, year))
   const previousRows = currentRows.filter((user) => {
     const joined = registrationDate(user)
     return joined !== null && joined.getUTCFullYear() <= year - 1
@@ -439,13 +442,16 @@ export function buildUsersAnalytics(
   year = new Date().getUTCFullYear(),
 ): UserAnalyticsYear {
   const systemYear = new Date().getUTCFullYear()
-  const users = roleUsers(bundle.users).filter((user) => {
-    const joined = registrationDate(user)
-    // Undated legacy accounts can only be represented safely in the live year.
-    return joined ? joined.getUTCFullYear() <= year : year === systemYear
-  })
+  const users = roleUsers(bundle.users).filter((user) => registeredByYear(user, year))
   const asOf = safeDate(usersAnalyticsAsOf(bundle, year))
     ?? new Date(Date.UTC(year, 11, 31))
+  // asOf is a whole UTC day, so only a login after that day happened after
+  // the selected year. The live year's asOf is its latest day: keep every login.
+  const cutoff = year === systemYear ? null : new Date(asOf.getTime() + 86_400_000)
+  const loggedInAfterCutoff = (user: AdminUser) => {
+    const last = safeDate(user.lastLogin)
+    return cutoff !== null && last !== null && last >= cutoff
+  }
   const students = users.filter((user) => roleTitle(user.role) === 'Student')
   const mentors = users.filter((user) => roleTitle(user.role) === 'Mentor')
   const supervisors = users.filter((user) => roleTitle(user.role) === 'Supervisor')
@@ -478,8 +484,7 @@ export function buildUsersAnalytics(
     label: bucket.label,
     value: users.filter((user) => {
       const last = safeDate(user.lastLogin)
-      if (last && last > asOf) return false
-      if (!last) return false
+      if (!last || loggedInAfterCutoff(user)) return false
       const days = daysBetween(last, asOf)
       return days >= bucket.min && days <= bucket.max
     }).length,
@@ -534,16 +539,15 @@ export function buildUsersAnalytics(
       mentors: rate('Mentor', mentors),
       supervisors: rate('Supervisor', supervisors),
     },
+    // Login audit rows only exist for years with recorded logins.
+    loginRatesAvailable: year === systemYear || recordedYear !== undefined,
     dailyActivity: { labels: dailyLabels, total: dailyTotal },
     lastLogin: recency,
     // A last login after a historical cutoff proves only that the account
     // logged in later; it cannot tell us whether the user had never logged in
     // by the selected year. Leave those rows out instead of mislabelling them
     // as "Never".
-    userLastLogins: users.filter((user) => {
-      const recordedLastLogin = safeDate(user.lastLogin)
-      return !recordedLastLogin || recordedLastLogin <= asOf
-    }).map((user) => {
+    userLastLogins: users.filter((user) => !loggedInAfterCutoff(user)).map((user) => {
       const recordedLastLogin = safeDate(user.lastLogin)
       const lastLoginDate = recordedLastLogin
       const activityStatus = lastLoginDate ? loginStatus(user, asOf) : 'Never'

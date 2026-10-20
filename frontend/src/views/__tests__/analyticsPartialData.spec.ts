@@ -235,6 +235,92 @@ describe('independent analytics sources', () => {
     expect(historical.loginRates.mentors).toBe(100)
   })
 
+  it('keeps logins made during the latest activity day', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T12:00:00Z'))
+    const loginActivity = (date: string, year: number) => ({
+      by_day: [{ date, students: 1, mentors: 0, supervisors: 0, total: 1 }],
+      by_year: [{ year, students: 1, mentors: 0, supervisors: 0, total: 1 }],
+      active_users: { daily: 1, weekly: 1, monthly: 1 },
+      latest_activity_date: date, query_range: { start: null, end: null },
+    })
+
+    const current = data.buildUsersAnalytics({
+      users: [{ ...student, lastLogin: '2026-10-15T09:30:00Z' }],
+      groupActivity: activity,
+      loginActivity: loginActivity('2026-10-15', 2026),
+    }, 2026)
+    expect(current.lastLogin.find((row) => row.label === '< 7 days')?.value).toBe(1)
+    expect(current.userLastLogins.map((row) => row.id)).toEqual([1])
+
+    const historical = data.buildUsersAnalytics({
+      users: [{
+        ...student,
+        invitedAt: '2025-08-01T00:00:00Z',
+        activatedAt: '2025-08-01T00:00:00Z',
+        lastLogin: '2025-09-01T09:30:00Z',
+      }],
+      groupActivity: activity,
+      loginActivity: loginActivity('2025-09-01', 2025),
+    }, 2025)
+    expect(historical.lastLogin.find((row) => row.label === '< 7 days')?.value).toBe(1)
+    expect(historical.userLastLogins.map((row) => row.id)).toEqual([1])
+  })
+
+  it('shows past-year login rates as unavailable when no logins were recorded that year', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T12:00:00Z'))
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      student,
+      { ...student, id: 2, role: 'mentor', invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' },
+    ])
+    const loginRateCard = (w: VueWrapper) =>
+      w.findAll('.analytics-card').find((card) => card.find('h2').text().startsWith('Users Logged In'))!
+
+    const w = await show(UsersPage)
+    expect(loginRateCard(w).get('h2').text()).toBe('Users Logged In This Year (2026)')
+    expect(loginRateCard(w).find('.login-rate-grid').exists()).toBe(true)
+
+    // The login records only cover 2026, so 2025 has no rate to show.
+    await w.get('[aria-label="Select analytics year"]').setValue('2025')
+    expect(loginRateCard(w).get('h2').text()).toBe('Users Logged In (2025)')
+    expect(loginRateCard(w).find('.login-rate-grid').exists()).toBe(false)
+    expect(loginRateCard(w).text()).toContain('No login activity was recorded for 2025')
+    expect(await downloadedCsv(w)).not.toContain('Logged in at least once')
+  })
+
+  it('exports participant details as they stood in the selected past year', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-20T12:00:00Z'))
+    const registered2025 = { invitedAt: '2025-08-01T00:00:00Z', activatedAt: '2025-08-01T00:00:00Z' }
+    vi.mocked(api.fetchAllUsers).mockResolvedValue([
+      student,
+      { ...student, ...registered2025, id: 2, role: 'mentor', lastLogin: '2026-10-15T00:00:00Z' },
+      { ...student, ...registered2025, id: 3, role: 'supervisor', lastLogin: '2025-08-25T00:00:00Z' },
+    ])
+    vi.mocked(api.fetchLoginActivity).mockResolvedValue({
+      by_day: [
+        { date: '2025-09-01', students: 0, mentors: 1, supervisors: 0, total: 1 },
+        { date: '2026-10-15', students: 1, mentors: 1, supervisors: 0, total: 2 },
+      ],
+      by_year: [
+        { year: 2025, students: 0, mentors: 1, supervisors: 0, total: 1 },
+        { year: 2026, students: 1, mentors: 1, supervisors: 0, total: 2 },
+      ],
+      active_users: { daily: 2, weekly: 2, monthly: 2 },
+      latest_activity_date: '2026-10-15', query_range: { start: null, end: null },
+    })
+
+    const w = await show(UsersPage)
+    await w.get('[aria-label="Select analytics year"]').setValue('2025')
+    const csv = await downloadedCsv(w, 'Details')
+
+    // The student registered in 2026; the mentor's only known login is later.
+    expect(csv).not.toMatch(/\r\n1,/)
+    expect(csv).toMatch(/\r\n2,[^\r\n]*,Mentor,Active,Logged in after 2025-09-01,2026-10-15[^,]*,,/)
+    expect(csv).toMatch(/\r\n3,[^\r\n]*,Supervisor,Active,Active,2025-08-25[^,]*,7,/)
+  })
+
   it('lists historical group years and rebuilds the group summary for the selected year', async () => {
     const bundle = { users, groups, groupActivity: activity }
     expect(data.groupAnalyticsYears(bundle)).toEqual([2026, 2025])

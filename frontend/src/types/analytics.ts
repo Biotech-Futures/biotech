@@ -142,6 +142,8 @@ export type UserAnalyticsYear = {
   mentorGrowth: number | null
   supervisorGrowth: number | null
   loginRates: { students: number; mentors: number; supervisors: number }
+  // False for a past year with no recorded logins, so its rates are unknown rather than 0%.
+  loginRatesAvailable: boolean
   dailyActivity: { labels: string[]; total: number[] }
   lastLogin: Array<{ label: string; value: number }>
   userLastLogins: Array<{

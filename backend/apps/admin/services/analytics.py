@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone as datetime_timezone
 
 from django.conf import settings
-from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, Window
+from django.db.models import Count, F, IntegerField, Max, OuterRef, Q, Subquery, Sum, Value, Window
 from django.db.models.functions import Coalesce, RowNumber, TruncDate, TruncHour
 from django.utils import timezone
 
@@ -332,12 +332,26 @@ def get_group_activity_analytics(
             group_id__in=group_ids,
             sent_at__lte=period_end,
         )
-        recent_start = period_end - timedelta(days=7)
-        active_group_ids = set(
-            messages_through_year.filter(sent_at__gt=recent_start)
-            .values_list("group_id", flat=True)
-            .distinct()
-        )
+        # Active groups messaged in the seven UTC days ending on the year's
+        # latest message, as the Groups page counts the live year. A window
+        # ending on 31 December would lie in the future for the current year
+        # and fall in the holiday week for earlier ones.
+        latest_message_at = messages_through_year.filter(
+            sent_at__gte=datetime(year, 1, 1, tzinfo=datetime_timezone.utc),
+        ).aggregate(latest=Max("sent_at"))["latest"]
+        active_group_ids = set()
+        if latest_message_at:
+            recent_start = datetime.combine(
+                latest_message_at.astimezone(datetime_timezone.utc).date()
+                - timedelta(days=6),
+                time.min,
+                tzinfo=datetime_timezone.utc,
+            )
+            active_group_ids = set(
+                messages_through_year.filter(sent_at__gte=recent_start)
+                .values_list("group_id", flat=True)
+                .distinct()
+            )
         started_group_ids = set(
             messages_through_year.values_list("group_id", flat=True).distinct()
         )

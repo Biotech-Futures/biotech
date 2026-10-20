@@ -753,6 +753,7 @@ const liveUserData = ref<UserAnalyticsYear>({
   totalUsers: 0, students: 0, mentors: 0, supervisors: 0,
   totalGrowth: null, studentGrowth: null, mentorGrowth: null, supervisorGrowth: null,
   loginRates: { students: 0, mentors: 0, supervisors: 0 },
+  loginRatesAvailable: true,
   dailyActivity: { labels: [], total: [] },
   lastLogin: [], userLastLogins: [],
   registration: { students: [], mentors: [], supervisors: [] },
