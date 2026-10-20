@@ -407,6 +407,21 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     data: env.data
   }))
 
+/** A user's profile photo replaced, as the dashboard's upload checks it. */
+export const uploadAdminUserPhoto = (userId: string | number, file: File) => {
+  const formData = new FormData()
+  formData.append('image', file)
+  return adminRequest<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+/** A user's profile photo taken off. */
+export const removeAdminUserPhoto = (userId: string | number) =>
+  adminDelete<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`).then((env) => env.data)
+
 /** A supervisor's students added or taken off, by student or by group. */
 export interface SuperviseesChangeInput {
   addStudentIds?: number[]

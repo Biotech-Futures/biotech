@@ -81,3 +81,14 @@ def save_profile_image(*, user, uploaded_file) -> str:
     if old_key and old_key != saved_key:
         ManagedFileService(get_profile_image_storage).delete(old_key)
     return saved_key
+
+
+def remove_profile_image(*, user) -> None:
+    """Take the user's photo off, deleting its file."""
+    old_key = user.profile_image_key
+    if not old_key:
+        return
+    user.profile_image_key = ""
+    user.profile_image_content_type = ""
+    user.save(update_fields=["profile_image_key", "profile_image_content_type"])
+    ManagedFileService(get_profile_image_storage).delete(old_key)

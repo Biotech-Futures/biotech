@@ -3,14 +3,60 @@
     <section v-if="user" class="admin-users-detail__section" data-test="admin-photo">
       <div class="admin-users-detail__heading">
         <h3>Profile Photo</h3>
+        <button
+          v-if="editable && editing !== 'photo'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-photo"
+          @click="startEdit('photo')"
+        >
+          Edit
+        </button>
       </div>
-      <img
-        v-if="user.profileImageUrl"
-        class="admin-users-detail__photo"
-        :src="user.profileImageUrl"
-        alt="Profile photo"
-      />
-      <p v-else class="admin-users-detail__no-photo">No photo uploaded.</p>
+      <!-- A new photo, or none: saved with Save, like the other parts. -->
+      <form v-if="editing === 'photo'" data-test="admin-photo-form" @submit.prevent="savePhoto">
+        <div class="admin-users-detail__item admin-users-detail__photo-row">
+          <span class="admin-users-detail__label">Photo</span>
+          <div class="admin-users-detail__photo-edit">
+            <img v-if="photoShown" class="admin-users-detail__photo" :src="photoShown" alt="Profile photo" />
+            <span v-else class="admin-users-detail__value">—</span>
+            <label class="btn btn-outline btn-sm">
+              Choose photo
+              <input
+                type="file"
+                class="sr-only"
+                :accept="PROFILE_PHOTO_ACCEPT"
+                data-test="admin-photo-input"
+                @change="choosePhoto"
+              />
+            </label>
+            <button
+              v-if="photoShown"
+              type="button"
+              class="btn btn-outline btn-sm"
+              data-test="admin-photo-remove"
+              @click="removePhotoDraft"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+        <p class="admin-users-detail__note admin-users-detail__photo-note">PNG, JPEG or WebP, smaller than 5 MB.</p>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
+        <div class="admin-users-detail__item admin-users-detail__photo-row">
+          <dt>Photo</dt>
+          <dd>
+            <img v-if="user.profileImageUrl" class="admin-users-detail__photo" :src="user.profileImageUrl" alt="Profile photo" />
+            <template v-else>—</template>
+          </dd>
+        </div>
+      </dl>
     </section>
 
     <section v-if="user" class="admin-users-detail__section" data-test="admin-account">
@@ -747,7 +793,7 @@
           No weekly times.
         </p>
         <button
-          v-if="form.mentorAvailability.length < 21"
+          v-if="form.mentorAvailability.length < MAX_SLOTS"
           type="button"
           class="btn btn-outline btn-sm admin-users-detail__slot-add"
           data-test="admin-mentor-add-slot"
@@ -1039,9 +1085,11 @@ import {
   fetchGuardianConsents,
   removeGroupMember,
   sendGuardianConsentRequest,
+  removeAdminUserPhoto,
   setAdminUserActive,
   unassignMentors,
-  updateAdminUser
+  updateAdminUser,
+  uploadAdminUserPhoto
 } from '@/utils/adminAPI'
 import type {
   AdminGroupDetail,
@@ -1067,7 +1115,29 @@ import {
   userName
 } from '@/utils/userFormat'
 import { INTEREST_OPTIONS } from '@/utils/userOptions'
+import {
+  APPLICATION_QUESTIONS,
+  HOUR_OPTIONS,
+  MAX_ANSWER_WORDS,
+  MAX_SLOTS,
+  MAX_WEEKLY_HOURS,
+  MENTOR_BACKGROUNDS,
+  STUDY_YEAR_OPTIONS,
+  WEEKDAYS,
+  WEEKDAY_OPTIONS,
+  availabilityTimes,
+  blankSlot,
+  capacityLabel,
+  isStudyingBackground,
+  minuteOptions,
+  pickHour,
+  splitSlot,
+  vAutoGrow,
+  wordCount,
+  type MentorSlot
+} from '@/utils/mentorForm'
 import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
 
 const props = withDefaults(
   defineProps<{
@@ -1133,6 +1203,7 @@ watch(() => props.user?.id, () => {
 const EDITED_IN_PARTS = ['student', 'mentor', 'supervisor']
 
 type Part =
+  | 'photo'
   | 'account'
   | 'supervisorDetails'
   | 'supervisorGroups'
@@ -1198,6 +1269,7 @@ const form = reactive(blankForm())
 const startEdit = (part: Part) => {
   const user = props.user
   if (!user) return
+  clearPhotoDraft()
   Object.assign(form, blankForm(), {
     email: user.email || '',
     status: user.isActive ? 'active' : 'inactive',
@@ -1253,6 +1325,68 @@ const startEdit = (part: Part) => {
 const cancelEdit = () => {
   editing.value = null
   saveError.value = ''
+  clearPhotoDraft()
+}
+
+// --- Profile Photo: a new photo, or none -------------------------------------
+
+const photoFile = ref<File | null>(null)
+const photoPreview = ref('')
+const photoRemoved = ref(false)
+// What Save would leave: the chosen photo, none, or the one they have.
+const photoShown = computed(() =>
+  photoRemoved.value ? '' : photoPreview.value || props.user?.profileImageUrl || ''
+)
+
+function clearPhotoDraft() {
+  if (photoPreview.value) URL.revokeObjectURL(photoPreview.value)
+  photoFile.value = null
+  photoPreview.value = ''
+  photoRemoved.value = false
+}
+
+const choosePhoto = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // So choosing the same file again still counts.
+  input.value = ''
+  if (!file) return
+  if (!isProfilePhoto(file)) {
+    saveError.value = PROFILE_PHOTO_PROBLEM
+    return
+  }
+  clearPhotoDraft()
+  saveError.value = ''
+  photoFile.value = file
+  photoPreview.value = URL.createObjectURL(file)
+}
+
+const removePhotoDraft = () => {
+  clearPhotoDraft()
+  photoRemoved.value = true
+}
+
+const savePhoto = async () => {
+  const user = props.user
+  if (!user || saving.value) return
+  if (!photoFile.value && !photoRemoved.value) {
+    cancelEdit()
+    return
+  }
+  saving.value = true
+  saveError.value = ''
+  try {
+    const updated = photoFile.value
+      ? await uploadAdminUserPhoto(user.id, photoFile.value)
+      : await removeAdminUserPhoto(user.id)
+    editing.value = null
+    clearPhotoDraft()
+    emit('updated', updated)
+  } catch (error) {
+    saveError.value = apiErrorFromUnknown(error, 'The photo could not be saved.').message
+  } finally {
+    saving.value = false
+  }
 }
 
 // What a part's Save sends: only what it changes, so the rest stays as it is.
@@ -1594,99 +1728,12 @@ const commitSupervisorAndGroup = async () => {
 
 // --- a mentor's parts ----------------------------------------------------------
 
-// As the registration form offers them (apps.users.mentor_registration).
-const MENTOR_BACKGROUNDS: AppSelectOption[] = [
-  { value: 'undergraduate', label: 'University Student - Undergraduate' },
-  { value: 'postgraduate', label: 'University Student - Postgraduate' },
-  { value: 'hdr', label: 'University Student - HDR' },
-  { value: 'academic', label: 'Academic / research staff' },
-  { value: 'industry', label: 'Industry' }
-]
-const STUDY_YEAR_OPTIONS: AppSelectOption[] = [
-  { value: '1', label: 'Year 1' },
-  { value: '2', label: 'Year 2' },
-  { value: '3', label: 'Year 3' },
-  { value: '4', label: 'Year 4' },
-  { value: '5+', label: 'Year 5 or later' }
-]
-// Hours a week they can give, as registering asks: 1 to 40.
-const MAX_WEEKLY_HOURS = 40
-
-// A weekly time they're free (Monday is 0), each end as its hour and its
-// minutes, put back together as "HH:MM" to save.
-interface MentorSlot {
-  weekday: AppSelectOption['value']
-  startHour: AppSelectOption['value']
-  startMinute: AppSelectOption['value']
-  endHour: AppSelectOption['value']
-  endMinute: AppSelectOption['value']
-}
-const blankSlot = (): MentorSlot => ({
-  weekday: null,
-  startHour: null,
-  startMinute: null,
-  endHour: null,
-  endMinute: null
-})
-const splitSlot = (slot: { weekday: number; start: string; end: string }): MentorSlot => ({
-  weekday: slot.weekday,
-  startHour: slot.start.slice(0, 2),
-  startMinute: slot.start.slice(3, 5),
-  endHour: slot.end.slice(0, 2),
-  endMinute: slot.end.slice(3, 5)
-})
-
-const twoDigits = (count: number) => String(count).padStart(2, '0')
-const HOUR_OPTIONS: AppSelectOption[] = Array.from({ length: 24 }, (_, hour) => ({
-  value: twoDigits(hour),
-  label: twoDigits(hour)
-}))
-// 00 to 55 in 5-minute steps; minutes saved between them stay a choice.
-const FIVE_MINUTES: AppSelectOption[] = Array.from({ length: 12 }, (_, step) => ({
-  value: twoDigits(step * 5),
-  label: twoDigits(step * 5)
-}))
-const minuteOptions = (current: AppSelectOption['value']): AppSelectOption[] =>
-  typeof current === 'string' && current && !FIVE_MINUTES.some((option) => option.value === current)
-    ? [...FIVE_MINUTES, { value: current, label: current }].sort((a, b) => a.label.localeCompare(b.label))
-    : FIVE_MINUTES
-
-// An hour picked first takes :00 until its minutes are picked.
-const pickHour = (slot: MentorSlot, end: 'start' | 'end', hour: AppSelectOption['value']) => {
-  if (end === 'start') {
-    slot.startHour = hour
-    slot.startMinute ??= '00'
-  } else {
-    slot.endHour = hour
-    slot.endMinute ??= '00'
-  }
-}
-const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const WEEKDAY_OPTIONS: AppSelectOption[] = WEEKDAYS.map((day, index) => ({ value: index, label: day }))
-
 // Each time given in full and ending after it starts; a row left empty is dropped.
 const availabilityPayload = (): Record<string, unknown> | string => {
-  const availability = []
-  for (const slot of form.mentorAvailability) {
-    const parts = [slot.weekday, slot.startHour, slot.startMinute, slot.endHour, slot.endMinute]
-    if (parts.every((part) => part === null)) continue
-    if (parts.some((part) => part === null)) return 'Give each weekly time a day and both times.'
-    const start = `${slot.startHour}:${slot.startMinute}`
-    const end = `${slot.endHour}:${slot.endMinute}`
-    if (end <= start) return 'Each weekly time must end after it starts.'
-    availability.push({ weekday: slot.weekday, start, end })
-  }
-  return { mentorAvailability: availability }
+  const availability = availabilityTimes(form.mentorAvailability)
+  return typeof availability === 'string' ? availability : { mentorAvailability: availability }
 }
-const MAX_ANSWER_WORDS = 150
-const APPLICATION_QUESTIONS = [
-  { key: 'mentorRelevantBackground', field: 'mentorRelevantBackground', label: 'Relevant background' },
-  { key: 'mentorReason', field: 'mentorReason', label: 'Why would you like to mentor?' },
-  { key: 'mentorMentoringApproach', field: 'mentorMentoringApproach', label: 'How would you mentor BIOTech groups?' }
-] as const
 
-const isStudyingBackground = (background: AppSelectOption['value'] | undefined) =>
-  background === 'undergraduate' || background === 'postgraduate'
 const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
 
 // Older mentors' backgrounds were typed; they show, and stay a choice, as written.
@@ -1702,8 +1749,6 @@ const studyYearLabel = (year: string | null | undefined) =>
   STUDY_YEAR_OPTIONS.find((option) => option.value === year)?.label ?? (year || '—')
 
 const mentorCapacity = computed(() => props.user?.mentorMaxGroupCount ?? 0)
-const capacityLabel = (count: number | null | undefined) =>
-  count == null ? '—' : `${count} ${count === 1 ? 'group' : 'groups'}`
 // 1 to 5 as registering offers, and whatever they have now.
 const mentorCapacityOptions = computed<AppSelectOption[]>(() => {
   const counts = new Set([1, 2, 3, 4, 5])
@@ -1725,17 +1770,6 @@ const onHoursInput = (event: Event) => {
 const hoursLabel = (hours: number | null | undefined) =>
   hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : '—'
 
-// An answer's box grows with what's written, from its 9 rows, rather than
-// scrolling.
-const growToFit = (box: HTMLTextAreaElement) => {
-  box.style.height = ''
-  if (box.scrollHeight > box.clientHeight) {
-    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`
-  }
-}
-const vAutoGrow = { mounted: growToFit, updated: growToFit }
-
-const wordCount = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
 
 const mentorDetailsPayload = (): Record<string, unknown> | string => {
   const background = form.mentorBackground as string | null
@@ -2196,23 +2230,41 @@ const sendConsentRequest = async () => {
   color: var(--dark-green);
 }
 
-/* A part's heading with its Edit beside it, as on the supervisor's panel. */
 /* The photo as the user's dashboard shows it: round, filling its circle. */
 .admin-users-detail__photo {
   display: block;
-  width: 96px;
-  height: 96px;
+  width: 104px;
+  height: 104px;
   border-radius: 50%;
   object-fit: cover;
   object-position: center;
   border: 1px solid var(--border-light);
 }
 
-.admin-users-detail__no-photo {
-  margin: 0;
-  color: var(--text-muted);
+.admin-users-detail__photo-row {
+  align-items: center;
 }
 
+.admin-users-detail__photo-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Choose photo is a label (for its file box), which would take the page's
+   taller line; both buttons take the button's, so they match. */
+.admin-users-detail__photo-edit .btn {
+  margin: 0;
+  font-family: inherit;
+  line-height: normal;
+  cursor: pointer;
+}
+
+.admin-users-detail__photo-note {
+  margin-top: 0.4rem;
+}
+
+/* A part's heading with its Edit beside it, as on the supervisor's panel. */
 .admin-users-detail__heading {
   display: flex;
   align-items: center;

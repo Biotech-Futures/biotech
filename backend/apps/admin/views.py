@@ -4,6 +4,7 @@ from django.db.models import Q
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -35,6 +36,8 @@ from apps.admin.services.user import (
 )
 from apps.admin.services import guardian_consent
 from apps.admin.services.email_verification import get_credit_balance
+from apps.audit.services import log_audit_event
+from apps.users.profile_images import remove_profile_image, save_profile_image
 from apps.admin.services.known_university import (
     add_known_university,
     delete_known_university,
@@ -188,6 +191,45 @@ class UserStatusUpdateView(APIView):
         code = status.HTTP_200_OK if result.get(
             "data") else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
+
+
+class UserProfileImageView(APIView):
+    """POST: replace a user's profile photo (``image``, checked as the
+    dashboard's upload is). DELETE: take it off."""
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _user(self, user_id):
+        from django.contrib.auth import get_user_model
+
+        return get_user_model().objects.filter(pk=int(user_id)).first()
+
+    def _changed(self, request, user, change):
+        log_audit_event(
+            actor=request.user,
+            entity_type="user",
+            entity_id=user.id,
+            action="update",
+            after_state={"profile_photo": change},
+        )
+        return Response(query_user_by_id(user.id))
+
+    def post(self, request, user_id):
+        user = self._user(user_id)
+        if user is None:
+            return Response({"msg": "User not found", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        image = request.FILES.get("image")
+        if image is None:
+            return Response({"msg": "Choose a photo to upload.", "data": None}, status=status.HTTP_400_BAD_REQUEST)
+        save_profile_image(user=user, uploaded_file=image)
+        return self._changed(request, user, "replaced")
+
+    def delete(self, request, user_id):
+        user = self._user(user_id)
+        if user is None:
+            return Response({"msg": "User not found", "data": None}, status=status.HTTP_404_NOT_FOUND)
+        remove_profile_image(user=user)
+        return self._changed(request, user, "removed")
 
 
 class UserSuperviseesView(APIView):

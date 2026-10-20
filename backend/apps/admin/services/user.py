@@ -570,8 +570,6 @@ def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
 
 # What a mentor gives registering (apps.users.mentor_registration), checked
 # the same way when an admin changes it.
-MENTOR_BACKGROUNDS = tuple(choice for choice, _ in MentorProfile.BackgroundChoices.choices)
-MENTOR_STUDYING = ("undergraduate", "postgraduate")
 MENTOR_STUDY_YEARS = ("1", "2", "3", "4", "5+")
 MENTOR_MAX_WORDS = 150
 
@@ -589,6 +587,11 @@ MENTOR_FIELDS = {
     "mentorWeeklyHours": "weekly_hours",
 }
 MENTOR_MAX_WEEKLY_HOURS = 40
+# What only Add user's full mentor form sends, not a mentor import.
+FULL_MENTOR_KEYS = (
+    "mentorCompany", "mentorFieldOfStudy", "mentorUniversityYear", "mentorWeeklyHours",
+    "mentorRelevantBackground", "mentorMentoringApproach", "mentorAvailability",
+)
 
 
 def _natural_key(name: str) -> list:
@@ -1147,10 +1150,10 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Validate geography for non-admin users. Country is the required field;
-        # state is optional. A bare state still resolves a country (see below), so
-        # accept either.
-        if role != "admin" and not country_name and not state_name:
+        # Validate geography for students and supervisors. Country is the required
+        # field; state is optional. A bare state still resolves a country (see
+        # below), so accept either. A mentor may be added without one.
+        if role not in ("admin", "mentor") and not country_name and not state_name:
             results.append({
                 "input": input_data,
                 "msg": "Country is required",
@@ -1179,12 +1182,25 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 })
                 continue
         
-        # Validate mentor-specific fields
-        if role == "mentor":
+        # A mentor from Add user's full form (as the mentor panel has it) is
+        # checked as the panel's edit is; an import's few columns as before.
+        mentor_values = None
+        mentor_slots = []
+        if role == "mentor" and any(key in input_data for key in FULL_MENTOR_KEYS):
+            mentor_error, mentor_values = _next_mentor_values(0, input_data)
+            if not mentor_error and "mentorAvailability" in input_data:
+                mentor_error, mentor_slots = _availability_slots(input_data["mentorAvailability"])
+            if mentor_error:
+                results.append({
+                    "input": input_data,
+                    "msg": mentor_error,
+                    "data": None
+                })
+                continue
+        elif role == "mentor":
             institution = (input_data.get("mentorInstitution") or "").strip()
             reason = (input_data.get("mentorReason") or "").strip()
             max_count = input_data.get("mentorMaxGroupCount")
-            interests = input_data.get("interests") or []
             
             if not institution:
                 results.append({
@@ -1209,25 +1225,8 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "data": None
                 })
                 continue
-            
-            if not interests:
-                results.append({
-                    "input": input_data,
-                    "msg": "At least one interest is required for mentor users",
-                    "data": None
-                })
-                continue
-        
-        # Validate interests for student/mentor
-        if role in ["student", "mentor"]:
-            interests = input_data.get("interests") or []
-            if not interests:
-                results.append({
-                    "input": input_data,
-                    "msg": f"At least one interest is required for {role} users",
-                    "data": None
-                })
-                continue
+
+        # Interests are optional: an admin may add someone before they're known.
         
         # Resolve country + state. Country is what matching needs and is
         # get_or_create'd so international registrants import cleanly. State is the
@@ -1244,7 +1243,8 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             )
             if state_name and state_name.casefold() != country_name.casefold():
                 state_obj, _ = CountryStates.objects.get_or_create(
-                    country=country_obj, state_name=state_name
+                    country=country_obj, state_name__iexact=state_name,
+                    defaults={"state_name": state_name},
                 )
         elif state_name:
             # Callers that send a state name only (the single-create form): derive
@@ -1262,6 +1262,17 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             country_obj = state_obj.country
         country_id = country_obj.id if country_obj else None
         state_id = state_obj.id if state_obj else None
+
+        # Pronouns as registering takes them: blank leaves them unsaid.
+        pronouns = input_data.get("pronouns") or ""
+        if not isinstance(pronouns, str) or len(pronouns.strip()) > 100:
+            results.append({
+                "input": input_data,
+                "msg": "Pronouns must be 100 characters or fewer",
+                "data": None
+            })
+            continue
+        pronouns = pronouns.strip()
         
         # Resolve role ID
         try:
@@ -1297,6 +1308,7 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     email=email,
                     first_name=first_name,
                     last_name=last_name,
+                    pronouns=pronouns,
                     password=None,  # No password set
                     country_id=country_id,
                     state_id=state_id,
@@ -1343,7 +1355,13 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         (input_data.get("supervisorSchoolName") or "").strip()
                     )
                 
-                if role == "mentor":
+                if role == "mentor" and mentor_values is not None:
+                    MentorProfile.objects.update_or_create(user_id=new_user_id, defaults=mentor_values)
+                    MentorAvailability.objects.bulk_create([
+                        MentorAvailability(mentor_user_id=new_user_id, weekday=weekday, start_time=start, end_time=end)
+                        for weekday, start, end in mentor_slots
+                    ])
+                elif role == "mentor":
                     upsert_mentor_profile(
                         new_user_id,
                         background=input_data.get("mentorBackground"),
@@ -1554,21 +1572,10 @@ def _next_mentor_values(user_id: int, input_data: Dict[str, Any]) -> tuple:
     background = values["background"] or None
     values["background"] = background
 
-    if background == "industry":
-        if not values["company"]:
-            return "Company is required for industry mentors", {}
-    elif not values["institution"]:
-        return "Institution is required for mentor users", {}
-    if "mentorBackground" in input_data and background in MENTOR_BACKGROUNDS and background != "industry":
-        if not values["field_of_study"]:
-            return "Field of study is required for this background", {}
-        if background in MENTOR_STUDYING and not values["university_year"]:
-            return "Year of study is required for university students", {}
+    # Each may be left blank: an admin may add a mentor before they're known.
     if values["university_year"] and values["university_year"] not in MENTOR_STUDY_YEARS:
         return "Year of study is not valid", {}
 
-    if not values["mentor_reason"]:
-        return "Mentor reason is required for mentor users", {}
     for key in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
         if key in input_data and len(values[MENTOR_FIELDS[key]].split()) > MENTOR_MAX_WORDS:
             return f"Keep each answer to {MENTOR_MAX_WORDS} words or fewer", {}
@@ -1707,12 +1714,6 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
                     return {"msg": "Guardian email is not a valid email address", "data": None}
                 if guardian_email == new_email.strip().lower():
                     return {"msg": "Guardian email cannot be the student's own email", "data": None}
-    
-    if next_role in ["student", "mentor"] and not next_interests:
-        return {
-            "msg": f"At least one interest is required for {next_role} users",
-            "data": None
-        }
     
     mentor_values: Dict[str, Any] = {}
     mentor_slots = None

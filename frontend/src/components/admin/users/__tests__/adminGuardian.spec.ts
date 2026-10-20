@@ -5,6 +5,7 @@ import AdminUserDetailSheet from '../AdminUserDetailSheet.vue'
 import {
   changeSupervisees,
   confirmMentorAssignments,
+  createAdminUser,
   confirmStudentAssignments,
   downloadGuardianConsentRecord,
   fetchAdminCountries,
@@ -15,9 +16,11 @@ import {
   fetchGuardianConsents,
   removeGroupMember,
   sendGuardianConsentRequest,
+  removeAdminUserPhoto,
   setAdminUserActive,
   unassignMentors,
-  updateAdminUser
+  updateAdminUser,
+  uploadAdminUserPhoto
 } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
 import { appSelectLabels, appSelectText, openAppSelect, pickAppSelect } from '@/__tests__/appSelect'
@@ -39,7 +42,9 @@ vi.mock('@/utils/adminAPI', () => ({
   changeSupervisees: vi.fn(),
   unassignMentors: vi.fn(),
   fetchAdminCountries: vi.fn(),
-  fetchAdminStates: vi.fn()
+  fetchAdminStates: vi.fn(),
+  uploadAdminUserPhoto: vi.fn(),
+  removeAdminUserPhoto: vi.fn()
 }))
 
 const student = (overrides: Partial<AdminUser> = {}): AdminUser => ({
@@ -107,6 +112,201 @@ async function save(wrapper: Awaited<ReturnType<typeof openForm>>) {
 
 const GUARDIAN_KEYS = ['guardianFirstName', 'guardianLastName', 'guardianEmail', 'joinpermResponseId']
 
+describe('admin user form: adding a user', () => {
+  const openAdd = async () => {
+    const wrapper = mount(AdminUserFormSheet, {
+      props: {
+        modelValue: false,
+        userNoun: 'User',
+        user: null,
+        isSupervisorMode: false,
+        countries: [
+          { id: 1, countryName: 'Australia' },
+          { id: 2, countryName: 'New Zealand' }
+        ],
+        states: [{ id: 5, stateName: 'NSW', countryName: 'Australia' }],
+        supervisors: [student({ id: 9, firstName: 'Grace', lastName: 'Green', email: 'grace@school.edu', role: 'supervisor' })]
+      },
+      global: { stubs: { teleport: true } }
+    })
+    await wrapper.setProps({ modelValue: true })
+    return wrapper
+  }
+
+  beforeEach(() => {
+    vi.mocked(createAdminUser).mockReset()
+    vi.mocked(confirmStudentAssignments).mockReset()
+    vi.mocked(fetchAdminGroupList).mockResolvedValue({
+      items: [
+        { id: '3', name: 'BTF3', members: [] },
+        { id: '4', name: 'BTF4', members: Array.from({ length: 5 }, (_, i) => ({ id: i, role: 'student' })) }
+      ],
+      has_more: false
+    } as never)
+  })
+
+  it('puts a new student in the group picked, once added', async () => {
+    vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: student({ id: 42 }) })
+    vi.mocked(confirmStudentAssignments).mockResolvedValue({ msg: 'ok', assignedCount: 1 })
+    const wrapper = await openAdd()
+    await flushPromises()
+
+    const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
+    expect(sections).toEqual(['Account', 'Student details', 'Supervisor and Group', 'Guardian & consent', 'Profile Photo'])
+    // A full group can't be picked.
+    const full = (await openAppSelect(wrapper, '#f-group')).find((option) => option.textContent!.includes('BTF4'))!
+    expect(full.getAttribute('aria-disabled')).toBe('true')
+
+    await wrapper.find('#f-first').setValue('Wren')
+    await wrapper.find('#f-last').setValue('Ward')
+    await wrapper.find('#f-email').setValue('wren@example.com')
+    await pickAppSelect(wrapper, '#f-country', 'Australia')
+    await pickAppSelect(wrapper, '#f-state', 'NSW')
+    await wrapper.find('#f-school').setValue('Test High')
+    await pickAppSelect(wrapper, '#f-year', '11')
+    await pickAppSelect(wrapper, '#f-group', 'BTF3')
+    // A supervisor is needed; interests aren't.
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.text()).toContain('Choose a supervisor.')
+    expect(createAdminUser).not.toHaveBeenCalled()
+
+    await pickAppSelect(wrapper, '#f-supervisor', 'Grace Green')
+    await pickAppSelect(wrapper, '#f-pronouns', 'They/them')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createAdminUser).toHaveBeenCalledWith(
+      expect.objectContaining({ supervisorEmail: 'grace@school.edu', pronouns: 'They/them', interests: [] })
+    )
+    expect(confirmStudentAssignments).toHaveBeenCalledWith([{ studentId: 42, groupId: 3 }])
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('adds a mentor as the mentor panel has them: details, weekly times and answers', async () => {
+    vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: student({ id: 44, role: 'mentor' }) })
+    const wrapper = await openAdd()
+    await pickAppSelect(wrapper, '#f-role', 'Mentor')
+    const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
+    expect(sections).toEqual(['Account', 'Mentor details', 'Weekly Availability', 'Application Form', 'Profile Photo'])
+
+    await wrapper.find('#f-first').setValue('Mia')
+    await wrapper.find('#f-last').setValue('Ng')
+    await wrapper.find('#f-email').setValue('mia@example.com')
+    await pickAppSelect(wrapper, '#f-country', 'New Zealand')
+    // Industry asks for a company, not an institution or field of study.
+    await pickAppSelect(wrapper, '#f-mbg', 'Industry')
+    expect(wrapper.find('#f-mcompany').exists()).toBe(true)
+    expect(wrapper.find('#f-minst').exists()).toBe(false)
+    expect(wrapper.find('#f-mfield').exists()).toBe(false)
+
+    // A university student gives their year and field of study.
+    await pickAppSelect(wrapper, '#f-mbg', 'University Student - Postgraduate')
+    await wrapper.find('#f-minst').setValue('Uni')
+    await pickAppSelect(wrapper, '#f-myear', 'Year 2')
+    await wrapper.find('#f-mfield').setValue('Biology')
+    await pickAppSelect(wrapper, '#f-mcap', '2 groups')
+    await wrapper.find('[data-test="form-mentor-add-slot"]').trigger('click')
+    const slot = '[data-test="form-mentor-slot-0"]'
+    await pickAppSelect(wrapper.find(slot), '[aria-label="Day 1"]', 'Monday')
+    await pickAppSelect(wrapper.find(slot), '[aria-label="From, hour, time 1"]', '18')
+    await pickAppSelect(wrapper.find(slot), '[aria-label="To, hour, time 1"]', '19')
+    // The answers are optional.
+    await wrapper.find('#f-mentorMentoringApproach').setValue('Weekly calls')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createAdminUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mentorBackground: 'postgraduate',
+        mentorInstitution: 'Uni',
+        mentorCompany: '',
+        mentorUniversityYear: '2',
+        mentorFieldOfStudy: 'Biology',
+        mentorMaxGroupCount: 2,
+        mentorWeeklyHours: null,
+        mentorAvailability: [{ weekday: 0, start: '18:00', end: '19:00' }],
+        mentorReason: '',
+        mentorMentoringApproach: 'Weekly calls'
+      })
+    )
+  })
+
+  it('adds a mentor from just an email and role, the rest left for later', async () => {
+    vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: student({ id: 45, role: 'mentor' }) })
+    const wrapper = await openAdd()
+    await pickAppSelect(wrapper, '#f-role', 'Mentor')
+    // Only Email and Role are marked required.
+    const marked = wrapper
+      .findAll('label')
+      .filter((label) => label.find('.required-mark').exists())
+      .map((label) => label.attributes('for'))
+    expect(marked).toEqual(['f-email', 'f-role'])
+
+    await wrapper.find('#f-email').setValue('bare@example.com')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createAdminUser).toHaveBeenCalledWith(expect.objectContaining({ email: 'bare@example.com', role: 'mentor' }))
+  })
+
+  it('uploads the chosen photo once the user is added', async () => {
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:chosen', revokeObjectURL: () => {} }))
+    vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: student({ id: 43, role: 'supervisor' }) })
+    vi.mocked(uploadAdminUserPhoto).mockReset().mockResolvedValue(student({ id: 43 }))
+    const wrapper = await openAdd()
+    await pickAppSelect(wrapper, '#f-role', 'Supervisor')
+    await wrapper.find('#f-first').setValue('Kiri')
+    await wrapper.find('#f-last').setValue('Hau')
+    await wrapper.find('#f-email').setValue('kiri@example.com')
+    await pickAppSelect(wrapper, '#f-country', 'New Zealand')
+
+    const file = new File(['png'], 'me.png', { type: 'image/png' })
+    const input = wrapper.find('[data-test="form-photo-input"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    expect(wrapper.find('.admin-users-form__photo img').attributes('src')).toBe('blob:chosen')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(uploadAdminUserPhoto).toHaveBeenCalledWith(43, file)
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('has Email and Role, then Account, then their name under the role\'s details', async () => {
+    const wrapper = await openAdd()
+    await pickAppSelect(wrapper, '#f-role', 'Supervisor')
+
+    const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
+    expect(sections).toEqual(['Account', 'Supervisor details', 'Profile Photo'])
+    const html = wrapper.html()
+    expect(html.indexOf('id="f-email"')).toBeLessThan(html.indexOf('id="f-role"'))
+    expect(html.indexOf('id="f-status"')).toBeLessThan(html.indexOf('id="f-first"'))
+    expect(appSelectText(wrapper, '#f-status')).toBe('Active')
+  })
+
+  it('needs a state from the list in Australia, and takes one typed elsewhere', async () => {
+    vi.mocked(createAdminUser).mockResolvedValue({ msg: 'ok', data: null } as never)
+    const wrapper = await openAdd()
+    await pickAppSelect(wrapper, '#f-role', 'Supervisor')
+    await wrapper.find('#f-first').setValue('Kiri')
+    await wrapper.find('#f-last').setValue('Hau')
+    await wrapper.find('#f-email').setValue('kiri@example.com')
+
+    await pickAppSelect(wrapper, '#f-country', 'Australia')
+    expect(await appSelectLabels(wrapper, '#f-state')).toEqual(['NSW'])
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.text()).toContain('Choose a state.')
+    expect(createAdminUser).not.toHaveBeenCalled()
+
+    await pickAppSelect(wrapper, '#f-country', 'New Zealand')
+    await wrapper.find('[data-test="form-state-name"]').setValue('Auckland')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createAdminUser).toHaveBeenCalledWith(
+      expect.objectContaining({ country: 'New Zealand', state: 'Auckland', active: true })
+    )
+  })
+})
+
 describe('admin user form: guardian & consent', () => {
   beforeEach(() => {
     vi.mocked(updateAdminUser).mockClear()
@@ -149,11 +349,11 @@ describe('admin user form: guardian & consent', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
-  it('puts Guardian & consent under Interests, before Account', async () => {
+  it('puts Account, Student details with Interests, Supervisor and Group, then Guardian & consent', async () => {
     const wrapper = await openForm(student())
     const sections = wrapper.findAll('.admin-users-form__section').map((section) => section.text())
 
-    expect(sections).toEqual(['Student details', 'Interests *', 'Guardian & consent', 'Account'])
+    expect(sections).toEqual(['Account', 'Student details', 'Supervisor and Group', 'Guardian & consent'])
   })
 
   it('sends no guardian or consent fields when they are untouched', async () => {
@@ -162,7 +362,7 @@ describe('admin user form: guardian & consent', () => {
       joinpermResponseId: 'R_1',
       pendingGuardian: { firstName: 'Robin', lastName: 'Carer', email: 'robin@example.com', requestedAt: '2026-10-01T00:00:00Z' }
     }))
-    await wrapper.find('#f-year').setValue(11)
+    await pickAppSelect(wrapper, '#f-year', '11')
 
     const payload = await save(wrapper)
 
@@ -493,7 +693,7 @@ describe('admin user detail: a student edited part by part', () => {
     mount(AdminUserDetailSheet, { props: { open: true, user, ...props }, global: { stubs: { teleport: true } } })
 
   beforeEach(() => {
-    for (const fn of [updateAdminUser, confirmStudentAssignments, removeGroupMember, fetchAdminUser]) {
+    for (const fn of [updateAdminUser, confirmStudentAssignments, removeGroupMember, fetchAdminUser, uploadAdminUserPhoto, removeAdminUserPhoto]) {
       vi.mocked(fn).mockReset()
     }
   })
@@ -648,14 +848,54 @@ describe('admin user detail: a student edited part by part', () => {
     expect(wrapper.find('[data-test="admin-details-form"]').exists()).toBe(false)
   })
 
-  it('shows their profile photo before Account, or says there is none', () => {
+  it('shows their profile photo before Account, as a row like Account\'s', () => {
     const photo = 'https://files.example.com/users/7/photo.png'
     const withPhoto = openDetail(student({ profileImageUrl: photo }))
-    expect(withPhoto.find('[data-test="admin-photo"] img').attributes('src')).toBe(photo)
+    expect(withPhoto.find('[data-test="admin-photo"] dd img').attributes('src')).toBe(photo)
 
     const without = openDetail(student({ profileImageUrl: null }))
     expect(without.find('[data-test="admin-photo"] img').exists()).toBe(false)
-    expect(without.find('[data-test="admin-photo"]').text()).toContain('No photo uploaded.')
+    expect(without.find('[data-test="admin-photo"] dd').text()).toBe('—')
+  })
+
+  it('uploads a chosen photo on Save, and passes the user up', async () => {
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:chosen', revokeObjectURL: () => {} }))
+    const updated = student({ profileImageUrl: 'https://files.example.com/new.png' })
+    vi.mocked(uploadAdminUserPhoto).mockResolvedValue(updated)
+    const wrapper = openDetail(student({ profileImageUrl: null }))
+
+    await wrapper.find('[data-test="admin-edit-photo"]').trigger('click')
+    const file = new File(['png'], 'me.png', { type: 'image/png' })
+    const input = wrapper.find('[data-test="admin-photo-input"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    // Shown before it's saved.
+    expect(wrapper.find('[data-test="admin-photo-form"] img').attributes('src')).toBe('blob:chosen')
+
+    await wrapper.find('[data-test="admin-photo-form"]').trigger('submit')
+    await flushPromises()
+    expect(uploadAdminUserPhoto).toHaveBeenCalledWith(7, file)
+    expect(wrapper.emitted('updated')).toEqual([[updated]])
+    expect(wrapper.find('[data-test="admin-photo-form"]').exists()).toBe(false)
+    vi.unstubAllGlobals()
+  })
+
+  it('refuses a file that is not a photo, and removes a photo on Save', async () => {
+    vi.mocked(removeAdminUserPhoto).mockResolvedValue(student({ profileImageUrl: null }))
+    const wrapper = openDetail(student({ profileImageUrl: 'https://files.example.com/old.png' }))
+
+    await wrapper.find('[data-test="admin-edit-photo"]').trigger('click')
+    const input = wrapper.find('[data-test="admin-photo-input"]')
+    Object.defineProperty(input.element, 'files', { value: [new File(['x'], 'notes.pdf', { type: 'application/pdf' })] })
+    await input.trigger('change')
+    expect(wrapper.text()).toContain('Choose a PNG, JPEG, or WebP image smaller than 5 MB.')
+
+    await wrapper.find('[data-test="admin-photo-remove"]').trigger('click')
+    expect(wrapper.find('[data-test="admin-photo-form"] img').exists()).toBe(false)
+    await wrapper.find('[data-test="admin-photo-form"]').trigger('submit')
+    await flushPromises()
+    expect(removeAdminUserPhoto).toHaveBeenCalledWith(7)
+    expect(uploadAdminUserPhoto).not.toHaveBeenCalled()
   })
 
   it('shows pronouns after Interests, and edits them as registering offers them', async () => {
