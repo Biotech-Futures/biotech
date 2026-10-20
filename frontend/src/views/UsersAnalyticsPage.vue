@@ -50,19 +50,19 @@
     <div class="kpi-grid">
       <article class="kpi-card">
         <div class="kpi-icon blue"><i class="fas fa-users"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Total Users</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.totalUsers" /></strong>
             <AnalyticsYearChange :current="yearComparison.current.total" :previous="yearComparison.previous.total" :label="`vs ${yearComparison.previousYear}`" />
           </div>
-          <small>Current participants on the platform</small>
+          <small>Current participants</small>
         </div>
       </article>
 
       <article class="kpi-card">
         <div class="kpi-icon blue"><i class="fas fa-graduation-cap"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Students</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.students" /></strong>
@@ -74,7 +74,7 @@
 
       <article class="kpi-card">
         <div class="kpi-icon red"><i class="fas fa-user"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Mentors</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.mentors" /></strong>
@@ -86,7 +86,7 @@
 
       <article class="kpi-card">
         <div class="kpi-icon purple"><i class="fas fa-user-friends"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Supervisors</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.supervisors" /></strong>
@@ -128,7 +128,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="role-donut-segment"
@@ -140,19 +140,6 @@
                 tabindex="0"
               />
 
-              <circle
-                v-if="roleRemainderPercent > 0"
-                cx="90"
-                cy="90"
-                r="64"
-                pathLength="100"
-                fill="none"
-                stroke="#e7ebef"
-                stroke-width="24"
-                :stroke-dasharray="`${roleRemainderPercent} ${100 - roleRemainderPercent}`"
-                :stroke-dashoffset="-roleCoveredPercent"
-                transform="rotate(-90 90 90)"
-              />
             </svg>
 
             <div class="donut-centre role-donut-centre">
@@ -405,20 +392,6 @@
               />
             </g>
 
-            <!-- Zero months sit on the baseline, so only non-zero values are labelled. -->
-            <g class="registration-label-layer">
-              <g v-for="role in visibleRegistrationRoles" :key="role">
-                <text
-                  v-for="point in registrationDots[role].filter((dot) => dot.value > 0)"
-                  :key="point.index"
-                  :x="point.x + registrationLabelXOffsets[role]"
-                  :y="registrationLabelY(point.y)"
-                  text-anchor="middle"
-                  :class="['trend-value-label', `${role.slice(0, -1)}-value-label`]"
-                >{{ point.value }}</text>
-              </g>
-            </g>
-
             <text
               v-for="(month, index) in visibleRegistrationMonths"
               :key="`month-${month}`"
@@ -437,7 +410,6 @@
           <span v-show="!hiddenRegistrationRoles.includes('mentors')"><i class="dot mentor"></i>Mentors</span>
           <span v-show="!hiddenRegistrationRoles.includes('supervisors')"><i class="dot supervisor"></i>Supervisors</span>
         </div>
-        <div class="y-axis-title">Registrations</div>
       </article>
     </section>
 
@@ -848,6 +820,7 @@ import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { UserAnalyticsYear } from '@/types/analytics'
 import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
 import type { AdminUser } from '@/utils/liveAnalyticsApi'
+import type { ParticipantAnalyticsBundle } from '@/utils/liveAnalyticsData'
 import {
   ACTIVE_WINDOW_DAYS,
   DETAILS_OPTION,
@@ -867,10 +840,11 @@ import {
   type SummaryRow,
 } from '@/utils/analyticsExport'
 import {
+  analyticsYears,
   buildUsersAnalytics,
-  liveAnalyticsAsOf,
   loadUsersAnalyticsBundle,
   participantYearComparison,
+  usersAnalyticsAsOf,
 } from '@/utils/liveAnalyticsData'
 
 const currentYear = ref(new Date().getFullYear())
@@ -905,6 +879,17 @@ const exportError = ref('')
 const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
 // Current participants (students, mentors, supervisors) for the details export.
 const participants = ref<AdminUser[]>([])
+const loadedBundle = ref<ParticipantAnalyticsBundle | null>(null)
+
+function applySelectedYear(year: number) {
+  const bundle = loadedBundle.value
+  if (!bundle) return
+
+  analyticsAsOf.value = usersAnalyticsAsOf(bundle, year)
+  yearComparison.value = participantYearComparison(bundle.users, year)
+  liveData.value = buildUsersAnalytics(bundle, year)
+  isEmpty.value = liveData.value.totalUsers === 0
+}
 
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
@@ -916,21 +901,19 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadUsersAnalyticsBundle(force)
+    loadedBundle.value = bundle
     unavailableSources.value = bundle.unavailableSources ?? []
     const year = new Date().getUTCFullYear()
-    analyticsAsOf.value = liveAnalyticsAsOf(bundle)
     currentYear.value = year
-    yearComparison.value = participantYearComparison(bundle.users, year)
-    availableYears.value = [year]
+    availableYears.value = analyticsYears(bundle)
     if (!preserveFilters) currentMonthIndex.value = new Date().getUTCMonth()
     if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) {
       selectedYear.value = year
     }
-    liveData.value = buildUsersAnalytics(bundle)
+    applySelectedYear(selectedYear.value)
     participants.value = bundle.users.filter((user) =>
       !user.isAdmin && ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
     )
-    isEmpty.value = liveData.value.totalUsers === 0
     hasLoaded.value = true
     markUpdated()
   } catch (error) {
@@ -949,6 +932,7 @@ function refreshAnalytics() {
 }
 
 onMounted(() => loadAnalytics())
+watch(selectedYear, (year) => applySelectedYear(year))
 const currentMonthIndex = ref(new Date().getMonth())
 
 const regionExpanded = ref(false)
@@ -1185,6 +1169,7 @@ type RoleSegment = {
   label: string
   value: number
   percent: number
+  drawPercent: number
   start: number
   color: string
 }
@@ -1199,25 +1184,20 @@ const roleSegments = computed<RoleSegment[]>(() => {
   ]
 
   let start = 0
-  return raw.map((item) => {
-    const percentValue = percentage(item.value, data.value.totalUsers)
+  return raw.map((item, index) => {
+    const drawPercent = data.value.totalUsers
+      ? (index === raw.length - 1 ? Math.max(0, 100 - start) : (item.value / data.value.totalUsers) * 100)
+      : 0
     const segment = {
       ...item,
-      percent: percentValue,
+      percent: percentage(item.value, data.value.totalUsers),
+      drawPercent,
       start,
     }
-    start += percentValue
+    start += drawPercent
     return segment
   })
 })
-
-const roleCoveredPercent = computed(() =>
-  roleSegments.value.reduce((sum, segment) => sum + segment.percent, 0),
-)
-
-const roleRemainderPercent = computed(() =>
-  Math.max(0, 100 - roleCoveredPercent.value),
-)
 
 function selectRole(segment: RoleSegment) {
   selectedRole.value = segment
@@ -1372,23 +1352,6 @@ const registrationDots = computed(() => ({
   mentors: trendDots(visibleRegistrationSeries.value.mentors),
   supervisors: trendDots(visibleRegistrationSeries.value.supervisors),
 }))
-
-const registrationRoles = ['students', 'mentors', 'supervisors'] as const
-const visibleRegistrationRoles = computed(() =>
-  registrationRoles.filter((role) => !hiddenRegistrationRoles.value.includes(role)),
-)
-
-// Keep each value close to its point. Small horizontal role offsets separate
-// values when two series share (or nearly share) the same coordinates.
-const registrationLabelXOffsets: Record<(typeof registrationRoles)[number], number> = {
-  students: 0,
-  mentors: -10,
-  supervisors: 10,
-}
-
-function registrationLabelY(pointY: number) {
-  return Math.max(12, pointY - 10)
-}
 
 // The SVG is drawn at the plot's real pixel size so it fills the card at any
 // width and keeps its text at a readable, unscaled size.
@@ -1986,8 +1949,7 @@ function exportCsv(kind: ExportKind) {
   white-space: nowrap;
 }
 
-/* Numeric labels for registration and daily-activity line charts */
-.trend-value-label,
+/* Numeric labels for the daily-activity line chart */
 .daily-activity-value-label {
   font-size: 10px;
   font-weight: 700;
@@ -1996,18 +1958,6 @@ function exportCsv(kind: ExportKind) {
   stroke-width: 3px;
   stroke-linejoin: round;
   pointer-events: none;
-}
-
-.student-value-label {
-  fill: #39687B;
-}
-
-.mentor-value-label {
-  fill: #017151;
-}
-
-.supervisor-value-label {
-  fill: #5EA99E;
 }
 
 .daily-activity-value-label {
@@ -2196,12 +2146,12 @@ function exportCsv(kind: ExportKind) {
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
 }
 
-.kpi-card {
+.kpi-grid .kpi-card {
   display: flex;
-  align-items: center;
+  align-items: center !important;
   gap: 18px;
-  min-height: 118px;
-  padding: 20px;
+  min-height: 0;
+  padding: 16px 20px;
 }
 
 .kpi-icon {
@@ -2214,15 +2164,28 @@ function exportCsv(kind: ExportKind) {
   font-size: 24px;
 }
 
+.kpi-grid .kpi-card > .kpi-icon {
+  align-self: center !important;
+}
+
+.kpi-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+}
+
 .kpi-icon.blue { color: #39687B; background: color-mix(in srgb, #39687B 14%, white); }
 
 .kpi-icon.red { color: #017151; background: color-mix(in srgb, #BAD7B8 55%, white); }
 
 .kpi-icon.purple { color: #5EA99E; background: color-mix(in srgb, #5EA99E 14%, white); }
 
-.kpi-label {
+.kpi-grid .kpi-card .kpi-copy > .kpi-label {
   display: block;
-  margin-bottom: 5px;
+  min-height: 0 !important;
+  margin: 0 0 5px !important;
   color: #4d6461;
   font-size: 14px;
 }
@@ -2251,10 +2214,12 @@ function exportCsv(kind: ExportKind) {
   font-weight: 700;
 }
 
-.kpi-card small {
+.kpi-grid .kpi-card .kpi-copy > small {
   display: block;
-  margin-top: 5px;
+  min-height: 0 !important;
+  margin: 5px 0 0 !important;
   color: #81918f;
+  line-height: 1.25;
 }
 
 .analytics-grid {
@@ -5440,15 +5405,6 @@ nline-expanded-region .world-map {
 
 /* Registration month labels are rendered inside the same SVG as the points,
    so their x positions are guaranteed to match exactly. */
-.users-analytics-page .trend-card .trend-value-label {
-  font-size: 11px;
-  paint-order: stroke;
-  stroke: #ffffff;
-  stroke-width: 3px;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-
 .users-analytics-page .trend-card .trend-month-label {
   fill: #748683;
   font-size: 11px;

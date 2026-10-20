@@ -386,7 +386,11 @@ function participantCounts(users: AdminUser[]): ParticipantYearCounts {
 }
 
 export function participantYearComparison(users: AdminUser[], year: number) {
-  const currentRows = roleUsers(users)
+  const systemYear = new Date().getUTCFullYear()
+  const currentRows = roleUsers(users).filter((user) => {
+    const joined = registrationDate(user)
+    return joined ? joined.getUTCFullYear() <= year : year === systemYear
+  })
   const previousRows = currentRows.filter((user) => {
     const joined = registrationDate(user)
     return joined !== null && joined.getUTCFullYear() <= year - 1
@@ -418,11 +422,30 @@ function monthlyCumulative(users: AdminUser[], role: ActivityRole, year: number)
   return result
 }
 
-export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAnalyticsYear {
-  const users = roleUsers(bundle.users)
-  const asOf = safeDate(bundle.loginActivity?.latest_activity_date)
-    ?? latestObservedDate(users, bundle.groupActivity, bundle.loginActivity)
-  const year = new Date().getUTCFullYear()
+export function usersAnalyticsAsOf(bundle: ParticipantAnalyticsBundle, year: number) {
+  const activityDatesInYear = bundle.loginActivity?.by_day
+    .map((row) => row.date)
+    .filter((date) => Number(date.slice(0, 4)) === year)
+    .sort()
+  const latestActivityInYear = activityDatesInYear?.[activityDatesInYear.length - 1]
+
+  if (latestActivityInYear) return latestActivityInYear
+  if (year === new Date().getUTCFullYear()) return liveAnalyticsAsOf(bundle)
+  return `${year}-12-31`
+}
+
+export function buildUsersAnalytics(
+  bundle: ParticipantAnalyticsBundle,
+  year = new Date().getUTCFullYear(),
+): UserAnalyticsYear {
+  const systemYear = new Date().getUTCFullYear()
+  const users = roleUsers(bundle.users).filter((user) => {
+    const joined = registrationDate(user)
+    // Undated legacy accounts can only be represented safely in the live year.
+    return joined ? joined.getUTCFullYear() <= year : year === systemYear
+  })
+  const asOf = safeDate(usersAnalyticsAsOf(bundle, year))
+    ?? new Date(Date.UTC(year, 11, 31))
   const students = users.filter((user) => roleTitle(user.role) === 'Student')
   const mentors = users.filter((user) => roleTitle(user.role) === 'Mentor')
   const supervisors = users.filter((user) => roleTitle(user.role) === 'Supervisor')
@@ -432,9 +455,18 @@ export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAna
   const loggedInThisYear = (rows: AdminUser[]) => rows.filter((user) =>
     safeDate(user.lastLogin)?.getUTCFullYear() === year,
   ).length
-  const loginCountByRole: Record<ActivityRole, number> = {
-    Student: loggedInThisYear(students), Mentor: loggedInThisYear(mentors), Supervisor: loggedInThisYear(supervisors),
-  }
+  const recordedYear = bundle.loginActivity?.by_year.find((row) => row.year === year)
+  const loginCountByRole: Record<ActivityRole, number> = year === systemYear
+    ? {
+        Student: loggedInThisYear(students),
+        Mentor: loggedInThisYear(mentors),
+        Supervisor: loggedInThisYear(supervisors),
+      }
+    : {
+        Student: recordedYear?.students ?? 0,
+        Mentor: recordedYear?.mentors ?? 0,
+        Supervisor: recordedYear?.supervisors ?? 0,
+      }
   const rate = (role: ActivityRole, rows: AdminUser[]) => percent(loginCountByRole[role], rows.length)
   const recency = [
     { label: '< 7 days', min: 0, max: 6 },
@@ -446,12 +478,19 @@ export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAna
     label: bucket.label,
     value: users.filter((user) => {
       const last = safeDate(user.lastLogin)
+      if (last && last > asOf) return false
       if (!last) return false
       const days = daysBetween(last, asOf)
       return days >= bucket.min && days <= bucket.max
     }).length,
   }))
-  recency.push({ label: 'Never', value: users.filter((user) => !user.lastLogin).length })
+  recency.push({
+    label: 'Never',
+    value: users.filter((user) => {
+      const last = safeDate(user.lastLogin)
+      return !last || last > asOf
+    }).length,
+  })
 
   const regionsMap = new Map<string, number>()
   const interestMap = new Map<string, { students: number; mentors: number }>()
@@ -498,8 +537,9 @@ export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAna
     dailyActivity: { labels: dailyLabels, total: dailyTotal },
     lastLogin: recency,
     userLastLogins: users.map((user) => {
-      const activityStatus = loginStatus(user, asOf)
-      const lastLoginDate = safeDate(user.lastLogin)
+      const recordedLastLogin = safeDate(user.lastLogin)
+      const lastLoginDate = recordedLastLogin && recordedLastLogin <= asOf ? recordedLastLogin : null
+      const activityStatus = lastLoginDate ? loginStatus(user, asOf) : 'Never'
       const status: 'Recent' | 'Inactive' | 'Never' =
         activityStatus === 'Active' ? 'Recent' : activityStatus
 
@@ -676,11 +716,11 @@ function groupMentors(group: AdminGroup) {
 }
 
 export function analyticsYears(bundle: Pick<LiveBundle, 'users' | 'groupActivity' | 'loginActivity'>) {
-  const years = new Set<number>()
+  const years = new Set<number>([new Date().getUTCFullYear()])
   for (const row of bundle.groupActivity.messages_by_day) years.add(Number(row.date.slice(0, 4)))
   for (const row of bundle.loginActivity?.by_day ?? []) years.add(Number(row.date.slice(0, 4)))
   for (const user of bundle.users) {
-    const date = safeDate(user.activatedAt ?? user.invitedAt)
+    const date = registrationDate(user)
     if (date) years.add(date.getUTCFullYear())
   }
   if (!years.size) years.add(new Date().getUTCFullYear())
