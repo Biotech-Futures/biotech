@@ -18,6 +18,10 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
+from apps.users.mentor_registration import (
+    MAX_WEEKLY_HOURS as MENTOR_MAX_WEEKLY_HOURS, MAX_WORDS as MENTOR_MAX_WORDS,
+    STUDY_YEARS as MENTOR_STUDY_YEARS, STUDYING as MENTOR_STUDYING,
+)
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
@@ -570,9 +574,6 @@ def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
 # What a mentor gives registering (apps.users.mentor_registration), checked
 # the same way when an admin changes it.
 MENTOR_BACKGROUNDS = tuple(choice for choice, _ in MentorProfile.BackgroundChoices.choices)
-MENTOR_STUDYING = ("undergraduate", "postgraduate")
-MENTOR_STUDY_YEARS = ("1", "2", "3", "4", "5+")
-MENTOR_MAX_WORDS = 150
 
 # Payload key: mentor profile field.
 MENTOR_FIELDS = {
@@ -587,7 +588,6 @@ MENTOR_FIELDS = {
     "mentorMaxGroupCount": "max_group_count",
     "mentorWeeklyHours": "weekly_hours",
 }
-MENTOR_MAX_WEEKLY_HOURS = 40
 
 
 def _natural_key(name: str) -> list:
@@ -1952,9 +1952,10 @@ def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str,
         return {"msg": "User not found", "data": None}
 
     before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-    user.is_active = is_active
-    user.account_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
-    user.save()
+    if is_active:
+        user.activate()
+    else:
+        user.deactivate()
     log_audit_event(
         actor=initiated_by,
         entity_type="user",
@@ -2003,9 +2004,10 @@ def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) 
                 unchanged_ids.append(user.id)
                 continue
             before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-            user.is_active = is_active
-            user.account_status = next_status
-            user.save()
+            if is_active:
+                user.activate()
+            else:
+                user.deactivate()
             log_audit_event(
                 actor=initiated_by,
                 entity_type="user",

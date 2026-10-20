@@ -14,11 +14,12 @@ from apps.admin.services.user import (
     bulk_update_status_by_filter, delete_user, bulk_delete_users,
     bulk_delete_users_by_filter, has_ungrouped_students, bulk_create_users,
 )
+from apps.audit.models import AuditLog
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
 )
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import StudentProfile, MentorProfile, User, StudentSupervisor
+from apps.users.models import StudentProfile, MentorProfile, SupervisorProfile, User, StudentSupervisor
 from apps.users.models.admin_scope import AdminScope
 
 
@@ -774,6 +775,99 @@ class AdminUserServiceBulkStatusTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class AdminUserStatusActivatedAtTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="statusadmin@example.com", first_name="Ada", last_name="Admin", password="testpass",
+        )
+        AdminScope.objects.create(user=self.admin_user)
+        self.mentor = User.objects.create_user(email="mentor@example.com", first_name="Ari", last_name="Mentor")
+        MentorProfile.objects.create(user=self.mentor, institution="UNSW", mentor_reason="Testing", max_group_count=2)
+        self.student = User.objects.create_user(email="student@example.com", first_name="Sam", last_name="Student")
+        StudentProfile.objects.create(
+            user=self.student, pg_first_name="Pat", pg_last_name="Parent", school_name="Test High", year_lvl="10",
+        )
+        self.supervisor = User.objects.create_user(email="supervisor@example.com", first_name="Sue", last_name="Super")
+        self.supervisor.invite()
+        SupervisorProfile.objects.create(user=self.supervisor, school_name="Test High")
+        self.people = [self.mentor, self.student, self.supervisor]
+
+    def ids(self):
+        return [person.id for person in self.people]
+
+    def refreshed(self):
+        for person in self.people:
+            person.refresh_from_db()
+        return self.people
+
+    def test_bulk_activation_stamps_activated_at_for_each_role(self):
+        self.assertEqual(
+            [(p.account_status, p.is_active, p.activated_at) for p in self.people],
+            [("pending", False, None), ("pending", False, None), ("invited", False, None)],
+        )
+
+        result = bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+
+        self.assertEqual(sorted(result["data"]["updatedIds"]), sorted(self.ids()))
+        for person in self.refreshed():
+            self.assertEqual((person.account_status, person.is_active), ("active", True))
+            self.assertIsNotNone(person.activated_at)
+        entry = AuditLog.objects.get(entity_id=self.supervisor.id, action="status_change")
+        self.assertEqual(entry.before_state, {"isActive": False, "accountStatus": "invited"})
+        self.assertEqual(entry.after_state, {"isActive": True, "accountStatus": "active"})
+
+    def test_select_all_and_single_activation_stamp_activated_at(self):
+        bulk_update_status_by_filter({"search": "mentor@example.com"}, True, initiated_by=self.admin_user)
+        update_status(self.student.id, True, initiated_by=self.admin_user)
+
+        self.mentor.refresh_from_db()
+        self.student.refresh_from_db()
+        self.assertIsNotNone(self.mentor.activated_at)
+        self.assertIsNotNone(self.student.activated_at)
+
+    def test_reactivating_keeps_the_first_activated_at(self):
+        bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+        first = {person.id: person.activated_at for person in self.refreshed()}
+
+        bulk_update_status(self.ids(), False, initiated_by=self.admin_user)
+        bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+        update_status(self.student.id, True, initiated_by=self.admin_user)
+
+        for person in self.refreshed():
+            self.assertEqual((person.account_status, person.is_active), ("active", True))
+            self.assertEqual(person.activated_at, first[person.id])
+
+    def test_deactivating_leaves_activated_at_alone(self):
+        bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+        first = {person.id: person.activated_at for person in self.refreshed()}
+
+        result = bulk_update_status(self.ids(), False, initiated_by=self.admin_user)
+        update_status(self.mentor.id, False, initiated_by=self.admin_user)
+
+        self.assertEqual(sorted(result["data"]["updatedIds"]), sorted(self.ids()))
+        for person in self.refreshed():
+            self.assertEqual((person.account_status, person.is_active), ("deactivated", False))
+            self.assertEqual(person.activated_at, first[person.id])
+
+    def test_end_state_for_true_and_false_from_every_status(self):
+        for start in ("pending", "invited", "active", "deactivated", "suspended"):
+            for is_active, expected in ((True, ("active", True)), (False, ("deactivated", False))):
+                with self.subTest(start=start, is_active=is_active):
+                    User.objects.filter(pk=self.mentor.pk).update(
+                        account_status=start, is_active=start == "active",
+                    )
+                    bulk_update_status([self.mentor.id], is_active, initiated_by=self.admin_user)
+                    self.mentor.refresh_from_db()
+                    self.assertEqual((self.mentor.account_status, self.mentor.is_active), expected)
+
+                    User.objects.filter(pk=self.mentor.pk).update(
+                        account_status=start, is_active=start == "active",
+                    )
+                    update_status(self.mentor.id, is_active, initiated_by=self.admin_user)
+                    self.mentor.refresh_from_db()
+                    self.assertEqual((self.mentor.account_status, self.mentor.is_active), expected)
 
 
 class AdminUserServiceQueryTests(TestCase):

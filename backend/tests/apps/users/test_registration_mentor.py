@@ -5,11 +5,15 @@ import uuid
 from datetime import time
 
 from django.core import mail
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import MentorProfile, RegistrationSubmission, User, UserInterest
+from apps.users.models import (
+    MentorProfile, RegistrationSubmission, StudentProfile, SupervisorProfile, User, UserInterest,
+)
 from apps.users.models.mentor_availability import MentorAvailability
+from apps.users.views import REGISTRATION_PER_IP_LIMIT
 from tests.apps.users.test_registration_latelink import RegistrationSetup
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
@@ -120,6 +124,28 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(email="jordan.ng@uni.example.test").exists())
 
+    def test_each_written_answer_is_kept_to_150_words(self):
+        long = " ".join(["word"] * 151)
+        for field in ("background", "motivation", "mentoringApproach"):
+            with self.subTest(field=field):
+                response = self.register(mentor_body(**{field: long}))
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn(f"mentor.{field}", response.data["fields"] if "fields" in response.data else response.data)
+        # Exactly 150 words is allowed.
+        response = self.register(mentor_body(background=" ".join(["word"] * 150)))
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_a_name_and_country_are_needed(self):
+        for field in ("firstName", "lastName", "country"):
+            left_out = mentor_body()
+            del left_out["payload"]["mentor"][field]
+            for how, body in (("blank", mentor_body(**{field: ""})), ("left out", left_out)):
+                with self.subTest(field=field, how=how):
+                    response = self.register(body)
+                    self.assertEqual(response.status_code, 400, response.data)
+                    self.assertIn(f"mentor.{field}", response.data["fields"] if "fields" in response.data else response.data)
+        self.assertFalse(MentorProfile.objects.exists())
+
     def test_hours_per_week_are_needed_and_a_whole_number_up_to_40(self):
         for hours in ("", "41", "2.5"):
             with self.subTest(hours=hours):
@@ -151,6 +177,34 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         response = self.register()
         self.assertEqual(response.status_code, 400)
         self.assertFalse(MentorProfile.objects.exists())
+
+    def test_an_email_that_belongs_to_a_student_or_a_supervisor_is_refused(self):
+        student = User.objects.create_user(email="pupil@example.test", first_name="Robin", last_name="Existing")
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", school_name="Test High School", year_lvl="10",
+        )
+        supervisor = User.objects.create_user(email="grace@example.test", first_name="Grace", last_name="Green")
+        SupervisorProfile.objects.create(user=supervisor, school_name="Test High School")
+        for typed in ("pupil@example.test", "Grace@Example.test"):
+            with self.subTest(typed=typed):
+                response = self.register(mentor_body(email=typed))
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn("mentor.email", response.data["fields"] if "fields" in response.data else response.data)
+        # Neither account was given the mentor role or a mentor profile.
+        self.assertFalse(MentorProfile.objects.exists())
+        self.assertFalse(RoleAssignmentHistory.objects.filter(role__role_name="mentor").exists())
+
+    def test_the_per_ip_limit_applies_but_a_repeated_request_still_gets_its_receipt(self):
+        key = uuid.uuid4()
+        first = self.register(key=key)
+        self.assertEqual(first.status_code, 201, first.data)
+        cache.set("registration_ip:127.0.0.1", REGISTRATION_PER_IP_LIMIT)
+        response = self.register(mentor_body(email="another@example.test"))
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse(User.objects.filter(email="another@example.test").exists())
+        again = self.register(key=key)
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.data, first.data)
 
     def test_the_same_request_sent_again_registers_one_mentor(self):
         key = uuid.uuid4()
