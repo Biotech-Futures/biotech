@@ -1,5 +1,5 @@
 <template>
-  <div class="admin-mentors">
+  <div id="admin-mentors-table" class="admin-mentors">
     <p v-if="error" class="admin-mentors__error" role="alert">{{ error }}</p>
 
     <!-- Bulk actions -->
@@ -29,10 +29,21 @@
       :page-size="DATA_TABLE_ALL"
       :selected="[...selectedIds]"
       :sort="sortState"
+      v-model:search="searchInput"
       :row-class="rowClass"
       @update:selected="onSelected"
       @update:sort="setSort($event.key as MentorSortKey)"
     >
+      <template #filters>
+        <label class="admin-mentors__filter-field">
+          <span class="admin-mentors__filter-label">Capacity</span>
+          <AppSelect
+            v-model="capacityFilter"
+            aria-label="Mentor capacity"
+            :options="CAPACITY_OPTIONS"
+          />
+        </label>
+      </template>
       <template #stats>
         {{ mentors.length }} mentor{{ mentors.length === 1 ? '' : 's' }} registered
       </template>
@@ -145,8 +156,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import MentorReplaceDialog from '@/components/admin/MentorReplaceDialog.vue'
@@ -161,6 +173,29 @@ import {
   lastMessageDays,
   relativeDays
 } from '@/utils/mentorFormat'
+
+type CapacityFilter = '' | 'available' | 'full' | 'over'
+
+const props = withDefaults(defineProps<{
+  initialSearch?: string
+  initialCapacityFilter?: CapacityFilter
+}>(), {
+  initialSearch: '',
+  initialCapacityFilter: '',
+})
+
+const searchInput = ref(props.initialSearch)
+const capacityFilter = ref<CapacityFilter>(props.initialCapacityFilter)
+
+watch(() => props.initialSearch, (value) => { searchInput.value = value })
+watch(() => props.initialCapacityFilter, (value) => { capacityFilter.value = value })
+
+const CAPACITY_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'All capacities' },
+  { value: 'available', label: 'Available capacity' },
+  { value: 'full', label: 'At capacity' },
+  { value: 'over', label: 'Over capacity' },
+]
 
 const {
   loading,
@@ -199,8 +234,26 @@ const columns: DataTableColumn[] = [
 
 // Each mentor as a table row: plain text for search, copying and export,
 // and the mentor itself for the cells drawn here. Sorted by useAdminMentorsView.
+const filteredMentors = computed(() => {
+  const query = searchInput.value.trim().toLowerCase()
+  return sortedMentors.value.filter((mentor) => {
+    const matchesCapacity = capacityFilter.value === ''
+      || (capacityFilter.value === 'available' && mentor.remainingCapacity > 0)
+      || (capacityFilter.value === 'full' && mentor.remainingCapacity === 0)
+      || (capacityFilter.value === 'over' && mentor.remainingCapacity < 0)
+    const matchesSearch = !query || [
+      mentor.name,
+      mentor.email,
+      mentor.countryName,
+      mentor.institution,
+      ...mentor.interests,
+    ].some((value) => value?.toLowerCase().includes(query))
+    return matchesCapacity && matchesSearch
+  })
+})
+
 const mentorRows = computed(() =>
-  sortedMentors.value.map((mentor) => ({
+  filteredMentors.value.map((mentor) => ({
     id: mentor.mentorId,
     mentor,
     name: mentor.name,
@@ -249,6 +302,17 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.admin-mentors__filter-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.admin-mentors__filter-label {
+  color: var(--text-muted, #60726f);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .admin-mentors__inactive-days {

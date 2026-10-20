@@ -168,6 +168,9 @@ export interface AnalyticsMentor {
   capacity: number
   groupIds: string[]
   studentIds: string[]
+  region: string | null
+  interests: string[]
+  institution: string | null
   // Whether the mentor's account is activated (account_status "active").
   accountActive?: boolean
   // Account status as sent by the mentor source, e.g. "active" or "deactivated".

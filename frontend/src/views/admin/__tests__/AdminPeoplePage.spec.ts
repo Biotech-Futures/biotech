@@ -87,6 +87,19 @@ describe('AdminPeoplePage', () => {
     expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'Not in a group')
   })
 
+  it('prefills the mentor search and capacity filter from an Analytics deep link', async () => {
+    routeState.query = { tab: 'mentors', search: 'Grace Ali', capacity: 'available' }
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    const active = tabButtons().find((button) => button.attributes('aria-selected') === 'true')
+    expect(active?.text()).toBe('Mentors')
+    expect((wrapper.get('.data-table-search-input').element as HTMLInputElement).value).toBe('Grace Ali')
+    expect((wrapper.get('[aria-label="Mentor capacity"]').element as HTMLInputElement).value)
+      .toBe('Available capacity')
+  })
+
   it('renders the four tab labels', async () => {
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(AdminPeoplePage)
