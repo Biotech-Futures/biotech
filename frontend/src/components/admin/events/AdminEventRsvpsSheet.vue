@@ -171,7 +171,7 @@ const sheetTitle = computed(() => `RSVPs: ${eventName.value}`)
 const sheetDescription = computed(() => {
   if (!props.event?.id) return ''
   const count = rsvps.value.length
-  return `Event #${props.event.id} · ${count} ${count === 1 ? 'response' : 'responses'}`
+  return `${count} ${count === 1 ? 'response' : 'responses'}`
 })
 
 const onDismiss = () => {
