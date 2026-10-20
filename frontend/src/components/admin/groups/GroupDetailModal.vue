@@ -19,7 +19,28 @@
 
         <section class="group-detail__section">
           <h3>Mentor</h3>
-          <p v-if="group.mentor" class="group-detail__mentor">{{ group.mentor.name }}</p>
+          <div
+            v-if="group.mentor"
+            class="group-detail__member"
+          >
+            <button
+              type="button"
+              class="group-detail__member-btn"
+              @click="openMentorDetail(group.mentor)"
+            >
+              <div class="group-detail__member-info">
+                <span class="group-detail__member-name">{{ group.mentor.name }}</span>
+                <span class="group-detail__member-email">{{ group.mentor.email }}</span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click="requestRemoveMentor(group.mentor)"
+            >
+              Remove
+            </button>
+          </div>
           <p v-else class="group-detail__muted">Unassigned</p>
         </section>
 
@@ -59,18 +80,21 @@
                 class="group-detail__member-btn"
                 @click="openStudentDetail(member)"
               >
-                <div class="group-detail__member-info">
-                  <span class="group-detail__member-name">{{ member.name }}</span>
-                  <span class="group-detail__member-email">{{ member.email }}</span>
-                </div>
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm btn-outline"
-                @click="requestRemoveMember(member)"
-              >
-                Remove
-              </button>
+              <div class="group-detail__member-info">
+                <span class="group-detail__member-name">{{ member.name }}</span>
+                <span class="group-detail__member-email">{{ member.email }}</span>
+                <span v-if="member.supervisorName" class="group-detail__member-supervisor">
+                  Supervisor: {{ member.supervisorName }}
+                </span>
+              </div>
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline"
+              @click="requestRemoveMember(member)"
+            >
+              Remove
+            </button>
             </li>
           </ul>
         </section>
@@ -312,7 +336,7 @@
 
   <ConfirmDialog
     :model-value="memberToRemove !== null"
-    title="Remove student"
+    :title="memberToRemove && String(memberToRemove.role || '').toLowerCase() === 'mentor' ? 'Remove mentor' : 'Remove student'"
     :message="removeMemberMessage"
     confirm-label="Remove"
     busy-label="Removing..."
@@ -421,6 +445,21 @@ const openStudentDetail = async (member: AdminGroupMember) => {
   }
 }
 
+const openMentorDetail = async (member: AdminGroupMember) => {
+  view.value = 'student'
+  selectedStudentMember.value = member
+  selectedStudent.value = null
+  studentError.value = ''
+  loadingStudent.value = true
+  try {
+    selectedStudent.value = await fetchAdminUser(member.id)
+  } catch (err) {
+    studentError.value = err instanceof Error ? err.message : 'Could not load mentor details.'
+  } finally {
+    loadingStudent.value = false
+  }
+}
+
 const onStudentUpdated = (updatedUser: AdminUser) => {
   selectedStudent.value = updatedUser
 }
@@ -455,10 +494,12 @@ watch(
 const memberToRemove = ref<AdminGroupMember | null>(null)
 const removingMember = ref(false)
 const removeMemberError = ref('')
+const removingMentor = ref(false)
 
 const removeMemberMessage = computed(() => {
   const member = memberToRemove.value
   if (!member) return ''
+  const roleLabel = String(member.role || '').toLowerCase() === 'mentor' ? 'mentor' : 'student'
   return `Remove ${member.name || member.email} from ${props.group?.name ?? 'this group'}?`
 })
 
@@ -467,8 +508,13 @@ const requestRemoveMember = (member: AdminGroupMember) => {
   memberToRemove.value = member
 }
 
+const requestRemoveMentor = (mentor: AdminGroupMember) => {
+  removeMemberError.value = ''
+  memberToRemove.value = mentor
+}
+
 const closeRemoveMember = () => {
-  if (removingMember.value) return
+  if (removingMember.value || removingMentor.value) return
   memberToRemove.value = null
   removeMemberError.value = ''
 }
@@ -481,11 +527,17 @@ const confirmRemoveMember = async () => {
   removeMemberError.value = ''
   try {
     await removeGroupMember(props.group.id, member.id)
-    members.value = members.value.filter((m) => m.id !== member.id)
-    emit('changed', props.group.id)
-    memberToRemove.value = null
+    const role = String(member.role || '').toLowerCase()
+    if (role === 'mentor') {
+      emit('changed', props.group.id)
+      memberToRemove.value = null
+    } else {
+      members.value = members.value.filter((m) => m.id !== member.id)
+      emit('changed', props.group.id)
+      memberToRemove.value = null
+    }
   } catch (err) {
-    removeMemberError.value = err instanceof Error ? err.message : 'Could not remove student. Please try again.'
+    removeMemberError.value = err instanceof Error ? err.message : 'Could not remove member. Please try again.'
   } finally {
     removingMember.value = false
   }
@@ -869,6 +921,28 @@ const confirmRemoveMessage = async () => {
 .group-detail__member-email {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.group-detail__member-supervisor {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.group-detail__mentor-card {
+  display: flex;
+  align-items: center;
+  text-align: left;
+  background-color: var(--bg-light);
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  width: 100%;
+}
+
+.group-detail__mentor-card:hover .group-detail__member-name {
+  text-decoration: underline;
 }
 
 .group-detail__message {

@@ -545,6 +545,7 @@ export interface AdminGroupMember {
   role: string
   membershipId: number | null
   interests?: string[]
+  supervisorName?: string | null
 }
 
 export type { MutualInterestItem }

@@ -442,8 +442,8 @@ describe('GroupDetailModal', () => {
     const removeButtons = Array.from(dialog()!.querySelectorAll('button')).filter(
       (b) => b.textContent?.trim() === 'Remove'
     )
-    expect(removeButtons.length).toBe(2)
-    removeButtons[0].dispatchEvent(new Event('click', { bubbles: true }))
+    expect(removeButtons.length).toBe(3)
+    removeButtons[1].dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
 
     // The click stages the removal; confirm it in the app's ConfirmDialog.
@@ -451,12 +451,11 @@ describe('GroupDetailModal', () => {
     clickButton(confirmDialog()!, 'Remove')
     await flushPromises()
 
-    const call = fetchMock.mock.calls.find(
+    expect(fetchMock.mock.calls.some(
       ([u, i]) => String(u).includes('/group/1/members/10/') && (i as RequestInit | undefined)?.method === 'DELETE'
-    )
-    expect(call).toBeDefined()
+    )).toBe(true)
     expect(dialog()!.textContent).not.toContain('Ada Lovelace')
-    expect(wrapper!.emitted('changed')).toBeTruthy()
+    expect(wrapper!.emitted('changed')?.[0]).toEqual([1])
   })
 
   it('does not remove the member when the confirmation is declined', async () => {
@@ -665,12 +664,12 @@ describe('GroupDetailModal', () => {
     clickButton(dialog()!, 'Add (1)')
     await flushPromises()
 
-    // Rosalind is the third member row.
+    // Rosalind is the fourth member row (after mentor).
     const removeButtons = Array.from(dialog()!.querySelectorAll('button')).filter(
       (b) => b.textContent?.trim() === 'Remove'
     )
-    expect(removeButtons).toHaveLength(3)
-    removeButtons[2].dispatchEvent(new Event('click', { bubbles: true }))
+    expect(removeButtons).toHaveLength(4)
+    removeButtons[3].dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
     expect(confirmDialog()!.textContent).toContain('Remove Rosalind Franklin from BTF1?')
     clickButton(confirmDialog()!, 'Remove')

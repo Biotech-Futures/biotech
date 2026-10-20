@@ -145,7 +145,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             group_id__in=group_ids,
             left_at__isnull=True
         )
-        .select_related("user")
+        .select_related("user", "user__studentprofile", "user__studentprofile__supervisor", "user__studentprofile__supervisor__user")
         .order_by("group_id", "id")
     )
     
@@ -189,9 +189,18 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "interests": user_ints,
         }
         
-        if role == "mentor":
+        if role == GroupMembership.MembershipRoleChoices.MENTOR:
             mentor_by_group_id[membership.group_id] = member
         else:
+            supervisor_name = ""
+            try:
+                student_profile = getattr(user, "studentprofile", None)
+                if student_profile and student_profile.supervisor_id:
+                    supervisor_user = student_profile.supervisor.user
+                    supervisor_name = f"{supervisor_user.first_name} {supervisor_user.last_name}".strip() or supervisor_user.email or ""
+            except Exception:
+                supervisor_name = ""
+            member["supervisorName"] = supervisor_name or None
             if membership.group_id not in members_by_group_id:
                 members_by_group_id[membership.group_id] = []
             members_by_group_id[membership.group_id].append(member)
