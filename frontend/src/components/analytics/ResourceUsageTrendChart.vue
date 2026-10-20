@@ -291,9 +291,13 @@ function y(value: number) {
 const xLabels = computed(() => {
   const count = days.value.length
   const latestIndex = count - 1
+  // Keep roughly eight labels at most. The interval remains a whole number of
+  // weeks and is anchored to the latest date so 30, 90 and 365-day views all
+  // stay readable.
+  const interval = 7 * Math.max(1, Math.ceil(count / (7 * 8)))
   return days.value
     .map((day, index) => ({ index, text: formatDay(day, false) }))
-    .filter((label) => (latestIndex - label.index) % 7 === 0)
+    .filter((label) => (latestIndex - label.index) % interval === 0)
 })
 
 function onHover(event: MouseEvent) {
@@ -326,8 +330,9 @@ const readoutStyle = computed(() => {
   const index = hoverIndex.value ?? 0
   const pointX = x(index)
   const tooltipWidth = Math.min(380, Math.max(0, size.value.width - 24))
+  const maxLeft = Math.max(0, size.value.width - tooltipWidth)
   return {
-    left: `${pointX - tooltipWidth / 2}px`,
+    left: `${Math.min(maxLeft, Math.max(0, pointX - tooltipWidth / 2))}px`,
     top: `${hoverY.value + 12}px`,
   }
 })
