@@ -18,6 +18,21 @@ export const STUDY_YEAR_OPTIONS: AppSelectOption[] = [
   { value: '4', label: 'Year 4' },
   { value: '5+', label: 'Year 5 or later' }
 ]
+/** A background typed before there was a list, read as the list's choice
+ * where it's clear ("Undergraduate Student" is undergraduate); anything else
+ * stays as written. */
+export const mentorBackgroundCode = (background: AppSelectOption['value'] | undefined): AppSelectOption['value'] => {
+  if (typeof background !== 'string' || !background) return background ?? null
+  if (MENTOR_BACKGROUNDS.some((option) => option.value === background)) return background
+  const text = background.toLowerCase()
+  if (text.includes('industry')) return 'industry'
+  if (text.includes('undergrad')) return 'undergraduate'
+  if (text.includes('postgrad')) return 'postgraduate'
+  if (text.includes('hdr') || text.includes('phd')) return 'hdr'
+  if (text.includes('academic') || text.includes('research staff')) return 'academic'
+  return background
+}
+
 /** University students give their year of study. */
 export const isStudyingBackground = (background: AppSelectOption['value'] | undefined) =>
   background === 'undergraduate' || background === 'postgraduate'

@@ -47,7 +47,7 @@
         <div class="admin-users-form__grid">
           <template v-if="form.role !== 'admin'">
             <div class="form-field">
-              <label class="form-label" for="f-country">Country <span v-if="form.role !== 'mentor'" class="required-mark" aria-hidden="true">*</span></label>
+              <label class="form-label" for="f-country">Country</label>
               <AppSelect
                 id="f-country"
                 :model-value="form.countryId ?? null"
@@ -61,7 +61,7 @@
                  else typed, as registering takes it. -->
             <!-- Beside Country always: greyed out until a country is picked. -->
             <div class="form-field">
-              <label class="form-label" for="f-state">State <span v-if="inAustralia && formStates.length && form.role !== 'mentor'" class="required-mark" aria-hidden="true">*</span></label>
+              <label class="form-label" for="f-state">State</label>
               <AppSelect
                 v-if="formStates.length || form.countryId === undefined"
                 id="f-state"
@@ -103,21 +103,21 @@
       <div class="admin-users-form__section">{{ roleLabel(form.role) }} details</div>
       <div class="admin-users-form__grid">
         <div class="form-field">
-          <label class="form-label" for="f-first">First name <span v-if="form.role !== 'mentor'" class="required-mark" aria-hidden="true">*</span></label>
+          <label class="form-label" for="f-first">First name</label>
           <input id="f-first" v-model.trim="form.firstName" class="form-input" />
         </div>
         <div class="form-field">
-          <label class="form-label" for="f-last">Last name <span v-if="form.role !== 'mentor'" class="required-mark" aria-hidden="true">*</span></label>
+          <label class="form-label" for="f-last">Last name</label>
           <input id="f-last" v-model.trim="form.lastName" class="form-input" />
         </div>
 
         <template v-if="form.role === 'student'">
           <div class="form-field">
-            <label class="form-label" for="f-school">School <span class="required-mark" aria-hidden="true">*</span></label>
+            <label class="form-label" for="f-school">School</label>
             <input id="f-school" v-model.trim="form.schoolName" class="form-input" />
           </div>
           <div class="form-field">
-            <label class="form-label" for="f-year">Year level <span class="required-mark" aria-hidden="true">*</span></label>
+            <label class="form-label" for="f-year">Year level</label>
             <AppSelect
               id="f-year"
               :model-value="form.yearLevel ?? null"
@@ -134,6 +134,25 @@
           <div class="form-field form-field--full">
             <label class="form-label" for="f-sschool">School</label>
             <input id="f-sschool" v-model.trim="form.supervisorSchoolName" class="form-input" />
+          </div>
+        </template>
+
+        <!-- Pronouns as the user panel has them: after the name for a mentor or
+             admin, after the school for a supervisor. -->
+        <template v-if="form.role === 'mentor' || form.role === 'admin' || form.role === 'supervisor'">
+          <div class="form-field">
+            <label class="form-label" for="f-mpronouns">Pronouns</label>
+            <AppSelect
+              id="f-mpronouns"
+              v-model="form.pronounsChoice"
+              class="form-input"
+              :options="PRONOUN_SELECT_OPTIONS"
+              :searchable="false"
+            />
+          </div>
+          <div v-if="form.pronounsChoice === 'Other'" class="form-field">
+            <label class="form-label" for="f-mpronouns-other">Their pronouns</label>
+            <input id="f-mpronouns-other" v-model="form.pronounsOther" class="form-input" maxlength="100" />
           </div>
         </template>
 
@@ -249,7 +268,7 @@
         <div class="admin-users-form__section">Supervisor and Group</div>
         <div class="admin-users-form__grid">
           <div class="form-field form-field--full">
-            <label class="form-label" for="f-supervisor">Supervisor <span v-if="!isEditing" class="required-mark" aria-hidden="true">*</span></label>
+            <label class="form-label" for="f-supervisor">Supervisor</label>
             <AppSelect
               id="f-supervisor"
               v-model="form.supervisorEmail"
@@ -502,6 +521,7 @@ import {
   blankSlot,
   capacityLabel,
   isStudyingBackground,
+  mentorBackgroundCode,
   minuteOptions,
   pickHour,
   splitSlot,
@@ -738,7 +758,7 @@ const initForm = (editingUser: AdminUser | null) => {
     supervisorSchoolName: editingUser.role === 'supervisor' ? editingUser.schoolName || '' : '',
     ...(editingUser.role === 'mentor'
       ? {
-          mentorBackground: editingUser.mentorBackground || null,
+          mentorBackground: mentorBackgroundCode(editingUser.mentorBackground),
           mentorInstitution: editingUser.mentorInstitution || '',
           mentorCompany: editingUser.mentorCompany || '',
           mentorUniversityYear: editingUser.mentorUniversityYear || null,
@@ -768,8 +788,8 @@ watch(
 
 // --- Supervisor and Group ------------------------------------------------------
 
-// By name, with the email underneath. A new student needs one; editing, none
-// stays a choice. The one they have stays a choice even when it isn't in the list.
+// By name, with the email underneath; none first, as it's optional. The one
+// they have stays a choice even when it isn't in the list.
 const supervisorOptions = computed<AppSelectOption[]>(() => {
   const options = props.supervisors
     .flatMap((supervisor) => {
@@ -781,7 +801,7 @@ const supervisorOptions = computed<AppSelectOption[]>(() => {
   if (current && !options.some((option) => option.value === current)) {
     options.unshift({ value: current, label: current, detail: current })
   }
-  return isEditing.value ? [{ value: '', label: 'No supervisor', detail: '' }, ...options] : options
+  return [{ value: '', label: 'No supervisor', detail: '' }, ...options]
 })
 
 const groupList = ref<AdminGroupDetail[]>([])
@@ -947,22 +967,14 @@ const onCancel = () => {
 
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
-// A student's pronouns to save: null when Other is chosen with nothing typed.
-const studentPronouns = () =>
+// The pronouns to save: null when Other is chosen with nothing typed.
+const chosenPronouns = () =>
   pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
 
 const validateForm = (): boolean => {
   const role = form.role
-  // A mentor needs only an email and a role; the rest may come later.
-  const mentor = role === 'mentor'
-  if (!mentor && !form.firstName.trim()) {
-    formError.value = 'First name is required.'
-    return false
-  }
-  if (!mentor && !form.lastName.trim()) {
-    formError.value = 'Last name is required.'
-    return false
-  }
+  // Only an email and a role are needed: the rest may come later. What's
+  // given wrong is still refused.
   if (!form.email.trim()) {
     formError.value = 'Email is required.'
     return false
@@ -971,21 +983,13 @@ const validateForm = (): boolean => {
     formError.value = 'Invalid email format.'
     return false
   }
-  if (role !== 'admin' && !mentor && form.countryId === undefined) {
-    formError.value = 'Country is required for non-admin users.'
-    return false
-  }
-  if (role !== 'admin' && !mentor && inAustralia.value && formStates.value.length && form.stateId === undefined) {
-    formError.value = 'Choose a state.'
-    return false
-  }
   if (role === 'student') {
-    if (!form.schoolName.trim()) {
-      formError.value = 'School is required for student users.'
-      return false
-    }
-    if (!form.yearLevel || form.yearLevel < 9 || form.yearLevel > 12) {
-      formError.value = 'Year level must be between 9 and 12.'
+    // Consent needs a guardian on file: one named, or the student's own name
+    // standing in until they are.
+    const guardianNamed = Boolean(form.guardianFirstName && form.guardianLastName)
+    const studentNamed = Boolean(form.firstName.trim() && form.lastName.trim())
+    if (form.consentGiven && !isEditing.value && !guardianNamed && !studentNamed) {
+      formError.value = "Enter the guardian's name to record their consent."
       return false
     }
     if (guardianNamesChanged() && (!form.guardianFirstName || !form.guardianLastName)) {
@@ -1008,11 +1012,7 @@ const validateForm = (): boolean => {
       return false
     }
   }
-  if (role === 'student' && !isEditing.value && !form.supervisorEmail) {
-    formError.value = 'Choose a supervisor.'
-    return false
-  }
-  if (role === 'student' && studentPronouns() === null) {
+  if (chosenPronouns() === null) {
     formError.value = 'Enter their pronouns.'
     return false
   }
@@ -1082,7 +1082,6 @@ const submitForm = async () => {
         payload.yearLevel = form.yearLevel
         payload.interests = form.interests
         payload.supervisorEmail = form.supervisorEmail || undefined
-        payload.pronouns = studentPronouns()
         Object.assign(payload, guardianPayload())
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
@@ -1090,6 +1089,7 @@ const submitForm = async () => {
         Object.assign(payload, mentorPayload())
         payload.interests = form.interests
       }
+      payload.pronouns = chosenPronouns()
 
       const activeWasChanged = form.active !== editingOriginalActive.value
       await updateAdminUser(props.user.id, payload)
@@ -1119,7 +1119,6 @@ const submitForm = async () => {
         payload.yearLevel = form.yearLevel
         payload.supervisorEmail = form.supervisorEmail || undefined
         payload.interests = form.interests
-        payload.pronouns = studentPronouns()
         Object.assign(payload, guardianPayload())
       } else if (role === 'supervisor') {
         payload.supervisorSchoolName = form.supervisorSchoolName || null
@@ -1127,6 +1126,7 @@ const submitForm = async () => {
         Object.assign(payload, mentorPayload())
         payload.interests = form.interests
       }
+      payload.pronouns = chosenPronouns()
 
       if (createdUserId.value !== null) {
         await finishNewUser(createdUserId.value)
@@ -1151,10 +1151,16 @@ const submitForm = async () => {
 </script>
 
 <style scoped>
+/* Two equal columns, whatever a box holds: a long placeholder ("Choose a
+   country first") mustn't widen its own. */
 .admin-users-form__grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
+}
+
+.admin-users-form__grid > .form-field {
+  min-width: 0;
 }
 
 .admin-users-form__section {
@@ -1448,7 +1454,7 @@ const submitForm = async () => {
 @media (max-width: 640px) {
   .admin-users-form__grid,
   .admin-users-form__interests {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

@@ -230,6 +230,10 @@ def upsert_student_profile(
         "school_name": (school_name or "").strip(),
         "year_lvl": str(year_level or ""),
     }
+    # No guardian named, and no name of the student's to stand in for one (an
+    # admin may add a student from an email alone): no guardian on file.
+    if not (profile_data["pg_first_name"] or "").strip() or not (profile_data["pg_last_name"] or "").strip():
+        profile_data["parent_guardian_flag"] = False
     if guardian_email is not None:
         profile_data["pg_email"] = (guardian_email or "").strip() or None
     guardian_supplied = any(
@@ -571,6 +575,7 @@ def last_edits(user_ids) -> Dict[int, Dict[str, Any]]:
 # What a mentor gives registering (apps.users.mentor_registration), checked
 # the same way when an admin changes it.
 MENTOR_STUDY_YEARS = ("1", "2", "3", "4", "5+")
+STUDENT_YEARS = ("9", "10", "11", "12")
 MENTOR_MAX_WORDS = 150
 
 # Payload key: mentor profile field.
@@ -1150,38 +1155,17 @@ def add_users_by_role(inputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             })
             continue
         
-        # Validate geography for students and supervisors. Country is the required
-        # field; state is optional. A bare state still resolves a country (see
-        # below), so accept either. A mentor may be added without one.
-        if role not in ("admin", "mentor") and not country_name and not state_name:
+        # Only an email and a role are needed: an admin may add someone before
+        # their country, school or year are known. A year given is 9 to 12.
+        year_level = input_data.get("yearLevel")
+        if role == "student" and year_level not in (None, "") and str(year_level) not in STUDENT_YEARS:
             results.append({
                 "input": input_data,
-                "msg": "Country is required",
+                "msg": "Year level must be from 9 to 12",
                 "data": None
             })
             continue
-        
-        # Validate student-specific fields
-        if role == "student":
-            school_name = (input_data.get("schoolName") or "").strip()
-            year_level = input_data.get("yearLevel")
-            
-            if not school_name:
-                results.append({
-                    "input": input_data,
-                    "msg": "School is required for student users",
-                    "data": None
-                })
-                continue
-            
-            if not year_level:
-                results.append({
-                    "input": input_data,
-                    "msg": "Year level is required for student users",
-                    "data": None
-                })
-                continue
-        
+
         # A mentor from Add user's full form (as the mentor panel has it) is
         # checked as the panel's edit is; an import's few columns as before.
         mentor_values = None
@@ -1697,9 +1681,17 @@ def update_user(user_id: int, input_data: Dict[str, Any], initiated_by=None) -> 
             ).first()
         )
         
-        if not (next_school or "").strip():
+        # One an admin added (or a peer registered) may have none yet; anyone
+        # else registered with both, and keeps them.
+        registered_by = StudentProfile.objects.filter(user_id=user_id).values_list(
+            'registered_by', flat=True
+        ).first()
+        may_leave_blank = registered_by in (
+            None, StudentProfile.RegisteredBy.ADMIN, StudentProfile.RegisteredBy.PEER,
+        )
+        if not may_leave_blank and not (next_school or "").strip():
             return {"msg": "School is required for student users", "data": None}
-        if not next_year:
+        if not may_leave_blank and not next_year:
             return {"msg": "Year level is required for student users", "data": None}
 
         for key, label in (("guardianFirstName", "first name"), ("guardianLastName", "last name")):

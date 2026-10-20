@@ -508,20 +508,23 @@ class AdminUserServiceCreateUserTests(TestCase):
         self.assertIsNotNone(profile.joinperm_granted_at)
         self.assertTrue(result["data"]["joinPermissionReceived"])
 
-    def test_create_student_missing_school_returns_error(self):
-        result = create_user({
-            "email": "student2@example.com",
-            "firstName": "Bob",
-            "lastName": "Student",
-            "role": "student",
-            "state": "NSW",
-            "yearLevel": 10,
-        })
+    def test_a_student_needs_only_an_email_the_rest_may_come_later(self):
+        result = create_user({"email": "student2@example.com", "role": "student"})
 
-        self.assertEqual(result["msg"], "School is required for student users")
-        self.assertIsNone(result["data"])
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = StudentProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual((profile.school_name, profile.year_lvl, profile.parent_guardian_flag), ("", "", False))
 
-    def test_create_student_missing_country_returns_error(self):
+        # Later edits aren't held up by what's still blank.
+        result = update_user(profile.user_id, {"firstName": "Bob"})
+        self.assertIsNotNone(result["data"], result["msg"])
+
+    def test_a_year_given_must_be_9_to_12(self):
+        result = create_user({"email": "student4@example.com", "role": "student", "yearLevel": 15})
+
+        self.assertEqual(result["msg"], "Year level must be from 9 to 12")
+
+    def test_a_student_may_be_added_without_a_country(self):
         result = create_user({
             "email": "student3@example.com",
             "firstName": "Cara",
@@ -532,8 +535,8 @@ class AdminUserServiceCreateUserTests(TestCase):
             "interests": ["Biotech"],
         })
 
-        self.assertEqual(result["msg"], "Country is required")
-        self.assertIsNone(result["data"])
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertIsNone(result["data"]["country"])
 
     def test_create_mentor_user(self):
         result = create_user({

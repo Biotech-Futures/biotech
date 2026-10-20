@@ -64,13 +64,15 @@ class StudentProfile(models.Model):
             ),
             name='student_last_name_not_empty'
         ),
+        # A student a peer registered, or an admin added, may have no school
+        # or year yet: an admin may add them before they're known.
         models.CheckConstraint(
-            condition=~Q(school_name='') | Q(registered_by='peer'),
+            condition=~Q(school_name='') | Q(registered_by__in=['peer', 'admin']),
             name='student_school_name_not_empty'
         ),
         models.CheckConstraint(
             condition=Q(year_lvl__in=[str(i) for i in range(9, 13)])
-            | Q(registered_by='peer', year_lvl=''),
+            | Q(registered_by__in=['peer', 'admin'], year_lvl=''),
             name='student_year_lvl_valid'
         ),
         models.CheckConstraint(

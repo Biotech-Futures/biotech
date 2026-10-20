@@ -63,7 +63,7 @@
       <div class="admin-users-detail__heading">
         <h3>Account</h3>
         <button
-          v-if="EDITED_IN_PARTS.includes(user.role ?? '') && editable && editing !== 'account'"
+          v-if="editable && editing !== 'account'"
           type="button"
           class="btn btn-outline btn-sm"
           data-test="admin-edit-account"
@@ -578,11 +578,27 @@
       <form v-if="editing === 'mentorDetails'" data-test="admin-mentor-details-form" @submit.prevent="save">
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">First name</span>
-          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="150" />
+          <input v-model.trim="form.firstName" class="admin-users-detail__input" maxlength="150" />
         </label>
         <label class="admin-users-detail__item">
           <span class="admin-users-detail__label">Last name</span>
-          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="150" />
+          <input v-model.trim="form.lastName" class="admin-users-detail__input" maxlength="150" />
+        </label>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-mentor-pronouns">Pronouns</label>
+          <AppSelect
+            size="large"
+            id="admin-mentor-pronouns"
+            v-model="form.pronounsChoice"
+            class="admin-users-detail__input"
+            data-test="admin-mentor-pronouns-select"
+            :options="PRONOUN_SELECT_OPTIONS"
+            :searchable="false"
+          />
+        </div>
+        <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Their pronouns</span>
+          <input v-model="form.pronounsOther" class="admin-users-detail__input" maxlength="100" />
         </label>
         <div class="admin-users-detail__item">
           <label class="admin-users-detail__label" for="admin-mentor-background">Background</label>
@@ -665,11 +681,15 @@
           <dt>Name</dt>
           <dd>{{ [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' }}</dd>
         </div>
+        <div class="admin-users-detail__item" data-test="admin-mentor-pronouns">
+          <dt>Pronouns</dt>
+          <dd>{{ user.pronouns || '—' }}</dd>
+        </div>
         <div class="admin-users-detail__item">
           <dt>Background</dt>
           <dd data-test="admin-mentor-background-label">{{ mentorBackgroundLabel(user.mentorBackground) }}</dd>
         </div>
-        <div v-if="user.mentorBackground === 'industry'" class="admin-users-detail__item">
+        <div v-if="viewedBackground === 'industry'" class="admin-users-detail__item">
           <dt>Company</dt>
           <dd>{{ user.mentorCompany || '—' }}</dd>
         </div>
@@ -677,11 +697,11 @@
           <dt>Institution</dt>
           <dd>{{ user.mentorInstitution || '—' }}</dd>
         </div>
-        <div v-if="isStudyingBackground(user.mentorBackground)" class="admin-users-detail__item">
+        <div v-if="isStudyingBackground(viewedBackground)" class="admin-users-detail__item">
           <dt>Year of study</dt>
           <dd>{{ studyYearLabel(user.mentorUniversityYear) }}</dd>
         </div>
-        <div v-if="user.mentorBackground !== 'industry'" class="admin-users-detail__item">
+        <div v-if="viewedBackground !== 'industry'" class="admin-users-detail__item">
           <dt>Field of study</dt>
           <dd>{{ user.mentorFieldOfStudy || '—' }}</dd>
         </div>
@@ -954,6 +974,22 @@
             maxlength="255"
           />
         </label>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-supervisor-pronouns">Pronouns</label>
+          <AppSelect
+            size="large"
+            id="admin-supervisor-pronouns"
+            v-model="form.pronounsChoice"
+            class="admin-users-detail__input"
+            data-test="admin-supervisor-pronouns-select"
+            :options="PRONOUN_SELECT_OPTIONS"
+            :searchable="false"
+          />
+        </div>
+        <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Their pronouns</span>
+          <input v-model="form.pronounsOther" class="admin-users-detail__input" maxlength="100" />
+        </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
           <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
@@ -968,6 +1004,10 @@
         <div class="admin-users-detail__item">
           <dt>School</dt>
           <dd>{{ user.schoolName || '—' }}</dd>
+        </div>
+        <div class="admin-users-detail__item" data-test="admin-supervisor-pronouns">
+          <dt>Pronouns</dt>
+          <dd>{{ user.pronouns || '—' }}</dd>
         </div>
       </dl>
     </section>
@@ -1042,11 +1082,57 @@
     </section>
 
     <section v-if="user?.role === 'admin'" class="admin-users-detail__section">
-      <h3>Admin Details</h3>
-      <dl class="admin-users-detail__list">
+      <div class="admin-users-detail__heading">
+        <h3>Admin Details</h3>
+        <button
+          v-if="editable && editing !== 'adminDetails'"
+          type="button"
+          class="btn btn-outline btn-sm"
+          data-test="admin-edit-admin-details"
+          @click="startEdit('adminDetails')"
+        >
+          Edit
+        </button>
+      </div>
+      <form v-if="editing === 'adminDetails'" data-test="admin-admin-details-form" @submit.prevent="save">
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">First name</span>
+          <input v-model.trim="form.firstName" class="admin-users-detail__input" required maxlength="150" />
+        </label>
+        <label class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Last name</span>
+          <input v-model.trim="form.lastName" class="admin-users-detail__input" required maxlength="150" />
+        </label>
+        <div class="admin-users-detail__item">
+          <label class="admin-users-detail__label" for="admin-admin-pronouns">Pronouns</label>
+          <AppSelect
+            size="large"
+            id="admin-admin-pronouns"
+            v-model="form.pronounsChoice"
+            class="admin-users-detail__input"
+            data-test="admin-admin-pronouns-select"
+            :options="PRONOUN_SELECT_OPTIONS"
+            :searchable="false"
+          />
+        </div>
+        <label v-if="form.pronounsChoice === 'Other'" class="admin-users-detail__item">
+          <span class="admin-users-detail__label">Their pronouns</span>
+          <input v-model="form.pronounsOther" class="admin-users-detail__input" maxlength="100" />
+        </label>
+        <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
+        <div class="admin-users-detail__actions">
+          <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      </form>
+      <dl v-else class="admin-users-detail__list">
         <div class="admin-users-detail__item" data-test="admin-admin-name">
           <dt>Name</dt>
           <dd>{{ [user.firstName, user.lastName].filter(Boolean).join(' ') || '—' }}</dd>
+        </div>
+        <div class="admin-users-detail__item" data-test="admin-admin-pronouns">
+          <dt>Pronouns</dt>
+          <dd>{{ user.pronouns || '—' }}</dd>
         </div>
       </dl>
     </section>
@@ -1129,6 +1215,7 @@ import {
   blankSlot,
   capacityLabel,
   isStudyingBackground,
+  mentorBackgroundCode,
   minuteOptions,
   pickHour,
   splitSlot,
@@ -1199,13 +1286,11 @@ watch(() => props.user?.id, () => {
 
 // --- a student's parts, each edited in place ----------------------------------
 
-// Roles whose parts each have their own Edit; an admin keeps the sheet's own.
-const EDITED_IN_PARTS = ['student', 'mentor', 'supervisor']
-
 type Part =
   | 'photo'
   | 'account'
   | 'supervisorDetails'
+  | 'adminDetails'
   | 'supervisorGroups'
   | 'supervisees'
   | 'details'
@@ -1297,7 +1382,8 @@ const startEdit = (part: Part) => {
     supervisorEmail: (user.supervisorEmail || '').toLowerCase(),
     groupId: user.groupId ?? null,
     mentorGroupIds: (user.mentorGroups || []).map((group) => group.id),
-    mentorBackground: user.mentorBackground || null,
+    // An old typed background picks the list's choice it means.
+    mentorBackground: mentorBackgroundCode(user.mentorBackground),
     mentorCompany: user.mentorCompany || '',
     mentorInstitution: user.mentorInstitution || '',
     mentorUniversityYear: user.mentorUniversityYear || null,
@@ -1416,9 +1502,13 @@ const payloadFor = (part: Part): Record<string, unknown> | string => {
   if (part === 'mentorDetails') return mentorDetailsPayload()
   if (part === 'application') return applicationPayload()
   if (part === 'availability') return availabilityPayload()
-  if (part === 'supervisorDetails') {
+  if (part === 'supervisorDetails' || part === 'adminDetails') {
     if (!form.firstName || !form.lastName) return 'Enter their first and last name.'
-    return { firstName: form.firstName, lastName: form.lastName, supervisorSchoolName: form.supervisorSchoolName }
+    const pronouns = pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
+    if (pronouns === null) return 'Enter their pronouns.'
+    const details: Record<string, unknown> = { firstName: form.firstName, lastName: form.lastName, pronouns }
+    if (part === 'supervisorDetails') details.supervisorSchoolName = form.supervisorSchoolName
+    return details
   }
   if (part === 'details') {
     if (form.yearLevel === null) return 'Choose a year level.'
@@ -1736,12 +1826,16 @@ const availabilityPayload = (): Record<string, unknown> | string => {
 
 const mentorStudying = computed(() => isStudyingBackground(form.mentorBackground))
 
-// Older mentors' backgrounds were typed; they show, and stay a choice, as written.
-const mentorBackgroundLabel = (background: string | null | undefined) =>
-  MENTOR_BACKGROUNDS.find((option) => option.value === background)?.label ?? (background || '—')
+// Older mentors' backgrounds were typed: shown as the list's choice they
+// mean where that's clear, else as written, and a choice as written.
+const viewedBackground = computed(() => mentorBackgroundCode(props.user?.mentorBackground))
+const mentorBackgroundLabel = (background: string | null | undefined) => {
+  const code = mentorBackgroundCode(background)
+  return MENTOR_BACKGROUNDS.find((option) => option.value === code)?.label ?? (background || '—')
+}
 const mentorBackgroundOptions = computed<AppSelectOption[]>(() => {
-  const current = props.user?.mentorBackground
-  return current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
+  const current = mentorBackgroundCode(props.user?.mentorBackground)
+  return typeof current === 'string' && current && !MENTOR_BACKGROUNDS.some((option) => option.value === current)
     ? [...MENTOR_BACKGROUNDS, { value: current, label: current }]
     : MENTOR_BACKGROUNDS
 })
@@ -1771,17 +1865,13 @@ const hoursLabel = (hours: number | null | undefined) =>
   hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : '—'
 
 
+// Any of it may be left blank, as when an admin adds a mentor; only what's
+// given wrong is refused.
 const mentorDetailsPayload = (): Record<string, unknown> | string => {
-  const background = form.mentorBackground as string | null
-  if (!background) return 'Choose a background.'
+  const background = (form.mentorBackground as string | null) || null
   const industry = background === 'industry'
-  const listed = MENTOR_BACKGROUNDS.some((option) => option.value === background)
-  if (industry && !form.mentorCompany) return 'Enter their company or organisation.'
-  if (!industry && !form.mentorInstitution) return 'Enter their university or institution.'
-  if (!industry && listed && !form.mentorFieldOfStudy) return 'Enter their field of study or research.'
-  if (mentorStudying.value && !form.mentorUniversityYear) return 'Choose their year of study.'
-  if (!form.interests.length) return 'Choose at least one interest.'
-  if (form.mentorCapacity === null) return 'Choose their capacity.'
+  const pronouns = pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
+  if (pronouns === null) return 'Enter their pronouns.'
   // Hours a week: a whole number from 1 to 40, or left empty.
   const hours = String(form.mentorWeeklyHours ?? '').trim()
   if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
@@ -1791,19 +1881,20 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
   return {
     firstName: form.firstName,
     lastName: form.lastName,
+    pronouns,
     mentorBackground: background,
     mentorCompany: industry ? form.mentorCompany : '',
     mentorInstitution: industry ? '' : form.mentorInstitution,
     mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',
     mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
     interests: form.interests,
-    mentorMaxGroupCount: form.mentorCapacity,
+    // Left unpicked, their capacity stays as it is.
+    ...(form.mentorCapacity === null ? {} : { mentorMaxGroupCount: form.mentorCapacity }),
     mentorWeeklyHours: hours ? Number(hours) : null
   }
 }
 
 const applicationPayload = (): Record<string, unknown> | string => {
-  if (!form.mentorReason.trim()) return 'Say why they would like to mentor.'
   for (const question of APPLICATION_QUESTIONS) {
     if (wordCount(form[question.key]) > MAX_ANSWER_WORDS) {
       return `Keep each answer to ${MAX_ANSWER_WORDS} words or fewer.`
