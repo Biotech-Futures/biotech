@@ -275,7 +275,7 @@ export const STUDENT_CSV_TEMPLATE = buildCsvTemplate(
     ['supervisorEmail', 'Supervisor Email', 'm.somerville@example.edu'],
     ['responseId', 'Parent/Guardian Approval ResponseID', 'R_1a2b3c4d5e6f7g8'],
     ['country', 'Country', 'Australia'],
-    ['region', 'Region', 'NSW'],
+    ['region', 'State', 'NSW'],
     ['groupNumber', 'Group Number', '1']
   ]
 )

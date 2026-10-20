@@ -73,7 +73,7 @@
           </div>
           <form v-if="placeEditing" class="student-edit-form" data-test="place-edit-form" @submit.prevent="savePlace">
             <label>Country<AppSelect v-model="placeDraft.country_id" :options="countrySelectOptions" @change="placeDraft.state_id = null" /></label>
-            <label>Region<AppSelect v-model="placeDraft.state_id" :options="regionSelectOptions" :required="draftInAustralia" placeholder="Choose a state" data-test="student-region" /></label>
+            <label>State<AppSelect v-model="placeDraft.state_id" :options="regionSelectOptions" :required="draftInAustralia" placeholder="Choose a state" data-test="student-region" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="placeSaving" @click="placeEditing = false">Cancel</button>
               <button class="btn btn-primary" type="submit" :disabled="placeSaving">{{ placeSaving ? 'Saving…' : 'Save' }}</button>
@@ -96,7 +96,7 @@
             <span class="profile-field-value">{{ user.country }}</span>
           </div>
           <div class="profile-field">
-            <span class="profile-field-label">Region:</span>
+            <span class="profile-field-label">State:</span>
             <span class="profile-field-value">{{ user.region }}</span>
           </div>
           <div class="profile-field">

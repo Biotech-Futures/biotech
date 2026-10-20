@@ -230,7 +230,7 @@ export const MENTOR_CSV_TEMPLATE = buildCsvTemplate(
     ['firstName', 'First Name', 'Mary'],
     ['lastName', 'Surname', 'Somerville'],
     ['country', 'Country', 'Australia'],
-    ['region', 'Region', 'NSW'],
+    ['region', 'State', 'NSW'],
     ['mentorReason', 'Mentor Reason', 'I want to support students exploring biotech careers.'],
     ['capacity', 'Capacity', '2'],
     ['interests', 'Area(s) of Interest', 'Genetics, Bioinformatics'],

@@ -138,7 +138,7 @@ describe('parseMentorCsv', () => {
       'First Name',
       'Surname',
       'Country',
-      'Region',
+      'State',
       'Mentor Reason',
       'Capacity',
       'Area(s) of Interest',

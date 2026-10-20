@@ -199,7 +199,8 @@ export const isAustralia = (country: string) => country.trim().toLowerCase() ===
 
 /** The location field after Country: Australia's State (required, from the
  *  database's states), else a Region (optional, typed in). */
-export const stateLabel = (country: string) => (isAustralia(country) ? 'State' : 'Region')
+// Called State everywhere; it's required in Australia alone (see isAustralia).
+export const stateLabel = () => 'State'
 
 export const createStudent = (options: { deferGuardian?: boolean } = {}): StudentDetails => ({
   firstName: '',
@@ -208,7 +209,8 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   emailConfirm: '',
   school: '',
   yearLevel: '',
-  country: 'Australia',
+  // Picked by whoever fills it in: no country is chosen for anyone.
+  country: '',
   state: '',
   interests: [],
   pronouns: '',
@@ -252,8 +254,9 @@ export const createSupervisor = (): SupervisorDetails => ({
   email: '',
 })
 
-// A group member: their own details as Member 1's (Australia to start),
-// with their guardian's contact optional.
+// A group member: their own details as Member 1's, with their guardian's
+// contact optional. Their country follows Member 1's (none until Member 1
+// picks one; see RegistrationPage).
 export const createPendingPeer = (): StudentDetails => createStudent({ deferGuardian: true })
 
 export const parseRegistrationInterests = (value: string): string[] =>
@@ -299,7 +302,7 @@ export const createRegistrationForms = (): RegistrationForms => ({
     firstName: '',
     lastName: '',
     email: '',
-    country: 'Australia',
+    country: '',
     state: '',
     affiliation: '',
     institution: '',

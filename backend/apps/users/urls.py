@@ -44,6 +44,7 @@ from .registration_intake import (
     RegistrationIntakeView,
     RegistrationManagementView,
     RegistrationStatesView,
+    RegistrationUniversitiesView,
 )
 
 urlpatterns = [
@@ -91,6 +92,7 @@ urlpatterns = [
     path("registration/group-code/", RegistrationGroupCodeView.as_view(), name="registration-group-code"),
     path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
+    path("registration/universities/", RegistrationUniversitiesView.as_view(), name="registration-universities"),
     # Upload student details, from an .xlsx: its first sheet as CSV text.
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
     # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).

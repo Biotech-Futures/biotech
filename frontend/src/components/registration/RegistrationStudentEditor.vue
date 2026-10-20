@@ -75,11 +75,11 @@
           :required="markRequired"
         />
         <!-- In Australia, its State (required, a dropdown of its states and
-             territories); elsewhere a Region (optional). -->
+             territories); elsewhere typed in (optional). -->
         <RegistrationTextField
           :id="fieldId('state')"
           v-model="student.state"
-          :label="stateLabel(student.country)"
+          :label="stateLabel()"
           autocomplete="address-level1"
           :options="stateOptions.length ? stateOptions : undefined"
           :suggestions="regionSuggestions"
@@ -218,7 +218,7 @@ const props = withDefaults(
     previewUrl?: string
     /** Schools the others in their group gave, offered as theirs is typed. */
     schoolSuggestions?: string[]
-    /** Regions the others in their group gave, for a typed region (outside
+    /** States the others in their group gave, for a typed state (outside
      *  Australia, whose states are a dropdown). */
     regionSuggestions?: string[]
   }>(),
@@ -251,12 +251,13 @@ const PRONOUN_SELECT_OPTIONS: AppSelectOption[] = [
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
 // Another country: its state or region starts again (NSW isn't Algeria's).
-// Only for the same student: the form can be handed another (a list's
-// student removed), whose own state stays.
+// Only for the same student, and only from a country they'd picked: the
+// first one picked (none to start) keeps what's there. The form can be
+// handed another (a list's student removed), whose own state stays.
 watch(
   () => [student.value, student.value.country] as const,
   ([current, country], [before, beforeCountry]) => {
-    if (current === before && country !== beforeCountry) current.state = ''
+    if (current === before && beforeCountry && country !== beforeCountry) current.state = ''
   },
 )
 

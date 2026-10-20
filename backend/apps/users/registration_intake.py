@@ -31,7 +31,7 @@ from apps.groups.models import (
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.resources.models import RoleAssignmentHistory
 from .models import (
-    AreasOfInterest, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
+    AreasOfInterest, KnownUniversity, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
     StudentProfile, StudentSupervisor, SupervisorProfile, User, UserInterest,
 )
 from .profile_images import save_profile_image, validate_profile_image
@@ -200,6 +200,8 @@ class PayloadInput(StrictInput):
 class IntakeInput(StrictInput):
     journey = serializers.ChoiceField(choices=STUDENT_JOURNEYS)
     payload = PayloadInput()
+    # The BIOTech Futures policies, ticked on the form's last step: needed.
+    policiesAgreed = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         journey, payload = data["journey"], data["payload"]
@@ -638,6 +640,9 @@ def register(request):
         raise serializers.ValidationError(errors)
     payload = parser.validated_data["payload"]
     journey = parser.validated_data["journey"]
+    # The old form's wrapper predates the box; the form now has it.
+    if not legacy:
+        require_policies(parser.validated_data)
     students = payload["students"]
     # None nominated: blank details, as the supervisor is optional.
     if journey in SUPERVISOR_JOURNEYS:
@@ -773,6 +778,12 @@ def register(request):
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None
+            # Who ticked the policies: whoever registered the students for a
+            # supervisor's (or admin's) journey, else the student registering
+            # (Member 1, or a student joining by a group's code).
+            if not legacy:
+                agreed_by = actor_user if journey in SUPERVISOR_JOURNEYS and actor_user else users[0]
+                User.objects.filter(pk=agreed_by.pk).update(policies_agreed_at=now)
             group = (
                 save_group(users, payload, actor_user, joining=joining) if journey in GROUP_JOURNEYS else None
             )
@@ -832,6 +843,14 @@ def register(request):
             get_profile_image_storage().delete(created_file)
         raise
     return Response(response, status=200 if legacy else 201)
+
+
+def require_policies(validated: dict) -> None:
+    """A registration needs the BIOTech Futures policies agreed to."""
+    if not validated.get("policiesAgreed"):
+        raise serializers.ValidationError(
+            {"policiesAgreed": ["Agree to the BIOTech Futures policies to register."]}
+        )
 
 
 def reject_json_constant(value):
@@ -931,6 +950,19 @@ class RegistrationStatesView(APIView):
             else []
         )
         return Response({"states": list(states)})
+
+
+class RegistrationUniversitiesView(APIView):
+    """GET: the universities admins keep on Management > Known Universities,
+    offered as a mentor types their university or institution. Open to
+    anyone, as registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        names = KnownUniversity.objects.order_by("name").values_list("name", flat=True)
+        return Response({"universities": list(names)})
 
 
 class IsRegistrationManager(permissions.BasePermission):

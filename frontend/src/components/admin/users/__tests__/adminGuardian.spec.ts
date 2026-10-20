@@ -891,6 +891,16 @@ describe('admin user detail: a student edited part by part', () => {
     expect(wrapper.find('[data-test="admin-details-form"]').exists()).toBe(false)
   })
 
+  it('shows when they agreed to the policies, just above Status', () => {
+    const agreed = openDetail(student({ policiesAgreedAt: '2026-10-21T00:15:00Z' }))
+    const terms = agreed.findAll('[data-test="admin-account"] dt').map((term) => term.text())
+    expect(terms.indexOf('Policies')).toBe(terms.indexOf('Status') - 1)
+    expect(agreed.get('[data-test="admin-policies"] dd').text()).toMatch(/^Agreed, /)
+
+    const never = openDetail(student({ policiesAgreedAt: null }))
+    expect(never.get('[data-test="admin-policies"] dd').text()).toBe('—')
+  })
+
   it('shows their profile photo before Account, as a row like Account\'s', () => {
     const photo = 'https://files.example.com/users/7/photo.png'
     const withPhoto = openDetail(student({ profileImageUrl: photo }))

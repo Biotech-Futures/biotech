@@ -29,7 +29,8 @@ from apps.resources.models import RoleAssignmentHistory
 from .models import AreasOfInterest, MentorProfile, RegistrationSubmission, User, UserInterest
 from .models.mentor_availability import MentorAvailability
 from .registration_intake import (
-    StrictInput, check_previous, current_window, error_fields, receipt, resolve_location, token_hash,
+    StrictInput, check_previous, current_window, error_fields, receipt, require_policies, resolve_location,
+    token_hash,
     valid_invitation,
 )
 
@@ -131,6 +132,8 @@ class MentorPayloadInput(StrictInput):
 class MentorIntakeInput(StrictInput):
     journey = serializers.ChoiceField(choices=[JOURNEY])
     payload = MentorPayloadInput()
+    # The BIOTech Futures policies, ticked on the form's last step: needed.
+    policiesAgreed = serializers.BooleanField(required=False, default=False)
 
 
 def save_mentor(mentor: dict, now) -> User:
@@ -181,6 +184,7 @@ def register_mentor(request, raw: dict) -> Response:
     if not parser.is_valid():
         errors = error_fields(parser.errors)
         raise serializers.ValidationError({key.removeprefix("payload."): value for key, value in errors.items()})
+    require_policies(parser.validated_data)
     mentor = parser.validated_data["payload"]["mentor"]
     if request.FILES:
         raise serializers.ValidationError({"detail": "A mentor's registration has no files."})
@@ -217,6 +221,7 @@ def register_mentor(request, raw: dict) -> Response:
             if User.objects.filter(email__iexact=mentor["email"]).exists():
                 raise _taken()
             user = save_mentor(mentor, now)
+            User.objects.filter(pk=user.pk).update(policies_agreed_at=now)
             submission = RegistrationSubmission.objects.create(
                 idempotency_key=key, request_digest=digest, window=window, student=user,
                 student_count=0, journey=JOURNEY, created_by=actor, source={"method": JOURNEY},

@@ -56,7 +56,7 @@ def batch(journey, count=None, *, offset=0):
         payload["group"] = {"interests": ["Biotechnology", "Engineering"]}
     if journey == "supervisor_csv":
         payload["source"].update(fileName="students.csv", rowNumbers=[2 + index * 2 for index in range(count)])
-    return {"journey": journey, "payload": payload}
+    return {"journey": journey, "payload": payload, "policiesAgreed": True}
 
 
 class MultiStudentSetup(RegistrationSetup):
@@ -468,3 +468,35 @@ class AdminRegistrationTests(MultiStudentSetup, TestCase):
         body = batch("supervisor_individual", offset=30)
         body["payload"]["supervisor"] = {"firstName": "Some", "lastName": "One", "email": "some@example.test"}
         self.assertEqual(self.submit(body=body, client=self.staff_client).status_code, 400)
+
+
+class PoliciesAgreementTests(MultiStudentSetup, TestCase):
+    """The BIOTech Futures policies, ticked on the form's last step: needed to
+    register, and recorded on whoever ticked them."""
+
+    def test_a_registration_without_the_policies_agreed_is_refused(self):
+        body = batch("student_individual")
+        body["policiesAgreed"] = False
+
+        response = self.post_batch(body)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("policiesAgreed", response.data["fields"])
+        self.assertFalse(RegistrationSubmission.objects.exists())
+
+    def test_the_student_registering_is_recorded_not_the_members_they_add(self):
+        response = self.post_batch(batch("student_team"))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        submission = RegistrationSubmission.objects.get()
+        creator, member = [p.student for p in submission.participants.order_by("position")]
+        self.assertIsNotNone(creator.policies_agreed_at)
+        self.assertIsNone(member.policies_agreed_at)
+
+    def test_a_supervisor_registering_students_is_recorded_not_the_students(self):
+        response = self.post_batch(batch("supervisor_individual"))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.supervisor.refresh_from_db()
+        self.assertIsNotNone(self.supervisor.policies_agreed_at)
+        self.assertIsNone(RegistrationSubmission.objects.get().student.policies_agreed_at)

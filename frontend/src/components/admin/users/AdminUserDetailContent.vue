@@ -101,7 +101,7 @@
             class="admin-users-detail__input"
             data-test="admin-state-text"
             maxlength="255"
-            placeholder="State, province or region"
+            placeholder="State or province"
           />
         </label>
         <div v-else class="admin-users-detail__item">
@@ -154,6 +154,11 @@
         <div class="admin-users-detail__item">
           <dt>State</dt>
           <dd>{{ labelizeState(user.state) }}</dd>
+        </div>
+        <!-- When they agreed to the policies, ticking them registering. -->
+        <div class="admin-users-detail__item" data-test="admin-policies">
+          <dt>Policies</dt>
+          <dd>{{ user.policiesAgreedAt ? answeredAt('Agreed', user.policiesAgreedAt) : '—' }}</dd>
         </div>
         <div class="admin-users-detail__item">
           <dt>Status</dt>

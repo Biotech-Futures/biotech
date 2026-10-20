@@ -391,7 +391,7 @@ class MeRetrieveView(generics.RetrieveAPIView):
                 if "country_id" in cleaned and "state_id" not in cleaned and state and state.country_id != getattr(country, "pk", None):
                     state = None
                 if ("country_id" in cleaned or "state_id" in cleaned) and state and state.country_id != getattr(country, "pk", None):
-                    raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+                    raise serializers.ValidationError({"state_id": "Choose a state in the selected country."})
                 if "country_id" in cleaned or "state_id" in cleaned:
                     user.country, user.state = country, state
                     user.save(update_fields=["country", "state"])
@@ -1063,7 +1063,7 @@ class SupervisedStudentDetailView(APIView):
             if "country_id" in data and "state_id" not in data and state and state.country_id != getattr(country, "pk", None):
                 state = None
             if state and state.country_id != getattr(country, "pk", None):
-                raise serializers.ValidationError({"state_id": "Choose a region in the selected country."})
+                raise serializers.ValidationError({"state_id": "Choose a state in the selected country."})
             user.country, user.state = country, state
             user_fields.extend(["country", "state"])
         user.save(update_fields=user_fields)

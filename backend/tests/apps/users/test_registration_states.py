@@ -44,3 +44,19 @@ class RegistrationCountriesTests(TestCase):
         expected = list(Countries.objects.order_by("country_name").values_list("country_name", flat=True))
         self.assertEqual(response.json()["countries"], expected)
         self.assertIn("Australia", expected)
+
+
+class RegistrationUniversitiesTests(TestCase):
+    def test_lists_management_known_universities_in_order_to_anyone(self):
+        from apps.users.models import KnownUniversity
+
+        for name in ("UNSW Sydney", "The University of Sydney", "Monash University"):
+            KnownUniversity.objects.create(name=name)
+
+        response = APIClient().get("/api/v1/registration/universities/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["universities"],
+            ["Monash University", "The University of Sydney", "UNSW Sydney"],
+        )

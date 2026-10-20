@@ -34,7 +34,7 @@ def mentor_body(**changes):
         ],
     }
     mentor.update(changes)
-    return {"journey": "mentor", "payload": {"mentor": mentor}}
+    return {"journey": "mentor", "payload": {"mentor": mentor}, "policiesAgreed": True}
 
 
 @override_settings(EMAIL_BACKEND=LOCMEM)
@@ -128,6 +128,16 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         body = mentor_body()
         del body["payload"]["mentor"]["weeklyHours"]
         self.assertEqual(self.register(body).status_code, 400)
+
+    def test_a_mentor_agrees_to_the_policies_and_its_time_is_kept(self):
+        refused = mentor_body()
+        refused["policiesAgreed"] = False
+        self.assertEqual(self.register(refused).status_code, 400)
+
+        response = self.register()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNotNone(User.objects.get(email="jordan.ng@uni.example.test").policies_agreed_at)
 
     def test_the_form_without_weekly_times_registers(self):
         body = mentor_body(weeklyHours="40")

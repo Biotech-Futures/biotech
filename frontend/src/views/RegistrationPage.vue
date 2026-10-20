@@ -916,11 +916,11 @@
                   required
                 />
                 <!-- In Australia, its State (required, a dropdown of its states
-                     and territories); elsewhere a Region (optional). -->
+                     and territories); elsewhere typed in (optional). -->
                 <RegistrationTextField
                   id="mentor-state"
                   v-model="forms.mentor.state"
-                  :label="stateLabel(forms.mentor.country)"
+                  :label="stateLabel()"
                   :options="mentorStateOptions.length ? mentorStateOptions : undefined"
                   :placeholder="mentorStateOptions.length ? 'Select a state' : undefined"
                   :error="errors['mentor.state']"
@@ -966,6 +966,7 @@
                     id="mentor-institution"
                     v-model="forms.mentor.institution"
                     label="University or institution"
+                    :suggestions="universityNames"
                     :error="errors['mentor.institution']"
                     required
                     wide
@@ -1112,6 +1113,29 @@
                 </dl>
               </div>
             </div>
+
+            <!-- BIOTech Futures' policies, agreed to before submitting: the
+                 last step, whichever journey (Upload has no Review). -->
+            <div v-if="currentStep === steps.length - 1" class="policies-agree">
+              <label class="policies-agree__check">
+                <input
+                  ref="policiesRef"
+                  v-model="policiesAgreed"
+                  type="checkbox"
+                  data-test="policies-agree"
+                  :aria-invalid="Boolean(policiesError)"
+                  :aria-describedby="policiesError ? 'policies-agree-error' : undefined"
+                />
+                <span>
+                  I have read and agree to the
+                  <a :href="POLICIES_URL" target="_blank" rel="noopener noreferrer">BIOTech Futures policies</a>
+                  <span class="required-mark" aria-hidden="true"> *</span>
+                </span>
+              </label>
+              <p v-if="policiesError" id="policies-agree-error" class="policies-agree__error" role="alert">
+                {{ policiesError }}
+              </p>
+            </div>
           </section>
 
           <!-- On the right; the steps above go back, and Back to the
@@ -1200,7 +1224,7 @@ import {
   type GroupCodeCheck,
 } from '@/registration/groupCode'
 import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
-import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
 import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
 import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
 import { formatDayMonthTime } from '@/utils/date'
@@ -1564,11 +1588,15 @@ if (draft) {
 // The countries, and in Australia its states, from the database, for the
 // mentor's dropdowns.
 const mentorCountryOptions = useCountryOptions()
+// Offered as a mentor types their university (Management > Known Universities).
+const universityNames = useUniversityNames()
 const mentorStateOptions = useStateOptions(() => forms.mentor.country)
+// Another country: its state or region starts again, but only from one they'd
+// picked (none to start).
 watch(
   () => forms.mentor.country,
   (country, before) => {
-    if (country !== before) forms.mentor.state = ''
+    if (before && country !== before) forms.mentor.state = ''
   },
 )
 const journey = ref<RegistrationJourney | null>(null)
@@ -1762,6 +1790,20 @@ const steps = computed(() => {
 // Every journey's last step is Review, but Register one student's on its own.
 const isReviewStepIndex = (index: number) => steps.value[index]?.label === 'Review'
 const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
+
+// BIOTech Futures' policies: ticked on the last step to submit, and asked
+// again for each registration (a new journey, or after one is sent).
+const POLICIES_URL = 'https://www.biotechfutures.org/policies'
+const policiesAgreed = ref(false)
+const policiesError = ref('')
+const policiesRef = ref<HTMLInputElement | null>(null)
+watch(policiesAgreed, (agreed) => {
+  if (agreed) policiesError.value = ''
+})
+watch(journey, () => {
+  policiesAgreed.value = false
+  policiesError.value = ''
+})
 const roleJourneyOptions = computed(() => {
   if (selectedRole.value === 'student') {
     return journeyOptions.filter((option) =>
@@ -1927,7 +1969,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
               value: form.student.yearLevel ? `Year ${form.student.yearLevel}` : '',
             },
             { label: 'Country', value: form.student.country },
-            { label: stateLabel(form.student.country), value: form.student.state },
+            { label: stateLabel(), value: form.student.state },
             { label: 'Interests', value: interestSummary(form.student.interests) },
           ],
         },
@@ -2083,7 +2125,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             { label: 'Name', value: `${forms.mentor.firstName} ${forms.mentor.lastName}` },
             { label: 'Email', value: forms.mentor.email },
             { label: 'Country', value: forms.mentor.country },
-            { label: stateLabel(forms.mentor.country), value: forms.mentor.state },
+            { label: stateLabel(), value: forms.mentor.state },
           ],
         },
         {
@@ -2520,14 +2562,14 @@ const continueJoining = () => {
 const addStudentTeammate = () => {
   if (forms.studentTeam.teammates.length < 4) {
     const teammate = createPendingPeer()
-    teammate.country = forms.studentTeam.creator.country || teammate.country
+    teammate.country = forms.studentTeam.creator.country
     forms.studentTeam.teammates.push(teammate)
   }
 }
 
-// Member 1 changing country takes along the members still in their old one
-// with no region given yet (Member 2 starts before Member 1 picks); one who
-// chose another country keeps it.
+// Member 1 picking or changing country takes along the members still in
+// their old one (none, to start) with no region given yet; one who chose
+// another country keeps it.
 watch(
   () => forms.studentTeam.creator.country,
   (country, before) => {
@@ -2803,6 +2845,11 @@ const submitRegistration = async () => {
     warningSummaryRef.value?.focus()
     return
   }
+  if (!policiesAgreed.value) {
+    policiesError.value = 'Tick the box to agree to the BIOTech Futures policies.'
+    policiesRef.value?.focus()
+    return
+  }
   for (const warning of registrationWarnings.value)
     warningOverrides.value[warning.overrideField] = true
   serverError.value = ''
@@ -2923,6 +2970,7 @@ const scrollToTop = () => {
 }
 
 const resetRegistration = () => {
+  policiesAgreed.value = false
   registeredNote.value = ''
   submissionKey = ''
   submissionSignature = ''
@@ -4135,6 +4183,42 @@ dd {
 .review-step {
   display: grid;
   gap: 32px;
+}
+
+/* The policies to agree to: a line of its own above Submit registration. */
+.policies-agree {
+  margin-top: 32px;
+}
+
+.policies-agree__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--registration-ink);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+/* Centred on the first line of its text, at any text size. */
+.policies-agree__check input {
+  flex: 0 0 auto;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  margin: calc((0.92rem * 1.45 - 1.0625rem) / 2) 0 0;
+  accent-color: var(--registration-green);
+  cursor: pointer;
+}
+
+.policies-agree__check a {
+  color: var(--registration-green);
+  font-weight: 600;
+}
+
+.policies-agree__error {
+  margin: 8px 0 0 calc(1.0625rem + 10px);
+  color: #982c27;
+  font-size: 0.82rem;
 }
 
 /* A member's name, email and guardian: columns as wide on every row, so

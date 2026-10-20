@@ -33,7 +33,7 @@
             />
           </label>
           <label class="student-sheet__item">
-            <span class="student-sheet__label">Region</span>
+            <span class="student-sheet__label">State</span>
             <AppSelect
               v-model="personalForm.stateId"
               class="student-sheet__input"
@@ -55,7 +55,7 @@
               <dd>{{ display(student.country_name) }}</dd>
             </div>
             <div class="student-sheet__item">
-              <dt>Region</dt>
+              <dt>State</dt>
               <dd>{{ display(student.state_name) }}</dd>
             </div>
           </template>

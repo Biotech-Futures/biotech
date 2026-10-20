@@ -33,6 +33,7 @@ MANAGEMENT = "/api/v1/registration-management/"
 def request_body():
     return {
         "journey": "student_individual",
+        "policiesAgreed": True,
         "payload": {
             "students": [{
                 "firstName": "Jordan", "lastName": "Lee", "email": "jordan.lee@example.com",

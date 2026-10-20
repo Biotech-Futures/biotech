@@ -626,6 +626,33 @@ describe('canonical registration intake', () => {
     expect(setup.errors['studentTeam.teammates.0.yearLevel']).toBeTruthy()
   })
 
+  it("suggests Management's known universities as a mentor types theirs", async () => {
+    const universities = ['Monash University', 'The University of Sydney', 'UNSW Sydney']
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (url) =>
+        new Response(JSON.stringify(String(url).includes('/universities/') ? { universities } : { countries: [] })),
+      ),
+    )
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as { currentStep: number; forms: { mentor: { affiliation: string; institution: string } } }
+    setup.forms.mentor.affiliation = 'academic'
+    setup.currentStep = 1
+    await flushPromises()
+
+    const institution = wrapper.get('#mentor-institution')
+    await institution.trigger('focus')
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual(universities)
+    setup.forms.mentor.institution = 'sydney'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual([
+      'The University of Sydney',
+      'UNSW Sydney',
+    ])
+    vi.unstubAllGlobals()
+  })
+
   it("limits a mentor's answers to 150 words and asks their hours per week", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
@@ -820,6 +847,7 @@ describe('canonical registration intake', () => {
       email: 'ada@example.com',
       school: 'Example High',
       yearLevel: '10',
+      country: 'Australia',
       state: 'NSW',
     })
     setup.changeJourney()
@@ -853,13 +881,16 @@ describe('canonical registration intake', () => {
     const country = () => wrapper.find('#supervisorIndividual-student-country')
     const state = () => wrapper.find('#supervisorIndividual-student-state')
 
-    const asked = send.mock.calls.map(([url]) => String(url))
-    expect(asked.some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
-    expect(asked.some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
-    // Dropdowns (a combobox's field), each choice as the database names it.
+    const asked = () => send.mock.calls.map(([url]) => String(url))
+    expect(asked().some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
+    // Dropdowns (a combobox's field), each choice as the database names it,
+    // and none chosen for them.
     expect(country().attributes('role')).toBe('combobox')
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-country')).toBe('')
     expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-country')).toEqual(countries)
-    expect(appSelectText(wrapper, '#supervisorIndividual-student-country')).toBe('Australia')
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-country', 'Australia')
+    await flushPromises()
+    expect(asked().some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
     await country().trigger('blur')
     expect(state().attributes('role')).toBe('combobox')
     expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State *')
@@ -871,8 +902,8 @@ describe('canonical registration intake', () => {
     // A text box to type in.
     expect(state().element.tagName).toBe('INPUT')
     expect(state().attributes('role')).toBeUndefined()
-    // Elsewhere a Region, optional; the Australian state isn't kept.
-    expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('Region (Optional)')
+    // Elsewhere still State, but optional; the Australian state isn't kept.
+    expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State (Optional)')
     expect((state().element as HTMLInputElement).value).toBe('')
   })
 

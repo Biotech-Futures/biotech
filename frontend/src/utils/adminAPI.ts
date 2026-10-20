@@ -229,6 +229,9 @@ export interface AdminUser {
   pronouns?: string
   /** Where their profile photo loads from, or null without one. */
   profileImageUrl?: string | null
+  /** When they agreed to the BIOTech Futures policies, registering; null
+   *  for anyone who hasn't (added by someone else, or registered before). */
+  policiesAgreedAt?: string | null
   email: string | null
   role: string | null
   country: AdminUserCountry | null
