@@ -8,9 +8,33 @@
     <div class="dashboard-page-inner">
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-      <section class="dashboard-welcome-header">
-          <h1 class="hero-title">Welcome back, {{ welcomeName }}</h1>
-        </section>
+      <section class="dashboard-welcome-header dashboard-hero-card">
+        <h1 class="hero-title">Welcome back, {{ welcomeName }}</h1>
+
+        <p class="dashboard-hero-message">
+          Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
+          Connect with your team, collaborate and share ideas, access program-wide
+          resources, register for events, and stay up to date with the latest announcements
+          and opportunities across the program.
+        </p>
+
+        <div class="hero-highlight-wrap" role="status" aria-live="polite">
+          <template v-if="highlightsLoading">
+            <span
+              v-for="item in 3"
+              :key="`highlight-skeleton-${item}`"
+              class="status-pill dashboard-highlight-skeleton"
+            >
+              <span class="dashboard-skeleton-chip"></span>
+            </span>
+          </template>
+          <template v-else>
+            <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
+              {{ item.label }}
+            </span>
+          </template>
+        </div>
+      </section>
 
         <div
           v-if="!roleTasksLoading && incompleteRoleTasksCount > 0"
@@ -26,115 +50,88 @@
         </div>
 
         <section class="dashboard-hero-shell">
-          <div class="dashboard-hero-card interactive-surface">
-            <div class="dashboard-hero-main">
-              <div class="dashboard-hero-copy">
-                <p class="dashboard-hero-message">
-                  Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
-                  Connect with your team, collaborate and share ideas, access program-wide
-                  resources, register for events, and stay up to date with the latest announcements
-                  and opportunities across the program.
-                </p>
-
-                <div class="hero-highlight-wrap" role="status" aria-live="polite">
-                  <template v-if="highlightsLoading">
-                    <span
-                      v-for="item in 3"
-                      :key="`highlight-skeleton-${item}`"
-                      class="status-pill dashboard-highlight-skeleton"
-                    >
-                      <span class="dashboard-skeleton-chip"></span>
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
-                      {{ item.label }}
-                    </span>
-                  </template>
+          <div class="dashboard-hero-card interactive-surface dashboard-groups-card">
+            <div v-if="groupsLoading" class="dashboard-groups-loading" role="status" aria-live="polite">
+              <div class="surface-card-header">
+                <p class="surface-kicker">Groups</p>
+                <h3 class="surface-card-title">Loading groups...</h3>
+              </div>
+              <div class="groups-grid dashboard-hero-groups-grid">
+                <div
+                  v-for="item in 3"
+                  :key="`group-skeleton-${item}`"
+                  class="group-skeleton-card"
+                >
+                  <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
+                  <div
+                    class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                  ></div>
                 </div>
               </div>
-              <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
             </div>
 
-          <div v-if="groupsLoading" class="dashboard-hero-groups" role="status" aria-live="polite">
-            <div class="surface-card-header">
-              <p class="surface-kicker">Groups</p>
-              <h3 class="surface-card-title">Loading groups...</h3>
-            </div>
-            <div class="groups-grid dashboard-hero-groups-grid">
-              <div
-                v-for="item in 3"
-                :key="`group-skeleton-${item}`"
-                class="group-skeleton-card"
-              >
-                <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
-                <div
-                  class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
-                ></div>
+            <div v-else class="dashboard-groups-body">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Groups</p>
+                  <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
+                </div>
+                <button
+                  v-if="shouldBlockGroupsNavigation"
+                  type="button"
+                  class="surface-link surface-link-button"
+                  @click="showNoMembershipPopup"
+                >
+                  View all
+                </button>
+                <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
               </div>
-            </div>
-          </div>
 
-          <div v-else class="dashboard-hero-groups">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Groups</p>
-                <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
-              </div>
-              <button
-                v-if="shouldBlockGroupsNavigation"
-                type="button"
-                class="surface-link surface-link-button"
-                @click="showNoMembershipPopup"
-              >
-                View all
-              </button>
-              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
-            </div>
+              <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
+                <RouterLink
+                  v-for="group in groupsPreview"
+                  :key="group.id || getGroupName(group)"
+                  :to="group.id ? '/groups/' + group.id : '/groups'"
+                  class="group-card-link"
+                >
+                  <div class="group-card-surface interactive-surface">
+                    <div class="group-card-top">
+                      <div class="group-avatars">
+                        <div class="group-avatar primary-avatar">
+                          {{ getInitials(getGroupName(group)) }}
+                        </div>
 
-            <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
-              <RouterLink
-                v-for="group in groupsPreview"
-                :key="group.id || getGroupName(group)"
-                :to="group.id ? '/groups/' + group.id : '/groups'"
-                class="group-card-link"
-              >
-                <div class="group-card-surface interactive-surface">
-                  <div class="group-card-top">
-                    <div class="group-avatars">
-                      <div class="group-avatar primary-avatar">
-                        {{ getInitials(getGroupName(group)) }}
+                        <div class="group-avatar secondary-avatar">
+                          {{ getGroupSecondaryLabel(group) }}
+                        </div>
+
+                        <div class="group-avatar tertiary-avatar">
+                          +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
+                        </div>
                       </div>
 
-                      <div class="group-avatar secondary-avatar">
-                        {{ getGroupSecondaryLabel(group) }}
-                      </div>
-
-                      <div class="group-avatar tertiary-avatar">
-                        +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
-                      </div>
+                      <span class="group-open-indicator">
+                        <i class="fas fa-arrow-up-right-from-square"></i>
+                      </span>
                     </div>
 
-                    <span class="group-open-indicator">
-                      <i class="fas fa-arrow-up-right-from-square"></i>
-                    </span>
+                    <div class="group-name">{{ getGroupName(group) }}</div>
+
+                    <div class="group-meta">
+                      {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
+                    </div>
                   </div>
+                </RouterLink>
+              </div>
 
-                  <div class="group-name">{{ getGroupName(group) }}</div>
-
-                  <div class="group-meta">
-                    {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
-                  </div>
-                </div>
-              </RouterLink>
-            </div>
-
-            <div v-else class="empty-state">
-              <i class="fas fa-users-slash"></i>
-              <p>No group is available yet.</p>
+              <div v-else class="empty-state">
+                <i class="fas fa-users-slash"></i>
+                <p>No group is available yet.</p>
+              </div>
             </div>
           </div>
-          </div>
+
+          <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
         </section>
 
         <div v-if="loadError" class="dashboard-alert">
@@ -1675,6 +1672,10 @@ onMounted(async () => {
    § 5  HERO CARD
    ────────────────────────────────────────────────────────────── */
 .dashboard-hero-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.4rem;
+  align-items: stretch;
   margin-bottom: 1.5rem;
 }
 
@@ -1684,6 +1685,10 @@ onMounted(async () => {
 
 .dashboard-welcome-header .hero-title {
   margin: 0;
+}
+
+.dashboard-welcome-header .dashboard-hero-message {
+  margin-bottom: 0;
 }
 
 .dashboard-hero-card {
@@ -1738,32 +1743,9 @@ onMounted(async () => {
 /* ──────────────────────────────────────────────────────────────
    § 7  HERO CONTENT
    ────────────────────────────────────────────────────────────── */
-.dashboard-hero-main {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: 1.4rem;
-  align-items: stretch;
-}
-
-.dashboard-hero-copy,
 .dashboard-hero-calendar {
   min-width: 0;
   display: flex;
-}
-
-.dashboard-hero-copy {
-  position: relative;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 100%;
-  padding: 1.35rem 1.45rem 1.4rem;
-  border-radius: 28px;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  box-shadow: 0 2px 4px var(--shadow);
-  overflow: hidden;
 }
 
 .hero-eyebrow-row {
@@ -3329,11 +3311,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 1180px) {
-  .dashboard-hero-main {
+  .dashboard-hero-shell {
     grid-template-columns: 1fr;
-  }
-  .dashboard-hero-copy {
-    padding: 1.2rem 1.15rem 1.22rem;
   }
   .two-col-layout {
     grid-template-columns: 1fr;
@@ -3367,7 +3346,6 @@ onMounted(async () => {
     align-items: center;
     gap: 0.72rem;
   }
-  .dashboard-hero-copy,
   .dashboard-hero-calendar {
     display: block;
   }
@@ -3792,7 +3770,6 @@ onMounted(async () => {
   z-index: 1;
 }
 .dashboard-hero-card,
-.dashboard-hero-copy,
 .surface-card,
 .summary-card,
 .group-card-surface,
@@ -3829,9 +3806,13 @@ onMounted(async () => {
   border-color: var(--border-light) !important;
   box-shadow: 0 4px 12px var(--shadow) !important;
 }
+/* The welcome box is informational — it stays put on hover. */
+.dashboard-welcome-header:hover {
+  transform: none !important;
+  box-shadow: 0 2px 4px var(--shadow) !important;
+}
 .dashboard-hero-card::before,
 .dashboard-hero-card::after,
-.dashboard-hero-copy::before,
 .summary-card::before,
 .summary-card::after,
 .group-card-surface::after,
@@ -3850,8 +3831,7 @@ onMounted(async () => {
   padding: 1.5rem;
 }
 
-.dashboard-hero-shell,
-.dashboard-hero-main {
+.dashboard-hero-shell {
   background: transparent !important;
   box-shadow: none !important;
 }
@@ -4031,36 +4011,29 @@ onMounted(async () => {
   display: none !important;
 }
 
-.dashboard-hero-groups {
-  margin-top: 1.35rem;
-  padding: 1.25rem 0 0.1rem;
-  border-top: 1px solid var(--border-light);
-}
-
-.dashboard-hero-groups .surface-card-header {
+.dashboard-groups-card .surface-card-header {
   margin-bottom: 1rem;
 }
 
-.dashboard-hero-groups .surface-card-title {
+.dashboard-groups-card .surface-card-title {
   font-size: clamp(1.35rem, 2vw, 1.72rem);
 }
 
 .dashboard-hero-groups-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.15rem;
 }
 
-.dashboard-hero-groups .group-card-surface {
+/* A single group (e.g. a student's own team) spans the full card width. */
+.dashboard-hero-groups-grid .group-card-link:only-child {
+  grid-column: 1 / -1;
+}
+
+.dashboard-groups-card .group-card-surface {
   min-height: 154px;
   padding: 1.18rem;
   border: 1px solid var(--border-light) !important;
   box-shadow: 0 2px 4px var(--shadow) !important;
-}
-
-@media (max-width: 1400px) {
-  .dashboard-hero-groups-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 880px) {
