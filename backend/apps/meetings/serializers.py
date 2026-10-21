@@ -102,6 +102,17 @@ class GroupMeetingSerializer(serializers.Serializer):
         return detect_provider(obj.join_link)
 
 
+MAX_MEETING_MINUTES = 480
+
+
+def _check_max_length(start, end):
+    """Cap a meeting's length, whether the end came as ends_datetime or a duration."""
+    if end - start > timedelta(minutes=MAX_MEETING_MINUTES):
+        raise serializers.ValidationError(
+            {"ends_datetime": f"A meeting can last at most {MAX_MEETING_MINUTES} minutes."}
+        )
+
+
 class GroupMeetingCreateSerializer(serializers.Serializer):
     group = serializers.PrimaryKeyRelatedField(
         queryset=Groups.objects.filter(deleted_at__isnull=True)
@@ -111,7 +122,7 @@ class GroupMeetingCreateSerializer(serializers.Serializer):
     agenda = serializers.CharField(required=False, allow_blank=True, default="")
     start_datetime = serializers.DateTimeField()
     ends_datetime = serializers.DateTimeField(required=False)
-    duration_minutes = serializers.IntegerField(required=False,min_value=5,max_value=480)
+    duration_minutes = serializers.IntegerField(required=False,min_value=5,max_value=MAX_MEETING_MINUTES)
     timezone_name = serializers.CharField(required=False, default="UTC", max_length=50)
     join_link = serializers.URLField(max_length=255)
 
@@ -130,6 +141,7 @@ class GroupMeetingCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"ends_datetime": "Must be after start_datetime."}
             )
+        _check_max_length(start, end)
         if start < timezone.now():
             raise serializers.ValidationError(
                 {"start_datetime": "Cannot schedule a meeting in the past."}
@@ -151,17 +163,31 @@ class GroupMeetingUpdateSerializer(serializers.Serializer):
     ends_datetime = serializers.DateTimeField(required=False)
     timezone_name = serializers.CharField(required=False, max_length=50)
     join_link = serializers.URLField(max_length=255, required=False)
+    duration_minutes = serializers.IntegerField(required=False,min_value=5, max_value=MAX_MEETING_MINUTES)
 
     def validate(self, attrs):
+        duration = attrs.pop("duration_minutes", None)
         start = attrs.get("start_datetime")
+
+        # A reschedule may send a duration instead of an end time.
+        if duration is not None:
+            if start is None:
+                raise serializers.ValidationError(
+                    {"duration_minutes": "Send start_datetime with duration_minutes."}
+                )
+            if "ends_datetime" not in attrs:
+                attrs["ends_datetime"] = start + timedelta(minutes=duration)
+
         end = attrs.get("ends_datetime")
         # Half a reschedule can invert the interval and trip the DB CHECK.
         if (start is None) != (end is None):
             raise serializers.ValidationError(
                 "start_datetime and ends_datetime must be sent together."
             )
-        if start and end and end <= start:
-            raise serializers.ValidationError(
-                {"ends_datetime": "Must be after start_datetime."}
-            )
+        if start and end:
+            if end <= start:
+                raise serializers.ValidationError(
+                    {"ends_datetime": "Must be after start_datetime."}
+                )
+            _check_max_length(start, end)
         return attrs
