@@ -139,6 +139,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/guardians', name: 'admin-guardians', component: () => import('@/views/SupervisorStudentsPage.vue'), props: { admin: true }, meta: { requiresAdmin: true } },
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  // The Group Plans builder (GP2). `/admin/plan/progress` belongs to GP5.
+  { path: '/admin/plan', name: 'admin-plan', component: () => import('@/views/admin/AdminPlanTasksPage.vue'), meta: { requiresAdmin: true } },
   {
     path: '/admin/views',
     name: 'admin-views',

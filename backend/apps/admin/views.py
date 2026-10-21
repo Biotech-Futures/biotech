@@ -41,6 +41,19 @@ from apps.admin.services.known_university import (
     list_known_universities,
     rename_known_university,
 )
+from apps.admin.services.plan_stage import (
+    create_plan_stage,
+    delete_plan_stage,
+    list_plan_stages,
+    update_plan_stage,
+)
+from apps.admin.services.plan_task import (
+    create_plan_task,
+    delete_plan_task,
+    get_plan_task,
+    list_plan_tasks,
+    update_plan_task,
+)
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -1862,4 +1875,75 @@ class KnownUniversityDetailView(APIView):
 
     def delete(self, request, university_id):
         result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanStageListCreateView(APIView):
+    """GET/POST /api/v1/admin/plan-stage/ — ordered stage list / create stage."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_plan_stages())
+
+    def post(self, request):
+        result, code = create_plan_stage(request.data, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanStageDetailView(APIView):
+    """PATCH/DELETE /api/v1/admin/plan-stage/<id>/ — edit / soft-delete an empty stage."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def patch(self, request, stage_id):
+        result, code = update_plan_stage(stage_id, request.data, actor=request.user)
+        return Response(result, status=code)
+
+    def delete(self, request, stage_id):
+        result, code = delete_plan_stage(stage_id, actor=request.user)
+        if code == status.HTTP_204_NO_CONTENT:
+            return Response(status=code)
+        return Response(result, status=code)
+
+
+class AdminPlanTaskListCreateView(APIView):
+    """GET/POST /api/v1/admin/plan-task/ — paginated task list / create task.
+    GET accepts ``?page=&limit=&sortBy=position|name|due|createdAt&sortOrder=asc|desc``
+    and rejects invalid query values with 400."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result, code = list_plan_tasks(
+            page=request.query_params.get("page"),
+            limit=request.query_params.get("limit"),
+            sort_by=request.query_params.get("sortBy"),
+            sort_order=request.query_params.get("sortOrder"),
+        )
+        return Response(result, status=code)
+
+    def post(self, request):
+        result, code = create_plan_task(request.data, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanTaskDetailView(APIView):
+    """GET/PATCH/DELETE /api/v1/admin/plan-task/<id>/ — read / edit / soft-delete.
+    GP5 adds the literal ``plan-task/progress/`` route before this pattern."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, task_id):
+        result, code = get_plan_task(task_id)
+        return Response(result, status=code)
+
+    def patch(self, request, task_id):
+        result, code = update_plan_task(task_id, request.data, actor=request.user)
+        return Response(result, status=code)
+
+    def delete(self, request, task_id):
+        result, code = delete_plan_task(task_id, actor=request.user)
+        if code == status.HTTP_204_NO_CONTENT:
+            return Response(status=code)
         return Response(result, status=code)

@@ -540,6 +540,7 @@ export const bulkDeleteUsers = (payload: BulkDeletePayload): Promise<BulkDeleteR
  *  have users — the lookup holds every country on earth, but only a fraction have
  *  rows worth filtering to. */
 export const fetchAdminCountries = (
+
   options: { inUse?: boolean } = {}
 ): Promise<AdminUserCountry[]> =>
   adminGet<AdminEnvelope<AdminUserCountry[]>>(
@@ -607,6 +608,122 @@ export const renameKnownUniversity = (id: number, name: string) =>
 
 export const deleteKnownUniversity = (id: number) =>
   adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
+
+// ---------------------------------------------------------------------------
+// Group Plans (admin builder)
+//
+// GP2 scope: the stage/task builder. The progress matrix
+// (`/plan-task/progress/`, GP5) is owned by Person 2 and is not called here.
+//
+// Contract notes (docs/group-plans-implementation-reference.md):
+// - Stages share one ordered list; GET returns every active stage including
+//   empty ones. A stage holding live tasks cannot be deleted (400).
+// - Tasks are paginated with a custom envelope `{items, total, page, limit,
+//   has_more}`; `sortBy` is position | name | due | createdAt, `sortOrder` is
+//   asc | desc. Undated tasks sort last regardless of direction.
+// - `has_completions` locks `audience_role` and `completion_mode`: once a
+//   current-year group holds any record for the task (ticked or not), changing
+//   either returns 400.
+// ---------------------------------------------------------------------------
+
+export type AdminPlanAudienceRole = 'student' | 'mentor' | 'supervisor'
+export type AdminPlanCompletionMode = 'per_person' | 'per_group'
+export type AdminPlanTaskSortBy = 'position' | 'name' | 'due' | 'createdAt'
+export type AdminPlanSortOrder = 'asc' | 'desc'
+
+/** A plan stage as the admin builder sees it (member client calls it `PlanStage`). */
+export interface AdminPlanStage {
+  id: number
+  name: string
+  description: string
+  position: number
+}
+
+/** A plan task as the admin builder sees it. */
+export interface AdminPlanTask {
+  id: number
+  stage_id: number
+  position: number
+  name: string
+  description: string
+  resource_url: string
+  resource_label: string
+  due_date: string | null
+  audience_role: AdminPlanAudienceRole
+  completion_mode: AdminPlanCompletionMode
+  has_completions: boolean
+  created_by: { id: number; name: string | null } | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminPlanTaskListData {
+  items: AdminPlanTask[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface AdminPlanTaskListParams {
+  page?: number
+  limit?: number
+  sortBy?: AdminPlanTaskSortBy
+  sortOrder?: AdminPlanSortOrder
+}
+
+/** Writable stage fields; `name` required on create. */
+export interface AdminPlanStagePayload {
+  name: string
+  description?: string
+  position?: number
+}
+
+/** Writable task fields. Create requires `name`, `stage_id` and `audience_role`. */
+export interface AdminPlanTaskPayload {
+  name?: string
+  stage_id?: number
+  position?: number
+  description?: string
+  resource_url?: string
+  resource_label?: string
+  due_date?: string | null
+  audience_role?: AdminPlanAudienceRole
+  completion_mode?: AdminPlanCompletionMode
+}
+
+/** Every active stage in position order, including empty ones. */
+export const fetchAdminPlanStages = () =>
+  adminGet<AdminEnvelope<{ items: AdminPlanStage[] }>>('/plan-stage/').then(
+    (env) => env.data.items
+  )
+
+export const createAdminPlanStage = (payload: AdminPlanStagePayload) =>
+  adminPost<AdminEnvelope<AdminPlanStage>>('/plan-stage/', payload).then((env) => env.data)
+
+export const updateAdminPlanStage = (stageId: number, payload: Partial<AdminPlanStagePayload>) =>
+  adminPatch<AdminEnvelope<AdminPlanStage>>(`/plan-stage/${stageId}/`, payload).then((env) => env.data)
+
+/** Soft-deletes an empty stage; refuses (400) one that still holds live tasks. */
+export const deleteAdminPlanStage = (stageId: number) =>
+  adminDelete<AdminEnvelope<null>>(`/plan-stage/${stageId}/`).then((env) => env.msg)
+
+export const fetchAdminPlanTasks = (params: AdminPlanTaskListParams = {}) =>
+  adminGet<AdminEnvelope<AdminPlanTaskListData>>(`/plan-task/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const fetchAdminPlanTask = (taskId: number) =>
+  adminGet<AdminEnvelope<AdminPlanTask>>(`/plan-task/${taskId}/`).then((env) => env.data)
+
+export const createAdminPlanTask = (payload: AdminPlanTaskPayload) =>
+  adminPost<AdminEnvelope<AdminPlanTask>>('/plan-task/', payload).then((env) => env.data)
+
+export const updateAdminPlanTask = (taskId: number, payload: AdminPlanTaskPayload) =>
+  adminPatch<AdminEnvelope<AdminPlanTask>>(`/plan-task/${taskId}/`, payload).then((env) => env.data)
+
+export const deleteAdminPlanTask = (taskId: number) =>
+  adminDelete<AdminEnvelope<null>>(`/plan-task/${taskId}/`).then((env) => env.msg)
 
 // ---------------------------------------------------------------------------
 // Groups
