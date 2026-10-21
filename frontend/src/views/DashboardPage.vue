@@ -1632,7 +1632,7 @@ onMounted(async () => {
 }
 
 .dashboard-welcome-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .dashboard-welcome-header .hero-title {
