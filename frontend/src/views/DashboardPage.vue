@@ -17,23 +17,6 @@
           resources, register for events, and stay up to date with the latest announcements
           and opportunities across the program.
         </p>
-
-        <div class="hero-highlight-wrap" role="status" aria-live="polite">
-          <template v-if="highlightsLoading">
-            <span
-              v-for="item in 3"
-              :key="`highlight-skeleton-${item}`"
-              class="status-pill dashboard-highlight-skeleton"
-            >
-              <span class="dashboard-skeleton-chip"></span>
-            </span>
-          </template>
-          <template v-else>
-            <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
-              {{ item.label }}
-            </span>
-          </template>
-        </div>
       </section>
 
         <div
@@ -546,10 +529,6 @@ const loadError = ref('')
 
 // Progressive rendering gates — each dashboard section reveals itself as its
 // own request completes instead of waiting for the slowest endpoint.
-const highlightsLoading = computed(() =>
-  groupsLoading.value || eventsLoading.value || progressLoading.value || adminLoading.value,
-)
-
 const summaryLoading = computed(() =>
   groupsLoading.value ||
   resourcesLoading.value ||
@@ -662,33 +641,6 @@ const dashboardThemeStyle = computed(() => {
     '--page-glow-three': dashboardPalette.pageGlowThree,
     '--dashboard-fx-opacity': dashboardPalette.fxOpacity,
   }
-})
-
-const headerHighlights = computed(() => {
-  if (isAdmin.value) {
-    return [
-      { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
-      { key: 'matches', label: `${adminWorkflow.value.pendingMatches} pending matches` },
-      { key: 'approvals', label: `${adminWorkflow.value.pendingApprovals} approvals` },
-    ]
-  }
-
-  if (isMentoringRole.value) {
-    return [
-      { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
-      { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
-      { key: 'progress', label: `${progressSnapshot.value.completionRate}% progress` },
-    ]
-  }
-
-  return [
-    { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
-    { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming events` },
-    {
-      key: 'tasks',
-      label: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks} tasks done`,
-    },
-  ]
 })
 
 const announcementsCount = computed(() => announcements.value.length)
@@ -1923,55 +1875,6 @@ onMounted(async () => {
   max-width: 64ch;
 }
 
-.hero-highlight-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 1.18rem;
-}
-
-.status-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0.42rem 0.94rem;
-  border-radius: 999px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
-  color: var(--text-primary);
-  font-size: 0.7rem;
-  font-weight: 800;
-  /* Its height from its text, not the page's looser line spacing. */
-  line-height: 1.2;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.status-pill::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  margin-right: 0.56rem;
-  border-radius: 999px;
-  background: currentColor;
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, currentColor 18%, transparent),
-    0 0 18px color-mix(in srgb, currentColor 30%, transparent);
-}
-
-.status-pill:nth-child(1) {
-  border: 1px solid rgba(96, 165, 250, 0.24);
-  color: #bfdbfe;
-}
-.status-pill:nth-child(2) {
-  border: 1px solid rgba(45, 212, 191, 0.24);
-  color: #99f6e4;
-}
-.status-pill:nth-child(3) {
-  border: 1px solid rgba(244, 114, 182, 0.24);
-  color: #fbcfe8;
-}
-
 /* ──────────────────────────────────────────────────────────────
    § 8  SHOWCASE CAROUSEL
    ────────────────────────────────────────────────────────────── */
@@ -3016,12 +2919,6 @@ onMounted(async () => {
   margin-top: 1rem;
 }
 
-.dashboard-skeleton-chip {
-  width: 142px;
-  height: 2.35rem;
-  border-radius: 999px;
-}
-
 .dashboard-skeleton-line {
   width: 100%;
   height: 1rem;
@@ -3111,23 +3008,6 @@ onMounted(async () => {
    full-page gate. */
 .dashboard-section-skeleton {
   padding: 0.5rem 0;
-}
-
-.dashboard-highlight-skeleton {
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border-default);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.dashboard-highlight-skeleton::before {
-  display: none;
-}
-
-.dashboard-highlight-skeleton .dashboard-skeleton-chip {
-  display: block;
-  margin: 0;
-  width: 118px;
-  height: 1.7rem;
 }
 
 .group-skeleton-card {
@@ -3459,13 +3339,11 @@ onMounted(async () => {
 .dashboard-alert,
 .hero-meta-chip-label,
 .summary-label,
-.status-pill,
 .hero-eyebrow {
   color: var(--text-secondary);
 }
 .hero-eyebrow,
 .hero-meta-chip,
-.status-pill,
 .summary-card,
 .surface-card,
 .group-card-surface,
@@ -3479,7 +3357,6 @@ onMounted(async () => {
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
-.status-pill,
 .hero-eyebrow {
   background: linear-gradient(
     165deg,
@@ -3490,7 +3367,6 @@ onMounted(async () => {
   -webkit-backdrop-filter: blur(24px);
 }
 .hero-meta-chip:hover,
-.status-pill:hover,
 .summary-card:hover,
 .surface-card:hover,
 .group-card-link:hover .group-card-surface,
@@ -3594,8 +3470,7 @@ onMounted(async () => {
 }
 
 @media (max-width: 680px) {
-  .hero-meta-row,
-  .hero-highlight-wrap {
+  .hero-meta-row {
     gap: 0.55rem;
   }
 
@@ -3651,7 +3526,6 @@ onMounted(async () => {
 .summary-label,
 .hero-meta-chip-label,
 .progress-label,
-.status-pill,
 .event-date-rest {
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3682,7 +3556,6 @@ onMounted(async () => {
   color: var(--accent-blue);
 }
 .hero-meta-chip,
-.status-pill,
 .summary-card,
 .surface-card,
 .group-card-surface,
@@ -3778,7 +3651,6 @@ onMounted(async () => {
 .list-row,
 .hero-meta-chip,
 .hero-eyebrow,
-.status-pill,
 .event-detail-card,
 .dashboard-alert {
   background: var(--white) !important;
@@ -3801,8 +3673,7 @@ onMounted(async () => {
 .group-card-link:hover .group-card-surface,
 .resource-card-link:hover .resource-card-surface,
 .list-row:hover,
-.hero-meta-chip:hover,
-.status-pill:hover {
+.hero-meta-chip:hover {
   transform: translateY(-2px) !important;
   border-color: var(--border-light) !important;
   box-shadow: 0 4px 12px var(--shadow) !important;
@@ -3820,8 +3691,6 @@ onMounted(async () => {
 .resource-card-surface::before,
 .hero-meta-chip::before,
 .hero-meta-chip::after,
-.status-pill::before,
-.status-pill::after,
 .progress-card::after {
   display: none !important;
   content: none !important;
@@ -3872,7 +3741,6 @@ onMounted(async () => {
 .empty-state,
 .hero-meta-chip-label,
 .summary-label,
-.status-pill,
 .list-row-meta,
 .progress-detail-row span,
 .progress-label,
