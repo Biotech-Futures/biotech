@@ -17,6 +17,7 @@
             <span>{{ field.label }}</span>
             <input
               v-model="form[field.key]"
+              class="app-input app-input--compact"
               type="date"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && isPast(field.key) }"
@@ -24,7 +25,7 @@
           </label>
           <label class="notify-finalists__field notify-finalists__field--wide">
             <span>Registration Link</span>
-            <input v-model="form.registration_url" type="url" placeholder="https://…" />
+            <input v-model="form.registration_url" class="app-input app-input--compact" type="url" placeholder="https://…" />
           </label>
         </div>
         <p v-if="pastDatesMessage" class="notify-finalists__field-error" role="alert">
@@ -501,15 +502,10 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   margin: 0 0 0.75rem;
 }
 
-/* Same boxes as Document Setup's text fields. */
+/* The shared compact box (app-input), filling its column. */
 .notify-finalists__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
 }
 
 .notify-finalists__field input:focus {

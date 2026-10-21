@@ -213,7 +213,7 @@ onMounted(async () => {
 }
 
 .consent-shell {
-  max-width: 760px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 

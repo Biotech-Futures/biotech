@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { DOMWrapper, mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
+
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
 
 const country = { id: 1, countryName: 'Australia' }
 const state = { id: 1, stateName: 'NSW', countryName: 'Australia' }
@@ -98,9 +102,28 @@ afterEach(() => {
   document.body.innerHTML = ''
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  routeState.query = {}
 })
 
 describe('AdminUsersView', () => {
+  it('applies status and group membership from a deep link before loading', async () => {
+    routeState.query = { status: 'inactive', inGroup: 'no', search: 'Ada Lovelace' }
+    const fetchMock = fetchMockFor([buildUser({ isActive: false })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, {
+      props: { title: 'Students', noun: 'student', roleFilter: 'student' }
+    })
+    await flushPromises()
+
+    expect(wrapper.get('#status-filter').element).toHaveProperty('value', 'Inactive')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'Not in a group')
+    expect(wrapper.get('input[type="search"]').element).toHaveProperty('value', 'Ada Lovelace')
+    const url = String(listCall(fetchMock)?.[0] ?? '')
+    expect(url).toContain('active=false')
+    expect(url).toContain('inGroup=no')
+    expect(url).toContain('search=Ada+Lovelace')
+  })
+
   it('loads and renders user rows', async () => {
     vi.stubGlobal(
       'fetch',
@@ -277,9 +300,9 @@ describe('AdminUsersView', () => {
     })
     await flushPromises()
 
-    const filter = wrapper.find<HTMLSelectElement>('#in-group-filter')
+    const filter = wrapper.find('#in-group-filter')
     expect(filter.exists()).toBe(true)
-    await filter.setValue('yes')
+    await pickAppSelect(wrapper, '#in-group-filter', 'In a group')
     await flushPromises()
 
     expect(String(listCall(fetchMock)?.[0])).toContain('inGroup=yes')
@@ -467,14 +490,11 @@ describe('AdminUsersView', () => {
     await wrapper.find<HTMLInputElement>('.data-table-search-input').setValue('Ada')
     vi.advanceTimersByTime(350)
     await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#country-filter').setValue('Australia')
-    await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#state-filter').setValue('NSW')
-    await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#in-group-filter').setValue('yes')
-    await flushPromises()
-    await wrapper.find<HTMLSelectElement>('#status-filter').setValue('active')
-    await flushPromises()
+    // Each filter's choice picked from its list.
+    await pickAppSelect(wrapper, '#country-filter', 'Australia')
+    await pickAppSelect(wrapper, '#state-filter', 'NSW')
+    await pickAppSelect(wrapper, '#in-group-filter', 'In a group')
+    await pickAppSelect(wrapper, '#status-filter', 'Active')
 
     const yearSort = wrapper
       .findAll('.data-table-sort-btn')
@@ -599,11 +619,8 @@ describe('AdminUsersView', () => {
     const dialog = dialogs().find((d) => d.textContent!.includes('Assign Student to Group'))
     expect(dialog).toBeDefined()
 
-    const select = dialog!.querySelector<HTMLSelectElement>('#assign-group-select')
-    expect(select).not.toBeNull()
-    select!.value = '1' // Team A
-    select!.dispatchEvent(new Event('change', { bubbles: true }))
-    await flushPromises()
+    expect(dialog!.querySelector('#assign-group-select')).not.toBeNull()
+    await pickAppSelect(new DOMWrapper(dialog!), '#assign-group-select', 'Team A · 0/5 (5 left)')
 
     const confirmButton = Array.from(dialog!.querySelectorAll('button')).find(
       (b) => b.textContent!.trim() === 'Confirm assignment'

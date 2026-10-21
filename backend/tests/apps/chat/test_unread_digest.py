@@ -14,6 +14,7 @@ from apps.chat.models import ChatDigestState, MessageStatus, Messages
 from apps.chat.services import digest as digest_service
 from apps.chat.services.digest import send_unread_message_digests
 from apps.groups.models import GroupMembership, Groups
+from apps.services.models import EmailDeliveryMetric
 
 User = get_user_model()
 Role = GroupMembership.MembershipRoleChoices
@@ -191,6 +192,10 @@ class UnreadDigestServiceTests(TestCase):
             mail.outbox[0].from_email, "BIOTech Connect <connect@biotechfutures.org>"
         )
         self.assertNotEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
+        metric = EmailDeliveryMetric.objects.get(email_type="unread_messages")
+        self.assertEqual(metric.source_mailbox, "connect@biotechfutures.org")
+        self.assertEqual(metric.attempted_count, 1)
+        self.assertEqual(metric.delivered_count, 1)
 
     # The sender's connection is opened by system_email.sender_connection.
     @patch("apps.services.system_email.get_connection")

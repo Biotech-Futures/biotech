@@ -10,6 +10,7 @@
   --dark-green: #017151;
   --light-green: #c3ecca;
   --teal: #174243;
+  --dark-cyan: #234142;
 
   /* Secondary Colors */
   --air-force-blue: #26697d;
@@ -35,6 +36,22 @@
   --surface-elevated: #ffffff;
   --text-muted: #6c757d;
   --accent-green-soft: #c3ecca;
+  /* How wide the shared text box (app-input) grows, at most. */
+  --app-input-max-width: 450px;
+  /* The shared box's height, by its line height: 1.2 is 42px, 1.3 is 44px,
+     1.4 is 46px, 1.5 is 48px, 1.6 is 50px. */
+  --app-input-line-height: 1.6;
+  /* How wide every box beside its label is in the side panels (a user's,
+     and a supervisor's student's), so they all line up. */
+  --app-input-panel-width: 420px;
+  /* Management's two box sizes: its fields (app-input--compact), and the
+     dropdowns and test email rows beside its small buttons (--small). */
+  --app-input-compact-text: 1rem;
+  --app-input-compact-height: 2.1rem;
+  --app-input-small-text: 0.875rem;
+  --app-input-small-height: 1.8rem;
+  /* How tall a table's filters and search are. */
+  --table-box-height: 2.1rem;
 }
 
 /* Dark theme — opt-in via <html data-theme="dark">. No prefers-color-scheme
@@ -420,6 +437,32 @@ h5 {
   border-color: var(--dark-green);
 }
 
+/* A page's way back ("Back to resources"): an outline button with a left
+   arrow, above the page's heading. */
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  /* A button's, so a link (e.g. to the login page) is as tall as a button. */
+  line-height: normal;
+  /* White on the page's grey; light green on hover, as .btn-outline. */
+  background-color: var(--white);
+}
+
+/* An outline button that removes or deletes something: red text and icon,
+   with a red outline on hover. */
+.btn-outline-danger {
+  background-color: transparent;
+  color: var(--danger);
+  border: 1px solid var(--border-light);
+}
+
+.btn-outline-danger:hover:not(:disabled) {
+  background-color: rgba(220, 53, 69, 0.08);
+  border-color: var(--danger);
+}
+
 /* Disabled buttons: dimmed, no hover feedback, not-allowed cursor. */
 .btn:disabled {
   opacity: 0.55;
@@ -446,6 +489,11 @@ h5 {
 }
 
 /* Forms */
+/* A required field's * (and the * in "Fields marked * are required."). */
+.required-mark {
+  color: var(--danger);
+}
+
 .form-control {
   width: 100%;
   padding: 0.625rem;
@@ -460,6 +508,111 @@ h5 {
   outline: none;
   border-color: var(--dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.1);
+}
+
+/* The text box (and dropdown) every form outside a table uses: the page's
+   text in a light grey box (50px tall, by --app-input-line-height), filling its column up to
+   --app-input-max-width. A page keeps its own layout, colours and focus; it
+   sets none of these. */
+.app-input {
+  width: 100%;
+  max-width: var(--app-input-max-width);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: var(--app-input-line-height);
+}
+
+/* A long answer keeps the page's roomier line spacing. */
+textarea.app-input:not(.app-input--compact) {
+  line-height: 1.6;
+}
+
+/* A date's fields without the 1px Chrome puts above and below them, so a
+   date is as tall as a text box. */
+.app-input::-webkit-datetime-edit,
+.app-input::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+
+/* One that takes its whole row: long answers, emails, a subject. */
+.app-input--wide {
+  max-width: none;
+}
+
+/* Management's fields, at the browser's line height and the
+   --app-input-compact settings. A date or time (whose picker needs a little
+   more than a line) is set as tall as a text box. */
+.app-input--compact {
+  font-size: var(--app-input-compact-text);
+  line-height: normal;
+}
+
+.app-input--compact:not(textarea) {
+  height: var(--app-input-compact-height);
+}
+
+/* With --compact: Management's smaller ones beside its small buttons, at the
+   --app-input-small settings. */
+.app-input--small {
+  font-size: var(--app-input-small-text);
+}
+
+.app-input--small:not(textarea) {
+  height: var(--app-input-small-height);
+}
+
+/* The boxes a table uses, in its toolbar and beside it: smaller text, about
+   42px tall. A filter is at least 180px wide. */
+.table-filter {
+  min-width: 9rem;
+  height: var(--table-box-height);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: normal;
+}
+
+/* A table's search, with room on the left for its magnifier. */
+.table-search {
+  width: 100%;
+  height: var(--table-box-height);
+  padding: 0.4rem 0 0.4rem 2rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--surface-elevated);
+  color: var(--teal);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.table-filter:focus,
+.table-filter:focus-within,
+.table-search:focus {
+  outline: none;
+  border-color: var(--dark-green);
+}
+
+/* Rows per page, in a table's footer. */
+.table-page-size {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background-color: var(--white);
+  color: var(--teal);
+  font-size: 0.875rem;
 }
 
 /* Grid System */

@@ -9,6 +9,7 @@ import {
   type SymposiumEmail,
   type SymposiumEmailStatus
 } from '@/utils/managementAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchTestEmailRecipients: vi.fn(async () => ({ recipients: [] })),
@@ -98,9 +99,10 @@ beforeEach(() => {
 })
 
 describe('Notify Nonfinalist', () => {
-  it('has the page title, then each section heading and where the date and link come from', async () => {
+  it('has each section heading and where the date and link come from', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('.card-title').text()).toBe('Notify Nonfinalist')
+    // Below Notify Finalists on its tab: no title of its own over a divider.
+    expect(wrapper.find('.card-title').exists()).toBe(false)
     expect(wrapper.findAll('.non-finalist__section-title').map((h) => h.text())).toEqual([
       'Notify Nonfinalist',
       'Notify Nonsubmission'
@@ -108,15 +110,14 @@ describe('Notify Nonfinalist', () => {
     // Each sentence on its own line, spaced like the lines around it.
     expect(wrapper.findAll(`${NONFINALISTS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that submitted but weren't selected as finalists.",
-      'The Symposium date and registration link come from Set Details on Notify Finalists.',
+      'The Symposium date and registration link come from Set Details above.',
       "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group."
     ])
     expect(wrapper.findAll(`${NONSUBMISSIONS} .non-finalist__hint`).map((p) => p.text())).toEqual([
       "For teams that didn't make a submission.",
-      'The Symposium date and registration link come from Set Details on Notify Finalists.',
+      'The Symposium date and registration link come from Set Details above.',
       "Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group."
     ])
-    expect(wrapper.find('.non-finalist__hint a').attributes('href')).toBe('/management/notify-finalists')
   })
 
   it('shows each email: not sent yet, how many students, mentors and supervisors, and its buttons', async () => {
@@ -334,7 +335,7 @@ describe('Notify Nonfinalist', () => {
     }))
     previewMock.mockResolvedValue({ subject: 'No Submission', to: 'BTF12', html: '<p>email</p>' })
     const wrapper = await mountPage()
-    await wrapper.find(`${NONSUBMISSIONS} .test-email__select`).setValue('12:4')
+    await pickAppSelect(wrapper, `${NONSUBMISSIONS} .test-email__select`, '(BTF12) Ben Lee')
     await buttonIn(wrapper, NONSUBMISSIONS, /^Preview Email$/).trigger('click')
     await flushPromises()
     expect(previewMock).toHaveBeenCalledWith('nonsubmissions', '12:4')

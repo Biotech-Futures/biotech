@@ -664,13 +664,20 @@ export const downloadConsentDocuments = async (rows: ConsentStudent[]) => {
   URL.revokeObjectURL(url)
 }
 
-// Opens the PDF in a new tab. The tab opens before the PDF is built, while the
-// click still counts, so the browser doesn't block it as a popup.
-export const viewConsentDocuments = async (rows: ConsentStudent[]) => {
-  if (!rows.length) return
+// Opens the PDF in a new tab. The tab opens before the PDF is built (and
+// before ``rows`` come, when they're still on their way, e.g. their
+// signatures), while the click still counts, so the browser doesn't block it
+// as a popup.
+export const viewConsentDocuments = async (rows: ConsentStudent[] | Promise<ConsentStudent[]>) => {
+  if (Array.isArray(rows) && !rows.length) return
   const tab = window.open('', '_blank')
   try {
-    const url = URL.createObjectURL(await buildConsentBlob(rows))
+    const ready = await rows
+    if (!ready.length) {
+      tab?.close()
+      return
+    }
+    const url = URL.createObjectURL(await buildConsentBlob(ready))
     if (tab) tab.location.href = url
     else window.open(url, '_blank')
     // The tab needs the link while it loads the PDF.

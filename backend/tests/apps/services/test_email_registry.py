@@ -19,11 +19,20 @@ EXPECTED_KEYS = {
     "login_code",
     "password_reset",
     "password_changed",
+    "registration_student",
+    "registration_group",
+    "registration_mentor",
+    "registration_by_supervisor",
+    "registration_by_admin",
+    "registration_supervisor",
+    "supervisor_registration_status",
     "unread_messages",
     "rsvp_reminder",
     "event_promotion",
     "announcement",
     "submission_confirmation",
+    "finalist_submission_confirmation",
+    "finalist_submission_reminder",
     "submission_reminder",
     "finalist_notification",
     "nonfinalist_invitation",
@@ -35,6 +44,7 @@ EXPECTED_KEYS = {
     "guardian_details_request",
     "guardian_details_received",
     "guardian_consent_student_notice",
+    "email_credits_low",
 }
 
 
@@ -49,7 +59,7 @@ class RegistryShapeTests(SimpleTestCase):
 
     def test_account_security_and_signin_emails_are_locked(self):
         locked = {t.key for t in EMAIL_TYPES if t.locked}
-        self.assertEqual(locked, {"login_code", "password_reset", "password_changed"})
+        self.assertEqual(locked, {"login_code", "password_reset", "password_changed", "email_credits_low"})
 
     def test_every_type_has_name_description_subject_and_template(self):
         for email_type in EMAIL_TYPES:

@@ -102,32 +102,32 @@
         </section>
       </div>
 
-      <!-- Admins confirm anything the team will see. -->
+      <!-- Confirms a step others will see, or that can't be undone. -->
       <div
-        v-if="adminDialog"
+        v-if="confirmDialog"
         class="submission-dialog-backdrop"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="admin-dialog-title"
+        aria-labelledby="confirm-dialog-title"
         tabindex="-1"
-        data-testid="admin-dialog"
-        @keydown.esc="answerAdminDialog(false)"
+        data-testid="confirm-dialog"
+        @keydown.esc="answerConfirm(false)"
       >
         <section class="submission-dialog">
-          <h2 id="admin-dialog-title" class="submission-dialog__title">{{ adminDialog.title }}</h2>
-          <p class="submission-dialog__body">{{ adminDialog.body }}</p>
+          <h2 id="confirm-dialog-title" class="submission-dialog__title">{{ confirmDialog.title }}</h2>
+          <p class="submission-dialog__body">{{ confirmDialog.body }}</p>
           <div class="submission-dialog__actions">
-            <button type="button" class="btn btn-outline" data-testid="admin-dialog-cancel" @click="answerAdminDialog(false)">
+            <button type="button" class="btn btn-outline" data-testid="confirm-dialog-cancel" @click="answerConfirm(false)">
               Cancel
             </button>
             <button
-              ref="adminDialogConfirm"
+              ref="confirmButton"
               type="button"
               class="btn btn-primary"
-              data-testid="admin-dialog-confirm"
-              @click="answerAdminDialog(true)"
+              data-testid="confirm-dialog-confirm"
+              @click="answerConfirm(true)"
             >
-              {{ adminDialog.confirm }}
+              {{ confirmDialog.confirm }}
             </button>
           </div>
         </section>
@@ -154,28 +154,40 @@
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
+        <p v-if="coeditNote" class="submission-muted" data-testid="coedit-note">{{ coeditNote }}</p>
+
         <div class="submission-field">
           <label class="submission-label" for="project-title">
             Project title
             <span class="submission-required" title="Required" aria-label="required">*</span>
           </label>
-          <input
-            id="project-title"
-            v-model="projectTitle"
-            class="form-control"
-            type="text"
-            :maxlength="PROJECT_TITLE_MAX_LENGTH"
-            v-show="!live.isLocked(TITLE_FIELD)"
-            :disabled="!isEditable || live.isLocked(TITLE_FIELD)"
-            @input="shareTyping(TITLE_FIELD, $event)"
-          />
-          <LiveTextPanel
-            v-if="live.isLocked(TITLE_FIELD)"
-            class="form-control"
-            :text="projectTitle"
-            :caret="live.caretIn(TITLE_FIELD)"
-            :rows="1"
-          />
+          <div class="submission-stretch">
+            <input
+              id="project-title"
+              v-model="projectTitle"
+              class="form-control app-input app-input--wide"
+              type="text"
+              :maxlength="PROJECT_TITLE_MAX_LENGTH"
+              v-show="!live.isLocked(TITLE_FIELD)"
+              :disabled="!textEditable || live.isLocked(TITLE_FIELD)"
+              @input="shareTyping(TITLE_FIELD, $event)"
+              @compositionstart="startComposing(TITLE_FIELD, $event)"
+              @compositionend="endComposing(TITLE_FIELD, $event)"
+              @keydown="onFieldKeydown(TITLE_FIELD, $event)"
+              @keyup="shareCursor(TITLE_FIELD)"
+              @mouseup="shareCursor(TITLE_FIELD)"
+              @focus="enterField(TITLE_FIELD)"
+              @blur="leaveField(TITLE_FIELD)"
+            />
+            <LiveTextPanel
+              v-if="live.isLocked(TITLE_FIELD)"
+              class="form-control app-input app-input--wide"
+              :text="projectTitle"
+              :caret="live.caretIn(TITLE_FIELD)"
+              :rows="1"
+            />
+            <SharedCursors v-if="typingShared" :source="cursorSource(TITLE_FIELD)" />
+          </div>
           <div class="submission-field-meta">
             <TypingIndicator :names="live.typingIn(TITLE_FIELD)" />
           </div>
@@ -200,8 +212,15 @@
               :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
               :style="boxHeights[question.key] ? { height: `${boxHeights[question.key]}px` } : undefined"
-              :disabled="!isEditable || live.isLocked(question.key)"
+              :disabled="!textEditable || live.isLocked(question.key)"
               @input="shareTyping(question.key, $event)"
+              @compositionstart="startComposing(question.key, $event)"
+              @compositionend="endComposing(question.key, $event)"
+              @keydown="onFieldKeydown(question.key, $event)"
+              @keyup="shareCursor(question.key)"
+              @mouseup="shareCursor(question.key)"
+              @focus="enterField(question.key)"
+              @blur="leaveField(question.key)"
             ></textarea>
             <LiveTextPanel
               v-if="live.isLocked(question.key)"
@@ -211,6 +230,7 @@
               :rows="ANSWER_ROWS"
               :height="boxHeights[question.key] ?? null"
             />
+            <SharedCursors v-if="typingShared" :source="cursorSource(question.key)" />
             <StretchHandle
               :height="boxHeights[question.key] ?? null"
               @update:height="boxHeights[question.key] = $event"
@@ -529,7 +549,7 @@
             <input
               id="prototype-url"
               v-model="prototypeUrl"
-              class="form-control"
+              class="form-control app-input app-input--wide"
               type="url"
               placeholder="https://…"
               :disabled="!isEditable"
@@ -595,11 +615,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
 import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
+import SharedCursors from '@/components/live/SharedCursors.vue'
 import PosterChecklist from '@/components/submission/PosterChecklist.vue'
 import AdminSubmissionBar from '@/components/submission/AdminSubmissionBar.vue'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
 import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
+import { useCoeditedFields } from '@/composables/useCoeditedFields'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatDayMonthTime } from '@/utils/date'
@@ -699,16 +721,19 @@ function tidyLink() {
 
 /** A link with a problem is left out, so the server keeps the last good one. */
 function draftFields(answers: Record<string, string>): {
-  answers: Record<string, string>
+  answers?: Record<string, string>
   project_title?: string
   prototype_url?: string
   poster_checklist?: Record<string, boolean>
+  live_unavailable?: boolean
 } {
   const link = linkProblem() ? savedLink : normalisedLink()
   const ticks = checklistChanges()
   return {
-    answers,
-    ...titleIfChanged(),
+    // A team's co-edited text is saved by the server, never sent from here, unless the live connection is out of reach.
+    ...(typingShared.value
+      ? {}
+      : { answers, ...titleIfChanged(), ...(savingWithoutLive.value ? { live_unavailable: true } : {}) }),
     ...(link === savedLink ? {} : { prototype_url: link }),
     ...(Object.keys(ticks).length ? { poster_checklist: ticks } : {})
   }
@@ -725,12 +750,13 @@ function titleIfChanged(): { project_title?: string } {
   return projectTitle.value === savedTitle ? {} : { project_title: projectTitle.value }
 }
 
-/** Changed answers that are within their word limit. */
+/** Changed answers within their word limit, or all of them while saving without the live connection. */
 function changedAnswers(): Record<string, string> {
   const overLimit = new Set(overLimitQuestions().map((q) => q.key))
   const changed: Record<string, string> = {}
   Object.keys(answers).forEach((key) => {
-    if (overLimit.has(key)) return
+    // Without the live connection, answers are saved as typed, as the shared document saves them.
+    if (overLimit.has(key) && !savingWithoutLive.value) return
     // Compared against '' so a cleared answer is still sent; omitted keys are left unchanged.
     if (answers[key] !== (savedAnswers[key] ?? '')) changed[key] = answers[key]
   })
@@ -777,11 +803,14 @@ const canAct = computed(() => isOpen.value || adminAccess.value)
 const isEditable = computed(() => canAct.value && (adminAccess.value ? adminEditing.value : !isLocked.value))
 
 // While the portal is on screen and the round is open, so changes made elsewhere arrive at once.
+/** Answers and title are one live document that the whole team types into at once; the server saves it. */
+const coediting = computed(() => Boolean(detail.value?.coediting))
 const live = useLiveRoom(
   'submission',
   groupId,
   // An admin editing leaves the room, so their unsaved work is never shown to the team.
-  computed(() => canAct.value && route.name === 'group-submission' && !adminEditing.value)
+  computed(() => canAct.value && route.name === 'group-submission' && !adminEditing.value),
+  coediting
 )
 const TITLE_FIELD = 'project-title'
 /** Room for most of an answer before anyone needs to stretch the box. */
@@ -789,7 +818,64 @@ const ANSWER_ROWS = 7
 /** Heights people have stretched answer boxes to, by question. */
 const boxHeights = reactive<Record<string, number>>({})
 
+const {
+  shared,
+  typingShared,
+  savingWithoutLive,
+  textEditable,
+  note: coeditNote,
+  showAll: showAllShared,
+  cursorSource,
+  shareCursor,
+  enterField,
+  leaveField,
+  input: typeIntoShared,
+  startComposing,
+  endComposing,
+  onFieldKeydown
+} = useCoeditedFields({
+  live,
+  coediting,
+  adminAccess,
+  isEditable,
+  boxes: computed(() => [TITLE_FIELD, ...questions.value.map((q) => q.key)]),
+  sharedName: (box) => (box === TITLE_FIELD ? 'title' : `answer:${box}`),
+  // The submitted copy, or an admin's private edits, are not overwritten.
+  mayShow: () => !showsSubmittedCopy.value && !adminEditing.value,
+  showSaved: (box, value) => {
+    if (box === TITLE_FIELD) {
+      projectTitle.value = value
+      savedTitle = value
+    } else {
+      answers[box] = value
+      savedAnswers[box] = value
+    }
+  },
+  fallback: {
+    keepSaved: (change) => {
+      const wasSaved = currentSnapshot() === savedSnapshot.value
+      change()
+      if (wasSaved) savedSnapshot.value = currentSnapshot()
+    },
+    saveTyping: async () => {
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer)
+        autosaveTimer = null
+      }
+      await persistDraft()
+      return currentSnapshot() === savedSnapshot.value
+    },
+    catchUp: () => catchUp()
+  }
+})
+
+// Submitting, reopening or the deadline change what may be edited, so the server is asked again.
+watch([() => isLocked.value, () => isOpen.value], () => {
+  if (typingShared.value) shared.resync()
+})
+
 function shareTyping(field: string, event: Event) {
+  if (typeIntoShared(field, event)) return
   if (adminAccess.value) return
   const input = event.target as HTMLInputElement | HTMLTextAreaElement
   live.sendTyping(field)
@@ -798,6 +884,7 @@ function shareTyping(field: string, event: Event) {
 
 // A teammate's text is theirs to save, so it is taken as already saved here.
 live.onRemoteText((field, text) => {
+  if (coediting.value) return
   const wasSaved = currentSnapshot() === savedSnapshot.value
   if (field === TITLE_FIELD) {
     projectTitle.value = text
@@ -858,14 +945,17 @@ function syncUntouchedFields() {
   const saved = detail.value?.submission
   if (!saved || showsSubmittedCopy.value) return
   const wasSaved = currentSnapshot() === savedSnapshot.value
-  questions.value.forEach(({ key }) => {
-    if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
-    answers[key] = saved.answers?.[key] ?? ''
-    savedAnswers[key] = answers[key]
-  })
-  if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
-    projectTitle.value = saved.project_title ?? ''
-    savedTitle = projectTitle.value
+  // While co-editing, answers and title come from the shared document, which is newer than the saved copy.
+  if (!coediting.value || savingWithoutLive.value) {
+    questions.value.forEach(({ key }) => {
+      if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
+      answers[key] = saved.answers?.[key] ?? ''
+      savedAnswers[key] = answers[key]
+    })
+    if (!live.isLocked(TITLE_FIELD) && projectTitle.value === savedTitle) {
+      projectTitle.value = saved.project_title ?? ''
+      savedTitle = projectTitle.value
+    }
   }
   if (prototypeUrl.value === savedLink) {
     prototypeUrl.value = saved.prototype_url ?? ''
@@ -1330,6 +1420,7 @@ function syncFromDetail() {
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
+  if (coediting.value) showAllShared()
 }
 
 async function load() {
@@ -1347,10 +1438,11 @@ async function load() {
 }
 
 function currentSnapshot() {
+  // Co-edited text is saved by the server, so it never makes the page unsaved.
   return JSON.stringify({
-    answers,
+    answers: typingShared.value ? null : answers,
     prototypeUrl: prototypeUrl.value,
-    projectTitle: projectTitle.value,
+    projectTitle: typingShared.value ? null : projectTitle.value,
     posterChecklist
   })
 }
@@ -1362,9 +1454,14 @@ async function persistDraft() {
   const sent = changedAnswers()
   const overLimit = overLimitQuestions()
 
+  const fields = draftFields(sent)
+  if (!Object.keys(fields).length) {
+    savedSnapshot.value = snapshot
+    return
+  }
+
   isSaving.value = true
   try {
-    const fields = draftFields(sent)
     applyResult(await saveDraft(groupId.value, fields))
     // Only what this save sent joins the baseline, so a teammate's newer text is kept.
     Object.assign(savedAnswers, sent)
@@ -1373,7 +1470,7 @@ async function persistDraft() {
     if (fields.poster_checklist) Object.assign(savedChecklist, fields.poster_checklist)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
-    saveState.value = overLimit.length || linkProblem() ? 'unsaved' : 'idle'
+    saveState.value = (overLimit.length && !savingWithoutLive.value) || linkProblem() ? 'unsaved' : 'idle'
   } catch (error) {
     saveState.value = 'error'
     setMessage(handleWriteError(error), true)
@@ -1458,8 +1555,23 @@ async function onSubmit() {
       return
     }
 
+    // Everything typed into the shared document reaches the server before the entry is copied;
+    // if it can't, the last saved answers can still go in, so submitting is never blocked.
+    if (
+      typingShared.value &&
+      !(await shared.flush()) &&
+      !(await askToConfirm(
+        'Submit without your latest typing?',
+        "Your last few seconds of typing couldn't be saved. Submit your answers as last saved?",
+        'Submit anyway'
+      ))
+    ) {
+      return
+    }
+
     const sent = changedAnswers()
-    applyResult(await saveDraft(groupId.value, draftFields(sent)))
+    const fields = draftFields(sent)
+    if (Object.keys(fields).length) applyResult(await saveDraft(groupId.value, fields))
     Object.assign(savedAnswers, sent)
     applyResult(await submitEntry(groupId.value))
     syncFromDetail()
@@ -1620,12 +1732,12 @@ const adminEntry = computed(() => {
   switch (stage.value) {
     case 'submitted':
       return `${submission?.auto_submitted ? 'Auto-submitted' : 'Submitted'} ${when}${
-        hasUnsubmittedChanges() ? ', with saved changes not yet submitted' : ''
+        hasUnsubmittedChanges() ? ' · changes not submitted' : ''
       }`
     case 'revising':
-      return `Reopened, last submitted ${when}`
+      return 'Reopened'
     case 'in_progress':
-      return 'Draft, not submitted'
+      return 'Draft'
     default:
       return 'Not started'
   }
@@ -1652,29 +1764,29 @@ function hasUnsubmittedChanges(): boolean {
 /** Whether the team can still edit; past the deadline but open means a grace period or extension. */
 const studentsNote = computed(() => {
   const closesAt = detail.value?.deadline.closes_at
-  if (!closesAt) return 'No deadline set'
+  if (!closesAt) return 'No deadline'
   if (!isOpen.value) return 'Closed'
-  return now.value < new Date(closesAt).getTime() ? `Can edit until ${deadlineDate.value}` : 'Can edit (grace period)'
+  return now.value < new Date(closesAt).getTime() ? `Open until ${deadlineDate.value}` : 'Grace period'
 })
 
 const adminDirty = computed(
   () => adminEditing.value && (currentSnapshot() !== savedSnapshot.value || Object.keys(pendingFiles).length > 0)
 )
 
-const adminDialog = ref<{ title: string; body: string; confirm: string } | null>(null)
-const adminDialogConfirm = ref<HTMLButtonElement | null>(null)
+const confirmDialog = ref<{ title: string; body: string; confirm: string } | null>(null)
+const confirmButton = ref<HTMLButtonElement | null>(null)
 let answerDialog: ((ok: boolean) => void) | null = null
 
-function askAdmin(title: string, body: string, confirm: string): Promise<boolean> {
-  adminDialog.value = { title, body, confirm }
-  void nextTick(() => adminDialogConfirm.value?.focus())
+function askToConfirm(title: string, body: string, confirm: string): Promise<boolean> {
+  confirmDialog.value = { title, body, confirm }
+  void nextTick(() => confirmButton.value?.focus())
   return new Promise((resolve) => {
     answerDialog = resolve
   })
 }
 
-function answerAdminDialog(ok: boolean) {
-  adminDialog.value = null
+function answerConfirm(ok: boolean) {
+  confirmDialog.value = null
   answerDialog?.(ok)
   answerDialog = null
 }
@@ -1693,6 +1805,8 @@ async function reloadDetail() {
 }
 
 async function startAdminEdit() {
+  // The team's last few seconds of typing are saved first, so editing starts from them.
+  if (coediting.value) await shared.flush()
   await reloadDetail()
   rememberEditStart()
   adminEditing.value = true
@@ -1710,14 +1824,17 @@ async function leaveAdminEdit() {
 }
 
 async function adminDiscard() {
-  if (!(await askAdmin('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
+  if (!(await askToConfirm('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
   await leaveAdminEdit()
   setMessage('Changes discarded.')
 }
 
 /** What would stop a save, shown as a message; the full requirements apply only to Submit. */
 function adminBlocked(forSubmit: boolean): boolean {
-  const overLimit = overLimitQuestions()
+  // Saving checks only the admin's own changes; a team's over-limit draft is the team's to trim, but cannot be submitted.
+  const overLimit = overLimitQuestions().filter(
+    (q) => forSubmit || (answers[q.key] ?? '') !== (savedAnswers[q.key] ?? '')
+  )
   if (overLimit.length) {
     setMessage(overLimitMessage(overLimit), true)
     void goToBlocker({ step: 'questions', focusKey: overLimit[0].key })
@@ -1774,7 +1891,7 @@ async function readyToWrite(): Promise<boolean> {
   const conflicts = conflictsWith(latest.submission)
   return (
     !conflicts ||
-    askAdmin(
+    askToConfirm(
       conflicts === 1 ? 'Overwrite a conflicting change?' : `Overwrite ${conflicts} conflicting changes?`,
       'The team edited some of the same parts while you were editing. Continuing replaces their version of those.',
       'Overwrite'
@@ -1822,7 +1939,7 @@ async function adminSave() {
     const reopen = isLocked.value && isOpen.value
     if (
       reopen &&
-      !(await askAdmin(
+      !(await askToConfirm(
         'Reopen for the team?',
         `Saving reopens ${teamName.value}'s entry with your changes. Their submission stands until it's submitted again.`,
         'Reopen'
@@ -1854,7 +1971,7 @@ async function adminSubmit() {
   try {
     if (!(await readyToWrite())) return
     if (
-      !(await askAdmin(
+      !(await askToConfirm(
         `Submit for ${teamName.value}?`,
         'This becomes their latest submission, and the team is emailed a confirmation.',
         'Submit'

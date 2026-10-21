@@ -78,13 +78,21 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
   const appliedSearch = ref('')
 
   watch(searchInput, (value) => {
+    const normalizedValue = value.trim()
+    if (normalizedValue === appliedSearch.value) return
     if (searchTimer) clearTimeout(searchTimer)
     searchTimer = setTimeout(() => {
-      appliedSearch.value = value.trim()
+      appliedSearch.value = normalizedValue
       clearSelection()
       reload()
     }, 350)
   })
+
+  const setSearchImmediately = (value: string) => {
+    if (searchTimer) clearTimeout(searchTimer)
+    searchInput.value = value
+    appliedSearch.value = value.trim()
+  }
 
   // -- Filters ---------------------------------------------------------------
   const filters = ref<AdminUserFilters>(defaultAdminUserFilters())
@@ -712,6 +720,7 @@ export function useAdminUsersView({ roleFilter, noun }: UseAdminUsersViewOptions
     states,
     supervisors,
     searchInput,
+    setSearchImmediately,
     filters,
     currentFilters,
     hasActiveFilters,

@@ -17,6 +17,8 @@ import type { MentorImportRow } from './adminMentorCsv'
 import {
   systemEmailLogSchema,
   systemEmailUnseenSchema,
+  systemEmailMailApiSchema,
+  type SystemEmailMailApi,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -35,6 +37,7 @@ import type {
   SystemEmailTestRecipient,
   SystemEmailTestSend
 } from './systemEmail'
+import type { MutualInterestItem } from './mutualInterests'
 
 export const ADMIN_API_BASE =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000') + '/api/v1/admin'
@@ -205,6 +208,8 @@ export interface AdminUserState {
 }
 
 export interface AdminUserSupervisee {
+  /** The student's user id, for changing who supervises them. */
+  id?: number
   name: string
   email: string
 }
@@ -220,6 +225,13 @@ export interface AdminUser {
   id: number
   firstName: string | null
   lastName: string | null
+  /** As given registering, or since changed: blank when unsaid. */
+  pronouns?: string
+  /** Where their profile photo loads from, or null without one. */
+  profileImageUrl?: string | null
+  /** When they agreed to the BIOTech Futures policies, registering; null
+   *  for anyone who hasn't (added by someone else, or registered before). */
+  policiesAgreedAt?: string | null
   email: string | null
   role: string | null
   country: AdminUserCountry | null
@@ -231,6 +243,23 @@ export interface AdminUser {
   mentorInstitution: string | null
   mentorReason: string | null
   mentorMaxGroupCount: number | null
+  /** From registering: an industry mentor's company; a student mentor's year
+   *  ("1" to "4", "5+"); a student's or academic's field of study. */
+  mentorCompany?: string | null
+  mentorUniversityYear?: string | null
+  mentorFieldOfStudy?: string | null
+  /** Their application's answers, beside mentorReason. */
+  mentorRelevantBackground?: string | null
+  mentorMentoringApproach?: string | null
+  /** How many hours a week they can give (1 to 40), as registering asks. */
+  mentorWeeklyHours?: number | null
+  /** When they're free each week (Monday is 0, times "HH:MM"): kept from
+   *  when registering asked, but no longer shown here. */
+  mentorAvailability?: { weekday: number; start: string; end: string }[]
+  /** Every group they mentor, by name, with its students counted. */
+  mentorGroups?: { id: number; name: string; studentCount: number }[]
+  /** Every group a supervisor is in (their students' groups), by name. */
+  supervisorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
   guardianFirstName: string | null
   guardianLastName: string | null
@@ -241,6 +270,8 @@ export interface AdminUser {
   pendingGuardian: AdminPendingGuardian | null
   /** The guardian's media-consent answer; null if not recorded (e.g. consent from the old form). */
   mediaConsent: boolean | null
+  /** When that answer was given, from the signed form: null when it isn't. */
+  mediaConsentAt?: string | null
   consentRequestSentAt: string | null
   interests: string[]
   isAdmin: boolean
@@ -379,6 +410,47 @@ export const updateAdminUser = (userId: string | number, payload: Record<string,
     data: env.data
   }))
 
+/** A user's profile photo replaced, as the dashboard's upload checks it. */
+export const uploadAdminUserPhoto = (userId: string | number, file: File) => {
+  const formData = new FormData()
+  formData.append('image', file)
+  return adminRequest<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`, {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
+/** A user's profile photo taken off. */
+export const removeAdminUserPhoto = (userId: string | number) =>
+  adminDelete<AdminEnvelope<AdminUser>>(`/user/${userId}/profile-image/`).then((env) => env.data)
+
+/** A supervisor's students added or taken off, by student or by group. */
+export interface SuperviseesChangeInput {
+  addStudentIds?: number[]
+  removeStudentIds?: number[]
+  addGroupIds?: number[]
+  removeGroupIds?: number[]
+  /** Only say who would move. */
+  preview?: boolean
+}
+
+/** A student moving: ``to`` null when left with no supervisor, ``from`` null
+ *  when they had none. */
+export interface SuperviseeChange {
+  studentId: number
+  name: string
+  group: string | null
+  from: string | null
+  to: string | null
+}
+
+export const changeSupervisees = (userId: string | number, input: SuperviseesChangeInput) =>
+  adminPost<AdminEnvelope<{ changes: SuperviseeChange[]; user?: AdminUser }>>(
+    `/user/${userId}/supervisees/`,
+    input
+  ).then((env) => env.data)
+
 export const deleteAdminUser = (userId: string | number, force = false) =>
   adminDelete<AdminEnvelope<null>>(`/user/${userId}/`, force ? { force: true } : undefined).then(
     (env) => env.msg
@@ -500,6 +572,69 @@ export const fetchAdminStates = (): Promise<AdminUserState[]> =>
   adminGet<AdminEnvelope<AdminUserState[]>>('/user/states/').then((env) => env.data)
 
 // ---------------------------------------------------------------------------
+// Email checks: QuickEmailVerification's credit, for Management > Email Checks
+// ---------------------------------------------------------------------------
+
+/** One key's state: set or not (never the key), its balance as last
+ *  reported, and whether it's out of credit until ``retryAt``. */
+export interface EmailCheckKey {
+  configured: boolean
+  remaining: number | null
+  updatedAt: string | null
+  exhausted: boolean
+  exhaustedAt: string | null
+  retryAt: string | null
+}
+
+export interface EmailCheckCredits {
+  free: EmailCheckKey
+  /** The paid key, with the alert levels already sent for it. */
+  paid: EmailCheckKey & { alertedThresholds: number[] }
+  /** The low-credit alert levels, highest first. */
+  thresholds: number[]
+  lookupsToday: number
+  lookupsOn: string | null
+  /** 0: no daily limit. */
+  dailyCap: number
+  /** Checks against the test service, using no real credit. */
+  sandbox: boolean
+}
+
+export const fetchEmailCheckCredits = () =>
+  adminGet<AdminEnvelope<EmailCheckCredits>>('/email-verification/credits/').then((env) => env.data)
+
+// ---------------------------------------------------------------------------
+// Known universities: names registration treats as a university, not a school
+// ---------------------------------------------------------------------------
+
+export interface KnownUniversity {
+  id: number
+  name: string
+  acronym?: string
+  country?: string
+  createdAt: string | null
+  updatedAt?: string | null
+}
+
+/** Every listed name, by name. */
+export const fetchKnownUniversities = () =>
+  adminGet<AdminEnvelope<{ items: KnownUniversity[]; total: number }>>('/known-university/').then(
+    (env) => env.data.items
+  )
+
+/** Add one: its full name, and its acronym and country if known. Refused
+ *  when the name is blank, too long or already listed in any casing. */
+export const addKnownUniversity = (university: { name: string; acronym?: string; country?: string }) =>
+  adminPost<AdminEnvelope<KnownUniversity>>('/known-university/', university).then((env) => env.data)
+
+/** Change one's full name, acronym or country, the name checked as an added one is. */
+export const renameKnownUniversity = (id: number, university: { name: string; acronym?: string; country?: string }) =>
+  adminPatch<AdminEnvelope<KnownUniversity>>(`/known-university/${id}/`, university).then((env) => env.data)
+
+export const deleteKnownUniversity = (id: number) =>
+  adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
+
+// ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
 
@@ -540,15 +675,22 @@ export interface AdminGroupMember {
   /** "student" | "mentor" */
   role: string
   membershipId: number | null
+  interests?: string[]
 }
+
+export type { MutualInterestItem }
 
 export interface AdminGroupDetail {
   id: number
   name: string
   members: AdminGroupMember[]
   mentor: AdminGroupMember | null
+  mutualInterests?: MutualInterestItem[]
   createdAt: string
   updatedAt: string
+  /** Who formed it: its members (while registering), a supervisor or an admin
+   *  (``kind``, "" when not recorded), and the supervisor's or admin's name. */
+  formedBy?: { kind: 'members' | 'supervisor' | 'admin' | ''; name: string }
 }
 
 export interface AdminGroupListData {
@@ -859,6 +1001,11 @@ export interface AdminResourceDetail {
   file_name: string | null
   file_mime_type: string | null
   file_size: number | null
+  slides_file_name?: string | null
+  slides_mime_type?: string | null
+  slides_file_size?: number | null
+  slides_storage_key?: string | null
+  has_slides?: boolean
   content_html?: string | null
   storage_key?: string | null
   labels?: Array<{ id: number; name: string }>
@@ -879,7 +1026,8 @@ export interface CreateAdminResourcePayload {
   resource_name: string
   resource_description: string
   resource_kind: 'file' | 'attachment' | 'page'
-  visibility_scope: 'global' | 'role_based'
+  // Resources are role-based only; the backend rejects 'global'.
+  visibility_scope: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -891,7 +1039,7 @@ export interface CreateAdminResourcePayload {
 export interface UpdateAdminResourcePayload {
   resource_name?: string
   resource_description?: string | null
-  visibility_scope?: 'global' | 'role_based'
+  visibility_scope?: 'role_based'
   role_ids?: number[]
   resource_type_id?: number | null
   resource_type?: string | null
@@ -915,12 +1063,16 @@ export const uploadAdminResource = (formData: FormData) =>
     isFormData: true
   }).then((env) => env.data)
 
-export const uploadLinkedResourceAttachment = async (file: File) => {
+export const uploadLinkedResourceAttachment = async (
+  file: File,
+  acknowledgedOversized = false
+) => {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('resource_kind', 'attachment')
   formData.append('resource_name', file.name)
   formData.append('resource_description', `Resource attachment: ${file.name}`)
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   const resource = await uploadAdminResource(formData)
   const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
   const accessUrl = `${apiBase}/api/v1/resources/resource-files/${resource.id}/access/`
@@ -939,9 +1091,22 @@ export const updateAdminResource = (id: number | string, payload: UpdateAdminRes
 export const deleteAdminResource = (id: number | string) =>
   adminDelete<AdminEnvelope<null>>(`/resource/${id}/`).then((env) => env.data)
 
-export const replaceAdminResourceFile = (id: number | string, file: File) => {
+export const replaceAdminResourceFile = (
+  id: number | string,
+  file?: File | null,
+  // The admin ticked "I understand this file is large"; the backend only
+  // accepts a file over the size limit when this is true.
+  acknowledgedOversized = false,
+  slidesFile?: File | null
+) => {
   const formData = new FormData()
-  formData.append('file', file)
+  if (file) {
+    formData.append('file', file)
+  }
+  if (slidesFile) {
+    formData.append('slides_file', slidesFile)
+  }
+  formData.append('acknowledged_oversized', String(acknowledgedOversized))
   return adminRequest<AdminEnvelope<AdminResourceDetail>>(`/resource/${id}/upload/`, {
     method: 'POST',
     body: formData,
@@ -955,8 +1120,13 @@ export const fetchAdminResourceRoles = () =>
 export const fetchAdminResourceTypes = () =>
   adminGet<AdminEnvelope<AdminResourceTypeOption[]>>('/resource/types/').then((env) => env.data || [])
 
-export const downloadAdminResourceFile = async (id: number | string, fileName?: string) => {
-  const url = `${ADMIN_API_BASE}/resource/${id}/download/`
+export const downloadAdminResourceFile = async (
+  id: number | string,
+  fileName?: string,
+  field = 'file'
+) => {
+  const query = field === 'slides' ? '?field=slides' : ''
+  const url = `${ADMIN_API_BASE}/resource/${id}/download/${query}`
   const res = await fetch(url, {
     method: 'GET',
     credentials: 'include'
@@ -1216,17 +1386,21 @@ export interface AdminTaskListData {
   has_more: boolean
 }
 
-export interface CreateAdminTaskPayload {
+// TK4 follow-up (confirmed with the client): the actual complaint was the
+// role fan-out snapshotting individual rows per current holder, not admins
+// assigning a task straight to one person from this page — that stays.
+// Targeting a role is only ever done via a role task (below); there is no
+// "assigned_role" option here anymore.
+type CreateAdminTaskFields = {
   name: string
   description?: string
   due_date?: string | null
   status?: AdminTaskStatus
   parent?: number | null
-  task_type: AdminTaskType
-  group?: number | null
-  assigned_user?: number | null
-  assigned_role?: string | null
 }
+export type CreateAdminTaskPayload =
+  | (CreateAdminTaskFields & { task_type: 'group'; group: number })
+  | (CreateAdminTaskFields & { task_type: 'individual'; assigned_user: number })
 
 export interface UpdateAdminTaskPayload {
   name?: string
@@ -1236,17 +1410,7 @@ export interface UpdateAdminTaskPayload {
   parent?: number | null
 }
 
-export interface AdminTaskFanoutResult {
-  created_count: number
-  assigned_role: string
-}
-
-export interface AdminTaskRoleRecipientsData {
-  role: string
-  count: number
-}
-
-export type AdminTaskMutationResult<T = AdminTask | AdminTaskFanoutResult | null> = AdminEnvelope<T>
+export type AdminTaskMutationResult<T = AdminTask | null> = AdminEnvelope<T>
 
 export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<AdminTaskListData> =>
   adminGet<AdminEnvelope<AdminTaskListData>>(`/task/${buildAdminQuery(params)}`).then(
@@ -1255,8 +1419,8 @@ export const fetchAdminTasks = (params: AdminTaskListParams = {}): Promise<Admin
 
 export const createAdminTask = (
   payload: CreateAdminTaskPayload
-): Promise<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>> =>
-  adminPost<AdminTaskMutationResult<AdminTask | AdminTaskFanoutResult | null>>('/task/', payload)
+): Promise<AdminTaskMutationResult<AdminTask | null>> =>
+  adminPost<AdminTaskMutationResult<AdminTask | null>>('/task/', payload)
 
 export const updateAdminTask = (
   taskId: number | string,
@@ -1267,11 +1431,97 @@ export const updateAdminTask = (
 export const deleteAdminTask = (taskId: number | string): Promise<void> =>
   adminDelete<void>(`/task/${taskId}/`)
 
-export const fetchTaskRoleRecipients = (
+// ---------------------------------------------------------------------------
+// Role Tasks (TK4) — defined once per role, bulk-edited in one place. Not a
+// fan-out: editing one of these changes it for every current AND future
+// holder of the role. See backend/apps/admin/services/role_task.py.
+// ---------------------------------------------------------------------------
+
+export interface AdminRoleTaskRole {
+  id: number
+  roleName: string
+}
+
+export interface AdminRoleTask {
+  id: number
+  name: string
+  description: string
+  due_date: string | null
+  role: AdminRoleTaskRole | null
+  created_by: AdminTaskUserMini | null
+  creator_role: string
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+  // Completed-vs-current-holders count, computed server-side — not editable,
+  // since a role task has no single status (see AdminRoleTaskFormSheet.vue).
+  completed_count: number
+  holder_count: number
+}
+
+export type AdminRoleTaskSortBy = 'name' | 'role' | 'due' | 'createdAt'
+
+export interface AdminRoleTaskListParams {
+  page?: number
+  limit?: number
+  sortBy?: AdminRoleTaskSortBy
+  sortOrder?: 'asc' | 'desc'
+}
+
+export interface AdminRoleTaskListData {
+  items: AdminRoleTask[]
+  total: number
+  page: number
+  limit: number
+  has_more: boolean
+}
+
+export interface CreateAdminRoleTaskPayload {
+  name: string
+  description?: string
+  due_date?: string | null
   role: string
-): Promise<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>> =>
-  adminGet<AdminTaskMutationResult<AdminTaskRoleRecipientsData | null>>(
-    `/task/role-recipients/${buildAdminQuery({ role })}`
+}
+
+export interface UpdateAdminRoleTaskPayload {
+  name?: string
+  description?: string
+  due_date?: string | null
+}
+
+export interface AdminRoleTaskRecipientsData {
+  role: string
+  count: number
+}
+
+export type AdminRoleTaskMutationResult<T = AdminRoleTask | null> = AdminEnvelope<T>
+
+export const fetchAdminRoleTasks = (
+  params: AdminRoleTaskListParams = {}
+): Promise<AdminRoleTaskListData> =>
+  adminGet<AdminEnvelope<AdminRoleTaskListData>>(`/role-task/${buildAdminQuery(params)}`).then(
+    (env) => env.data
+  )
+
+export const createAdminRoleTask = (
+  payload: CreateAdminRoleTaskPayload
+): Promise<AdminRoleTaskMutationResult> =>
+  adminPost<AdminRoleTaskMutationResult>('/role-task/', payload)
+
+export const updateAdminRoleTask = (
+  roleTaskId: number | string,
+  payload: UpdateAdminRoleTaskPayload
+): Promise<AdminRoleTaskMutationResult> =>
+  adminPatch<AdminRoleTaskMutationResult>(`/role-task/${roleTaskId}/`, payload)
+
+export const deleteAdminRoleTask = (roleTaskId: number | string): Promise<void> =>
+  adminDelete<void>(`/role-task/${roleTaskId}/`)
+
+export const fetchRoleTaskRecipients = (
+  role: string
+): Promise<AdminEnvelope<AdminRoleTaskRecipientsData | null>> =>
+  adminGet<AdminEnvelope<AdminRoleTaskRecipientsData | null>>(
+    `/role-task/role-recipients/${buildAdminQuery({ role })}`
   )
 
 // ---------------------------------------------------------------------------
@@ -1349,6 +1599,7 @@ export interface MatchedGroupMentor {
 }
 
 export interface MatchedGroupStudent {
+  id: number
   name: string
   hasLoggedIn: boolean
   interests: string[]
@@ -1492,6 +1743,16 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 /** Seen by every admin from now on; returns the count left, normally 0. */
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether bounced emails can be checked, for the top of the Log. */
+export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>
+  adminGet<AdminEnvelope<unknown>>('/email-log/mail-api/').then((env) => systemEmailMailApiSchema.parse(env.data))
+
+/** Resend on the Log: the email again to the people it missed, queued to
+ *  send in its turn. Resolves to what to tell the admin; rejects with why
+ *  it can't go. */
+export const resendSystemEmail = (key: string): Promise<string> =>
+  adminPost<AdminEnvelope<unknown>>(`/email-log/${encodeURIComponent(key)}/resend/`).then((env) => env.msg)
 
 // ---------------------------------------------------------------------------
 // Admin User Views

@@ -158,6 +158,34 @@ export async function downloadSupervisorResultsCertificates(fallbackName: string
   triggerBlobDownload(blob, filename ?? fallbackName)
 }
 
+// Management's Results tab: the same for every group that made a submission,
+// released or not, with nothing held back.
+
+// GET /api/v1/management/all-results/
+export function fetchAllResults(): Promise<SupervisorResults> {
+  return requestJson<SupervisorResults>('/api/v1/management/all-results/')
+}
+
+// GET /api/v1/management/all-results/marks-sheet/ — every group's marks.
+export async function downloadAllResultsSheet(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/all-results/marks-sheet/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/all-results/certificates/{groupId}/{userId}/ — one certificate.
+export async function downloadAllResultsCertificate(person: SupervisorResultsPerson): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/all-results/certificates/${person.group_id}/${person.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? person.file_name)
+}
+
+// GET /api/v1/management/all-results/certificates/ — every group's certificates, zipped.
+export async function downloadAllResultsCertificates(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/all-results/certificates/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
 // ---------------------------------------------------------------------------
 // The submission deadline and per-team extensions
 
@@ -259,17 +287,151 @@ export interface ReleaseStatus {
   submissions_open?: boolean
 }
 
-// GET /api/v1/management/supervisor-pages/ — whether supervisors see Home,
-// Groups, Events, Announcements and Resources (off by default).
-export function fetchSupervisorPages(): Promise<{ shown: boolean }> {
-  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/')
+/** Whether registration is open, by the year's dates (Registration Dates). */
+export interface RegistrationState {
+  /** Whether the public can register now: within the dates (or none set). */
+  open_now: boolean
+  opens_at: string | null
+  closes_at: string | null
+  /** For a supervisor or an admin: whether they can register students now
+   *  (within the dates, or let register after them). */
+  can_register_students?: boolean
+}
+
+// GET /api/v1/management/registration-open/ — whether registration is open.
+// Anyone can read it, signed in or not.
+export function fetchRegistrationOpen(): Promise<RegistrationState> {
+  return requestJson<RegistrationState>('/api/v1/management/registration-open/')
+}
+
+/** Management > Challenge Start: the day this year's challenge starts, which
+ *  the supervisors' daily registration status email names. */
+export interface ChallengeStart {
+  year: number
+  /** "2026-07-27"; null while it isn't set. */
+  starts_on: string | null
+  /** Who last set it, and when; "" and none until someone has. */
+  set_by: string
+  updated_at: string | null
+}
+
+// GET /api/v1/management/challenge-start/
+export function fetchChallengeStart(): Promise<ChallengeStart> {
+  return requestJson<ChallengeStart>('/api/v1/management/challenge-start/')
+}
+
+// PUT /api/v1/management/challenge-start/ — null clears it.
+export function saveChallengeStart(startsOn: string | null): Promise<ChallengeStart> {
+  return requestJson<ChallengeStart>('/api/v1/management/challenge-start/', {
+    method: 'PUT',
+    body: JSON.stringify({ starts_on: startsOn }),
+  })
+}
+
+/** The year's registration dates: none set, it's open (as far as they go). */
+export interface RegistrationWindow {
+  year: number
+  opens_at: string | null
+  closes_at: string | null
+  /** Who last saved the dates, and when; "" and none until someone has. */
+  set_by?: string
+  updated_at?: string | null
+}
+
+/** A late link: one student registers on their own with it, once, after
+ *  registration closes. */
+export interface LateLink {
+  id: number
+  /** The student who registered with it; "" until it's used. */
+  email: string
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  used_at: string | null
+  status: 'active' | 'used' | 'expired' | 'revoked' | 'signing_key_changed'
+  /** The link to send; none once the server's signing key changed. */
+  url: string | null
+}
+
+export interface RegistrationManagement {
+  window: RegistrationWindow
+  count: number
+  page: number
+  /** Newest first, 100 a page. */
+  invitations: LateLink[]
+}
+
+const REGISTRATION_MANAGEMENT = '/api/v1/registration-management/'
+
+// GET /api/v1/registration-management/ — the dates and the late links.
+export function fetchRegistrationManagement(page = 1): Promise<RegistrationManagement> {
+  return requestJson<RegistrationManagement>(`${REGISTRATION_MANAGEMENT}?page=${page}`)
+}
+
+const manageRegistration = <T>(body: Record<string, unknown>) =>
+  requestJson<T>(REGISTRATION_MANAGEMENT, { method: 'POST', body: JSON.stringify(body) })
+
+// The year's opening and closing; null clears one.
+export function saveRegistrationWindow(
+  dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>,
+): Promise<{ window: RegistrationWindow }> {
+  return manageRegistration({ action: 'window', ...dates })
+}
+
+export function createLateLink(expiresAt: string): Promise<LateLink> {
+  return manageRegistration({ action: 'invite', expires_at: expiresAt })
+}
+
+export function revokeLateLink(id: number): Promise<LateLink> {
+  return manageRegistration({ action: 'revoke_invite', id })
+}
+
+/** Supervisors After Close: a supervisor, and whether they can still register
+ *  students once registration closes. */
+export interface RegistrationSupervisor {
+  user_id: number
+  name: string
+  email: string
+  school: string
+  /** How many students they supervise. */
+  students: number
+  register_after_close: boolean
+}
+
+// GET /api/v1/management/registration-supervisors/ — every active supervisor.
+export function fetchRegistrationSupervisors(): Promise<RegistrationSupervisor[]> {
+  return requestJson<RegistrationSupervisor[]>('/api/v1/management/registration-supervisors/')
+}
+
+// PUT /api/v1/management/registration-supervisors/{userId}/ — switch one.
+export function saveRegistrationSupervisor(
+  userId: number,
+  registerAfterClose: boolean,
+): Promise<RegistrationSupervisor> {
+  return requestJson<RegistrationSupervisor>(`/api/v1/management/registration-supervisors/${userId}/`, {
+    method: 'PUT',
+    body: JSON.stringify({ register_after_close: registerAfterClose }),
+  })
+}
+
+/** Management > Supervisor Pages Visibility: whether supervisors see Home,
+ *  Groups, Events, Announcements and Resources (``shown``, off by default). */
+export interface SupervisorPagesState {
+  shown: boolean
+}
+
+// GET /api/v1/management/supervisor-pages/ — the switch.
+export function fetchSupervisorPages(): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/')
 }
 
 // PUT /api/v1/management/supervisor-pages/ — admins turn it on or off.
-export function saveSupervisorPages(shown: boolean): Promise<{ shown: boolean }> {
-  return requestJson<{ shown: boolean }>('/api/v1/management/supervisor-pages/', {
+export function saveSupervisorPages(
+  change: Partial<SupervisorPagesState>
+): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/', {
     method: 'PUT',
-    body: JSON.stringify({ shown })
+    body: JSON.stringify(change)
   })
 }
 

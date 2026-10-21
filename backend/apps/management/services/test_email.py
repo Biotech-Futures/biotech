@@ -16,6 +16,8 @@ from typing import Callable
 from django.contrib.auth import get_user_model
 
 from apps.groups.models.groups import Groups
+from apps.services.email_log import reason_for
+from apps.services.email_metrics import record_email_delivery
 from apps.services.retry import send_with_retry
 from apps.services.system_email import RenderedEmail, build_message, sender_connection, sender_for
 
@@ -185,5 +187,25 @@ def send_test(kind: str, recipient: str, to: str, fields: dict) -> None:
     message = build_message(
         rendered, to, from_email=sender.from_email, connection=sender_connection(sender), files=files,
     )
-    # Tried once more if it fails, as every email is.
-    send_with_retry(message)
+    try:
+        # Test emails follow the same retry policy as every other email.
+        send_with_retry(message)
+    except Exception as exc:
+        record_email_delivery(
+            f"test_{test.email}",
+            source_mailbox=sender.address,
+            attempted=1,
+            delivered=0,
+            failed=1,
+            recipients=message.recipients(),
+            missed=dict.fromkeys(message.recipients(), reason_for(exc)),
+        )
+        raise
+    record_email_delivery(
+        f"test_{test.email}",
+        source_mailbox=sender.address,
+        attempted=1,
+        delivered=1,
+        failed=0,
+        recipients=message.recipients(),
+    )

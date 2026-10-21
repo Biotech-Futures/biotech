@@ -744,7 +744,7 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
-def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
+def confirm_student_assignments(input_data: Dict[str, Any], created_by=None) -> Dict[str, int]:
     """
     Confirm and finalize student assignments to groups.
     
@@ -793,7 +793,10 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
             created_group_by_synthetic = {}
             for synthetic_id in synthetic_ids:
                 try:
-                    created_group_by_synthetic[synthetic_id] = Groups.create_auto_named().id
+                    group = Groups.create_auto_named()
+                    # Formed by an admin: the one confirming the matches.
+                    group.mark_formed(Groups.FormedBy.ADMIN, created_by)
+                    created_group_by_synthetic[synthetic_id] = group.id
                 except GroupAutoNameUnavailable as exc:
                     # Abort the whole confirm (atomic rollback restores the memberships
                     # deleted above) rather than silently leaving students ungrouped.

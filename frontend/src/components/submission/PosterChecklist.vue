@@ -72,13 +72,26 @@ const tickedCount = computed(() => ITEMS.filter((item) => props.ticks[item.key])
   font-variant-numeric: tabular-nums;
 }
 
+/* Two rows in aligned columns, so five items of different lengths still read as one tidy block. */
 .poster-checklist__list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  gap: 0.5rem 2rem;
   margin: 0.75rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+@media (max-width: 640px) {
+  .poster-checklist__list {
+    grid-template-columns: repeat(2, max-content);
+  }
+}
+
+@media (max-width: 420px) {
+  .poster-checklist__list {
+    grid-template-columns: 1fr;
+  }
 }
 
 .poster-checklist__label {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 import { fetchTestEmailRecipients, sendTestEmail } from '@/utils/managementAPI'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchTestEmailRecipients: vi.fn(),
@@ -35,13 +36,14 @@ describe('Send Test Email', () => {
     expect(listMock).toHaveBeenCalledWith('nonfinalists')
     expect(sendButton(wrapper).text()).toBe('Send Test Email')
     expect(wrapper.findAll('.test-email__word').map((w) => w.text())).toEqual(['of', 'to'])
-    expect(wrapper.findAll('option').map((o) => o.text())).toEqual([
+    // The first person is picked; the address starts empty and is left to password managers to ignore.
+    expect(appSelectText(wrapper, '.test-email__select')).toBe('(BTF07) Amy Chen')
+    expect(await appSelectLabels(wrapper, '.test-email__select')).toEqual([
       '(BTF07) Amy Chen',
       '(BTF07, mentor) Mo Mentor'
     ])
-    // The first person is picked; the address starts empty and is left to password managers to ignore.
-    expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('7:21')
-    const address = wrapper.find('input')
+    await wrapper.find('.test-email__select input').trigger('blur')
+    const address = wrapper.find('.test-email__to')
     expect((address.element as HTMLInputElement).value).toBe('')
     expect(address.attributes('autocomplete')).toBe('off')
     expect(address.attributes('data-bwignore')).toBeDefined()
@@ -52,8 +54,8 @@ describe('Send Test Email', () => {
     sendMock.mockResolvedValue({ sent_to: 'me@example.com' })
     const fields = { survey_url: 'https://survey.example.com/draft' }
     const wrapper = await mountSender({ kind: 'results-students', fields: () => fields })
-    await wrapper.find('select').setValue('7:22')
-    await wrapper.find('input').setValue(' me@example.com ')
+    await pickAppSelect(wrapper, '.test-email__select', '(BTF07, mentor) Mo Mentor')
+    await wrapper.find('.test-email__to').setValue(' me@example.com ')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
     expect(sendMock).toHaveBeenCalledWith('results-students', '7:22', 'me@example.com', fields)
@@ -65,8 +67,8 @@ describe('Send Test Email', () => {
   it('says a test can take a few minutes, and where it comes back to if undeliverable', async () => {
     sendMock.mockResolvedValue({ sent_to: 'me@example.com', sent_from: 'info@biotechfutures.org' })
     const wrapper = await mountSender({ kind: 'results-students' })
-    await wrapper.find('select').setValue('7:22')
-    await wrapper.find('input').setValue('me@example.com')
+    await pickAppSelect(wrapper, '.test-email__select', '(BTF07, mentor) Mo Mentor')
+    await wrapper.find('.test-email__to').setValue('me@example.com')
     await sendButton(wrapper).trigger('click')
     await flushPromises()
     expect(wrapper.find('.test-email__result').text()).toBe(
@@ -78,8 +80,8 @@ describe('Send Test Email', () => {
   it('says what went wrong', async () => {
     sendMock.mockRejectedValue(new Error('Enter a valid email address.'))
     const wrapper = await mountSender()
-    await wrapper.find('input').setValue('nope')
-    await wrapper.find('input').trigger('keydown', { key: 'Enter' })
+    await wrapper.find('.test-email__to').setValue('nope')
+    await wrapper.find('.test-email__to').trigger('keydown', { key: 'Enter' })
     await flushPromises()
     const result = wrapper.find('.test-email__result')
     expect(result.text()).toBe('Enter a valid email address.')
@@ -89,12 +91,12 @@ describe('Send Test Email', () => {
   it('can\'t send while nobody is due the email, or the list could not load', async () => {
     listMock.mockResolvedValue({ recipients: [] })
     let wrapper = await mountSender()
-    expect(wrapper.find('option').text()).toBe('Nobody yet')
-    await wrapper.find('input').setValue('me@example.com')
+    expect(appSelectText(wrapper, '.test-email__select')).toBe('Nobody yet')
+    await wrapper.find('.test-email__to').setValue('me@example.com')
     expect(sendButton(wrapper).attributes('disabled')).toBeDefined()
 
     listMock.mockRejectedValue(new Error('Server down'))
     wrapper = await mountSender()
-    expect(wrapper.find('option').text()).toBe("Couldn't load the list")
+    expect(appSelectText(wrapper, '.test-email__select')).toBe("Couldn't load the list")
   })
 })

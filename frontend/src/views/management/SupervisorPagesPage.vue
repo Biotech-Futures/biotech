@@ -4,11 +4,10 @@
     <p v-if="isLoading" class="supervisor-pages__hint">Loading…</p>
 
     <div v-else class="supervisor-pages__panel">
-      <h3 class="supervisor-pages__title">Supervisor Visibility</h3>
+      <h3 class="supervisor-pages__title">Supervisor Pages Visibility</h3>
       <p class="supervisor-pages__hint">
         Shows or hides Home, Groups, Events, Announcements and Resources for supervisors. While
-        hidden, supervisors only see Supervisor portal pages like My Profile, My Students and My
-        Groups.
+        hidden, supervisors only see Supervisor portal pages like My Profile, Students and Groups.
       </p>
 
       <p
@@ -25,7 +24,7 @@
         :on="shown"
         :disabled="isSaving"
         label="Show Home, Groups, Events, Announcements and Resources to supervisors"
-        @change="onSwitch"
+        @change="onSwitch({ shown: $event })"
       />
     </div>
   </section>
@@ -34,9 +33,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { loadSupervisorPages, setSupervisorPagesShown, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { loadSupervisorPages, setSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { saveSupervisorPages } from '@/utils/managementAPI'
+import { saveSupervisorPages, type SupervisorPagesState } from '@/utils/managementAPI'
 import HideShowSwitch from './HideShowSwitch.vue'
 
 const { shown } = useSupervisorPages()
@@ -44,11 +43,11 @@ const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
 
-const onSwitch = async (wanted: boolean) => {
+const onSwitch = async (change: Partial<SupervisorPagesState>) => {
   isSaving.value = true
   error.value = ''
   try {
-    setSupervisorPagesShown((await saveSupervisorPages(wanted)).shown)
+    setSupervisorPages(await saveSupervisorPages(change))
   } catch (err) {
     error.value = apiErrorFromUnknown(err, 'The change could not be saved.').message
   } finally {

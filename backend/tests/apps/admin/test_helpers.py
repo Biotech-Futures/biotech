@@ -7,6 +7,7 @@ from apps.admin.services.match import _safe_int, _without_none, _map_interests_b
 from apps.admin.services.mentor_match import _group_interests_by_key
 from apps.admin.services.resource import slugify_role, normalize_role_ids, build_storage_key, extract_file_name_from_storage_key
 from apps.admin.services.event import _to_event_id, _resolve_event_format
+from apps.admin.services.group import compute_mutual_interests
 
 # ─── normalize_interest_descriptions ──────────────────────────────────────────
 
@@ -316,3 +317,49 @@ class ResolveEventFormatTests(SimpleTestCase):
 
     def test_both_missing(self):
         self.assertIsNone(_resolve_event_format({}))
+
+
+# ─── compute_mutual_interests ───────────────────────────────────────────────
+
+class ComputeMutualInterestsTests(SimpleTestCase):
+
+    def test_empty_members_returns_empty(self):
+        self.assertEqual(compute_mutual_interests([]), [])
+
+    def test_no_shared_interests_returns_empty(self):
+        members = [
+            {"id": "1", "interests": ["AI"]},
+            {"id": "2", "interests": ["Biology"]},
+            {"id": "3", "interests": ["Chemistry"]},
+        ]
+        self.assertEqual(compute_mutual_interests(members), [])
+
+    def test_computes_shared_interests_with_count_ordered_by_frequency(self):
+        members = [
+            {"id": "1", "interests": ["AI", "Bioinformatics", "Genetics"]},
+            {"id": "2", "interests": ["AI", "Bioinformatics", "Robotics"]},
+            {"id": "3", "interests": ["AI", "Climate Tech"]},
+        ]
+        result = compute_mutual_interests(members)
+        self.assertEqual(
+            result,
+            [
+                {"name": "AI", "count": 3},
+                {"name": "Bioinformatics", "count": 2},
+            ],
+        )
+
+    def test_deduplicates_interests_per_member(self):
+        members = [
+            {"id": "1", "interests": ["AI", "AI"]},  # duplicate for same member
+            {"id": "2", "interests": ["AI"]},
+        ]
+        result = compute_mutual_interests(members)
+        self.assertEqual(result, [{"name": "AI", "count": 2}])
+
+    def test_handles_members_without_interests_key(self):
+        members = [
+            {"id": "1"},
+            {"id": "2", "interests": None},
+        ]
+        self.assertEqual(compute_mutual_interests(members), [])

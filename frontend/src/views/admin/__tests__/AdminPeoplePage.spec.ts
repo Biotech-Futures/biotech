@@ -4,6 +4,9 @@ import AdminPeoplePage from '@/views/admin/AdminPeoplePage.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 import AdminMentorImportSheet from '@/components/admin/mentors/AdminMentorImportSheet.vue'
 
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
+
 const country = { id: 1, countryName: 'Australia' }
 const state = { id: 1, stateName: 'NSW', countryName: 'Australia' }
 
@@ -65,6 +68,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = null
   vi.unstubAllGlobals()
+  routeState.query = {}
 })
 
 const tabButtons = () => wrapper!.findAll('[role="tab"]')
@@ -72,6 +76,72 @@ const tabAddButton = () => wrapper!.find('.people-toolbar .btn-primary')
 const dialogs = () => Array.from(document.body.querySelectorAll('[role="dialog"]'))
 
 describe('AdminPeoplePage', () => {
+  it('opens the tab requested by an Admin deep link', async () => {
+    routeState.query = { tab: 'students', inGroup: 'no' }
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    const active = tabButtons().find((button) => button.attributes('aria-selected') === 'true')
+    expect(active?.text()).toBe('Students')
+    expect(wrapper.get('#in-group-filter').element).toHaveProperty('value', 'Not in a group')
+  })
+
+  it('prefills the mentor search and capacity filter from an Analytics deep link', async () => {
+    routeState.query = { tab: 'mentors', search: 'Grace Ali', capacity: 'available' }
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    const active = tabButtons().find((button) => button.attributes('aria-selected') === 'true')
+    expect(active?.text()).toBe('Mentors')
+    expect((wrapper.get('.data-table-search-input').element as HTMLInputElement).value).toBe('Grace Ali')
+    expect((wrapper.get('[aria-label="Mentor capacity"]').element as HTMLInputElement).value)
+      .toBe('Available capacity')
+  })
+
+  it('keeps mentor status, capacity and login fields searchable', async () => {
+    routeState.query = { tab: 'mentors', search: 'Inactive' }
+    const mentor = {
+      mentorId: 8,
+      firstName: 'Grace',
+      lastName: 'Ali',
+      name: 'Grace Ali',
+      email: 'grace@example.com',
+      isActive: false,
+      institution: 'Sample Institute',
+      countryName: 'Australia',
+      maxGroupCount: 3,
+      currentAssignedCount: 1,
+      remainingCapacity: 2,
+      interests: ['Genomics'],
+      lastMessageAt: null,
+      hasLoggedIn: false,
+      lastLogin: null,
+      availability: [],
+      certificates: [],
+    }
+    const fetchWithMentor = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/mentor/')) {
+        return Promise.resolve(new Response(JSON.stringify({ msg: 'ok', data: [mentor] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }))
+      }
+      return fetchMock(url)
+    })
+    vi.stubGlobal('fetch', fetchWithMentor)
+    wrapper = mount(AdminPeoplePage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Grace Ali')
+    const search = wrapper.get('.data-table-search-input')
+    await search.setValue('2 left')
+    expect(wrapper.text()).toContain('Grace Ali')
+    await search.setValue('never logged in')
+    expect(wrapper.text()).toContain('Grace Ali')
+  })
+
   it('renders the four tab labels', async () => {
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(AdminPeoplePage)

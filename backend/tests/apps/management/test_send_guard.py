@@ -2,10 +2,11 @@
 of a run is sent, shared across its workers, those that missed someone tried
 once more at the end, and the run's progress, and who it missed, kept for
 the page."""
+import threading
 from datetime import timedelta
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from apps.management.models import EmailSendRun, QueuedEmailSend
@@ -80,6 +81,28 @@ class SendRunTests(TestCase):
         # The second team isn't emailed or counted as missed, so Send emails it later.
         self.assertEqual((run["due"], run["emailed"], run["failed"], run["missed"]), (5, 2, 0, []))
         self.assertIn("was switched off on System Emails", run["error"])
+
+    def test_a_finished_run_keeps_who_it_reached_and_who_it_missed(self):
+        from apps.services.models import EmailDeliveryRecipient
+
+        addresses = ["amy@example.com", "bo@example.com", "cy@example.com"]
+        labels = [f"{address} (BTF1)" for address in addresses]
+
+        def send(connection, cache):
+            # Bo's address is refused on both tries.
+            return [{"who": labels[1], "reason": "address refused"}]
+
+        self._press("test_email", [Work(labels, send, addresses)])
+
+        rows = {
+            row.email: (row.status, row.reason)
+            for row in EmailDeliveryRecipient.objects.filter(metric__email_type="test_email")
+        }
+        self.assertEqual(rows, {
+            "amy@example.com": ("delivered", ""),
+            "bo@example.com": ("failed", "address refused"),
+            "cy@example.com": ("delivered", ""),
+        })
 
     def test_every_item_is_sent_and_the_progress_kept(self):
         work = [self._item(f"BTF{n}", 3) for n in range(5)] + [self._item("BTF9", 2, reached=1)]
@@ -315,3 +338,14 @@ class QueuedJobTests(TestCase):
         self.assertEqual(JOB_RUNS, ["digest"])
         self.assertEqual(list(QueuedEmailSend.objects.values_list("key", flat=True)), ["rsvp_reminder"])
         self.assertEqual(send_guard.queue_key("connect"), f"{QUEUE_KEY}:connect")
+
+
+class KeepHeldTests(SimpleTestCase):
+    def test_a_jobs_hold_keeper_closes_its_connection_and_ends_cleanly(self):
+        # It runs on its own thread while a job sends; it once failed on its
+        # way out (a name it doesn't have), logging an error after every job.
+        stop = threading.Event()
+        stop.set()
+        with mock.patch.object(send_guard, "db_connection") as connection:
+            send_guard._keep_held("announcement", stop)
+        connection.close.assert_called_once()
