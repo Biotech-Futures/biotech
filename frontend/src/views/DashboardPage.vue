@@ -1688,6 +1688,7 @@ onMounted(async () => {
 }
 
 .dashboard-welcome-header .dashboard-hero-message {
+  max-width: none;
   margin-bottom: 0;
 }
 
