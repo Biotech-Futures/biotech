@@ -723,11 +723,19 @@ export interface StudentAssignment {
   groupId: number | string
 }
 
-/** Assign students to groups (POST /match/confirm/). Returns the count confirmed. */
-export const confirmStudentAssignments = (assignments: StudentAssignment[]) =>
-  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', { assignments }).then(
-    (env) => ({ msg: env.msg, assignedCount: env.data.assigned_count })
-  )
+/**
+ * Assign students to groups (POST /match/confirm/). Returns the count confirmed.
+ * `onlyUngrouped`: the page listed them with no group, so nothing is saved if
+ * one has joined a group since (Add Students, the matcher).
+ */
+export const confirmStudentAssignments = (
+  assignments: StudentAssignment[],
+  { onlyUngrouped = false }: { onlyUngrouped?: boolean } = {}
+) =>
+  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', {
+    assignments,
+    ...(onlyUngrouped ? { onlyUngrouped: true } : {})
+  }).then((env) => ({ msg: env.msg, assignedCount: env.data.assigned_count }))
 
 /** Remove a student from their group (DELETE /group/{id}/members/{userId}/). */
 export const removeGroupMember = (groupId: string | number, userId: string | number) =>

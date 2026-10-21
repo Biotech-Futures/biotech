@@ -229,7 +229,7 @@ EMAIL_TYPES = (
         key="supervisor_registration_status",
         name="Registration status (to supervisor)",
         description=(
-            "Sent daily to each supervisor with a student whose permission form isn't signed yet: "
+            "Sent weekly to each supervisor with a student whose permission form isn't signed yet: "
             "how many of their students are complete, waiting for a signature, or waiting for "
             "guardian details. Stops once all their students are complete."
         ),
@@ -297,8 +297,9 @@ EMAIL_TYPES = (
         name="Guardian consent sent (to student)",
         description=(
             "Sent to a student when their parent or guardian is first emailed the consent form "
-            "by an admin or the daily run, asking them to remind their guardian. A student who "
-            "added the guardian themselves gets Guardian details received instead."
+            "at registration, by an admin or by the daily run, asking them to remind their "
+            "guardian. A student who added the guardian on their profile gets Guardian details "
+            "received instead."
         ),
         default_subject="Parent/Guardian Action Required - Permission Form",
         default_template="emails/guardian_consent_student_notice.html",
@@ -312,8 +313,9 @@ EMAIL_TYPES = (
         key="guardian_consent_request",
         name="Guardian consent request (to guardian)",
         description=(
-            "Sent to a student's parent or guardian with the consent form: when the student adds "
-            "them, when the student or an admin sends it, and every day until they sign."
+            "Sent to a student's parent or guardian with the consent form: once the student is "
+            "registered or adds them, when the student or an admin sends it, and every day until "
+            "they sign."
         ),
         default_subject="Action Required: Sign parent/guardian permission form",
         default_template="emails/guardian_consent_request.html",

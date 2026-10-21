@@ -140,7 +140,7 @@
             <h2>{{ group.name }}</h2>
           </div>
           <div class="group-card-actions">
-            <span class="group-count">{{ group.students.length }}/{{ groupLimit }}</span>
+            <span class="group-count">{{ group.size }}/{{ groupLimit }}</span>
           </div>
         </div>
 
@@ -170,10 +170,17 @@
               {{ studentName(student) }}
             </button>
           </li>
-          <li v-if="!group.students.length" class="supervisor-muted">No students in this group.</li>
+          <!-- Another supervisor's students: greyed, not the supervisor's to move. -->
+          <li v-for="member in group.others" :key="`other-${member.id}`">
+            <span class="student-row student-row--other" title="Another supervisor's student">
+              {{ fullName(member.first_name, member.last_name, member.email) }}
+              <small>Another supervisor's student</small>
+            </span>
+          </li>
+          <li v-if="!group.size" class="supervisor-muted">No students in this group.</li>
           <!-- Under the students until the group is full. Only a hint: a drop on
                it lands on the card, as anywhere else on it. -->
-          <li v-if="group.students.length < groupLimit" class="drop-hint">
+          <li v-if="group.size < groupLimit" class="drop-hint">
             Drag and drop students from other boxes
           </li>
         </ul>
@@ -373,16 +380,25 @@ const schoolMovePrompt = (student: SupervisedStudent, groupId: number) => {
   }
 }
 
+const rosterIds = computed(() => new Set(students.value.map((student) => student.id)))
+
 // In the supervisor's own order, as the server gives it and moving them sets.
+// A group can be shared with another supervisor (their student in it too):
+// those students aren't the supervisor's to move, but count towards its 5.
 const allGroups = computed(() =>
   supervisedGroups.value.map((owned) => {
     const members = students.value.filter((student) => assignment.value[student.id] === owned.id)
+    const others = owned.members.filter(
+      (member) => member.role === 'student' && !rosterIds.value.has(member.id),
+    )
     return {
       id: owned.id,
       name: owned.group_name,
       registeredBy: owned.registered_by || '',
       placed: Boolean(owned.placed),
       students: members,
+      others,
+      size: members.length + others.length,
       shared: sharedInterests(members.map((member) => member.interests)),
     }
   }),
@@ -519,8 +535,7 @@ const moveStudent = async (studentId: number, groupId: number | null) => {
       showFlash('You can only move students into groups you supervise.')
       return
     }
-    const destCount = students.value.filter((student) => assignment.value[student.id] === groupId).length
-    if (destCount >= GROUP_LIMIT) {
+    if ((groupById.value.get(groupId)?.size ?? 0) >= GROUP_LIMIT) {
       showFlash(GROUP_FULL_MESSAGE)
       return
     }
@@ -556,9 +571,9 @@ const onDragStart = (event: DragEvent, studentId: number) => {
 }
 
 // A group with no room for the dragged student, who isn't already in it.
-const isFullFor = (group: { students: { id: number }[] }) =>
+const isFullFor = (group: { size: number; students: { id: number }[] }) =>
   draggingId.value !== null &&
-  group.students.length >= groupLimit &&
+  group.size >= groupLimit &&
   !group.students.some((student) => student.id === draggingId.value)
 
 // A group being moved, and the group it would take the place of.
@@ -609,7 +624,7 @@ const onDragOverWaiting = (event: DragEvent) => {
 
 // Only a group with room takes the drop; a full one shows the no-drop cursor.
 // A group being moved can go in any other group's place.
-const onDragOver = (event: DragEvent, group: { id: number; students: { id: number }[] }) => {
+const onDragOver = (event: DragEvent, group: { id: number; size: number; students: { id: number }[] }) => {
   if (draggingGroupId.value !== null) {
     event.preventDefault()
     dropTargetGroupId.value = group.id === draggingGroupId.value ? null : group.id
@@ -1130,6 +1145,18 @@ onMounted(async () => {
   cursor: grab;
   color: #333;
   font-size: 0.9rem;
+}
+
+/* Another supervisor's student: there, but not to be dragged or opened. */
+.student-row--other {
+  cursor: default;
+  background: #f0f0f0;
+  color: #6c757d;
+}
+
+.student-row--other small {
+  margin-left: auto;
+  font-size: 0.75rem;
 }
 
 /* Just the number, no circle. */

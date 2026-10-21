@@ -987,6 +987,58 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def _consented(self):
+        from apps.users.models import StudentProfile
+
+        StudentProfile.objects.filter(user=self.student).update(
+            pg_email="pat@example.com", has_join_permission=True, joinperm_responseID="R_1",
+            joinperm_granted_at=timezone.now(), media_consent=True,
+            guardian_reminder_due_at=timezone.now(),
+        )
+        return StudentProfile.objects.get(user=self.student)
+
+    def _save_guardian(self, first, last, email, **extra):
+        return self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {"student_ids": [self.student.id], "pg_first_name": first, "pg_last_name": last,
+             "pg_email": email, **extra},
+            format="json",
+        )
+
+    def test_supervisor_changing_a_guardian_who_gave_permission_confirms_and_clears_it(self):
+        profile = self._consented()
+        self.client.force_login(self.supervisor)
+
+        # Without the warning confirmed (a page from before they signed): refused.
+        refused = self._save_guardian("Jordan", "Guardian", "jordan@example.com")
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("Alex Student's guardian has given permission", refused.json()["error"])
+        profile.refresh_from_db()
+        self.assertTrue(profile.has_join_permission)
+        self.assertEqual(profile.pg_email, "pat@example.com")
+
+        saved = self._save_guardian("Jordan", "Guardian", "jordan@example.com", clear_permission=True)
+        self.assertEqual(saved.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.pg_email, "jordan@example.com")
+        self.assertFalse(profile.has_join_permission)
+        self.assertIsNone(profile.joinperm_responseID)
+        self.assertIsNone(profile.joinperm_granted_at)
+        self.assertIsNone(profile.media_consent)
+        # Due at once, for the new guardian.
+        self.assertIsNone(profile.guardian_reminder_due_at)
+
+    def test_supervisor_saving_the_same_guardian_keeps_permission(self):
+        profile = self._consented()
+        self.client.force_login(self.supervisor)
+
+        response = self._save_guardian("Pat", "Parent", "pat@example.com")
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertTrue(profile.has_join_permission)
+        self.assertTrue(profile.media_consent)
+
     def test_supervisor_can_edit_name_and_email_before_permission(self):
         self.client.force_login(self.supervisor)
         response = self.client.patch(
@@ -1277,15 +1329,19 @@ class SupervisedStudentEmailViewTests(TestCase):
         link = self._links([self.pending_consent.id]).json()["links"][0]["link"]
         self.assertIn(link, mail.outbox[0].alternatives[0][0])
 
-    def test_consent_link_is_new_once_the_old_one_has_expired(self):
+    def test_copying_a_lapsed_consent_link_resets_its_time(self):
+        from datetime import timedelta
+
         from django.utils import timezone
 
+        from apps.users import guardian_consent
         from apps.users.models import GuardianConsentRequest
 
         first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
-        GuardianConsentRequest.objects.update(expires_at=timezone.now())
+        GuardianConsentRequest.objects.update(valid_until=timezone.now() - timedelta(minutes=1))
         second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
-        self.assertNotEqual(first, second)
+        self.assertEqual(first, second)
+        guardian_consent.open_request(second.rsplit("/", 1)[1])
 
     def test_no_consent_link_without_a_guardian_email(self):
         response = self._links([self.pending_details.id])
@@ -1371,6 +1427,23 @@ class SupervisedStudentEmailViewTests(TestCase):
             response = self.client.get(f"/api/v1/guardian-details/{token}/")
         self.assertEqual(response.status_code, 410)
         self.assertEqual(response.json()["code"], "details_link_expired")
+
+    def test_copying_the_details_link_again_resets_the_time_for_every_copy(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.users.models import StudentProfile
+
+        token = self._details_token()
+        StudentProfile.objects.filter(user=self.pending_details).update(
+            guardian_details_link_at=timezone.now() - timedelta(days=15),
+        )
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 410)
+
+        self._details_token()
+
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 200)
 
     def test_details_form_rejects_a_made_up_link(self):
         response = self.client.get("/api/v1/guardian-details/not-a-real-token/")

@@ -1,5 +1,5 @@
 """Management > Challenge Start: the day this year's challenge starts, which
-the supervisors' daily registration status email names. Staff only."""
+the supervisors' weekly registration status email names. Staff only."""
 from __future__ import annotations
 
 from django.utils import timezone

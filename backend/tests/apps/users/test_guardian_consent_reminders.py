@@ -67,18 +67,23 @@ class GuardianConsentReminderTests(TestCase):
         self.assertEqual(send_due()["sent"], 0)
         self.assertEqual(len(mail.outbox), 2)
 
-    def test_the_next_day_the_guardian_gets_a_fresh_link_and_the_student_no_second_email(self):
+    def test_the_next_day_the_guardian_gets_the_same_link_with_its_time_reset_and_the_student_no_second_email(self):
         send_due()
         self._a_day_later()
+        # As yesterday's email left it.
+        yesterdays = GuardianConsentRequest.objects.get(student=self.profile).good_until - timedelta(days=1)
+        GuardianConsentRequest.objects.filter(student=self.profile).update(valid_until=yesterdays)
+        (link,) = GuardianConsentRequest.objects.filter(student=self.profile)
 
         self.assertEqual(send_due()["sent"], 1)
 
         self.assertEqual(len(self._to("pat@example.com")), 2)
         self.assertEqual(len(self._to("amy@example.com")), 1)
-        first, second = GuardianConsentRequest.objects.filter(student=self.profile).order_by("pk")
-        # Only the newest link works.
-        self.assertIsNotNone(first.revoked_at)
-        self.assertIsNone(second.revoked_at)
+        # One link, still working, with its time reset from today's email.
+        (again,) = GuardianConsentRequest.objects.filter(student=self.profile)
+        self.assertEqual(again.pk, link.pk)
+        self.assertIsNone(again.revoked_at)
+        self.assertGreater(again.good_until, link.good_until)
 
     def test_it_never_stops_until_consent_is_recorded(self):
         for _day in range(5):

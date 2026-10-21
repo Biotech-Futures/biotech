@@ -305,7 +305,7 @@ export function fetchRegistrationOpen(): Promise<RegistrationState> {
 }
 
 /** Management > Challenge Start: the day this year's challenge starts, which
- *  the supervisors' daily registration status email names. */
+ *  the supervisors' weekly registration status email names. */
 export interface ChallengeStart {
   year: number
   /** "2026-07-27"; null while it isn't set. */

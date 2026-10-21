@@ -83,7 +83,7 @@ def template_upload_to(instance, filename):
 
 class ChallengeStart(models.Model):
     """The day a year's challenge starts (Management > Challenge Start): the
-    supervisors' daily registration status email asks for permission forms to
+    supervisors' weekly registration status email asks for permission forms to
     be signed by then. Who last set it, and when."""
 
     year = models.PositiveSmallIntegerField(unique=True)

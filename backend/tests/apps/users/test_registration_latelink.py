@@ -689,6 +689,20 @@ class PhotoTests(RegistrationSetup, TestCase):
         self.assertEqual(self.staff._meta.get_field("profile_image_key").max_length, 512)
         self.assertEqual(self.staff._meta.get_field("profile_image_content_type").max_length, 64)
 
+    def test_someone_removes_their_own_photo(self):
+        from apps.users.profile_images import save_profile_image
+        old_key = save_profile_image(user=self.staff, uploaded_file=self.photo())
+
+        response = self.staff_client.delete("/api/v1/users/me/profile-image/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(response.data["profile_image_url"])
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.profile_image_key, "")
+        self.assertFalse(get_profile_image_storage().exists(old_key))
+        # Again, with no photo left, is fine.
+        self.assertEqual(self.staff_client.delete("/api/v1/users/me/profile-image/").status_code, 200)
+
     def test_invalid_replacement_preserves_the_existing_photo(self):
         from apps.users.profile_images import save_profile_image
         old_key = save_profile_image(user=self.staff, uploaded_file=self.photo())

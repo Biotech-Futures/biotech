@@ -737,10 +737,13 @@ def register(request):
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
             joining = joinable_group(join_code, len(students)) if join_code else None
             errors, warnings, provenance = {}, [], []
-            # Every address's email check on file, in one query for the submission.
-            email_answers = stored_email_answers(
-                address for student in students for address in (student["email"], student["guardian"].get("email"))
-            )
+            # Every address's email check on file, in one query for the submission:
+            # the students', their guardians', and the supervisor a student named.
+            named_supervisor = journey not in SUPERVISOR_JOURNEYS
+            email_answers = stored_email_answers([
+                *(address for student in students for address in (student["email"], student["guardian"].get("email"))),
+                *((supervisor.get("email"),) if named_supervisor else ()),
+            ])
             known_schools = KnownUniversity.matching(student.get("school", "") for student in students)
             for index, student in enumerate(students):
                 registered_by = (
@@ -770,7 +773,10 @@ def register(request):
                 warnings.extend([{
                     **warning, "field": registration_field(warning["field"], index),
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
-                } for warning in registration_warnings(validator.validated_data, email_answers, known_schools)])
+                } for warning in registration_warnings(
+                    validator.validated_data, email_answers, known_schools,
+                    check_supervisor=named_supervisor and index == 0,
+                )])
             if errors:
                 raise serializers.ValidationError(errors)
             if warnings:
@@ -826,6 +832,11 @@ def register(request):
             transaction.on_commit(lambda: send_registration_emails(
                 journey, users, supervisor=registering, admin_for=admin_for,
             ))
+            # Each guardian named is sent the consent form ("Approval required")
+            # as soon as it's saved, not at the next daily run.
+            from .guardian_reminders import email_registered_guardians
+
+            transaction.on_commit(lambda: email_registered_guardians([user.pk for user in users]))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:

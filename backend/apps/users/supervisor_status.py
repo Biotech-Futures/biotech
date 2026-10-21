@@ -1,14 +1,16 @@
-"""The supervisors' daily registration status email (the client's "Supervisor
-Daily Digest"): to each supervisor with a student this year whose permission
+"""The supervisors' weekly registration status email (the spec's "Supervisor
+Weekly Digest"): to each supervisor with a student this year whose permission
 form isn't signed yet, how many of their students are complete, waiting for
 their guardian's signature, or waiting for their guardian's details, by the
-same rules as My Students. Once a day at most, until every one of their
-students is complete; a supervisor emailed today is skipped, so a repeated or
+same rules as My Students. Once a week at most, until every one of their
+students is complete. The job runs daily, so a missed run is made up the next
+day: a supervisor emailed in the last week is skipped, so a repeated or
 overlapping run emails nobody twice. Admins can switch it off on System Emails.
 """
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.db.models import Q
@@ -21,6 +23,9 @@ from .models import StudentProfile, SupervisorProfile, User
 logger = logging.getLogger(__name__)
 
 EMAIL_KEY = "supervisor_registration_status"
+
+# Days between one supervisor's emails.
+INTERVAL_DAYS = 7
 
 # Accounts that can still sign in (or will): theirs and their students'.
 _CAN_SIGN_IN = (User.AccountStatus.INVITED, User.AccountStatus.PENDING, User.AccountStatus.ACTIVE)
@@ -72,8 +77,8 @@ def status_context(user) -> dict:
 
 
 def supervisors_due(now=None):
-    """Supervisors who can sign in, with a student still pending, not yet
-    emailed today."""
+    """Supervisors who can sign in, with a student still pending, not
+    emailed in the last week (emailed on a Monday, due again the next Monday)."""
     today = timezone.localdate(now or timezone.now())
     pending = StudentProfile.objects.filter(
         has_join_permission=False,
@@ -84,7 +89,7 @@ def supervisors_due(now=None):
         SupervisorProfile.objects.select_related("user")
         .filter(pk__in=pending, user__account_status=User.AccountStatus.ACTIVE)
         .exclude(user__email="")
-        .exclude(status_digest_sent_on=today)
+        .exclude(status_digest_sent_on__gt=today - timedelta(days=INTERVAL_DAYS))
         .order_by("pk")
     )
 

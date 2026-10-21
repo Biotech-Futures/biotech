@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import SupervisorStudentSheet from '../SupervisorStudentSheet.vue'
 import { appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import {
+  saveGuardianDetails,
   updateSupervisedStudentProfile,
   uploadSupervisedStudentPhoto,
   type SupervisedStudent,
@@ -11,6 +12,7 @@ import {
 vi.mock('@/utils/supervisedStudents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/utils/supervisedStudents')>()),
   fetchStudentEditOptions: vi.fn(async () => ({ countries: [], regions: [], interests: ['Biomedical Innovations'] })),
+  saveGuardianDetails: vi.fn(async () => [student()]),
   updateSupervisedStudentProfile: vi.fn(async (_id: number, payload: Record<string, unknown>) => ({
     ...student(),
     ...payload,
@@ -108,5 +110,45 @@ describe('supervisor student panel: photo and policies', () => {
     expect(uploadSupervisedStudentPhoto).toHaveBeenCalledWith(4, file)
     expect(wrapper.emitted('updated')![0][0]).toMatchObject({ profile_image_url: 'https://files.example.com/new.png' })
     vi.unstubAllGlobals()
+  })
+})
+
+describe('supervisor student panel: guardian', () => {
+  const editGuardian = async (wrapper: ReturnType<typeof open>) => {
+    const section = wrapper.findAll('section').find((part) => part.find('h3').text() === 'Guardian Details')!
+    await section.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
+    await flushPromises()
+  }
+
+  it('warns before changing a guardian who has given permission, then clears it', async () => {
+    const wrapper = open({ has_join_permission: true, joinperm_granted_at: '2026-10-01T00:00:00Z' })
+    await editGuardian(wrapper)
+
+    // The warning first, not the form.
+    expect(wrapper.find('#student-sheet-guardian').exists()).toBe(false)
+    expect(wrapper.get('.admin-modal__message').text()).toBe(
+      "Pat Chen has given permission for Amy. Changing the guardian's details clears it, and the new " +
+        "guardian will be sent the consent form. Until they complete it, Amy won't be fully registered."
+    )
+    await wrapper.findAll('button').find((button) => button.text() === 'Continue')!.trigger('click')
+    await flushPromises()
+
+    await wrapper.get('#student-sheet-guardian input').setValue('Jordan')
+    await wrapper.get('#student-sheet-guardian').trigger('submit')
+    await flushPromises()
+    expect(vi.mocked(saveGuardianDetails).mock.lastCall![0]).toMatchObject({
+      pg_first_name: 'Jordan',
+      clear_permission: true,
+    })
+  })
+
+  it('opens the form straight away while permission is still to come', async () => {
+    const wrapper = open()
+    await editGuardian(wrapper)
+
+    expect(wrapper.find('.admin-modal__message').exists()).toBe(false)
+    await wrapper.get('#student-sheet-guardian').trigger('submit')
+    await flushPromises()
+    expect(vi.mocked(saveGuardianDetails).mock.lastCall![0]).toMatchObject({ clear_permission: false })
   })
 })

@@ -143,3 +143,41 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
         self.assertEqual(rendered.subject, "BIOTech Futures: Registration")
         for text in ("Hi Amy,", "registration was successful", "the 2026 BIOTech Futures Challenge as an individual participant"):
             self.assertIn(text, rendered.html)
+
+
+class GuardianConsentAtRegistrationTests(MultiStudentSetup, TestCase):
+    """A guardian named at registration is sent the consent form ("Approval
+    required") once it's saved, not at the next daily run."""
+
+    def test_the_guardian_is_sent_the_consent_form_once_registered(self):
+        from django.core import mail
+
+        from apps.users.guardian_reminders import guardians_due
+        from apps.users.models import GuardianConsentRequest, StudentProfile
+
+        body = batch("student_individual")
+        student = body["payload"]["students"][0]
+        guardian = student["guardian"]["email"].lower()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post_batch(body)
+
+        self.assertEqual(response.status_code, 201, response.data)
+        to_guardian = [message for message in mail.outbox if guardian in message.to]
+        self.assertEqual([message.subject for message in to_guardian], ["Action Required: Sign parent/guardian permission form"])
+        profile = StudentProfile.objects.get(user__email__iexact=student["email"])
+        self.assertTrue(GuardianConsentRequest.objects.filter(student=profile, guardian_email=guardian).exists())
+        # The daily run doesn't send it again today; it reminds them from tomorrow.
+        self.assertNotIn(profile, list(guardians_due()))
+
+    def test_nothing_for_a_registration_that_fails(self):
+        from django.core import mail
+
+        from apps.users.models import GuardianConsentRequest
+
+        body = batch("student_individual")
+        body["payload"]["students"][0]["email"] = "not-an-email"
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.post_batch(body).status_code, 400)
+
+        self.assertFalse(GuardianConsentRequest.objects.exists())
+        self.assertEqual(mail.outbox, [])

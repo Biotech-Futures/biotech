@@ -37,6 +37,20 @@ class AdminProfileImageApiTests(APITestCase):
         Image.new("RGB", (4, 4), colour).save(stream, format="PNG")
         return SimpleUploadedFile("portrait.png", stream.getvalue(), content_type="image/png")
 
+    def test_deleting_a_user_deletes_their_photo_file(self):
+        from apps.admin.services.user import delete_user
+        self.client.post(photo_url(self.user.id), {"image": self.photo()}, format="multipart")
+        self.user.refresh_from_db()
+        key = self.user.profile_image_key
+        self.assertTrue(get_profile_image_storage().exists(key))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            result = delete_user(self.user.id, initiated_by=self.admin)
+
+        self.assertEqual(result["msg"], "User deleted successfully")
+        self.assertFalse(User.objects.filter(id=self.user.id).exists())
+        self.assertFalse(get_profile_image_storage().exists(key))
+
     def test_an_admin_replaces_then_removes_a_photo(self):
         first = self.client.post(photo_url(self.user.id), {"image": self.photo()}, format="multipart")
 

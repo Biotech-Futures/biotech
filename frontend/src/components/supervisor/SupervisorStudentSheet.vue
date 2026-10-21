@@ -237,16 +237,25 @@
       <section ref="guardianSection" class="student-sheet__section">
         <div class="student-sheet__heading">
           <h3>Guardian Details</h3>
-          <!-- Not once permission is given: that was for the guardian on file. -->
+          <!-- Once permission is given, a warning first: a new guardian clears it. -->
           <button
-            v-if="!editing && !student.has_join_permission"
+            v-if="!editing"
             type="button"
             class="btn btn-outline btn-sm"
-            @click="startEditing"
+            @click="editGuardianDetails"
           >
             Edit
           </button>
         </div>
+        <ConfirmDialog
+          v-model="guardianWarningOpen"
+          title="Change the guardian's details?"
+          :message="guardianWarning"
+          confirm-label="Continue"
+          variant="warning"
+          data-test="student-sheet-guardian-warning"
+          @confirm="startEditing"
+        />
         <p v-if="savedMessage" class="student-sheet__saved">{{ savedMessage }}</p>
         <!-- Editing turns Name and Email into the form; Permission and Media
              Consent stay below it. -->
@@ -313,6 +322,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { formatShortDateTime } from '@/utils/date'
@@ -477,6 +487,21 @@ const startEditing = () => {
   }
   saveError.value = ''
   editing.value = true
+}
+
+// Once their guardian has given permission, a warning before the form: a new
+// guardian clears it, as on the student's own profile.
+const guardianWarningOpen = ref(false)
+const guardianWarning = computed(() => {
+  const name = props.student?.first_name || 'this student'
+  return (
+    `${guardianName.value} has given permission for ${name}. Changing the guardian's details clears it, ` +
+    `and the new guardian will be sent the consent form. Until they complete it, ${name} won't be fully registered.`
+  )
+})
+const editGuardianDetails = () => {
+  if (props.student?.has_join_permission) guardianWarningOpen.value = true
+  else startEditing()
 }
 
 // Student Details' Edit: name, school, year and interests.
@@ -654,6 +679,8 @@ const saveGuardian = async () => {
       pg_first_name: guardianForm.value.firstName.trim(),
       pg_last_name: guardianForm.value.lastName.trim(),
       pg_email: guardianForm.value.email.trim(),
+      // Warned first (editGuardianDetails): their permission is cleared.
+      clear_permission: Boolean(props.student.has_join_permission),
     })
     emit('saved', students)
     editing.value = false

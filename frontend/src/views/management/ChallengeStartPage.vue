@@ -6,7 +6,7 @@
       <h3 class="card-title">Challenge Start</h3>
     </div>
     <p class="challenge-start__hint">
-      The day this year's challenge starts. The supervisors' daily Registration status email asks
+      The day this year's challenge starts. The supervisors' weekly Registration status email asks
       for their students' permission forms to be signed by then.
     </p>
 

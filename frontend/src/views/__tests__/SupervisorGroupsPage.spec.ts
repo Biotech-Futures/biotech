@@ -207,4 +207,42 @@ describe('SupervisorGroupsPage', () => {
       'Students without a group',
     ])
   })
+
+  it("counts another supervisor's students in a shared group, and won't overfill it", async () => {
+    vi.mocked(fetchSupervisedStudents).mockResolvedValue([student(1, 'Amy', 12), student(4, 'Dan', null)])
+    const shared = group(12, 'BTF01', '', { studentIds: [1] })
+    shared.members.push(
+      ...['Zoe', 'Yan', 'Xia', 'Wil'].map((first, index) => ({
+        id: 90 + index,
+        first_name: first,
+        last_name: 'Kim',
+        email: `${first.toLowerCase()}@other.test`,
+        role: 'student',
+      })),
+    )
+    vi.mocked(fetchSupervisedGroups).mockResolvedValue([shared])
+    const wrapper = mount(SupervisorGroupsPage, {
+      global: { stubs: { SupervisorStudentSheet: true, GroupEditorModal: true } },
+    })
+    await flushPromises()
+
+    const card = wrapper.get('.group-card')
+    // Amy and the other supervisor's four: full.
+    expect(card.get('.group-count').text()).toBe('5/5')
+    const others = card.findAll('.student-row--other')
+    expect(others.map((row) => row.text())).toEqual([
+      "Zoe Kim Another supervisor's student",
+      "Yan Kim Another supervisor's student",
+      "Xia Kim Another supervisor's student",
+      "Wil Kim Another supervisor's student",
+    ])
+    // Not the supervisor's to move.
+    expect(others[0]!.attributes('draggable')).toBeUndefined()
+    expect(card.find('.drop-hint').exists()).toBe(false)
+
+    await card.trigger('drop', { dataTransfer: { getData: () => '4' } })
+    await flushPromises()
+    expect(addSupervisedGroupMembers).not.toHaveBeenCalled()
+    expect(wrapper.get('.waiting-flash').text()).toBe('This group already has 5 students.')
+  })
 })

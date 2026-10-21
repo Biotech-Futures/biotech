@@ -18,7 +18,7 @@ from apps.users.models import (
 )
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
-from apps.users.profile_images import profile_image_url
+from apps.users.profile_images import delete_profile_image_file, profile_image_url
 from apps.users.email_verification import check_one_address, invalid_address_message
 from apps.users.mentor_registration import (
     MAX_WEEKLY_HOURS as MENTOR_MAX_WEEKLY_HOURS, MAX_WORDS as MENTOR_MAX_WORDS,
@@ -447,7 +447,11 @@ def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
         "mediaConsent": sp.media_consent if sp else None,
         # Only on profiles loaded with_consent_request_sent_at().
         "mediaConsentAt": _media_consent_at(sp),
-        "consentRequestSentAt": _iso(getattr(sp, "last_consent_request_at", None)),
+        # The last email, or the newest link if it was only copied.
+        "consentRequestSentAt": _iso(max(
+            (when for when in (getattr(sp, "last_consent_request_at", None), getattr(sp, "guardian_reminder_sent_at", None)) if when),
+            default=None,
+        )),
     }
 
 
@@ -2132,6 +2136,7 @@ def delete_user(user_id: int, initiated_by=None, force: bool = False) -> Dict[st
         return {"msg": "User not found", "data": None}
 
     before_user = fetch_user_by_id(user_id)
+    photo_key = user.profile_image_key
     try:
         with transaction.atomic():
             log_audit_event(
@@ -2149,6 +2154,10 @@ def delete_user(user_id: int, initiated_by=None, force: bool = False) -> Dict[st
             if force:
                 _purge_protecting_records(user_id)
             User.objects.filter(id=user_id).delete()
+            # Their photo's file goes too, once the delete is saved: never for
+            # a delete that's refused or rolled back.
+            if photo_key:
+                transaction.on_commit(lambda: delete_profile_image_file(photo_key))
     except ProtectedError:
         # Chat messages, uploaded resources, match runs, etc. reference the user
         # with on_delete=PROTECT. Fail cleanly (the atomic block rolls back) instead

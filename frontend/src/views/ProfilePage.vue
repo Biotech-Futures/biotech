@@ -37,11 +37,42 @@
 
     <div v-else-if="auth.user" class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
+        <!-- Their photo's options, behind the three dots at the top right. -->
+        <div class="profile-menu" @click.stop @keydown.esc="photoMenuOpen = false">
+          <button
+            type="button"
+            class="profile-menu__button"
+            :class="{ active: photoMenuOpen }"
+            aria-label="Profile options"
+            aria-haspopup="true"
+            :aria-expanded="photoMenuOpen"
+            data-test="profile-menu"
+            @click="photoMenuOpen = !photoMenuOpen"
+          >
+            <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+          </button>
+          <div v-if="photoMenuOpen" class="profile-menu__list" role="menu">
+            <button type="button" class="profile-menu__item" role="menuitem" data-test="profile-photo-change" @click="choosePhoto">
+              <i class="fas fa-camera" aria-hidden="true"></i>
+              <span>Change photo</span>
+            </button>
+            <button
+              v-if="hasOwnPhoto"
+              type="button"
+              class="profile-menu__item profile-menu__item--danger"
+              role="menuitem"
+              data-test="profile-photo-remove"
+              @click="removePhoto"
+            >
+              <i class="fas fa-trash" aria-hidden="true"></i>
+              <span>Remove photo</span>
+            </button>
+          </div>
+        </div>
         <div class="profile-avatar-wrap">
           <img v-if="avatarUrl" class="profile-avatar-large" :src="avatarUrl" :alt="`${user.name}'s profile picture`" @error="avatarUrl = ''" />
           <div v-else class="profile-avatar-large profile-avatar-initials" :aria-label="user.name">{{ getInitials(user.name) }}</div>
-          <label class="avatar-change" for="profile-avatar">Change photo</label>
-          <input id="profile-avatar" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
+          <input id="profile-avatar" ref="avatarInput" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
         </div>
         <h2 class="profile-name">{{ user.name }}</h2>
         <p class="profile-role">{{ capitalise(user.role) }} | {{ user.country }}</p>
@@ -194,7 +225,7 @@
             <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" data-test="student-pronouns-select" /></label>
             <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" class="app-input" maxlength="100" data-test="student-pronouns-other" /></label>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
-            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save Details' }}</button></div>
+            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save' }}</button></div>
           </form>
           <template v-else>
           <div class="profile-field"><span class="profile-field-label">Name:</span><span class="profile-field-value">{{ user.name }}</span></div>
@@ -341,7 +372,7 @@
                 Cancel
               </button>
               <button class="btn btn-primary" type="submit" :disabled="guardianSaving" data-test="guardian-save">
-                {{ guardianSaving ? 'Saving...' : 'Save guardian' }}
+                {{ guardianSaving ? 'Saving…' : 'Save' }}
               </button>
             </div>
           </form>
@@ -1249,6 +1280,45 @@ const saveStudentDetails = async () => {
   }
 }
 
+// The three dots' menu: change their photo, or take it off.
+const photoMenuOpen = ref(false)
+const avatarInput = ref(null)
+const hasOwnPhoto = computed(() => Boolean(auth.user?.profile_image_url))
+const closePhotoMenu = () => (photoMenuOpen.value = false)
+onMounted(() => document.addEventListener('click', closePhotoMenu))
+onUnmounted(() => document.removeEventListener('click', closePhotoMenu))
+
+const choosePhoto = () => {
+  photoMenuOpen.value = false
+  avatarInput.value?.click()
+}
+
+const removePhoto = async () => {
+  photoMenuOpen.value = false
+  error.value = ''
+  statusMessage.value = 'Removing profile picture…'
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-image/`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(data?.detail || 'Your profile picture could not be removed.')
+    auth.loginWithUser(data)
+    avatarUrl.value = data.profile_image_url || DEFAULT_PROFILE_AVATAR
+    localStorage.removeItem('btf-local-profile-avatar')
+    window.dispatchEvent(new Event('btf-profile-avatar-changed'))
+    statusMessage.value = 'Profile picture removed.'
+  } catch (removeError) {
+    error.value = removeError instanceof Error ? removeError.message : 'Your profile picture could not be removed.'
+    statusMessage.value = ''
+  }
+}
+
 const selectAvatar = async (event) => {
   const file = event.target.files?.[0]
   if (!file) return
@@ -1889,7 +1959,16 @@ onMounted(async () => {
 .profile-section-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
 .profile-section-heading .profile-section-title { margin:0; }
 .profile-avatar-large { width: 104px; height: 104px; flex-shrink:0; border: 4px solid rgba(255,255,255,.82); object-fit: cover; object-position:center; }
-.avatar-change { display: block; margin-top: .45rem; cursor: pointer; color: white; font-size: .85rem; text-decoration: underline; }
+/* The three dots at the top right of the green header, and their menu. */
+.profile-header { position: relative; }
+.profile-menu { position: absolute; top: 1rem; right: 1rem; z-index: 5; text-align: left; }
+.profile-menu__button { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--white); cursor: pointer; }
+.profile-menu__button:hover, .profile-menu__button.active { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .35); }
+.profile-menu__list { position: absolute; top: calc(100% + .25rem); right: 0; display: flex; flex-direction: column; min-width: 11rem; padding: .375rem; border: 1px solid var(--border-light); border-radius: 8px; background: var(--surface-elevated); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1), 0 4px 6px -2px rgba(0, 0, 0, .05); }
+.profile-menu__item { display: flex; align-items: center; gap: .625rem; width: 100%; padding: .5rem .75rem; border: none; border-radius: 6px; background: transparent; color: var(--teal); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }
+.profile-menu__item:hover { background: var(--bg-light); }
+.profile-menu__item i { width: 1rem; color: var(--text-muted); text-align: center; }
+.profile-menu__item--danger, .profile-menu__item--danger i { color: var(--danger); }
 .permission-status { font-weight: 600; color: #9c401a; }
 .permission-status.received { color: var(--dark-green); }
 .profile-note { margin: 1rem 0 0; color: #5c6670; font-size: .92rem; }

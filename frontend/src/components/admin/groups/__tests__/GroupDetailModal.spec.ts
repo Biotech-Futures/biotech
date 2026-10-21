@@ -356,7 +356,8 @@ describe('GroupDetailModal', () => {
     )
     expect(confirmCall).toBeDefined()
     expect(JSON.parse(String((confirmCall![1] as RequestInit).body))).toEqual({
-      assignments: [{ studentId: 30, groupId: 1 }]
+      assignments: [{ studentId: 30, groupId: 1 }],
+      onlyUngrouped: true
     })
 
     // Back on the info view with the new member listed.
