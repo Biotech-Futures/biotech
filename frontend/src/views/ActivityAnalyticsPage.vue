@@ -260,9 +260,6 @@
                     @mousemove="moveTooltip"
                     @mouseleave="hideTooltip"
                   />
-                  <text v-if="showPointValue(point.index, series.values.length)" :x="point.x" :y="Math.max(point.y - 12, 14)" text-anchor="middle" class="activity-value">
-                    {{ point.value }}
-                  </text>
                 </g>
               </template>
 
@@ -664,7 +661,10 @@
         <article class="analytics-card insights-card">
           <AnalyticsKeyInsights
             :items="activityInsightItems"
-            description="Summarises login coverage and identifies the participant role with the strongest login rate."
+            :subtitle="activityInsightSnapshotLabel"
+            :description="activityInsightSnapshotDate
+              ? `Cumulative login coverage and role comparisons as at ${activityInsightSnapshotDate}.`
+              : 'Cumulative login coverage; no latest login activity date is available.'"
           />
         </article>
       </div>
@@ -753,6 +753,7 @@ const liveUserData = ref<UserAnalyticsYear>({
   totalUsers: 0, students: 0, mentors: 0, supervisors: 0,
   totalGrowth: null, studentGrowth: null, mentorGrowth: null, supervisorGrowth: null,
   loginRates: { students: 0, mentors: 0, supervisors: 0 },
+  loginRatesAvailable: true,
   dailyActivity: { labels: [], total: [] },
   lastLogin: [], userLastLogins: [],
   registration: { students: [], mentors: [], supervisors: [] },
@@ -766,7 +767,7 @@ const liveGroupData = ref<GroupsAnalyticsYear>({
   groupsWithMentorPrevious: null, groupsWithoutMentorPrevious: null,
   mentorStudentRatioPrevious: null,
   smallGroups: 0, inactiveRecent: 0, nearCapacity: 0, overCapacity: 0,
-  groupSizeDistribution: [], groupStatus: [], ratioDistribution: [], groupActivity: [],
+  groupSizeDistribution: [], groupStatus: [], groupActivity: [],
 })
 const liveYear = ref(new Date().getFullYear())
 const unavailableSources = ref<AnalyticsSource[]>([])
@@ -1170,11 +1171,6 @@ function showXAxisLabel(index: number, length: number) {
   return index === 0 || index === length - 1 || index % step === 0
 }
 
-function showPointValue(index: number, length: number) {
-  return length <= 14 || showXAxisLabel(index, length)
-}
-
-
 const groupMonthLabels = computed(() => trendBuckets.value.map((bucket) => bucket.shortLabel))
 const groupActiveValues = computed(() => {
   const indexes = new Map(trendBuckets.value.map((bucket, index) => [bucket.key, index]))
@@ -1549,6 +1545,25 @@ const mostActiveRole = computed(() =>
     role: 'Student' as ActivityRole,
     value: 0,
   },
+)
+const activityInsightSnapshotDate = computed(() => {
+  // These insights describe login coverage, so their date must come from the
+  // login activity source rather than newer registration, group or message data.
+  const asOf = liveCoreBundle.value?.loginActivity?.latest_activity_date ?? ''
+  const date = parseInputDate(asOf)
+  return date
+    ? date.toLocaleDateString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : null
+})
+const activityInsightSnapshotLabel = computed(() =>
+  activityInsightSnapshotDate.value
+    ? `Data as at ${activityInsightSnapshotDate.value}`
+    : 'No login activity date available',
 )
 const activityInsightItems = computed(() => [
   { key: 'logged-in', value: `${selectedLoggedInRate.value}%`, text: 'of current participants have logged in at least once.' },
@@ -2425,6 +2440,12 @@ h1 {
   overflow: auto;
   border: 1px solid #e0e8e5;
   border-radius: 12px;
+}
+
+@media (min-width: 1201px) {
+  .activity-analytics-page #user-activity-details .table-wrap {
+    max-height: 620px;
+  }
 }
 
 table {

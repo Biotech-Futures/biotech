@@ -102,8 +102,10 @@ const summary = computed(() =>
 )
 const segments = computed(() => {
   let offset = 0
-  return props.items.map((item) => {
-    const share = total.value ? (item.value / total.value) * 100 : 0
+  return props.items.map((item, index) => {
+    const share = total.value
+      ? (index === props.items.length - 1 ? Math.max(0, 100 - offset) : (item.value / total.value) * 100)
+      : 0
     const segment = { ...item, share, offset }
     offset += share
     return segment

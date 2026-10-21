@@ -163,6 +163,9 @@
                   <span :style="{ width: `${Math.min(snapshot.capacityPool.utilisation, 100)}%` }"></span>
                 </div>
                 <small>{{ snapshot.capacityPool.utilisation }}% used · {{ snapshot.capacityPool.openSlots }} open slots</small>
+                <button type="button" class="capacity-table-shortcut" @click="openCapacityTable">
+                  View mentors with capacity <span aria-hidden="true">→</span>
+                </button>
               </div>
             </div>
           </div>
@@ -176,6 +179,14 @@
         />
       </article>
     </section>
+
+    <MentorCapacityTable
+      v-if="sourceAvailable('groups')"
+      id="mentors-with-capacity"
+      ref="capacityTable"
+      :mentors="liveMentors"
+      @select="openAdminMentor"
+    />
 
     <section v-if="sourceAvailable('groupActivity')" class="activity-grid" aria-label="Mentor activity in the selected range">
       <article class="analytics-card activity-card">
@@ -395,13 +406,15 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import MentorDistributionChart from '@/components/analytics/MentorDistributionChart.vue'
+import MentorCapacityTable from '@/components/analytics/MentorCapacityTable.vue'
+import { useRouter } from 'vue-router'
 import { BTF_COLORS } from '@/constants/btfTheme'
 import type { DemoMentor, MentorEvent } from '@/types/analytics'
 import { buildMentorData, loadMentorsAnalyticsBundle } from '@/utils/liveAnalyticsData'
@@ -431,6 +444,8 @@ import {
 } from '@/utils/analyticsExport'
 
 const liveMentors = ref<DemoMentor[]>([])
+const capacityTable = ref<{ open: () => void } | null>(null)
+const router = useRouter()
 const liveEvents = ref<MentorEvent[]>([])
 const unavailableSources = ref<AnalyticsSource[]>([])
 const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
@@ -462,6 +477,27 @@ const mentorInsightItems = computed(() =>
     detail: item.detail,
   })),
 )
+
+async function openCapacityTable() {
+  capacityTable.value?.open()
+  await nextTick()
+  document.getElementById('mentors-with-capacity')?.scrollIntoView?.({
+    behavior: 'smooth',
+    block: 'start',
+  })
+}
+
+function openAdminMentor(mentor: DemoMentor) {
+  void router.push({
+    path: '/admin/users',
+    query: {
+      tab: 'mentors',
+      capacity: 'available',
+      search: mentor.name,
+    },
+    hash: '#admin-mentors-table',
+  })
+}
 const range = computed(() => {
   const year = selectedYear.value
   return {
@@ -637,13 +673,15 @@ function mentorDonutTotal(chart: MentorChart) {
 }
 
 function mentorDonutSegments(chart: MentorChart): MentorDonutSegment[] {
-  const total = mentorDonutTotal(chart) || 1
+  const total = mentorDonutTotal(chart)
   let start = 0
 
   return chart.items.map((item, index) => {
     // Geometry uses the exact share; the rounded percent is only for labels,
     // so the arcs always close the ring without gaps or overlaps.
-    const arc = (item.value / total) * 100
+    const arc = total
+      ? (index === chart.items.length - 1 ? Math.max(0, 100 - start) : (item.value / total) * 100)
+      : 0
     const segment = {
       label: item.label,
       value: item.value,
@@ -1218,6 +1256,27 @@ h2 {
   border-radius: inherit;
   background: var(--btf-dark-green, #017151);
 }
+.capacity-table-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 5px;
+  padding: 6px 0 0;
+  border: 0;
+  border-top: 1px solid #e7eeeb;
+  background: transparent;
+  color: #017151;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.capacity-table-shortcut:hover,
+.capacity-table-shortcut:focus-visible {
+  color: #174243;
+}
 .ranking li {
   display: flex;
   align-items: center;
@@ -1719,7 +1778,7 @@ h2 {
 .interactive-mentor-donut-layout {
   display: grid;
   grid-template-columns: minmax(150px, 0.9fr) minmax(180px, 1.1fr);
-  align-items: center;
+  align-items: start;
   gap: 14px;
   min-height: 220px;
   padding-top: 8px;

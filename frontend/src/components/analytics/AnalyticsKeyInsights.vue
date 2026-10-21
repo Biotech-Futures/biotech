@@ -15,10 +15,13 @@
       </button>
       <h2>{{ title }}</h2>
     </div>
+    <p v-if="subtitle" class="key-insights-subtitle">{{ subtitle }}</p>
 
     <div class="key-insights-list">
       <div v-for="(item, index) in items" :key="item.key ?? index" class="key-insights-row">
-        <strong>{{ item.value }}</strong>
+        <strong :class="{ 'key-insights-value--numeric': isNumericInsightValue(item.value) }">
+          {{ item.value }}
+        </strong>
         <div class="key-insights-copy">
           <span>{{ item.text }}</span>
           <small v-if="item.detail">{{ item.detail }}</small>
@@ -51,13 +54,20 @@ withDefaults(defineProps<{
   items: AnalyticsInsightItem[]
   description: string
   title?: string
+  subtitle?: string
   columns?: 1 | 2
 }>(), {
   title: 'Key Insights',
+  subtitle: '',
   columns: 1,
 })
 
 const infoTooltip = ref({ visible: false, x: 0, y: 0 })
+
+function isNumericInsightValue(value: string | number) {
+  if (typeof value === 'number') return true
+  return /^[+-]?[\d,]+(?:\.\d+)?%?$/.test(value.trim())
+}
 
 function showInfoTooltip(event: MouseEvent) {
   infoTooltip.value = { visible: true, x: event.clientX, y: event.clientY }
@@ -106,6 +116,13 @@ function hideInfoTooltip() {
   margin: 0;
   color: #174243;
   font-size: 18px;
+}
+
+.key-insights-subtitle {
+  margin: 5px 0 0 28px;
+  color: #687a76;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .key-insights-info {
@@ -160,6 +177,13 @@ function hideInfoTooltip() {
   font-size: 20px;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.key-insights-row strong.key-insights-value--numeric {
+  width: 100%;
+  padding-inline: 0;
+  font-size: 26px;
+  text-align: center;
 }
 
 .key-insights-copy {

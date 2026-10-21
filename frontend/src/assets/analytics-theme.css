@@ -1209,8 +1209,8 @@
 
   .groups-analytics-page .group-status-card,
   .groups-analytics-page .mentor-coverage-card,
+  .groups-analytics-page .student-assignment-card,
   .groups-analytics-page .group-size-card,
-  .groups-analytics-page .ratio-card,
   .groups-analytics-page .compact-insights-card,
   .groups-analytics-page .group-activity-card {
     grid-column: auto !important;
