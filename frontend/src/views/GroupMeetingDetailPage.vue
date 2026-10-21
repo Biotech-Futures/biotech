@@ -614,6 +614,13 @@ const saveMeeting = async () => {
     return
   }
 
+  // Same limit as scheduling; the max="480" on the input only bounds its arrows.
+  const duration = Number(editDuration.value)
+  if (!Number.isInteger(duration) || duration < 5 || duration > 480) {
+    meetingMessage.value = 'Duration must be between 5 and 480 minutes.'
+    return
+  }
+
   savingMeeting.value = true
   meetingMessage.value = ''
 
@@ -634,7 +641,10 @@ const saveMeeting = async () => {
     meetingMessage.value = 'Meeting updated.'
   } catch (error) {
     console.error('Failed to update meeting:', error)
-    meetingMessage.value = 'Unable to update meeting. Please try again.'
+    meetingMessage.value =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Unable to update meeting. Please try again.'
   } finally {
     savingMeeting.value = false
   }
