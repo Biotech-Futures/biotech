@@ -610,10 +610,7 @@ export const deleteKnownUniversity = (id: number) =>
   adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
 
 // ---------------------------------------------------------------------------
-// Group Plans (admin builder)
-//
-// GP2 scope: the stage/task builder. The progress matrix
-// (`/plan-task/progress/`, GP5) is owned by Person 2 and is not called here.
+// Group Plans (admin builder and progress)
 //
 // Contract notes (docs/group-plans-implementation-reference.md):
 // - Stages share one ordered list; GET returns every active stage including
@@ -658,6 +655,21 @@ export interface AdminPlanTask {
   created_at: string
   updated_at: string
 }
+
+/** GP5 reports only live tasks and groups in the current cohort. */
+export interface AdminPlanProgress {
+  year: number
+  stages: Pick<AdminPlanStage, 'id' | 'name' | 'description' | 'position'>[]
+  tasks: Pick<AdminPlanTask, 'id' | 'stage_id' | 'position' | 'name' | 'audience_role' | 'completion_mode' | 'due_date'>[]
+  groups: {
+    id: number
+    name: string
+    cells: Record<string, { completed: number; total: number }>
+  }[]
+}
+
+export const fetchAdminPlanProgress = () =>
+  adminGet<AdminEnvelope<AdminPlanProgress>>('/plan-task/progress/').then((env) => env.data)
 
 export interface AdminPlanTaskListData {
   items: AdminPlanTask[]

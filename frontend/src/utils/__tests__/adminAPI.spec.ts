@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildAdminQuery,
   fetchAdminSummary,
+  fetchAdminPlanProgress,
   fetchAdminUsers,
   importAdminMentors,
   importAdminStudents,
@@ -40,7 +41,6 @@ import {
   updateSystemEmailSettings,
   deleteAdminPlanStage,
   deleteAdminPlanTask,
-  fetchAdminPlanStages,
   fetchAdminPlanTasks
 } from '@/utils/adminAPI'
 
@@ -1182,5 +1182,29 @@ describe('system email API', () => {
     await expect(
       updateSystemEmailTemplate('password_reset', { subject: 'x' })
     ).rejects.toThrow()
+  })
+})
+
+
+describe('fetchAdminPlanProgress', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('uses the canonical admin endpoint and unwraps the progress matrix', async () => {
+    const data = { year: 2026, stages: [], tasks: [], groups: [] }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ msg: 'OK', data }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await fetchAdminPlanProgress()).toEqual(data)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/admin/plan-task/progress/'),
+      expect.objectContaining({ credentials: 'include', method: 'GET' }),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates denied access rather than presenting an empty matrix', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ msg: 'You do not have admin privileges.', data: null }), { status: 403 },
+    )))
+    await expect(fetchAdminPlanProgress()).rejects.toMatchObject({ status: 403 })
   })
 })
