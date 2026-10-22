@@ -15,13 +15,15 @@
       </div>
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv"><i class="fas fa-download"></i> Export CSV</button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
 
@@ -85,6 +87,13 @@
           </div>
         </div>
       </article>
+    </section>
+
+    <section v-if="sourceAvailable('resourceAnalytics')" class="analytics-card resource-trend-card">
+      <h2>Clicks and Unique Users by Resource</h2>
+      <p class="card-subtitle">Daily usage of each resource. Switch resources on or off to compare them.</p>
+      <ResourceUsageTrendChart v-if="data.resourceDaily" :rows="data.resourceDaily" />
+      <p v-else class="card-subtitle">Per-resource daily usage is not available from the server yet.</p>
     </section>
 
     <section class="analytics-card table-card">
@@ -161,15 +170,32 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
+import ResourceUsageTrendChart from '@/components/analytics/ResourceUsageTrendChart.vue'
+import type { ResourceDailyUsage } from '@/types/analytics'
 import {
   buildResourcesAnalytics,
   loadResourcesAnalyticsBundle,
   type ResourceAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const data = reactive({
   totalClicks: 0, uniqueUsers: 0, activeResources: 0, mostUsedResource: '—',
   dailyClicks: [] as Array<{ label: string; clicks: number }>,
+  resourceDaily: [] as ResourceDailyUsage[] | null,
   resources: [] as Array<{ id: number; name: string; clicks: number; uniqueUsers: number; type: string; roles: Array<'Student' | 'Mentor' | 'Supervisor'> }>,
   byType: [] as Array<{ label: string; value: number; color: string }>,
 })
@@ -359,23 +385,85 @@ function sortIcon(key: ResourceSortKey) {
 function showTooltip(e:MouseEvent,title:string,value:string,detail=''){tooltip.value={visible:true,x:e.clientX,y:e.clientY,title,value,detail}}
 function moveTooltip(e:MouseEvent){tooltip.value.x=e.clientX;tooltip.value.y=e.clientY}
 function hideTooltip(){tooltip.value.visible=false}
-function exportCsv() {
-  const rows = [
-    ['Resource', 'Type', 'Clicks', 'Unique Users'],
-    ...sortedResources.value.map((resource) => [
-      resource.name, resource.type,
-      sourceAvailable('resourceAnalytics') ? resource.clicks : 'Unavailable',
-      sourceAvailable('resourceAnalytics') ? resource.uniqueUsers : 'Unavailable',
+const exportError = ref('')
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'One row per resource in the table, with its filters' },
+  {
+    kind: 'daily',
+    label: 'Daily usage by resource',
+    description: 'Clicks and unique users per resource per day',
+    disabled: !data.resourceDaily,
+  },
+])
+const latestClickDay = computed(() =>
+  data.dailyClicks.reduce((latest, point) => (point.label > latest ? point.label : latest), ''),
+)
+
+function resourcesSummary() {
+  const comparison = resourceYearComparison.value
+  const rows: SummaryRow[] = [
+    figure('Resources', 'Total clicks', data.totalClicks, 'clicks'),
+    figure('Resources', 'Unique users', data.uniqueUsers, 'users'),
+    figure('Resources', 'Resources used', data.activeResources, 'resources'),
+    figure('Resources', 'Most used resource', data.mostUsedResource),
+    figure('Resources', `Clicks in ${comparison.year}`, comparison.current, 'clicks'),
+    figure('Resources', `Clicks in ${comparison.previousYear}`, comparison.previous, 'clicks'),
+    ...data.byType.map((item) => figure('Clicks by resource type', item.label, item.value, 'clicks')),
+    ...filteredDailyClicks.value.map((point) => figure('Clicks per day', point.label, point.clicks, 'clicks')),
+    ...sortedResources.value.flatMap((resource) => [
+      figure('Clicks by resource', resource.name, resource.clicks, 'clicks'),
+      figure('Unique users by resource', resource.name, resource.uniqueUsers, 'users'),
     ]),
   ]
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'resource-analytics.csv'
-  anchor.click()
-  URL.revokeObjectURL(url)
+  return {
+    fileName: exportFileName('resources', 'summary', latestClickDay.value || 'all dates'),
+    csv: summaryCsv({
+      page: 'Resources',
+      covers: 'All recorded resource clicks',
+      filters: [
+        ['Search', search.value.trim()],
+        ['Audience', selectedAudienceRole.value],
+        ['Clicks per day date filter', clicksDateQuery.value.trim()],
+      ].filter(([, value]) => value && value !== 'all') as Array<[string, string]>,
+      dataAsOf: latestClickDay.value || null,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
+  }
+}
+
+function resourcesDetails() {
+  const usage = sourceAvailable('resourceAnalytics')
+  return {
+    fileName: exportFileName('resources', 'details', latestClickDay.value || 'all dates'),
+    csv: detailsCsv(
+      ['Resource ID', 'Resource', 'Type', 'Audiences', 'Clicks', 'Unique Users'],
+      sortedResources.value.map((resource) => [
+        resource.id,
+        resource.name,
+        resource.type,
+        resource.roles.join('; '),
+        usage ? resource.clicks : null,
+        usage ? resource.uniqueUsers : null,
+      ]),
+    ),
+  }
+}
+
+function resourcesDaily() {
+  const rows = [...(data.resourceDaily ?? [])]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name))
+    .map((row) => [row.date, row.resourceId, row.name, row.clicks, row.uniqueUsers])
+  return {
+    fileName: exportFileName('resources', 'daily-usage', latestClickDay.value || 'all dates'),
+    // Unique users are counted per day, so they do not add up across days.
+    csv: detailsCsv(['Date (UTC)', 'Resource ID', 'Resource', 'Clicks', 'Unique Users That Day'], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  const build = kind === 'summary' ? resourcesSummary : kind === 'daily' ? resourcesDaily : resourcesDetails
+  exportError.value = runExport(build)
 }
 </script>
 
@@ -1108,12 +1196,12 @@ tbody tr:hover td {
 
 .resources-analytics-page .kpi-card > div:not(.kpi-icon) > strong:not(.resource-name) {
   width: 100%;
-  text-align: center;
+  text-align: left;
 }
 
 .resources-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 /* Use identical title/value/helper tracks across every resource KPI, including
@@ -1124,7 +1212,7 @@ tbody tr:hover td {
   flex: 1 1 0% !important;
   align-self: stretch;
   grid-template-rows: 34px auto 34px !important;
-  align-content: center;
+  align-content: start;
 }
 
 .resources-analytics-page .kpi-grid .kpi-card .kpi-label {

@@ -73,23 +73,13 @@
       <template #filters>
         <label class="resource-filter">
           <span class="resource-filter-label">Label</span>
-          <select v-model="selectedLabelId" aria-label="Filter by label">
-            <option value="">All labels</option>
-            <option v-for="label in labels" :key="label.id" :value="String(label.id)">
-              {{ label.name }} ({{ label.resource_count ?? 0 }})
-            </option>
-          </select>
+          <AppSelect v-model="selectedLabelId" class="table-filter" aria-label="Filter by label" :options="labelFilterOptions" />
           <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
         </label>
 
         <label class="resource-filter">
           <span class="resource-filter-label">Type</span>
-          <select v-model="selectedType" aria-label="Filter by type">
-            <option value="">All types</option>
-            <option v-for="type in resourceTypes" :key="type.id" :value="type.type_name">
-              {{ formatTypeName(type.type_name) }}
-            </option>
-          </select>
+          <AppSelect v-model="selectedType" class="table-filter" aria-label="Filter by type" :options="typeFilterOptions" />
         </label>
 
       </template>
@@ -183,6 +173,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import AdminResourceBatchAccessModal from '@/components/admin/resources/AdminResourceBatchAccessModal.vue'
@@ -242,6 +233,15 @@ const fieldErrors = ref<Record<string, string[]>>({})
 
 const searchQuery = ref('')
 const selectedType = ref('')
+// The Label and Type filters' choices.
+const labelFilterOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'All labels' },
+  ...labels.value.map((label) => ({ value: String(label.id), label: `${label.name} (${label.resource_count ?? 0})` }))
+])
+const typeFilterOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'All types' },
+  ...resourceTypes.value.map((type) => ({ value: type.type_name, label: formatTypeName(type.type_name) }))
+])
 // Seeded from ?label= so another page can link straight to one shelf of the
 // library. The Support Centre uses this to send someone to the help articles
 // for the topic they clicked, instead of dropping them in the full list to
@@ -577,17 +577,6 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.resource-filter select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .field-error {

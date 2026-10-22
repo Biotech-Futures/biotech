@@ -7,6 +7,7 @@ import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
 import { setRegistrationState } from '@/composables/useRegistrationOpen'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 // Registration as it is by default: open, with no dates.
 const OPEN = { open_now: true, opens_at: null, closes_at: null, can_register_students: true }
@@ -442,17 +443,12 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).not.toContain('School-only grouping')
     expect(wrapper.text()).not.toContain('Cross-school grouping')
 
+    // A group starts at its students; its Mutual Areas of Interest come after.
     const group = mountPage('supervisor')
     await clickButton(group, 'Register a student group')
-    expect(group.text()).toContain('Mutual Areas of Interest')
-    expect(
-      group.find('input[name="supervisor-group-interests"]').attributes('disabled'),
-    ).toBeUndefined()
-    await group
-      .find('input[name="supervisor-group-interests"][value="Water & Energy Tech"]')
-      .setValue(true)
-    await group.get('form').trigger('submit')
     expect(group.text()).toContain('Add 2–5 students')
+    expect(group.find('#supervisorGroup-students-0-email').exists()).toBe(true)
+    expect(group.text()).not.toContain('Mutual Areas of Interest')
 
     const csv = mountPage('supervisor')
     await openCsvUpload(csv)
@@ -568,6 +564,34 @@ describe('canonical registration intake', () => {
     expect(setup.errors['studentIndividual.supervisor.email']).toBeTruthy()
   })
 
+  it("starts each member in Member 1's country, and offers the group's schools", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Student')
+    await clickButton(wrapper, 'I have a group')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      forms: { studentTeam: { creator: { country: string; school: string }; teammates: { country: string; state: string }[] } }
+      addStudentTeammate: () => void
+    }
+    // Member 2 starts before Member 1 picks: it follows Member 1's country.
+    setup.forms.studentTeam.creator.country = 'New Zealand'
+    setup.forms.studentTeam.creator.school = 'Kiwi High'
+    await wrapper.vm.$nextTick()
+    expect(setup.forms.studentTeam.teammates[0].country).toBe('New Zealand')
+    // One added later starts there too; one who chose another keeps it.
+    setup.forms.studentTeam.teammates[0].country = 'Fiji'
+    setup.addStudentTeammate()
+    expect(setup.forms.studentTeam.teammates[1].country).toBe('New Zealand')
+    setup.forms.studentTeam.creator.country = 'Australia'
+    await wrapper.vm.$nextTick()
+    expect(setup.forms.studentTeam.teammates.map((teammate) => teammate.country)).toEqual(['Fiji', 'Australia'])
+
+    setup.currentStep = 2
+    await wrapper.vm.$nextTick()
+    await wrapper.get('#studentTeam-teammates-0-school').trigger('focus')
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual(['Kiwi High'])
+  })
+
   it("asks every group member for their school, year and location, as Member 1's", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Student')
@@ -597,7 +621,130 @@ describe('canonical registration intake', () => {
     expect(setup.errors['studentTeam.teammates.0.yearLevel']).toBeTruthy()
   })
 
-  it("limits a mentor's answers to 150 words and checks their weekly times", async () => {
+  it("starts a supervisor's students in their country, and offers their school and state", async () => {
+    const { setActivePinia } = await import('pinia')
+    const { useAuthStore } = await import('@/stores/auth')
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().user = {
+      id: 9, email: 'grace@school.edu', first_name: 'Grace', last_name: 'Green', current_role_name: 'supervisor',
+      supervisor_school_name: 'Kiwi High', country: { id: 2, countryName: 'New Zealand' }, state: { id: 5, stateName: 'Auckland' },
+    } as never
+    const wrapper = mount(RegistrationPage, {
+      props: { mode: 'supervisor' },
+      global: { plugins: [pinia], stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } },
+    })
+    await clickButton(wrapper, 'Register a student group')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      forms: { supervisorGroup: { students: { country: string; school: string }[] } }
+      addSupervisorGroupStudent: () => void
+    }
+    expect(setup.forms.supervisorGroup.students.map((student) => student.country)).toEqual(['New Zealand', 'New Zealand'])
+    setup.addSupervisorGroupStudent()
+    expect(setup.forms.supervisorGroup.students[2].country).toBe('New Zealand')
+
+    setup.forms.supervisorGroup.students[0].school = 'Cardinal College'
+    setup.currentStep = 0
+    await flushPromises()
+    await wrapper.get('#supervisorGroup-students-1-school').trigger('focus')
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual([
+      'Kiwi High',
+      'Cardinal College',
+    ])
+    await wrapper.get('#supervisorGroup-students-1-school').trigger('blur')
+    await wrapper.get('#supervisorGroup-students-1-state').trigger('focus')
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual(['Auckland'])
+  })
+
+  it("asks a group's interests after its students: all theirs ticked, every area by how many chose it", async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register a student group')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      forms: { supervisorGroup: { students: { interests: string[] }[]; interests: string[] } }
+    }
+    setup.forms.supervisorGroup.students[0].interests = ['Space & Astrobiology', 'Water & Energy Tech']
+    setup.forms.supervisorGroup.students[1].interests = ['Water & Energy Tech']
+    setup.currentStep = 1
+    await flushPromises()
+
+    // What both chose is ticked; the list puts the most chosen first.
+    expect(setup.forms.supervisorGroup.interests).toEqual(['Water & Energy Tech'])
+    const labels = wrapper.findAll('.interest-selector__options label').map((label) => label.text())
+    expect(labels[0]).toBe('Water & Energy Tech 2 of 2')
+    expect(labels[1]).toBe('Space & Astrobiology 1 of 2')
+    expect(labels).toHaveLength(9)
+
+    // Back to the students, then here again: one ticked already (as a saved
+    // draft's), and what they now all chose ticked beside it.
+    setup.currentStep = 0
+    await flushPromises()
+    setup.forms.supervisorGroup.interests = ['Food & Agriculture Technology']
+    setup.forms.supervisorGroup.students[1].interests = ['Water & Energy Tech', 'Space & Astrobiology']
+    setup.currentStep = 1
+    await flushPromises()
+    expect(setup.forms.supervisorGroup.interests).toEqual([
+      'Food & Agriculture Technology',
+      'Space & Astrobiology',
+      'Water & Energy Tech',
+    ])
+  })
+
+  it('turns a group down to one student into Register one student, with no policies to tick', async () => {
+    const wrapper = mountPage('supervisor')
+    await clickButton(wrapper, 'Register a student group')
+    const setup = wrapper.vm as unknown as {
+      journey: string
+      forms: {
+        supervisorGroup: { students: { firstName: string }[] }
+        supervisorIndividual: { student: { firstName: string } }
+      }
+    }
+    setup.forms.supervisorGroup.students[0].firstName = 'Ada'
+    await wrapper.vm.$nextTick()
+    const remove = () =>
+      wrapper.findAll('.student-entry__heading button').filter((button) => button.text().includes('Remove'))
+    // Student 1 always stays; Student 2 can go.
+    expect(remove()).toHaveLength(1)
+    await remove()[0].trigger('click')
+    await flushPromises()
+
+    expect(setup.journey).toBe('supervisor_individual')
+    expect(setup.forms.supervisorIndividual.student.firstName).toBe('Ada')
+    expect(wrapper.find('.step-navigation').exists()).toBe(false)
+    // A supervisor registering students isn't agreeing for them.
+    expect(wrapper.find('[data-test="policies-agree"]').exists()).toBe(false)
+  })
+
+  it("suggests Management's known universities as a mentor types theirs", async () => {
+    const universities = ['Monash University', 'The University of Sydney', 'UNSW Sydney']
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (url) =>
+        new Response(JSON.stringify(String(url).includes('/universities/') ? { universities } : { countries: [] })),
+      ),
+    )
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as { currentStep: number; forms: { mentor: { affiliation: string; institution: string } } }
+    setup.forms.mentor.affiliation = 'academic'
+    setup.currentStep = 1
+    await flushPromises()
+
+    const institution = wrapper.get('#mentor-institution')
+    await institution.trigger('focus')
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual(universities)
+    setup.forms.mentor.institution = 'sydney'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.registration-field__suggestion').map((option) => option.text())).toEqual([
+      'The University of Sydney',
+      'UNSW Sydney',
+    ])
+    vi.unstubAllGlobals()
+  })
+
+  it("limits a mentor's answers to 150 words and asks their hours per week", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
     const setup = wrapper.vm as unknown as {
@@ -611,14 +758,15 @@ describe('canonical registration intake', () => {
           background: string
           motivation: string
           mentoringApproach: string
-          availability: { weekday: string; start: string; end: string }[]
+          weeklyHours: string
         }
       }
     }
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('How would you mentor BIOTech groups?')
-    expect(wrapper.text()).toContain('Weekly availability')
+    expect(wrapper.text()).toContain('Hours per week')
+    expect(wrapper.text()).not.toContain('Weekly availability')
     expect(wrapper.text()).toContain('0 / 150 words')
 
     Object.assign(setup.forms.mentor, {
@@ -628,15 +776,34 @@ describe('canonical registration intake', () => {
       motivation: 'To help.',
       mentoringApproach: 'Weekly check-ins.',
     })
-    setup.forms.mentor.availability[0] = { weekday: '0', start: '10:00', end: '09:00' }
+    setup.forms.mentor.weeklyHours = '41'
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('151 / 150 words')
     setup.validateCurrentStep()
     expect(setup.errors['mentor.background']).toBe('Keep this to 150 words or fewer.')
-    expect(setup.errors['mentor.availability.0']).toBe('End after it starts.')
+    expect(setup.errors['mentor.weeklyHours']).toBe('Enter a whole number of hours from 1 to 40.')
+
+    setup.forms.mentor.weeklyHours = ''
+    setup.validateCurrentStep()
+    expect(setup.errors['mentor.weeklyHours']).toBe('Enter how many hours a week you can give.')
+
+    // A number box with its arrows, taking whole numbers alone, two digits at most.
+    const hours = wrapper.get('#mentor-hours')
+    expect(hours.attributes()).toMatchObject({ type: 'number', min: '1', max: '40', step: '1' })
+    for (const key of ['e', '+', '-', '.']) {
+      const press = new KeyboardEvent('keydown', { key, cancelable: true })
+      hours.element.dispatchEvent(press)
+      expect(press.defaultPrevented, key).toBe(true)
+    }
+    const digit = new KeyboardEvent('keydown', { key: '4', cancelable: true })
+    hours.element.dispatchEvent(digit)
+    expect(digit.defaultPrevented).toBe(false)
+    await hours.setValue('456')
+    expect(setup.forms.mentor.weeklyHours).toBe('45')
+    await hours.setValue('4')
+    expect(setup.forms.mentor.weeklyHours).toBe('4')
 
     setup.forms.mentor.background = 'Ten years in biotech.'
-    setup.forms.mentor.availability[0] = { weekday: '0', start: '09:00', end: '11:00' }
     expect(setup.validateCurrentStep()).toBe(true)
   })
 
@@ -771,6 +938,7 @@ describe('canonical registration intake', () => {
       email: 'ada@example.com',
       school: 'Example High',
       yearLevel: '10',
+      country: 'Australia',
       state: 'NSW',
     })
     setup.changeJourney()
@@ -804,32 +972,29 @@ describe('canonical registration intake', () => {
     const country = () => wrapper.find('#supervisorIndividual-student-country')
     const state = () => wrapper.find('#supervisorIndividual-student-state')
 
-    const asked = send.mock.calls.map(([url]) => String(url))
-    expect(asked.some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
-    expect(asked.some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
-    expect(country().element.tagName).toBe('SELECT')
-    expect(
-      country()
-        .findAll('option')
-        .slice(1)
-        .map((option) => option.attributes('value')),
-    ).toEqual(countries)
-    expect((country().element as HTMLSelectElement).value).toBe('Australia')
-    expect(state().element.tagName).toBe('SELECT')
+    const asked = () => send.mock.calls.map(([url]) => String(url))
+    expect(asked().some((url) => url.includes('/api/v1/registration/countries/'))).toBe(true)
+    // Dropdowns (a combobox's field), each choice as the database names it,
+    // and none chosen for them.
+    expect(country().attributes('role')).toBe('combobox')
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-country')).toBe('')
+    expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-country')).toEqual(countries)
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-country', 'Australia')
+    await flushPromises()
+    expect(asked().some((url) => url.includes('/api/v1/registration/states/?country=Australia'))).toBe(true)
+    await country().trigger('blur')
+    expect(state().attributes('role')).toBe('combobox')
     expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State *')
-    expect(
-      state()
-        .findAll('option')
-        .slice(1)
-        .map((option) => option.attributes('value')),
-    ).toEqual(states)
-    await state().setValue('VIC')
-    expect((state().element as HTMLSelectElement).value).toBe('VIC')
+    expect(await appSelectLabels(wrapper, '#supervisorIndividual-student-state')).toEqual(states)
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-state', 'VIC')
+    expect(appSelectText(wrapper, '#supervisorIndividual-student-state')).toBe('VIC')
 
-    await country().setValue('New Zealand')
+    await pickAppSelect(wrapper, '#supervisorIndividual-student-country', 'New Zealand')
+    // A text box to type in.
     expect(state().element.tagName).toBe('INPUT')
-    // Elsewhere a Region, optional; the Australian state isn't kept.
-    expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('Region (Optional)')
+    expect(state().attributes('role')).toBeUndefined()
+    // Elsewhere still State, but optional; the Australian state isn't kept.
+    expect(wrapper.get('#supervisorIndividual-student-state-label').text()).toBe('State (Optional)')
     expect((state().element as HTMLInputElement).value).toBe('')
   })
 

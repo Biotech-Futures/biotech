@@ -306,6 +306,11 @@ class SystemEmailSettings(models.Model):
     # When an admin last looked at Failed Sending Emails: the failures since
     # are the unseen count on its button. Set without touching updated_at.
     failures_seen_at = models.DateTimeField(null=True, blank=True)
+    # When the bounce check last couldn't read the mailboxes through
+    # Hostinger's Mail API, and the status it answered (none when it didn't
+    # answer); cleared by a check that could. Failed Sending Emails says so.
+    mail_api_failed_at = models.DateTimeField(null=True, blank=True)
+    mail_api_status = models.PositiveSmallIntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -433,3 +438,106 @@ class EmailDeliveryMetric(models.Model):
 
     def __str__(self):
         return f"{self.email_type}: {self.source_mailbox} ({self.status})"
+
+
+class EmailDeliveryRecipient(models.Model):
+    """Who one send operation was addressed to, and whether it reached them.
+
+    One row per address of an ``EmailDeliveryMetric``, so admins can export an
+    email's recipient list and find every email sent to one person. Written
+    by the send itself; sends made before this table existed have no rows.
+    ``reason`` is the short, address-free wording the Log uses (for example
+    "address refused"), never the mail server's own message.
+    """
+
+    class Status(models.TextChoices):
+        DELIVERED = "delivered", "Delivered"
+        FAILED = "failed", "Failed"
+
+    metric = models.ForeignKey(
+        EmailDeliveryMetric,
+        on_delete=models.CASCADE,
+        related_name="recipients",
+    )
+    # The account the address belonged to when sent, if any (guardians and
+    # other outside addresses have none).
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    email = models.EmailField()
+    status = models.CharField(max_length=16, choices=Status.choices)
+    reason = models.CharField(max_length=120, blank=True, default="")
+
+    class Meta:
+        db_table = "email_delivery_recipient"
+        ordering = ["email", "id"]
+        indexes = [
+            models.Index(fields=["email"], name="email_recipient_email_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["metric", "email"],
+                name="email_recipient_once_per_send",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email} ({self.status})"
+
+
+class WaitingEmail(models.Model):
+    """An email kept as it was built (see ``waiting_email``). Waiting: the mail
+    server couldn't be reached, so it's tried again every 10 minutes until
+    ``give_up_at`` (3 days on, or sooner for one that would be out of date by
+    then). Missed: it failed, so it's kept for Resend on System Emails' Log
+    until ``give_up_at`` (30 days on, or sooner)."""
+
+    class State(models.TextChoices):
+        WAITING = "waiting", "Waiting for the mail server"
+        MISSED = "missed", "Kept for Resend"
+
+    # Matches a key in apps.services.email_registry, e.g. "announcement".
+    key = models.SlugField(max_length=64)
+    # The mailbox it goes from: a key of settings.EMAIL_SENDERS, e.g. "info".
+    mailbox = models.CharField(max_length=32)
+    # The From header, e.g. "BIOTech Futures <info@biotechfutures.org>".
+    from_email = models.CharField(max_length=320)
+    # Everyone it goes to: its To and CC.
+    recipients = models.JSONField(default=list)
+    # The email as built, ready to send (RFC 822, CRLF line ends).
+    message = models.BinaryField()
+    # Hooks run as it goes or is given up on, and their details, e.g. the
+    # announcement delivery whose counts it changes (see ``waiting_email``).
+    on_sent = models.JSONField(default=dict, blank=True)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    state = models.CharField(max_length=16, choices=State.choices, default=State.WAITING)
+    created_at = models.DateTimeField(default=timezone.now)
+    give_up_at = models.DateTimeField()
+    # When its content goes out of date (an event reminder at the event, say),
+    # if it does: it's never sent after that.
+    stale_at = models.DateTimeField(null=True, blank=True)
+    tries = models.PositiveIntegerField(default=0)
+    tried_at = models.DateTimeField(null=True, blank=True)
+    # Held while a run sends it, so two runs can't send it twice.
+    held_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'waiting_email'
+        ordering = ['id']
+        indexes = [
+            models.Index(fields=['mailbox', 'id'], name='waiting_email_mailbox_idx'),
+            models.Index(fields=['key'], name='waiting_email_key_idx'),
+        ]
+
+    def __str__(self):
+        return f"WaitingEmail({self.key}, {len(self.recipients)} recipients)"

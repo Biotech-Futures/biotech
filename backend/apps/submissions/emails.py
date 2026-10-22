@@ -1,4 +1,5 @@
-"""Confirmation email sent when a team submits, listing each component's status."""
+"""Confirmation emails sent when a team submits its entry, or a finalist team its presentation,
+listing what was received."""
 from __future__ import annotations
 
 import logging
@@ -10,9 +11,10 @@ from django.utils.html import format_html, format_html_join
 
 from apps.groups.models import GroupMembership
 from apps.services.email_branding import brand_context
-from apps.services.email_log import UNREACHABLE, note_send, reason_for
+from apps.services.email_log import note_send, reason_for
 from apps.services.mailer import send_async
-from apps.services.retry import reset, send_with_retry
+from apps.services.retry import WAITING, reset
+from apps.services.waiting_email import send_or_wait
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -21,6 +23,7 @@ from apps.services.system_email import (
     sender_for,
 )
 
+from .email_sections import presentation_section, times_section
 from .models import Submission, SubmissionQuestion
 from .serializers import submitted_by_label
 from .services import current_cohort, deadline_for_group
@@ -148,11 +151,13 @@ def group_message(rendered, group, addresses, *, sender):
     return message
 
 
-def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
+def send_messages(messages, *, kind: str, sender, until=None) -> tuple[int, int]:
     """Send each message over one connection, signed in as ``sender``'s
     mailbox; one failing is tried once more at once (see ``retry``), and
-    doesn't stop the rest. Returns (sent, failed). Noted in the Log on System
-    Emails as a send of ``kind``."""
+    doesn't stop the rest. When the mail server can't be reached, a message is
+    kept and sent once it can be, until ``until`` (see ``waiting_email``), and
+    counts as sent. Returns (sent, failed). Noted in the Log on System Emails
+    as a send of ``kind``."""
     if not messages:
         return 0, 0
 
@@ -164,26 +169,20 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
     try:
         connection.open()
     except Exception:
+        # Each message below tries again, and is kept to send later when the
+        # server still can't be reached.
         logger.error("submission_email.connection_failed kind=%s", kind)
-        recipients = [address for message in messages for address in message.recipients()]
-        note_send(
-            kind,
-            missed={address: UNREACHABLE for address in recipients},
-            attempted=len(recipients),
-            delivered=0,
-            failed=len(recipients),
-            source_mailbox=sender.address,
-        )
-        return 0, len(messages)
 
+    attempted_addresses = []
     try:
         for message in messages:
             message.connection = connection
             try:
-                send_with_retry(message)
+                outcome = send_or_wait(message, key=kind, retry=True, until=until)
             except Exception as exc:
                 failed += 1
                 failed_recipients += len(message.recipients())
+                attempted_addresses.extend(message.recipients())
                 missed.update(dict.fromkeys(message.recipients(), reason_for(exc)))
                 reset(connection)
                 # Not logger.exception, which would log the recipient address.
@@ -193,7 +192,10 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
                 )
             else:
                 sent += 1
-                delivered_recipients += len(message.recipients())
+                # One kept to send later is noted, with its recipients, once it goes.
+                if outcome is not WAITING:
+                    delivered_recipients += len(message.recipients())
+                    attempted_addresses.extend(message.recipients())
     finally:
         try:
             connection.close()
@@ -206,6 +208,7 @@ def send_messages(messages, *, kind: str, sender) -> tuple[int, int]:
         delivered=delivered_recipients,
         failed=failed_recipients,
         source_mailbox=sender.address,
+        recipients=attempted_addresses,
     )
     return sent, failed
 
@@ -273,4 +276,105 @@ def send_submission_confirmation(submission: Submission) -> int:
         return len(to)
     except Exception:
         logger.exception("submission_email.failed group=%s", getattr(submission, "group_id", None))
+        return 0
+
+
+# --- the finalist round ---------------------------------------------------------
+
+
+def _long_day(day) -> str:
+    """"Friday, 23 October 2026", as the other finalist emails show a day; blank when unset."""
+    return f"{day:%A}, {day.day} {day:%B %Y}" if day else ""
+
+
+def finalist_components(entry) -> list[dict]:
+    """What a finalist team has submitted, in the same shape as the entry's components."""
+    return [
+        _component("Presentation Slides", bool(entry.submitted_presentation),
+                   _file_detail(entry.submitted_presentation)),
+    ]
+
+
+def sydney_clock(day) -> tuple[str, str]:
+    """Sydney's clock on ``day``, as the finalist page names it: ("AEDT", "UTC+11") or ("AEST", "UTC+10")."""
+    from datetime import datetime, time, timedelta
+
+    from apps.management.services.finalist_notify import SYMPOSIUM_TZ
+
+    # Midday, well clear of a clock change in the small hours.
+    daylight = datetime.combine(day, time(12), tzinfo=SYMPOSIUM_TZ).utcoffset() == timedelta(hours=11)
+    return ("AEDT", "UTC+11") if daylight else ("AEST", "UTC+10")
+
+
+def finalist_times(group_id: int, day=None) -> list[str]:
+    """The times the team selected, earliest first, as the finalist page shows them:
+    "09:30 - 10:00 AEDT" once the symposium day is set, "09:30 - 10:00" before."""
+    from .finalist import presentation_times, team_answer, team_time_ids
+
+    chosen = set(team_time_ids(team_answer(group_id)))
+    zone = f" {sydney_clock(day)[0]}" if day else ""
+    return [
+        f"{slot.starts_at:%H:%M} - {slot.ends_at:%H:%M}{zone}"
+        for slot in presentation_times()
+        if slot.id in chosen
+    ]
+
+
+def finalist_url(group) -> str:
+    # Blank when no frontend URL is configured; the template then omits the button.
+    base = getattr(settings, "FRONTEND_BASE_URL", "")
+    return f"{base}/#/groups/{group.id}/finalist" if base else ""
+
+
+def finalist_confirmation_context(entry) -> dict:
+    """The values the finalist confirmation's template and merge tags read."""
+    from apps.management.models import FinalistEmailSettings
+
+    from .serializers import submitter_name
+
+    details = FinalistEmailSettings.load()
+    components = finalist_components(entry)
+    times = finalist_times(entry.group_id, details.symposium_date)
+    symposium_day = _long_day(details.symposium_date)
+    clock = ", ".join(sydney_clock(details.symposium_date)) if details.symposium_date else ""
+    return {
+        "GROUP_NAME": entry.group.group_name,
+        "YEAR": current_cohort(),
+        "COMPONENTS": components,
+        "AVAILABLE_TIMES": times,
+        # Ready-made and styled, so an admin's edited email shows them as the default one does.
+        "PRESENTATION_SECTION": presentation_section(components),
+        "TIMES_SECTION": times_section(times, symposium_day, clock),
+        "SYMPOSIUM_DATE": symposium_day,
+        "SYDNEY_CLOCK": clock,
+        "SLIDES_DUE": _long_day(details.slides_due),
+        "SUBMITTED_BY": submitter_name(entry.submitted_by),
+        "FINALIST_URL": finalist_url(entry.group),
+    }
+
+
+def send_finalist_confirmation(entry) -> int:
+    """Email a finalist team what was received: its slides and the times it can present.
+    Returns recipient count; never raises, so a failed email cannot fail the submission."""
+    try:
+        if not is_email_enabled("finalist_submission_confirmation"):
+            logger.info("finalist_email.skipped_disabled group=%s", getattr(entry, "group_id", None))
+            return 0
+
+        group = entry.group
+        to = recipients_for(group)
+        if not to:
+            logger.warning("finalist_email.no_recipients group=%s", group.id)
+            return 0
+
+        context = {**brand_context(), **finalist_confirmation_context(entry)}
+        text = render_to_string("emails/finalist_submission_confirmation.txt", context)
+        rendered = render_system_email("finalist_submission_confirmation", context, default_text=text)
+        sender = sender_for("finalist_submission_confirmation")
+        messages = [group_message(rendered, group, to, sender=sender)]
+
+        send_async(_Batch(messages, "finalist_submission_confirmation", sender), kind="finalist_submission_confirmation")
+        return len(to)
+    except Exception:
+        logger.exception("finalist_email.failed group=%s", getattr(entry, "group_id", None))
         return 0

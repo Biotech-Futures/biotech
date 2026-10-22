@@ -33,6 +33,7 @@ MANAGEMENT = "/api/v1/registration-management/"
 def request_body():
     return {
         "journey": "student_individual",
+        "policiesAgreed": True,
         "payload": {
             "students": [{
                 "firstName": "Jordan", "lastName": "Lee", "email": "jordan.lee@example.com",
@@ -252,7 +253,7 @@ class ManagementTests(RegistrationSetup, TestCase):
 
 
 class IntakeTests(RegistrationSetup, TestCase):
-    def test_open_registration_saves_pending_student_and_real_receipt(self):
+    def test_open_registration_saves_an_active_student_and_real_receipt(self):
         response = self.submit()
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(set(response.data), {"reference_code", "journey", "student_count", "created_at"})
@@ -262,12 +263,13 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertEqual(row.created_at.isoformat(), response.data["created_at"])
         user = row.student
         profile = StudentProfile.objects.get(user=user)
-        self.assertEqual(user.account_status, User.AccountStatus.PENDING)
-        self.assertFalse(user.is_active)
+        # Active straight away: a student is never Pending.
+        self.assertEqual(user.account_status, User.AccountStatus.ACTIVE)
+        self.assertTrue(user.is_active)
         self.assertFalse(user.has_usable_password())
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
-        self.assertIsNone(user.activated_at)
+        self.assertIsNotNone(user.activated_at)
         self.assertFalse(profile.has_join_permission)
         self.assertIsNone(profile.joinperm_responseID)
         self.assertEqual(profile.pg_email, "guardian@example.com")
@@ -488,7 +490,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         body = copy.deepcopy(self.body)
         student = body["payload"]["students"][0]
         student.update(firstName="William", lastName="Nixon", email="wiliam.nixon@example.com", school="USYD")
-        KnownUniversity.objects.get_or_create(name="USYD")
+        KnownUniversity.objects.get_or_create(full_name="USYD")
         return body
 
     def test_all_soft_warnings_have_canonical_paths_and_do_not_burn_link(self):
@@ -634,7 +636,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
             self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
     def test_known_university_alias_normalizes_and_legacy_serializer_uses_same_warning(self):
-        KnownUniversity.objects.create(name="  Example   Institute ")
+        KnownUniversity.objects.create(full_name="  Example   Institute ")
         self.assertTrue(KnownUniversity.matches(" example institute "))
         from apps.users.registration_intake import validation_body
         body = validation_body(self.body["payload"]["students"][0], self.body["payload"]["supervisor"])

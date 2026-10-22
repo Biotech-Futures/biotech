@@ -2,18 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import AdminUserFormSheet from '../AdminUserFormSheet.vue'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import { createAdminUser, setAdminUserActive, updateAdminUser } from '@/utils/adminAPI'
 import { apiErrorFromResponse } from '@/utils/apiError'
 
 /**
  * The People editor and the support role (U5 PE-01, PE-02, PE-04; U6 C1..C9).
  *
- * Adding "support" to the role list alone re-creates the defect adminweb
- * already paid for: an agent has no country, the editor insisted on one, and
- * the update call could not clear it. So the role and the geography rule are
- * tested together, at every place the form applies the rule: whether the
- * fields show, what a role change does to them, what validation asks for, and
- * what the create and update calls send.
+ * Since main's Add user rework (20 October 2026) no role has to give a
+ * country: the form shows country and state as optional fields for every role
+ * but admin, support included, and sends whatever is picked. What stays the
+ * support role's own is tested here: it is offered, an agent can be made and
+ * then saved without a country (the defect adminweb paid for: the editor
+ * insisted on one and the save was refused), and moving an agent off the role
+ * says what the save takes away (C9).
  */
 vi.mock('@/utils/adminAPI', async () => ({
   ...(await vi.importActual<typeof import('@/utils/adminAPI')>('@/utils/adminAPI')),
@@ -81,8 +83,9 @@ async function openSheet(user: unknown = null) {
 }
 
 const sheet = () => wrapper!
-const roleSelect = () => sheet().find<HTMLSelectElement>(sheet().find('#f-role').exists() ? '#f-role' : '#f-role-edit')
-const roleOptions = () => roleSelect().findAll('option').map((option) => option.attributes('value'))
+// The create form and the edit form each have their own role dropdown.
+const roleField = () => (sheet().find('#f-role').exists() ? '#f-role' : '#f-role-edit')
+const pickRole = (label: string) => pickAppSelect(sheet(), roleField(), label)
 
 async function fill(fields: Record<string, string>) {
   for (const [selector, value] of Object.entries(fields)) {
@@ -111,128 +114,68 @@ describe('the role list (C1)', () => {
   it('offers Support when creating an account', async () => {
     await openSheet()
 
-    expect(roleOptions()).toEqual(['student', 'mentor', 'supervisor', 'admin', 'support'])
-    expect(roleSelect().findAll('option').at(-1)!.text()).toBe('Support')
+    expect(await appSelectLabels(sheet(), '#f-role')).toEqual(['Student', 'Mentor', 'Supervisor', 'Admin', 'Support'])
   })
 
-  it('shows an existing support agent’s role instead of a blank select', async () => {
-    // Before the role was in the list, the edit form had no option matching
-    // "support" and rendered the select empty.
+  it('shows an existing support agent’s role instead of a blank box', async () => {
+    // Before the role was in the list, the edit form had no choice matching
+    // "support" and showed the role empty.
     await openSheet(agentRow())
 
-    expect(roleSelect().element.value).toBe('support')
+    expect(appSelectText(sheet(), '#f-role-edit')).toBe('Support')
   })
 })
 
-describe('country and state for a role without geography (C3, C4)', () => {
-  it('hides country and state for support', async () => {
-    await openSheet()
-    await roleSelect().setValue('support')
-
-    expect(sheet().find('#f-country').exists()).toBe(false)
-    expect(sheet().find('#f-state').exists()).toBe(false)
-  })
-
-  it('still asks a student for a country', async () => {
-    // Load-bearing: hiding the fields for every role passes the test above.
-    await openSheet()
-
-    expect(sheet().find('#f-country').exists()).toBe(true)
-  })
-
-  it('drops a country picked earlier when the role moves to support', async () => {
-    const pickedCountry = () =>
-      sheet().find<HTMLSelectElement>('#f-country').element.selectedOptions[0]?.text
-    await openSheet()
-    await sheet().find('#f-country').setValue(1)
-    expect(pickedCountry()).toBe('Australia')
-
-    await roleSelect().setValue('support')
-    await roleSelect().setValue('student')
-
-    // Back on a role that has geography, the old pick is not waiting there.
-    expect(pickedCountry()).toBe('Unassigned')
-  })
-
-  it('drops a stored country when an existing account is moved to support', async () => {
-    // The edit form has its own role select (#f-role-edit), with its own
-    // change listener. The test above only reaches the create one.
-    const pickedCountry = () =>
-      sheet().find<HTMLSelectElement>('#f-country').element.selectedOptions[0]?.text
-    await openSheet(agentRow({ role: 'mentor', country: AUSTRALIA }))
-    expect(pickedCountry()).toBe('Australia')
-
-    await roleSelect().setValue('support')
-    await roleSelect().setValue('mentor')
-
-    expect(pickedCountry()).toBe('Unassigned')
-  })
-})
-
-describe('validation (C5)', () => {
+describe('an agent without a country (C5, C6)', () => {
   it('creates a support agent with no country, and sends none', async () => {
     await openSheet()
     await fill({ '#f-first': 'Sam', '#f-last': 'Reid', '#f-email': 'sam@example.com' })
-    await roleSelect().setValue('support')
+    await pickRole('Support')
     await submit()
 
-    expect(sheet().text()).not.toContain('Country is required')
+    expect(sheet().find('[role="alert"]').exists()).toBe(false)
     expect(createAdminUser).toHaveBeenCalledTimes(1)
-    expect(createAdminUser).toHaveBeenCalledWith({
+    const sent = vi.mocked(createAdminUser).mock.calls[0][0] as unknown as Record<string, unknown>
+    expect(sent).toMatchObject({
       email: 'sam@example.com',
       firstName: 'Sam',
       lastName: 'Reid',
       role: 'support',
       active: true
     })
+    expect(sent).not.toHaveProperty('country')
+    expect(sent).not.toHaveProperty('state')
   })
 
-  it('still refuses a mentor with no country, in words that fit every role', async () => {
-    // "non-admin users" stopped being true of this rule when support joined
-    // admin in it.
-    await openSheet()
-    await fill({ '#f-first': 'Maya', '#f-last': 'Chen', '#f-email': 'maya@example.com' })
-    await roleSelect().setValue('mentor')
-    await submit()
-
-    expect(sheet().find('[role="alert"]').text()).toBe('Country is required for this role.')
-    expect(createAdminUser).not.toHaveBeenCalled()
-  })
-})
-
-describe('saving an existing support agent (C6, the defect this all guards)', () => {
-  it('saves a surname change with country and state cleared, not refused', async () => {
-    // Before this port: "Country is required for non-admin users." and no
+  it('saves a surname change for an agent with no country, and leaves the country alone', async () => {
+    // Before the port: "Country is required for non-admin users." and no
     // request at all, so an agent created elsewhere could not be edited here.
     await openSheet(agentRow())
     await sheet().find('#f-last').setValue('Reid-Smith')
     await submit()
 
     expect(updateAdminUser).toHaveBeenCalledTimes(1)
-    expect(updateAdminUser).toHaveBeenCalledWith(21, {
-      firstName: 'Sam',
-      lastName: 'Reid-Smith',
-      role: 'support',
-      countryId: null,
-      stateId: null
-    })
+    const [id, sent] = vi.mocked(updateAdminUser).mock.calls[0] as unknown as [number, Record<string, unknown>]
+    expect(id).toBe(21)
+    expect(sent).toMatchObject({ firstName: 'Sam', lastName: 'Reid-Smith', role: 'support' })
+    // Not null: undefined is left out of the request body, so the server keeps
+    // the country as it is rather than being asked to clear it.
+    expect(sent.countryId).toBeUndefined()
+    expect(sent.stateId).toBeUndefined()
   })
 
-  it('clears a country and state left over from an earlier role', async () => {
-    // An account that was a mentor in NSW before it became an agent still
-    // carries both on the server. The form hides them for support, so a save
-    // must clear them rather than send the hidden values back.
+  it('saves an agent who kept a country and state from an earlier role, with both', async () => {
+    // An account that was a mentor in NSW before it became an agent. The form
+    // shows both, so a save sends them back unchanged.
     await openSheet(agentRow({ country: AUSTRALIA, state: NSW }))
     await sheet().find('#f-last').setValue('Reid-Smith')
     await submit()
 
     expect(updateAdminUser).toHaveBeenCalledTimes(1)
-    expect(updateAdminUser).toHaveBeenCalledWith(21, {
-      firstName: 'Sam',
-      lastName: 'Reid-Smith',
+    expect(vi.mocked(updateAdminUser).mock.calls[0][1]).toMatchObject({
       role: 'support',
-      countryId: null,
-      stateId: null
+      countryId: 1,
+      stateId: 5
     })
   })
 
@@ -260,13 +203,14 @@ describe('moving an agent off the support role (C9)', () => {
 
   it('says that saving will take away their queue access', async () => {
     await openSheet(agentRow())
-    await roleSelect().setValue('mentor')
+    await pickRole('Mentor')
 
     expect(note().text().replace(/\s+/g, ' ')).toBe(
       'Saving with this role removes their access to the support queue. Tickets they own stay in ' +
         'their name until somebody reassigns them.'
     )
-    expect(roleSelect().attributes('aria-describedby')).toBe('f-role-support-note')
+    // On the field itself: AppSelect hands aria-* to its input.
+    expect(sheet().find('#f-role-edit').attributes('aria-describedby')).toBe('f-role-support-note')
   })
 
   it('says nothing while the role stays support', async () => {
@@ -277,7 +221,7 @@ describe('moving an agent off the support role (C9)', () => {
 
   it('says nothing for a stored "Support" saved as "support", which the server does not count as a move', async () => {
     await openSheet(agentRow({ role: 'Support' }))
-    await roleSelect().setValue('support')
+    await pickRole('Support')
 
     expect(note().exists()).toBe(false)
   })
@@ -287,7 +231,7 @@ describe('moving an agent off the support role (C9)', () => {
     // before it decides, so a row stored as "Support" loses the queue on
     // this save like any other agent.
     await openSheet(agentRow({ role: 'Support' }))
-    await roleSelect().setValue('mentor')
+    await pickRole('Mentor')
 
     expect(note().exists()).toBe(true)
   })
@@ -297,16 +241,16 @@ describe('moving an agent off the support role (C9)', () => {
     // is_support() is true for every admin (backend tickets/permissions.py).
     // A note saying they lose the queue would be false.
     await openSheet(agentRow())
-    await roleSelect().setValue('admin')
+    await pickRole('Admin')
 
     expect(note().exists()).toBe(false)
-    expect(roleSelect().attributes('aria-describedby')).toBeUndefined()
+    expect(sheet().find('#f-role-edit').attributes('aria-describedby')).toBeUndefined()
   })
 
   it('says nothing when somebody who is not an agent changes role', async () => {
     // Load-bearing: a note shown on every role change passes the first test.
     await openSheet(agentRow({ role: 'mentor', country: AUSTRALIA }))
-    await roleSelect().setValue('student')
+    await pickRole('Student')
 
     expect(note().exists()).toBe(false)
   })

@@ -145,6 +145,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
             delivered=0,
             failed=1,
             source_mailbox=sender.address,
+            recipients=[guardian.email],
         )
         return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
 

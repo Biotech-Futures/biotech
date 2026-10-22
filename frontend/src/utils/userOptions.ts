@@ -16,24 +16,6 @@
 export const USER_ROLES = ['student', 'mentor', 'supervisor', 'admin', 'support'] as const
 export type UserRole = (typeof USER_ROLES)[number]
 
-// The roles that carry no geography, so the editor hides the country and state
-// fields for them, a role change to one clears them, validation does not ask
-// for a country, the create call sends neither and the update call sends
-// null for both. Support is here for the same reason admin is: nothing reads
-// an agent's country (Ticket.region snapshots the requester's, taken at
-// submission), so asking for one would be asking for a fact no code looks at.
-//
-// The backend twin is ROLES_WITHOUT_GEOGRAPHY in
-// backend/apps/admin/services/user.py. The two must agree: "support" was once
-// added to the create path's exemption and not the update path's, so an agent
-// could be created and then never saved again ("Country cannot be cleared").
-// userOptions.spec.ts reads the backend file to keep them in step.
-export const ROLES_WITHOUT_GEOGRAPHY: readonly UserRole[] = ['admin', 'support']
-
-export function roleHasGeography(role: string): boolean {
-  return !(ROLES_WITHOUT_GEOGRAPHY as readonly string[]).includes(role)
-}
-
 export const INTEREST_OPTIONS = [
   'Biomedical Innovations',
   'Environmental Sustainability & Climate Tech',

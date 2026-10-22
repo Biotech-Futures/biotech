@@ -123,6 +123,21 @@ def _switched_off() -> str:
     return f"{get_email_type(EMAIL_KEY).name} is switched off on System Emails."
 
 
+def send_blocked_reason() -> str:
+    """Why Notify Finalists can't send, or "" when it may go ahead: its email
+    switched off, its details not all set or already past, or submissions
+    still open. Resend on System Emails' Log asks the same."""
+    switched_off = _switched_off()
+    if switched_off:
+        return switched_off
+    details = FinalistEmailSettings.load()
+    if not details.is_complete:
+        return MISSING_DETAILS
+    if details.dates_before(symposium_today()):
+        return PAST_DATES
+    return submissions_open_reason()
+
+
 class FinalistEmailSettingsView(APIView):
     """GET/PATCH /api/v1/management/finalists/email/ — the dates and link the
     finalist email gives teams. Also says whether the email is complete."""
@@ -220,17 +235,9 @@ class FinalistNotifyAllView(APIView):
     def post(self, request):
         # Refused up front, as the other Management emails are: a run would
         # send nothing and log every member as missed.
-        switched_off = _switched_off()
-        if switched_off:
-            return Response({"detail": switched_off}, status=status.HTTP_400_BAD_REQUEST)
-        details = FinalistEmailSettings.load()
-        if not details.is_complete:
-            return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)
-        if details.dates_before(symposium_today()):
-            return Response({"detail": PAST_DATES}, status=status.HTTP_400_BAD_REQUEST)
-        open_reason = submissions_open_reason()
-        if open_reason:
-            return Response({"detail": open_reason}, status=status.HTTP_400_BAD_REQUEST)
+        blocked = send_blocked_reason()
+        if blocked:
+            return Response({"detail": blocked}, status=status.HTTP_400_BAD_REQUEST)
         which = request.data.get("which") or ""
         if which not in ("", *WHICH):
             return Response({"detail": "which must be new or missed"}, status=status.HTTP_400_BAD_REQUEST)
@@ -257,7 +264,7 @@ def _finalist_work(actor, options: dict) -> list[Work]:
     work = []
     for flag, addresses in _due(options.get("which", ""), options.get("group_ids")):
         people = member_labels(flag.group, addresses)
-        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor)))
+        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor), list(people)))
     return work
 
 

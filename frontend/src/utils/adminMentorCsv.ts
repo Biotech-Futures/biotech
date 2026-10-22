@@ -30,6 +30,7 @@ const MENTOR_HEADER_ALIASES: Record<string, string> = {
   'mentor reason': 'mentorReason',
   capacity: 'capacity',
   'max group count': 'capacity',
+  expertise: 'interests',
   'area(s) of interest': 'interests',
   'areas of interest': 'interests',
   interests: 'interests',
@@ -121,7 +122,7 @@ export function parseMentorCsv(text: string): {
     ['firstName', 'First Name'],
     ['lastName', 'Surname'],
     ['country', 'Country'],
-    ['interests', 'Area(s) of Interest'],
+    ['interests', 'Expertise'],
     ['mentorReason', 'Mentor Reason'],
     ['institution', 'Institution or Company'],
     ['capacity', 'Capacity']
@@ -230,10 +231,10 @@ export const MENTOR_CSV_TEMPLATE = buildCsvTemplate(
     ['firstName', 'First Name', 'Mary'],
     ['lastName', 'Surname', 'Somerville'],
     ['country', 'Country', 'Australia'],
-    ['region', 'Region', 'NSW'],
+    ['region', 'State', 'NSW'],
     ['mentorReason', 'Mentor Reason', 'I want to support students exploring biotech careers.'],
     ['capacity', 'Capacity', '2'],
-    ['interests', 'Area(s) of Interest', 'Genetics, Bioinformatics'],
+    ['interests', 'Expertise', 'Genetics, Bioinformatics'],
     ['background', 'Background', 'Postgraduate'],
     ['institution', 'Institution or Company', 'University of Sydney']
   ]

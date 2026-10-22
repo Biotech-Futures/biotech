@@ -182,9 +182,6 @@
           </span>
         </button>
       </div>
-      <p class="setup-signin">
-        Already have an account? <RouterLink to="/login">Sign in</RouterLink>
-      </p>
       <p v-if="!invitationToken" class="supervisor-guidance">
         If you are a supervisor, please
         contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
@@ -340,6 +337,7 @@
               >
             </label>
           </section>
+          <EmailCheckProgress v-if="emailCheckProgress" :progress="emailCheckProgress" />
           <div v-if="serverError" class="server-error" role="alert" tabindex="-1">
             <strong>We couldn’t submit this registration.</strong>
             <span>{{ serverError }}</span>
@@ -587,6 +585,8 @@
                       :prefix="`studentTeam.teammates.${index}`"
                       section="teammate"
                       :errors="errors"
+                      :school-suggestions="teamSchoolsBesides(index)"
+                      :region-suggestions="teamRegionsBesides(index)"
                       allow-guardian-defer
                     />
                   </div>
@@ -641,6 +641,8 @@
                     prefix="supervisorIndividual.student"
                     section="full"
                     :errors="errors"
+                    :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
+                    :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     allow-guardian-defer
                   />
                 </div>
@@ -664,6 +666,8 @@
                     :prefix="`supervisorIndividual.extraStudents.${index}`"
                     section="full"
                     :errors="errors"
+                    :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
+                    :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     allow-guardian-defer
                   />
                 </div>
@@ -672,16 +676,6 @@
 
             <template v-else-if="journey === 'supervisor_group'">
               <div v-if="currentStep === 0" class="step-stack">
-                <RegistrationInterestSelector
-                  id="supervisor-group-interests"
-                  v-model="forms.supervisorGroup.interests"
-                  label="Mutual Areas of Interest"
-                  description="Choose the areas of interest for this group."
-                  :error="errors['supervisorGroup.interests']"
-                />
-              </div>
-
-              <div v-else-if="currentStep === 1" class="step-stack">
                 <!-- Add student is in the footer, beside Continue. -->
                 <div class="section-divider section-divider--first">
                   <h3>Students</h3>
@@ -697,9 +691,10 @@
                 >
                   <div class="student-entry__heading">
                     <h3>Student {{ index + 1 }}</h3>
-                    <!-- A group always has Students 1 and 2; only those after can go. -->
+                    <!-- Student 1 always stays; down to them alone, it becomes
+                         Register one student. -->
                     <button
-                      v-if="index >= 2"
+                      v-if="index >= 1"
                       type="button"
                       class="btn btn-outline-danger btn-sm"
                       @click="removeSupervisorGroupStudent(index)"
@@ -712,9 +707,26 @@
                     :prefix="`supervisorGroup.students.${index}`"
                     section="full"
                     :errors="errors"
+                    :school-suggestions="supervisedSchoolsBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
+                    :region-suggestions="supervisedStatesBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     allow-guardian-defer
                   />
                 </div>
+              </div>
+
+              <!-- After the students: those all of them chose ticked when it
+                   first opens, and every area by how many of them chose it. -->
+              <div v-else-if="currentStep === 1" class="step-stack">
+                <RegistrationInterestSelector
+                  id="supervisor-group-interests"
+                  v-model="forms.supervisorGroup.interests"
+                  label="Mutual Areas of Interest"
+                  description="Those all the students chose are ticked. Every area is listed by how many of them chose it."
+                  :options="groupInterestOrder"
+                  :counts="groupInterestCounts"
+                  :total="forms.supervisorGroup.students.length"
+                  :error="errors['supervisorGroup.interests']"
+                />
               </div>
             </template>
 
@@ -916,11 +928,11 @@
                   required
                 />
                 <!-- In Australia, its State (required, a dropdown of its states
-                     and territories); elsewhere a Region (optional). -->
+                     and territories); elsewhere typed in (optional). -->
                 <RegistrationTextField
                   id="mentor-state"
                   v-model="forms.mentor.state"
-                  :label="stateLabel(forms.mentor.country)"
+                  :label="stateLabel()"
                   :options="mentorStateOptions.length ? mentorStateOptions : undefined"
                   :placeholder="mentorStateOptions.length ? 'Select a state' : undefined"
                   :error="errors['mentor.state']"
@@ -966,6 +978,7 @@
                     id="mentor-institution"
                     v-model="forms.mentor.institution"
                     label="University or institution"
+                    :suggestions="universityNames"
                     :error="errors['mentor.institution']"
                     required
                     wide
@@ -1005,26 +1018,27 @@
                 <RegistrationInterestSelector
                   id="mentor-interests"
                   v-model="forms.mentor.interests"
-                  label="Relevant interests"
+                  label="Expertise"
                   description="Choose the areas where you could support a student group."
                   :error="errors['mentor.interests']"
                 />
                 <label class="select-field">
                   <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
-                  <select
+                  <AppSelect
                     id="mentor-capacity"
-                    v-model="forms.mentor.capacity"
+                    class="app-input"
+                    :model-value="forms.mentor.capacity"
+                    :options="CAPACITY_OPTIONS"
+                    placeholder="Select group capacity"
                     :aria-invalid="Boolean(errors['mentor.capacity'])"
                     :aria-describedby="
                       errors['mentor.capacity'] ? 'mentor-capacity-error' : undefined
                     "
                     required
-                  >
-                    <option value="" disabled>Select group capacity</option>
-                    <option v-for="count in ['1', '2', '3', '4', '5']" :key="count" :value="count">
-                      {{ count }} {{ count === '1' ? 'group' : 'groups' }}
-                    </option>
-                  </select>
+                    @update:model-value="
+                      (value) => (forms.mentor.capacity = String(value ?? '') as typeof forms.mentor.capacity)
+                    "
+                  />
                   <span
                     v-if="errors['mentor.capacity']"
                     id="mentor-capacity-error"
@@ -1033,11 +1047,17 @@
                     {{ errors['mentor.capacity'] }}
                   </span>
                 </label>
-                <RegistrationAvailabilityField
-                  id="mentor-availability"
-                  v-model="forms.mentor.availability"
-                  prefix="mentor.availability"
-                  :errors="errors"
+                <RegistrationTextField
+                  id="mentor-hours"
+                  v-model="forms.mentor.weeklyHours"
+                  label="Hours per week"
+                  class="mentor-hours"
+                  digits
+                  :max-length="2"
+                  :min="1"
+                  :max="MAX_WEEKLY_HOURS"
+                  :error="errors['mentor.weeklyHours']"
+                  required
                 />
                 <RegistrationTextField
                   id="mentor-background"
@@ -1106,6 +1126,30 @@
                 </dl>
               </div>
             </div>
+
+            <!-- BIOTech Futures' policies, agreed to before submitting: the
+                 last step of a student's or mentor's own registration (not a
+                 supervisor's or admin's registering students for them). -->
+            <div v-if="currentStep === steps.length - 1 && policiesAsked" class="policies-agree">
+              <label class="policies-agree__check">
+                <input
+                  ref="policiesRef"
+                  v-model="policiesAgreed"
+                  type="checkbox"
+                  data-test="policies-agree"
+                  :aria-invalid="Boolean(policiesError)"
+                  :aria-describedby="policiesError ? 'policies-agree-error' : undefined"
+                />
+                <span>
+                  I have read and agree to the
+                  <a :href="POLICIES_URL" target="_blank" rel="noopener noreferrer">BIOTech Futures policies</a>
+                  <span class="required-mark" aria-hidden="true"> *</span>
+                </span>
+              </label>
+              <p v-if="policiesError" id="policies-agree-error" class="policies-agree__error" role="alert">
+                {{ policiesError }}
+              </p>
+            </div>
           </section>
 
           <!-- On the right; the steps above go back, and Back to the
@@ -1116,7 +1160,7 @@
             <p
               v-if="
                 (journey === 'supervisor_individual' && currentStep === 0) ||
-                (journey === 'supervisor_group' && currentStep === 1)
+                (journey === 'supervisor_group' && currentStep === 0)
               "
               class="form-footer-note"
             >
@@ -1132,7 +1176,7 @@
               Add student
             </button>
             <button
-              v-if="journey === 'supervisor_group' && currentStep === 1"
+              v-if="journey === 'supervisor_group' && currentStep === 0"
               type="button"
               class="secondary-action"
               :disabled="isSubmitting || forms.supervisorGroup.students.length >= 5"
@@ -1174,11 +1218,12 @@
 
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { RouterLink } from 'vue-router'
 
-import RegistrationAvailabilityField from '@/components/registration/RegistrationAvailabilityField.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import SupervisorSearchField from '@/components/registration/SupervisorSearchField.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
@@ -1194,7 +1239,9 @@ import {
   type GroupCodeCheck,
 } from '@/registration/groupCode'
 import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
-import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
+import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
+import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
 import { formatDayMonthTime } from '@/utils/date'
 import {
   buildRegistrationRequest,
@@ -1207,6 +1254,7 @@ import {
   createRegistrationForms,
   CSV_HEADERS,
   createStudent,
+  INTEREST_CATEGORIES,
   createPendingPeer,
   countWords,
   findCrossRoleEmailConflicts,
@@ -1220,8 +1268,7 @@ import {
   revalidateRegistrationCsvRows,
   stateLabel,
   supervisorSummary,
-  WEEKDAY_NAMES,
-  type AvailabilitySlot,
+  MAX_WEEKLY_HOURS,
   type CsvCategory,
   type CsvHeader,
   type CsvRow,
@@ -1402,14 +1449,14 @@ const journeyOptions: JourneyOption[] = [
     description: 'Create a pre-formed group with 2-5 complete student entries.',
     steps: [
       {
-        label: 'Group',
-        title: 'Describe the group',
-        description: 'Choose the areas of interest for the group.',
-      },
-      {
         label: 'Students',
         title: 'Add 2–5 students',
         description: 'Each student later completes their own action and guardian journey.',
+      },
+      {
+        label: 'Group',
+        title: 'Describe the group',
+        description: 'Choose the areas of interest for the group.',
       },
       {
         label: 'Review',
@@ -1461,7 +1508,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'Mentoring',
         title: 'How you would mentor',
-        description: 'Choose interests, capacity, availability and tell us about yourself.',
+        description: 'Choose interests, capacity and hours, and tell us about yourself.',
       },
       {
         label: 'Review',
@@ -1480,6 +1527,12 @@ const STUDY_YEAR_OPTIONS = [
   { value: '4', label: 'Year 4' },
   { value: '5+', label: 'Year 5 or later' },
 ]
+
+// How many groups a mentor can take on.
+const CAPACITY_OPTIONS: AppSelectOption[] = ['1', '2', '3', '4', '5'].map((count) => ({
+  value: count,
+  label: `${count} ${count === '1' ? 'group' : 'groups'}`,
+}))
 
 const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
   { value: 'undergraduate', label: 'Undergraduate student' },
@@ -1527,6 +1580,8 @@ const invitationToken = computed(() =>
   props.invitationToken === undefined ? initialInvitationToken : props.invitationToken || undefined,
 )
 const injectedGateway = inject(REGISTRATION_GATEWAY_KEY, null)
+// Checking the email addresses before submitting, when the gateway can.
+const { progress: emailCheckProgress, check: checkEmails } = useEmailPrecheck()
 const unavailableGateway: RegistrationGateway = {
   async submit() {
     return {
@@ -1549,11 +1604,15 @@ if (draft) {
 // The countries, and in Australia its states, from the database, for the
 // mentor's dropdowns.
 const mentorCountryOptions = useCountryOptions()
+// Offered as a mentor types their university (Management > Known Universities).
+const universityNames = useUniversityNames()
 const mentorStateOptions = useStateOptions(() => forms.mentor.country)
+// Another country: its state or region starts again, but only from one they'd
+// picked (none to start).
 watch(
   () => forms.mentor.country,
   (country, before) => {
-    if (country !== before) forms.mentor.state = ''
+    if (before && country !== before) forms.mentor.state = ''
   },
 )
 const journey = ref<RegistrationJourney | null>(null)
@@ -1635,6 +1694,106 @@ const joinError = computed(
         ? JOIN_CODE_FULL
         : undefined),
 )
+
+// What the rest of a student group gave (Member 1 and the other members),
+// each once, offered as a member's own is typed.
+const teamOthers = (index: number) => {
+  const team = forms.studentTeam
+  return [team.creator, ...team.teammates.filter((_, other) => other !== index)]
+}
+// The signed-in supervisor's own school, country and state: their students'
+// likeliest. Each of their students starts in their country, and is offered
+// their school and state as theirs is typed. None for an admin registering
+// (Management > Registration): theirs aren't their students'.
+const auth = useAuthStore()
+const supervisorSelf = computed(() => {
+  const user = auth.user
+  if (!isSupervisorMode.value || !user || !auth.isSupervisor) return { school: '', country: '', state: '' }
+  return {
+    school: user.supervisor_school_name || '',
+    country: user.country?.countryName || '',
+    state: user.state?.stateName || '',
+  }
+})
+// Register a student group's Mutual Areas of Interest: how many of its
+// students chose each, every area by that (most first; ties as listed), and
+// those all of them chose ticked each time the step opens, beside any ticked
+// already (a saved draft's, or ticked before going back to the students).
+const groupInterestCounts = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const student of forms.supervisorGroup.students) {
+    for (const interest of new Set(student.interests)) counts[interest] = (counts[interest] ?? 0) + 1
+  }
+  return counts
+})
+const groupInterestOrder = computed(() =>
+  [...INTEREST_CATEGORIES].sort(
+    (a, b) => (groupInterestCounts.value[b] ?? 0) - (groupInterestCounts.value[a] ?? 0),
+  ),
+)
+watch(
+  () => journey.value === 'supervisor_group' && currentStep.value === 1,
+  (onInterests) => {
+    if (!onInterests) return
+    const total = forms.supervisorGroup.students.length
+    const ticked = new Set(forms.supervisorGroup.interests)
+    const shared = INTEREST_CATEGORIES.filter(
+      (interest) => total > 0 && groupInterestCounts.value[interest] === total && !ticked.has(interest),
+    )
+    if (shared.length) forms.supervisorGroup.interests = [...forms.supervisorGroup.interests, ...shared]
+  },
+  { immediate: true },
+)
+
+const supervisorIndividualStudents = computed(() => [
+  forms.supervisorIndividual.student,
+  ...forms.supervisorIndividual.extraStudents,
+])
+const sameCountry = (one: string, other: string) => one.trim().toLowerCase() === other.trim().toLowerCase()
+// The supervisor's school, then the other students' in this registration.
+const supervisedSchoolsBesides = (student: StudentDetails, students: StudentDetails[]) =>
+  distinct([supervisorSelf.value.school, ...students.filter((other) => other !== student).map((other) => other.school)])
+// The supervisor's state and the other students', from the same country only.
+const supervisedStatesBesides = (student: StudentDetails, students: StudentDetails[]) => {
+  if (!student.country.trim()) return []
+  const { country, state } = supervisorSelf.value
+  return distinct([
+    ...(country && sameCountry(country, student.country) ? [state] : []),
+    ...students
+      .filter((other) => other !== student && sameCountry(other.country, student.country))
+      .map((other) => other.state),
+  ])
+}
+// A student with no country yet starts in the supervisor's.
+const startInSupervisorCountry = (student: StudentDetails) => {
+  if (!student.country && supervisorSelf.value.country) student.country = supervisorSelf.value.country
+}
+watch(
+  journey,
+  (current) => {
+    if (current === 'supervisor_individual') supervisorIndividualStudents.value.forEach(startInSupervisorCountry)
+    if (current === 'supervisor_group') forms.supervisorGroup.students.forEach(startInSupervisorCountry)
+  },
+)
+
+const distinct = (values: string[]) => {
+  const kept = new Map<string, string>()
+  for (const value of values.map((item) => (item || '').trim())) {
+    if (value && !kept.has(value.toLowerCase())) kept.set(value.toLowerCase(), value)
+  }
+  return [...kept.values()]
+}
+const teamSchoolsBesides = (index: number) => distinct(teamOthers(index).map((member) => member.school))
+// Regions from members in the same country only: Ontario is no help in New Zealand.
+const teamRegionsBesides = (index: number) => {
+  const country = (forms.studentTeam.teammates[index]?.country || '').trim().toLowerCase()
+  if (!country) return []
+  return distinct(
+    teamOthers(index)
+      .filter((member) => (member.country || '').trim().toLowerCase() === country)
+      .map((member) => member.state),
+  )
+}
 
 // Create a student group: its code held when its Group step opens (once per
 // registration), to show and copy there.
@@ -1722,6 +1881,23 @@ const steps = computed(() => {
 // Every journey's last step is Review, but Register one student's on its own.
 const isReviewStepIndex = (index: number) => steps.value[index]?.label === 'Review'
 const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
+
+// BIOTech Futures' policies: ticked on the last step to submit, and asked
+// again for each registration (a new journey, or after one is sent).
+const POLICIES_URL = 'https://www.biotechfutures.org/policies'
+const policiesAgreed = ref(false)
+// Asked of those registering themselves; a supervisor or admin registering
+// students isn't agreeing for them.
+const policiesAsked = computed(() => !(journey.value && SUPERVISOR_JOURNEYS.includes(journey.value)))
+const policiesError = ref('')
+const policiesRef = ref<HTMLInputElement | null>(null)
+watch(policiesAgreed, (agreed) => {
+  if (agreed) policiesError.value = ''
+})
+watch(journey, () => {
+  policiesAgreed.value = false
+  policiesError.value = ''
+})
 const roleJourneyOptions = computed(() => {
   if (selectedRole.value === 'student') {
     return journeyOptions.filter((option) =>
@@ -1781,7 +1957,11 @@ const includedCsvRows = computed(() =>
   ),
 )
 const warningSubject = (warning: RegistrationWarning) => {
-  const field = warning.field.endsWith('.school') ? 'School' : 'Student email'
+  const field = warning.field.endsWith('.school')
+    ? 'School'
+    : warning.field.endsWith('.guardian.email')
+      ? 'Guardian email'
+      : 'Student email'
   const csvRow = /^supervisorCsv\.rows\.(\d+)\./.exec(warning.field)
   if (csvRow) return `CSV row ${includedCsvRows.value[Number(csvRow[1])]?.rowNumber} - ${field}`
   const student = /^supervisorGroup\.students\.(\d+)\./.exec(warning.field)
@@ -1843,21 +2023,6 @@ const guardianName = (guardian: GuardianDetails) =>
     : 'Deferred or not provided'
 const interestSummary = (interests: string[]) => interests.join(', ') || 'Not provided'
 // "09:30" as "9:30 am".
-const clockTime = (time: string) => {
-  const [hours = 0, minutes = 0] = time.split(':').map(Number)
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, '0')} ${hours < 12 ? 'am' : 'pm'}`
-}
-
-// A mentor's weekly times on Review: each one given in full.
-const availabilitySummary = (slots: AvailabilitySlot[]) =>
-  slots
-    .filter((slot) => slot.weekday && slot.start && slot.end)
-    .map(
-      (slot) =>
-        `${WEEKDAY_NAMES[Number(slot.weekday)]} ${clockTime(slot.start)} – ${clockTime(slot.end)}`,
-    )
-    .join(' · ')
-
 // A student group's teammates as registered: those left empty aren't.
 const filledTeammates = computed(() =>
   forms.studentTeam.teammates.filter((student) => !isBlankStudent(student)),
@@ -1898,7 +2063,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
               value: form.student.yearLevel ? `Year ${form.student.yearLevel}` : '',
             },
             { label: 'Country', value: form.student.country },
-            { label: stateLabel(form.student.country), value: form.student.state },
+            { label: stateLabel(), value: form.student.state },
             { label: 'Interests', value: interestSummary(form.student.interests) },
           ],
         },
@@ -2054,7 +2219,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             { label: 'Name', value: `${forms.mentor.firstName} ${forms.mentor.lastName}` },
             { label: 'Email', value: forms.mentor.email },
             { label: 'Country', value: forms.mentor.country },
-            { label: stateLabel(forms.mentor.country), value: forms.mentor.state },
+            { label: stateLabel(), value: forms.mentor.state },
           ],
         },
         {
@@ -2087,12 +2252,15 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
         {
           title: 'Mentoring',
           items: [
-            { label: 'Interests', value: interestSummary(forms.mentor.interests) },
+            { label: 'Expertise', value: interestSummary(forms.mentor.interests) },
             {
               label: 'Capacity',
               value: `${forms.mentor.capacity} group${forms.mentor.capacity === '1' ? '' : 's'}`,
             },
-            { label: 'Availability', value: availabilitySummary(forms.mentor.availability) },
+            {
+              label: 'Hours per week',
+              value: `${forms.mentor.weeklyHours} hour${forms.mentor.weeklyHours === '1' ? '' : 's'}`,
+            },
           ],
         },
       ]
@@ -2237,16 +2405,16 @@ const validateCurrentStep = () => {
     }
   } else if (journey.value === 'supervisor_group') {
     if (step === 0) {
-      if (!forms.supervisorGroup.interests.length)
-        clientErrors['supervisorGroup.interests'] = 'Choose at least one group interest.'
-    }
-    if (step === 1) {
       if (forms.supervisorGroup.students.length < 2 || forms.supervisorGroup.students.length > 5) {
         clientErrors['supervisorGroup.size'] = 'A supervisor group must include 2–5 students.'
       }
       forms.supervisorGroup.students.forEach((student, index) =>
         validateStudentFull(student, `supervisorGroup.students.${index}`),
       )
+    }
+    if (step === 1) {
+      if (!forms.supervisorGroup.interests.length)
+        clientErrors['supervisorGroup.interests'] = 'Choose at least one group interest.'
     }
   } else if (journey.value === 'supervisor_csv') {
     if (step === 0 && !forms.supervisorCsv.rows.length) {
@@ -2297,7 +2465,7 @@ const validateCurrentStep = () => {
     }
     if (step === 2) {
       if (!forms.mentor.interests.length)
-        clientErrors['mentor.interests'] = 'Choose at least one relevant interest.'
+        clientErrors['mentor.interests'] = 'Choose at least one area of expertise.'
       requireValue(
         'mentor.capacity',
         forms.mentor.capacity,
@@ -2323,14 +2491,12 @@ const validateCurrentStep = () => {
         if (countWords(forms.mentor[field]) > MENTOR_MAX_WORDS)
           clientErrors[`mentor.${field}`] = `Keep this to ${MENTOR_MAX_WORDS} words or fewer.`
       }
-      // A time given in full (day, from, to), ending after it starts.
-      forms.mentor.availability.forEach((slot, index) => {
-        const given = [slot.weekday, slot.start, slot.end].filter(Boolean).length
-        if (!given) return
-        if (given < 3) clientErrors[`mentor.availability.${index}`] = 'Choose a day and both times.'
-        else if (slot.end <= slot.start)
-          clientErrors[`mentor.availability.${index}`] = 'End after it starts.'
-      })
+      // Hours a week: a whole number from 1 to 40.
+      const hours = String(forms.mentor.weeklyHours ?? '').trim()
+      if (!hours) clientErrors['mentor.weeklyHours'] = 'Enter how many hours a week you can give.'
+      else if (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)
+        clientErrors['mentor.weeklyHours'] =
+          `Enter a whole number of hours from 1 to ${MAX_WEEKLY_HOURS}.`
     }
   }
 
@@ -2347,8 +2513,21 @@ const focusErrors = async () => {
   else errorSummaryRef.value?.focus()
 }
 
+// A step opens at its start, not wherever Continue was pressed (low on the
+// last step, which left the next one showing Member 1): straight there, not
+// gliding. Within Management > Registration, the form's top comes into view.
+const showStepStart = () => {
+  if (props.embedded) {
+    const surface = stepHeadingRef.value?.closest<HTMLElement>('.form-surface')
+    if (surface && surface.getBoundingClientRect().top < 0) surface.scrollIntoView?.({ block: 'start' })
+    return
+  }
+  window.scrollTo({ top: 0, behavior: 'auto' })
+}
+
 const focusStep = async () => {
   await nextTick()
+  showStepStart()
   stepHeadingRef.value?.focus({ preventScroll: true })
 }
 
@@ -2473,11 +2652,27 @@ const continueJoining = () => {
   handlePrimaryAction()
 }
 
+// A member added starts in Member 1's country, the likeliest; it can be changed.
 const addStudentTeammate = () => {
   if (forms.studentTeam.teammates.length < 4) {
-    forms.studentTeam.teammates.push(createPendingPeer())
+    const teammate = createPendingPeer()
+    teammate.country = forms.studentTeam.creator.country
+    forms.studentTeam.teammates.push(teammate)
   }
 }
+
+// Member 1 picking or changing country takes along the members still in
+// their old one (none, to start) with no region given yet; one who chose
+// another country keeps it.
+watch(
+  () => forms.studentTeam.creator.country,
+  (country, before) => {
+    if (!country || country === before) return
+    for (const teammate of forms.studentTeam.teammates) {
+      if (teammate.country === before && !teammate.state.trim()) teammate.country = country
+    }
+  },
+)
 
 const removeStudentTeammate = (index: number) => {
   if (forms.studentTeam.teammates.length > 0) {
@@ -2488,7 +2683,9 @@ const removeStudentTeammate = (index: number) => {
 
 const addSupervisorGroupStudent = () => {
   if (forms.supervisorGroup.students.length < 5) {
-    forms.supervisorGroup.students.push(createStudent({ deferGuardian: true }))
+    const student = createStudent({ deferGuardian: true })
+    startInSupervisorCountry(student)
+    forms.supervisorGroup.students.push(student)
   }
 }
 
@@ -2496,7 +2693,9 @@ const addSupervisorGroupStudent = () => {
 // to 5 in all, registered together as one group (see oneStudentAsGroup).
 const addExtraStudent = () => {
   if (forms.supervisorIndividual.extraStudents.length < 4) {
-    forms.supervisorIndividual.extraStudents.push(createStudent({ deferGuardian: true }))
+    const student = createStudent({ deferGuardian: true })
+    startInSupervisorCountry(student)
+    forms.supervisorIndividual.extraStudents.push(student)
   }
 }
 
@@ -2530,10 +2729,25 @@ const fromOneStudentGroup = (path: string) => {
 }
 
 const removeSupervisorGroupStudent = (index: number) => {
-  if (forms.supervisorGroup.students.length > 2) {
-    forms.supervisorGroup.students.splice(index, 1)
+  const students = forms.supervisorGroup.students
+  if (students.length > 2) {
+    students.splice(index, 1)
     reindexStudentErrors('supervisorGroup.students', index)
+    return
   }
+  if (students.length !== 2) return
+  // Down to one: a group of one is Register one student, which it becomes,
+  // that student kept, on its single page (no steps to show).
+  const kept = students[index === 0 ? 1 : 0]!
+  forms.supervisorIndividual.student = kept
+  forms.supervisorIndividual.extraStudents = []
+  forms.supervisorGroup.students = [createStudent({ deferGuardian: true }), createStudent({ deferGuardian: true })]
+  forms.supervisorGroup.interests = []
+  journey.value = 'supervisor_individual'
+  currentStep.value = 0
+  maxReachedStep.value = 0
+  clearErrors()
+  void focusStep()
 }
 
 const reindexErrorMap = (
@@ -2744,6 +2958,11 @@ const submitRegistration = async () => {
     warningSummaryRef.value?.focus()
     return
   }
+  if (policiesAsked.value && !policiesAgreed.value) {
+    policiesError.value = 'Tick the box to agree to the BIOTech Futures policies.'
+    policiesRef.value?.focus()
+    return
+  }
   for (const warning of registrationWarnings.value)
     warningOverrides.value[warning.overrideField] = true
   serverError.value = ''
@@ -2783,6 +3002,13 @@ const submitRegistration = async () => {
       forms.supervisorGroup.students.forEach((student, index) =>
         attach(student, `supervisorGroup.students.${index}`),
       )
+    // Any address found not to exist then comes back as a warning to correct
+    // or confirm. Skipped whenever it can't be done; never holds this up.
+    await checkEmails(registrationGateway, request, {
+      invitationToken: invitationToken.value,
+      overrides: { ...warningOverrides.value },
+      supervisorEmail: supervisorEmail || undefined,
+    })
     const result = await registrationGateway.submit(request, {
       attachments,
       invitationToken: invitationToken.value,
@@ -2857,6 +3083,7 @@ const scrollToTop = () => {
 }
 
 const resetRegistration = () => {
+  policiesAgreed.value = false
   registeredNote.value = ''
   submissionKey = ''
   submissionSignature = ''
@@ -2946,6 +3173,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* A mentor's hours per week: a number, so a third of the row. */
+.mentor-hours {
+  width: calc(100% / 3);
+  min-width: 10rem;
+}
+
 .registration-warnings {
   margin-block: 1rem;
   padding: 1rem;
@@ -3173,18 +3406,8 @@ onBeforeUnmount(() => {
 }
 
 /* Lined up under the cards, as the rest of the page is. */
-.setup-signin {
-  margin: 30px 0 0;
-  color: var(--registration-muted);
-}
-
-.setup-signin a {
-  color: var(--registration-green-dark);
-  font-weight: 700;
-}
-
 .supervisor-guidance {
-  margin: 12px 0 0;
+  margin: 30px 0 0;
   color: var(--registration-muted);
   font-size: 0.9rem;
 }
@@ -4011,22 +4234,23 @@ form,
   font-weight: 500;
 }
 
-/* As tall as the text boxes beside it (RegistrationTextField). */
-.select-field select {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+/* The shared box (app-input), as the text boxes beside it, in
+   registration's colours. */
+.select-field .app-select {
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);
-  font: inherit;
 }
 
-.select-field select:focus-visible {
+.select-field .app-select:focus-within {
   border-color: var(--registration-green);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
+}
+
+/* Its border and soft ring only: no outline. */
+.select-field .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
 }
 
 .review-section dl {
@@ -4068,6 +4292,42 @@ dd {
 .review-step {
   display: grid;
   gap: 32px;
+}
+
+/* The policies to agree to: a line of its own above Submit registration. */
+.policies-agree {
+  margin-top: 32px;
+}
+
+.policies-agree__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--registration-ink);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+/* Centred on the first line of its text, at any text size. */
+.policies-agree__check input {
+  flex: 0 0 auto;
+  width: 1.0625rem;
+  height: 1.0625rem;
+  margin: calc((0.92rem * 1.45 - 1.0625rem) / 2) 0 0;
+  accent-color: var(--registration-green);
+  cursor: pointer;
+}
+
+.policies-agree__check a {
+  color: var(--registration-green);
+  font-weight: 600;
+}
+
+.policies-agree__error {
+  margin: 8px 0 0 calc(1.0625rem + 10px);
+  color: #982c27;
+  font-size: 0.82rem;
 }
 
 /* A member's name, email and guardian: columns as wide on every row, so

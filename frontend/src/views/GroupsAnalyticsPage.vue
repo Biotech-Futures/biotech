@@ -28,10 +28,7 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="loading || !!loadError" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -59,7 +56,7 @@
             <strong><AnalyticsNumber :value="data.totalGroups" /></strong>
             <AnalyticsYearChange :current="groupComparison.current" :previous="groupComparison.previous" :label="`vs ${groupComparison.previousYear}`" />
           </div>
-          <small>Current groups, compared by creation year</small>
+          <small>Current groups</small>
         </div>
       </article>
 
@@ -76,7 +73,7 @@
               :label="`vs ${data.averageGroupSizePreviousYear}`"
             />
           </div>
-          <small>{{ data.averageGroupSizePrevious === null ? 'No earlier membership history available' : `Compared with ${data.averageGroupSizePreviousYear}` }}</small>
+          <small>Students per group</small>
         </div>
       </article>
 
@@ -127,7 +124,7 @@
               :label="`vs ${data.comparisonPreviousYear}`"
             />
           </div>
-          <small>{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Target 1 : 8' }}</small>
+          <small>{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Students per assigned mentor' }}</small>
         </div>
       </article>
     </section>
@@ -163,7 +160,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="group-donut-segment"
@@ -237,7 +234,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="group-donut-segment"
@@ -282,6 +279,81 @@
         </div>
       </article>
 
+      <article class="analytics-card student-assignment-card">
+        <h2>Student Assignment Coverage</h2>
+        <div v-if="studentAssignmentCoverage" class="donut-layout">
+          <div class="group-donut-wrap" @mouseleave="clearStudentCoverageSelection">
+            <svg
+              class="group-donut-svg"
+              viewBox="0 0 180 180"
+              role="img"
+              aria-label="Student assignment coverage"
+            >
+              <circle
+                cx="90"
+                cy="90"
+                r="64"
+                pathLength="100"
+                fill="none"
+                stroke="#e7ebef"
+                stroke-width="24"
+              />
+              <circle
+                v-for="segment in studentCoverageSegments"
+                :key="segment.label"
+                cx="90"
+                cy="90"
+                r="64"
+                pathLength="100"
+                fill="none"
+                :stroke="segment.color"
+                stroke-width="24"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
+                :stroke-dashoffset="-segment.start"
+                stroke-linecap="butt"
+                class="group-donut-segment"
+                :class="{ selected: selectedStudentCoverage?.label === segment.label }"
+                transform="rotate(-90 90 90)"
+                tabindex="0"
+                @mouseenter="selectStudentCoverage(segment)"
+                @focus="selectStudentCoverage(segment)"
+                @blur="clearStudentCoverageSelection"
+              />
+            </svg>
+
+            <div class="donut-centre group-donut-centre">
+              <template v-if="selectedStudentCoverage">
+                <span class="donut-selection-label">{{ selectedStudentCoverage.label }}</span>
+                <strong>{{ selectedStudentCoverage.value }}</strong>
+                <span>{{ selectedStudentCoverage.percent }}% of students</span>
+              </template>
+              <template v-else>
+                <strong>{{ studentAssignmentCoverage.total }}</strong>
+                <span>Total Students</span>
+              </template>
+            </div>
+          </div>
+
+          <div class="legend-list">
+            <div
+              v-for="segment in studentCoverageSegments"
+              :key="segment.label"
+              class="legend-row donut-legend-row"
+              :class="{ selected: selectedStudentCoverage?.label === segment.label }"
+              @mouseenter="selectStudentCoverage(segment)"
+              @mouseleave="clearStudentCoverageSelection"
+            >
+              <span>
+                <i class="dot" :style="{ background: segment.color }"></i>
+                {{ segment.label }}
+              </span>
+              <strong>{{ segment.value }} ({{ segment.percent }}%)</strong>
+            </div>
+          </div>
+        </div>
+        <p v-else class="student-assignment-unavailable">Student assignment data is unavailable.</p>
+      </article>
+
 <article class="analytics-card wide-distribution-card group-size-card">
         <h2>Group Size Distribution</h2>
         <div class="chart-with-y-axis">
@@ -312,38 +384,6 @@
         </div>
         <div class="y-axis-title">Number of Groups</div>
         <div class="axis-caption">Number of Students per Group</div>
-      </article>
-
-<article class="analytics-card wide-distribution-card ratio-card">
-        <h2>Mentor-to-Student Ratio by Group</h2>
-        <div class="chart-with-y-axis">
-          <div class="y-axis">
-            <span v-for="tick in axisTicks(maxRatioCount)" :key="tick">{{ tick }}</span>
-          </div>
-          <div class="y-axis-line">
-            <div class="vertical-chart">
-          <div
-            v-for="item in data.ratioDistribution"
-            :key="item.label"
-            class="vertical-bar-item"
-          >
-            <span class="bar-value">{{ item.value }}</span>
-            <div class="vertical-track">
-              <div
-                class="vertical-fill blue-bar interactive-chart-mark"
-                :style="{ height: `${barHeight(item.value, maxRatioCount)}%` }"
-                @mouseenter="showTooltip($event, `Ratio ${item.label}`, `${item.value} groups`, 'Mentor-to-student ratio')"
-                @mousemove="moveTooltip"
-                @mouseleave="hideTooltip"
-              ></div>
-            </div>
-            <span class="bar-label">{{ item.label }}</span>
-          </div>
-        </div>
-          </div>
-        </div>
-        <div class="y-axis-title">Number of Groups</div>
-        <div class="axis-caption">Mentor-to-Student Ratio</div>
       </article>
 
       <article class="analytics-card compact-insights-card insights-card">
@@ -465,15 +505,31 @@ import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { GroupsAnalyticsYear } from '@/types/analytics'
 import {
-  analyticsYears,
   buildGroupsAnalytics,
+  groupAnalyticsYears,
   groupYearComparison,
-  liveAnalyticsYear,
+  liveAnalyticsAsOf,
   loadGroupsAnalyticsBundle,
+  participantYearComparison,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import type { AdminGroup, AdminUser } from '@/utils/liveAnalyticsApi'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoDay,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const route = useRoute()
 const router = useRouter()
@@ -509,9 +565,9 @@ const liveData = ref<GroupsAnalyticsYear>({
   smallGroups: 0,
   inactiveRecent: 0,
   nearCapacity: 0,
+  overCapacity: 0,
   groupSizeDistribution: [],
   groupStatus: [],
-  ratioDistribution: [],
   groupActivity: [],
 })
 const liveUsers = ref<AdminUser[]>([])
@@ -520,7 +576,6 @@ const unavailableSources = ref<AnalyticsSource[]>([])
 const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
 const loadError = ref('')
 const loading = ref(true)
-const exporting = ref(false)
 const exportError = ref('')
 const groupBundle = ref<CoreAnalyticsBundle | null>(null)
 
@@ -531,6 +586,19 @@ useAnalyticsRefreshState('groups', {
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await initializeGroups(true, true) })
 
+function applySelectedYear(year: number) {
+  if (!groupBundle.value) return
+  liveData.value = buildGroupsAnalytics(groupBundle.value, year)
+  const previousSummary = groupBundle.value.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === year - 1)
+  groupComparison.value = {
+    year,
+    previousYear: year - 1,
+    current: liveData.value.totalGroups,
+    previous: previousSummary?.group_count ?? groupYearComparison(groupBundle.value.groups, year).previous,
+  }
+}
+
 async function initializeGroups(force = false, preserveFilters = false) {
   if (analyticsRefreshBusy.value) return
   analyticsRefreshBusy.value = true
@@ -539,16 +607,16 @@ async function initializeGroups(force = false, preserveFilters = false) {
   try {
     const bundle = await loadGroupsAnalyticsBundle(force)
     unavailableSources.value = bundle.unavailableSources ?? []
-    // User records are needed for current allocation only. Keep the existing
-    // group charts and year range anchored to group message activity.
+    // User records are needed for current allocation only. Group years come
+    // from group creation, membership summaries and recorded group activity.
     const activityBundle = { ...bundle, users: [] }
     groupBundle.value = activityBundle
-    availableYears.value = analyticsYears(activityBundle)
-    groupComparison.value = groupYearComparison(bundle.groups, liveAnalyticsYear(bundle))
-    if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) selectedYear.value = availableYears.value[0]!
+    availableYears.value = groupAnalyticsYears(activityBundle)
+    const currentYear = new Date().getUTCFullYear()
+    if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) selectedYear.value = currentYear
     liveUsers.value = bundle.users
     liveGroups.value = bundle.groups
-    liveData.value = buildGroupsAnalytics(activityBundle, selectedYear.value)
+    applySelectedYear(selectedYear.value)
     markUpdated()
   } catch (error) {
     if (preserveFilters && lastUpdated.value) { markRefreshFailed(); return }
@@ -560,9 +628,7 @@ async function initializeGroups(force = false, preserveFilters = false) {
 }
 
 onMounted(() => initializeGroups())
-watch(selectedYear, (year) => {
-  if (groupBundle.value) liveData.value = buildGroupsAnalytics(groupBundle.value, year)
-})
+watch(selectedYear, applySelectedYear)
 
 const tooltip = ref({
   visible: false,
@@ -597,14 +663,12 @@ function hideTooltip() {
 
 const data = computed(() => liveData.value)
 const groupInsightItems = computed(() => [
-  {
-    key: 'without-mentor',
-    value: data.value.groupsWithoutMentor,
-    text: `groups (${percent(data.value.groupsWithoutMentor, data.value.totalGroups)}%) do not have a mentor assigned.`,
-  },
   { key: 'small', value: data.value.smallGroups, text: 'groups have fewer than 3 students.' },
   ...(sourceAvailable('groupActivity') ? [{ key: 'inactive', value: data.value.inactiveRecent, text: 'groups have had no activity in the past 7 days.' }] : []),
-  { key: 'capacity', value: data.value.nearCapacity, text: 'groups are nearing capacity (10+ students).' },
+  { key: 'capacity', value: data.value.nearCapacity, text: 'groups are full (5 students, the maximum).' },
+  ...(data.value.overCapacity
+    ? [{ key: 'over-capacity', value: data.value.overCapacity, text: 'groups have more than 5 students, above the limit.' }]
+    : []),
 ])
 
 const studentsNotAssignedRows = computed(() =>
@@ -619,6 +683,29 @@ const studentsNotAssignedRows = computed(() =>
 )
 const studentsNotAssignedCount = computed(() => studentsNotAssignedRows.value.length)
 
+const studentAssignmentCoverage = computed(() => {
+  if (!sourceAvailable('users')) return null
+
+  const participantStudents = participantYearComparison(liveUsers.value, selectedYear.value).current.students
+  const historicalSummary = groupBundle.value?.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === selectedYear.value)
+  const assignedFallback = new Set(
+    liveGroups.value
+      .filter((group) => new Date(group.createdAt).getUTCFullYear() <= selectedYear.value)
+      .flatMap((group) => group.members)
+      .filter((member) => member.role.toLowerCase() === 'student')
+      .map((member) => String(member.id)),
+  ).size
+  const assigned = historicalSummary?.student_count ?? assignedFallback
+  const total = Math.max(participantStudents, assigned)
+
+  return {
+    total,
+    assigned,
+    unassigned: Math.max(total - assigned, 0),
+  }
+})
+
 const groupsWithoutMentorRows = computed(() =>
   liveGroups.value
     .filter((group) => !group.mentor)
@@ -627,25 +714,10 @@ const groupsWithoutMentorRows = computed(() =>
 
 
 
-const groupSizeDistributionForChart = computed(() => {
-  const items = [...data.value.groupSizeDistribution]
-
-  if (!items.some((item) => item.label === '20+')) {
-    items.push({
-      label: '20+',
-      value: 0,
-    })
-  }
-
-  return items
-})
+const groupSizeDistributionForChart = computed(() => data.value.groupSizeDistribution)
 
 const maxGroupSizeCount = computed(() =>
   Math.max(...groupSizeDistributionForChart.value.map((item) => item.value), 1),
-)
-
-const maxRatioCount = computed(() =>
-  Math.max(...data.value.ratioDistribution.map((item) => item.value), 1),
 )
 
 
@@ -654,12 +726,35 @@ type DonutSegment = {
   label: string
   value: number
   percent: number
+  drawPercent: number
   start: number
   color: string
 }
 
 const selectedStatus = ref<DonutSegment | null>(null)
 const selectedCoverage = ref<DonutSegment | null>(null)
+const selectedStudentCoverage = ref<DonutSegment | null>(null)
+
+function buildDonutSegments(
+  items: Array<{ label: string; value: number; color: string }>,
+  total: number,
+): DonutSegment[] {
+  let start = 0
+
+  return items.map((item, index) => {
+    const drawPercent = total
+      ? (index === items.length - 1 ? Math.max(0, 100 - start) : (item.value / total) * 100)
+      : 0
+    const segment = {
+      ...item,
+      percent: percent(item.value, total),
+      drawPercent,
+      start,
+    }
+    start += drawPercent
+    return segment
+  })
+}
 
 const statusSegments = computed<DonutSegment[]>(() => {
   const statusColors: Record<string, string> = {
@@ -668,20 +763,14 @@ const statusSegments = computed<DonutSegment[]>(() => {
     'Not started': '#5EA99E',
   }
 
-  let start = 0
-
-  return data.value.groupStatus.map((item) => {
-    const segment = {
+  return buildDonutSegments(
+    data.value.groupStatus.map((item) => ({
       label: item.label,
       value: item.value,
-      percent: percent(item.value, data.value.totalGroups),
-      start,
       color: statusColors[item.label] ?? item.color,
-    }
-
-    start += segment.percent
-    return segment
-  })
+    })),
+    data.value.totalGroups,
+  )
 })
 
 const coverageSegments = computed<DonutSegment[]>(() => {
@@ -698,18 +787,18 @@ const coverageSegments = computed<DonutSegment[]>(() => {
     },
   ]
 
-  let start = 0
+  return buildDonutSegments(raw, data.value.totalGroups)
+})
 
-  return raw.map((item) => {
-    const segment = {
-      ...item,
-      percent: percent(item.value, data.value.totalGroups),
-      start,
-    }
+const studentCoverageSegments = computed<DonutSegment[]>(() => {
+  const coverage = studentAssignmentCoverage.value
+  if (!coverage) return []
 
-    start += segment.percent
-    return segment
-  })
+  const raw = [
+    { label: 'Assigned', value: coverage.assigned, color: '#017151' },
+    { label: 'Unassigned', value: coverage.unassigned, color: '#F1E5A6' },
+  ]
+  return buildDonutSegments(raw, coverage.total)
 })
 
 function selectStatus(segment: DonutSegment) {
@@ -728,6 +817,15 @@ function selectCoverage(segment: DonutSegment) {
 
 function clearCoverageSelection() {
   selectedCoverage.value = null
+}
+
+function selectStudentCoverage(segment: DonutSegment) {
+  selectedStudentCoverage.value = segment
+  hideTooltip()
+}
+
+function clearStudentCoverageSelection() {
+  selectedStudentCoverage.value = null
 }
 
 
@@ -782,16 +880,124 @@ watch(
   { immediate: true },
 )
 
-async function exportCsv() {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({ report: 'groups', year: String(selectedYear.value) }), 'groups')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'One row per group: members, mentors and messages' },
+  {
+    kind: 'unassigned',
+    label: 'Students without a group',
+    description: 'Every student not yet placed in a group',
+    disabled: !sourceAvailable('users'),
+  },
+])
+
+function groupsSummary() {
+  const current = data.value
+  const year = selectedYear.value
+  const previous = current.comparisonPreviousYear
+  const rows: SummaryRow[] = [
+    figure('Groups', 'Total groups', current.totalGroups, 'groups'),
+    figure('Groups', 'Average group size', current.averageGroupSize, 'students', 'Students per group'),
+    figure('Groups', `Average group size (${current.averageGroupSizePreviousYear})`, current.averageGroupSizePrevious, 'students'),
+    figure('Groups', 'Groups with mentor', current.groupsWithMentor, 'groups'),
+    figure('Groups', `Groups with mentor (${previous})`, current.groupsWithMentorPrevious, 'groups'),
+    figure('Groups', 'Groups without mentor', current.groupsWithoutMentor, 'groups'),
+    figure('Groups', `Groups without mentor (${previous})`, current.groupsWithoutMentorPrevious, 'groups'),
+    figure('Groups', 'Students per mentor', current.mentorStudentRatio, 'students', 'Mentor-to-student ratio 1 : value'),
+    figure('Groups', `Students per mentor (${previous})`, current.mentorStudentRatioPrevious, 'students'),
+    ...(studentAssignmentCoverage.value
+      ? [
+          figure('Student assignment', 'Assigned to a group', studentAssignmentCoverage.value.assigned, 'students'),
+          figure('Student assignment', 'Not assigned to a group', studentAssignmentCoverage.value.unassigned, 'students'),
+        ]
+      : []),
+    ...groupInsightItems.value.map((item) => figure('Key insights', item.text, item.value, 'groups')),
+    ...current.groupStatus.map((item) => figure('Group status', item.label, item.value, 'groups')),
+    ...current.groupSizeDistribution.map((item) => figure('Group size (students)', item.label, item.value, 'groups')),
+    ...current.groupActivity.flatMap((month) => [
+      figure('Group activity by month', `${month.month}: active`, month.active, 'groups'),
+      figure('Group activity by month', `${month.month}: inactive`, month.inactive, 'groups'),
+    ]),
+  ]
+  return {
+    fileName: exportFileName('groups', 'summary', String(year)),
+    csv: summaryCsv({
+      page: 'Groups',
+      covers: `Current groups; comparisons and monthly activity for ${year}`,
+      dataAsOf: groupBundle.value ? liveAnalyticsAsOf(groupBundle.value) : null,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function groupsDetails() {
+  const activity = groupBundle.value?.groupActivity
+  const asOf = groupBundle.value ? liveAnalyticsAsOf(groupBundle.value) : isoDay(new Date())
+  const recentStart = new Date(`${asOf}T00:00:00Z`)
+  recentStart.setUTCDate(recentStart.getUTCDate() - 6)
+  const recentFrom = isoDay(recentStart)
+  const totals = new Map((activity?.messages_by_group ?? []).map((row) => [String(row.group_id), row.message_count]))
+  const recent = new Map<string, number>()
+  const lastDay = new Map<string, string>()
+  for (const row of activity?.messages_by_group_by_day ?? []) {
+    const id = String(row.group_id)
+    if (row.message_count > 0 && row.date > (lastDay.get(id) ?? '')) lastDay.set(id, row.date)
+    if (row.date >= recentFrom && row.date <= asOf) recent.set(id, (recent.get(id) ?? 0) + row.message_count)
+  }
+  const rows = [...liveGroups.value]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((group) => {
+      const id = String(group.id)
+      const byRole = (role: string) => group.members.filter((member) => member.role.toLowerCase() === role)
+      const mentors = group.mentors ?? (group.mentor ? [group.mentor] : [])
+      const messages = totals.get(id) ?? 0
+      const lastWeek = recent.get(id) ?? 0
+      const status = lastWeek > 0 ? 'Active' : messages === 0 && group.members.length === 0 ? 'Not started' : 'Inactive'
+      return [
+        group.id,
+        group.name,
+        isoUtc(group.createdAt),
+        byRole('student').length,
+        mentors.length,
+        byRole('supervisor').length,
+        mentors.map((mentor) => mentor.name).join('; '),
+        messages,
+        lastWeek,
+        lastDay.get(id) ?? '',
+        status,
+      ]
+    })
+  return {
+    // Membership is current, so the file is named for the day it was exported.
+    fileName: exportFileName('groups', 'details', isoDay(new Date())),
+    csv: detailsCsv([
+      'Group ID', 'Group', 'Created (UTC)', 'Students', 'Mentors', 'Supervisors', 'Mentor Names',
+      'Messages (All Time)', `Messages (7 Days to ${asOf})`, 'Last Message Day (UTC)', 'Status',
+    ], rows),
+  }
+}
+
+function unassignedStudents() {
+  const rows = liveUsers.value
+    .filter((user) => (user.role ?? '').toLowerCase() === 'student' && !user.groupId)
+    .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+    .map((user) => [
+      user.id,
+      `${user.firstName} ${user.lastName}`.trim(),
+      user.email,
+      user.schoolName,
+      user.supervisorName,
+      isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+    ])
+  return {
+    fileName: exportFileName('groups', 'students-without-group', isoDay(new Date())),
+    csv: detailsCsv(['Student ID', 'Student', 'Email', 'School', 'Supervisor', 'Registered (UTC)'], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  const build = kind === 'summary' ? groupsSummary : kind === 'unassigned' ? unassignedStudents : groupsDetails
+  exportError.value = runExport(build)
 }
 </script>
 
@@ -942,8 +1148,8 @@ async function exportCsv() {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 112px;
-  padding: 17px;
+  min-height: 0;
+  padding: 10px 18px;
 }
 
 .kpi-icon {
@@ -1617,7 +1823,7 @@ async function exportCsv() {
 /* Requested large-data layout */
 .groups-custom-grid {
   display: grid !important;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.45fr) minmax(220px, 0.7fr) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 14px !important;
   align-items: stretch;
 }
@@ -1631,15 +1837,25 @@ async function exportCsv() {
 }
 
 .mentor-coverage-card {
+  grid-column: 2 / 3;
+}
+
+.student-assignment-card {
   grid-column: 3 / 4;
+}
+
+.student-assignment-unavailable {
+  display: grid;
+  height: calc(100% - 30px);
+  margin: 0;
+  place-items: center;
+  color: #687a76;
+  font-size: 12px;
+  text-align: center;
 }
 
 .group-size-card {
   grid-column: 1 / 2;
-}
-
-.ratio-card {
-  grid-column: 2 / 3;
 }
 
 .compact-insights-card {
@@ -1711,8 +1927,8 @@ async function exportCsv() {
   .group-activity-card,
   .group-status-card,
   .mentor-coverage-card,
+  .student-assignment-card,
   .group-size-card,
-  .ratio-card,
   .compact-insights-card {
     grid-column: auto;
   }
@@ -1728,31 +1944,32 @@ async function exportCsv() {
     gap: 14px !important;
   }
 
-  /* Row 1: Group Status and Mentor Coverage use matching widths; Key Insights stays one narrow card. */
+  /* Row 1: group status, mentor coverage and student assignment align. */
   .group-status-card {
-    grid-column: 1 / 34 !important;
+    grid-column: 1 / 29 !important;
     grid-row: 1;
   }
 
   .mentor-coverage-card {
-    grid-column: 34 / 67 !important;
+    grid-column: 29 / 57 !important;
     grid-row: 1;
+  }
+
+  .student-assignment-card {
+    grid-column: 57 / 85 !important;
+    grid-row: 1;
+  }
+
+  /* Row 2: Key Insights matches the Group Size Distribution height. */
+  .group-size-card {
+    grid-column: 1 / 57 !important;
+    grid-row: 2;
   }
 
   .compact-insights-card {
-    grid-column: 67 / 85 !important;
-    grid-row: 1;
-  }
-
-  /* Row 2: give the denser group-size distribution more room. */
-  .group-size-card {
-    grid-column: 1 / 50 !important;
+    grid-column: 57 / 85 !important;
     grid-row: 2;
-  }
-
-  .ratio-card {
-    grid-column: 50 / 85 !important;
-    grid-row: 2;
+    height: 270px !important;
   }
 
   /* Row 3: Group Activity is full width. */
@@ -1762,7 +1979,8 @@ async function exportCsv() {
   }
 
   .group-status-card .donut-layout,
-  .mentor-coverage-card .donut-layout {
+  .mentor-coverage-card .donut-layout,
+  .student-assignment-card .donut-layout {
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -1771,7 +1989,8 @@ async function exportCsv() {
   }
 
   .group-status-card .group-donut-wrap,
-  .mentor-coverage-card .group-donut-wrap {
+  .mentor-coverage-card .group-donut-wrap,
+  .student-assignment-card .group-donut-wrap {
     flex: 0 0 172px;
     width: 172px;
     height: 172px;
@@ -1779,7 +1998,8 @@ async function exportCsv() {
   }
 
   .group-status-card .group-donut-svg,
-  .mentor-coverage-card .group-donut-svg {
+  .mentor-coverage-card .group-donut-svg,
+  .student-assignment-card .group-donut-svg {
     display: block;
     width: 172px !important;
     height: 172px !important;
@@ -1788,12 +2008,12 @@ async function exportCsv() {
   }
 
   .group-status-card .legend-list,
-  .mentor-coverage-card .legend-list {
-    min-width: 150px;
+  .mentor-coverage-card .legend-list,
+  .student-assignment-card .legend-list {
+    min-width: 128px;
   }
 
-  .group-size-card .vertical-chart,
-  .ratio-card .vertical-chart {
+  .group-size-card .vertical-chart {
     min-width: 0 !important;
     width: 100%;
     justify-content: space-between;
@@ -1806,21 +2026,14 @@ async function exportCsv() {
     padding-inline: 6px;
   }
 
-  .ratio-card .vertical-chart {
-    gap: 14px;
-    padding-inline: 12px;
-  }
-
-  .group-size-card .vertical-bar-item,
-  .ratio-card .vertical-bar-item {
+  .group-size-card .vertical-bar-item {
     flex: 1 1 0;
     width: auto;
     min-width: 30px;
     max-width: 64px;
   }
 
-  .group-size-card .vertical-track,
-  .ratio-card .vertical-track {
+  .group-size-card .vertical-track {
     width: 30px;
   }
 
@@ -1851,6 +2064,26 @@ async function exportCsv() {
     line-height: 1.45;
     font-weight: 500;
   }
+}
+
+/* Compact KPI cards avoid the reserved two-line slots that previously
+   created excess vertical space. */
+.groups-analytics-page .kpi-grid .kpi-card {
+  align-items: center !important;
+}
+
+.groups-analytics-page .kpi-grid .kpi-card > .kpi-icon {
+  align-self: center !important;
+}
+
+.groups-analytics-page .kpi-card > div:not(.kpi-icon) {
+  align-self: center !important;
+}
+
+.groups-analytics-page .kpi-card > div:not(.kpi-icon) > .kpi-label,
+.groups-analytics-page .kpi-card > div:not(.kpi-icon) > small,
+.groups-analytics-page .kpi-card .analytics-value-row {
+  min-height: 0 !important;
 }
 
 

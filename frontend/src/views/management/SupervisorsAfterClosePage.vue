@@ -15,6 +15,7 @@
       row-key="user_id"
       :selectable="false"
       :loading="isLoading"
+      :default-sort="{ key: 'students', direction: 'desc' }"
       :action-headings="['Late Register']"
       search-placeholder="Name, email or school"
       empty-message="No supervisors yet."

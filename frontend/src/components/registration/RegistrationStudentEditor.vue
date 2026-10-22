@@ -36,25 +36,27 @@
           v-model="student.school"
           label="School"
           autocomplete="organization"
+          :suggestions="schoolSuggestions"
           :error="fieldError('school')"
           :required="markRequired"
         />
         <label class="select-field">
           <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
-          <select
+          <AppSelect
             :id="fieldId('yearLevel')"
-            v-model="student.yearLevel"
+            class="app-input"
+            :model-value="student.yearLevel"
+            :options="YEAR_LEVEL_OPTIONS"
+            placeholder="Select a year"
             :aria-invalid="Boolean(fieldError('yearLevel'))"
             :aria-describedby="
               fieldError('yearLevel') ? `${fieldId('yearLevel')}-error` : undefined
             "
             :required="markRequired"
-          >
-            <option value="" disabled>Select a year</option>
-            <option v-for="year in ['9', '10', '11', '12']" :key="year" :value="year">
-              Year {{ year }}
-            </option>
-          </select>
+            @update:model-value="
+              (value) => (student.yearLevel = String(value ?? '') as StudentDetails['yearLevel'])
+            "
+          />
           <span
             v-if="fieldError('yearLevel')"
             :id="`${fieldId('yearLevel')}-error`"
@@ -74,13 +76,14 @@
           :required="markRequired"
         />
         <!-- In Australia, its State (required, a dropdown of its states and
-             territories); elsewhere a Region (optional). -->
+             territories); elsewhere typed in (optional). -->
         <RegistrationTextField
           :id="fieldId('state')"
           v-model="student.state"
-          :label="stateLabel(student.country)"
+          :label="stateLabel()"
           autocomplete="address-level1"
           :options="stateOptions.length ? stateOptions : undefined"
+          :suggestions="regionSuggestions"
           :placeholder="stateOptions.length ? 'Select a state' : undefined"
           :error="fieldError('state')"
           :required="markRequired && isAustralia(student.country)"
@@ -101,12 +104,13 @@
         <div class="student-editor__grid">
           <label class="select-field">
             <span>Pronouns <small>(Optional)</small></span>
-            <select :id="fieldId('pronouns')" v-model="student.pronouns">
-              <option value="">Select pronouns</option>
-              <option v-for="pronoun in PRONOUN_OPTIONS" :key="pronoun" :value="pronoun">
-                {{ pronoun }}
-              </option>
-            </select>
+            <AppSelect
+              :id="fieldId('pronouns')"
+              class="app-input"
+              :model-value="student.pronouns"
+              :options="PRONOUN_SELECT_OPTIONS"
+              @update:model-value="(value) => (student.pronouns = String(value ?? ''))"
+            />
           </label>
           <RegistrationTextField
             v-if="student.pronouns === 'Other'"
@@ -194,6 +198,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import {
@@ -213,12 +218,19 @@ const props = withDefaults(
     showOptionalProfile?: boolean
     showInterests?: boolean
     previewUrl?: string
+    /** Schools the others in their group gave, offered as theirs is typed. */
+    schoolSuggestions?: string[]
+    /** States the others in their group gave, for a typed state (outside
+     *  Australia, whose states are a dropdown). */
+    regionSuggestions?: string[]
   }>(),
   {
     allowGuardianDefer: false,
     showOptionalProfile: false,
     showInterests: true,
     previewUrl: '',
+    schoolSuggestions: () => [],
+    regionSuggestions: () => [],
   },
 )
 
@@ -227,16 +239,27 @@ const emit = defineEmits<{
   'remove-photo': []
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
+
+const YEAR_LEVEL_OPTIONS: AppSelectOption[] = ['9', '10', '11', '12'].map((year) => ({
+  value: year,
+  label: `Year ${year}`,
+}))
+// "Select pronouns" first, a choice of its own that leaves them unsaid.
+const PRONOUN_SELECT_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'Select pronouns' },
+  ...PRONOUN_OPTIONS.map((pronoun) => ({ value: pronoun, label: pronoun })),
+]
 // The countries, and in Australia its states, from the database, for dropdowns.
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)
 // Another country: its state or region starts again (NSW isn't Algeria's).
-// Only for the same student: the form can be handed another (a list's
-// student removed), whose own state stays.
+// Only for the same student, and only from a country they'd picked: the
+// first one picked (none to start) keeps what's there. The form can be
+// handed another (a list's student removed), whose own state stays.
 watch(
   () => [student.value, student.value.country] as const,
   ([current, country], [before, beforeCountry]) => {
-    if (current === before && country !== beforeCountry) current.state = ''
+    if (current === before && beforeCountry && country !== beforeCountry) current.state = ''
   },
 )
 
@@ -308,25 +331,26 @@ const onPhotoChange = (event: Event) => {
   font-weight: 500;
 }
 
-/* As tall as the text boxes beside it (RegistrationTextField). */
-select {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+/* The shared box (app-input), as the text boxes beside it, in
+   registration's colours. */
+.app-select {
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);
-  font: inherit;
 }
 
-select:focus-visible {
+.app-select:focus-within {
   border-color: var(--registration-green);
   box-shadow: 0 0 0 3px rgba(8, 116, 90, 0.14);
 }
 
-select[aria-invalid='true'] {
+/* Its border and soft ring only: no outline. */
+.select-field .app-select:has(.app-select__input:focus-visible) {
+  outline: none;
+}
+
+.app-select:has([aria-invalid='true']) {
   border-color: #a93732;
 }
 

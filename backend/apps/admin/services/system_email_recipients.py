@@ -203,6 +203,10 @@ def _students() -> list[dict]:
     return _people(_ROLES.STUDENT)
 
 
+def _mentors() -> list[dict]:
+    return _people(_ROLES.MENTOR)
+
+
 def _guardian_details_context(value: str) -> dict:
     from apps.users.guardian_details import details_link
 
@@ -338,6 +342,37 @@ def _reminder_context(value: str) -> dict:
     return _submission_context(group, *components_for(_submission_of(group)))
 
 
+def _finalist_submitted_teams() -> list[dict]:
+    return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_entry__submitted_at__isnull=False))
+
+
+def _finalist_confirmation_context(value: str) -> dict:
+    from apps.submissions.emails import finalist_confirmation_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    # A team yet to submit previews as nothing received.
+    entry = FinalistEntry.objects.filter(group=group).first() or FinalistEntry(group=group)
+    return finalist_confirmation_context(entry)
+
+
+def _finalist_reminder_teams() -> list[dict]:
+    # Reminders go to this year's notified finalists until they submit.
+    return _groups(
+        _this_years_teams()
+        .filter(finalist_flag__notified=True)
+        .exclude(finalist_entry__submitted_at__isnull=False)
+    )
+
+
+def _finalist_reminder_context(value: str) -> dict:
+    from apps.submissions.finalist_reminders import reminder_context
+    from apps.submissions.models import FinalistEntry
+
+    group = _group(value)
+    return reminder_context(group, FinalistEntry.objects.filter(group=group).first())
+
+
 def _finalist_teams() -> list[dict]:
     return _groups(Groups.objects.filter(deleted_at__isnull=True, finalist_flag__isnull=False))
 
@@ -436,6 +471,19 @@ def _registration_context(value: str) -> dict:
     return registration_context(_user(value))
 
 
+def _registered_by_supervisor_context(value: str) -> dict:
+    """A student's, with their supervisor's name (any supervisor's, for one
+    with none, as the sample)."""
+    from apps.users.registration_emails import supervised_context
+
+    student = _user(value)
+    profile = StudentProfile.objects.select_related("supervisor__user").filter(user=student).first()
+    supervisor = profile.supervisor.user if profile and profile.supervisor else None
+    if supervisor is None:
+        return {**supervised_context(student, student), "SUPERVISOR_NAME": "Sam Lee"}
+    return supervised_context(student, supervisor)
+
+
 def _supervisors_only() -> list[dict]:
     return _people(_ROLES.SUPERVISOR)
 
@@ -458,7 +506,10 @@ RECIPIENTS: dict[str, Recipients] = {
     "password_changed": _EVERYONE,
     "registration_student": Recipients(_students, _registration_context),
     "registration_group": Recipients(_students, _registration_context),
+    "registration_by_supervisor": Recipients(_students, _registered_by_supervisor_context),
+    "registration_by_admin": Recipients(_students, _registered_by_supervisor_context),
     "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
+    "registration_mentor": Recipients(_mentors, _registration_context),
     "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
@@ -470,6 +521,8 @@ RECIPIENTS: dict[str, Recipients] = {
     "guardian_consent_received": Recipients(_guardians, _consent_received_context),
     "submission_confirmation": Recipients(_submitted_teams, _confirmation_context),
     "submission_reminder": Recipients(_unsubmitted_teams, _reminder_context),
+    "finalist_submission_confirmation": Recipients(_finalist_submitted_teams, _finalist_confirmation_context),
+    "finalist_submission_reminder": Recipients(_finalist_reminder_teams, _finalist_reminder_context),
     "finalist_notification": Recipients(_finalist_teams, _finalist_context),
     "nonfinalist_invitation": Recipients(*_symposium("NONFINALIST")),
     "nonsubmission_notice": Recipients(*_symposium("NONSUBMISSION")),

@@ -1,0 +1,46 @@
+name: Send waiting emails
+
+# Every 10 minutes, sends the emails the backend kept while the mail server
+# couldn't be reached (a connection that dropped and couldn't be opened
+# again). The backend gives up on those past their time (3 days, or sooner
+# for one that would be out of date, like an event reminder), then sends the
+# rest in each mailbox's turn, after any bulk email going from it. An email
+# is held while it's sent, so an overlapping or repeated trigger is harmless,
+# and with nothing waiting the call does nothing.
+#
+# Required configuration:
+#   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
+#                              backend env of the same name
+#
+# Odd minutes (7,17,...) dodge GitHub's top-of-hour scheduler spike and the
+# bounce check's minutes. Scheduled runs can still lag a few minutes under load.
+on:
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: waiting-emails
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger sending waiting emails
+        env:
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
+        run: |
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
+          # auth or server failures instead of silently succeeding.
+          curl -fsS -X POST \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/management/send-waiting-emails/"

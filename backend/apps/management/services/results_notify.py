@@ -633,6 +633,29 @@ def _record(model, **fields) -> None:
         pass
 
 
+def waiting_supervisor_due(details: dict, addresses: list[str]) -> list[str]:
+    """A supervisor's kept results email is due nobody once they've had it
+    since (pressing Send again, say)."""
+    emailed = ResultsSupervisorEmail.objects.filter(
+        supervisor_id=details.get("supervisor_id"), year=details.get("year"),
+    ).exists()
+    return [] if emailed else addresses
+
+
+def waiting_supervisor_sent(details: dict, addresses: list[str]) -> None:
+    """A supervisor's results email kept until the mail server could be
+    reached went (``services.waiting_email``): recorded as emailed, as one
+    that goes at once is, so pressing Send again doesn't email them twice."""
+    from .delivery import waiting_sent
+
+    waiting_sent(details, addresses)
+    User = get_user_model()
+    supervisor = User.objects.filter(pk=details.get("supervisor_id")).first()
+    if supervisor is not None:
+        sent_by = User.objects.filter(pk=details.get("sent_by")).first() if details.get("sent_by") else None
+        _record(ResultsSupervisorEmail, supervisor=supervisor, year=details.get("year"), sent_by=sent_by)
+
+
 def _send_item(
     audience: str, item, people: dict[str, str], result: ResultsAudience, details: ResultsEmailSettings, actor,
     connection, cache: dict,
@@ -667,7 +690,16 @@ def _send_item(
             cc_staff=False,
         )
     else:
-        failed = send_each(rendered, recipients, connection, email=EMAIL_KEYS[SUPERVISORS], files=files, log_as=who)
+        # A copy kept until the mail server can be reached records the
+        # supervisor as emailed once it goes.
+        failed = send_each(
+            rendered, recipients, connection, email=EMAIL_KEYS[SUPERVISORS], files=files, log_as=who,
+            on_sent={
+                "due": "apps.management.services.results_notify.waiting_supervisor_due",
+                "sent": "apps.management.services.results_notify.waiting_supervisor_sent",
+                "supervisor_id": item.id, "year": result.year, "sent_by": getattr(actor, "pk", None),
+            },
+        )
     if failed:
         return missed_people(people, failed)
     if audience == GROUPS:
@@ -755,7 +787,7 @@ def _work(audience: str, actor, options: dict) -> list[Work]:
             # Anyone a run already reached isn't emailed again.
             due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
             people = {address: label for address, label in people.items() if address in due}
-        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
+        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor), list(people)))
     return work
 
 

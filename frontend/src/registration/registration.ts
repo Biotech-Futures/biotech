@@ -46,7 +46,7 @@ export const CSV_HEADERS = [
 ] as const
 
 
-export const MAX_CSV_ROWS = 500
+export const MAX_CSV_ROWS = 1000
 
 export type CsvHeader = (typeof CSV_HEADERS)[number]
 export type CsvCategory = 'valid' | 'review-required' | 'invalid'
@@ -158,29 +158,12 @@ export interface MentorForm {
   motivation: string
   /** How they would mentor BIOTech groups. */
   mentoringApproach: string
-  /** When they could meet a group each week (optional). */
-  availability: AvailabilitySlot[]
+  /** How many hours a week they can give a group: a whole number, 1 to 40. */
+  weeklyHours: string
 }
 
-/** One weekly time a mentor is free: ``weekday`` as the admin pages' mentor
- *  availability counts it (Monday is "0"), times as "HH:MM". */
-export interface AvailabilitySlot {
-  weekday: string
-  start: string
-  end: string
-}
-
-export const WEEKDAY_NAMES = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
-]
-
-export const createAvailabilitySlot = (): AvailabilitySlot => ({ weekday: '', start: '', end: '' })
+/** The most hours a week a mentor can say they'll give. */
+export const MAX_WEEKLY_HOURS = 40
 
 /** The most words a mentor's written answers may have. */
 export const MENTOR_MAX_WORDS = 150
@@ -216,7 +199,8 @@ export const isAustralia = (country: string) => country.trim().toLowerCase() ===
 
 /** The location field after Country: Australia's State (required, from the
  *  database's states), else a Region (optional, typed in). */
-export const stateLabel = (country: string) => (isAustralia(country) ? 'State' : 'Region')
+// Called State everywhere; it's required in Australia alone (see isAustralia).
+export const stateLabel = () => 'State'
 
 export const createStudent = (options: { deferGuardian?: boolean } = {}): StudentDetails => ({
   firstName: '',
@@ -225,7 +209,8 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   emailConfirm: '',
   school: '',
   yearLevel: '',
-  country: 'Australia',
+  // Picked by whoever fills it in: no country is chosen for anyone.
+  country: '',
   state: '',
   interests: [],
   pronouns: '',
@@ -269,8 +254,9 @@ export const createSupervisor = (): SupervisorDetails => ({
   email: '',
 })
 
-// A group member: their own details as Member 1's (Australia to start),
-// with their guardian's contact optional.
+// A group member: their own details as Member 1's, with their guardian's
+// contact optional. Their country follows Member 1's (none until Member 1
+// picks one; see RegistrationPage).
 export const createPendingPeer = (): StudentDetails => createStudent({ deferGuardian: true })
 
 export const parseRegistrationInterests = (value: string): string[] =>
@@ -316,7 +302,7 @@ export const createRegistrationForms = (): RegistrationForms => ({
     firstName: '',
     lastName: '',
     email: '',
-    country: 'Australia',
+    country: '',
     state: '',
     affiliation: '',
     institution: '',
@@ -328,7 +314,7 @@ export const createRegistrationForms = (): RegistrationForms => ({
     background: '',
     motivation: '',
     mentoringApproach: '',
-    availability: [createAvailabilitySlot()],
+    weeklyHours: '',
   },
 })
 

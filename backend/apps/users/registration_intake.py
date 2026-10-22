@@ -31,13 +31,13 @@ from apps.groups.models import (
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.resources.models import RoleAssignmentHistory
 from .models import (
-    AreasOfInterest, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
+    AreasOfInterest, KnownUniversity, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
     StudentProfile, StudentSupervisor, SupervisorProfile, User, UserInterest,
 )
 from .profile_images import save_profile_image, validate_profile_image
 from .serializers import (
     REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
-    registration_warnings,
+    registration_warnings, stored_email_answers,
 )
 
 
@@ -200,6 +200,8 @@ class PayloadInput(StrictInput):
 class IntakeInput(StrictInput):
     journey = serializers.ChoiceField(choices=STUDENT_JOURNEYS)
     payload = PayloadInput()
+    # The BIOTech Futures policies, ticked on the form's last step: needed.
+    policiesAgreed = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         journey, payload = data["journey"], data["payload"]
@@ -462,10 +464,12 @@ def resolve_location(student):
 
 def save_student(student, supervisor, now, *, registered_by):
     country, state = resolve_location(student) if student["country"] else (None, None)
+    # Active as soon as they're registered: a student is never Pending.
     user = User.objects.create_user(
         email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
         country=country, state=state,
         pronouns=student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"],
+        account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
     )
     RoleAssignmentHistory.objects.create(
         user=user, role=get_role_by_name(ROLE_STUDENT), valid_from=now,
@@ -625,6 +629,11 @@ def register(request):
         raise serializers.ValidationError({"detail": "Provide only the legacy body wrapper."})
     if not legacy:
         SessionAuthentication().enforce_csrf(request)
+    # A mentor registers on a path of their own (apps.users.mentor_registration).
+    if not legacy and raw.get("journey") == "mentor":
+        from .mentor_registration import register_mentor
+
+        return register_mentor(request, raw)
     envelope = legacy_request(raw["body"]) if legacy else raw
     parser = IntakeInput(data=envelope, context={"legacy": legacy})
     if not parser.is_valid():
@@ -633,6 +642,11 @@ def register(request):
         raise serializers.ValidationError(errors)
     payload = parser.validated_data["payload"]
     journey = parser.validated_data["journey"]
+    # The old form's wrapper predates the box; the form now has it. Only a
+    # student registering themselves agrees: a supervisor or admin registering
+    # students isn't agreeing for them.
+    if not legacy and journey not in SUPERVISOR_JOURNEYS:
+        require_policies(parser.validated_data)
     students = payload["students"]
     # None nominated: blank details, as the supervisor is optional.
     if journey in SUPERVISOR_JOURNEYS:
@@ -723,6 +737,11 @@ def register(request):
             join_code = payload.get("group", {}).get("joinCode", "") if journey == "student_team" else ""
             joining = joinable_group(join_code, len(students)) if join_code else None
             errors, warnings, provenance = {}, [], []
+            # Every address's email check on file, in one query for the submission.
+            email_answers = stored_email_answers(
+                address for student in students for address in (student["email"], student["guardian"].get("email"))
+            )
+            known_schools = KnownUniversity.matching(student.get("school", "") for student in students)
             for index, student in enumerate(students):
                 registered_by = (
                     (
@@ -751,7 +770,7 @@ def register(request):
                 warnings.extend([{
                     **warning, "field": registration_field(warning["field"], index),
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
-                } for warning in registration_warnings(validator.validated_data)])
+                } for warning in registration_warnings(validator.validated_data, email_answers, known_schools)])
             if errors:
                 raise serializers.ValidationError(errors)
             if warnings:
@@ -764,6 +783,10 @@ def register(request):
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None
+            # Who ticked the policies: the student registering (Member 1, or a
+            # student joining by a group's code). None for a supervisor's journeys.
+            if not legacy and journey not in SUPERVISOR_JOURNEYS:
+                User.objects.filter(pk=users[0].pk).update(policies_agreed_at=now)
             group = (
                 save_group(users, payload, actor_user, joining=joining) if journey in GROUP_JOURNEYS else None
             )
@@ -795,7 +818,14 @@ def register(request):
             # A supervisor's confirmation too, never an admin's (registering
             # students for a supervisor or for none).
             registering = request.user if journey in SUPERVISOR_JOURNEYS and not supervisor.get("admin") else None
-            transaction.on_commit(lambda: send_registration_emails(journey, users, supervisor=registering))
+            # An admin's students hear who their supervisor is (the one the admin chose).
+            admin_for = (
+                f"{supervisor['firstName']} {supervisor['lastName']}".strip()
+                if journey in SUPERVISOR_JOURNEYS and supervisor.get("admin") else None
+            )
+            transaction.on_commit(lambda: send_registration_emails(
+                journey, users, supervisor=registering, admin_for=admin_for,
+            ))
             response = raw["body"] if legacy else receipt(submission)
     except IntegrityError:
         for created_file in created_files:
@@ -816,6 +846,14 @@ def register(request):
             get_profile_image_storage().delete(created_file)
         raise
     return Response(response, status=200 if legacy else 201)
+
+
+def require_policies(validated: dict) -> None:
+    """A registration needs the BIOTech Futures policies agreed to."""
+    if not validated.get("policiesAgreed"):
+        raise serializers.ValidationError(
+            {"policiesAgreed": ["Agree to the BIOTech Futures policies to register."]}
+        )
 
 
 def reject_json_constant(value):
@@ -915,6 +953,19 @@ class RegistrationStatesView(APIView):
             else []
         )
         return Response({"states": list(states)})
+
+
+class RegistrationUniversitiesView(APIView):
+    """GET: the universities admins keep on Management > Known Universities,
+    offered as a mentor types their university or institution. Open to
+    anyone, as registration is."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        names = KnownUniversity.objects.order_by("full_name").values_list("full_name", flat=True)
+        return Response({"universities": list(names)})
 
 
 class IsRegistrationManager(permissions.BasePermission):

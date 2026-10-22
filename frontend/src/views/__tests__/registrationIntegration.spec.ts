@@ -18,6 +18,14 @@ import {
   type StudentDetails,
 } from '@/registration/registration'
 import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
+import { pickAppSelect } from '@/__tests__/appSelect'
+
+// Submitting: the BIOTech Futures policies agreed to first, as anyone
+// registering must tick them on the last step.
+const submitForm = async (page: { vm: unknown; get: (selector: string) => { trigger: (event: string) => Promise<unknown> } }) => {
+  ;(page.vm as { policiesAgreed: boolean }).policiesAgreed = true
+  await page.get('form').trigger('submit')
+}
 
 const studentCsv = () =>
   `${registrationCsvTemplate()}Alex,Morgan,alex@example.test,High School,10,Australia,NSW,Biomedical Innovations,Taylor,Morgan,taylor@example.test,Parent,,\r\n`
@@ -130,6 +138,7 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     company: 'Bio Labs',
     interests: ['Biomedical Innovations'],
     capacity: '2',
+    weeklyHours: '3',
     background: 'Biotechnology product development.',
     motivation: 'Support the next generation of researchers.',
     mentoringApproach: 'Weekly check-ins and feedback on each milestone.',
@@ -157,7 +166,7 @@ const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
 }
 
 const submit = async (wrapper: VueWrapper) => {
-  await wrapper.get('form').trigger('submit')
+  await submitForm(wrapper)
   await wrapper.vm.$nextTick()
 }
 
@@ -279,6 +288,7 @@ describe('registration gateway UI integration', () => {
       // Every member gives their school, year and location.
       school: 'Example Secondary College',
       yearLevel: '10',
+      country: 'Australia',
       state: 'NSW',
     })
     await wrapper.vm.$nextTick()
@@ -423,12 +433,12 @@ describe('registration gateway UI integration', () => {
     uploadedRows[0].values.email = 'invalid'
     setup.forms.supervisorCsv.rows = revalidateRegistrationCsvRows(uploadedRows)
     await wrapper.vm.$nextTick()
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(1)
     expect(send).not.toHaveBeenCalled()
     await wrapper.get('button[aria-label="Edit row 2"]').trigger('click')
     await wrapper.get('#csv-row-2-email').setValue('corrected@example.test')
-    await wrapper.get('#csv-row-2-yearLevel').setValue('11')
+    await pickAppSelect(wrapper, '#csv-row-2-yearLevel', 'Year 11')
     await wrapper.get('#csv-row-2-firstName').setValue('Corrected Alex')
     expect(setup.forms.supervisorCsv.rows[0].category).toBe('valid')
     expect(wrapper.text()).not.toContain('Student email format is invalid.')
@@ -441,10 +451,10 @@ describe('registration gateway UI integration', () => {
     setup.forms.supervisorCsv.excludedRowNumbers = [3]
     await wrapper.vm.$nextTick()
     // Continue with the row still open: it closes, and Review opens.
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(2)
     expect(wrapper.find('#csv-row-editor').exists()).toBe(false)
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(send.mock.calls[0]![0]).toMatchObject({
       journey: 'supervisor_csv',
@@ -503,7 +513,7 @@ describe('registration gateway UI integration', () => {
     await wrapper.vm.$nextTick()
     expect(setup.currentStep).toBe(2)
     expect(wrapper.find('#csv-row-editor').exists()).toBe(false)
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
     wrapper.unmount()
@@ -517,7 +527,7 @@ describe('registration gateway UI integration', () => {
     setup.forms.supervisorCsv.fileName = 'duplicates.csv'
     setup.forms.supervisorCsv.rows = [row, { ...row, rowNumber: 3, values: { ...row.values } }]
     await wrapper.vm.$nextTick()
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(1)
     await wrapper.get('button[aria-label="Edit row 3"]').trigger('click')
     await wrapper.get('#csv-row-3-email').setValue('second@example.test')
@@ -535,7 +545,7 @@ describe('registration gateway UI integration', () => {
       .findAll('button')
       .find((button) => button.text() === 'Done editing')!
       .trigger('click')
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(2)
     wrapper.unmount()
   })
@@ -562,7 +572,7 @@ describe('registration gateway UI integration', () => {
     ]
     setup.forms.supervisorCsv.excludedRowNumbers = [2]
     await wrapper.vm.$nextTick()
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     await vi.waitFor(() => expect(wrapper.find('#csv-row-3-email').exists()).toBe(true))
     expect(wrapper.get('#csv-row-3-email').attributes('aria-invalid')).toBe('true')
     expect(wrapper.text()).toContain('Choose a different email.')
@@ -690,6 +700,22 @@ describe('registration gateway UI integration', () => {
       ),
     )
     expect(wrapper.text()).not.toContain('Registration Complete')
+  })
+
+  it('needs the BIOTech Futures policies agreed to before submitting', async () => {
+    const send = vi.fn<RegistrationGateway['submit']>()
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+
+    const agree = wrapper.get('[data-test="policies-agree"]')
+    expect(wrapper.get('.policies-agree a').attributes('href')).toBe('https://www.biotechfutures.org/policies')
+    await wrapper.get('form').trigger('submit')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Tick the box to agree to the BIOTech Futures policies.')
+    expect(send).not.toHaveBeenCalled()
+
+    await agree.setValue(true)
+    expect(wrapper.find('.policies-agree__error').exists()).toBe(false)
   })
 
   it('shows loading and then the guardian-consent-required student outcome', async () => {

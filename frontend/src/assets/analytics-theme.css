@@ -53,9 +53,10 @@
   --analytics-white: var(--btf-white);
 }
 
-/* Keep every analytics KPI on the same three horizontal tracks. The copy
-   column fills all space beside the icon, so centring is relative to the
-   actual available card width rather than only the width of the number. */
+/* Keep every analytics KPI on the same three horizontal tracks: title,
+   number and helper share one left edge beside the icon, and start from the
+   top of the card so numbers stay level across a row even when a title or
+   helper wraps onto a second line. */
 :is(
   .users-analytics-page,
   .groups-analytics-page,
@@ -70,7 +71,7 @@
   flex: 1 1 0% !important;
   align-self: stretch;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   row-gap: 0 !important;
 }
 
@@ -84,7 +85,11 @@
   .email-monitoring-page
 ) .kpi-card:not(.group-name-kpi) > div:not(.kpi-icon) > :is(.kpi-label, span:first-child) {
   display: flex !important;
-  min-height: 32px;
+  /* Room for a two-line title, so a wrapped title never pushes its number
+     down. 2lh is exact even where a page sets its own line height. */
+  min-height: 2.5em;
+  min-height: 2lh;
+  line-height: 1.25;
   align-items: flex-start;
   margin: 0 !important;
 }
@@ -101,9 +106,9 @@
   width: 100% !important;
   min-height: 40px;
   align-items: center !important;
-  justify-content: center !important;
+  justify-content: flex-start !important;
   margin: 0 !important;
-  text-align: center !important;
+  text-align: left !important;
 }
 
 :is(
@@ -120,7 +125,7 @@
   width: 100% !important;
   min-height: 40px;
   align-items: center !important;
-  justify-content: center !important;
+  justify-content: flex-start !important;
 }
 
 :is(
@@ -145,7 +150,7 @@
   flex: 1 1 0% !important;
   align-self: stretch;
   grid-template-rows: 30px 40px 9px minmax(30px, auto);
-  align-content: center;
+  align-content: start;
 }
 
 .mentors-analytics-page .kpi-card .kpi-label {
@@ -159,7 +164,50 @@
   min-height: 40px;
   grid-row: 2;
   align-items: center !important;
-  justify-content: center !important;
+  justify-content: flex-start !important;
+}
+
+/* Icons sit level with the title at the top of every KPI card, and copy
+   columns laid out as grids start from the top as well. */
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-grid .kpi-card {
+  align-items: flex-start !important;
+}
+
+:is(
+  .users-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .registration-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) .kpi-grid .kpi-card > :is(.kpi-icon, [class*="kpi-icon"]) {
+  align-self: flex-start !important;
+}
+
+:is(
+  .messages-analytics-page,
+  .resources-analytics-page
+) .kpi-grid .kpi-card > div:not(.kpi-icon) {
+  align-content: start !important;
+}
+
+:is(
+  .messages-analytics-page,
+  .resources-analytics-page
+) .kpi-grid .kpi-card > div:not(.kpi-icon) > :is(strong, .analytics-value-row) {
+  justify-content: flex-start !important;
+  text-align: left !important;
 }
 
 .mentors-analytics-page .kpi-card .progress-track {
@@ -818,6 +866,17 @@
   .resources-analytics-page .page-heading {
     grid-template-columns: 1fr !important;
   }
+
+  /* On these pages the export button leads the actions row, so once the
+     actions drop below the title it sits at the left edge; the status line
+     runs rightwards from it instead of past the content area. */
+  .messages-analytics-page .analytics-update-status,
+  .activity-analytics-page .analytics-update-status,
+  .email-monitoring-page .analytics-update-status {
+    left: 0;
+    right: auto;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1150,8 +1209,8 @@
 
   .groups-analytics-page .group-status-card,
   .groups-analytics-page .mentor-coverage-card,
+  .groups-analytics-page .student-assignment-card,
   .groups-analytics-page .group-size-card,
-  .groups-analytics-page .ratio-card,
   .groups-analytics-page .compact-insights-card,
   .groups-analytics-page .group-activity-card {
     grid-column: auto !important;
@@ -1187,4 +1246,33 @@
 
 .analytics-value-row > strong {
   flex: 0 1 auto;
+}
+
+/* =========================================================
+   Dropdowns: one chevron with breathing room on the right.
+   Native select arrows sit flush against the border and differ
+   by browser, so every Analytics select draws the same chevron
+   12px in from its right edge. The :not() filters only raise
+   specificity above the page-scoped filter rules that reset
+   padding with !important.
+   ========================================================= */
+:is(
+  .analytics-page,
+  .users-analytics-page,
+  .registration-analytics-page,
+  .groups-analytics-page,
+  .mentors-analytics-page,
+  .activity-analytics-page,
+  .messages-analytics-page,
+  .resources-analytics-page,
+  .email-monitoring-page
+) select:not([multiple]):not([size]):not([data-native-arrow]) {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding-right: 34px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23017151' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 12px 12px !important;
+  text-overflow: ellipsis;
 }

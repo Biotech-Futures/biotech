@@ -41,7 +41,8 @@ from apps.common.pii import email_log_tag
 from apps.services import hostinger_mail
 from apps.services.bounces import Bounce, email_for_subject, looks_like_bounce, parse_bounce
 from apps.services.email_log import BOUNCED, _labels
-from apps.services.models import EmailBounce
+from apps.services.email_metrics import mark_recipient_bounced
+from apps.services.models import EmailBounce, SystemEmailSettings
 from apps.services.system_email import senders
 
 from ..models import BounceCheckpoint, BounceNotice, EmailDelivery, EmailSendRun
@@ -101,15 +102,31 @@ def check_bounces(now=None) -> CheckResult:
     now = now or timezone.now()
     since = now - timedelta(days=settings.BOUNCE_LOOKBACK_DAYS)
     ours = {sender.address.lower() for sender in senders() if sender.address}
-    for mailbox in hostinger_mail.mailboxes():
-        if mailbox["address"] in ours:
-            result.mailboxes += 1
-            _check_mailbox(mailbox, since, now, result)
+    try:
+        for mailbox in hostinger_mail.mailboxes():
+            if mailbox["address"] in ours:
+                result.mailboxes += 1
+                _check_mailbox(mailbox, since, now, result)
+    except hostinger_mail.MailApiError as exc:
+        # Failed Sending Emails says so until a check gets through.
+        _note_mail_api(failed_at=now, status=exc.status)
+        raise
+    _note_mail_api(failed_at=None, status=None)
     logger.info(
         "bounce_check: mailboxes=%s notices=%s bounces=%s matched=%s",
         result.mailboxes, result.notices, result.bounces, result.matched,
     )
     return result
+
+
+def _note_mail_api(*, failed_at, status) -> None:
+    """Whether this check could read the mailboxes (see
+    ``email_log.mail_api_state``): update(), so the switch's updated_at
+    stays put."""
+    SystemEmailSettings.get()
+    SystemEmailSettings.objects.filter(pk=SystemEmailSettings.SINGLETON_PK).update(
+        mail_api_failed_at=failed_at, mail_api_status=status,
+    )
 
 
 def _check_mailbox(mailbox: dict, since, now, result: CheckResult) -> None:
@@ -153,7 +170,9 @@ def record_bounce(bounce: Bounce, notice_at, found_at=None) -> bool:
         .first()
     )
     if delivery is not None:
+        email_type = delivery.email
         _missed_again(delivery, bounce, reason, found_at)
+        mark_recipient_bounced(email_type, bounce.address, reason, sent_by)
         return True
     key = email_for_subject(bounce.subject)
     if key is None:
@@ -168,6 +187,7 @@ def record_bounce(bounce: Bounce, notice_at, found_at=None) -> bool:
         EmailBounce.objects.create(
             key=key, address=bounce.address, who=who, reason=bounce.reason, detected_at=found_at,
         )
+    mark_recipient_bounced(key, bounce.address, reason, sent_by)
     return True
 
 

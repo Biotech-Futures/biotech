@@ -36,12 +36,14 @@ describe('registration form factories', () => {
 
   it('starts every group member as Member 1, with their guardian optional', () => {
     const forms = createRegistrationForms()
-    expect(forms.studentTeam.creator.country).toBe('Australia')
+    // No country is chosen for anyone: each picks their own.
+    expect(forms.studentTeam.creator.country).toBe('')
+    expect(forms.mentor.country).toBe('')
     for (const peer of [forms.studentTeam.teammates[0], createPendingPeer()]) {
       expect(peer).toMatchObject({
         school: '',
         yearLevel: '',
-        country: 'Australia',
+        country: '',
         state: '',
         interests: [],
         guardianDeferred: true,
@@ -166,7 +168,7 @@ describe('parseRegistrationCsv', () => {
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
     row.values.interests = ''
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
-    // A State in Australia, as on the student form; a Region elsewhere is optional.
+    // A State in Australia, as on the student form; elsewhere it's optional.
     row.values.state = ''
     expect(revalidateRegistrationCsvRows([row, peer])[0].fieldErrors?.state).toBe(
       'Enter the Australian state or territory.',
@@ -175,16 +177,16 @@ describe('parseRegistrationCsv', () => {
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
   })
 
-  it('rejects more than 500 student rows', () => {
+  it('rejects more than 1000 student rows', () => {
     const [header, example] = studentCsv().trim().split('\n')
-    const rows = Array.from({ length: 501 }, (_, index) =>
+    const rows = Array.from({ length: 1001 }, (_, index) =>
       example.replace(/[^,]+@[^,]+/, `student-${index}@example.test`),
     )
-    const accepted = parseRegistrationCsv([header, ...rows.slice(0, 500)].join('\n'))
-    expect(accepted.rows).toHaveLength(500)
+    const accepted = parseRegistrationCsv([header, ...rows.slice(0, 1000)].join('\n'))
+    expect(accepted.rows).toHaveLength(1000)
     expect(accepted.rows.every((row) => row.category === 'valid')).toBe(true)
     expect(parseRegistrationCsv([header, ...rows].join('\n')).errors).toEqual([
-      'Upload no more than 500 students per CSV.',
+      'Upload no more than 1000 students per CSV.',
     ])
   })
   it('parses quoted values and classifies complete rows as valid', () => {

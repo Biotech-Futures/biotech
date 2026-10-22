@@ -7,7 +7,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
@@ -56,7 +58,7 @@ def batch(journey, count=None, *, offset=0):
         payload["group"] = {"interests": ["Biotechnology", "Engineering"]}
     if journey == "supervisor_csv":
         payload["source"].update(fileName="students.csv", rowNumbers=[2 + index * 2 for index in range(count)])
-    return {"journey": journey, "payload": payload}
+    return {"journey": journey, "payload": payload, "policiesAgreed": True}
 
 
 class MultiStudentSetup(RegistrationSetup):
@@ -97,8 +99,9 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
                 )
                 for participant in submission.participants.select_related("student"):
                     user = participant.student
-                    self.assertEqual(user.account_status, User.AccountStatus.PENDING)
-                    self.assertFalse(user.is_active)
+                    # Active straight away: a student is never Pending.
+                    self.assertEqual(user.account_status, User.AccountStatus.ACTIVE)
+                    self.assertTrue(user.is_active)
                     self.assertFalse(user.has_usable_password())
                     self.assertFalse(user.studentprofile.has_join_permission)
         self.assertFalse(GuardianConsent.objects.exists())
@@ -166,7 +169,7 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         self.assertTrue(profile.parent_guardian_flag)
         self.assertFalse(profile.has_join_permission)
         peer.refresh_from_db()
-        self.assertEqual(peer.account_status, "pending")
+        self.assertEqual(peer.account_status, "active")
 
     def test_csv_preserves_row_numbers_and_each_students_intake_metadata(self):
         body = batch("supervisor_csv", 3)
@@ -263,7 +266,7 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         self.assertFalse(StudentProfile.objects.get().parent_guardian_flag)
 
     def test_all_warnings_are_acknowledged_by_original_student_index(self):
-        KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(full_name="USYD")
         body = batch("supervisor_csv", 2)
         for item in body["payload"]["students"]:
             item["school"] = "USYD"
@@ -277,8 +280,24 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["student_count"], 2)
 
+    def test_the_known_university_list_is_read_once_per_submission(self):
+        KnownUniversity.objects.create(full_name="University of Technology Sydney", acronym="UTS", country="Australia")
+        for count in (1, 30):
+            with self.subTest(count=count):
+                body = batch("supervisor_csv", count)
+                for index, item in enumerate(body["payload"]["students"]):
+                    item["school"] = " uts " if index % 3 == 0 else f"High School {index}"
+                with CaptureQueriesContext(connection) as queries:
+                    response = self.post_batch(body)
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertEqual(
+                    {item["field"] for item in response.data["warnings"]},
+                    {f"students.{index}.school" for index in range(0, count, 3)},
+                )
+                self.assertEqual(sum('"known_university"' in query["sql"] for query in queries.captured_queries), 1)
+
     def test_hard_errors_suppress_warnings_and_no_partial_batch_is_saved(self):
-        KnownUniversity.objects.create(name="USYD")
+        KnownUniversity.objects.create(full_name="USYD")
         body = batch("supervisor_csv", 2)
         body["payload"]["students"][0]["school"] = "USYD"
         body["payload"]["students"][1]["email"] = self.supervisor.email
@@ -468,3 +487,38 @@ class AdminRegistrationTests(MultiStudentSetup, TestCase):
         body = batch("supervisor_individual", offset=30)
         body["payload"]["supervisor"] = {"firstName": "Some", "lastName": "One", "email": "some@example.test"}
         self.assertEqual(self.submit(body=body, client=self.staff_client).status_code, 400)
+
+
+class PoliciesAgreementTests(MultiStudentSetup, TestCase):
+    """The BIOTech Futures policies, ticked on the form's last step: needed to
+    register, and recorded on whoever ticked them."""
+
+    def test_a_registration_without_the_policies_agreed_is_refused(self):
+        body = batch("student_individual")
+        body["policiesAgreed"] = False
+
+        response = self.post_batch(body)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("policiesAgreed", response.data["fields"])
+        self.assertFalse(RegistrationSubmission.objects.exists())
+
+    def test_the_student_registering_is_recorded_not_the_members_they_add(self):
+        response = self.post_batch(batch("student_team"))
+
+        self.assertEqual(response.status_code, 201, response.data)
+        submission = RegistrationSubmission.objects.get()
+        creator, member = [p.student for p in submission.participants.order_by("position")]
+        self.assertIsNotNone(creator.policies_agreed_at)
+        self.assertIsNone(member.policies_agreed_at)
+
+    def test_a_supervisor_registering_students_isnt_asked_and_nobody_is_recorded(self):
+        body = batch("supervisor_individual")
+        del body["policiesAgreed"]
+
+        response = self.post_batch(body)
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.supervisor.refresh_from_db()
+        self.assertIsNone(self.supervisor.policies_agreed_at)
+        self.assertIsNone(RegistrationSubmission.objects.get().student.policies_agreed_at)

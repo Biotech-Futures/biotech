@@ -138,6 +138,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/guardians', name: 'admin-guardians', component: () => import('@/views/SupervisorStudentsPage.vue'), props: { admin: true }, meta: { requiresAdmin: true } },
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/role-tasks', name: 'admin-role-tasks', component: () => import('@/views/admin/AdminRoleTasksPage.vue'), meta: { requiresAdmin: true } },
   {
     path: '/admin/views',
     name: 'admin-views',
@@ -218,6 +219,10 @@ const routes: RouteRecordRaw[] = [
       // supervisors after close. Its old paths still lead to it.
       { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
       { path: 'registration-visibility', redirect: '/management/late-registration' },
+      // The names registration treats as a university, not a school.
+      { path: 'known-universities', name: 'management-known-universities', component: () => import('@/views/management/KnownUniversitiesPage.vue') },
+      // How much email-checking credit is left, and today's lookups.
+      { path: 'email-checks', name: 'management-email-checks', component: () => import('@/views/management/EmailChecksPage.vue') },
       // The day this year's challenge starts, for the supervisors' daily email.
       { path: 'challenge-start', name: 'management-challenge-start', component: () => import('@/views/management/ChallengeStartPage.vue') },
       { path: 'supervisor-visibility', redirect: '/management/late-registration' }

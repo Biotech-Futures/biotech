@@ -6,6 +6,7 @@ import AdminResourceFormSheet from '@/components/admin/resources/AdminResourceFo
 import { useAuthStore } from '@/stores/auth'
 import * as resourcesApi from '@/utils/resourcesAPI'
 import * as adminApi from '@/utils/adminAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const mockPush = vi.fn()
 vi.mock('vue-router', () => ({
@@ -384,7 +385,7 @@ describe('ResourcesPage - Admin Integration & Role Access', () => {
       await flushPromises()
 
       // Set kind to 'page'
-      await sheetWrapper.find('#res-kind').setValue('page')
+      await pickAppSelect(sheetWrapper, '#res-kind', 'Rich Content Page')
       await sheetWrapper.find('#res-name').setValue('Competition Rules')
       await sheetWrapper.find('#res-desc').setValue('Rules description')
 

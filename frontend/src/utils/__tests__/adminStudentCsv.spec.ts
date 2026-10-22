@@ -174,7 +174,7 @@ describe('parseStudentCsv', () => {
       'Supervisor Email',
       'Parent/Guardian Approval ResponseID',
       'Country',
-      'Region',
+      'State',
       'Group Number'
     ])
     expect(STUDENT_CSV_TEMPLATE.sampleRow).toHaveLength(STUDENT_CSV_TEMPLATE.headers.length)

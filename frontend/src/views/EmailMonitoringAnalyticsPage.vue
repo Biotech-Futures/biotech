@@ -19,16 +19,15 @@
 
       <div class="page-actions">
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
-            <i class="fas fa-download"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsDataState
       :loading="isLoading"
@@ -154,10 +153,20 @@
       <div class="section-heading-row logs-heading">
         <div>
           <h2>Email Logs</h2>
-          <p>Recent announcement delivery runs.</p>
+          <p v-if="recipientMode">
+            Emails sent to recipients matching “{{ recipientQuery.trim() }}”, newest first. Each row is one recipient's copy.
+          </p>
+          <p v-else>The latest 100 sends of each email type, newest first.</p>
         </div>
 
         <div class="log-actions">
+          <input
+            v-model="recipientQuery"
+            type="search"
+            class="log-search recipient-search"
+            placeholder="Emails sent to… (name or email)"
+            aria-label="Find emails sent to a recipient by name or email"
+          />
           <input
             v-model.trim="logSearch"
             type="search"
@@ -166,8 +175,15 @@
             aria-label="Search email logs"
           />
           <label class="status-filter">
+            <select v-model="logType" aria-label="Filter email logs by email type">
+              <option value="all">All email types</option>
+              <option v-for="type in logTypes" :key="type" :value="type">{{ type }}</option>
+            </select>
+          </label>
+          <label class="status-filter">
             <select v-model="logStatus" aria-label="Filter email logs by status">
               <option value="all">All statuses</option>
+              <option value="Sending">Sending</option>
               <option value="Delivered">Delivered</option>
               <option value="Partial">Partial</option>
               <option value="Failed">Failed</option>
@@ -185,12 +201,14 @@
           <thead>
             <tr>
               <th>Sender</th>
-              <th>Sender Email</th>
+              <th>Initiating Admin Email</th>
               <th>Recipient</th>
               <th>Recipient Email</th>
+              <th>Email Type</th>
               <th>Email Title</th>
               <th>Sent At</th>
               <th>Status</th>
+              <th>Recipients</th>
             </tr>
           </thead>
           <tbody>
@@ -199,12 +217,32 @@
               <td>{{ log.senderEmail }}</td>
               <td>{{ log.recipient }}</td>
               <td>{{ log.recipientEmail }}</td>
+              <td>{{ log.type }}</td>
               <td class="email-title-cell">{{ log.title }}</td>
               <td>{{ log.sentAt }}</td>
               <td>
-                <span class="log-status" :class="log.status.toLowerCase()">
+                <span class="log-status" :class="log.status.toLowerCase()" :title="statusDetail(log)">
                   {{ log.status }}
                 </span>
+              </td>
+              <td>
+                <button
+                  v-if="log.sendId && log.recipientsRecorded"
+                  type="button"
+                  class="recipient-export-button"
+                  :disabled="exportingSendId === log.sendId"
+                  :title="`Download the ${log.recipientsRecorded} recorded recipients of this email as CSV`"
+                  :aria-label="`Download recipients of ${log.title}`"
+                  @click="exportRecipients(log)"
+                >
+                  <i class="fas fa-download" aria-hidden="true"></i>
+                  CSV
+                </button>
+                <span
+                  v-else
+                  class="recipients-not-recorded"
+                  title="Recipient lists are kept for emails sent since recipient tracking was added."
+                >Not recorded</span>
               </td>
             </tr>
           </tbody>
@@ -212,8 +250,41 @@
       </div>
 
       <div class="logs-footer">
+        <span v-if="recipientError" class="recipient-error" role="alert">{{ recipientError }}</span>
+        <span v-else-if="recipientLoading">Searching recipients…</span>
         <span>{{ filteredLogs.length }} log entries shown</span>
       </div>
+      <p class="recipient-note">
+        Recipient lists are kept for emails sent since recipient tracking was added; earlier emails show
+        “Not recorded”. Search by recipient to see every recorded email sent to one person.
+      </p>
+
+      <dl class="log-status-legend" aria-label="What the statuses mean">
+        <div>
+          <dt><span class="log-status sending">Sending</span></dt>
+          <dd>The email send is still in progress.</dd>
+        </div>
+        <div>
+          <dt><span class="log-status delivered">Delivered</span></dt>
+          <dd>Every recipient's mail server accepted the email.</dd>
+        </div>
+        <div>
+          <dt><span class="log-status partial">Partial</span></dt>
+          <dd>
+            Some recipients received the email and some could not be reached, so it did not go to everyone.
+            This happens when a mail server refuses an address (for example a mistyped or closed mailbox)
+            or the send stopped part-way.
+          </dd>
+        </div>
+        <div>
+          <dt><span class="log-status failed">Failed</span></dt>
+          <dd>No recipient received the email.</dd>
+        </div>
+        <p>
+          Who was missed and why is listed in
+          <RouterLink to="/admin/emails">System Emails → Failed Sending Emails</RouterLink>.
+        </p>
+      </dl>
     </section>
 
 
@@ -571,12 +642,28 @@ import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import { useRoute } from 'vue-router'
-import type { EmailMonitoringData } from '@/types/analytics'
+import type { EmailLog, EmailMonitoringData } from '@/types/analytics'
 import {
   buildEmailMonitoring,
+  buildRecipientEmailLogs,
   loadEmailMonitoringAnalyticsBundle,
   type EmailAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import { downloadEmailRecipientsCsv, searchEmailsToRecipient } from '@/utils/liveAnalyticsApi'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoUtc,
+  runExport,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const route = useRoute()
 const data = ref<EmailMonitoringData>({
@@ -617,22 +704,79 @@ const exportDisabled = computed(() => isLoading.value || !!loadError.value || is
 const analyticsSnapshotAt = ref<string | null>(null)
 const logSearch = ref('')
 const logStatus = ref('all')
+const logType = ref('all')
+// Recipient search (by name or address) replaces the recent sends with every
+// recorded email to the matching recipients.
+const RECIPIENT_SEARCH_MIN_LENGTH = 3
+const recipientQuery = ref('')
+const recipientLogs = ref<EmailLog[] | null>(null)
+const recipientLoading = ref(false)
+const recipientError = ref('')
+const recipientMode = computed(() => recipientLogs.value !== null)
+const shownLogs = computed(() => recipientLogs.value ?? data.value.logs)
+const logTypes = computed(() => [...new Set(shownLogs.value.map((log) => log.type))].sort())
+
+let recipientTimer: ReturnType<typeof setTimeout> | undefined
+let recipientRequest = 0
+watch(recipientQuery, (value) => {
+  clearTimeout(recipientTimer)
+  const query = value.trim()
+  recipientError.value = ''
+  if (query.length < RECIPIENT_SEARCH_MIN_LENGTH) {
+    recipientRequest += 1
+    recipientLogs.value = null
+    recipientLoading.value = false
+    return
+  }
+  recipientTimer = setTimeout(async () => {
+    const request = ++recipientRequest
+    recipientLoading.value = true
+    try {
+      const rows = await searchEmailsToRecipient(query)
+      if (request === recipientRequest) recipientLogs.value = buildRecipientEmailLogs(rows)
+    } catch {
+      if (request === recipientRequest) {
+        recipientLogs.value = []
+        recipientError.value = 'Emails to this recipient could not be loaded.'
+      }
+    } finally {
+      if (request === recipientRequest) recipientLoading.value = false
+    }
+  }, 350)
+})
+
+const exportingSendId = ref<number | null>(null)
+async function exportRecipients(log: EmailLog) {
+  if (!log.sendId) return
+  exportingSendId.value = log.sendId
+  recipientError.value = ''
+  try {
+    await downloadEmailRecipientsCsv(log.sendId)
+  } catch {
+    recipientError.value = 'The recipient list could not be downloaded.'
+  } finally {
+    exportingSendId.value = null
+  }
+}
 
 useAnalyticsRefreshState('email', {
   logSearch,
   logStatus,
+  logType,
 }, () => !isLoading.value && hasLoaded.value)
 
 const filteredLogs = computed(() => {
   const query = logSearch.value.toLowerCase()
 
-  return data.value.logs.filter((log) => {
+  return shownLogs.value.filter((log) => {
     const matchesStatus = logStatus.value === 'all' || log.status === logStatus.value
+    const matchesType = logType.value === 'all' || log.type === logType.value
     const haystack = [
       log.sender,
       log.senderEmail,
       log.recipient,
       log.recipientEmail,
+      log.type,
       log.title,
       log.sentAt,
       log.status,
@@ -640,9 +784,22 @@ const filteredLogs = computed(() => {
       .join(' ')
       .toLowerCase()
 
-    return matchesStatus && (!query || haystack.includes(query))
+    return matchesStatus && matchesType && (!query || haystack.includes(query))
   })
 })
+
+function statusDetail(log: EmailLog) {
+  if (log.recipientReason !== undefined) {
+    return log.recipientReason
+      ? `Not delivered to this recipient: ${log.recipientReason}.`
+      : 'Delivered to this recipient.'
+  }
+  const counts = `${log.delivered} of ${log.attempted} delivered, ${log.failed} not delivered.`
+  if (log.status === 'Sending') return 'Sending: this email send is still in progress.'
+  if (log.status === 'Partial') return `Partial: not every recipient received this email. ${counts}`
+  if (log.status === 'Failed') return `Failed: no recipient received this email. ${counts}`
+  return counts
+}
 
 
 
@@ -825,37 +982,102 @@ function refreshAnalytics() {
   return loadAnalytics(true)
 }
 
-function exportLogsCsv() {
-  const rows: (string | number)[][] = [
-    ['Sender', 'Sender Email', 'Recipient', 'Recipient Email', 'Email Title', 'Sent At', 'Status'],
-    ...filteredLogs.value.map((log) => [
-      log.sender,
-      log.senderEmail,
-      log.recipient,
-      log.recipientEmail,
-      log.title,
-      log.sentAt,
-      log.status,
-    ]),
-  ]
-
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'email-logs.csv'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 
 
 onMounted(() => loadAnalytics())
+
+const exportError = ref('')
+const exportOptions: ExportOption[] = [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'The email logs below, with their filters' },
+]
+
+function emailSummary() {
+  const current = data.value
+  const attribution = current.roleAttribution
+  const latestHour = current.hourlyUsage[current.hourlyUsage.length - 1]
+  const peak = current.hourlyUsage.find((row) => row.label === current.peakHourLabel)
+  const stats = current.overallStats
+  const rows: SummaryRow[] = [
+    ...mailboxSummaries.value.flatMap((mailbox) => [
+      figure(`Mailbox ${mailbox.email}`, 'Rolling 24-hour usage', mailbox.currentUsage, 'recipients'),
+      figure(`Mailbox ${mailbox.email}`, 'Quota', mailbox.quotaLimit, 'recipients'),
+      figure(`Mailbox ${mailbox.email}`, 'Quota used', mailbox.percent, '%'),
+      figure(`Mailbox ${mailbox.email}`, 'Remaining', mailbox.remaining, 'recipients'),
+    ]),
+    figure('Rolling 24 hours', 'Combined usage', combinedUsage.value, 'recipients'),
+    figure('Rolling 24 hours', 'Window end', isoUtc(analyticsSnapshotAt.value), 'UTC'),
+    figure('Rolling 24 hours', 'Latest recorded hour', latestHour ? isoUtc(latestHour.hour) : '', 'UTC'),
+    figure('Rolling 24 hours', 'Latest recorded hour attempts', current.sentLastHour, 'recipients'),
+    figure('Rolling 24 hours', 'Peak hour', peak ? isoUtc(peak.hour) : '', 'UTC'),
+    figure('Rolling 24 hours', 'Peak hour attempts', current.peakHourValue, 'recipients'),
+    figure('Emails', 'Attempted', stats.sent, 'recipients'),
+    figure('Emails', 'Delivered', stats.delivered, 'recipients'),
+    figure('Emails', 'Not delivered', stats.failed, 'recipients'),
+    figure('Emails', 'Average recipients per send', stats.averageSentPerUser, 'recipients'),
+    ...current.verificationDaily.map((point) => figure('Attempts per day', point.date, point.value, 'recipients')),
+    ...current.hourlyUsage.flatMap((row) => [
+      figure('Attempts per hour (info mailbox)', isoUtc(row.hour), row.info, 'recipients'),
+      figure('Attempts per hour (connect mailbox)', isoUtc(row.hour), row.connect, 'recipients'),
+    ]),
+    ...current.categories.map((item) => figure('Email volume by type', item.label, item.value, 'emails')),
+    figure('Role attribution', 'Availability', attribution.available ? 'Available' : 'Unavailable', '',
+      "Based on each announcement's current single-role audience, not a record made at send time"),
+    figure('Role attribution', 'Coverage', !attribution.available ? '' : attribution.complete ? 'Complete' : 'Partial'),
+    figure('Role attribution', 'Attributed sends', attribution.trackedDeliveryRuns, 'sends'),
+    figure('Role attribution', 'Unattributed sends', attribution.unattributedDeliveryRuns, 'sends'),
+    figure('Role attribution', 'Attributed attempts', attribution.trackedAttempted, 'recipients'),
+    figure('Role attribution', 'Unattributed attempts', attribution.unattributedAttempted, 'recipients'),
+    ...(attribution.available
+      ? current.statusByRole.flatMap((row) => [
+          figure(`Delivery by role (${row.role})`, 'Attempted', row.attempted, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Delivered', row.delivered, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Not delivered', row.failed, 'recipients'),
+          figure(`Delivery by role (${row.role})`, 'Sends', row.trackedDeliveries, 'sends'),
+        ])
+      : []),
+    ...emailInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+  ]
+  const snapshot = isoUtc(analyticsSnapshotAt.value)
+  return {
+    fileName: exportFileName('email', 'summary', snapshot.slice(0, 10) || 'latest'),
+    csv: summaryCsv({
+      page: 'Email Monitoring',
+      covers: snapshot ? `Rolling 24 hours to ${snapshot}; daily attempts for the last 14 days` : 'Latest recorded sends',
+    }, rows),
+  }
+}
+
+function emailLogsDetails() {
+  const perRecipient = recipientMode.value
+  // A send's title repeats its type for system emails; keep it only when it adds something.
+  const titleOf = (log: EmailLog) => (log.title === log.type ? '' : log.title)
+  const rows = filteredLogs.value.map((log) => perRecipient
+    ? [
+        log.sendId, isoUtc(log.sentAtIso), log.type, titleOf(log), log.sender, log.senderEmail,
+        log.recipient === '—' ? '' : log.recipient, log.recipientEmail, log.status, log.recipientReason ?? '',
+      ]
+    : [
+        log.sendId, isoUtc(log.sentAtIso), log.type, titleOf(log), log.sender, log.senderEmail,
+        log.status, log.attempted, log.delivered, log.failed, log.recipientsRecorded,
+      ])
+  const headers = perRecipient
+    ? ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Initiating Admin Email', 'Recipient', 'Recipient Email', 'Status', 'Reason Not Delivered']
+    : ['Send ID', 'Sent At (UTC)', 'Email Type', 'Title', 'Sender', 'Initiating Admin Email', 'Status', 'Recipients', 'Delivered', 'Not Delivered', 'Recipients Recorded']
+  const scope = perRecipient ? `to ${recipientQuery.value.trim()}` : isoUtc(analyticsSnapshotAt.value).slice(0, 10) || 'latest'
+  return {
+    fileName: exportFileName('email', 'logs', scope),
+    csv: detailsCsv(headers, rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? emailSummary : emailLogsDetails)
+}
+
+function exportLogsCsv() {
+  exportCsv('details')
+}
 
 async function scrollToDeepLinkTarget(hash: string) {
   if (!hash) return
@@ -883,94 +1105,6 @@ watch(
   { immediate: true },
 )
 
-function exportCsv() {
-  const rows: (string | number)[][] = [
-    ['Email Monitoring'],
-    [],
-    ['Metric', 'Value'],
-    ...mailboxSummaries.value.flatMap((mailbox) => [
-      [`${mailbox.email} - 24-Hour Usage`, mailbox.currentUsage],
-      [`${mailbox.email} - Quota Limit`, mailbox.quotaLimit],
-      [`${mailbox.email} - Quota Used (%)`, mailbox.percent],
-      [`${mailbox.email} - Remaining`, mailbox.remaining],
-    ]),
-    ['Combined 24-Hour Usage', combinedUsage.value],
-    ['Mailbox Limit', data.value.verificationDailyBaseLimit],
-    ...data.value.verificationDaily.map((point) => [`Delivery Attempts - ${point.label}`, point.value]),
-    ['Rolling 24-Hour Window End (UTC)', analyticsSnapshotLabel.value || 'Unavailable'],
-    ['Latest Recorded UTC Hour', latestRecordedHourLabel.value],
-    ['Latest Recorded UTC Hour Attempts', data.value.sentLastHour],
-    ['Peak Hour', data.value.peakHourLabel],
-    ['Peak Hour Attempted Recipients', data.value.peakHourValue],
-    [],
-    ['Overall Email Stats'],
-    ['Emails Delivered', data.value.overallStats.delivered],
-    ['Emails Sent', data.value.overallStats.sent],
-    ['Emails Failed', data.value.overallStats.failed],
-    ['Emails Clicked', optionalMetric(data.value.overallStats.clicked)],
-    ['Emails Opened', optionalMetric(data.value.overallStats.opened)],
-    ['Marked as Spam', optionalMetric(data.value.overallStats.spam)],
-    ['Average Attempted Recipients per Delivery Run', optionalMetric(data.value.overallStats.averageSentPerUser)],
-    ['Average Opened per User', optionalMetric(data.value.overallStats.averageOpenedPerUser)],
-    ['Average Clicked per User', optionalMetric(data.value.overallStats.averageClickedPerUser)],
-    [],
-    ['Role Attribution'],
-    ['Basis', 'Current single-role announcement audience; not a send-time historical role snapshot'],
-    ['Availability', data.value.roleAttribution.available ? 'Available' : 'Unavailable'],
-    [
-      'Coverage',
-      !data.value.roleAttribution.available
-        ? 'Unavailable'
-        : data.value.roleAttribution.complete
-          ? 'Complete'
-          : 'Partial',
-    ],
-    ['Attributed Delivery Runs', data.value.roleAttribution.trackedDeliveryRuns],
-    ['Unattributed Delivery Runs', data.value.roleAttribution.unattributedDeliveryRuns],
-    ['Attributed Attempts', data.value.roleAttribution.trackedAttempted],
-    ['Unattributed Attempts', data.value.roleAttribution.unattributedAttempted],
-    ['Attributed Delivered', data.value.roleAttribution.trackedDelivered],
-    ['Unattributed Delivered', data.value.roleAttribution.unattributedDelivered],
-    ['Attributed Failed', data.value.roleAttribution.trackedFailed],
-    ['Unattributed Failed', data.value.roleAttribution.unattributedFailed],
-    ['Role', 'Attributed Delivery Runs', 'Attempted', 'Delivered', 'Failed', 'Opened'],
-    ...(data.value.roleAttribution.available
-      ? data.value.statusByRole.map((row) => [
-          row.role,
-          row.trackedDeliveries,
-          row.attempted,
-          row.delivered,
-          row.failed,
-          optionalMetric(row.opened),
-        ])
-      : [['Unavailable', '', '', '', '', 'Unavailable']]),
-    [],
-    ['Hour', 'info@biotechfutures.org', 'connect@biotechfutures.org', 'Combined'],
-    ...data.value.hourlyUsage.map((item) => [
-      item.label,
-      item.info,
-      item.connect,
-      item.info + item.connect,
-    ]),
-    [],
-    ['Email Type', 'Messages'],
-    ...data.value.categories.map((item) => [item.label, item.value]),
-  ]
-
-  const csv = rows
-    .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-    .join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'email-monitoring.csv'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
 </script>
 
 <style src="@/assets/analytics-theme.css"></style>
@@ -1668,13 +1802,60 @@ th {
   font-size: 10px;
 }
 
-.email-log-table th:nth-child(1) { width: 10%; }
-.email-log-table th:nth-child(2) { width: 16%; }
-.email-log-table th:nth-child(3) { width: 12%; }
-.email-log-table th:nth-child(4) { width: 16%; }
-.email-log-table th:nth-child(5) { width: 24%; }
-.email-log-table th:nth-child(6) { width: 12%; }
-.email-log-table th:nth-child(7) { width: 10%; }
+.email-log-table th:nth-child(1) { width: 9%; }
+.email-log-table th:nth-child(2) { width: 15%; }
+.email-log-table th:nth-child(3) { width: 9%; }
+.email-log-table th:nth-child(4) { width: 12%; }
+.email-log-table th:nth-child(5) { width: 11%; }
+.email-log-table th:nth-child(6) { width: 16%; }
+.email-log-table th:nth-child(7) { width: 11%; }
+.email-log-table th:nth-child(8) { width: 9%; }
+.email-log-table th:nth-child(9) { width: 8%; }
+
+/* Recipient search and per-email recipient export. */
+.recipient-search {
+  min-width: 220px;
+}
+
+.recipient-export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid #bad7b8;
+  border-radius: 7px;
+  background: #fff;
+  color: #017151;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.recipient-export-button:hover:not(:disabled) {
+  background: #f3f8f5;
+}
+
+.recipient-export-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.recipients-not-recorded {
+  color: #8a9a96;
+  font-size: 10px;
+}
+
+.recipient-error {
+  margin-right: auto;
+  color: #9b3b1f;
+  font-weight: 700;
+}
+
+.recipient-note {
+  margin: 6px 0 0;
+  color: #667873;
+  font-size: 11px;
+}
 
 .email-title-cell {
   min-width: 0;
@@ -1704,6 +1885,11 @@ th {
   color: #174243;
 }
 
+.log-status.sending {
+  background: #e8f0f3;
+  color: #376f83;
+}
+
 .log-status.partial {
   background: #fff4d0;
   color: #715400;
@@ -1717,9 +1903,45 @@ th {
 .logs-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
   padding-top: 8px;
   color: #667873;
   font-size: 10px;
+}
+
+/* What each delivery status means (Partial in particular). */
+.log-status-legend {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #e1e9e6;
+  border-radius: 10px;
+  background: #f7fbf9;
+  color: #536762;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.log-status-legend div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.log-status-legend dt,
+.log-status-legend dd {
+  margin: 0;
+}
+
+.log-status-legend p {
+  margin: 2px 0 0;
+}
+
+.log-status-legend a {
+  color: #017151;
+  font-weight: 700;
 }
 
 .mailbox-quota-list {
@@ -1923,6 +2145,11 @@ th {
 .email-log-table .log-status.opened {
   background: rgba(94, 169, 158, 0.16);
   color: #174243;
+}
+
+.email-log-table .log-status.sending {
+  background: #e8f0f3;
+  color: #376f83;
 }
 
 .email-log-table .log-status.partial {

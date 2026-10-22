@@ -21,9 +21,7 @@
           </select></label
         >
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="loading || !!loadError || !!rangeError" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="loading || !!loadError || !!rangeError" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -39,7 +37,7 @@
     <p v-else-if="loading" role="status">Loading mentor analytics…</p>
     <template v-else>
     <p v-if="rangeError" class="range-error" role="alert">{{ rangeError }}</p>
-    <p v-if="exportStatus" class="export-status" role="status">{{ exportStatus }}</p>
+    <p v-if="exportError" class="export-status" role="alert">{{ exportError }}</p>
 
     <section class="kpi-grid" aria-label="Mentor snapshot summary">
       <article v-for="item in kpis" :key="item.label" class="kpi-card">
@@ -89,7 +87,7 @@
                 />
 
                 <circle
-                  v-for="segment in mentorDonutSegments(chart)"
+                  v-for="segment in mentorDonutArcs(chart)"
                   :key="segment.label"
                   cx="90"
                   cy="90"
@@ -98,7 +96,7 @@
                   fill="none"
                   :stroke="segment.color"
                   stroke-width="24"
-                  :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                  :stroke-dasharray="segment.dasharray"
                   :stroke-dashoffset="-segment.start"
                   stroke-linecap="butt"
                   class="interactive-mentor-donut-segment"
@@ -126,7 +124,7 @@
                 </template>
                 <template v-else>
                   <strong>{{ mentorDonutTotal(chart) }}</strong>
-                  <span>Total mentors</span>
+                  <span>{{ chart.centreLabel ?? 'Total mentors' }}</span>
                 </template>
               </div>
             </div>
@@ -154,6 +152,21 @@
                 </span>
                 <strong>{{ segment.value }} <small>({{ segment.percent }}%)</small></strong>
               </div>
+              <div
+                v-if="chart.title === 'Mentor Capacity Split'"
+                class="capacity-pool"
+                aria-label="Activated mentor pool capacity"
+              >
+                <span>Pool capacity</span>
+                <strong>{{ snapshot.capacityPool.usedSlots }} / {{ snapshot.capacityPool.totalSlots }} groups</strong>
+                <div class="capacity-pool-track" role="presentation">
+                  <span :style="{ width: `${Math.min(snapshot.capacityPool.utilisation, 100)}%` }"></span>
+                </div>
+                <small>{{ snapshot.capacityPool.utilisation }}% used · {{ snapshot.capacityPool.openSlots }} open slots</small>
+                <button type="button" class="capacity-table-shortcut" @click="openCapacityTable">
+                  View mentors with capacity <span aria-hidden="true">→</span>
+                </button>
+              </div>
             </div>
           </div>
         </template>
@@ -166,6 +179,14 @@
         />
       </article>
     </section>
+
+    <MentorCapacityTable
+      v-if="sourceAvailable('groups')"
+      id="mentors-with-capacity"
+      ref="capacityTable"
+      :mentors="liveMentors"
+      @select="openAdminMentor"
+    />
 
     <section v-if="sourceAvailable('groupActivity')" class="activity-grid" aria-label="Mentor activity in the selected range">
       <article class="analytics-card activity-card">
@@ -239,27 +260,38 @@
           </svg>
         </template>
       </article>
-      <article class="analytics-card">
-        <h2>Top 5 Most Active Mentors</h2>
-        <p class="card-note">Ranked by messages · {{ rangeLabel }}</p>
-        <p v-if="rangeError" class="empty-state">Choose a valid date range to view rankings.</p>
-        <p v-else-if="!activity.ranking.length" class="empty-state">
-          No mentor messages in this date range.
+      <article class="analytics-card mentor-activity-card">
+        <div class="mentor-activity-heading">
+          <h2>Mentor Activity</h2>
+          <button
+            type="button"
+            class="mentor-activity-sort"
+            :title="mentorActivitySort === 'desc' ? 'Highest to lowest' : 'Lowest to highest'"
+            :aria-label="mentorActivitySort === 'desc' ? 'Sort lowest to highest' : 'Sort highest to lowest'"
+            @click="mentorActivitySort = mentorActivitySort === 'desc' ? 'asc' : 'desc'"
+          >
+            <i
+              class="fas"
+              :class="mentorActivitySort === 'desc' ? 'fa-caret-down' : 'fa-caret-up'"
+              aria-hidden="true"
+            ></i>
+          </button>
+        </div>
+        <p class="card-note">Activated mentors by messages sent · {{ rangeLabel }}</p>
+        <p v-if="rangeError" class="empty-state">Choose a valid date range to view mentor activity.</p>
+        <p v-else-if="!sortedMentorActivity.length" class="empty-state">
+          No activated mentor accounts.
         </p>
-        <ol v-else class="ranking">
-          <li v-for="(mentor, index) in activity.ranking" :key="mentor.id">
+        <ol v-else class="ranking mentor-activity-list">
+          <li v-for="(mentor, index) in sortedMentorActivity" :key="mentor.id">
             <span class="rank-number">{{ index + 1 }}</span>
             <div class="rank-copy">
               <span>{{ mentor.name }}</span>
               <div class="rank-track">
-                <span
-                  :style="{
-                    width: `${(mentor.messages / (activity.ranking[0]?.messages || 1)) * 100}%`,
-                  }"
-                ></span>
+                <span :style="{ width: `${(mentor.messages / mentorActivityMax) * 100}%` }"></span>
               </div>
             </div>
-            <strong>{{ mentor.messages }}<small>messages</small></strong>
+            <strong>{{ mentor.messages }}<small>{{ mentor.messages === 1 ? 'message' : 'messages' }}</small></strong>
           </li>
         </ol>
       </article>
@@ -289,7 +321,7 @@
                 stroke-width="24"
               />
               <circle
-                v-for="segment in mentorDonutSegments(coverageChart)"
+                v-for="segment in mentorDonutArcs(coverageChart)"
                 :key="segment.label"
                 cx="90"
                 cy="90"
@@ -298,7 +330,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="segment.dasharray"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="interactive-mentor-donut-segment"
@@ -374,26 +406,46 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import MentorDistributionChart from '@/components/analytics/MentorDistributionChart.vue'
+import MentorCapacityTable from '@/components/analytics/MentorCapacityTable.vue'
+import { useRouter } from 'vue-router'
 import { BTF_COLORS } from '@/constants/btfTheme'
 import type { DemoMentor, MentorEvent } from '@/types/analytics'
 import { buildMentorData, loadMentorsAnalyticsBundle } from '@/utils/liveAnalyticsData'
 import {
   mentorSnapshot,
   mentorActivity,
-  mentorsCsv,
+  mentorsSummaryRows,
   percent,
   validRange,
   type MetricBucket,
 } from '@/utils/mentorsAnalytics'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  activityStatusLabel,
+  detailsCsv,
+  exportFileName,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+} from '@/utils/analyticsExport'
 
 const liveMentors = ref<DemoMentor[]>([])
+const capacityTable = ref<{ open: () => void } | null>(null)
+const router = useRouter()
 const liveEvents = ref<MentorEvent[]>([])
 const unavailableSources = ref<AnalyticsSource[]>([])
 const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
@@ -417,7 +469,6 @@ const snapshot = computed(() =>
 const mentorInsightItems = computed(() =>
   snapshot.value.insights.filter((item) => {
     if (['Unassigned mentors', 'Near capacity', 'Over capacity'].includes(item.label)) return sourceAvailable('groups')
-    if (['No login for more than 30 days', 'No recorded login'].includes(item.label)) return sourceAvailable('groupActivity')
     return true
   }).map((item) => ({
     key: item.label,
@@ -426,6 +477,27 @@ const mentorInsightItems = computed(() =>
     detail: item.detail,
   })),
 )
+
+async function openCapacityTable() {
+  capacityTable.value?.open()
+  await nextTick()
+  document.getElementById('mentors-with-capacity')?.scrollIntoView?.({
+    behavior: 'smooth',
+    block: 'start',
+  })
+}
+
+function openAdminMentor(mentor: DemoMentor) {
+  void router.push({
+    path: '/admin/users',
+    query: {
+      tab: 'mentors',
+      capacity: 'available',
+      search: mentor.name,
+    },
+    hash: '#admin-mentors-table',
+  })
+}
 const range = computed(() => {
   const year = selectedYear.value
   return {
@@ -448,6 +520,16 @@ const rangeError = computed(() => {
   return ''
 })
 const activity = computed(() => mentorActivity(liveMentors.value, liveEvents.value, range.value))
+const mentorActivitySort = ref<'desc' | 'asc'>('desc')
+const sortedMentorActivity = computed(() =>
+  mentorActivitySort.value === 'desc'
+    ? activity.value.ranking
+    : [...activity.value.ranking].sort((a, b) =>
+        a.messages - b.messages || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+)
+const mentorActivityMax = computed(() =>
+  Math.max(...activity.value.ranking.map((mentor) => mentor.messages), 1),
+)
 const rangeLabel = computed(() => `${range.value.start} – ${range.value.end} (UTC)`)
 const activeMentorsForYear = (year: number) => new Set(
   liveEvents.value
@@ -513,6 +595,7 @@ type MentorChart = {
   items: MetricBucket[]
   kind: 'donut' | 'horizontal' | 'vertical'
   axis?: string
+  centreLabel?: string
 }
 
 const charts = computed(() => ([
@@ -524,9 +607,10 @@ const charts = computed(() => ([
   },
   {
     title: 'Mentor Capacity Split',
-    note: 'Assigned groups vs configured capacity; 0 of 0 is at capacity.',
+    note: 'Activated mentors only: assigned groups vs configured capacity; 0 of 0 is at capacity.',
     items: snapshot.value.capacity,
     kind: 'donut',
+    centreLabel: 'Activated mentors',
   },
   {
     title: 'Mentor Background',
@@ -536,28 +620,27 @@ const charts = computed(() => ([
   },
   {
     title: 'Groups per Mentor',
-    note: 'Distinct current group assignments, including zero.',
+    note: 'Distinct current group assignments, including zero; a mentor supports at most 5 groups.',
     items: snapshot.value.groups,
     kind: 'vertical',
     axis: 'group count',
   },
   {
     title: 'Students per Mentor',
-    note: 'Unique students supported by each mentor; the 0–5 bucket includes zero students.',
+    note: 'Unique students supported by each mentor; at most 25 (5 groups of up to 5 students).',
     items: snapshot.value.students,
     kind: 'vertical',
     axis: 'student count',
   },
   {
     title: 'Last Login Distribution',
-    note: 'Days before the snapshot; 90+ means more than 90 days.',
+    note: 'Days since each mentor account last logged in, as of today; 90+ means more than 90 days.',
     items: snapshot.value.lastLogin,
     kind: 'vertical',
     axis: 'last login',
   },
 ] as MentorChart[]).filter((chart) => {
   if (chart.title === 'Mentor Background') return sourceAvailable('users')
-  if (chart.title === 'Last Login Distribution') return sourceAvailable('groupActivity')
   if (['Mentor Capacity Split', 'Groups per Mentor', 'Students per Mentor'].includes(chart.title)) return sourceAvailable('groups')
   return true
 }))
@@ -574,6 +657,7 @@ type MentorDonutSegment = {
   label: string
   value: number
   percent: number
+  arc: number
   start: number
   color: string
 }
@@ -589,21 +673,41 @@ function mentorDonutTotal(chart: MentorChart) {
 }
 
 function mentorDonutSegments(chart: MentorChart): MentorDonutSegment[] {
-  const total = mentorDonutTotal(chart) || 1
+  const total = mentorDonutTotal(chart)
   let start = 0
 
   return chart.items.map((item, index) => {
-    const itemPercent = percent(item.value, total)
+    // Geometry uses the exact share; the rounded percent is only for labels,
+    // so the arcs always close the ring without gaps or overlaps.
+    const arc = total
+      ? (index === chart.items.length - 1 ? Math.max(0, 100 - start) : (item.value / total) * 100)
+      : 0
     const segment = {
       label: item.label,
       value: item.value,
-      percent: itemPercent,
+      percent: percent(item.value, total),
+      arc,
       start,
-      color: mentorDonutPalette[index % mentorDonutPalette.length],
+      color: mentorDonutPalette[index % mentorDonutPalette.length]!,
     }
 
-    start += itemPercent
+    start += arc
     return segment
+  })
+}
+
+// Arcs actually drawn on the ring. Empty categories stay in the legend but are
+// not drawn (a zero-length dash can still paint a sliver in some browsers),
+// and each arc runs slightly into the next to hide anti-aliasing seams.
+const DONUT_ARC_OVERLAP = 0.4
+
+function mentorDonutArcs(chart: MentorChart) {
+  const drawn = mentorDonutSegments(chart).filter((segment) => segment.value > 0)
+  return drawn.map((segment, index) => {
+    // The last arc meets the first at 12 o'clock, so it gets no overlap.
+    const overlap = index < drawn.length - 1 ? DONUT_ARC_OVERLAP : 0
+    const length = drawn.length > 1 ? Math.min(segment.arc + overlap, 100) : 100
+    return { ...segment, dasharray: `${length} ${100 - length}` }
   })
 }
 
@@ -650,39 +754,75 @@ function showActivity(event: Event, point: (typeof points.value)[number]) {
     detail: `${point.messages} messages · ${point.logins} logins`,
   }
 }
-const exportStatus = ref('')
+const exportError = ref('')
 watch(range, () => {
   hideTooltip()
-  exportStatus.value = ''
+  exportError.value = ''
 })
-function exportCsv() {
-  if (rangeError.value) return
-  try {
-    const url = URL.createObjectURL(
-      new Blob([mentorsCsv(snapshot.value, activity.value, range.value, mentorsSnapshotDate.value, {
-        groups: sourceAvailable('groups'),
-        background: sourceAvailable('users'),
-        activity: sourceAvailable('groupActivity'),
-      })], {
-        type: 'text/csv;charset=utf-8;',
-      }),
-    )
-    const anchor = document.createElement('a')
-    try {
-      anchor.href = url
-      anchor.download = `mentors-analytics-${range.value.start}-${range.value.end}.csv`
-      document.body.appendChild(anchor)
-      anchor.click()
-      exportStatus.value =
-        'CSV download started. Includes snapshot metrics and selected activity dates.'
-    } finally {
-      anchor.remove()
-      URL.revokeObjectURL(url)
-    }
-  } catch {
-    exportStatus.value = 'The CSV could not be downloaded. Please try again.'
+const exportOptions: ExportOption[] = [
+  SUMMARY_OPTION,
+  { ...DETAILS_OPTION, description: 'One row per mentor: status, capacity, groups and messages' },
+]
+
+function mentorsSummary() {
+  const { start, end } = range.value
+  return {
+    fileName: exportFileName('mentors', 'summary', `${start} to ${end}`),
+    csv: summaryCsv({
+      page: 'Mentors',
+      covers: `Current mentors; activity ${start} to ${end} (UTC)`,
+      dataAsOf: mentorsSnapshotDate.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, mentorsSummaryRows(snapshot.value, activity.value, {
+      groups: sourceAvailable('groups'),
+      background: sourceAvailable('users'),
+      activity: sourceAvailable('groupActivity'),
+    })),
   }
 }
+
+const backgroundLabel = (value: string) =>
+  value === 'unknown' ? '' : value === 'hdr' ? 'HDR' : value.charAt(0).toUpperCase() + value.slice(1)
+
+function mentorsDetails() {
+  const { start, end } = range.value
+  const messages = new Map<string, number>()
+  for (const event of liveEvents.value) {
+    if (event.date >= start && event.date <= end) messages.set(event.mentorId, (messages.get(event.mentorId) ?? 0) + event.messages)
+  }
+  // Snapshot rows keep only the login date; the account timestamp is on the mentor.
+  const lastLogins = new Map(liveMentors.value.map((mentor) => [mentor.id, mentor.lastLogin]))
+  const rows = [...snapshot.value.rows]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((mentor) => [
+      mentor.id,
+      mentor.name,
+      mentor.email,
+      accountStatusLabel(mentor.accountStatus, mentor.accountActive),
+      activityStatusLabel(mentor.daysSinceLogin),
+      isoUtc(lastLogins.get(mentor.id)),
+      mentor.daysSinceLogin,
+      mentor.capacity,
+      mentor.groups,
+      Math.max(mentor.capacity - mentor.groups, 0),
+      mentor.students,
+      messages.get(mentor.id) ?? 0,
+      backgroundLabel(mentor.background),
+    ])
+  return {
+    fileName: exportFileName('mentors', 'details', `${start} to ${end}`),
+    csv: detailsCsv([
+      'Mentor ID', 'Mentor', 'Email', 'Account Status', `Activity Status (${ACTIVE_WINDOW_DAYS} days)`, 'Last Login (UTC)',
+      'Days Since Last Login', 'Capacity (Groups)', 'Groups', 'Open Slots', 'Students', 'Messages in Range', 'Background',
+    ], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  if (rangeError.value) return
+  exportError.value = runExport(kind === 'summary' ? mentorsSummary : mentorsDetails)
+}
+
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await initializeMentors(true, true) })
 
@@ -1027,6 +1167,115 @@ h2 {
   margin: 20px 0;
   display: grid;
   gap: 18px;
+}
+
+/* Mentor Activity: full list scrolls inside the card. */
+.mentor-activity-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.mentor-activity-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mentor-activity-heading h2 {
+  margin: 0;
+}
+.mentor-activity-sort {
+  display: inline-flex;
+  flex: 0 0 40px;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #bad7b8;
+  border-radius: 10px;
+  background: #fff;
+  color: #017151;
+  font-size: 16px;
+  cursor: pointer;
+}
+.mentor-activity-sort:hover {
+  background: #f3f8f5;
+}
+.mentor-activity-list {
+  flex: 1 1 0;
+  min-height: 220px;
+  max-height: 320px;
+  margin: 12px 0 0;
+  padding-right: 8px;
+  overflow-y: scroll;
+  align-content: start;
+}
+.mentor-activity-list::-webkit-scrollbar {
+  width: 6px;
+}
+.mentor-activity-list::-webkit-scrollbar-track {
+  border-radius: 3px;
+  background: #eef3f1;
+}
+.mentor-activity-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: #9fbfb9;
+}
+
+/* Activated mentor pool capacity, under the capacity split legend. */
+.capacity-pool {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid #e7eeeb;
+}
+.capacity-pool > span {
+  color: #60726f;
+  font-size: 11px;
+  font-weight: 700;
+}
+.capacity-pool strong {
+  color: #174243;
+  font-size: 15px;
+}
+.capacity-pool small {
+  color: #60726f;
+  font-size: 11px;
+}
+.capacity-pool-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--btf-track, #eef3f1);
+}
+.capacity-pool-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--btf-dark-green, #017151);
+}
+.capacity-table-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 5px;
+  padding: 6px 0 0;
+  border: 0;
+  border-top: 1px solid #e7eeeb;
+  background: transparent;
+  color: #017151;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.capacity-table-shortcut:hover,
+.capacity-table-shortcut:focus-visible {
+  color: #174243;
 }
 .ranking li {
   display: flex;
@@ -1410,7 +1659,7 @@ h2 {
 
 .mentors-analytics-page .kpi-copy > .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .mentors-analytics-page .kpi-label {
@@ -1529,7 +1778,7 @@ h2 {
 .interactive-mentor-donut-layout {
   display: grid;
   grid-template-columns: minmax(150px, 0.9fr) minmax(180px, 1.1fr);
-  align-items: center;
+  align-items: start;
   gap: 14px;
   min-height: 220px;
   padding-top: 8px;
@@ -1562,7 +1811,7 @@ h2 {
 }
 
 .interactive-mentor-donut-segment:hover,
-.interactive-mentor-donut-segment:focus,
+.interactive-mentor-donut-segment:focus-visible,
 .interactive-mentor-donut-segment.selected {
   stroke-width: 28;
   filter: brightness(0.98);

@@ -39,11 +39,11 @@
         <div class="finalist-presentation__add">
           <label class="finalist-presentation__field">
             <span>Start</span>
-            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time" />
+            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time app-input app-input--compact" />
           </label>
           <label class="finalist-presentation__field">
             <span>End</span>
-            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time" />
+            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time app-input app-input--compact" />
           </label>
           <button
             type="button"
@@ -179,18 +179,14 @@
             <span v-else class="finalist-presentation__muted">No response</span>
           </template>
           <template #cell-allocate="{ row }">
-            <select
+            <AppSelect
               class="finalist-presentation__allocate-select"
               :aria-label="`Time for ${teamOf(row).group_name}`"
-              :value="teamOf(row).allocated_slot_id ?? ''"
+              :model-value="teamOf(row).allocated_slot_id ?? ''"
+              :options="allocateOptions"
               :disabled="allocating === teamOf(row).group_id"
-              @change="allocate(teamOf(row), $event)"
-            >
-              <option value="">Not allocated</option>
-              <option v-for="slot in columns" :key="slot.id" :value="slot.id">
-                {{ slotLabel(slot) }}
-              </option>
-            </select>
+              @update:model-value="(value) => allocate(teamOf(row), value)"
+            />
           </template>
           <!-- A column for each time: its heading as written, and a tick where
                the team said it can make it. -->
@@ -279,6 +275,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import {
   addPresentationSlot,
@@ -389,17 +386,22 @@ const allocateColumns = computed<DataTableColumn[]>(() => [
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
 
-const allocate = async (team: PresentationResponseTeam, event: Event) => {
-  const select = event.target as HTMLSelectElement
-  const slotId = select.value ? Number(select.value) : null
+// "Not allocated", then each time.
+const allocateOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'Not allocated' },
+  ...columns.value.map((slot) => ({ value: slot.id, label: slotLabel(slot) }))
+])
+
+// The dropdown keeps showing the team's time until the new one is given, and
+// goes on showing it if that fails.
+const allocate = async (team: PresentationResponseTeam, value: AppSelectValue) => {
+  const slotId = value === '' || value === null ? null : Number(value)
   allocating.value = team.group_id
   allocateError.value = ''
   try {
     team.allocated_slot_id = (await allocatePresentationSlot(team.group_id, slotId)).slot_id
   } catch (err) {
     allocateError.value = `${team.group_name}: ${apiErrorFromUnknown(err).message}`
-    // Back to the time the team still has.
-    select.value = team.allocated_slot_id === null ? '' : String(team.allocated_slot_id)
   } finally {
     allocating.value = null
   }
@@ -649,8 +651,9 @@ const remove = async (id: number) => {
   color: var(--text-muted);
 }
 
-/* Same boxes as the date fields on Notify Finalists. */
-.finalist-presentation__time {
+/* The times in the table's rows. The Add row's are the shared compact box
+   (app-input), at their own width. */
+.finalist-presentation__time:not(.app-input) {
   border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 0.35rem 0.55rem;
@@ -658,6 +661,11 @@ const remove = async (id: number) => {
   font-family: inherit;
   background: var(--surface-elevated);
   color: var(--teal);
+}
+
+.finalist-presentation__time.app-input {
+  width: auto;
+  max-width: none;
 }
 
 .finalist-presentation__time:focus {

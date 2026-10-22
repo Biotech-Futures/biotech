@@ -200,6 +200,10 @@ const scoreClass = (value: unknown) => {
   return `mark-score-${Math.min(5, Math.max(0, Math.round(mark)))}`
 }
 
+// Show marks only: Group and the marks (PM1-10, SM1-4, MTotal), the rest hidden.
+// Search still looks through every column.
+const marksOnly = ref(false)
+
 // The spreadsheet's own columns, headed as it heads them: long text wraps,
 // marks are numbers centred in their cells, and each mark names its rubric
 // criterion on hover.
@@ -211,16 +215,16 @@ const markColumns = computed<DataTableColumn[]>(() =>
     type: column.mark ? 'number' : 'string',
     wrap: !column.mark && !ONE_LINE.has(column.key),
     headClass: column.mark ? 'mark-col' : undefined,
-    // Each criterion's mark coloured from red (0) to green (5).
+    // With Show marks only on, each criterion's mark coloured from red (0) to green (5).
     cellClass: column.mark
-      ? (row) => ['mark-col', CRITERION.test(column.key) && scoreClass(row[column.key])].filter(Boolean).join(' ')
+      ? (row) =>
+          ['mark-col', marksOnly.value && CRITERION.test(column.key) && scoreClass(row[column.key])]
+            .filter(Boolean)
+            .join(' ')
       : undefined,
   })),
 )
 
-// Show marks only: Group and the marks (PM1-10, SM1-4, MTotal), the rest hidden.
-// Search still looks through every column.
-const marksOnly = ref(false)
 const shownMarkColumns = computed<DataTableColumn[]>(() => {
   if (!marksOnly.value) return markColumns.value
   const marks = new Set((results.value?.columns ?? []).filter((column) => column.mark).map((column) => column.key))
