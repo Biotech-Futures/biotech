@@ -6,18 +6,14 @@
       newly-added
       confirm-title="Email non-finalist teams?"
     >
-      <div class="card-header">
-        <h3 class="card-title">Notify Nonfinalist</h3>
-      </div>
-      <!-- Laid out like Notify Finalists: the page title over a divider, then
-           a section heading. -->
+      <!-- Below Notify Finalists on its tab: headed as the cards after a
+           page's first are, with no title of its own over a divider. -->
       <h3 class="non-finalist__section-title">Notify Nonfinalist</h3>
       <p class="non-finalist__hint">
         For teams that submitted but weren't selected as finalists.
       </p>
       <p class="non-finalist__hint">
-        The Symposium date and registration link come from Set Details on
-        <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
+        The Symposium date and registration link come from Set Details above.
       </p>
       <p class="non-finalist__hint">
         Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.
@@ -32,8 +28,7 @@
       <h3 class="non-finalist__section-title">Notify Nonsubmission</h3>
       <p class="non-finalist__hint">For teams that didn't make a submission.</p>
       <p class="non-finalist__hint">
-        The Symposium date and registration link come from Set Details on
-        <RouterLink to="/management/notify-finalists">Notify Finalists</RouterLink>.
+        The Symposium date and registration link come from Set Details above.
       </p>
       <p class="non-finalist__hint">
         Each group gets one email: its students in To, and its mentors and supervisors in CC. Resending emails only those who missed it, with mentors and supervisors in To if no student is left. Anyone in multiple groups gets one email for each group.

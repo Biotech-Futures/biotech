@@ -17,7 +17,21 @@
     </div>
 
     <template v-else-if="detail">
-      <div class="status-line" :class="`is-${state.tone}`">
+      <AdminSubmissionBar
+        v-if="adminAccess"
+        :team="teamName"
+        :entry="adminEntry"
+        :students="studentsNote"
+        :editing="adminEditing"
+        :dirty="adminDirty"
+        :busy="isBusy"
+        @edit="startAdminEdit"
+        @save="adminSave"
+        @submit="adminSubmit"
+        @discard="adminDiscard"
+        @done="leaveAdminEdit"
+      />
+      <div v-else class="status-line" :class="`is-${state.tone}`">
         <span class="status-line__icon" aria-hidden="true">
           <i :class="`fas ${state.icon}`"></i>
         </span>
@@ -88,6 +102,37 @@
         </section>
       </div>
 
+      <!-- Confirms a step others will see, or that can't be undone. -->
+      <div
+        v-if="confirmDialog"
+        class="submission-dialog-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        tabindex="-1"
+        data-testid="confirm-dialog"
+        @keydown.esc="answerConfirm(false)"
+      >
+        <section class="submission-dialog">
+          <h2 id="confirm-dialog-title" class="submission-dialog__title">{{ confirmDialog.title }}</h2>
+          <p class="submission-dialog__body">{{ confirmDialog.body }}</p>
+          <div class="submission-dialog__actions">
+            <button type="button" class="btn btn-outline" data-testid="confirm-dialog-cancel" @click="answerConfirm(false)">
+              Cancel
+            </button>
+            <button
+              ref="confirmButton"
+              type="button"
+              class="btn btn-primary"
+              data-testid="confirm-dialog-confirm"
+              @click="answerConfirm(true)"
+            >
+              {{ confirmDialog.confirm }}
+            </button>
+          </div>
+        </section>
+      </div>
+
       <div v-if="message" ref="messageBanner" class="submission-message" :class="{ 'submission-message--error': isError }">
         <span>{{ message }}</span>
         <button type="button" class="submission-message__close" aria-label="Dismiss" @click="dismissMessage">
@@ -109,28 +154,40 @@
           <p v-if="sectionBody" class="section-head__sub">{{ sectionBody }}</p>
         </header>
 
+        <p v-if="coeditNote" class="submission-muted" data-testid="coedit-note">{{ coeditNote }}</p>
+
         <div class="submission-field">
           <label class="submission-label" for="project-title">
             Project title
             <span class="submission-required" title="Required" aria-label="required">*</span>
           </label>
-          <input
-            id="project-title"
-            v-model="projectTitle"
-            class="form-control"
-            type="text"
-            :maxlength="PROJECT_TITLE_MAX_LENGTH"
-            v-show="!live.isLocked(TITLE_FIELD)"
-            :disabled="!isEditable || live.isLocked(TITLE_FIELD)"
-            @input="shareTyping(TITLE_FIELD, $event)"
-          />
-          <LiveTextPanel
-            v-if="live.isLocked(TITLE_FIELD)"
-            class="form-control"
-            :text="projectTitle"
-            :caret="live.caretIn(TITLE_FIELD)"
-            :rows="1"
-          />
+          <div class="submission-stretch">
+            <input
+              id="project-title"
+              v-model="projectTitle"
+              class="form-control app-input app-input--wide"
+              type="text"
+              :maxlength="PROJECT_TITLE_MAX_LENGTH"
+              v-show="!live.isLocked(TITLE_FIELD)"
+              :disabled="!textEditable || live.isLocked(TITLE_FIELD)"
+              @input="shareTyping(TITLE_FIELD, $event)"
+              @compositionstart="startComposing(TITLE_FIELD, $event)"
+              @compositionend="endComposing(TITLE_FIELD, $event)"
+              @keydown="onFieldKeydown(TITLE_FIELD, $event)"
+              @keyup="shareCursor(TITLE_FIELD)"
+              @mouseup="shareCursor(TITLE_FIELD)"
+              @focus="enterField(TITLE_FIELD)"
+              @blur="leaveField(TITLE_FIELD)"
+            />
+            <LiveTextPanel
+              v-if="live.isLocked(TITLE_FIELD)"
+              class="form-control app-input app-input--wide"
+              :text="projectTitle"
+              :caret="live.caretIn(TITLE_FIELD)"
+              :rows="1"
+            />
+            <SharedCursors v-if="typingShared" :source="cursorSource(TITLE_FIELD)" />
+          </div>
           <div class="submission-field-meta">
             <TypingIndicator :names="live.typingIn(TITLE_FIELD)" />
           </div>
@@ -155,8 +212,15 @@
               :rows="ANSWER_ROWS"
               v-show="!live.isLocked(question.key)"
               :style="boxHeights[question.key] ? { height: `${boxHeights[question.key]}px` } : undefined"
-              :disabled="!isEditable || live.isLocked(question.key)"
+              :disabled="!textEditable || live.isLocked(question.key)"
               @input="shareTyping(question.key, $event)"
+              @compositionstart="startComposing(question.key, $event)"
+              @compositionend="endComposing(question.key, $event)"
+              @keydown="onFieldKeydown(question.key, $event)"
+              @keyup="shareCursor(question.key)"
+              @mouseup="shareCursor(question.key)"
+              @focus="enterField(question.key)"
+              @blur="leaveField(question.key)"
             ></textarea>
             <LiveTextPanel
               v-if="live.isLocked(question.key)"
@@ -166,6 +230,7 @@
               :rows="ANSWER_ROWS"
               :height="boxHeights[question.key] ?? null"
             />
+            <SharedCursors v-if="typingShared" :source="cursorSource(question.key)" />
             <StretchHandle
               :height="boxHeights[question.key] ?? null"
               @update:height="boxHeights[question.key] = $event"
@@ -227,7 +292,7 @@
               <a :href="downloadUrl('poster')" target="_blank" rel="noopener noreferrer">
                 {{ storedFile('poster')?.name }}
               </a>
-              <span class="submission-muted"> ({{ formatSize(storedFile('poster')?.size) }})</span>
+              <span class="submission-muted"> ({{ formatSize(storedFile('poster')?.size) }}{{ pendingNote('poster') }})</span>
             </p>
             <p v-else class="submission-muted">Nothing attached yet.</p>
           </div>
@@ -340,7 +405,7 @@
                 <a :href="downloadUrl('report')" target="_blank" rel="noopener noreferrer">
                   {{ storedFile('report')?.name }}
                 </a>
-                <span class="submission-muted"> ({{ formatSize(storedFile('report')?.size) }})</span>
+                <span class="submission-muted"> ({{ formatSize(storedFile('report')?.size) }}{{ pendingNote('report') }})</span>
               </p>
               <p v-else class="submission-muted">Nothing attached yet.</p>
             </div>
@@ -447,7 +512,7 @@
                 <a :href="downloadUrl('prototype')" target="_blank" rel="noopener noreferrer">
                   {{ storedFile('prototype')?.name }}
                 </a>
-                <span class="submission-muted"> ({{ formatSize(storedFile('prototype')?.size) }})</span>
+                <span class="submission-muted"> ({{ formatSize(storedFile('prototype')?.size) }}{{ pendingNote('prototype') }})</span>
               </p>
               <p v-else class="submission-muted">Nothing attached yet.</p>
             </div>
@@ -484,7 +549,7 @@
             <input
               id="prototype-url"
               v-model="prototypeUrl"
-              class="form-control"
+              class="form-control app-input app-input--wide"
               type="url"
               placeholder="https://…"
               :disabled="!isEditable"
@@ -501,7 +566,7 @@
       <div class="submission-actions">
 
         <span
-          v-if="isEditable"
+          v-if="isEditable && !adminAccess"
           class="submission-savestate"
           :class="{ 'is-error': saveState === 'error' }"
         >
@@ -532,7 +597,7 @@
         </div>
 
         <button
-          v-if="isEditable"
+          v-if="isEditable && !adminAccess"
           class="btn btn-primary"
           type="button"
           :disabled="isBusy"
@@ -550,11 +615,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import SubmissionStepStrip from '@/components/submission/SubmissionStepStrip.vue'
 import { useFileDragging } from '@/components/submission/useFileDragging'
 import LiveTextPanel from '@/components/live/LiveTextPanel.vue'
+import SharedCursors from '@/components/live/SharedCursors.vue'
 import PosterChecklist from '@/components/submission/PosterChecklist.vue'
+import AdminSubmissionBar from '@/components/submission/AdminSubmissionBar.vue'
 import StretchHandle from '@/components/submission/StretchHandle.vue'
 import TypingIndicator from '@/components/live/TypingIndicator.vue'
 import { useLiveRoom } from '@/composables/useLiveRoom'
-import { RouterLink, useRoute } from 'vue-router'
+import { useCoeditedFields } from '@/composables/useCoeditedFields'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatDayMonthTime } from '@/utils/date'
 import {
@@ -604,6 +672,7 @@ const MESSAGE_TIMEOUT_MS = 4000
 const POSTER_TEMPLATE_RESOURCE_ID = 9
 
 const route = useRoute()
+const router = useRouter()
 const groupId = computed(() => String(route.params.id ?? ''))
 
 const detail = ref<SubmissionDetail | null>(null)
@@ -652,16 +721,19 @@ function tidyLink() {
 
 /** A link with a problem is left out, so the server keeps the last good one. */
 function draftFields(answers: Record<string, string>): {
-  answers: Record<string, string>
+  answers?: Record<string, string>
   project_title?: string
   prototype_url?: string
   poster_checklist?: Record<string, boolean>
+  live_unavailable?: boolean
 } {
   const link = linkProblem() ? savedLink : normalisedLink()
   const ticks = checklistChanges()
   return {
-    answers,
-    ...titleIfChanged(),
+    // A team's co-edited text is saved by the server, never sent from here, unless the live connection is out of reach.
+    ...(typingShared.value
+      ? {}
+      : { answers, ...titleIfChanged(), ...(savingWithoutLive.value ? { live_unavailable: true } : {}) }),
     ...(link === savedLink ? {} : { prototype_url: link }),
     ...(Object.keys(ticks).length ? { poster_checklist: ticks } : {})
   }
@@ -678,12 +750,13 @@ function titleIfChanged(): { project_title?: string } {
   return projectTitle.value === savedTitle ? {} : { project_title: projectTitle.value }
 }
 
-/** Changed answers that are within their word limit. */
+/** Changed answers within their word limit, or all of them while saving without the live connection. */
 function changedAnswers(): Record<string, string> {
   const overLimit = new Set(overLimitQuestions().map((q) => q.key))
   const changed: Record<string, string> = {}
   Object.keys(answers).forEach((key) => {
-    if (overLimit.has(key)) return
+    // Without the live connection, answers are saved as typed, as the shared document saves them.
+    if (overLimit.has(key) && !savingWithoutLive.value) return
     // Compared against '' so a cleared answer is still sent; omitted keys are left unchanged.
     if (answers[key] !== (savedAnswers[key] ?? '')) changed[key] = answers[key]
   })
@@ -694,6 +767,7 @@ const activeTab = ref<TabKey>('questions')
 const isSaving = ref(false)
 const isSubmitting = ref(false)
 const isReopening = ref(false)
+const isRefreshing = ref(false)
 const busySlot = ref<SubmissionSlot | ''>('')
 const uploadPercent = ref(0)
 const now = ref(Date.now())
@@ -722,16 +796,21 @@ function maxSizeLabel(slot: SubmissionSlot) {
 }
 const isOpen = computed(() => Boolean(detail.value?.deadline.is_open))
 const isLocked = computed(() => Boolean(detail.value?.submission?.is_locked))
-// Admins act for a team at any time; the status line still shows the real deadline.
+// Admins act for a team at any time, read-only until they choose Edit.
 const adminAccess = computed(() => Boolean(detail.value?.admin_access))
+const adminEditing = ref(false)
 const canAct = computed(() => isOpen.value || adminAccess.value)
-const isEditable = computed(() => canAct.value && !isLocked.value)
+const isEditable = computed(() => canAct.value && (adminAccess.value ? adminEditing.value : !isLocked.value))
 
 // While the portal is on screen and the round is open, so changes made elsewhere arrive at once.
+/** Answers and title are one live document that the whole team types into at once; the server saves it. */
+const coediting = computed(() => Boolean(detail.value?.coediting))
 const live = useLiveRoom(
   'submission',
   groupId,
-  computed(() => canAct.value && route.name === 'group-submission')
+  // An admin editing leaves the room, so their unsaved work is never shown to the team.
+  computed(() => canAct.value && route.name === 'group-submission' && !adminEditing.value),
+  coediting
 )
 const TITLE_FIELD = 'project-title'
 /** Room for most of an answer before anyone needs to stretch the box. */
@@ -739,7 +818,65 @@ const ANSWER_ROWS = 7
 /** Heights people have stretched answer boxes to, by question. */
 const boxHeights = reactive<Record<string, number>>({})
 
+const {
+  shared,
+  typingShared,
+  savingWithoutLive,
+  textEditable,
+  note: coeditNote,
+  showAll: showAllShared,
+  cursorSource,
+  shareCursor,
+  enterField,
+  leaveField,
+  input: typeIntoShared,
+  startComposing,
+  endComposing,
+  onFieldKeydown
+} = useCoeditedFields({
+  live,
+  coediting,
+  adminAccess,
+  isEditable,
+  boxes: computed(() => [TITLE_FIELD, ...questions.value.map((q) => q.key)]),
+  sharedName: (box) => (box === TITLE_FIELD ? 'title' : `answer:${box}`),
+  // The submitted copy, or an admin's private edits, are not overwritten.
+  mayShow: () => !showsSubmittedCopy.value && !adminEditing.value,
+  showSaved: (box, value) => {
+    if (box === TITLE_FIELD) {
+      projectTitle.value = value
+      savedTitle = value
+    } else {
+      answers[box] = value
+      savedAnswers[box] = value
+    }
+  },
+  fallback: {
+    keepSaved: (change) => {
+      const wasSaved = currentSnapshot() === savedSnapshot.value
+      change()
+      if (wasSaved) savedSnapshot.value = currentSnapshot()
+    },
+    saveTyping: async () => {
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer)
+        autosaveTimer = null
+      }
+      await persistDraft()
+      return currentSnapshot() === savedSnapshot.value
+    },
+    catchUp: () => catchUp()
+  }
+})
+
+// Submitting, reopening or the deadline change what may be edited, so the server is asked again.
+watch([() => isLocked.value, () => isOpen.value], () => {
+  if (typingShared.value) shared.resync()
+})
+
 function shareTyping(field: string, event: Event) {
+  if (typeIntoShared(field, event)) return
+  if (adminAccess.value) return
   const input = event.target as HTMLInputElement | HTMLTextAreaElement
   live.sendTyping(field)
   live.sendText(field, input.value, input.selectionStart ?? input.value.length)
@@ -747,6 +884,7 @@ function shareTyping(field: string, event: Event) {
 
 // A teammate's text is theirs to save, so it is taken as already saved here.
 live.onRemoteText((field, text) => {
+  if (coediting.value) return
   const wasSaved = currentSnapshot() === savedSnapshot.value
   if (field === TITLE_FIELD) {
     projectTitle.value = text
@@ -760,60 +898,55 @@ live.onRemoteText((field, text) => {
   if (wasSaved) savedSnapshot.value = currentSnapshot()
 })
 
+// Something changed elsewhere (a submit, reopen, file, tick or an admin's save): caught up at once.
+live.onChanged(() => void catchUp())
+
 const FILE_SLOTS: SubmissionSlot[] = ['poster', 'report', 'prototype']
 
-// A teammate submitted, reopened or changed a file: their action shows here at once.
-live.onChanged(() => void refreshFromElsewhere())
+function fileKeys(entry: SubmissionDetail | null): string {
+  return FILE_SLOTS.map((slot) => entry?.submission?.[slot]?.storage_key ?? '').join('|')
+}
 
-/** Takes the entry's latest status and files; typed text is left alone unless the entry was locked or unlocked. */
-async function refreshFromElsewhere() {
-  if (!detail.value || isSubmitting.value || isReopening.value) return
+/** Brings the page in line with the server: status, files and ticks always, and any box not being edited here. */
+async function catchUp() {
+  resyncTimer = null
+  // An admin's edits are their own until Save or Submit, so nothing is brought in meanwhile.
+  if (!detail.value || isSubmitting.value || isReopening.value || adminEditing.value) return
   try {
     const before = resultsApplied
     const latest = await fetchSubmission(groupId.value)
-    if (!detail.value) return
-    // A save or submit answered meanwhile, so this copy is older than the page: fetch again.
-    if (resultsApplied !== before) return void refreshFromElsewhere()
-    const files = (entry: typeof latest) =>
-      FILE_SLOTS.map((slot) => entry.submission?.[slot]?.storage_key ?? '').join('|')
+    if (!detail.value || adminEditing.value) return
+    // A write answered meanwhile, so this copy may be older than the page: fetch again.
+    if (resultsApplied !== before) return void catchUp()
     const wasLocked = isLocked.value
-    const filesBefore = files(detail.value)
+    const submittedBefore = detail.value.submission?.submitted_at ?? ''
+    const filesBefore = fileKeys(detail.value)
     detail.value = latest
-    if (wasLocked !== isLocked.value) syncFromDetail()
-    if (filesBefore !== files(latest)) {
+    // A resubmission keeps the entry locked, so a new submitted copy is checked for too.
+    if (wasLocked !== isLocked.value || submittedBefore !== (latest.submission?.submitted_at ?? '')) {
+      syncFromDetail()
+      await syncPreviewForTab()
+      return
+    }
+    if (filesBefore !== fileKeys(latest)) {
       syncChecklist()
       await syncPreviewForTab()
     } else {
       mergeChecklist()
     }
+    syncUntouchedFields()
   } catch {
-    // Best effort: the next focus or action brings the page up to date.
+    // Best effort: the next change, release or reconnect tries again.
   }
 }
 
-// Allows for the typist's own autosave, which follows their last keystroke by AUTOSAVE_DELAY_MS.
-const RESYNC_DELAY_MS = 2500
-let resyncTimer: ReturnType<typeof setTimeout> | null = null
-live.onSettled((reason) => {
-  if (resyncTimer) clearTimeout(resyncTimer)
-  // Back after time away: catch up at once, then again once any last autosave has landed.
-  if (reason === 'rejoined') void resyncUntouchedFields()
-  resyncTimer = setTimeout(() => void resyncUntouchedFields(), RESYNC_DELAY_MS)
-})
-
-/** Live text can be missed, so fields not edited here are brought in line with what was saved. */
-async function resyncUntouchedFields() {
-  resyncTimer = null
-  // A save in flight is safe: its field still differs from the saved copy, so it is skipped.
-  if (!detail.value || !isEditable.value || isSubmitting.value || isReopening.value) return
-  try {
-    const before = resultsApplied
-    const latest = await fetchSubmission(groupId.value)
-    // A save answered meanwhile, so this copy may predate it: fetch again.
-    if (resultsApplied !== before) return void resyncUntouchedFields()
-    const saved = latest.submission
-    if (!saved || !isEditable.value) return
-    const wasSaved = currentSnapshot() === savedSnapshot.value
+/** Live text can be missed, so boxes not edited here, and not being typed in, take what was saved. */
+function syncUntouchedFields() {
+  const saved = detail.value?.submission
+  if (!saved || showsSubmittedCopy.value) return
+  const wasSaved = currentSnapshot() === savedSnapshot.value
+  // While co-editing, answers and title come from the shared document, which is newer than the saved copy.
+  if (!coediting.value || savingWithoutLive.value) {
     questions.value.forEach(({ key }) => {
       if (live.isLocked(key) || (answers[key] ?? '') !== (savedAnswers[key] ?? '')) return
       answers[key] = saved.answers?.[key] ?? ''
@@ -823,19 +956,31 @@ async function resyncUntouchedFields() {
       projectTitle.value = saved.project_title ?? ''
       savedTitle = projectTitle.value
     }
-    if (wasSaved) savedSnapshot.value = currentSnapshot()
-  } catch {
-    // Best effort: the next release or reconnect tries again.
   }
+  if (prototypeUrl.value === savedLink) {
+    prototypeUrl.value = saved.prototype_url ?? ''
+    savedLink = prototypeUrl.value
+  }
+  if (wasSaved) savedSnapshot.value = currentSnapshot()
 }
 
+// Allows for the typist's own autosave, which follows their last keystroke by AUTOSAVE_DELAY_MS.
+const RESYNC_DELAY_MS = 2500
+let resyncTimer: ReturnType<typeof setTimeout> | null = null
+live.onSettled((reason) => {
+  if (resyncTimer) clearTimeout(resyncTimer)
+  // Back after time away: catch up at once, then again once any last autosave has landed.
+  if (reason === 'rejoined') void catchUp()
+  resyncTimer = setTimeout(() => void catchUp(), RESYNC_DELAY_MS)
+})
+
 const isBusy = computed(
-  () => isSaving.value || isSubmitting.value || isReopening.value || Boolean(busySlot.value)
+  () => isSaving.value || isSubmitting.value || isReopening.value || isRefreshing.value || Boolean(busySlot.value)
 )
 
 const showsSubmittedCopy = computed(() => {
   const submission = detail.value?.submission
-  if (!submission?.is_submitted) return false
+  if (!submission?.is_submitted || adminEditing.value) return false
   return submission.is_locked || !canAct.value
 })
 
@@ -865,6 +1010,12 @@ function mergeChecklist() {
     savedChecklist[key] = posterChecklist[key]
   })
   if (wasSaved) savedSnapshot.value = currentSnapshot()
+}
+
+function clearTicks() {
+  CHECKLIST_KEYS.forEach((key) => {
+    posterChecklist[key] = false
+  })
 }
 
 function tickChecklist(item: string, ticked: boolean) {
@@ -1046,16 +1197,48 @@ function stepSummary(key: string): string {
 
 const formatSize = formatFileSize
 
+/** An admin's file changes, held until Save or Submit: a file to upload, or null to remove. */
+const pendingFiles = reactive<Partial<Record<SubmissionSlot, File | null>>>({})
+const pendingUrls: Partial<Record<SubmissionSlot, string>> = {}
+
 function storedFile(slot: SubmissionSlot): StoredFile | null {
-  return shownFile(slot)
+  if (!(slot in pendingFiles)) return shownFile(slot)
+  const file = pendingFiles[slot]
+  return file ? { storage_key: `pending:${file.name}:${file.size}`, name: file.name, mime: file.type, size: file.size } : null
+}
+
+/** A local address for a held file, so it can be opened and previewed before it is saved. */
+function pendingUrl(slot: SubmissionSlot): string {
+  const file = pendingFiles[slot]
+  if (!file || typeof URL.createObjectURL !== 'function') return ''
+  const url = pendingUrls[slot] ?? URL.createObjectURL(file)
+  pendingUrls[slot] = url
+  return url
+}
+
+function forgetPendingUrl(slot: SubmissionSlot) {
+  const url = pendingUrls[slot]
+  if (url && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url)
+  delete pendingUrls[slot]
+}
+
+function clearPending() {
+  FILE_SLOTS.forEach((slot) => {
+    forgetPendingUrl(slot)
+    delete pendingFiles[slot]
+  })
+}
+
+function pendingNote(slot: SubmissionSlot): string {
+  return pendingFiles[slot] ? ' · not saved yet' : ''
 }
 
 function downloadUrl(slot: SubmissionSlot) {
-  return submissionFileDownloadUrl(groupId.value, slot)
+  return pendingFiles[slot] ? pendingUrl(slot) : submissionFileDownloadUrl(groupId.value, slot)
 }
 
 function previewUrlFor(slot: SubmissionSlot) {
-  return submissionFilePreviewUrl(groupId.value, slot)
+  return pendingFiles[slot] ? pendingUrl(slot) : submissionFilePreviewUrl(groupId.value, slot)
 }
 
 /** Changes when the file is replaced, so the frame does not show a cached copy. */
@@ -1123,7 +1306,7 @@ function unansweredQuestions() {
 function submissionBlockers(): { message: string; step: TabKey; focusKey?: string } | null {
   const unanswered = unansweredQuestions()
   const titleMissing = !projectTitle.value.trim()
-  const posterMissing = !shownFile('poster')
+  const posterMissing = !storedFile('poster')
 
   if (titleMissing || unanswered.length) {
     const focusKey = titleMissing ? 'project-title' : unanswered[0].key
@@ -1147,7 +1330,7 @@ function submissionBlockers(): { message: string; step: TabKey; focusKey?: strin
     }
   }
   const unticked = CHECKLIST_KEYS.find((key) => !posterChecklist[key])
-  if (unticked && !adminAccess.value) {
+  if (unticked) {
     return {
       message: 'Please tick every item in the poster checklist before submitting.',
       step: 'poster',
@@ -1203,7 +1386,7 @@ async function loadPreview(slot: SubmissionSlot) {
   if (!storedFile(slot)) return
 
   previewSlot.value = slot
-  previewSource.value = `${previewUrlFor(slot)}?v=${previewVersion(slot)}`
+  previewSource.value = pendingFiles[slot] ? pendingUrl(slot) : `${previewUrlFor(slot)}?v=${previewVersion(slot)}`
 }
 
 async function syncPreviewForTab() {
@@ -1237,6 +1420,7 @@ function syncFromDetail() {
   savedSnapshot.value = currentSnapshot()
   savedAnswers = { ...answers }
   saveState.value = 'idle'
+  if (coediting.value) showAllShared()
 }
 
 async function load() {
@@ -1254,10 +1438,11 @@ async function load() {
 }
 
 function currentSnapshot() {
+  // Co-edited text is saved by the server, so it never makes the page unsaved.
   return JSON.stringify({
-    answers,
+    answers: typingShared.value ? null : answers,
     prototypeUrl: prototypeUrl.value,
-    projectTitle: projectTitle.value,
+    projectTitle: typingShared.value ? null : projectTitle.value,
     posterChecklist
   })
 }
@@ -1269,9 +1454,14 @@ async function persistDraft() {
   const sent = changedAnswers()
   const overLimit = overLimitQuestions()
 
+  const fields = draftFields(sent)
+  if (!Object.keys(fields).length) {
+    savedSnapshot.value = snapshot
+    return
+  }
+
   isSaving.value = true
   try {
-    const fields = draftFields(sent)
     applyResult(await saveDraft(groupId.value, fields))
     // Only what this save sent joins the baseline, so a teammate's newer text is kept.
     Object.assign(savedAnswers, sent)
@@ -1280,7 +1470,7 @@ async function persistDraft() {
     if (fields.poster_checklist) Object.assign(savedChecklist, fields.poster_checklist)
     savedSnapshot.value = snapshot
     lastSavedAt.value = new Date()
-    saveState.value = overLimit.length || linkProblem() ? 'unsaved' : 'idle'
+    saveState.value = (overLimit.length && !savingWithoutLive.value) || linkProblem() ? 'unsaved' : 'idle'
   } catch (error) {
     saveState.value = 'error'
     setMessage(handleWriteError(error), true)
@@ -1290,7 +1480,8 @@ async function persistDraft() {
 }
 
 function scheduleAutosave() {
-  if (!canAct.value || isSubmitting.value) return
+  // Admins never autosave: their changes reach the team only on Save or Submit.
+  if (adminAccess.value || !canAct.value || isSubmitting.value) return
   if (currentSnapshot() === savedSnapshot.value) return
 
   saveState.value = 'unsaved'
@@ -1364,8 +1555,23 @@ async function onSubmit() {
       return
     }
 
+    // Everything typed into the shared document reaches the server before the entry is copied;
+    // if it can't, the last saved answers can still go in, so submitting is never blocked.
+    if (
+      typingShared.value &&
+      !(await shared.flush()) &&
+      !(await askToConfirm(
+        'Submit without your latest typing?',
+        "Your last few seconds of typing couldn't be saved. Submit your answers as last saved?",
+        'Submit anyway'
+      ))
+    ) {
+      return
+    }
+
     const sent = changedAnswers()
-    applyResult(await saveDraft(groupId.value, draftFields(sent)))
+    const fields = draftFields(sent)
+    if (Object.keys(fields).length) applyResult(await saveDraft(groupId.value, fields))
     Object.assign(savedAnswers, sent)
     applyResult(await submitEntry(groupId.value))
     syncFromDetail()
@@ -1420,6 +1626,15 @@ async function uploadFile(slot: SubmissionSlot, file: File) {
     return
   }
 
+  if (adminAccess.value) {
+    forgetPendingUrl(slot)
+    pendingFiles[slot] = file
+    // A new poster is confirmed afresh, as the team's would be.
+    if (slot === 'poster') clearTicks()
+    if (slot === 'poster' || slot === 'report') await loadPreview(slot)
+    return
+  }
+
   busySlot.value = slot
   setMessage('')
   try {
@@ -1442,6 +1657,15 @@ async function uploadFile(slot: SubmissionSlot, file: File) {
 }
 
 async function removeFile(slot: SubmissionSlot) {
+  if (adminAccess.value) {
+    forgetPendingUrl(slot)
+    // A held file the team never had is simply dropped; a saved one is marked for removal.
+    if (shownFile(slot)) pendingFiles[slot] = null
+    else delete pendingFiles[slot]
+    if (slot === 'poster') clearTicks()
+    if (slot === previewSlot.value) clearPreview()
+    return
+  }
   busySlot.value = slot
   setMessage('')
   try {
@@ -1493,9 +1717,294 @@ watch(activeTab, () => {
 })
 
 watch(groupId, () => {
+  adminEditing.value = false
+  clearPending()
   clearPreview()
   load()
 })
+
+const teamName = computed(() => detail.value?.group.name ?? 'this team')
+
+/** The entry's state in a few words, for the admin bar. */
+const adminEntry = computed(() => {
+  const submission = detail.value?.submission
+  const when = submission?.submitted_at ? formatDayMonthTime(submission.submitted_at) : ''
+  switch (stage.value) {
+    case 'submitted':
+      return `${submission?.auto_submitted ? 'Auto-submitted' : 'Submitted'} ${when}${
+        hasUnsubmittedChanges() ? ' · changes not submitted' : ''
+      }`
+    case 'revising':
+      return 'Reopened'
+    case 'in_progress':
+      return 'Draft'
+    default:
+      return 'Not started'
+  }
+})
+
+/** A submitted entry whose working copy differs: changes an admin saved but has not submitted. */
+function hasUnsubmittedChanges(): boolean {
+  const entry = detail.value?.submission
+  if (!entry?.is_locked) return false
+  const sameAnswers = questions.value.every(
+    ({ key }) => (entry.answers?.[key] ?? '') === (entry.submitted_answers?.[key] ?? '')
+  )
+  const sameFiles = FILE_SLOTS.every(
+    (slot) => (entry[slot]?.storage_key ?? '') === (entry[`submitted_${slot}` as const]?.storage_key ?? '')
+  )
+  return !(
+    sameAnswers &&
+    sameFiles &&
+    entry.project_title === entry.submitted_project_title &&
+    entry.prototype_url === entry.submitted_prototype_url
+  )
+}
+
+/** Whether the team can still edit; past the deadline but open means a grace period or extension. */
+const studentsNote = computed(() => {
+  const closesAt = detail.value?.deadline.closes_at
+  if (!closesAt) return 'No deadline'
+  if (!isOpen.value) return 'Closed'
+  return now.value < new Date(closesAt).getTime() ? `Open until ${deadlineDate.value}` : 'Grace period'
+})
+
+const adminDirty = computed(
+  () => adminEditing.value && (currentSnapshot() !== savedSnapshot.value || Object.keys(pendingFiles).length > 0)
+)
+
+const confirmDialog = ref<{ title: string; body: string; confirm: string } | null>(null)
+const confirmButton = ref<HTMLButtonElement | null>(null)
+let answerDialog: ((ok: boolean) => void) | null = null
+
+function askToConfirm(title: string, body: string, confirm: string): Promise<boolean> {
+  confirmDialog.value = { title, body, confirm }
+  void nextTick(() => confirmButton.value?.focus())
+  return new Promise((resolve) => {
+    answerDialog = resolve
+  })
+}
+
+function answerConfirm(ok: boolean) {
+  confirmDialog.value = null
+  answerDialog?.(ok)
+  answerDialog = null
+}
+
+/** The entry as the server now holds it; the copy loaded earlier misses the team's saves since. */
+async function reloadDetail() {
+  isRefreshing.value = true
+  try {
+    detail.value = await fetchSubmission(groupId.value)
+    resultsApplied += 1
+  } catch {
+    // Kept as it was; the next save or refresh reports any problem.
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+async function startAdminEdit() {
+  // The team's last few seconds of typing are saved first, so editing starts from them.
+  if (coediting.value) await shared.flush()
+  await reloadDetail()
+  rememberEditStart()
+  adminEditing.value = true
+  // A submitted entry is edited from its working copy, which the team does not see.
+  syncFromDetail()
+  await syncPreviewForTab()
+}
+
+async function leaveAdminEdit() {
+  adminEditing.value = false
+  clearPending()
+  await reloadDetail()
+  syncFromDetail()
+  await syncPreviewForTab()
+}
+
+async function adminDiscard() {
+  if (!(await askToConfirm('Discard your changes?', `Nothing you changed for ${teamName.value} will be kept.`, 'Discard'))) return
+  await leaveAdminEdit()
+  setMessage('Changes discarded.')
+}
+
+/** What would stop a save, shown as a message; the full requirements apply only to Submit. */
+function adminBlocked(forSubmit: boolean): boolean {
+  // Saving checks only the admin's own changes; a team's over-limit draft is the team's to trim, but cannot be submitted.
+  const overLimit = overLimitQuestions().filter(
+    (q) => forSubmit || (answers[q.key] ?? '') !== (savedAnswers[q.key] ?? '')
+  )
+  if (overLimit.length) {
+    setMessage(overLimitMessage(overLimit), true)
+    void goToBlocker({ step: 'questions', focusKey: overLimit[0].key })
+    return true
+  }
+  if (linkProblem()) {
+    linkChecked.value = true
+    setMessage('The prototype link needs fixing first.', true)
+    void goToBlocker({ step: 'extras', focusKey: 'prototype-url' })
+    return true
+  }
+  const blocker = forSubmit ? submissionBlockers() : null
+  if (blocker) {
+    setMessage(blocker.message, true)
+    void goToBlocker(blocker)
+  }
+  return Boolean(blocker)
+}
+
+/** The files as they stood when the admin chose Edit, to tell whether the team replaced one since. */
+let filesAtEditStart: Partial<Record<SubmissionSlot, string>> = {}
+
+function rememberEditStart() {
+  const submission = detail.value?.submission
+  filesAtEditStart = Object.fromEntries(FILE_SLOTS.map((slot) => [slot, submission?.[slot]?.storage_key ?? '']))
+}
+
+/** Parts the admin changed that the team also changed since the admin began. */
+function conflictsWith(latest: SubmissionDetail['submission']): number {
+  const answerClashes = Object.keys(changedAnswers()).filter(
+    (key) => (latest?.answers?.[key] ?? '') !== (savedAnswers[key] ?? '')
+  ).length
+  const titleClash = projectTitle.value !== savedTitle && (latest?.project_title ?? '') !== savedTitle
+  const linkClash = normalisedLink() !== savedLink && (latest?.prototype_url ?? '') !== savedLink
+  const fileClashes = FILE_SLOTS.filter(
+    (slot) => slot in pendingFiles && (latest?.[slot]?.storage_key ?? '') !== (filesAtEditStart[slot] ?? '')
+  ).length
+  // A replaced poster's ticks are all the admin's own, so only the file itself can clash.
+  const tickClashes = 'poster' in pendingFiles ? 0 : Object.keys(checklistChanges()).filter(
+    (key) => Boolean(latest?.poster_checklist?.[key]) !== Boolean(savedChecklist[key])
+  ).length
+  return answerClashes + fileClashes + tickClashes + (titleClash ? 1 : 0) + (linkClash ? 1 : 0)
+}
+
+/**
+ * Takes the entry's current state from the server before an admin's Save or Submit, so reopening
+ * and the success message follow it, and asks before overwriting the team's edits. The admin's edits stay.
+ */
+async function readyToWrite(): Promise<boolean> {
+  const latest = await fetchSubmission(groupId.value)
+  if (!detail.value) return false
+  detail.value = { ...detail.value, deadline: latest.deadline, submission: latest.submission }
+  resultsApplied += 1
+  const conflicts = conflictsWith(latest.submission)
+  return (
+    !conflicts ||
+    askToConfirm(
+      conflicts === 1 ? 'Overwrite a conflicting change?' : `Overwrite ${conflicts} conflicting changes?`,
+      'The team edited some of the same parts while you were editing. Continuing replaces their version of those.',
+      'Overwrite'
+    )
+  )
+}
+
+/** Uploads held files, then saves the changed fields, to the team's working copy. */
+async function publishAdminChanges() {
+  // The server starts a new poster's checklist afresh, so every tick goes with it.
+  const posterChanged = 'poster' in pendingFiles
+  for (const slot of FILE_SLOTS) {
+    if (!(slot in pendingFiles)) continue
+    const file = pendingFiles[slot]
+    busySlot.value = slot
+    uploadPercent.value = 0
+    applyResult(
+      file
+        ? await uploadSubmissionFile(groupId.value, slot, file, (percent) => {
+            uploadPercent.value = percent
+          })
+        : await removeSubmissionFile(groupId.value, slot)
+    )
+    forgetPendingUrl(slot)
+    delete pendingFiles[slot]
+  }
+  busySlot.value = ''
+  const fields = draftFields(changedAnswers())
+  if (posterChanged) fields.poster_checklist = { ...posterChecklist }
+  applyResult(await saveDraft(groupId.value, fields))
+}
+
+async function showAdminError(error: unknown) {
+  const problems = apiErrorFromUnknown(error).body?.problems
+  await showUploadMessage(Array.isArray(problems) && problems.length ? problems.join(' ') : handleWriteError(error))
+}
+
+async function adminSave() {
+  if (adminBlocked(false)) return
+  isSaving.value = true
+  setMessage('')
+  try {
+    if (!(await readyToWrite())) return
+    // Before the deadline the team sees the changes and can resubmit; after it, their submission stays as it is.
+    const reopen = isLocked.value && isOpen.value
+    if (
+      reopen &&
+      !(await askToConfirm(
+        'Reopen for the team?',
+        `Saving reopens ${teamName.value}'s entry with your changes. Their submission stands until it's submitted again.`,
+        'Reopen'
+      ))
+    ) {
+      return
+    }
+    if (reopen) applyResult(await reopenEntry(groupId.value))
+    const locked = isLocked.value
+    await publishAdminChanges()
+    await leaveAdminEdit()
+    setMessage(
+      locked
+        ? `Saved. ${teamName.value} still sees their submission until you submit.`
+        : `Saved to ${teamName.value}'s draft.`
+    )
+  } catch (error) {
+    await showAdminError(error)
+  } finally {
+    isSaving.value = false
+    busySlot.value = ''
+  }
+}
+
+async function adminSubmit() {
+  if (adminBlocked(true)) return
+  isSubmitting.value = true
+  setMessage('')
+  try {
+    if (!(await readyToWrite())) return
+    if (
+      !(await askToConfirm(
+        `Submit for ${teamName.value}?`,
+        'This becomes their latest submission, and the team is emailed a confirmation.',
+        'Submit'
+      ))
+    ) {
+      return
+    }
+    await publishAdminChanges()
+    applyResult(await submitEntry(groupId.value))
+    await leaveAdminEdit()
+    setMessage(`Submitted for ${teamName.value}.`)
+  } catch (error) {
+    await showAdminError(error)
+  } finally {
+    isSubmitting.value = false
+    busySlot.value = ''
+  }
+}
+
+const LEAVE_WARNING = 'You have unsaved changes for this team. Leave without saving?'
+
+// Moving between this team's sections keeps the page, and the changes, in place.
+const removeLeaveGuard = router.beforeEach((to) => {
+  if (!adminDirty.value || String(to.params.id ?? '') === groupId.value) return true
+  return window.confirm(LEAVE_WARNING)
+})
+
+function warnBeforeUnload(event: BeforeUnloadEvent) {
+  if (!adminDirty.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+window.addEventListener('beforeunload', warnBeforeUnload)
 
 const REFRESH_MIN_GAP_MS = 5000
 let lastRefreshAt = 0
@@ -1513,7 +2022,7 @@ async function refreshDeadline() {
       latest.deadline.closes_at !== detail.value.deadline.closes_at
     if (!changed) return
     deadlineRecheckDone = false
-    if (!isOpen.value && latest.deadline.is_open) {
+    if (!isOpen.value && latest.deadline.is_open && !adminEditing.value) {
       // Nothing was editable while closed, so the whole entry can be reloaded safely.
       detail.value = latest
       syncFromDetail()
@@ -1542,6 +2051,9 @@ window.addEventListener('focus', onPageVisible)
 document.addEventListener('visibilitychange', onPageVisible)
 
 onBeforeUnmount(() => {
+  removeLeaveGuard()
+  window.removeEventListener('beforeunload', warnBeforeUnload)
+  clearPending()
   window.removeEventListener('focus', onPageVisible)
   document.removeEventListener('visibilitychange', onPageVisible)
   if (autosaveTimer) clearTimeout(autosaveTimer)

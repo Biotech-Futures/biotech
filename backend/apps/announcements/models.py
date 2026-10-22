@@ -23,6 +23,9 @@ class Announcement(models.Model):
     )
     published_at = models.DateTimeField(default=timezone.now)
     archived_at = models.DateTimeField(null=True, blank=True)
+    # Shows as New to each reader until they open it (AnnouncementSeen). Off
+    # for those published before New existed, which nobody had a chance to open.
+    shows_new = models.BooleanField(default=True)
 
     class Meta:
         db_table = "announcements"
@@ -42,6 +45,24 @@ class Announcement(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class AnnouncementSeen(models.Model):
+    """That ``user`` has opened ``announcement`` (its card, its title, or
+    expanded it): until then it shows as New to them."""
+
+    announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name="seen_by")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="announcements_seen")
+    seen_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "announcement_seen"
+        constraints = [
+            models.UniqueConstraint(fields=["announcement", "user"], name="announcement_seen_once"),
+        ]
+
+    def __str__(self):
+        return f"AnnouncementSeen({self.announcement_id}, {self.user_id})"
 
 
 class AnnouncementAudience(models.Model):

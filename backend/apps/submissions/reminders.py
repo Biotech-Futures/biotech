@@ -168,7 +168,8 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
             sent += 1
             continue
 
-        delivered, refused = send_messages(messages, kind="submission_reminder", sender=sender)
+        # Kept to send later only until the deadline: after it, the reminder is moot.
+        delivered, refused = send_messages(messages, kind="submission_reminder", sender=sender, until=closes_at)
         if refused:
             logger.error(
                 "submission_reminder.partial group=%s sent=%s failed=%s",
@@ -185,3 +186,9 @@ def send_due_reminders(now=None, *, dry_run: bool = False) -> dict:
         sent += 1
 
     return {"sent": sent, "skipped": skipped, "failed": failed}
+
+
+def reminder_job(actor, options) -> dict:
+    """The queued run of today's reminders (``send_guard.JOBS``). Each
+    team's email that fails is tried once more at once (see ``send_messages``)."""
+    return send_due_reminders()

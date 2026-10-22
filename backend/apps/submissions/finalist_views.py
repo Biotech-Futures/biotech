@@ -14,6 +14,7 @@ from apps.common.storage import serve_managed_file
 from apps.groups.models import Groups
 from config.errors import GroupAccessDenied
 
+from .emails import send_finalist_confirmation
 from .errors import (
     AvailabilityRequired,
     FileNotUploadedYet,
@@ -63,8 +64,13 @@ def _require_can_edit(user, group_id: int) -> None:
     _require_can_view(user, group_id)
 
 
-def _require_unlocked(entry) -> None:
-    if entry is not None and entry.is_locked:
+def _is_staff(user) -> bool:
+    return is_admin(user) or user.is_staff or user.is_superuser
+
+
+def _require_unlocked(entry, user) -> None:
+    """A submitted entry is read-only for its team; admins change it without reopening it."""
+    if entry is not None and entry.is_locked and not _is_staff(user):
         raise SubmissionLocked()
 
 
@@ -101,6 +107,8 @@ class FinalistEntryView(APIView):
             "sessions": time_options() if times_shown() else [],
             "symposium_date": symposium_date(),
             "max_file_size": FINALIST_MAX_UPLOAD_SIZE,
+            # Admins act for a team in their own edit mode, read-only until they choose Edit.
+            "admin_access": _is_staff(request.user),
             # None means the team has not started.
             "entry": _entry_data(entry) if entry is not None else None,
         })
@@ -116,7 +124,7 @@ class FinalistEntryView(APIView):
 
         with transaction.atomic():
             entry, _ = FinalistEntry.objects.select_for_update().get_or_create(group=group)
-            _require_unlocked(entry)
+            _require_unlocked(entry, request.user)
             submit_team_times(request.user, group, payload.validated_data["session_ids"])
             entry.save(update_fields=["updated_at"])
         return _write_result(entry)
@@ -137,8 +145,7 @@ class FinalistPresentationView(APIView):
         validate_presentation_file(uploaded)
 
         entry, _ = FinalistEntry.objects.get_or_create(group=group)
-        _require_unlocked(entry)
-        previous = entry.presentation or {}
+        _require_unlocked(entry, request.user)
 
         # Removes the stored blob again if the save below raises.
         with _storage.stored_file(
@@ -147,7 +154,11 @@ class FinalistPresentationView(APIView):
             size_field="size",
             original_filename_field="name",
             storage_name=slides_file_name(group, uploaded.name),
-        ) as file_data:
+        ) as file_data, transaction.atomic():
+            # Read again under the lock, in case the entry was submitted while the file uploaded.
+            entry = FinalistEntry.objects.select_for_update().get(pk=entry.pk)
+            _require_unlocked(entry, request.user)
+            previous = entry.presentation or {}
             entry.presentation = file_data
             entry.save(update_fields=["presentation", "updated_at"])
 
@@ -161,14 +172,15 @@ class FinalistPresentationView(APIView):
         group = _finalist_group(group_id)
         _require_can_edit(request.user, group.id)
 
-        entry = FinalistEntry.objects.filter(group=group).first()
-        _require_unlocked(entry)
-        existing = (entry.presentation or {}) if entry else {}
-        if not existing:
-            raise FileNotUploadedYet()
+        with transaction.atomic():
+            entry = FinalistEntry.objects.select_for_update().filter(group=group).first()
+            _require_unlocked(entry, request.user)
+            existing = (entry.presentation or {}) if entry else {}
+            if not existing:
+                raise FileNotUploadedYet()
 
-        entry.presentation = None
-        entry.save(update_fields=["presentation", "updated_at"])
+            entry.presentation = None
+            entry.save(update_fields=["presentation", "updated_at"])
         key = existing.get("storage_key")
         if key and key != (entry.submitted_presentation or {}).get("storage_key"):
             _storage.delete(key)
@@ -217,8 +229,8 @@ class FinalistSubmitView(APIView):
 
         with transaction.atomic():
             entry, _ = FinalistEntry.objects.select_for_update().get_or_create(group=group)
-            if entry.is_locked:
-                raise SubmissionLocked()
+            # Admins submit for the team, even over its submitted entry, without reopening it.
+            _require_unlocked(entry, request.user)
             # Only once the times are shown can the team give them.
             if times_shown() and not team_has_availability(group.id):
                 raise AvailabilityRequired()
@@ -234,6 +246,8 @@ class FinalistSubmitView(APIView):
         # Outside the transaction, since a blob delete cannot be rolled back.
         if superseded and superseded != (entry.presentation or {}).get("storage_key"):
             _storage.delete(superseded)
+        # Never raises, so a failed email cannot fail the submission.
+        send_finalist_confirmation(entry)
         return _write_result(entry)
 
 

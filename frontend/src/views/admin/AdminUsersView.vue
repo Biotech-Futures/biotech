@@ -1,5 +1,5 @@
 <template>
-  <div class="admin-users">
+  <div id="admin-users-table" class="admin-users">
     <p v-if="error" class="admin-users__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
       <span>{{ error }}</span>
@@ -130,7 +130,7 @@
         <input
           id="bulk-delete-confirm"
           v-model="deleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -165,7 +165,7 @@
         <input
           id="single-delete-confirm"
           v-model="singleDeleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -232,7 +232,6 @@
       :open="viewOpen"
       :user="detailUser"
       @close="onViewClose"
-      @edit="openEditFromView"
       @updated="onDetailUpdated"
     />
 
@@ -246,6 +245,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref, toRef } from 'vue'
+import { useRoute } from 'vue-router'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
@@ -270,6 +270,8 @@ const props = withDefaults(
   }
 )
 
+const route = useRoute()
+
 const {
   loading,
   busy,
@@ -284,6 +286,7 @@ const {
   states,
   supervisors,
   searchInput,
+  setSearchImmediately,
   filters,
   columns,
   emptyMessage,
@@ -375,12 +378,6 @@ const openEdit = (user: AdminUser) => {
   formOpen.value = true
 }
 
-const openEditFromView = () => {
-  const user = detailUser.value
-  if (!user) return
-  onViewClose()
-  openEdit(user)
-}
 
 const onFormSaved = () => {
   void load()
@@ -411,6 +408,21 @@ const onSingleDeleteConfirmed = () => {
 }
 
 onMounted(() => {
+  const search = route.query.search
+  if (typeof search === 'string') {
+    setSearchImmediately(search)
+  }
+
+  const status = route.query.status
+  if (status === 'active' || status === 'inactive') {
+    filters.value.status = status
+  }
+
+  const inGroup = route.query.inGroup
+  if (isStudentMode.value && (inGroup === 'yes' || inGroup === 'no')) {
+    filters.value.inGroup = inGroup
+  }
+
   void init()
 })
 
@@ -512,12 +524,8 @@ defineExpose({
   color: var(--danger);
 }
 
+/* The shared box (app-input), on the dialog's own background. */
 .admin-users__delete-type input {
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--teal);
-  font: inherit;
 }
 </style>

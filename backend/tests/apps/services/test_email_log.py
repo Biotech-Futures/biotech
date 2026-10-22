@@ -5,7 +5,8 @@ why), that a background send notes itself too, that a failed guardian
 consent request is still noted after its rollback, that only the latest
 sends that missed someone are kept, and how the Log names people: by group,
 as a guardian of their student, or by address alone. A Management bulk email
-shows its last run instead.
+shows its last run instead; a queued job (an announcement, a reminder) keeps
+only counts in its run, so it shows its own log like the rest.
 """
 import smtplib
 from datetime import timedelta
@@ -24,7 +25,7 @@ from apps.services.email_log import (
     MISSED_KEPT, NOT_SENT, email_log, mark_failures_seen, note_send, unseen_failures,
 )
 from apps.services.email_registry import EMAIL_TYPES
-from apps.services.models import SystemEmailLog, SystemEmailSettings
+from apps.services.models import EmailDeliveryMetric, SystemEmailLog, SystemEmailSettings
 from apps.services.system_email import FAILED, SENT, send_system_email, sender_for
 from apps.submissions.emails import send_messages
 from apps.users.models import GuardianConsentRequest, StudentProfile, User
@@ -71,6 +72,13 @@ class EmailLogTests(TestCase):
         self.assertIsNotNone(log.last_sent_at)
         self.assertEqual(log.last_sent_by, self.admin)
         self.assertEqual(log.missed, [])
+        metric = EmailDeliveryMetric.objects.get(email_type="password_changed")
+        self.assertEqual(metric.source_mailbox, "info@biotechfutures.org")
+        self.assertEqual(metric.attempted_count, 1)
+        self.assertEqual(metric.delivered_count, 1)
+        self.assertEqual(metric.failed_count, 0)
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.SUCCESS)
+        self.assertEqual(metric.initiated_by, self.admin)
 
     def test_a_refused_address_is_noted_with_its_reason(self):
         with patch.object(EmailMultiAlternatives, "send", side_effect=_refused("jin@example.com")):
@@ -80,6 +88,11 @@ class EmailLogTests(TestCase):
         log = SystemEmailLog.objects.get(key="password_changed")
         self.assertIsNone(log.last_sent_by)
         self.assertEqual(log.missed[0]["missed"], [{"address": "jin@example.com", "reason": "address refused"}])
+        metric = EmailDeliveryMetric.objects.get(email_type="password_changed")
+        self.assertEqual(metric.attempted_count, 1)
+        self.assertEqual(metric.delivered_count, 0)
+        self.assertEqual(metric.failed_count, 1)
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.FAILED)
 
     def test_a_background_send_notes_itself_once_it_has_gone_or_not(self):
         # The test settings send the mail pool's work straight away.
@@ -113,6 +126,24 @@ class EmailLogTests(TestCase):
                 {"address": "cc@example.com", "reason": "address refused"},
             ],
         )
+        metric = EmailDeliveryMetric.objects.get(email_type="submission_reminder")
+        self.assertEqual(metric.source_mailbox, sender.address)
+        self.assertEqual(metric.attempted_count, 3)
+        self.assertEqual(metric.delivered_count, 1)
+        self.assertEqual(metric.failed_count, 2)
+        self.assertEqual(metric.status, EmailDeliveryMetric.Status.PARTIAL)
+
+    def test_metric_normalises_a_display_name_to_its_mailbox(self):
+        note_send(
+            "unread_messages",
+            attempted=2,
+            delivered=2,
+            failed=0,
+            source_mailbox="BIOTech Connect <CONNECT@biotechfutures.org>",
+        )
+
+        metric = EmailDeliveryMetric.objects.get(email_type="unread_messages")
+        self.assertEqual(metric.source_mailbox, "connect@biotechfutures.org")
 
     def test_only_the_latest_sends_that_missed_someone_are_kept(self):
         for n in range(MISSED_KEPT + 5):
@@ -165,6 +196,28 @@ class EmailLogTests(TestCase):
         self.assertEqual(entry["lastSentAt"], started.isoformat())
         self.assertEqual(entry["lastSentBy"], "Ada Admin")
         self.assertEqual(entry["missed"], [{"at": started.isoformat(), "people": [missed]}])
+
+    def test_a_queued_email_shows_who_its_sends_missed_not_its_run(self):
+        # An announcement goes as a queued job, whose run keeps only counts.
+        EmailSendRun.objects.create(
+            key="announcement", started_at=timezone.now() - timedelta(hours=1), started_by=self.admin, failed=1,
+        )
+        note_send("announcement", missed={"jin@example.com": "lost the mail server connection"}, by=self.admin)
+
+        entry = _entry("announcement")
+        log = SystemEmailLog.objects.get(key="announcement")
+        # When its send finished, and who sent it; who it missed, and why.
+        self.assertEqual((entry["lastSentAt"], entry["lastSentBy"]), (log.last_sent_at.isoformat(), "Ada Admin"))
+        self.assertEqual(
+            entry["missed"][0]["people"],
+            [{"who": "jin@example.com (BTF06, Jin Fischer)", "reason": "lost the mail server connection"}],
+        )
+
+    def test_a_queued_email_whose_run_emailed_nobody_is_not_emailed_yet(self):
+        EmailSendRun.objects.create(key="rsvp_reminder", started_at=timezone.now())
+
+        entry = _entry("rsvp_reminder")
+        self.assertEqual((entry["lastSentAt"], entry["missed"]), (None, []))
 
     def test_admins_read_the_log_and_nobody_else_does(self):
         client = APIClient()

@@ -18,7 +18,7 @@
             id="ev-host"
             :value="hostDisplayName"
             type="text"
-            class="form-input form-input--disabled"
+            class="form-input app-input form-input--disabled"
             readonly
             disabled
           />
@@ -31,7 +31,7 @@
             id="ev-name"
             v-model.trim="form.eventName"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Biotech Symposium 2026"
             required
             maxlength="255"
@@ -51,33 +51,23 @@
         <!-- Event Format -->
         <div class="form-field">
           <label class="form-label" for="ev-format">Event Format *</label>
-          <select
+          <AppSelect
             id="ev-format"
             v-model="form.eventFormat"
-            class="form-input filter-select"
-          >
-            <option value="in_person">In-person</option>
-            <option value="virtual">Virtual</option>
-            <option value="hybrid">Hybrid</option>
-          </select>
+            class="form-input app-input filter-select"
+            :options="FORMAT_OPTIONS"
+          />
         </div>
 
         <!-- Timezone -->
         <div class="form-field">
           <label class="form-label" for="ev-tz">Timezone *</label>
-          <select
+          <AppSelect
             id="ev-tz"
             v-model="form.eventTimezone"
-            class="form-input filter-select"
-          >
-            <option
-              v-for="tz in timezoneOptions"
-              :key="tz.value"
-              :value="tz.value"
-            >
-              {{ tz.label }}
-            </option>
-          </select>
+            class="form-input app-input filter-select"
+            :options="timezoneOptions"
+          />
         </div>
 
         <!-- Location (if in-person or hybrid) -->
@@ -87,7 +77,7 @@
             id="ev-loc"
             v-model.trim="form.location"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Room 201, Science Building"
           />
         </div>
@@ -101,7 +91,7 @@
             id="ev-link"
             v-model.trim="form.locationLink"
             type="url"
-            class="form-input"
+            class="form-input app-input"
             :placeholder="form.eventFormat === 'in_person' ? 'https://maps.google.com/...' : 'https://zoom.us/j/...'"
           />
         </div>
@@ -113,7 +103,7 @@
             id="ev-start"
             v-model="form.startAt"
             type="datetime-local"
-            class="form-input"
+            class="form-input app-input"
             required
           />
         </div>
@@ -125,7 +115,7 @@
             id="ev-end"
             v-model="form.endsAt"
             type="datetime-local"
-            class="form-input"
+            class="form-input app-input"
             required
           />
         </div>
@@ -177,7 +167,7 @@
             id="ev-img-url"
             v-model.trim="form.eventImage"
             type="url"
-            class="form-input"
+            class="form-input app-input"
             placeholder="https://example.com/banner.png"
             :disabled="Boolean(selectedFile)"
           />
@@ -254,6 +244,7 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 
 const RichEditor = defineAsyncComponent(
@@ -343,7 +334,13 @@ const TIMEZONE_OPTIONS = [
   { value: 'UTC', label: 'UTC' }
 ]
 
-const timezoneOptions = computed(() => {
+const FORMAT_OPTIONS: AppSelectOption[] = [
+  { value: 'in_person', label: 'In-person' },
+  { value: 'virtual', label: 'Virtual' },
+  { value: 'hybrid', label: 'Hybrid' }
+]
+
+const timezoneOptions = computed<AppSelectOption[]>(() => {
   const current = form.eventTimezone
   if (current && !TIMEZONE_OPTIONS.some((t) => t.value === current)) {
     return [{ value: current, label: current }, ...TIMEZONE_OPTIONS]
@@ -758,19 +755,15 @@ const submitForm = async () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input). */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
   color: var(--teal);
-  font: inherit;
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-within {
   outline: none;
   border-color: var(--dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
@@ -783,14 +776,6 @@ const submitForm = async () => {
 }
 
 .filter-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 2rem;
   cursor: pointer;
 }
 

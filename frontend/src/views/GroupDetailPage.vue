@@ -94,16 +94,14 @@
                   <span v-if="availableGroups.length > 1" class="gd-title-picker">
                     <span>{{ group.name }}</span>
                     <i class="fas fa-chevron-down gd-title-picker__icon" aria-hidden="true"></i>
-                    <select
+                    <AppSelect
                       class="gd-title-picker__select"
                       aria-label="Group"
-                      :value="routeGroupId"
-                      @change="switchGroup"
-                    >
-                      <option v-for="option in availableGroups" :key="option.id" :value="option.id">
-                        {{ option.name }}
-                      </option>
-                    </select>
+                      :model-value="routeGroupId"
+                      :options="groupPickerOptions"
+                      :searchable="false"
+                      @update:model-value="switchGroup"
+                    />
                   </span>
                   <template v-else>{{ group.name }}</template>
                 </h2>
@@ -157,6 +155,21 @@
             </button>
           </div>
 
+          <div class="group-members-dialog-interests">
+            <h4>Mutual Interests</h4>
+            <div v-if="groupMutualInterests.length" class="group-detail__interests">
+              <span
+                v-for="item in groupMutualInterests"
+                :key="item.name"
+                class="group-detail__interest-tag"
+              >
+                {{ item.name }}
+                <span class="group-detail__interest-count">({{ item.count }})</span>
+              </span>
+            </div>
+            <p v-else class="group-members-interests-empty">No mutual areas of interest identified yet.</p>
+          </div>
+
           <div class="group-members-list">
             <div v-for="member in visibleGroupMembers" :key="member.key" class="group-member-row">
               <div class="group-member-avatar">{{ getInitials(member.name).slice(0, 2) }}</div>
@@ -199,17 +212,6 @@
           <div class="card-header">
             <h3 class="card-title subheading">Tasks</h3>
             <div class="task-header-actions">
-              <button
-                type="button"
-                class="task-mode-toggle"
-                :class="{ 'is-active': taskSelectionMode }"
-                :title="taskSelectionMode ? 'Exit select mode' : 'Select tasks for bulk actions'"
-                :aria-pressed="taskSelectionMode"
-                @click="toggleTaskSelectionMode"
-              >
-                <i class="fas fa-check-square"></i>
-                {{ taskSelectionMode ? 'Done selecting' : 'Select' }}
-              </button>
               <button
                 v-if="canCreateGroupTasks"
                 type="button"
@@ -270,60 +272,30 @@
                       role="dialog"
                       aria-label="Filters"
                     >
+                      <!-- The tasks' order, first; Clear leaves it as it is. -->
+                      <label class="task-filter-row">
+                        <span>Sort by</span>
+                        <AppSelect v-model="taskFilters.ordering" :options="TASK_ORDERING_OPTIONS" />
+                      </label>
                       <label class="task-filter-row">
                         <span>Type</span>
-                        <select v-model="taskFilters.taskType">
-                          <option value="">All</option>
-                          <option value="group">Group</option>
-                          <option value="individual">Individual</option>
-                        </select>
+                        <AppSelect v-model="taskFilters.taskType" :options="TASK_TYPE_FILTER_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>Status</span>
-                        <select v-model="taskFilters.status">
-                          <option value="">All</option>
-                          <option
-                            v-for="option in TASK_STATUS_OPTIONS"
-                            :key="option.value"
-                            :value="option.value"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.status" :options="TASK_STATUS_FILTER_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>State</span>
-                        <select v-model="taskFilters.completed">
-                          <option value="">All</option>
-                          <option value="true">Done</option>
-                          <option value="false">Open</option>
-                        </select>
+                        <AppSelect v-model="taskFilters.completed" :options="TASK_STATE_FILTER_OPTIONS" />
                       </label>
                       <label class="task-filter-row">
                         <span>Assignee</span>
-                        <select v-model="taskFilters.assignedUser">
-                          <option value="">All members</option>
-                          <option
-                            v-for="member in taskAssigneeOptions"
-                            :key="member.userId"
-                            :value="String(member.userId)"
-                          >
-                            {{ member.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.assignedUser" :options="assigneeFilterOptions" />
                       </label>
                       <label class="task-filter-row">
                         <span>Subtasks of</span>
-                        <select v-model="taskFilters.parentId">
-                          <option value="">Any task</option>
-                          <option
-                            v-for="option in parentTaskFilterOptions"
-                            :key="option.id"
-                            :value="String(option.id)"
-                          >
-                            {{ option.label }}
-                          </option>
-                        </select>
+                        <AppSelect v-model="taskFilters.parentId" :options="parentFilterOptions" />
                       </label>
 
 
@@ -363,18 +335,6 @@
                     </div>
                   </Teleport>
                 </div>
-                <label class="task-toolbar-sort">
-                  <span class="visually-hidden">Sort by</span>
-                  <select v-model="taskFilters.ordering">
-                    <option
-                      v-for="option in TASK_ORDERING_OPTIONS"
-                      :key="option.value"
-                      :value="option.value"
-                    >
-                      Sort: {{ option.label }}
-                    </option>
-                  </select>
-                </label>
                 <button
                   type="button"
                   class="task-toolbar-icon-btn"
@@ -667,7 +627,14 @@
                 </li>
 
                 <li v-if="!section.rows.length" class="task-empty-state">
-                  <i :class="section.icon" aria-hidden="true"></i>
+                  <!-- Its icon in rings, as on Events when there are none. -->
+                  <span class="task-empty-illustration" aria-hidden="true">
+                    <span class="task-empty-ring task-empty-ring--outer"></span>
+                    <span class="task-empty-ring task-empty-ring--mid"></span>
+                    <span class="task-empty-ring task-empty-ring--inner">
+                      <i :class="section.icon"></i>
+                    </span>
+                  </span>
                   <span>No {{ section.title.toLowerCase() }} yet.</span>
                   <button
                     v-if="(section.key === 'group' && canCreateGroupTasks) || (section.key === 'individual' && canCreateIndividualTasks)"
@@ -860,16 +827,15 @@
                       >
                         {{ selectedTaskAssigneeLabel }}
                       </div>
-                      <select v-else id="task-dialog-assignee" v-model="taskForm.assignedUser" class="task-dialog-input" required>
-                        <option value="" disabled>Select assignee</option>
-                        <option
-                          v-for="option in individualTaskAssigneeOptions"
-                          :key="option.userId"
-                          :value="String(option.userId)"
-                        >
-                          {{ option.label }}
-                        </option>
-                      </select>
+                      <AppSelect
+                        v-else
+                        id="task-dialog-assignee"
+                        v-model="taskForm.assignedUser"
+                        class="task-dialog-input"
+                        :options="dialogAssigneeOptions"
+                        placeholder="Select assignee"
+                        required
+                      />
                     </div>
                   </div>
                 </div>
@@ -918,15 +884,15 @@
                   <i class="fas fa-at"></i>
                   <span v-if="mentionUnreadCount" class="mention-badge">{{ mentionUnreadCount }}</span>
                 </button>
+                <!-- Only while loading or offline (with Reconnect): nothing when live. -->
                 <span
+                  v-if="isLoadingMessages || wsConnectionState !== 'connected'"
                   class="chat-status"
-                  :class="`chat-status--${isLoadingMessages ? 'loading' : (wsConnectionState === 'connected' ? 'connected' : 'offline')}`"
+                  :class="`chat-status--${isLoadingMessages ? 'loading' : 'offline'}`"
                   :title="
                     isLoadingMessages
                       ? 'Fetching latest messages'
-                      : (wsConnectionState === 'connected'
-                          ? 'Realtime updates active'
-                          : 'Realtime updates unavailable - click Reconnect to retry')
+                      : 'Realtime updates unavailable - click Reconnect to retry'
                   "
                 >
                   <i
@@ -938,7 +904,6 @@
                     aria-hidden="true"
                   ></i>
                   <template v-if="isLoadingMessages">Loading…</template>
-                  <template v-else-if="wsConnectionState === 'connected'">Live</template>
                   <template v-else>Offline</template>
                   <button
                     v-if="!isLoadingMessages && wsConnectionState !== 'connected'"
@@ -996,12 +961,7 @@
               <div v-if="showSearchFilters" class="message-search-filters">
                 <label>
                   <span>Type</span>
-                  <select v-model="messageSearchFilters.type">
-                    <option value="">Any</option>
-                    <option value="text">Text</option>
-                    <option value="attachment">Attachments</option>
-                    <option value="resource">Resources</option>
-                  </select>
+                  <AppSelect v-model="messageSearchFilters.type" :options="MESSAGE_TYPE_FILTER_OPTIONS" />
                 </label>
                 <label>
                   <span>From</span>
@@ -1821,6 +1781,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppDatePicker from '../components/AppDatePicker.vue'
+import AppSelect from '@/components/AppSelect.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGroupsStore } from '@/stores/groups'
 import GroupSubmissionSection from '@/components/submission/GroupSubmissionSection.vue'
@@ -1835,6 +1796,7 @@ import {
 import { buildResourceUrl, fetchResourceAccess, fetchResources } from '@/utils/resourcesAPI'
 import { useAutoGrowTextarea } from '@/composables/useAutoGrowTextarea'
 import { formatDayMonth, formatDayMonthTime } from '@/utils/date'
+import { computeMutualInterests } from '@/utils/mutualInterests'
 import {
   bulkToggleTasks,
   createTask as createTaskRequest,
@@ -1872,6 +1834,10 @@ const isLoadingGroupDetail = ref(true)
 const isLoadingMembers = ref(false)
 const membersError = ref('')
 const availableGroups = ref([])
+// The title's picker: each group by its id, as the route has it.
+const groupPickerOptions = computed(() =>
+  availableGroups.value.map((option) => ({ value: String(option.id), label: option.name })),
+)
 const isLoadingGroupOptions = ref(false)
 const groupOptionsError = ref('')
 const showGroupMembersDialog = ref(false)
@@ -2048,6 +2014,25 @@ const TASK_ORDERING_OPTIONS = [
   { value: '-updated_at', label: 'Recently updated' },
   { value: 'status', label: 'Status' },
   { value: '-status', label: 'Status desc' },
+]
+
+// The task filters' and message search's dropdown choices.
+const TASK_TYPE_FILTER_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'group', label: 'Group' },
+  { value: 'individual', label: 'Individual' },
+]
+const TASK_STATUS_FILTER_OPTIONS = [{ value: '', label: 'All' }, ...TASK_STATUS_OPTIONS]
+const TASK_STATE_FILTER_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'true', label: 'Done' },
+  { value: 'false', label: 'Open' },
+]
+const MESSAGE_TYPE_FILTER_OPTIONS = [
+  { value: '', label: 'Any' },
+  { value: 'text', label: 'Text' },
+  { value: 'attachment', label: 'Attachments' },
+  { value: 'resource', label: 'Resources' },
 ]
 
 const messages = ref([])
@@ -2262,6 +2247,11 @@ const visibleGroupMembers = computed(() =>
     }),
 )
 
+const groupMutualInterests = computed(() => {
+  const active = groupMemberships.value.filter((item) => !item.leftAt)
+  return computeMutualInterests(active)
+})
+
 const extractCollectionItems = (data) => {
   if (Array.isArray(data)) return data
   if (Array.isArray(data?.results)) return data.results
@@ -2381,6 +2371,7 @@ const normalizeMembership = (item) => ({
   // Tri-state: null means the caller isn't staff, or the backend predates the
   // field. Defaulting to false would tell a mentor everyone is missing.
   hasLoggedIn: (item?.has_logged_in ?? item?.hasLoggedIn) ?? null,
+  interests: Array.isArray(item?.interests) ? item.interests : [],
 })
 
 const getCurrentUserMentionName = () => {
@@ -2475,8 +2466,7 @@ const loadGroupOptions = async () => {
   isLoadingGroupOptions.value = false
 }
 
-const switchGroup = (event) => {
-  const id = event.target.value
+const switchGroup = (id) => {
   if (!id || id === routeGroupId.value) return
   // Stays on the section open (Submission, Finalist or Results).
   const name = onSectionPage.value ? String(route.name) : 'group-detail'
@@ -2631,6 +2621,11 @@ const activeGroupMemberOptions = computed(() =>
 
 const taskAssigneeOptions = computed(() => activeGroupMemberOptions.value)
 
+const assigneeFilterOptions = computed(() => [
+  { value: '', label: 'All members' },
+  ...taskAssigneeOptions.value.map((member) => ({ value: String(member.userId), label: member.label })),
+])
+
 const studentMemberUserIds = computed(
   () =>
     new Set(
@@ -2711,6 +2706,10 @@ const individualTaskAssigneeOptions = computed(() => {
 
   return []
 })
+
+const dialogAssigneeOptions = computed(() =>
+  individualTaskAssigneeOptions.value.map((option) => ({ value: String(option.userId), label: option.label })),
+)
 
 const isStudentOnlyIndividualAssignee = computed(
   () => auth.isStudent && taskDialogMode.value === 'create',
@@ -2825,6 +2824,11 @@ const parentTaskFilterOptions = computed(() =>
     }))
     .sort((a, b) => a.label.localeCompare(b.label)),
 )
+
+const parentFilterOptions = computed(() => [
+  { value: '', label: 'Any task' },
+  ...parentTaskFilterOptions.value.map((option) => ({ value: String(option.id), label: option.label })),
+])
 
 // Hide tasks that are completed AND past their due date by default. The
 // toolbar toggle (showCompletedOverdue) un-hides them; the popover State=Done
@@ -6292,6 +6296,48 @@ onBeforeUnmount(() => {
   background: #f1f5f7;
 }
 
+.group-members-dialog-interests {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  background-color: #fafbfc;
+}
+
+.group-members-dialog-interests h4 {
+  margin: 0 0 0.5rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.group-detail__interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.group-detail__interest-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background-color: var(--light-green);
+  color: var(--dark-green);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.group-detail__interest-count {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.group-members-interests-empty {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #6c757d;
+}
+
 .group-members-list {
   overflow-y: auto;
   padding: 0.45rem;
@@ -6439,33 +6485,6 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  height: 32px;
-  padding: 0 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  background: #fff;
-  color: #50616c;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.task-mode-toggle:hover {
-  background: #f4f7f9;
-  border-color: var(--air-force-blue);
-  color: var(--teal);
-}
-.task-mode-toggle.is-active {
-  background: var(--air-force-blue, #26697d);
-  border-color: var(--air-force-blue, #26697d);
-  color: #fff;
-}
-
 /* ---------- Toolbar (search + filter popover + sort) ---------- */
 
 .task-toolbar {
@@ -6519,8 +6538,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
-.task-toolbar-btn,
-.task-toolbar-sort select {
+.task-toolbar-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -6536,8 +6554,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
 }
-.task-toolbar-btn:hover,
-.task-toolbar-sort select:hover {
+.task-toolbar-btn:hover {
   border-color: var(--air-force-blue);
   background: #f4f7f9;
   color: var(--teal);
@@ -6596,7 +6613,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   color: #5b6770;
 }
-.task-filter-row select {
+.task-filter-row .app-select {
   width: 100%;
   height: 34px;
   padding: 0 0.55rem;
@@ -7217,6 +7234,44 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
 }
 .task-empty-state i { font-size: 1.4rem; color: #c5cdd3; }
+
+/* The Events page's empty icon: green rings round a dark green circle. */
+.task-empty-illustration {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 0.35rem;
+}
+
+.task-empty-ring {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.task-empty-ring--outer {
+  background: rgba(186, 215, 187, 0.44);
+  opacity: 0.45;
+}
+
+.task-empty-ring--mid {
+  inset: 14px;
+  background: #bad7bb;
+  opacity: 0.7;
+}
+
+.task-empty-ring--inner {
+  inset: 28px;
+  background: var(--dark-green);
+}
+
+.task-empty-state .task-empty-ring--inner i {
+  font-size: 1.1rem;
+  color: #fff;
+}
 .task-empty-cta {
   display: inline-flex;
   align-items: center;
@@ -7509,7 +7564,8 @@ onBeforeUnmount(() => {
   font-size: 0.88rem;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.task-dialog-input:focus {
+.task-dialog-input:focus,
+.app-select.task-dialog-input:focus-within {
   outline: none;
   border-color: var(--air-force-blue, #26697d);
   box-shadow: 0 0 0 3px rgba(38, 105, 125, 0.12);
@@ -7767,16 +7823,6 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
-.chat-status--connected {
-  color: #1f7a3f;
-  background: rgba(31, 122, 63, 0.08);
-  border-color: rgba(31, 122, 63, 0.22);
-}
-
-.chat-status--connected .chat-status-dot {
-  color: #2ea44f;
-}
-
 .chat-status--offline {
   color: #b54708;
   background: rgba(181, 71, 8, 0.08);
@@ -7903,7 +7949,7 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 }
 
-.message-search-filters select,
+.message-search-filters .app-select,
 .message-search-filters input[type="date"] {
   border: 1px solid var(--border-default);
   border-radius: 8px;
@@ -8699,6 +8745,7 @@ onBeforeUnmount(() => {
 .message-date {
   color: #6c757d;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 /* The sender's name at 14px, with the date and time beside it at 12px. */
@@ -9695,9 +9742,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.message-header {
-  padding-right: 2.2rem;
-}
+/* No room kept on the right: the floating toolbar it was for is gone, so the
+   reply, smile and menu buttons sit at the bubble's right edge. */
 
 /* Telegram-style tail rounding — flatten the corner pointing at the avatar. */
 .message:not(.own) .message-content {
@@ -10550,13 +10596,11 @@ onBeforeUnmount(() => {
 /* Dark theme: the task and chat boxes take the grey other pages give their
    inputs, rather than staying white. Light mode is unchanged. */
 :root[data-theme='dark'] .gd-meta-row span,
-:root[data-theme='dark'] .task-mode-toggle:not(.is-active),
 :root[data-theme='dark'] .task-search-input,
 :root[data-theme='dark'] .task-toolbar-btn:not(.has-active),
-:root[data-theme='dark'] .task-toolbar-sort select,
 :root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
 :root[data-theme='dark'] .task-filter-panel,
-:root[data-theme='dark'] .task-filter-row select,
+:root[data-theme='dark'] .task-filter-row .app-select,
 :root[data-theme='dark'] .task-filter-clear,
 :root[data-theme='dark'] .task-filter-close,
 :root[data-theme='dark'] .task-state-menu,

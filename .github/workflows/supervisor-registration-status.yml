@@ -1,0 +1,44 @@
+name: Daily supervisor registration status
+
+# Emails each supervisor whose students aren't all registered yet (a
+# permission form still to sign): how many are complete, waiting for a
+# signature, or waiting for guardian details. Once a day, until every one of
+# their students is complete. The backend decides who is due, so this only
+# has to fire once a day.
+#
+# Firing more often than that is harmless: a supervisor already emailed today
+# is skipped, so a retry or an overlapping run cannot email anyone twice.
+#
+# Required configuration:
+#   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
+#                              backend env of the same name
+#
+# 22:03 UTC is 8:03am in Sydney during registration (AEST, UTC+10), 9:03am
+# under daylight saving. The odd minute avoids GitHub's top-of-hour cron
+# congestion.
+on:
+  schedule:
+    - cron: "3 22 * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trigger supervisor registration status emails
+        env:
+          BACKEND_URL: https://api.biotechfutures.org
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
+        run: |
+          if [ -z "${JOBS_TOKEN}" ]; then
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
+            exit 1
+          fi
+          # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces
+          # auth or server failures instead of silently succeeding.
+          curl -fsS -X POST \
+            -H "X-Email-Jobs-Token: ${JOBS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${BACKEND_URL%/}/api/v1/admin/send-supervisor-registration-status/"

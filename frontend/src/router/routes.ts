@@ -58,6 +58,9 @@ import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 import { useAuthStore } from '@/stores/auth';
 import { SUPPORT_EMAIL } from '@/constants/brand';
+import { loadSupervisorResults } from '@/composables/useSupervisorResults';
+import { publicRegistrationRoute } from './publicRegistrationRoute';
+import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
 
 const NO_GROUP_MEMBERSHIP_MESSAGE =
   `Please contact the administrator via ${SUPPORT_EMAIL}`;
@@ -66,6 +69,13 @@ const requireSupervisor = () => {
   const auth = useAuthStore();
   if (!auth.isSupervisor) return { name: 'dashboard', replace: true };
   return true;
+};
+
+// Results opens once marks or certificates are released; till then, My Students.
+const requireSupervisorResults = async () => {
+  const supervisor = requireSupervisor();
+  if (supervisor !== true) return supervisor;
+  return (await loadSupervisorResults(true)) ? true : { name: 'my-students', replace: true };
 };
 
 // /groups has no id of its own — resolve the user's first group from the
@@ -89,17 +99,29 @@ const routes: RouteRecordRaw[] = [
 
   { path: '/', redirect: '/login' },
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
+  publicRegistrationRoute,
+  supervisorRegistrationRoute,
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/reset-password', redirect: (to) => ({ path: '/auth/reset-password', query: to.query }) },
   { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
   // Guardians open this from the consent email; no account needed.
-  { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true } },
+  { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true, siteHeader: true } },
   // Opened from a supervisor's Copy Details Link; no account needed.
-  { path: '/guardian-details/:token', name: 'guardian-details-form', component: () => import('@/views/GuardianDetailsPage.vue'), meta: { public: true } },
+  { path: '/guardian-details/:token', name: 'guardian-details-form', component: () => import('@/views/GuardianDetailsPage.vue'), meta: { public: true, siteHeader: true } },
   { path: '/dashboard', name: 'dashboard', component: () => import('@/views/DashboardPage.vue') },
+  { path: '/analytics', name: 'analytics', component: () => import('@/views/AnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/users', name: 'users-analytics', component: () => import('@/views/UsersAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/mentors', name: 'mentors-analytics', component: () => import('@/views/MentorsAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/registration', name: 'registration-analytics', component: () => import('@/views/RegistrationAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/groups', name: 'groups-analytics', component: () => import('@/views/GroupsAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/activity', name: 'activity-analytics', component: () => import('@/views/ActivityAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/messages', name: 'messages-analytics', component: () => import('@/views/MessagesAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/resources', name: 'resources-analytics', component: () => import('@/views/ResourcesAnalyticsPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/analytics/email', name: 'email-monitoring-analytics', component: () => import('@/views/EmailMonitoringAnalyticsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/my-students', name: 'my-students', component: () => import('@/views/SupervisorStudentsPage.vue'), beforeEnter: requireSupervisor },
   { path: '/my-groups', name: 'my-groups', component: () => import('@/views/SupervisorGroupsPage.vue'), beforeEnter: requireSupervisor },
+  { path: '/my-results', name: 'my-results', component: () => import('@/views/SupervisorResultsPage.vue'), beforeEnter: requireSupervisorResults },
   { path: '/groups', name: 'groups', component: () => import('@/views/GroupDetailPage.vue'), beforeEnter: resolveGroupsLanding },
   { path: '/groups/:id', name: 'group-detail', component: () => import('@/views/GroupDetailPage.vue') },
   { path: '/groups/:id/submission', name: 'group-submission', component: () => import('@/views/GroupDetailPage.vue') },
@@ -117,6 +139,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/guardians', name: 'admin-guardians', component: () => import('@/views/SupervisorStudentsPage.vue'), props: { admin: true }, meta: { requiresAdmin: true } },
   { path: '/admin/groups', name: 'admin-groups', component: () => import('@/views/admin/AdminGroupsPage.vue'), meta: { requiresAdmin: true } },
   { path: '/admin/tasks', name: 'admin-tasks', component: () => import('@/views/admin/AdminTasksPage.vue'), meta: { requiresAdmin: true } },
+  { path: '/admin/role-tasks', name: 'admin-role-tasks', component: () => import('@/views/admin/AdminRoleTasksPage.vue'), meta: { requiresAdmin: true } },
   {
     path: '/admin/views',
     name: 'admin-views',
@@ -155,14 +178,32 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', redirect: '/management/submission-deadline' },
       { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
-      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SetDeadlinePage.vue') },
-      { path: 'extend-deadline', name: 'management-deadline-extension', component: () => import('@/views/management/DeadlineExtensionPage.vue') },
+      // The deadline, then extending it for some groups (Extend Deadline's
+      // old path still leads here).
+      { path: 'submission-deadline', name: 'management-deadline', component: () => import('@/views/management/SubmissionDeadlineTabPage.vue') },
+      { path: 'extend-deadline', redirect: '/management/submission-deadline' },
+      // Every group's marks and certificates, released or not: the supervisor Results page's.
+      { path: 'results', name: 'management-results', component: () => import('@/views/SupervisorResultsPage.vue'), props: { admin: true } },
       { path: 'release-results', name: 'management-release-results', component: () => import('@/views/management/ReleaseResultsPage.vue') },
       { path: 'document-setup', name: 'management-settings', component: () => import('@/views/management/DocumentSetupPage.vue') },
-      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyFinalistsPage.vue') },
-      { path: 'email-nonfinalist', name: 'management-email-nonfinalist', component: () => import('@/views/management/NonFinalistPage.vue') },
+      // The finalists' email, then the nonfinalists' and nonsubmissions' (Notify
+      // Nonfinalist's old path still leads here).
+      { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyTabPage.vue') },
+      { path: 'email-nonfinalist', redirect: '/management/notify-finalists' },
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
-      { path: 'supervisor-visibility', name: 'management-supervisor-visibility', component: () => import('@/views/management/SupervisorPagesPage.vue') }
+      // The registration dates, then registering students as a supervisor does.
+      { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
+      // Late Registration: late links, Supervisor Pages Visibility and
+      // supervisors after close. Its old paths still lead to it.
+      { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
+      { path: 'registration-visibility', redirect: '/management/late-registration' },
+      // The names registration treats as a university, not a school.
+      { path: 'known-universities', name: 'management-known-universities', component: () => import('@/views/management/KnownUniversitiesPage.vue') },
+      // How much email-checking credit is left, and today's lookups.
+      { path: 'email-checks', name: 'management-email-checks', component: () => import('@/views/management/EmailChecksPage.vue') },
+      // The day this year's challenge starts, for the supervisors' daily email.
+      { path: 'challenge-start', name: 'management-challenge-start', component: () => import('@/views/management/ChallengeStartPage.vue') },
+      { path: 'supervisor-visibility', redirect: '/management/late-registration' }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

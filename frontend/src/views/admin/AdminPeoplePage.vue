@@ -57,13 +57,19 @@
 
     <AdminUsersView v-if="activeTab === 'users'" ref="usersView" title="Users" noun="user" />
     <AdminStudentsView v-else-if="activeTab === 'students'" ref="studentsView" />
-    <AdminMentorsView v-else-if="activeTab === 'mentors'" ref="mentorsView" />
+    <AdminMentorsView
+      v-else-if="activeTab === 'mentors'"
+      ref="mentorsView"
+      :initial-search="mentorSearch"
+      :initial-capacity-filter="mentorCapacityFilter"
+    />
     <AdminSupervisorsView v-else ref="supervisorsView" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
 import AdminStudentsView from '@/views/admin/AdminStudentsView.vue'
 import AdminMentorsView from '@/views/admin/AdminMentorsView.vue'
@@ -76,7 +82,30 @@ const tabs = [
   { key: 'supervisors', label: 'Supervisors' }
 ] as const
 
-const activeTab = ref<(typeof tabs)[number]['key']>('users')
+type PeopleTab = (typeof tabs)[number]['key']
+
+const route = useRoute()
+const peopleTabFromQuery = (value: unknown): PeopleTab =>
+  typeof value === 'string' && tabs.some((tab) => tab.key === value)
+    ? value as PeopleTab
+    : 'users'
+
+const activeTab = ref<PeopleTab>(peopleTabFromQuery(route.query.tab))
+
+const mentorSearch = computed(() =>
+  typeof route.query.search === 'string' ? route.query.search : ''
+)
+const mentorCapacityFilter = computed(() => {
+  const value = route.query.capacity
+  return value === 'available' || value === 'full' || value === 'over' ? value : ''
+})
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = peopleTabFromQuery(tab)
+  }
+)
 
 const usersView = ref<InstanceType<typeof AdminUsersView> | null>(null)
 const studentsView = ref<InstanceType<typeof AdminStudentsView> | null>(null)

@@ -37,7 +37,7 @@
           <input
             v-model="q"
             type="text"
-            placeholder="Search by title, body, or audience"
+            placeholder="Search by title, body or audience"
             aria-label="Search announcements"
           />
           <button
@@ -133,10 +133,7 @@
 
       <label v-if="myGroups.length" class="announcements__group-filter">
         <span class="sr-only">Filter by group</span>
-        <select v-model.number="groupFilter" class="announcements__group-select">
-          <option :value="0">All groups</option>
-          <option v-for="g in myGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
-        </select>
+        <AppSelect v-model="groupFilter" class="announcements__group-select" :options="groupFilterOptions" />
       </label>
     </div>
 
@@ -219,6 +216,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AnnouncementCard from '@/components/announcements/AnnouncementCard.vue'
 import AnnouncementSkeleton from '@/components/announcements/AnnouncementSkeleton.vue'
 import AdminAnnouncementFormSheet from '@/components/admin/announcements/AdminAnnouncementFormSheet.vue'
@@ -249,6 +247,10 @@ const q = ref('')
 const audienceFilter = ref<string>('all')
 const groupFilter = ref<number>(0) // 0 = "All groups"
 const myGroups = ref<UserGroupOption[]>([])
+const groupFilterOptions = computed<AppSelectOption[]>(() => [
+  { value: 0, label: 'All groups' },
+  ...myGroups.value.map((g) => ({ value: g.id, label: g.name }))
+])
 
 // Admin states
 const selectedAnnouncementIds = ref<Array<number | string>>([])
@@ -398,7 +400,13 @@ function onEditAnnouncement(item: Announcement) {
     publishedAt: item.date || null,
     archivedAt: item.archivedAt || null,
     authorUserId: null,
-    audiences: []
+    audiences: item.audiences.map((a) => ({
+      id: 0,
+      roleId: a.roleId,
+      groupId: a.groupId,
+      roleName: a.roleName,
+      groupName: a.groupName
+    }))
   }
   formSheetOpen.value = true
 }
@@ -422,6 +430,7 @@ function onFormDelete(item: AdminAnnouncement) {
         bodyHtml: '',
         audience: 'all',
         audienceRoles: [],
+        audiences: [],
         isPublic: true,
         groupIds: [],
         images: []
@@ -472,7 +481,9 @@ function onNotifyAnnouncement(item: Announcement) {
   confirmDialog.onConfirm = async () => {
     try {
       const res = await notifyAdminAnnouncement(item.id)
-      if (res.status === 'success') {
+      if (res.status === 'queued') {
+        setFeedback(res.msg || 'The email is queued and sends shortly.', 'success')
+      } else if (res.status === 'success') {
         setFeedback(`Email notification sent successfully (${res.succeeded} delivered).`, 'success')
       } else if (res.status === 'partial') {
         setFeedback(`Email partially sent (${res.succeeded}/${res.attempted} delivered).`, 'warning')
@@ -623,11 +634,15 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+/* Wide enough for all of "Search by title, body or audience": a set width,
+   so the controls beside the heading grow to fit it (a percentage of a box
+   that's only as wide as its contents wouldn't), but never past the space. */
 .announcements__search {
   position: relative;
   display: flex;
   align-items: center;
-  width: min(360px, 100%);
+  width: 330px;
+  max-width: 100%;
   background: var(--white);
   border: 1px solid rgba(14, 31, 25, 0.1);
   border-radius: 999px;
@@ -698,9 +713,11 @@ onBeforeUnmount(() => {
 }
 
 .announcements__group-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding: 0.45rem 2rem 0.45rem 0.85rem;
+  /* As tall as the tab pills (e.g. a group's Tasks and Chat): their 2.125rem,
+     so it grows with the browser's text size as theirs does. */
+  box-sizing: border-box;
+  height: 2.125rem;
+  padding: 0 2rem 0 0.85rem;
   border-radius: 999px;
   border: 1px solid var(--border-light, #e0e0e0);
   background: var(--white, #ffffff);
@@ -708,14 +725,9 @@ onBeforeUnmount(() => {
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  background-image: linear-gradient(45deg, transparent 50%, #6c757d 50%),
-                    linear-gradient(135deg, #6c757d 50%, transparent 50%);
-  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
 }
 
-.announcements__group-select:focus {
+.announcements__group-select:focus-within {
   outline: none;
   border-color: var(--dark-green, #017151);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
@@ -726,7 +738,13 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(14, 31, 25, 0.12);
   background: var(--white);
   color: var(--teal);
-  padding: 0.45rem 0.95rem;
+  /* As tall as the tab pills (e.g. a group's Tasks and Chat): their 2.125rem,
+     so it grows with the browser's text size as theirs does. */
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 2.125rem;
+  padding: 0 0.95rem;
   border-radius: 999px;
   font-size: 0.88rem;
   font-weight: 500;

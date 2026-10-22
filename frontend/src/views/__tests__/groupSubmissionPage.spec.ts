@@ -4,6 +4,8 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { ApiError } from '@/utils/apiError'
 import type { SubmissionDetail, SubmissionRecord } from '@/utils/submissionsAPI'
+import * as Y from 'yjs'
+import { toBase64 } from '@/composables/useSharedDoc'
 
 const saveDraft = vi.fn()
 const submitEntry = vi.fn()
@@ -1054,21 +1056,704 @@ describe('the poster checklist', () => {
     expect(document.activeElement?.id).toBe('checklist-btf_logo')
     expect(submitEntry).not.toHaveBeenCalled()
   })
+})
 
-  it('lets an admin act for the team after the deadline, without the checklist', async () => {
-    const detail = withPoster({})
-    detail.deadline.is_open = false
-    detail.admin_access = true
+describe('co-editing', () => {
+  const LIVE = { title: TITLE, 'answer:inspiration': 'Live text.', 'answer:solution_purpose': ANSWERED.solution_purpose }
+  const coedited = (isOpen = true): SubmissionDetail => ({
+    ...buildDetail({
+      isOpen,
+      submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist: CONFIRMED_CHECKLIST, stage: 'in_progress' },
+    }),
+    coediting: true,
+  })
+  const socket = () => FakeSocket.instances[FakeSocket.instances.length - 1]!
+  const sentOfType = (type: string) => (socket().sent as Array<{ type: string; id?: number }>).filter((m) => m.type === type)
+  const receive = (message: object) => socket().onmessage?.({ data: JSON.stringify(message) })
+  const box = () => wrapper!.find('#inspiration')
+
+  /** Plays the server: the page connects and receives the live document. */
+  async function connect(editable = true, texts: Record<string, string> = LIVE) {
+    const truth = new Y.Doc()
+    Object.entries(texts).forEach(([name, value]) => truth.getText(name).insert(0, value))
+    socket().readyState = FakeSocket.OPEN
+    socket().onopen?.()
+    receive({ type: 'hello', user: { id: 1, name: 'Me' } })
+    receive({
+      type: 'doc-state',
+      update: toBase64(Y.encodeStateAsUpdate(truth)),
+      vector: toBase64(Y.encodeStateVector(truth)),
+      full: false,
+      editable,
+    })
+    await flushPromises()
+    return truth
+  }
+
+  it('keeps the boxes read-only until the live answers arrive', async () => {
+    await mountPage(coedited())
+    expect(box().attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('[data-testid="coedit-note"]').text()).toContain('Connecting')
+
+    await connect()
+
+    expect(box().attributes('disabled')).toBeUndefined()
+    expect(wrapper!.find('[data-testid="coedit-note"]').exists()).toBe(false)
+  })
+
+  it('shows the live answers, which are newer than the saved copy', async () => {
+    await mountPage(coedited())
+    await connect()
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Live text.')
+  })
+
+  it('sends typing into the shared document, and never saves answers from the page', async () => {
+    await mountPage(coedited())
+    await connect()
+
+    await box().setValue('Live text. More.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(sentOfType('doc-update').length).toBeGreaterThan(0)
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it("types a teammate's text out in a box this person is not in", async () => {
+    const frames: FrameRequestCallback[] = []
+    let now = 0
+    const realFrame = window.requestAnimationFrame
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => frames.push(callback)
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    try {
+      await mountPage(coedited())
+      const truth = await connect()
+      const before = Y.encodeStateVector(truth)
+      truth.getText('answer:inspiration').insert(10, ' From Ben.')
+
+      receive({ type: 'doc-update', update: toBase64(Y.encodeStateAsUpdate(truth, before)) })
+      await flushPromises()
+      expect((box().element as HTMLTextAreaElement).value).toBe('Live text.')
+      while (frames.length) {
+        now += 16
+        frames.splice(0).forEach((callback) => callback(now))
+      }
+      await flushPromises()
+
+      expect((box().element as HTMLTextAreaElement).value).toBe('Live text. From Ben.')
+    } finally {
+      window.requestAnimationFrame = realFrame
+      clock.mockRestore()
+    }
+  })
+
+  it("shows a teammate's typing at once in the box this person is in", async () => {
+    await mountPage(coedited())
+    const truth = await connect()
+    ;(box().element as HTMLTextAreaElement).focus()
+    const before = Y.encodeStateVector(truth)
+    truth.getText('answer:inspiration').insert(10, ' From Ben.')
+
+    receive({ type: 'doc-update', update: toBase64(Y.encodeStateAsUpdate(truth, before)) })
+    await flushPromises()
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Live text. From Ben.')
+  })
+
+  it("shares where this person's cursor is, and clears it on leaving the box", async () => {
+    await mountPage(coedited())
+    await connect()
+    const cursors = () => socket().sent as Array<{ type: string; field?: string; at?: string | null; typed?: boolean }>
+
+    ;(box().element as HTMLTextAreaElement).focus()
+    await flushPromises()
+    const shared = cursors().filter((m) => m.type === 'cursor')
+    expect(shared).toHaveLength(1)
+    expect(shared[0]).toMatchObject({ field: 'inspiration', typed: false })
+    expect(typeof shared[0]!.at).toBe('string')
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    ;(box().element as HTMLTextAreaElement).blur()
+    await new Promise((resolve) => setTimeout(resolve, 250))
+
+    expect(cursors().filter((m) => m.type === 'cursor').at(-1)).toMatchObject({ field: 'inspiration', at: null })
+  })
+
+  it('never locks a box while a teammate types in it', async () => {
+    await mountPage(coedited())
+    await connect()
+
+    receive({ type: 'typing', user: { id: 9, name: 'Ben' }, field: 'inspiration', typing: true })
+    await flushPromises()
+
+    expect(box().attributes('disabled')).toBeUndefined()
+    expect(wrapper!.text()).toContain('Ben is typing')
+  })
+
+  it('says so when the server will not take edits', async () => {
+    await mountPage(coedited())
+    await connect(false)
+
+    expect(box().attributes('disabled')).toBeDefined()
+    expect(wrapper!.find('[data-testid="coedit-note"]').text()).toContain("can't be edited right now")
+  })
+
+  it('saves the live answers before submitting', async () => {
+    const detail = coedited()
     await mountPage(detail)
-    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    await connect()
     submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
-
-    expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
     await goToLastStep()
+
     await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+    const flush = sentOfType('doc-flush')[0]!
+    expect(submitEntry).not.toHaveBeenCalled()
+    receive({ type: 'doc-flushed', id: flush.id, ok: true })
     await flushPromises()
 
     expect(submitEntry).toHaveBeenCalled()
+  })
+
+  it("keeps this person's undo history when a teammate's change makes the page refresh", async () => {
+    await mountPage(coedited())
+    await connect()
+    const element = box().element as HTMLTextAreaElement
+    element.focus()
+    element.setSelectionRange(10, 10)
+    await box().setValue('Live text. Mine.')
+    // A fresh copy from the server, as every refresh brings.
+    fetchSubmission.mockResolvedValue(structuredClone(coedited()))
+
+    receive({ type: 'changed', item: 'checklist', user: { id: 9, name: 'Ben' } })
+    await flushPromises()
+    await box().trigger('keydown', { key: 'z', ctrlKey: true })
+
+    expect(element.value).toBe('Live text.')
+  })
+
+  it('leaves a box alone while a word is being composed, whatever else changes on the page', async () => {
+    await mountPage(coedited())
+    await connect()
+    const element = box().element as HTMLTextAreaElement
+
+    await box().trigger('compositionstart')
+    element.value = 'Live text.日本'
+    receive({ type: 'typing', user: { id: 9, name: 'Ben' }, field: 'inspiration', typing: true })
+    await flushPromises()
+
+    expect(element.value).toBe('Live text.日本')
+  })
+
+  describe('without the live connection', () => {
+    const note = () => wrapper!.find('[data-testid="coedit-note"]')
+
+    /** The page opens but the live connection never gets through, and ten seconds pass. */
+    async function blocked(detail = coedited()) {
+      vi.useFakeTimers()
+      saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+      await mountPage(detail)
+      expect(box().attributes('disabled')).toBeDefined()
+      vi.advanceTimersByTime(10_000)
+      await flushPromises()
+      return detail
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('lets the student type after ten seconds, saving as without co-editing', async () => {
+      await blocked()
+
+      expect(box().attributes('disabled')).toBeUndefined()
+      expect(note().text()).toContain("Live editing isn't available on this connection.")
+      await box().setValue('Typed offline.')
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+
+      expect(saveDraft).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({ answers: { inspiration: 'Typed offline.' }, live_unavailable: true })
+      )
+    })
+
+    it('saves an answer over its word limit as typed, as live editing does', async () => {
+      await blocked()
+      const long = Array.from({ length: 151 }, () => 'word').join(' ')
+
+      await box().setValue(long)
+      vi.advanceTimersByTime(2000)
+      await flushPromises()
+
+      expect(saveDraft).toHaveBeenCalledWith('1', expect.objectContaining({ answers: { inspiration: long }, live_unavailable: true }))
+    })
+
+    it("brings in the team's saved changes every ten seconds, leaving the box being edited alone", async () => {
+      const detail = await blocked()
+      fetchSubmission.mockResolvedValue({
+        ...detail,
+        submission: {
+          ...detail.submission!,
+          answers: { ...detail.submission!.answers, inspiration: 'From Ben.', solution_purpose: 'Theirs.' }
+        }
+      })
+      vi.advanceTimersByTime(9_000)
+      // Typed a moment before the refresh, so not yet saved.
+      await wrapper!.find('#solution_purpose').setValue('Mine, not saved yet.')
+
+      vi.advanceTimersByTime(1_000)
+      await flushPromises()
+
+      expect((box().element as HTMLTextAreaElement).value).toBe('From Ben.')
+      expect((wrapper!.find('#solution_purpose').element as HTMLTextAreaElement).value).toBe('Mine, not saved yet.')
+    })
+
+    it('saves what was typed, then goes back to live editing once the connection is made', async () => {
+      await blocked()
+      await box().setValue('Typed offline.')
+
+      await connect()
+      await flushPromises()
+
+      // The returning shared copy never replaces what is on screen before it is saved.
+      expect((box().element as HTMLTextAreaElement).value).toBe('Typed offline.')
+
+      expect(saveDraft).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({ answers: { inspiration: 'Typed offline.' }, live_unavailable: true })
+      )
+      expect(socket().sent.at(-1)).toMatchObject({ type: 'doc-sync' })
+      expect(note().exists() && note().text()).not.toContain("Live editing isn't available")
+    })
+
+    it('submits without offering the last saved answers, since its typing is saved directly', async () => {
+      const detail = await blocked()
+      submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+      await goToLastStep()
+
+      await buttonNamed(/^Submit$/)!.trigger('click')
+      await flushPromises()
+
+      expect(wrapper!.find('[data-testid="confirm-dialog"]').exists()).toBe(false)
+      expect(submitEntry).toHaveBeenCalled()
+    })
+
+    it('never switches an admin, who saves privately anyway', async () => {
+      await blocked({ ...coedited(), admin_access: true })
+
+      expect(note().exists() && note().text()).not.toContain("Live editing isn't available")
+    })
+  })
+
+  async function submitWithFailedSave() {
+    const flush = sentOfType('doc-flush')[0]!
+    receive({ type: 'doc-flushed', id: flush.id, ok: false })
+    await flushPromises()
+  }
+
+  it('offers to submit the last saved answers when the live ones could not be saved', async () => {
+    const detail = coedited()
+    await mountPage(detail)
+    await connect()
+    submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+    await submitWithFailedSave()
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Submit without your latest typing?')
+    expect(submitEntry).not.toHaveBeenCalled()
+    await wrapper!.find('[data-testid="confirm-dialog-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(submitEntry).toHaveBeenCalled()
+  })
+
+  it('submits nothing when the offer is declined', async () => {
+    await mountPage(coedited())
+    await connect()
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+    await submitWithFailedSave()
+    await wrapper!.find('[data-testid="confirm-dialog-cancel"]').trigger('click')
+    await flushPromises()
+
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('makes the same offer before the live answers have even arrived', async () => {
+    const detail = coedited()
+    await mountPage(detail)
+    submitEntry.mockResolvedValue({ deadline: detail.deadline, submission: submittedDetail().submission! })
+    await goToLastStep()
+
+    await buttonNamed(/^Submit$/)!.trigger('click')
+    await flushPromises()
+
+    expect(sentOfType('doc-flush')).toHaveLength(0)
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Submit your answers as last saved?')
+  })
+
+  it('leaves an admin editing privately, saving through the page as before', async () => {
+    const detail = { ...coedited(false), admin_access: true }
+    await mountPage(detail)
+    saveDraft.mockResolvedValue({ deadline: detail.deadline, submission: detail.submission! })
+    await wrapper!.find('[data-testid="admin-edit"]').trigger('click')
+    await flushPromises()
+
+    await box().setValue('Fixed by the programme.')
+    await wrapper!.find('[data-testid="admin-save"]').trigger('click')
+    await flushPromises()
+
+    expect(saveDraft.mock.calls.at(-1)![1].answers).toEqual({ inspiration: 'Fixed by the programme.' })
+    expect(sentOfType('doc-update')).toHaveLength(0)
+  })
+})
+
+describe('the admin view', () => {
+  const asAdmin = (detail: SubmissionDetail): SubmissionDetail => ({ ...detail, admin_access: true })
+  const draft = (isOpen = false, poster_checklist: Record<string, boolean> = CONFIRMED_CHECKLIST) =>
+    asAdmin(
+      buildDetail({ isOpen, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, poster_checklist, stage: 'in_progress' } })
+    )
+  const submitted = (isOpen = false) => {
+    const detail = submittedDetail()
+    detail.deadline.is_open = isOpen
+    detail.submission!.project_title = TITLE
+    detail.submission!.submitted_project_title = TITLE
+    detail.submission!.poster_checklist = CONFIRMED_CHECKLIST
+    return asAdmin(detail)
+  }
+  const click = async (testId: string) => {
+    await wrapper!.find(`[data-testid="${testId}"]`).trigger('click')
+    await flushPromises()
+  }
+  const box = () => wrapper!.find('#inspiration')
+  const result = (detail: SubmissionDetail) => ({ deadline: detail.deadline, submission: detail.submission! })
+
+  it('opens read-only in every state, with its own bar instead of the team status', async () => {
+    await mountPage(draft(true))
+
+    expect(box().attributes('disabled')).toBeDefined()
+    const bar = wrapper!.find('[data-testid="admin-bar"]').text()
+    expect(bar).toContain('BTF1')
+    expect(bar).toContain('Draft')
+    expect(bar).toContain('Open until')
+    expect(wrapper!.find('.status-line').exists()).toBe(false)
+    expect(buttonNamed(/^Submit$/)).toBeUndefined()
+  })
+
+  it('edits without saving anything until Save', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+
+    await box().setValue('Fixed by the programme.')
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    await flushPromises()
+
+    expect(saveDraft).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Unsaved changes')
+  })
+
+  it("saves to the team's draft on Save, then goes back to read-only", async () => {
+    const detail = draft()
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-save')
+
+    expect(saveDraft.mock.calls.at(-1)![1].answers).toEqual({ inspiration: 'Fixed by the programme.' })
+    expect(wrapper!.find('.submission-message').text()).toContain("Saved to BTF1's draft.")
+    expect(box().attributes('disabled')).toBeDefined()
+  })
+
+  it('asks before reopening a submitted entry while the round is open', async () => {
+    const detail = submitted(true)
+    await mountPage(detail)
+    reopenEntry.mockResolvedValue(result(reopenedDetail()))
+    saveDraft.mockResolvedValue(result(reopenedDetail()))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-save')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Reopen for the team?')
+    await click('confirm-dialog-confirm')
+
+    expect(reopenEntry).toHaveBeenCalled()
+    expect(saveDraft).toHaveBeenCalled()
+  })
+
+  it('submits a submitted entry for the team after the deadline without reopening it', async () => {
+    const detail = submitted()
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    submitEntry.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+
+    await click('admin-submit')
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('This becomes their latest submission')
+    await click('confirm-dialog-confirm')
+
+    expect(submitEntry).toHaveBeenCalled()
+    expect(reopenEntry).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('Submitted for BTF1.')
+  })
+
+  it('needs every checklist item ticked to submit, without the template checks', async () => {
+    await mountPage(draft(false, { ...CONFIRMED_CHECKLIST, btf_logo: false }))
+    await click('admin-edit')
+
+    await click('admin-submit')
+
+    expect(wrapper!.find('.submission-message').text()).toContain('Please tick every item in the poster checklist')
+    expect(submitEntry).not.toHaveBeenCalled()
+  })
+
+  it('starts the checklist afresh for a new poster, and sends every tick with it', async () => {
+    const detail = draft()
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue(result(detail))
+    saveDraft.mockResolvedValue(result(detail))
+    submitEntry.mockResolvedValue(result(submitted()))
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect((wrapper!.find('#checklist-team_code').element as HTMLInputElement).checked).toBe(false)
+
+    for (const key of Object.keys(CONFIRMED_CHECKLIST)) await wrapper!.find(`#checklist-${key}`).setValue(true)
+    await click('admin-submit')
+    await click('confirm-dialog-confirm')
+
+    expect(saveDraft.mock.calls.at(-1)![1].poster_checklist).toEqual(CONFIRMED_CHECKLIST)
+    expect(submitEntry).toHaveBeenCalled()
+  })
+
+  it('holds an uploaded file until Save', async () => {
+    const detail = draft()
+    await mountPage(detail)
+    uploadSubmissionFile.mockResolvedValue(result(detail))
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+    expect(wrapper!.text()).toContain('not saved yet')
+
+    await click('admin-save')
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith('1', 'poster', expect.any(File), expect.any(Function))
+  })
+
+  it('discards changes after asking', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Not wanted.')
+
+    await click('admin-discard')
+    await click('confirm-dialog-confirm')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe(ANSWERED.inspiration)
+    expect(box().attributes('disabled')).toBeDefined()
+  })
+
+  it('warns before overwriting an answer the team changed meanwhile', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ submission: { project_title: TITLE, answers: { ...ANSWERED, inspiration: 'The team’s edit' }, poster: POSTER } }))
+    )
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('confirm-dialog-cancel')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  const savedByTeam = (inspiration: string, isOpen = false) =>
+    asAdmin(buildDetail({ isOpen, submission: { project_title: TITLE, answers: { ...ANSWERED, inspiration }, poster: POSTER, stage: 'in_progress' } }))
+
+  it("starts editing from the team's latest saved answers", async () => {
+    await mountPage(draft())
+    fetchSubmission.mockResolvedValue(savedByTeam('Saved by the team since.'))
+
+    await click('admin-edit')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Saved by the team since.')
+  })
+
+  it("shows the team's latest saved answers on leaving edit mode", async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    fetchSubmission.mockResolvedValue(savedByTeam('Saved by the team while you edited.'))
+
+    await click('admin-done')
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Saved by the team while you edited.')
+  })
+
+  it('catches up on what the team saved while viewing', async () => {
+    await mountPage(draft(true))
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!
+    socket.readyState = FakeSocket.OPEN
+    socket.onopen?.()
+    const fromBen = (message: object) =>
+      socket.onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+    fetchSubmission.mockResolvedValue(savedByTeam('Ben’s saved answer.', true))
+
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    await flushPromises()
+
+    expect((box().element as HTMLTextAreaElement).value).toBe('Ben’s saved answer.')
+  })
+
+  it('asks to reopen if the team submitted while you were editing, in an open round', async () => {
+    await mountPage(draft(true))
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    fetchSubmission.mockResolvedValue(submitted(true))
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Reopen for the team?')
+    await click('confirm-dialog-cancel')
+    expect(saveDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps changes off a submission the team made while you were editing, after the deadline', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Fixed by the programme.')
+    const teamSubmitted = submitted()
+    fetchSubmission.mockResolvedValue(teamSubmitted)
+    saveDraft.mockResolvedValue(result(teamSubmitted))
+
+    await click('admin-save')
+
+    expect(reopenEntry).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('BTF1 still sees their submission until you submit.')
+  })
+
+  it('shows a link the team just added while viewing', async () => {
+    await mountPage(draft(true))
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!
+    socket.readyState = FakeSocket.OPEN
+    socket.onopen?.()
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ isOpen: true, submission: { project_title: TITLE, answers: ANSWERED, poster: POSTER, prototype_url: 'https://example.com/demo', stage: 'in_progress' } }))
+    )
+
+    socket.onmessage?.({ data: JSON.stringify({ type: 'changed', item: 'link', user: { id: 9, name: 'Ben' } }) })
+    await flushPromises()
+
+    expect((wrapper!.find('#prototype-url').element as HTMLInputElement).value).toBe('https://example.com/demo')
+  })
+
+  it('treats a poster the team replaced meanwhile as a conflict', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await buttonNamed(/Poster/)!.trigger('click')
+    await flushPromises()
+    await wrapper!.find('[data-testid="drop-poster"]').trigger('drop', {
+      dataTransfer: { files: [new File(['%PDF'], 'fixed.pdf', { type: 'application/pdf' })], types: ['Files'] },
+    })
+    await flushPromises()
+    const replaced = { ...POSTER, storage_key: 'x/team-new.pdf' }
+    fetchSubmission.mockResolvedValue(
+      asAdmin(buildDetail({ submission: { project_title: TITLE, answers: ANSWERED, poster: replaced, stage: 'in_progress' } }))
+    )
+
+    await click('admin-save')
+
+    expect(wrapper!.find('[data-testid="confirm-dialog"]').text()).toContain('Overwrite a conflicting change?')
+    await click('confirm-dialog-cancel')
+    expect(uploadSubmissionFile).not.toHaveBeenCalled()
+  })
+
+  it('says when a submitted entry has saved changes not yet submitted', async () => {
+    const detail = submitted()
+    detail.submission!.answers = { ...ANSWERED, inspiration: 'Saved by an admin, not submitted.' }
+
+    await mountPage(detail)
+
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('changes not submitted')
+  })
+
+  it('keeps the bar current while viewing, as the team saves', async () => {
+    await mountPage(asAdmin(buildDetail({ isOpen: true, submission: null })))
+    const socket = FakeSocket.instances[FakeSocket.instances.length - 1]!
+    socket.readyState = FakeSocket.OPEN
+    socket.onopen?.()
+    fetchSubmission.mockResolvedValue(savedByTeam('A first answer.', true))
+
+    const fromBen = (message: object) =>
+      socket.onmessage?.({ data: JSON.stringify({ user: { id: 9, name: 'Ben' }, ...message }) })
+
+    // An ordinary save sends no signal of its own; the catch-up follows Ben stopping typing.
+    fromBen({ type: 'typing', field: 'inspiration', typing: true })
+    fromBen({ type: 'typing', field: 'inspiration', typing: false })
+    await new Promise((resolve) => setTimeout(resolve, 2700))
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="admin-bar"]').text()).toContain('Draft')
+  })
+
+  it("saves a fix to one answer while the team's other answer is over its limit", async () => {
+    const overLimit = 'word '.repeat(151).trim()
+    const detail = asAdmin(
+      buildDetail({ submission: { project_title: TITLE, answers: { ...ANSWERED, solution_purpose: overLimit }, poster: POSTER, stage: 'in_progress' } })
+    )
+    await mountPage(detail)
+    saveDraft.mockResolvedValue(result(detail))
+    await click('admin-edit')
+
+    await box().setValue('Fixed by the programme.')
+    await click('admin-save')
+
+    expect(saveDraft.mock.calls.at(-1)![1].answers).toEqual({ inspiration: 'Fixed by the programme.' })
+  })
+
+  it("still stops a save when the admin's own change is over the limit", async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+
+    await box().setValue('word '.repeat(151).trim())
+    await click('admin-save')
+
+    expect(saveDraft).not.toHaveBeenCalled()
+    expect(wrapper!.find('.submission-message').text()).toContain('Answer too long')
+  })
+
+  it('asks before leaving for another team with unsaved changes', async () => {
+    await mountPage(draft())
+    await click('admin-edit')
+    await box().setValue('Unsaved.')
+    const confirm = vi.fn().mockReturnValue(false)
+    vi.stubGlobal('confirm', confirm)
+
+    await wrapper!.vm.$router.push('/groups/2/submission')
+
+    expect(confirm).toHaveBeenCalled()
+    expect(wrapper!.vm.$route.params.id).toBe('1')
   })
 })
 
@@ -1766,6 +2451,30 @@ describe('changes made elsewhere', () => {
 
     expect(wrapper!.find('#inspiration').attributes('disabled')).toBeUndefined()
     expect(wrapper!.find('.submission-message').exists()).toBe(false)
+  })
+
+  it('picks up a teammate’s new prototype link', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED } }))
+    openSocket()
+    fetchSubmission.mockResolvedValue(buildDetail({ submission: { answers: ANSWERED, prototype_url: 'https://example.com/demo' } }))
+
+    changed('draft')
+    await flushPromises()
+
+    expect((wrapper!.find('#prototype-url').element as HTMLInputElement).value).toBe('https://example.com/demo')
+  })
+
+  it('picks up checklist ticks an admin saved', async () => {
+    await mountPage(buildDetail({ submission: { answers: ANSWERED, poster: POSTER } }))
+    openSocket()
+    fetchSubmission.mockResolvedValue(
+      buildDetail({ submission: { answers: ANSWERED, poster: POSTER, poster_checklist: { btf_logo: true } } })
+    )
+
+    changed('draft')
+    await flushPromises()
+
+    expect((wrapper!.find('#checklist-btf_logo').element as HTMLInputElement).checked).toBe(true)
   })
 
   it('picks up a teammate’s new poster without touching what you are typing', async () => {

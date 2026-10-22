@@ -1,5 +1,5 @@
-"""Management's Supervisor Pages switch: off by default, readable by anyone
-signed in, changed by admins only."""
+"""Management's Supervisor Pages Visibility switch: the pages off by default;
+readable by anyone signed in, changed by admins only."""
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -32,6 +32,7 @@ class SupervisorPagesTests(TestCase):
     def test_needs_true_or_false(self):
         self.client.force_authenticate(self.admin)
         self.assertEqual(self.client.put(URL, {"shown": "yes"}, format="json").status_code, 400)
+        self.assertEqual(self.client.put(URL, {}, format="json").status_code, 400)
 
     def test_needs_signing_in(self):
         self.assertIn(self.client.get(URL).status_code, (401, 403))

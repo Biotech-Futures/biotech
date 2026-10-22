@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminGroupsPage from '@/views/admin/AdminGroupsPage.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
+
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
 
 const groupA = {
   id: 1,
@@ -80,9 +84,23 @@ afterEach(() => {
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  routeState.query = {}
 })
 
 describe('AdminGroupsPage', () => {
+  it('applies the unmatched mentor filter from a deep link', async () => {
+    routeState.query = { mentorStatus: 'unmatched', search: 'BTF2' }
+    const fetchMock = fetchMockFor([groupB])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="Mentor status"]').element).toHaveProperty('value', 'Unmatched')
+    const url = String(listCall(fetchMock)?.[0] ?? '')
+    expect(url).toContain('mentorStatus=unmatched')
+    expect(url).toContain('searchGroup=BTF2')
+  })
+
   it('loads and renders group rows', async () => {
     vi.stubGlobal('fetch', fetchMockFor([groupA, groupB]))
     wrapper = mount(AdminGroupsPage)
@@ -153,7 +171,7 @@ describe('AdminGroupsPage', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    await wrapper.find('select').setValue('unmatched')
+    await pickAppSelect(wrapper, '[aria-label="Mentor status"]', 'Unmatched')
     await flushPromises()
 
     expect(String(listCall(fetchMock)?.[0])).toContain('mentorStatus=unmatched')

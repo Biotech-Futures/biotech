@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -163,7 +164,7 @@ RESOURCE_FILE_ALLOWED_EXTENSIONS = tuple(
     str(value).strip().lower().lstrip(".")
     for value in config(
         "RESOURCE_FILE_ALLOWED_EXTENSIONS",
-        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx",
+        default="pdf,txt,csv,png,jpg,jpeg,gif,webp,doc,docx,xls,xlsx,ppt,pptx,mp4,webm,mov",
         cast=Csv(),
     )
     if str(value).strip()
@@ -176,7 +177,8 @@ RESOURCE_FILE_ALLOWED_MIME_TYPES = tuple(
             "application/pdf,text/plain,text/csv,image/png,image/jpeg,image/gif,image/webp,"
             "application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,"
             "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,"
-            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,"
+            "video/mp4,video/webm,video/quicktime"
         ),
         cast=Csv(),
     )
@@ -350,6 +352,16 @@ EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 # Django defaults this to None, i.e. no socket timeout at all — a stalled relay
 # (Azure SNAT exhaustion is the usual cause) then pins the worker indefinitely.
 EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=20, cast=int)
+
+# Hostinger's Mail API, which check_bounced_emails reads the sending
+# mailboxes' bounce notices with (read-only). Made in hPanel under the email
+# domain's Agentic Mail > API access. Blank turns the check off.
+HOSTINGER_MAIL_API_KEY = config("HOSTINGER_MAIL_API_KEY", default="")
+HOSTINGER_MAIL_API_URL = config("HOSTINGER_MAIL_API_URL", default="https://api.mail.hostinger.com")
+HOSTINGER_MAIL_TIMEOUT_SECONDS = config("HOSTINGER_MAIL_TIMEOUT_SECONDS", default=15, cast=float)
+# How far back a check looks for bounce notices, and for the sends they match:
+# about 3 months (only its first run, or one after a gap, reads that far).
+BOUNCE_LOOKBACK_DAYS = config("BOUNCE_LOOKBACK_DAYS", default=90, cast=int)
 # Synchronous dispatch (used by tests) sends auth mail inline instead of on the
 # pool, so assertions can observe msg.send() without racing a thread.
 AUTH_EMAIL_DISPATCH_SYNC = config(
@@ -480,6 +492,11 @@ CORS_ALLOWED_ORIGINS = config(
 )
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    *default_headers,
+    "idempotency-key",
+    "x-registration-invitation",
+]
 
 # Response headers the SPA is allowed to read on cross-origin fetches.
 # Browsers hide everything but a small safelist otherwise: without this the
@@ -633,6 +650,7 @@ RSVP_REMINDER_TOKEN = config("RSVP_REMINDER_TOKEN", default="")
 SUBMISSION_POSTER_CHECKS_ENABLED = config(
     "SUBMISSION_POSTER_CHECKS_ENABLED", default=True, cast=bool
 )
+SUBMISSION_COEDITING_ENABLED = config("SUBMISSION_COEDITING_ENABLED", default=False, cast=bool)
 
 # Shared secret for POST /api/v1/updjoinperms (and the legacy /users/updjoinperms
 # alias). The upstream join-permission consent form sends this token in the
@@ -658,11 +676,18 @@ GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false",
 BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
 # Once a run has tried every email, it waits this many seconds, then tries
-# once more the ones that failed.
+# once more the ones that failed: Management's bulk emails, announcements, the
+# RSVP reminders and the unread digest. A single email is tried again at once
+# (apps.services.retry).
 BULK_EMAIL_RETRY_SECONDS = config("BULK_EMAIL_RETRY_SECONDS", default=5, cast=float)
-# Bulk email runs send one at a time; each starts this many seconds after the
-# one before it finished.
+# Bulk email runs (with announcements and the scheduled emails) send one at a
+# time from each mailbox; each starts this many seconds after the one before
+# it finished.
 BULK_EMAIL_QUEUE_GAP_SECONDS = config("BULK_EMAIL_QUEUE_GAP_SECONDS", default=5, cast=float)
+# Once a mailbox's server can't be reached, the emails sent from it for this
+# many seconds are kept to send later at once (apps.services.waiting_email),
+# rather than each waiting on the server in turn.
+MAIL_SERVER_DOWN_SECONDS = config("MAIL_SERVER_DOWN_SECONDS", default=60, cast=int)
 
 # Gate student participation (chat posting) on recorded parental join-permission.
 # OFF by default: `StudentProfile.has_join_permission` is populated by the
@@ -687,11 +712,9 @@ UNREAD_DIGEST_QUIET_END_HOUR = config(
     "UNREAD_DIGEST_QUIET_END_HOUR", default=7, cast=int
 )
 UNREAD_DIGEST_QUIET_TZ = config("UNREAD_DIGEST_QUIET_TZ", default="Australia/Sydney")
-# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and runs
-# on a background thread. Sync dispatch (tests) runs it inline instead.
-UNREAD_DIGEST_DISPATCH_SYNC = config(
-    "UNREAD_DIGEST_DISPATCH_SYNC", default="false", cast=env_bool,
-)
+# The full run outgrew Azure's ~230s gateway cap, so the trigger 202s and
+# the run is queued, to send in its turn (BULK_EMAIL_DISPATCH_SYNC runs it
+# inline under tests).
 
 # RSVP reminder windows. Hourly dispatcher scans events HOURS_AHEAD to
 # HOURS_AHEAD + WINDOW_HOURS away — defaults match the standard 24h/1h
@@ -743,3 +766,50 @@ LINK_PREVIEW_USER_AGENT = config(
 LINK_PREVIEW_DISPATCH_SYNC = config(
     "LINK_PREVIEW_DISPATCH_SYNC", default="false", cast=env_bool,
 )
+
+# QuickEmailVerification (apps.users.email_verification). The key comes only from
+# the environment; with none set, every check reports "error" and nothing is blocked.
+QEV_API_KEY = config("QEV_API_KEY", default="")
+QEV_USE_SANDBOX = config("QEV_USE_SANDBOX", default="false", cast=env_bool)
+QEV_TIMEOUT_SECONDS = config("QEV_TIMEOUT_SECONDS", default=5, cast=float)
+QEV_RESULT_MAX_AGE_DAYS = config("QEV_RESULT_MAX_AGE_DAYS", default=180, cast=int)
+# Lookups allowed per UTC day; 0 (the default) means no limit.
+QEV_DAILY_LOOKUP_CAP = config("QEV_DAILY_LOOKUP_CAP", default=0, cast=int)
+QEV_LOW_CREDIT_THRESHOLDS = (500, 100)
+QEV_ALERT_EMAIL = config("QEV_ALERT_EMAIL", default="info@biotechfutures.org")
+# Email checks run on a background thread after commit; tests run them inline.
+EMAIL_VERIFICATION_DISPATCH_SYNC = config("EMAIL_VERIFICATION_DISPATCH_SYNC", default="false", cast=env_bool)
+
+# Tried when QEV_API_KEY (the free key) is out of credit; set only in the
+# deployment's environment. Low-credit alerts follow this key's balance.
+QEV_PAID_API_KEY = config("QEV_PAID_API_KEY", default="")
+# Minutes before a key that ran out of credit is tried again (a new UTC day
+# also allows a retry).
+QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, cast=int)
+
+# Check addresses before a registration is submitted, and warn about any
+# QuickEmailVerification answered as not existing (the user can confirm past
+# it). Off unless set.
+EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
+
+# Limits on checking addresses before a registration is submitted: addresses
+# in one request (fewer for anyone not signed in), new lookups one IP address
+# may cause an hour (the rest are left unchecked), and the seconds after which
+# a job that stops moving counts as stalled (the page then submits anyway).
+EMAIL_PRECHECK_MAX_ADDRESSES = config("EMAIL_PRECHECK_MAX_ADDRESSES", default=2000, cast=int)
+EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES = config("EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES", default=20, cast=int)
+EMAIL_PRECHECK_IP_HOURLY_LOOKUPS = config("EMAIL_PRECHECK_IP_HOURLY_LOOKUPS", default=200, cast=int)
+EMAIL_PRECHECK_STALL_SECONDS = config("EMAIL_PRECHECK_STALL_SECONDS", default=60, cast=int)
+
+# Threads checking registration addresses before submission, one address
+# each (QEV's bulk API isn't open to the free key). Backoff on HTTP 429
+# protects against QEV's unpublished rate limit.
+QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=8, cast=int)
+
+# Seconds a queued pre-submission check (waiting behind earlier ones) may go
+# without starting before it counts as stalled and the page submits anyway.
+EMAIL_PRECHECK_QUEUED_STALL_SECONDS = config("EMAIL_PRECHECK_QUEUED_STALL_SECONDS", default=300, cast=int)
+
+# Refuse an address QuickEmailVerification answered as not existing when an
+# admin edits a user or a student changes their guardian. Off unless set.
+EMAIL_CHECK_ON_EDIT = config("EMAIL_CHECK_ON_EDIT", default="false", cast=env_bool)

@@ -16,21 +16,27 @@
     />
     <span class="hide-show__track" aria-hidden="true">
       <span class="hide-show__knob"></span>
-      <span class="hide-show__text hide-show__text--hide">Hide</span>
-      <span class="hide-show__text hide-show__text--show">Show</span>
+      <span class="hide-show__text hide-show__text--hide">{{ offText }}</span>
+      <span class="hide-show__text hide-show__text--show">{{ onText }}</span>
     </span>
     <slot />
   </label>
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{
-  /** Showing. */
-  on: boolean
-  disabled?: boolean
-  /** What it shows, for screen readers, e.g. "Show marks to students". */
-  label: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** Showing. */
+    on: boolean
+    disabled?: boolean
+    /** What it shows, for screen readers, e.g. "Show marks to students". */
+    label: string
+    /** Its two words, Hide and Show unless given (Off and On, say). */
+    offText?: string
+    onText?: string
+  }>(),
+  { disabled: false, offText: 'Hide', onText: 'Show' },
+)
 
 const emit = defineEmits<{ (e: 'change', on: boolean): void }>()
 

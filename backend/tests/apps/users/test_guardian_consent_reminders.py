@@ -135,8 +135,12 @@ class GuardianConsentReminderTests(TestCase):
         self.assertEqual(mail.outbox, [])
 
         response = client.post(url, HTTP_X_EMAIL_JOBS_TOKEN="secret-token")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["sent"], 1)
+        # Queued, and sent in its turn: at once under test settings.
+        from apps.management.models import EmailSendRun
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json(), {"status": "queued"})
+        self.assertEqual(EmailSendRun.objects.get(key="guardian_consent_request").emailed, 1)
 
     # -- a student naming their guardian ---------------------------------------
 

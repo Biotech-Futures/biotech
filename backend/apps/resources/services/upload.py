@@ -3,7 +3,7 @@ from typing import Any, Mapping
 from django.db import transaction
 
 from apps.audit.services import log_audit_event
-from apps.resources.models import ResourceLabel, ResourceType, Resources
+from apps.resources.models import ResourceLabel, ResourceType, Resources, Roles
 from apps.resources.serializers import ResourcesSerializer
 
 
@@ -85,6 +85,11 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
     group_id = _to_int_or_none(_get_first(data, "group_id"))
     type_id = _resource_type_id(data)
     kind = _resource_kind(data)
+    if kind == Resources.ResourceKind.ATTACHMENT and not role_ids:
+        # Files attached from inside the rich editor arrive with no roles.
+        # Visibility is role-based only, so give them every role: anyone who
+        # can open the page/announcement/event can open its attachments.
+        role_ids = list(Roles.objects.values_list("id", flat=True))
     file_name = getattr(uploaded_file, "name", None) or "resource.bin"
     default_name = file_name if kind == Resources.ResourceKind.ATTACHMENT else None
 
@@ -104,7 +109,13 @@ def upload_resource_file(*, data: Mapping[str, Any], files: Mapping[str, Any], u
             _get_first(data, "visibility_scope"),
             role_ids=role_ids,
         ),
+        # Raw value; ResourcesSerializer.validate_uploaded_file parses it.
+        "acknowledged_oversized": _get_first(data, "acknowledged_oversized"),
     }
+
+    slides_file = _get_first(files, "slides_file") or _get_first(files, "slides")
+    if slides_file is not None:
+        serializer_data["slides_file"] = slides_file
 
     if type_id is not None:
         serializer_data["type_id"] = type_id

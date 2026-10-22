@@ -1,14 +1,20 @@
 """What the bulk emails sent from Management wait for, and how they are sent:
 the finalist notification, the non-finalist invitation and non-submission
-notice, and the two results emails.
+notice, and the two results emails. Announcements and the scheduled emails
+(RSVP, submission and guardian reminders, the unread messages digest) wait
+their turn in the same queues and send in it (``JOBS``).
+
+Queues: one per mailbox the emails go from (picked on System Emails), so an
+email from one mailbox never waits on another's. Emails to one person that
+someone is waiting on (a login code, Email Guardian) don't queue.
 
 Waiting: none goes out while a team can still submit, on the deadline or an
 extension, grace hours included. Until then who submitted, who is a
 finalist, and the marks can all still change.
 
 Sending: pressing Send queues a run on the server that emails everyone due,
-whether or not the page stays open. One run sends at a time across every
-email: one pressed while another is going waits its turn, and starts a few
+whether or not the page stays open. One run sends at a time from each
+mailbox: one pressed while another is going waits its turn, and starts a few
 seconds after the one before it finishes (``BULK_EMAIL_QUEUE_GAP_SECONDS``).
 Who it emails is worked out when it starts. A run sends over a few mail
 server connections at once (``BULK_EMAIL_WORKERS``); once every email has
@@ -24,20 +30,25 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from importlib import import_module
 from typing import Callable
 
 from django.conf import settings
 from django.db import connection as db_connection
 from django.db import transaction
-from django.db.models import F, Max, Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.groups.models.group_members import GroupMembership
 from apps.groups.models.groups import Groups
 from apps.services.email_registry import get_email_type
-from apps.services.system_email import is_email_enabled, sender_connection, sender_for
+from apps.services.email_metrics import record_email_delivery
+from apps.services.system_email import is_email_enabled, sender_connection, sender_for, senders
+from apps.services.waiting_email import JOB as WAITING_JOB
+from apps.services.resend import JOB as RESEND_JOB
+from apps.services.waiting_email import WAITING_NOTE, WAITING_REASON
 from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
@@ -49,7 +60,8 @@ logger = logging.getLogger(__name__)
 
 # The runs that aren't a system email's own key.
 FINALIST_SEND = "finalist_notification"
-# The row held while the queue is sending (see ``_kick``).
+# The row held while the first mailbox's queue is sending (see ``_kick``);
+# another mailbox's is this with ":" and its key (see ``queue_key``).
 QUEUE_KEY = "bulk_email_queue"
 
 # How long a run holds its email between sends: far past one team's send, so
@@ -62,6 +74,49 @@ NO_SERVER = "couldn't reach the mail server"
 # Why someone was missed, when the whole team's email failed before sending.
 NOT_SENT = "couldn't be sent"
 NOT_READY = "Couldn't get this send ready. Press it again."
+# Why a job's run stopped short, when it broke partway.
+JOB_FAILED = "The send stopped partway. Anyone it missed is tried again next time."
+
+# The sends that aren't a team's emails, queued the same way (``queue_job``):
+# each runs its own send in its turn, given who queued it and its options,
+# and gives what it sent ({"sent", "failed"}). "module:function", imported
+# when its turn comes; keyed by its email, so it queues for that mailbox.
+JOBS: dict[str, str] = {
+    "announcement": "apps.admin.services.announcement:announcement_job",
+    "rsvp_reminder": "apps.events.services:rsvp_reminder_job",
+    "unread_messages": "apps.chat.services.digest:digest_job",
+    "submission_reminder": "apps.submissions.reminders:reminder_job",
+    "finalist_submission_reminder": "apps.submissions.finalist_reminders:reminder_job",
+    "guardian_details_request": "apps.users.guardian_details:reminder_job",
+    "guardian_consent_request": "apps.users.guardian_reminders:reminder_job",
+    "supervisor_registration_status": "apps.users.supervisor_status:digest_job",
+    # Emails kept while the mail server couldn't be reached, sent every 10
+    # minutes once it can be: one run per mailbox ("waiting_emails:info").
+    **{
+        f"{WAITING_JOB}:{mailbox}": "apps.services.waiting_email:waiting_job"
+        for mailbox in settings.EMAIL_SENDERS
+    },
+    # Resend on System Emails' Log, one run per mailbox ("resend:info").
+    **{f"{RESEND_JOB}:{mailbox}": "apps.services.resend:resend_job" for mailbox in settings.EMAIL_SENDERS},
+}
+
+
+def lane(key: str) -> str:
+    """The mailbox ``key``'s email goes from, whose queue it waits in. A run
+    of waiting emails, or of a Resend, names its mailbox: "waiting_emails:info"."""
+    if key.startswith((f"{WAITING_JOB}:", f"{RESEND_JOB}:")):
+        return key.split(":", 1)[1]
+    return sender_for(key).key
+
+
+def queue_key(mailbox: str) -> str:
+    """The row held while ``mailbox``'s queue is sending: the first
+    mailbox's keeps the name the one queue always had."""
+    return QUEUE_KEY if mailbox == senders()[0].key else f"{QUEUE_KEY}:{mailbox}"
+
+
+def _is_queue_row(key: str) -> bool:
+    return key == QUEUE_KEY or key.startswith(f"{QUEUE_KEY}:")
 
 
 def _switched_off(key: str) -> str:
@@ -162,6 +217,9 @@ class Work:
 
     people: list[str]
     send: Callable[[object, dict], list[dict]]
+    # The address behind each of ``people``, in the same order, so the run can
+    # keep its recipient list (see ``_record_run_metrics``).
+    addresses: list[str] = field(default_factory=list)
 
 
 # What each email's send emails: ``BUILDERS[key](actor, options)`` gives its
@@ -177,6 +235,16 @@ def queue_send(key: str, actor, options: dict | None = None) -> None:
     _kick()
 
 
+def queue_job(key: str, actor=None, options: dict | None = None) -> None:
+    """Queue one of ``JOBS``, unless the same one is still waiting its turn
+    (a scheduled send that comes round again first), then start the queue."""
+    options = options or {}
+    waiting = any(item.options == options for item in QueuedEmailSend.objects.filter(key=key))
+    if not waiting:
+        QueuedEmailSend.objects.create(key=key, options=options, queued_by=actor)
+    _kick()
+
+
 def _take(key: str, **fields) -> bool:
     """Hold ``key``'s row: a single conditional update, so of two requests
     racing for it only one gets it."""
@@ -189,55 +257,97 @@ def _take(key: str, **fields) -> bool:
     )
 
 
-def _sending_elsewhere() -> bool:
-    """A run is going that this queue didn't start, e.g. one from before an
-    update: the queue waits for it."""
-    return EmailSendRun.objects.exclude(key=QUEUE_KEY).filter(held_until__gte=timezone.now()).exists()
+def _runs(mailbox: str):
+    """The runs of emails that go from ``mailbox``."""
+    return [
+        run for run in EmailSendRun.objects.all()
+        if not _is_queue_row(run.key) and lane(run.key) == mailbox
+    ]
 
 
-def _gap_left() -> float:
-    """How much longer to wait after the last run finished, so runs start a
-    few seconds apart."""
-    last = EmailSendRun.objects.exclude(key=QUEUE_KEY).aggregate(last=Max("finished_at"))["last"]
-    if last is None:
+def _queued(mailbox: str) -> list[QueuedEmailSend]:
+    """``mailbox``'s queue, oldest first."""
+    return [
+        item for item in QueuedEmailSend.objects.select_related("queued_by").order_by("id")
+        if lane(item.key) == mailbox
+    ]
+
+
+def _sending_elsewhere(mailbox: str) -> bool:
+    """A run from ``mailbox`` is going that its queue didn't start, e.g. one
+    from before an update: the queue waits for it."""
+    now = timezone.now()
+    return any(run.held_until and run.held_until >= now for run in _runs(mailbox))
+
+
+def _gap_left(mailbox: str) -> float:
+    """How much longer to wait after ``mailbox``'s last run finished, so its
+    runs start a few seconds apart."""
+    finished = [run.finished_at for run in _runs(mailbox) if run.finished_at]
+    if not finished:
         return 0
-    return settings.BULK_EMAIL_QUEUE_GAP_SECONDS - (timezone.now() - last).total_seconds()
+    return settings.BULK_EMAIL_QUEUE_GAP_SECONDS - (timezone.now() - max(finished)).total_seconds()
 
 
 def _kick() -> None:
-    """Start sending the queue unless it's sending already: take its hold,
-    start the first run at once when nothing finished just now (so the page
-    sees it sending), and send the rest in turn. Called on every press, and
-    on the pages' checks, which picks the queue up again after a restart."""
-    if not QueuedEmailSend.objects.exists() or not _take(QUEUE_KEY):
+    """Start sending each mailbox's queue that has sends waiting (see
+    ``_kick_queue``). Called on every press, and on the pages' checks, which
+    picks a queue up again after a restart."""
+    for mailbox in sorted({lane(key) for key in QueuedEmailSend.objects.values_list("key", flat=True)}):
+        _kick_queue(mailbox)
+
+
+def _kick_queue(mailbox: str) -> None:
+    """Start sending ``mailbox``'s queue unless it's sending already: take
+    its hold, start the first run at once when nothing finished just now (so
+    the page sees it sending), and send the rest in turn."""
+    if not _queued(mailbox) or not _take(queue_key(mailbox)):
         return
     try:
-        if _sending_elsewhere():
-            _let_go()
+        if _sending_elsewhere(mailbox):
+            _let_go(mailbox)
             return
-        first = _next() if _gap_left() <= 0 else None
+        first = _next(mailbox) if _gap_left(mailbox) <= 0 else None
     except Exception:
-        _let_go()
+        _let_go(mailbox)
         raise
     if settings.BULK_EMAIL_DISPATCH_SYNC:
-        _send_queue(first, threaded=False)
+        _send_queue(mailbox, first, threaded=False)
     else:
         threading.Thread(
-            target=_send_queue, args=(first,), kwargs={"threaded": True}, daemon=True, name="email-queue",
+            target=_send_queue, args=(mailbox, first), kwargs={"threaded": True}, daemon=True,
+            name=f"email-queue-{mailbox}",
         ).start()
 
 
-def _let_go() -> None:
-    EmailSendRun.objects.filter(key=QUEUE_KEY).update(held_until=None)
+def _let_go(mailbox: str | None = None) -> None:
+    """Let go of ``mailbox``'s queue, the first mailbox's by default."""
+    EmailSendRun.objects.filter(key=queue_key(mailbox or senders()[0].key)).update(held_until=None)
 
 
-def _next() -> tuple[str, list[Work]] | None:
-    """Start the oldest queued send: work out who it emails now, start its
-    run's progress and take it off the queue. None once the queue is empty."""
+@dataclass
+class _Job:
+    """One of ``JOBS``, its turn come: who queued it, and its options."""
+
+    actor: object
+    options: dict
+
+
+def _next(mailbox: str | None = None) -> tuple[str, list[Work] | _Job] | None:
+    """Start the oldest send queued for ``mailbox`` (the first mailbox by
+    default): work out who it emails now, start its run's progress and take
+    it off the queue. None once the queue is empty."""
+    mailbox = mailbox or senders()[0].key
     while True:
-        item = QueuedEmailSend.objects.select_related("queued_by").order_by("id").first()
+        queued = _queued(mailbox)
+        item = queued[0] if queued else None
         if item is None:
             return None
+        if item.key in JOBS:
+            # A job works out who it emails itself, and stops itself when switched off.
+            _begin(item.key, item.queued_by, [])
+            item.delete()
+            return item.key, _Job(item.queued_by, item.options)
         # Switched off while it waited: started and stopped at once, emailing nobody.
         off = _switched_off(item.key)
         if off:
@@ -272,34 +382,80 @@ def _begin(key: str, actor, work: list[Work]) -> None:
     })
 
 
-def _send_queue(first, *, threaded: bool) -> None:
-    """Send the queue in turn, a few seconds apart, then let it go. A send
-    queued as it lets go starts the queue again."""
+def _send_queue(mailbox: str, first, *, threaded: bool) -> None:
+    """Send ``mailbox``'s queue in turn, a few seconds apart, then let it go.
+    A send queued as it lets go starts the queue again."""
     try:
         while True:
             if first is None:
-                if not QueuedEmailSend.objects.exists():
+                if not _queued(mailbox):
                     break
-                wait = _gap_left()
+                wait = _gap_left(mailbox)
                 if wait > 0:
                     time.sleep(wait)
-                first = _next()
+                first = _next(mailbox)
                 if first is None:
                     break
             key, work = first
             first = None
+            if isinstance(work, _Job):
+                _run_job(key, work, threaded=threaded)
+                continue
             workers = max(1, settings.BULK_EMAIL_WORKERS) if threaded else 1
             _run(key, work, workers=workers, threaded=threaded)
     except Exception:  # noqa: BLE001
         logger.exception("email queue failed")
     finally:
-        _let_go()
+        _let_go(mailbox)
         try:
             _kick()
         except Exception:  # noqa: BLE001
             logger.exception("email queue failed to start again")
-        if threaded:
-            db_connection.close()
+
+
+def _run_job(key: str, job: _Job, *, threaded: bool) -> None:
+    """Run one of ``JOBS`` in its turn, holding its run (and its mailbox's
+    queue) while it sends, then note what it sent. It retries its own misses
+    (see ``services.retry``)."""
+    stop = threading.Event()
+    keeper = None
+    if threaded:
+        keeper = threading.Thread(target=_keep_held, args=(key, stop), daemon=True, name=f"email-job-{key}")
+        keeper.start()
+    result: dict = {}
+    error = ""
+    try:
+        module, name = JOBS[key].split(":")
+        result = getattr(import_module(module), name)(job.actor, job.options) or {}
+    except Exception:  # noqa: BLE001
+        logger.exception("email job %s failed", key)
+        error = JOB_FAILED
+    finally:
+        stop.set()
+        if keeper is not None:
+            keeper.join()
+        EmailSendRun.objects.filter(key=key).update(
+            held_until=None,
+            finished_at=timezone.now(),
+            emailed=int(result.get("sent") or 0),
+            failed=int(result.get("failed") or 0),
+            error=error,
+        )
+
+
+def _keep_held(key: str, stop: threading.Event) -> None:
+    """Renew a job's hold, and its queue's, every minute until it's done: a
+    big send can outlast one hold."""
+    try:
+        while not stop.wait(60):
+            EmailSendRun.objects.filter(key__in=[key, queue_key(lane(key))]).update(
+                held_until=timezone.now() + SEND_LEASE,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("email job %s: couldn't keep its hold", key)
+    finally:
+        # Always on its own thread: its database connection goes with it.
+        db_connection.close()
 
 
 def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
@@ -326,7 +482,53 @@ def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("email run %s failed", key)
     finally:
-        EmailSendRun.objects.filter(key=key).update(held_until=None, finished_at=timezone.now())
+        completed_at = timezone.now()
+        EmailSendRun.objects.filter(key=key).update(
+            held_until=None, finished_at=completed_at
+        )
+        _record_run_metrics(key, completed_at, work)
+
+
+def _record_run_metrics(key: str, completed_at, work: list[Work] = ()) -> None:
+    """Record the final, de-duplicated recipient outcome for one bulk run,
+    with every address ``work`` emailed and the reason for each one the run
+    still missed."""
+    try:
+        run = EmailSendRun.objects.filter(key=key).first()
+        if run is None:
+            return
+        address_of = {
+            label: address
+            for item in work
+            for label, address in zip(item.people, item.addresses)
+        }
+        # Those waiting for the mail server are counted, and their addresses
+        # recorded, once their emails go.
+        waiting = {address_of.get(_missed_entry(entry)["who"]) for entry in run.missed if _waiting(entry)}
+        missed = {}
+        failed = 0
+        for entry in run.missed:
+            if _waiting(entry):
+                continue
+            failed += 1
+            entry = _missed_entry(entry)
+            address = address_of.get(entry["who"])
+            if address:
+                missed[address] = entry["reason"] or NOT_SENT
+        record_email_delivery(
+            key,
+            source_mailbox=sender_for(key).address,
+            attempted=run.emailed + failed,
+            delivered=run.emailed,
+            failed=failed,
+            initiated_by=run.started_by,
+            started_at=run.started_at,
+            completed_at=completed_at,
+            recipients=[address for address in address_of.values() if address not in waiting] if address_of else None,
+            missed=missed,
+        )
+    except Exception:  # noqa: BLE001 - metrics must never break the send queue
+        logger.exception("email run %s: metric write failed", key)
 
 
 def _send(key: str, item: Work, connection, cache: dict) -> list[dict]:
@@ -354,9 +556,9 @@ def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
         try:
             connection.open()
         except Exception as exc:  # noqa: BLE001
+            # Each email tries again, and is kept to send later when the
+            # server still can't be reached (see ``delivery``).
             logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-            failures.extend((item, [{"who": p, "reason": NO_SERVER} for p in item.people]) for item in items)
-            return
         cache: dict = {}
         for item in items:
             # Switched off part way: the rest of this share isn't sent.
@@ -365,7 +567,13 @@ def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
                 _stop(key, off)
                 return
             missed = _send(key, item, connection, cache)
-            _note(key, emailed=len(item.people) - len(missed))
+            waiting = [entry for entry in missed if _waiting(entry)]
+            missed = [entry for entry in missed if not _waiting(entry)]
+            # Those waiting are listed now, and come off once their emails go.
+            _note(
+                key, emailed=len(item.people) - len(missed) - len(waiting), missed=waiting,
+                error=WAITING_NOTE if waiting else "",
+            )
             if missed:
                 failures.append((item, missed))
     finally:
@@ -391,17 +599,21 @@ def _retry(key: str, failures: list[tuple[Work, list[dict]]]) -> None:
     try:
         connection.open()
     except Exception as exc:  # noqa: BLE001
+        # Each email tries again, and is kept to send later when the server
+        # still can't be reached.
         logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-        for _, missed in failures:
-            _note(key, failed=1, missed=missed, error=UNREACHABLE)
-        return
     try:
         cache: dict = {}
         for item, missed in failures:
             # Only someone missed the first time can still be missed.
             first = {m["who"] for m in missed}
-            still = [m for m in _send(key, item, connection, cache) if m["who"] in first]
-            _note(key, emailed=len(missed) - len(still), failed=1 if still else 0, missed=still)
+            result = [m for m in _send(key, item, connection, cache) if m["who"] in first]
+            waiting = [m for m in result if _waiting(m)]
+            still = [m for m in result if not _waiting(m)]
+            _note(
+                key, emailed=len(missed) - len(still) - len(waiting), failed=1 if still else 0,
+                missed=still + waiting, error=WAITING_NOTE if waiting else "",
+            )
     finally:
         _close(connection)
 
@@ -409,7 +621,7 @@ def _retry(key: str, failures: list[tuple[Work, list[dict]]]) -> None:
 def _note(key: str, *, emailed: int = 0, failed: int = 0, missed: list[dict] = (), error: str = "") -> None:
     """Add an item's outcome to the run, and renew its hold and the queue's."""
     held_until = timezone.now() + SEND_LEASE
-    EmailSendRun.objects.filter(key=QUEUE_KEY).update(held_until=held_until)
+    EmailSendRun.objects.filter(key=queue_key(lane(key))).update(held_until=held_until)
     if not missed:
         EmailSendRun.objects.filter(key=key).update(emailed=F("emailed") + emailed, held_until=held_until)
         return
@@ -422,6 +634,11 @@ def _note(key: str, *, emailed: int = 0, failed: int = 0, missed: list[dict] = (
         run.error = error or run.error
         run.held_until = held_until
         run.save(update_fields=["emailed", "failed", "missed", "error", "held_until"])
+
+
+def _waiting(entry) -> bool:
+    """A missed entry whose email is kept until the mail server can be reached."""
+    return isinstance(entry, dict) and entry.get("reason") == WAITING_REASON
 
 
 def _missed_entry(entry) -> dict:
@@ -479,6 +696,10 @@ def _with_addresses(entries: list[dict]) -> list[dict]:
 
 def _email_name(key: str) -> str:
     """"Finalist notification", as System Emails names it."""
+    if key.startswith(f"{WAITING_JOB}:"):
+        return "Emails waiting to send"
+    if key.startswith(f"{RESEND_JOB}:"):
+        return "Resend"
     try:
         return get_email_type(key).name
     except Exception:  # noqa: BLE001
@@ -486,11 +707,12 @@ def _email_name(key: str) -> str:
 
 
 def _ahead(item: QueuedEmailSend) -> list[str]:
-    """The emails sending, and queued before ``item``, by name, each once."""
-    keys = list(
-        EmailSendRun.objects.exclude(key=QUEUE_KEY).filter(held_until__gte=timezone.now()).values_list("key", flat=True)
-    )
-    keys += QueuedEmailSend.objects.filter(id__lt=item.id).values_list("key", flat=True)
+    """The emails sending, and queued before ``item``, from its mailbox, by
+    name, each once."""
+    mailbox = lane(item.key)
+    now = timezone.now()
+    keys = [run.key for run in _runs(mailbox) if run.held_until and run.held_until >= now]
+    keys += [queued.key for queued in _queued(mailbox) if queued.id < item.id]
     return list(dict.fromkeys(_email_name(key) for key in keys))
 
 

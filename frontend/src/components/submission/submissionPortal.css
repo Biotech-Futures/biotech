@@ -168,7 +168,7 @@
 
 .submission-dialog__body {
   margin: 0;
-  color: var(--muted);
+  color: var(--body-text);
   font-size: 0.95rem;
   line-height: 1.5;
 }
@@ -277,9 +277,11 @@
   margin: 0.2rem 0;
 }
 
-/* Set explicitly, as .form-control stays white in the dark theme. */
+/* Set explicitly, as .form-control stays white in the dark theme. The
+   project title and prototype link are the shared box (app-input) instead,
+   in these colours below. */
 .submission-textarea,
-.content-area .form-control {
+.content-area .form-control:not(.app-input) {
   width: 100%;
   padding: 0.7rem 0.85rem;
   background: var(--field-bg);
@@ -288,6 +290,13 @@
   border-radius: 8px;
   font: inherit;
   line-height: 1.55;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.content-area .form-control.app-input {
+  background: var(--field-bg);
+  color: var(--body-text);
+  border-color: var(--field-border);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 

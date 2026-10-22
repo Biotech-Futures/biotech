@@ -1,9 +1,9 @@
 <template>
   <div class="extensions">
+    <!-- Headed as Management's other cards below a page's first (and as
+         Current Extensions): a plain title, no line under it. -->
     <section class="card">
-      <div class="card-header">
-        <h3 class="card-title">Extend Deadline</h3>
-      </div>
+      <h3 class="extensions__section-title">Extend Deadline</h3>
       <p class="extensions__hint">
         Search by the group's name to extend their deadline. Times are in your local
         timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
@@ -23,7 +23,7 @@
             type="datetime-local"
             :min="minLocal || undefined"
             required
-            class="extensions__input"
+            class="extensions__input app-input app-input--compact"
           />
         </label>
         <label class="extensions__field">
@@ -33,7 +33,7 @@
             type="number"
             min="0"
             max="72"
-            class="extensions__input extensions__input--grace"
+            class="extensions__input extensions__input--grace app-input app-input--compact"
           />
         </label>
         <label class="extensions__field extensions__field--reason">
@@ -42,7 +42,7 @@
             v-model="reason"
             rows="3"
             placeholder="e.g. school closure"
-            class="extensions__input extensions__input--reason"
+            class="extensions__input extensions__input--reason app-input app-input--compact"
           ></textarea>
         </label>
         <button
@@ -77,9 +77,8 @@
         search-placeholder="Group name"
         empty-message="No extensions granted."
         :action-columns="1"
-        show-all-details
+        joined-details
         :detail-for="(row) => Boolean(row.reason)"
-        :row-class="(row) => (row.reason ? 'extensions__row--with-reason' : undefined)"
       >
         <template #cell-group="{ row }">
           <span class="extensions__cell--strong">{{ row.group }}</span>
@@ -105,8 +104,8 @@
             Revoke
           </button>
         </template>
-        <!-- The reason gets a full-width row of its own so multi-line text
-             can wrap; the pair reads as one record. -->
+        <!-- The reason, full width under its extension so a long one can
+             wrap, drawn as part of the same row (joined-details). -->
         <template #row-detail="{ row }">
           <div class="extensions__reason">
             <span class="extensions__muted">Reason:</span> {{ row.reason }}
@@ -421,14 +420,18 @@ onMounted(() => {
   font-family: inherit;
 }
 
+/* The shared compact box (app-input), at its own width. */
 .extensions__input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
+}
+
+/* The group search, drawn as the boxes beside it. */
+.extensions__field--group :deep(.group-search .group-search__input) {
+  height: var(--app-input-compact-height);
+  padding: 0.4rem 0 0.4rem 2rem;
+  font-size: var(--app-input-compact-text);
+  line-height: normal;
 }
 
 .extensions__input:focus {
@@ -463,11 +466,6 @@ onMounted(() => {
 
 .extensions__load-error {
   color: var(--danger);
-}
-
-/* A row followed by its reason reads as one record: no line between them. */
-:deep(.extensions__row--with-reason) td {
-  border-bottom: none;
 }
 
 .extensions__reason {
