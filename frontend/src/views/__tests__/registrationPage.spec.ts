@@ -34,7 +34,7 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
 
 // Upload student details, chosen as a supervisor would.
 const openCsvUpload = async (wrapper: VueWrapper) => {
-  await clickButton(wrapper, 'Upload student details')
+  await clickButton(wrapper, 'Register students individually or outside of groups using a spreadsheet')
   await wrapper.vm.$nextTick()
 }
 
@@ -194,7 +194,7 @@ describe('canonical registration intake', () => {
     // Its one step has no tabs.
     { mode: 'supervisor', journey: 'Register one student', choice: 'Register one student', steps: 0 },
     { mode: 'supervisor', journey: 'Register a student group', choice: 'Register a student group', steps: 3 },
-    { mode: 'supervisor', journey: 'Upload student details', choice: '', steps: 3 },
+    { mode: 'supervisor', journey: 'Register students individually or outside of groups using a spreadsheet', choice: '', steps: 3 },
   ] as const)(
     'keeps numbered tabs without a percentage bar for $journey',
     async ({ mode, journey, choice, steps }) => {
@@ -203,7 +203,7 @@ describe('canonical registration intake', () => {
         if (mode === 'canonical') {
           await clickButton(wrapper, journey === 'Register as a mentor' ? 'Mentor' : 'Student')
         }
-        if (journey === 'Upload student details') await openCsvUpload(wrapper)
+        if (journey === 'Register students individually or outside of groups using a spreadsheet') await openCsvUpload(wrapper)
         else if (journey !== 'Register as a mentor') {
           await clickButton(wrapper, choice)
         }
@@ -443,12 +443,12 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).not.toContain('School-only grouping')
     expect(wrapper.text()).not.toContain('Cross-school grouping')
 
-    // A group starts at its students; its Mutual Areas of Interest come after.
+    // A group starts at its students; its Mutual Area(s) of Interest come after.
     const group = mountPage('supervisor')
     await clickButton(group, 'Register a student group')
     expect(group.text()).toContain('Add 2–5 students')
     expect(group.find('#supervisorGroup-students-0-email').exists()).toBe(true)
-    expect(group.text()).not.toContain('Mutual Areas of Interest')
+    expect(group.text()).not.toContain('Mutual Area(s) of Interest')
 
     const csv = mountPage('supervisor')
     await openCsvUpload(csv)
@@ -744,67 +744,40 @@ describe('canonical registration intake', () => {
     vi.unstubAllGlobals()
   })
 
-  it("limits a mentor's answers to 150 words and asks their hours per week", async () => {
+  it("asks a mentor only why they'd mentor, in 150 words at most", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
     const setup = wrapper.vm as unknown as {
       currentStep: number
       validateCurrentStep: () => boolean
       errors: Record<string, string>
-      forms: {
-        mentor: {
-          interests: string[]
-          capacity: string
-          background: string
-          motivation: string
-          mentoringApproach: string
-          weeklyHours: string
-        }
-      }
+      forms: { mentor: { interests: string[]; capacity: string; motivation: string } }
     }
     setup.currentStep = 2
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('How would you mentor BIOTech groups?')
-    expect(wrapper.text()).toContain('Hours per week')
+    expect(wrapper.text()).toContain('Why would you like to mentor?')
+    for (const gone of ['How would you mentor BIOTech groups?', 'Relevant background', 'Hours per week']) {
+      expect(wrapper.text()).not.toContain(gone)
+    }
+    expect(wrapper.find('#mentor-hours').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Weekly availability')
     expect(wrapper.text()).toContain('0 / 150 words')
 
     Object.assign(setup.forms.mentor, {
       interests: ['Biomedical Innovations'],
       capacity: '2',
-      background: 'word '.repeat(151),
-      motivation: 'To help.',
-      mentoringApproach: 'Weekly check-ins.',
+      motivation: 'word '.repeat(151),
     })
-    setup.forms.mentor.weeklyHours = '41'
     await wrapper.vm.$nextTick()
     expect(wrapper.text()).toContain('151 / 150 words')
     setup.validateCurrentStep()
-    expect(setup.errors['mentor.background']).toBe('Keep this to 150 words or fewer.')
-    expect(setup.errors['mentor.weeklyHours']).toBe('Enter a whole number of hours from 1 to 40.')
+    expect(setup.errors['mentor.motivation']).toBe('Keep this to 150 words or fewer.')
 
-    setup.forms.mentor.weeklyHours = ''
-    setup.validateCurrentStep()
-    expect(setup.errors['mentor.weeklyHours']).toBe('Enter how many hours a week you can give.')
-
-    // A number box with its arrows, taking whole numbers alone, two digits at most.
-    const hours = wrapper.get('#mentor-hours')
-    expect(hours.attributes()).toMatchObject({ type: 'number', min: '1', max: '40', step: '1' })
-    for (const key of ['e', '+', '-', '.']) {
-      const press = new KeyboardEvent('keydown', { key, cancelable: true })
-      hours.element.dispatchEvent(press)
-      expect(press.defaultPrevented, key).toBe(true)
-    }
-    const digit = new KeyboardEvent('keydown', { key: '4', cancelable: true })
-    hours.element.dispatchEvent(digit)
-    expect(digit.defaultPrevented).toBe(false)
-    await hours.setValue('456')
-    expect(setup.forms.mentor.weeklyHours).toBe('45')
-    await hours.setValue('4')
-    expect(setup.forms.mentor.weeklyHours).toBe('4')
-
-    setup.forms.mentor.background = 'Ten years in biotech.'
+    setup.forms.mentor.motivation = 'To help.'
     expect(setup.validateCurrentStep()).toBe(true)
+    for (const gone of ['weeklyHours', 'background', 'mentoringApproach']) {
+      expect(setup.forms.mentor).not.toHaveProperty(gone)
+    }
   })
 
   it("holds the group's code on its Group step, to copy and share", async () => {
@@ -956,7 +929,7 @@ describe('canonical registration intake', () => {
     const wrapper = mountPage('supervisor')
     expect(wrapper.text()).toContain('Register one student')
     expect(wrapper.text()).toContain('Register a student group')
-    expect(wrapper.text()).toContain('Upload student details')
+    expect(wrapper.text()).toContain('Register students individually or outside of groups using a spreadsheet')
   })
 
   it("offers the database's countries, and Australia's states, as dropdowns", async () => {
@@ -1058,7 +1031,7 @@ describe('canonical registration intake', () => {
     expect(email?.classList.contains('registration-field--wide')).toBe(true)
 
     const legend = wrapper.get('.interest-selector legend')
-    expect(legend.text()).toBe('Areas of Interest')
+    expect(legend.text()).toBe('Area(s) of Interest')
     expect(wrapper.text()).not.toContain('Choose one or more areas')
   })
 
@@ -1079,10 +1052,10 @@ describe('canonical registration intake', () => {
     setup.currentStep = 1
     await wrapper.vm.$nextTick()
     // Member 1's own Areas of Interest, after their State; the group's are on Group.
-    expect(wrapper.get('.interest-selector legend').text()).toBe('Areas of Interest')
+    expect(wrapper.get('.interest-selector legend').text()).toBe('Area(s) of Interest')
     const html = wrapper.html()
     expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(html.indexOf('interest-selector'))
-    expect(wrapper.text()).not.toContain('Mutual Areas of Interest')
+    expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
     // Their guardian on Your profile, after their profile; their supervisor on Group.
     expect(wrapper.text()).not.toContain('A supervisor is usually a teacher, but can also be a guardian.')
     expect(wrapper.text()).not.toContain('Add guardian contact (optional)')
@@ -1097,7 +1070,7 @@ describe('canonical registration intake', () => {
     await wrapper.vm.$nextTick()
     // The supervisor before Member 1, and no shared interests.
     expect(wrapper.text()).toContain('A supervisor is usually a teacher, but can also be a guardian.')
-    expect(wrapper.text()).not.toContain('Mutual Areas of Interest')
+    expect(wrapper.text()).not.toContain('Mutual Area(s) of Interest')
     const group = wrapper.html()
     expect(group.indexOf('student-team-supervisor-first')).toBeLessThan(
       group.indexOf('Group members'),

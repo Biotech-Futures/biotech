@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
-import { appSelectLabels } from '@/__tests__/appSelect'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 const columns: DataTableColumn[] = [
   { key: 'icon', label: '' },
@@ -105,6 +105,29 @@ describe('the bottom bar', () => {
       'All Entries'
     ])
     expect(wrapper.find('.data-table-summary').text()).toBe('1 - 5 out of 12')
+  })
+
+  const picker = (wrapper: ReturnType<typeof mountTable>) => wrapper.find('.data-table-page-size .app-select')
+
+  it('reads as the rows there are, and is off, while they all fit on one page', () => {
+    const wrapper = mountTable({ rows: many.slice(0, 8), pageSize: 10 })
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 8 out of 8')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('8 Entries')
+    expect(picker(wrapper).classes()).toContain('is-disabled')
+  })
+
+  it('shows its own size, and is on, with more than one page', () => {
+    const wrapper = mountTable({ rows: many, pageSize: 10 })
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('10 Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
+  })
+
+  it('keeps a picked size as picked, on one page too, and stays on to change it back', async () => {
+    const wrapper = mountTable({ rows: many, pageSize: 10 })
+    await pickAppSelect(wrapper, '.data-table-page-size', '15 Entries')
+    expect(wrapper.find('.data-table-summary').text()).toBe('1 - 12 out of 12')
+    expect(appSelectText(wrapper, '.data-table-page-size')).toBe('15 Entries')
+    expect(picker(wrapper).classes()).not.toContain('is-disabled')
   })
 
   // Turns a page with the bar at ``from`` on screen, drawn at ``to`` on the

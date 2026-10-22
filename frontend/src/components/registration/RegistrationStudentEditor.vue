@@ -95,7 +95,7 @@
         v-if="showInterests"
         :id="fieldId('interests')"
         v-model="student.interests"
-        label="Areas of Interest"
+        label="Area(s) of Interest"
         :show-required="false"
         :error="fieldError('interests')"
       />

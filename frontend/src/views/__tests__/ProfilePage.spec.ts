@@ -93,7 +93,7 @@ describe('Student profile', () => {
     expect(wrapper.find('.profile-interest').exists()).toBe(false)
     expect(wrapper.get('[data-test="student-pronouns"]').text()).toContain('She/her')
     const fields = wrapper.findAll('.profile-field-label').map((label) => label.text())
-    expect(fields.indexOf('Pronouns:')).toBe(fields.indexOf('Areas of Interest:') + 1)
+    expect(fields.indexOf('Pronouns:')).toBe(fields.indexOf('Area(s) of Interest:') + 1)
 
     const supervisor = wrapper.get('[data-test="student-supervisor"]')
     expect(supervisor.get('.profile-section-title').text()).toBe('Supervisor Details')
@@ -285,7 +285,7 @@ describe('Mentor profile', () => {
       pronouns: 'She/her', interests: ['Biomedical Innovations'],
       mentor_details: {
         mentorBackground: 'Undergraduate Student', mentorInstitution: 'University of Sydney', mentorCompany: '',
-        mentorUniversityYear: '2', mentorFieldOfStudy: 'Biology', mentorMaxGroupCount: 2, mentorWeeklyHours: 4,
+        mentorUniversityYear: '2', mentorFieldOfStudy: 'Biology', mentorMaxGroupCount: 2,
         mentorAvailability: [{ weekday: 0, start: '18:00', end: '19:30' }],
         mentorGroups: [{ id: 1, name: 'BTF1' }, { id: 3, name: 'BTF3' }],
       },
@@ -329,8 +329,9 @@ describe('Mentor profile', () => {
     expect(patchBody()).toMatchObject({
       firstName: 'Mia', lastName: 'Ng',
       mentorBackground: 'industry', mentorCompany: 'Acme Bio', mentorInstitution: '', mentorUniversityYear: '',
-      mentorFieldOfStudy: '', mentorMaxGroupCount: 2, mentorWeeklyHours: 4, pronouns: 'She/her',
+      mentorFieldOfStudy: '', mentorMaxGroupCount: 2, pronouns: 'She/her',
     })
+    expect(patchBody()).not.toHaveProperty('mentorWeeklyHours')
     wrapper.unmount()
   })
 
@@ -377,7 +378,7 @@ describe('Mentor profile', () => {
     expect(details).toContain('University Student – Undergraduate')
     expect(details).toContain('Year 2')
     expect(details).toContain('2 groups')
-    expect(details).toContain('4 hours')
+    expect(details).not.toContain('Hours per week')
     expect(details).toContain('She/her')
     expect(wrapper.get('[data-test="mentor-availability"]').text()).toContain('Monday:18:00 to 19:30')
     expect(wrapper.text()).not.toContain('Mentor Reason')

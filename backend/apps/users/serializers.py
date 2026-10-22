@@ -622,16 +622,15 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_mentor_details(self, obj):
         """A mentor's details as their admin panel has them (their background,
-        where they work or study, capacity, hours, weekly times and groups),
-        but not their application's answers; None for anyone else."""
+        where they work or study, capacity, weekly times and groups), but not
+        their application's answer; None for anyone else."""
         mp = self._mentor_profile(obj)
         if mp is None:
             return None
         from apps.admin.services.user import _mentor_dict, member_extras
 
         details = _mentor_dict(mp, member_extras([obj.pk])[obj.pk])
-        for answer in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
-            details.pop(answer, None)
+        details.pop("mentorReason", None)
         return details
 
     def get_ment_reason(self, obj):

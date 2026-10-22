@@ -250,11 +250,6 @@ export interface AdminUser {
   mentorCompany?: string | null
   mentorUniversityYear?: string | null
   mentorFieldOfStudy?: string | null
-  /** Their application's answers, beside mentorReason. */
-  mentorRelevantBackground?: string | null
-  mentorMentoringApproach?: string | null
-  /** How many hours a week they can give (1 to 40), as registering asks. */
-  mentorWeeklyHours?: number | null
   /** When they're free each week (Monday is 0, times "HH:MM"): kept from
    *  when registering asked, but no longer shown here. */
   mentorAvailability?: { weekday: number; start: string; end: string }[]

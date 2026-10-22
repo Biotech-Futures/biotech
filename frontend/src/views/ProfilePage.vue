@@ -221,7 +221,7 @@
             <label>Last name<input v-model.trim="studentDraft.last_name" class="app-input" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" class="app-input" required maxlength="255" /></label>
             <label>Year level<AppSelect v-model="studentDraft.year_lvl" class="app-input" :options="YEAR_LEVEL_OPTIONS" required /></label>
-            <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
+            <fieldset class="interest-options"><legend>Area(s) of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
             <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="student-pronouns-select" /></label>
             <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" class="app-input" maxlength="100" data-test="student-pronouns-other" /></label>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
@@ -238,7 +238,7 @@
             <span class="profile-field-value">{{ user.student.yearLevel }}</span>
           </div>
           <div class="profile-field" data-test="student-interests">
-            <span class="profile-field-label">Areas of Interest:</span>
+            <span class="profile-field-label">Area(s) of Interest:</span>
             <span class="profile-field-value">
               {{ user.student.interests.length ? user.student.interests.join(', ') : unsetLabel }}
             </span>
@@ -495,8 +495,11 @@
               <label v-if="mentorDraftStudying">Year of study<AppSelect v-model="mentorDraft.universityYear" class="app-input" :options="STUDY_YEAR_OPTIONS" :searchable="false" placeholder="Choose a year" /></label>
               <label v-if="mentorDraft.background !== 'industry'">Field of study<input v-model.trim="mentorDraft.fieldOfStudy" class="app-input" maxlength="255" /></label>
               <fieldset class="interest-options"><legend>Expertise</legend><label v-for="interest in mentorInterestChoices" :key="interest"><input v-model="mentorDraft.interests" type="checkbox" :value="interest" /><span>{{ interest }}</span></label></fieldset>
-              <label>Capacity<AppSelect v-model="mentorDraft.capacity" class="app-input" :options="mentorCapacityOptions" :searchable="false" placeholder="Choose a capacity" /></label>
-              <label>Hours per week<input class="app-input" :value="mentorDraft.weeklyHours" type="number" inputmode="numeric" min="1" :max="MAX_WEEKLY_HOURS" data-test="mentor-hours" @input="onMentorHoursInput" @keydown="refuseNonDigitKey" @paste="refuseNonDigitPaste" /></label>
+              <!-- As registering has it: the pages' tabs, the one chosen open. -->
+              <div class="capacity-field" role="group" aria-labelledby="mentor-capacity-label" data-test="mentor-capacity">
+                <span id="mentor-capacity-label">Capacity</span>
+                <MentorCapacityPills id="mentor-capacity" v-model="mentorDraft.capacity" name="mentor-capacity" :options="mentorCapacityOptions" />
+              </div>
               <div class="student-edit-actions">
                 <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="mentorDetailsEditing = false">Cancel</button>
                 <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
@@ -538,10 +541,6 @@
             <div class="profile-field">
               <span class="profile-field-label">Capacity:</span>
               <span class="profile-field-value">{{ user.mentor.capacity }}</span>
-            </div>
-            <div class="profile-field">
-              <span class="profile-field-label">Hours per week:</span>
-              <span class="profile-field-value">{{ user.mentor.weeklyHours }}</span>
             </div>
             </template>
           </div>
@@ -667,11 +666,11 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import AppSelect from '@/components/AppSelect.vue'
+import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
 import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import {
   HOUR_OPTIONS,
   MAX_SLOTS,
-  MAX_WEEKLY_HOURS,
   MENTOR_BACKGROUNDS,
   STUDY_YEAR_OPTIONS,
   WEEKDAYS,
@@ -688,7 +687,6 @@ import {
 import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
 import AppSuggestInput from '@/components/AppSuggestInput.vue'
 import { INTEREST_CATEGORIES, isAustralia } from '@/registration/registration'
-import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
@@ -1010,7 +1008,7 @@ const saveMentorPlace = () => {
 const mentorDetailsEditing = ref(false)
 const mentorDraft = ref({
   firstName: '', lastName: '', background: null, company: '', institution: '', universityYear: null, fieldOfStudy: '',
-  interests: [], capacity: null, weeklyHours: '',
+  interests: [], capacity: null,
 })
 const mentorPronouns = ref({ choice: '', other: '' })
 const mentorDraftStudying = computed(() => isStudyingBackground(mentorDraft.value.background))
@@ -1045,16 +1043,10 @@ const startMentorDetailsEdit = () => {
     fieldOfStudy: details.mentorFieldOfStudy || '',
     interests: [...(auth.user?.interests || [])],
     capacity: details.mentorMaxGroupCount ?? null,
-    weeklyHours: details.mentorWeeklyHours ? String(details.mentorWeeklyHours) : '',
   }
   mentorPronouns.value = pronounDraft(auth.user?.pronouns)
   error.value = ''
   mentorDetailsEditing.value = true
-}
-
-// Hours per week: a number box taking two digits at most.
-const onMentorHoursInput = (event) => {
-  mentorDraft.value.weeklyHours = String(keptDigits(event.target, 2))
 }
 
 const saveMentorDetails = () => {
@@ -1062,11 +1054,6 @@ const saveMentorDetails = () => {
   const pronouns = pronounsToSave(mentorPronouns.value)
   if (pronouns === null) {
     error.value = 'Enter your pronouns.'
-    return
-  }
-  const hours = draft.weeklyHours.trim()
-  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
-    error.value = `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
     return
   }
   // What their background doesn't ask for is cleared, as registering does.
@@ -1082,7 +1069,6 @@ const saveMentorDetails = () => {
     mentorFieldOfStudy: industry ? '' : draft.fieldOfStudy,
     interests: draft.interests,
     ...(draft.capacity === null ? {} : { mentorMaxGroupCount: draft.capacity }),
-    mentorWeeklyHours: hours ? Number(hours) : null,
   }, () => (mentorDetailsEditing.value = false))
 }
 
@@ -1419,7 +1405,6 @@ const user = computed(() => {
   // As their admin panel shows them: an old typed background as the list's choice it means.
   const mentorDetails = source?.mentor_details || {}
   const mentorBackground = mentorBackgroundCode(mentorDetails.mentorBackground)
-  const hours = mentorDetails.mentorWeeklyHours
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedCount > 0)
 
 
@@ -1481,7 +1466,6 @@ const user = computed(() => {
       fieldOfStudy: valueOrFallback(mentorDetails.mentorFieldOfStudy),
       interests: interests.length ? interests.join(', ') : unsetLabel,
       capacity: mentorDetails.mentorMaxGroupCount == null ? unsetLabel : capacityLabel(mentorDetails.mentorMaxGroupCount),
-      weeklyHours: hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : unsetLabel,
       availability: mentorDetails.mentorAvailability || [],
       groups: (mentorDetails.mentorGroups || []).map(group => group.name).join(', ') || unsetLabel
     },
@@ -1999,6 +1983,8 @@ onMounted(async () => {
 .student-edit-form .interest-options label { display:flex; align-items:flex-start; gap:10px; padding:0 12px 0 2px; color:var(--charcoal); font-weight:400; line-height:1.35; cursor:pointer; }
 /* Centred on the first line of its text, at any text size. */
 .student-edit-form .interest-options input { flex:0 0 auto; width:1.0625rem; height:1.0625rem; margin:calc((.85rem * 1.35 - 1.0625rem) / 2) 0 0; padding:0; accent-color:var(--dark-green); cursor:pointer; }
+/* Capacity's pills on a line of their own, under a label as the others'. */
+.capacity-field { grid-column:1 / -1; display:grid; justify-items:start; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
 .student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
 .student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
 .student-edit-actions .btn { margin:0; }

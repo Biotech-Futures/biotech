@@ -145,7 +145,7 @@
         </div>
 
         <!-- What its students share, each counted, headed like Students. -->
-        <h3>Shared Areas of Interest</h3>
+        <h3>Shared Area(s) of Interest</h3>
         <SharedInterestChips
           v-if="group.shared.length"
           :interests="group.shared"

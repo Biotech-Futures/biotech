@@ -1869,6 +1869,7 @@ class MentorOwnProfileTests(TestCase):
         MentorProfile.objects.create(
             user=mentor, background="postgraduate", institution="Uni", university_year="2",
             field_of_study="Biology", mentor_reason="To help", max_group_count=3, weekly_hours=4,
+            relevant_background="Lab work", mentoring_approach="Weekly calls",
         )
         MentorAvailability.objects.create(mentor_user=mentor, weekday=0, start_time=time(18), end_time=time(19))
         group = Groups.objects.create(group_name="BTF7")
@@ -1880,12 +1881,14 @@ class MentorOwnProfileTests(TestCase):
 
         self.assertEqual(
             (details["mentorBackground"], details["mentorUniversityYear"], details["mentorFieldOfStudy"],
-             details["mentorMaxGroupCount"], details["mentorWeeklyHours"]),
-            ("postgraduate", "2", "Biology", 3, 4),
+             details["mentorMaxGroupCount"]),
+            ("postgraduate", "2", "Biology", 3),
         )
         self.assertEqual(details["mentorAvailability"], [{"weekday": 0, "start": "18:00", "end": "19:00"}])
         self.assertEqual([g["name"] for g in details["mentorGroups"]], ["BTF7"])
-        self.assertNotIn("mentorReason", details)
+        # No longer shown, though earlier mentors' answers are kept.
+        for gone in ("mentorReason", "mentorWeeklyHours", "mentorRelevantBackground", "mentorMentoringApproach"):
+            self.assertNotIn(gone, details)
 
 
 class MentorSelfEditTests(TestCase):
@@ -1916,14 +1919,17 @@ class MentorSelfEditTests(TestCase):
 
         response = self.client.patch(self.url, {
             "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
-            "mentorUniversityYear": "", "mentorFieldOfStudy": "", "mentorMaxGroupCount": 2, "mentorWeeklyHours": 5,
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "", "mentorMaxGroupCount": 2,
             "mentorAvailability": [{"weekday": 1, "start": "17:00", "end": "18:00"}],
             "pronouns": "They/them", "country": "New Zealand", "state": "Auckland",
         }, format="json")
 
         self.assertEqual(response.status_code, 200, response.content)
         profile = MentorProfile.objects.get(user=self.mentor)
-        self.assertEqual((profile.background, profile.company, profile.weekly_hours), ("industry", "Acme Bio", 5))
+        self.assertEqual((profile.background, profile.company, profile.max_group_count), ("industry", "Acme Bio", 2))
+        # Hours a week are no longer theirs to give.
+        refused = self.client.patch(self.url, {"mentorWeeklyHours": 5}, format="json")
+        self.assertEqual(refused.status_code, 400)
         details = response.json()["mentor_details"]
         self.assertEqual(details["mentorAvailability"], [{"weekday": 1, "start": "17:00", "end": "18:00"}])
         self.mentor.refresh_from_db()

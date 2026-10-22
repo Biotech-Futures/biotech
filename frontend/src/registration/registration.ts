@@ -50,6 +50,23 @@ export const MAX_CSV_ROWS = 1000
 export type CsvHeader = (typeof CSV_HEADERS)[number]
 export type CsvCategory = 'valid' | 'review-required' | 'invalid'
 
+// Each column as the template and the upload page name it, for the
+// supervisors filling it in. An upload may also use the names templates had
+// before (first_name), in any case (see parseRegistrationCsv).
+export const CSV_HEADER_LABELS: Record<CsvHeader, string> = {
+  first_name: 'First Name',
+  last_name: 'Last Name',
+  email: 'Email',
+  school: 'School',
+  year_level: 'Year Level',
+  country: 'Country',
+  state: 'State',
+  interests: 'Area(s) of Interest',
+  guardian_first_name: 'Guardian First Name',
+  guardian_last_name: 'Guardian Last Name',
+  guardian_email: 'Guardian Email',
+}
+
 export interface PhotoMetadata {
   name: string
   type: string
@@ -153,18 +170,10 @@ export interface MentorForm {
   fieldOfStudy: string
   interests: string[]
   capacity: '' | '1' | '2' | '3' | '4' | '5'
-  background: string
   motivation: string
-  /** How they would mentor BIOTech groups. */
-  mentoringApproach: string
-  /** How many hours a week they can give a group: a whole number, 1 to 40. */
-  weeklyHours: string
 }
 
-/** The most hours a week a mentor can say they'll give. */
-export const MAX_WEEKLY_HOURS = 40
-
-/** The most words a mentor's written answers may have. */
+/** The most words a mentor's written answer may have. */
 export const MENTOR_MAX_WORDS = 150
 
 export const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
@@ -310,10 +319,7 @@ export const createRegistrationForms = (): RegistrationForms => ({
     fieldOfStudy: '',
     interests: [],
     capacity: '',
-    background: '',
     motivation: '',
-    mentoringApproach: '',
-    weeklyHours: '',
   },
 })
 
@@ -410,7 +416,7 @@ const csvRowCategory = (
     (interest) => !interestOption(interest),
   )
   if (unknownInterests.length) {
-    fieldErrors.interests = `Not an Areas of Interest option: ${unknownInterests.join(', ')}.`
+    fieldErrors.interests = `Not an Area(s) of Interest option: ${unknownInterests.join(', ')}.`
   }
 
   // A guardian is their name and email.
@@ -468,12 +474,15 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`] }
   }
 
-  // The template's headers exactly, in its order; columns after them are ignored.
+  // The template's headers, in its order: its name for each (or the old one),
+  // in any case, spaces or underscores alike. Columns after them are ignored.
   const headers = matrix[0].cells.map((header) => header.trim())
   const errors = CSV_HEADERS.flatMap((header, index) =>
-    headers[index] === header
+    headerMatches(headers[index] ?? '', header)
       ? []
-      : [`Column ${index + 1} must be ${header}${headers[index] ? `, not ${headers[index]}` : ''}.`],
+      : [
+          `Column ${index + 1} must be ${CSV_HEADER_LABELS[header]}${headers[index] ? `, not ${headers[index]}` : ''}.`,
+        ],
   )
   if (errors.length) return { rows: [], errors }
 
@@ -496,7 +505,14 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
   }
 }
 
-export const registrationCsvTemplate = (): string => `${CSV_HEADERS.join(',')}\r\n`
+// A header compared loosely: "First Name", "first name" and "first_name" alike.
+const headerKey = (text: string) => text.trim().toLowerCase().replace(/[\s_]+/g, ' ')
+
+const headerMatches = (typed: string, header: CsvHeader) =>
+  [CSV_HEADER_LABELS[header], header].some((name) => headerKey(name) === headerKey(typed))
+
+export const registrationCsvTemplate = (): string =>
+  `${CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]).join(',')}\r\n`
 
 const normalizedEmail = (value: string) => value.trim().toLowerCase()
 

@@ -635,7 +635,7 @@ describe('GroupDetailModal', () => {
     const fetchMock = fetchMockFor()
     await mountModal(fetchMock, groupWithInterests)
 
-    expect(dialog()!.textContent).toContain('Mutual Areas of Interest')
+    expect(dialog()!.textContent).toContain('Mutual Area(s) of Interest')
     expect(dialog()!.textContent).toContain('Bioinformatics')
     expect(dialog()!.textContent).toContain('(3)')
     expect(dialog()!.textContent).toContain('Genetics')
@@ -655,7 +655,7 @@ describe('GroupDetailModal', () => {
     const fetchMock = fetchMockFor()
     await mountModal(fetchMock, groupWithNoOverlap)
 
-    expect(dialog()!.textContent).toContain('Mutual Areas of Interest')
+    expect(dialog()!.textContent).toContain('Mutual Area(s) of Interest')
     expect(dialog()!.textContent).toContain('No mutual areas of interest identified yet.')
   })
 

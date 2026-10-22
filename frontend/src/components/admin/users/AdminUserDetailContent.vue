@@ -663,22 +663,6 @@
             :options="mentorCapacityOptions"
           />
         </div>
-        <label class="admin-users-detail__item">
-          <span class="admin-users-detail__label">Hours per week</span>
-          <input
-            :value="form.mentorWeeklyHours"
-            type="number"
-            inputmode="numeric"
-            min="1"
-            :max="MAX_WEEKLY_HOURS"
-            step="1"
-            class="admin-users-detail__input app-input"
-            data-test="admin-mentor-hours-input"
-            @input="onHoursInput"
-            @keydown="refuseNonDigitKey"
-            @paste="refuseNonDigitPaste"
-          />
-        </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
           <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
@@ -721,10 +705,6 @@
         <div class="admin-users-detail__item">
           <dt>Capacity</dt>
           <dd>{{ capacityLabel(user.mentorMaxGroupCount) }}</dd>
-        </div>
-        <div class="admin-users-detail__item">
-          <dt>Hours per week</dt>
-          <dd data-test="admin-mentor-hours">{{ hoursLabel(user.mentorWeeklyHours) }}</dd>
         </div>
       </dl>
     </section>
@@ -861,7 +841,7 @@
           Edit
         </button>
       </div>
-      <!-- The three questions registering asks, 150 words each at most. -->
+      <!-- The question registering asks, 150 words at most. -->
       <form v-if="editing === 'application'" data-test="admin-application-form" @submit.prevent="save">
         <label
           v-for="question in APPLICATION_QUESTIONS"
@@ -1202,7 +1182,6 @@ import type {
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatShortDateTime } from '@/utils/date'
-import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import {
   formatFullDate,
@@ -1219,7 +1198,6 @@ import {
   HOUR_OPTIONS,
   MAX_ANSWER_WORDS,
   MAX_SLOTS,
-  MAX_WEEKLY_HOURS,
   MENTOR_BACKGROUNDS,
   STUDY_YEAR_OPTIONS,
   WEEKDAYS,
@@ -1353,14 +1331,11 @@ const blankForm = () => ({
   mentorUniversityYear: null as AppSelectOption['value'],
   mentorFieldOfStudy: '',
   mentorCapacity: null as AppSelectOption['value'],
-  mentorWeeklyHours: '' as string | number,
   mentorAvailability: [] as MentorSlot[],
-  mentorRelevantBackground: '',
   supervisorSchoolName: '',
   supervisorGroupIds: [] as number[],
   superviseeRows: [] as { id: number; name: string; email: string }[],
-  mentorReason: '',
-  mentorMentoringApproach: ''
+  mentorReason: ''
 })
 const form = reactive(blankForm())
 
@@ -1402,16 +1377,13 @@ const startEdit = (part: Part) => {
     mentorUniversityYear: user.mentorUniversityYear || null,
     mentorFieldOfStudy: user.mentorFieldOfStudy || '',
     mentorCapacity: user.mentorMaxGroupCount ?? null,
-    mentorWeeklyHours: user.mentorWeeklyHours ?? '',
     mentorAvailability: (user.mentorAvailability || []).map(splitSlot),
-    mentorRelevantBackground: user.mentorRelevantBackground || '',
     supervisorSchoolName: user.role === 'supervisor' ? user.schoolName || '' : '',
     supervisorGroupIds: (user.supervisorGroups || []).map((group) => group.id),
     superviseeRows: (user.supervisees || []).flatMap((student) =>
       student.id ? [{ id: student.id, name: student.name, email: student.email }] : []
     ),
-    mentorReason: user.mentorReason || '',
-    mentorMentoringApproach: user.mentorMentoringApproach || ''
+    mentorReason: user.mentorReason || ''
   })
   saveError.value = ''
   editing.value = part
@@ -1869,14 +1841,6 @@ const mentorInterestOptions = computed(() => [
   ...(props.user?.interests || []).filter((interest) => !INTEREST_OPTIONS.includes(interest))
 ])
 
-// Hours per week: a number box taking two digits at most.
-const onHoursInput = (event: Event) => {
-  form.mentorWeeklyHours = keptDigits(event.target as HTMLInputElement, 2)
-}
-
-const hoursLabel = (hours: number | null | undefined) =>
-  hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : '—'
-
 
 // Any of it may be left blank, as when an admin adds a mentor; only what's
 // given wrong is refused.
@@ -1885,11 +1849,6 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
   const industry = background === 'industry'
   const pronouns = pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
   if (pronouns === null) return 'Enter their pronouns.'
-  // Hours a week: a whole number from 1 to 40, or left empty.
-  const hours = String(form.mentorWeeklyHours ?? '').trim()
-  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
-    return `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
-  }
   // What the background doesn't ask for is cleared, as registering does.
   return {
     firstName: form.firstName,
@@ -1902,21 +1861,18 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
     mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
     interests: form.interests,
     // Left unpicked, their capacity stays as it is.
-    ...(form.mentorCapacity === null ? {} : { mentorMaxGroupCount: form.mentorCapacity }),
-    mentorWeeklyHours: hours ? Number(hours) : null
+    ...(form.mentorCapacity === null ? {} : { mentorMaxGroupCount: form.mentorCapacity })
   }
 }
 
 const applicationPayload = (): Record<string, unknown> | string => {
   for (const question of APPLICATION_QUESTIONS) {
     if (wordCount(form[question.key]) > MAX_ANSWER_WORDS) {
-      return `Keep each answer to ${MAX_ANSWER_WORDS} words or fewer.`
+      return `Keep the answer to ${MAX_ANSWER_WORDS} words or fewer.`
     }
   }
   return {
-    mentorRelevantBackground: form.mentorRelevantBackground.trim(),
-    mentorReason: form.mentorReason.trim(),
-    mentorMentoringApproach: form.mentorMentoringApproach.trim()
+    mentorReason: form.mentorReason.trim()
   }
 }
 

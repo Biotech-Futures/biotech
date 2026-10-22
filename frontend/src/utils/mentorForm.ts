@@ -37,9 +37,6 @@ export const mentorBackgroundCode = (background: AppSelectOption['value'] | unde
 export const isStudyingBackground = (background: AppSelectOption['value'] | undefined) =>
   background === 'undergraduate' || background === 'postgraduate'
 
-// Hours a week they can give, as registering asks: 1 to 40.
-export const MAX_WEEKLY_HOURS = 40
-
 export const capacityLabel = (count: number | null | undefined) =>
   count == null ? '—' : `${count} ${count === 1 ? 'group' : 'groups'}`
 
@@ -115,12 +112,10 @@ export const availabilityTimes = (
   return availability
 }
 
-// The three questions registering asks, 150 words each at most.
+// The question registering asks, 150 words at most.
 export const MAX_ANSWER_WORDS = 150
 export const APPLICATION_QUESTIONS = [
-  { key: 'mentorRelevantBackground', field: 'mentorRelevantBackground', label: 'Relevant background' },
-  { key: 'mentorReason', field: 'mentorReason', label: 'Why would you like to mentor?' },
-  { key: 'mentorMentoringApproach', field: 'mentorMentoringApproach', label: 'How would you mentor BIOTech groups?' }
+  { key: 'mentorReason', field: 'mentorReason', label: 'Why would you like to mentor?' }
 ] as const
 
 export const wordCount = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)

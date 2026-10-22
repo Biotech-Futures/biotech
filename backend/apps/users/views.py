@@ -381,8 +381,7 @@ class MeMentorDetailsView(_OwnDetailsView):
 
     FIELDS = (
         "firstName", "lastName", "pronouns", "interests", "mentorBackground", "mentorCompany", "mentorInstitution",
-        "mentorUniversityYear", "mentorFieldOfStudy", "mentorMaxGroupCount", "mentorWeeklyHours",
-        "mentorAvailability",
+        "mentorUniversityYear", "mentorFieldOfStudy", "mentorMaxGroupCount", "mentorAvailability",
     )
     ROLE = "mentor"
 

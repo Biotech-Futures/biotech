@@ -221,9 +221,10 @@
       <label class="data-table-page-size">
         <span class="sr-only">Rows per page</span>
         <AppSelect
-          :model-value="pageSize"
+          :model-value="shownPageSize"
           class="table-page-size"
           :options="sizeChoices"
+          :disabled="pickerDisabled"
           aria-label="Rows per page"
           @change="onPageSizeChange"
         />
@@ -722,10 +723,24 @@ onMounted(() => {
 })
 onBeforeUnmount(() => window.removeEventListener('resize', refitToWindow))
 
-// 7, 15 and 30, the fitted size among them, then All.
+// Until someone picks a size: with every row on one page there's nothing to
+// pick, so the picker is off, and a size reads as the rows there are ("8
+// Entries" over "1 - 8 out of 8", not the 10 that would fit). A size someone
+// picked stays as picked, and the picker stays on to change it back.
+const picked = ref(false)
+const shownPageSize = computed(() =>
+  !picked.value && !showsAll.value && total.value > 0 && total.value < pageSize.value
+    ? total.value
+    : pageSize.value,
+)
+const pickerDisabled = computed(() => !picked.value && totalPages.value <= 1)
+
+// 7, 15 and 30, the table's own size among them (the rows there are, while
+// that's what it shows), then All.
 const sizeOptions = computed(() => {
   const sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
-  if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) sizes.push(fittedSize.value)
+  const own = shownPageSize.value !== pageSize.value ? shownPageSize.value : fittedSize.value
+  if (own !== DATA_TABLE_ALL && !sizes.includes(own)) sizes.push(own)
   return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
 })
 
@@ -756,6 +771,7 @@ const sizeChoices = computed<AppSelectOption[]>(() =>
 
 const onPageSizeChange = (value: AppSelectValue) => {
   fitting.value = false
+  picked.value = true
   pageSize.value = Number(value)
 }
 

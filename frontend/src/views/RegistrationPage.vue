@@ -720,7 +720,7 @@
                 <RegistrationInterestSelector
                   id="supervisor-group-interests"
                   v-model="forms.supervisorGroup.interests"
-                  label="Mutual Areas of Interest"
+                  label="Mutual Area(s) of Interest"
                   description="Those all the students chose are ticked. Every area is listed by how many of them chose it."
                   :options="groupInterestOrder"
                   :counts="groupInterestCounts"
@@ -747,19 +747,18 @@
                     </button>
                   </div>
                   <p>
-                    .xlsx or .csv, one row per student<br />
-                    <code>first_name</code>, <code>last_name</code>, <code>email</code>,<br />
-                    <code>school</code>, <code>year_level</code>, <code>country</code>,<br />
-                    <code>state</code>, <code>interests</code>,<br />
-                    <code>guardian_first_name</code>, <code>guardian_last_name</code>,
-                    <code>guardian_email</code>
+                    .xlsx or .csv, one row per student, with these columns in this order:<br />
+                    <template v-for="(header, index) in CSV_HEADERS" :key="header"
+                      ><code>{{ CSV_HEADER_LABELS[header] }}</code
+                      >{{ index < CSV_HEADERS.length - 1 ? ', ' : '' }}</template
+                    >
                   </p>
                   <p>
-                    Column headers must match exactly and need to be in order.<br />
-                    If <code>country</code> is Australia, <code>state</code> is mandatory.<br />
-                    Otherwise <code>state</code> is optional.<br />
-                    Fields <code>interests</code>, <code>guardian_first_name</code>,
-                    <code>guardian_last_name</code> and <code>guardian_email</code> are optional.<br />
+                    Column headers need to be in this order.<br />
+                    If <code>Country</code> is Australia, <code>State</code> is mandatory.<br />
+                    Otherwise <code>State</code> is optional.<br />
+                    <code>Area(s) of Interest</code>, <code>Guardian First Name</code>,
+                    <code>Guardian Last Name</code> and <code>Guardian Email</code> are optional.<br />
                     Extra columns and rows are ignored.
                   </p>
                 </div>
@@ -774,10 +773,6 @@
                     :aria-invalid="Boolean(errors['supervisorCsv.file'])"
                     @change="handleCsvUpload"
                   />
-                  <small v-if="forms.supervisorCsv.fileName">
-                    Loaded {{ forms.supervisorCsv.fileName }} ·
-                    {{ forms.supervisorCsv.rows.length }} student rows
-                  </small>
                   <strong v-if="errors['supervisorCsv.file']" class="inline-error">
                     {{ errors['supervisorCsv.file'] }}
                   </strong>
@@ -1022,22 +1017,28 @@
                   description="Choose the areas where you could support a student group."
                   :error="errors['mentor.interests']"
                 />
-                <label class="select-field">
-                  <span>Capacity <span class="required-mark" aria-hidden="true">*</span></span>
-                  <AppSelect
+                <!-- How many groups they can take on: the choices side by side. -->
+                <fieldset
+                  class="choice-fieldset capacity-fieldset"
+                  :aria-invalid="Boolean(errors['mentor.capacity'])"
+                  :aria-describedby="
+                    errors['mentor.capacity']
+                      ? 'mentor-capacity-description mentor-capacity-error'
+                      : 'mentor-capacity-description'
+                  "
+                >
+                  <legend>Capacity <span class="required-mark" aria-hidden="true">*</span></legend>
+                  <p id="mentor-capacity-description" class="capacity-description">
+                    Each group is approximately a 5 hour commitment over the course of the challenge.
+                  </p>
+                  <MentorCapacityPills
                     id="mentor-capacity"
-                    class="app-input"
-                    :model-value="forms.mentor.capacity"
+                    v-model="forms.mentor.capacity"
+                    name="mentor-capacity"
+                    class="capacity-options"
                     :options="CAPACITY_OPTIONS"
-                    placeholder="Select group capacity"
-                    :aria-invalid="Boolean(errors['mentor.capacity'])"
-                    :aria-describedby="
-                      errors['mentor.capacity'] ? 'mentor-capacity-error' : undefined
-                    "
+                    :invalid="Boolean(errors['mentor.capacity'])"
                     required
-                    @update:model-value="
-                      (value) => (forms.mentor.capacity = String(value ?? '') as typeof forms.mentor.capacity)
-                    "
                   />
                   <span
                     v-if="errors['mentor.capacity']"
@@ -1046,45 +1047,13 @@
                   >
                     {{ errors['mentor.capacity'] }}
                   </span>
-                </label>
-                <RegistrationTextField
-                  id="mentor-hours"
-                  v-model="forms.mentor.weeklyHours"
-                  label="Hours per week"
-                  class="mentor-hours"
-                  digits
-                  :max-length="2"
-                  :min="1"
-                  :max="MAX_WEEKLY_HOURS"
-                  :error="errors['mentor.weeklyHours']"
-                  required
-                />
-                <RegistrationTextField
-                  id="mentor-background"
-                  v-model="forms.mentor.background"
-                  label="Relevant background"
-                  hint="Describe experience that would help you support a student group."
-                  :error="errors['mentor.background']"
-                  :max-words="MENTOR_MAX_WORDS"
-                  multiline
-                  required
-                  wide
-                />
+                </fieldset>
                 <RegistrationTextField
                   id="mentor-motivation"
                   v-model="forms.mentor.motivation"
                   label="Why would you like to mentor?"
+                  description="This information will be shown to students."
                   :error="errors['mentor.motivation']"
-                  :max-words="MENTOR_MAX_WORDS"
-                  multiline
-                  required
-                  wide
-                />
-                <RegistrationTextField
-                  id="mentor-approach"
-                  v-model="forms.mentor.mentoringApproach"
-                  label="How would you mentor BIOTech groups?"
-                  :error="errors['mentor.mentoringApproach']"
                   :max-words="MENTOR_MAX_WORDS"
                   multiline
                   required
@@ -1223,9 +1192,9 @@ import { RouterLink } from 'vue-router'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
-import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationCsvRowEditor from '@/components/registration/RegistrationCsvRowEditor.vue'
 import SupervisorSearchField from '@/components/registration/SupervisorSearchField.vue'
+import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
@@ -1253,6 +1222,7 @@ import {
 import {
   createRegistrationForms,
   CSV_HEADERS,
+  CSV_HEADER_LABELS,
   createStudent,
   INTEREST_CATEGORIES,
   createPendingPeer,
@@ -1268,7 +1238,6 @@ import {
   revalidateRegistrationCsvRows,
   stateLabel,
   supervisorSummary,
-  MAX_WEEKLY_HOURS,
   type CsvCategory,
   type CsvHeader,
   type CsvRow,
@@ -1468,9 +1437,9 @@ const journeyOptions: JourneyOption[] = [
   {
     value: 'supervisor_csv',
     role: 'Supervisor / teacher',
-    title: 'Upload student details',
+    title: 'Register students individually or outside of groups using a spreadsheet',
     description:
-      'Use the prescribed template, parse it locally and resolve row issues before save.',
+      'To use this pathway, please use the prescribed template, available for download on the next page.',
     steps: [
       {
         label: 'Upload',
@@ -1508,7 +1477,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'Mentoring',
         title: 'How you would mentor',
-        description: 'Choose interests, capacity and hours, and tell us about yourself.',
+        description: 'Choose interests and capacity, and tell us why you would like to mentor.',
       },
       {
         label: 'Review',
@@ -1529,18 +1498,19 @@ const STUDY_YEAR_OPTIONS = [
 ]
 
 // How many groups a mentor can take on.
-const CAPACITY_OPTIONS: AppSelectOption[] = ['1', '2', '3', '4', '5'].map((count) => ({
+const CAPACITY_OPTIONS = (['1', '2', '3', '4', '5'] as const).map((count) => ({
   value: count,
   label: `${count} ${count === '1' ? 'group' : 'groups'}`,
 }))
 
-// The same backgrounds, in the same words, as everywhere a mentor's are shown.
+// The same backgrounds, in the same words, as everywhere a mentor's are shown:
+// from an undergraduate student up to industry.
 const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
-  { value: 'academic', label: 'Academic' },
-  { value: 'industry', label: 'Industry' },
   { value: 'undergraduate', label: 'University Student – Undergraduate' },
   { value: 'postgraduate', label: 'University Student – Postgraduate' },
   { value: 'hdr', label: 'University Student – HDR' },
+  { value: 'academic', label: 'Academic' },
+  { value: 'industry', label: 'Industry' },
 ]
 
 const props = withDefaults(
@@ -1716,7 +1686,7 @@ const supervisorSelf = computed(() => {
     state: user.state?.stateName || '',
   }
 })
-// Register a student group's Mutual Areas of Interest: how many of its
+// Register a student group's Mutual Area(s) of Interest: how many of its
 // students chose each, every area by that (most first; ties as listed), and
 // those all of them chose ticked each time the step opens, beside any ticked
 // already (a saved draft's, or ticked before going back to the students).
@@ -2258,10 +2228,6 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
               label: 'Capacity',
               value: `${forms.mentor.capacity} group${forms.mentor.capacity === '1' ? '' : 's'}`,
             },
-            {
-              label: 'Hours per week',
-              value: `${forms.mentor.weeklyHours} hour${forms.mentor.weeklyHours === '1' ? '' : 's'}`,
-            },
           ],
         },
       ]
@@ -2473,31 +2439,13 @@ const validateCurrentStep = () => {
         'Select how many groups you can support.',
       )
       requireValue(
-        'mentor.background',
-        forms.mentor.background,
-        'Describe your relevant background.',
-      )
-      requireValue(
         'mentor.motivation',
         forms.mentor.motivation,
         'Tell us why you would like to mentor.',
       )
-      requireValue(
-        'mentor.mentoringApproach',
-        forms.mentor.mentoringApproach,
-        'Tell us how you would mentor BIOTech groups.',
-      )
-      // Each written answer is 150 words at most.
-      for (const field of ['background', 'motivation', 'mentoringApproach'] as const) {
-        if (countWords(forms.mentor[field]) > MENTOR_MAX_WORDS)
-          clientErrors[`mentor.${field}`] = `Keep this to ${MENTOR_MAX_WORDS} words or fewer.`
-      }
-      // Hours a week: a whole number from 1 to 40.
-      const hours = String(forms.mentor.weeklyHours ?? '').trim()
-      if (!hours) clientErrors['mentor.weeklyHours'] = 'Enter how many hours a week you can give.'
-      else if (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)
-        clientErrors['mentor.weeklyHours'] =
-          `Enter a whole number of hours from 1 to ${MAX_WEEKLY_HOURS}.`
+      // The written answer is 150 words at most.
+      if (countWords(forms.mentor.motivation) > MENTOR_MAX_WORDS)
+        clientErrors['mentor.motivation'] = `Keep this to ${MENTOR_MAX_WORDS} words or fewer.`
     }
   }
 
@@ -3174,12 +3122,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* A mentor's hours per week: a number, so a third of the row. */
-.mentor-hours {
-  width: calc(100% / 3);
-  min-width: 10rem;
-}
-
 .registration-warnings {
   margin-block: 1rem;
   padding: 1rem;
@@ -4055,12 +3997,9 @@ form,
   font-weight: 700;
 }
 
-.csv-upload small {
-  color: var(--registration-muted);
-  font-size: 0.82rem;
-}
-
+/* Wide enough to show most of a file's name beside its button. */
 .csv-upload input {
+  width: min(100%, 28rem);
   max-width: 100%;
   color: var(--registration-muted);
   font: inherit;
@@ -4195,6 +4134,25 @@ form,
   margin-top: 20px;
   display: grid;
   gap: 20px;
+}
+
+/* Capacity (MentorCapacityPills): its question as the fields' labels. */
+.capacity-fieldset legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* As Expertise's description above it. */
+.capacity-description {
+  margin: 4px 0 0;
+  color: var(--registration-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+/* With room under the description. */
+.capacity-options {
+  margin-top: 16px;
 }
 
 .affiliation-options label {
