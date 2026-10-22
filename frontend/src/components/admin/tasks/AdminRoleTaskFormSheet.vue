@@ -82,7 +82,7 @@
 
         <div class="form-field">
           <label class="form-label" for="role-task-due-date">Due date</label>
-          <input id="role-task-due-date" v-model="form.due_date" type="date" class="form-input" :disabled="busy" />
+          <AppDatePicker id="role-task-due-date" v-model="form.due_date" class="form-input" :disabled="busy" />
         </div>
       </div>
 
@@ -102,6 +102,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import type {
   AdminRoleTask,
   AdminRoleTaskMutationResult,
@@ -309,7 +310,8 @@ const submitForm = () => {
   font: inherit;
 }
 
-.form-input:disabled {
+.form-input:disabled,
+.app-picker.form-input.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;

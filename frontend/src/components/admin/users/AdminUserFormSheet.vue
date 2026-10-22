@@ -343,47 +343,17 @@
             :options="WEEKDAY_OPTIONS"
             placeholder="Day"
           />
-          <span class="admin-users-form__time">
-            <AppSelect
-              :model-value="slot.startHour"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`From, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'start', value)"
-            />
-            <span class="admin-users-form__muted">:</span>
-            <AppSelect
-              v-model="slot.startMinute"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`From, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.startMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.start"
+            class="form-input admin-users-form__time"
+            :aria-label="`From, time ${index + 1}`"
+          />
           <span class="admin-users-form__muted">to</span>
-          <span class="admin-users-form__time">
-            <AppSelect
-              :model-value="slot.endHour"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`To, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'end', value)"
-            />
-            <span class="admin-users-form__muted">:</span>
-            <AppSelect
-              v-model="slot.endMinute"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`To, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.endMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.end"
+            class="form-input admin-users-form__time"
+            :aria-label="`To, time ${index + 1}`"
+          />
           <button
             type="button"
             class="admin-users-form__slot-remove"
@@ -484,6 +454,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import type { AdminGroupDetail, AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
 import {
   confirmStudentAssignments,
@@ -498,7 +469,6 @@ import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
 import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
 import {
   APPLICATION_QUESTIONS,
-  HOUR_OPTIONS,
   MAX_ANSWER_WORDS,
   MAX_SLOTS,
   MENTOR_BACKGROUNDS,
@@ -509,9 +479,7 @@ import {
   capacityLabel,
   isStudyingBackground,
   mentorBackgroundCode,
-  minuteOptions,
-  pickHour,
-  splitSlot,
+  draftSlot,
   vAutoGrow,
   wordCount,
   type MentorSlot
@@ -744,7 +712,7 @@ const initForm = (editingUser: AdminUser | null) => {
           mentorUniversityYear: editingUser.mentorUniversityYear || null,
           mentorFieldOfStudy: editingUser.mentorFieldOfStudy || '',
           mentorMaxGroupCount: editingUser.mentorMaxGroupCount ?? undefined,
-          mentorAvailability: (editingUser.mentorAvailability || []).map(splitSlot),
+          mentorAvailability: (editingUser.mentorAvailability || []).map(draftSlot),
           mentorReason: editingUser.mentorReason || ''
         }
       : {}),
@@ -1165,20 +1133,11 @@ const submitForm = async () => {
   width: auto;
 }
 
-/* A time: its hour and its minutes, together. */
-.admin-users-form__time {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-
-/* Just wide enough for two digits and the arrow. */
-.form-input.admin-users-form__time-part {
+/* A time (AppTimePicker): as wide as it needs. */
+.form-input.admin-users-form__time {
   flex: none;
-  width: 3.5rem;
+  width: auto;
   min-width: 0;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
 }
 
 .admin-users-form__muted {
@@ -1347,7 +1306,7 @@ const submitForm = async () => {
 /* The weekly times and the application's answers keep their own box; the
    rest are the shared one (app-input). */
 .admin-users-form__day,
-.admin-users-form__time-part,
+.admin-users-form__time,
 .admin-users-form__textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border-light);

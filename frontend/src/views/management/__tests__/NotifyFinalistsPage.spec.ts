@@ -10,6 +10,10 @@ import {
   updateFinalistEmailDetails
 } from '@/utils/managementAPI'
 import { pickAppSelect } from '@/__tests__/appSelect'
+import { pickerMin, pickerValue, setPicker } from '@/__tests__/appPicker'
+
+// Each of the email's dates, by its key.
+const dateField = (key: 'symposium_date' | 'confirm_by' | 'slides_due') => `[data-test="email-date-${key}"]`
 
 vi.mock('@/utils/gradingAPI', () => ({
   fetchFinalists: vi.fn()
@@ -407,18 +411,18 @@ describe('the announcement', () => {
 describe('the email details', () => {
   it("the date pickers start at the server's today", async () => {
     const wrapper = await mountPage()
-    for (const input of wrapper.findAll('input[type="date"]')) {
-      expect(input.attributes('min')).toBe('2026-09-27')
+    for (const key of ['symposium_date', 'confirm_by', 'slides_due'] as const) {
+      expect(pickerMin(wrapper, dateField(key))).toBe('2026-09-27')
     }
   })
 
   it('a date before today is only pointed out, above Save, once Save is pressed', async () => {
     saveMock.mockResolvedValueOnce(details())
     const wrapper = await mountPage()
-    const [symposium] = wrapper.findAll('input[type="date"]')
-    await symposium!.setValue('2026-09-26')
+    const symposium = dateField('symposium_date')
+    await setPicker(wrapper, symposium, '2026-09-26')
     // Nothing flagged while typing, and Save stays available.
-    expect(symposium!.classes()).not.toContain('is-invalid')
+    expect(wrapper.find(symposium).classes()).not.toContain('is-invalid')
     expect(wrapper.find('.notify-finalists__field-error').exists()).toBe(false)
     const save = buttonNamed(wrapper, /^Save$/)
     expect(save.attributes('disabled')).toBeUndefined()
@@ -426,13 +430,13 @@ describe('the email details', () => {
     await save.trigger('click')
     await flushPromises()
     expect(saveMock).not.toHaveBeenCalled()
-    expect(symposium!.classes()).toContain('is-invalid')
+    expect(wrapper.find(symposium).classes()).toContain('is-invalid')
     const message = wrapper.find('.notify-finalists__field-error')
     expect(message.text()).toBe("Symposium Date can't be before today.")
     // It sits just above the Save button.
     expect(message.element.nextElementSibling?.contains(save.element)).toBe(true)
 
-    await symposium!.setValue('2026-09-27') // today is fine
+    await setPicker(wrapper, symposium, '2026-09-27') // today is fine
     expect(wrapper.find('.notify-finalists__field-error').exists()).toBe(false)
     await save.trigger('click')
     await flushPromises()
@@ -451,7 +455,7 @@ describe('the email details', () => {
     expect(buttonNamed(wrapper, /Email All/).attributes('disabled')).toBeDefined()
 
     // Saving other details names the passed dates, all of them, and saves nothing.
-    await wrapper.findAll('input[type="date"]')[2]!.setValue('2026-09-01')
+    await setPicker(wrapper, dateField('slides_due'), '2026-09-01')
     await wrapper.find('input[type="url"]').setValue('https://events.example.com/new')
     await buttonNamed(wrapper, /^Save$/).trigger('click')
     await flushPromises()
@@ -464,9 +468,7 @@ describe('the email details', () => {
   it('shows the saved details, and no leftover under-construction banner', async () => {
     const wrapper = await mountPage()
     expect(wrapper.text()).not.toContain('still being built')
-    expect((wrapper.find('input[type="date"]').element as HTMLInputElement).value).toBe(
-      '2026-10-23'
-    )
+    expect(pickerValue(wrapper, dateField('symposium_date'))).toBe('2026-10-23')
     expect((wrapper.find('input[type="url"]').element as HTMLInputElement).value).toBe(
       'https://events.example.com/s'
     )
@@ -478,7 +480,7 @@ describe('the email details', () => {
     const save = buttonNamed(wrapper, /^Save$/)
     expect(save.attributes('disabled')).toBeUndefined()
 
-    await wrapper.findAll('input[type="date"]')[2]!.setValue('')
+    await setPicker(wrapper, dateField('slides_due'), '')
     await save.trigger('click')
     await flushPromises()
     expect(saveMock).toHaveBeenCalledWith({
@@ -517,7 +519,7 @@ describe('the email details', () => {
 
   it('Send stays off until an edit is saved', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('input[type="date"]').setValue('2026-10-30')
+    await setPicker(wrapper, dateField('symposium_date'), '2026-10-30')
     expect(wrapper.find('.notify-finalists__blocked').text()).toBe(
       'Save the email details before sending.'
     )
@@ -544,7 +546,7 @@ describe('the email details', () => {
       html: '<p>Dear members of BTF-1</p>'
     })
     const wrapper = await mountPage()
-    await wrapper.find('input[type="date"]').setValue('2026-10-30')
+    await setPicker(wrapper, dateField('symposium_date'), '2026-10-30')
     await buttonNamed(wrapper, /Preview Email/).trigger('click')
     await flushPromises()
     expect(previewMock).toHaveBeenCalledWith(

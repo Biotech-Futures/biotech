@@ -738,57 +738,21 @@
             :options="WEEKDAY_OPTIONS"
             placeholder="Day"
           />
-          <!-- Each time as its hour and its minutes, in 5-minute steps (a time
-               box's own picker lists every minute). -->
-          <span class="admin-users-detail__time" :data-test="`admin-mentor-slot-${index}-start`">
-            <AppSelect
-              :model-value="slot.startHour"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-start-hour`"
-              :aria-label="`From, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'start', value)"
-            />
-            <span class="admin-users-detail__time-colon">:</span>
-            <AppSelect
-              v-model="slot.startMinute"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-start-minute`"
-              :aria-label="`From, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.startMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.start"
+            size="large"
+            class="admin-users-detail__input admin-users-detail__time"
+            :data-test="`admin-mentor-slot-${index}-start`"
+            :aria-label="`From, time ${index + 1}`"
+          />
           <span class="admin-users-detail__slot-to">to</span>
-          <span class="admin-users-detail__time" :data-test="`admin-mentor-slot-${index}-end`">
-            <AppSelect
-              :model-value="slot.endHour"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-end-hour`"
-              :aria-label="`To, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'end', value)"
-            />
-            <span class="admin-users-detail__time-colon">:</span>
-            <AppSelect
-              v-model="slot.endMinute"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-end-minute`"
-              :aria-label="`To, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.endMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.end"
+            size="large"
+            class="admin-users-detail__input admin-users-detail__time"
+            :data-test="`admin-mentor-slot-${index}-end`"
+            :aria-label="`To, time ${index + 1}`"
+          />
           <button
             type="button"
             class="admin-users-detail__slot-remove"
@@ -1150,6 +1114,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
   changeSupervisees,
@@ -1195,7 +1160,6 @@ import {
 import { INTEREST_OPTIONS } from '@/utils/userOptions'
 import {
   APPLICATION_QUESTIONS,
-  HOUR_OPTIONS,
   MAX_ANSWER_WORDS,
   MAX_SLOTS,
   MENTOR_BACKGROUNDS,
@@ -1207,9 +1171,7 @@ import {
   capacityLabel,
   isStudyingBackground,
   mentorBackgroundCode,
-  minuteOptions,
-  pickHour,
-  splitSlot,
+  draftSlot,
   vAutoGrow,
   wordCount,
   type MentorSlot
@@ -1377,7 +1339,7 @@ const startEdit = (part: Part) => {
     mentorUniversityYear: user.mentorUniversityYear || null,
     mentorFieldOfStudy: user.mentorFieldOfStudy || '',
     mentorCapacity: user.mentorMaxGroupCount ?? null,
-    mentorAvailability: (user.mentorAvailability || []).map(splitSlot),
+    mentorAvailability: (user.mentorAvailability || []).map(draftSlot),
     supervisorSchoolName: user.role === 'supervisor' ? user.schoolName || '' : '',
     supervisorGroupIds: (user.supervisorGroups || []).map((group) => group.id),
     superviseeRows: (user.supervisees || []).flatMap((student) =>
@@ -2446,24 +2408,10 @@ const sendConsentRequest = async () => {
   max-width: none;
 }
 
-/* A time: its hour and its minutes, together. */
-.admin-users-detail__time {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-
-/* Just wide enough for two digits and the arrow. */
-.admin-users-detail__input.admin-users-detail__time-part {
+/* A time (AppTimePicker): as wide as it needs. */
+.admin-users-detail__slot > .admin-users-detail__input.admin-users-detail__time {
   flex: none;
-  width: 3.5rem;
   min-width: 0;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-}
-
-.admin-users-detail__time-colon {
-  color: var(--text-muted);
 }
 
 .admin-users-detail__slot-to {

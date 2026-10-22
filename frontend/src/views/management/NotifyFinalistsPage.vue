@@ -15,10 +15,10 @@
         <div class="notify-finalists__fields">
           <label v-for="field in DATE_FIELDS" :key="field.key" class="notify-finalists__field">
             <span>{{ field.label }}</span>
-            <input
+            <AppDatePicker
               v-model="form[field.key]"
               class="app-input app-input--compact"
-              type="date"
+              :data-test="`email-date-${field.key}`"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && isPast(field.key) }"
             />
@@ -217,6 +217,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import {
   deliveryNote,
@@ -491,7 +492,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--text-muted);
 }
 
-.notify-finalists__field input.is-invalid {
+.notify-finalists__field .is-invalid {
   border-color: var(--danger);
 }
 
@@ -503,7 +504,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 }
 
 /* The shared compact box (app-input), filling its column. */
-.notify-finalists__field input {
+.notify-finalists__field .app-input {
   width: auto;
   max-width: none;
 }

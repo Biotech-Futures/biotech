@@ -3,6 +3,7 @@ import { DATA_TABLE_TWO_LINE_ROW_HEIGHT, fitPageSize } from '@/utils/dataTable'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminTasksPage from '@/views/admin/AdminTasksPage.vue'
 import { pickAppSelect } from '@/__tests__/appSelect'
+import { setPicker } from '@/__tests__/appPicker'
 
 const baseTask = {
   id: 1,
@@ -563,7 +564,7 @@ describe('AdminTasksPage', () => {
     await wrapper.findAll('button').find((button) => button.text().includes('Add Task'))!.trigger('click')
     await wrapper.find<HTMLInputElement>('#task-name').setValue('Review group plan')
     await pickAppSelect(wrapper, '#task-group', 'BTF Dummy Group 1')
-    await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-10-04')
+    await setPicker(wrapper, '#task-due-date', '2026-10-04')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 
@@ -657,7 +658,7 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
-    await wrapper.find<HTMLInputElement>('#task-due-date').setValue('2026-09-20')
+    await setPicker(wrapper, '#task-due-date', '2026-09-20')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 
@@ -672,7 +673,7 @@ describe('AdminTasksPage', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
-    await wrapper.find<HTMLInputElement>('#task-due-date').setValue('')
+    await setPicker(wrapper, '#task-due-date', '')
     await submitButton(wrapper)!.trigger('submit')
     await flushPromises()
 

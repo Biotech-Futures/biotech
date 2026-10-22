@@ -52,6 +52,15 @@
   --app-input-small-height: 1.8rem;
   /* How tall a table's filters and search are. */
   --table-box-height: 2.1rem;
+  /* The date and time pickers (AppDateTimePicker, AppDatePicker,
+     AppTimePicker): their panel's text size, the same on every page, each
+     day's width and height in the month (in its text's ems), and the room
+     around each hour and minute. */
+  --picker-text: 1rem;
+  --picker-day-width: 1.65em;
+  --picker-day-height: 1.7em;
+  --picker-option-padding: 0.1rem 0.4rem;
+  --picker-option-line-height: 1.35;
 }
 
 /* Dark theme — opt-in via <html data-theme="dark">. No prefers-color-scheme

@@ -5,6 +5,7 @@ import ProfilePage from '@/views/ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
 import { formatDayMonthTime } from '@/utils/date'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { setPicker } from '@/__tests__/appPicker'
 
 vi.mock('@/utils/csrf', () => ({
   buildSessionHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -342,8 +343,8 @@ describe('Mentor profile', () => {
     await wrapper.get('[data-test="mentor-add-slot"]').trigger('click')
     const slot = wrapper.find('[data-test="mentor-slot-1"]')
     await pickAppSelect(slot, '[aria-label="Day 2"]', 'Friday')
-    await pickAppSelect(slot, '[aria-label="From, hour, time 2"]', '09')
-    await pickAppSelect(slot, '[aria-label="To, hour, time 2"]', '10')
+    await setPicker(wrapper, '[data-test="mentor-slot-1"] [aria-label="From, time 2"]', '09:00')
+    await setPicker(wrapper, '[data-test="mentor-slot-1"] [aria-label="To, time 2"]', '10:00')
     await wrapper.get('[data-test="mentor-availability-form"]').trigger('submit')
     await flushPromises()
     expect(patchBody().mentorAvailability).toEqual([

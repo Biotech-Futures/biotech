@@ -1,78 +1,94 @@
 <template>
-  <!-- A date and a time, "YYYY-MM-DDTHH:MM" as a datetime-local input has
-       it (no time zone). This is its box: the page's classes, styles and
-       data-test land here, so it's drawn as the page's other boxes are. The
-       month and the hours and minutes open side by side in a panel over the
-       page, where nothing can cut them off. -->
   <div
     ref="boxRef"
     v-bind="boxAttrs"
-    class="app-datetime"
-    :class="{ 'is-open': open, 'is-disabled': disabled, 'has-clear': showClear }"
+    class="app-picker"
+    :class="{ 'is-open': open, 'is-disabled': disabled, 'has-clear': showClear, 'is-large': size === 'large' }"
     @mousedown.prevent
     @click="onBoxClick"
   >
+    <!-- The app's one date and time picker: a date and a time
+         ("YYYY-MM-DDTHH:MM", as a datetime-local input has it, no time
+         zone), a date alone ("YYYY-MM-DD", mode date: AppDatePicker) or a
+         time alone ("HH:MM", mode time: AppTimePicker). This is its box: the
+         page's classes, styles and data-test land here, so it's drawn as the
+         page's other boxes are. The month and the hours and minutes open side
+         by side in a panel over the page, where nothing can cut them off.
+         Their sizes are the --picker settings in main.css. -->
     <button
       :id="id"
       ref="fieldRef"
       v-bind="fieldAttrs"
       type="button"
-      class="app-datetime__field"
-      :class="{ 'is-empty': !parts.date }"
+      class="app-picker__field"
+      :class="{ 'is-empty': !shown }"
       aria-haspopup="dialog"
       :aria-expanded="open"
       :aria-controls="panelId"
+      :aria-required="required || undefined"
       :disabled="disabled"
+      data-test="app-picker-field"
       @keydown="onKeydown"
       @blur="close"
     >
-      {{ shown || placeholder }}
+      {{ shown || placeholderText }}
     </button>
-    <!-- Clearable: a × that empties it, while there's a date to empty. -->
+    <!-- Clearable: a × that empties it, while there's something to empty. -->
     <button
       v-if="showClear"
       type="button"
-      class="app-datetime__clear"
+      class="app-picker__clear"
       aria-label="Clear"
-      data-test="app-datetime-clear"
+      data-test="app-picker-clear"
       @click.stop="clear"
     >
       <i class="fas fa-xmark" aria-hidden="true"></i>
     </button>
-    <i class="far fa-calendar app-datetime__icon" aria-hidden="true"></i>
+    <i :class="['far', hasDate ? 'fa-calendar' : 'fa-clock', 'app-picker__icon']" aria-hidden="true"></i>
+    <!-- Keeps a form from saving without one when it's needed, or with one
+         out of range, as the browser's own date and time fields do. -->
+    <input
+      v-if="required || min || max"
+      ref="validatorRef"
+      class="app-picker__validator"
+      tabindex="-1"
+      aria-hidden="true"
+      :value="modelValue || ''"
+      @focus="fieldRef?.focus()"
+    />
     <Teleport to="body">
       <div
         v-if="open"
         :id="panelId"
         ref="panelRef"
-        class="app-datetime__panel"
+        class="app-picker__panel"
         role="dialog"
-        aria-label="Pick a date and time"
+        :aria-label="panelLabel"
         :style="panelStyle"
         @mousedown.prevent.stop
         @click.stop
       >
         <!-- The month: a week to a row, from Monday. -->
-        <div class="app-datetime__calendar">
-          <div class="app-datetime__top">
-            <button type="button" class="app-datetime__nav" aria-label="Previous month" @click="showMonth(-1)">
+        <div v-if="hasDate" class="app-picker__calendar">
+          <div class="app-picker__top">
+            <button type="button" class="app-picker__nav" aria-label="Previous month" @click="showMonth(-1)">
               <i class="fas fa-chevron-left" aria-hidden="true"></i>
             </button>
-            <span class="app-datetime__month">{{ MONTHS[view.month] }} {{ view.year }}</span>
-            <button type="button" class="app-datetime__nav" aria-label="Next month" @click="showMonth(1)">
+            <span class="app-picker__month">{{ MONTHS[view.month] }} {{ view.year }}</span>
+            <button type="button" class="app-picker__nav" aria-label="Next month" @click="showMonth(1)">
               <i class="fas fa-chevron-right" aria-hidden="true"></i>
             </button>
           </div>
-          <div class="app-datetime__weekdays" aria-hidden="true">
+          <div class="app-picker__weekdays" aria-hidden="true">
             <span v-for="day in WEEKDAYS" :key="day">{{ day }}</span>
           </div>
-          <div class="app-datetime__days">
+          <div class="app-picker__days">
             <button
               v-for="cell in cells"
               :key="cell.date"
               type="button"
               tabindex="-1"
-              class="app-datetime__day"
+              class="app-picker__day"
               :class="{
                 'is-other': !cell.inMonth,
                 'is-today': cell.date === today,
@@ -81,6 +97,7 @@
               }"
               :aria-label="longDate(cell.date)"
               :aria-pressed="cell.date === parts.date"
+              :disabled="dayOutside(cell.date)"
               :data-date="cell.date"
               @click="pickDate(cell.date)"
             >
@@ -89,22 +106,23 @@
           </div>
         </div>
 
-        <!-- The time: hours and minutes, once there's a date. -->
-        <div class="app-datetime__time" :class="{ 'is-waiting': !parts.date }">
-          <div class="app-datetime__column">
-            <span class="app-datetime__heading">Hour</span>
-            <ul ref="hourListRef" class="app-datetime__list" role="listbox" aria-label="Hour">
+        <!-- The time: hours and minutes (with a date, once there is one). -->
+        <div v-if="hasTime" class="app-picker__time" :class="{ 'has-date': hasDate, 'is-waiting': !canPickTime }">
+          <div class="app-picker__column">
+            <span class="app-picker__heading">Hour</span>
+            <ul ref="hourListRef" class="app-picker__list" role="listbox" aria-label="Hour">
               <li
                 v-for="(hour, index) in HOURS"
                 :key="hour"
                 role="option"
-                class="app-datetime__option"
+                class="app-picker__option"
                 :class="{
                   'is-selected': hour === parts.hour,
-                  'is-active': column === 'hour' && index === activeHour
+                  'is-active': column === 'hour' && index === activeHour,
+                  'is-disabled': hourOutside(hour)
                 }"
                 :aria-selected="hour === parts.hour"
-                :aria-disabled="!parts.date || undefined"
+                :aria-disabled="!canPickTime || hourOutside(hour) || undefined"
                 :data-hour="hour"
                 @click="pickHour(hour)"
               >
@@ -112,21 +130,22 @@
               </li>
             </ul>
           </div>
-          <span class="app-datetime__colon" aria-hidden="true">:</span>
-          <div class="app-datetime__column">
-            <span class="app-datetime__heading">Min</span>
-            <ul ref="minuteListRef" class="app-datetime__list" role="listbox" aria-label="Minutes">
+          <span class="app-picker__colon" aria-hidden="true">:</span>
+          <div class="app-picker__column">
+            <span class="app-picker__heading">Min</span>
+            <ul ref="minuteListRef" class="app-picker__list" role="listbox" aria-label="Minutes">
               <li
                 v-for="(minute, index) in minutes"
                 :key="minute"
                 role="option"
-                class="app-datetime__option"
+                class="app-picker__option"
                 :class="{
-                  'is-selected': minute === parts.minute,
-                  'is-active': column === 'minute' && index === activeMinute
+                  'is-selected': Boolean(parts.hour) && minute === parts.minute,
+                  'is-active': column === 'minute' && index === activeMinute,
+                  'is-disabled': !parts.hour || minuteOutside(minute)
                 }"
-                :aria-selected="minute === parts.minute"
-                :aria-disabled="!parts.date || undefined"
+                :aria-selected="Boolean(parts.hour) && minute === parts.minute"
+                :aria-disabled="!canPickTime || !parts.hour || minuteOutside(minute) || undefined"
                 :data-minute="minute"
                 @click="pickMinute(minute)"
               >
@@ -143,43 +162,68 @@
 <script lang="ts">
 // Each panel its own id, across every app on the page.
 let lastPanelId = 0
-const nextPanelId = () => `app-datetime-${++lastPanelId}`
+const nextPanelId = () => `app-picker-${++lastPanelId}`
+
+export type PickerMode = 'datetime' | 'date' | 'time'
+
+/** The minutes each kind offers, in steps of this many: every minute with a
+ *  date (deadlines at 23:59), every 5 for a time alone (weekly availability,
+ *  presentation times). A page can give its own with ``step``. */
+export const MINUTE_STEPS: Record<PickerMode, number> = { datetime: 1, date: 1, time: 5 }
 </script>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, reactive, ref, useAttrs, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, useAttrs, watch, watchEffect } from 'vue'
 
 defineOptions({ inheritAttrs: false })
 
 const props = withDefaults(
   defineProps<{
-    /** "YYYY-MM-DDTHH:MM", or empty for none yet. */
-    modelValue?: string
+    /** "YYYY-MM-DDTHH:MM", "YYYY-MM-DD" or "HH:MM" as its mode has it;
+     *  empty (or null) for none yet. */
+    modelValue?: string | null
+    /** A date and a time, a date alone, or a time alone. */
+    mode?: PickerMode
     id?: string
-    /** Shown while there's no date. */
+    /** Shown while it's empty: by default "Select date and time", "Select
+     *  date" or "--:--". */
     placeholder?: string
     disabled?: boolean
     /** A × in the box, to empty it. */
     clearable?: boolean
+    /** A form with it can't be saved while it's empty. */
+    required?: boolean
+    /** The earliest and latest it can be, written as its value is (a date
+     *  alone limits only the days). */
+    min?: string | null
+    max?: string | null
     /** The time a date picked into an empty box starts at. */
     defaultTime?: string
-    /** The minutes offered, in steps of this many: every one by default. */
+    /** The minutes offered, in steps of this many: MINUTE_STEPS by default. */
     step?: number
+    /** Small, as tall as a select (the default); large, as tall as the
+     *  page's text boxes beside it, as AppSelect's sizes. */
+    size?: 'small' | 'large'
   }>(),
   {
     modelValue: '',
+    mode: 'datetime',
     id: undefined,
-    placeholder: 'Select date and time',
+    placeholder: undefined,
     disabled: false,
     clearable: false,
+    required: false,
+    min: undefined,
+    max: undefined,
     defaultTime: '00:00',
-    step: 1
+    step: undefined,
+    size: 'small'
   }
 )
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  /** After a date or time is picked, as an input's change event. */
+  /** After something is picked or cleared, as an input's change event. */
   change: [value: string]
 }>()
 
@@ -194,9 +238,13 @@ const panelId = nextPanelId()
 const boxRef = ref<HTMLElement | null>(null)
 const fieldRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
+const validatorRef = ref<HTMLInputElement | null>(null)
 const hourListRef = ref<HTMLElement | null>(null)
 const minuteListRef = ref<HTMLElement | null>(null)
 const open = ref(false)
+
+const hasDate = computed(() => props.mode !== 'time')
+const hasTime = computed(() => props.mode !== 'date')
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -224,26 +272,88 @@ const longDate = (date: string) => {
   return `${day} ${MONTHS[month! - 1]} ${year}`
 }
 
-// The value as its date, hour and minutes.
-const parts = computed(() => {
-  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(props.modelValue || '')
-  return match ? { date: match[1]!, hour: match[2]!, minute: match[3]! } : { date: '', hour: '', minute: '' }
-})
+/** "15 Oct 2026". */
+const shortDate = (date: string) => {
+  const [year, month, day] = date.split('-').map(Number)
+  return `${day} ${MONTHS[month! - 1]!.slice(0, 3)} ${year}`
+}
 
-// "15 Oct 2026, 23:59".
-const shown = computed(() => {
-  if (!parts.value.date) return ''
-  const [year, month, day] = parts.value.date.split('-').map(Number)
-  return `${day} ${MONTHS[month! - 1]!.slice(0, 3)} ${year}, ${parts.value.hour}:${parts.value.minute}`
-})
+// --- the value: its date, hour and minutes ------------------------------------------
 
-// Every step's minutes, and one saved between them, so it can still be seen.
+type Parts = { date: string; hour: string; minute: string }
+const NONE: Parts = { date: '', hour: '', minute: '' }
+
+/** A value of this mode as its parts; seconds, if any came with it, are dropped. */
+const partsOf = (value: string | null | undefined): Parts => {
+  const text = value || ''
+  if (props.mode === 'date') {
+    const match = /^(\d{4}-\d{2}-\d{2})/.exec(text)
+    return match ? { date: match[1]!, hour: '', minute: '' } : NONE
+  }
+  if (props.mode === 'time') {
+    const match = /^(\d{1,2}):(\d{2})/.exec(text)
+    return match ? { date: '', hour: twoDigits(Number(match[1])), minute: match[2]! } : NONE
+  }
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(text)
+  return match ? { date: match[1]!, hour: match[2]!, minute: match[3]! } : NONE
+}
+
+/** Parts put back together as this mode writes them. */
+const valueOf = ({ date, hour, minute }: Parts) =>
+  props.mode === 'date' ? date : props.mode === 'time' ? `${hour}:${minute}` : `${date}T${hour}:${minute}`
+
+/** Parts as the box shows them: "15 Oct 2026, 23:59", "15 Oct 2026" or "23:59". */
+const textOf = ({ date, hour, minute }: Parts) =>
+  props.mode === 'date' ? shortDate(date) : props.mode === 'time' ? `${hour}:${minute}` : `${shortDate(date)}, ${hour}:${minute}`
+
+const parts = computed(() => partsOf(props.modelValue))
+const hasValue = computed(() => Boolean(hasDate.value ? parts.value.date : parts.value.hour))
+const shown = computed(() => (hasValue.value ? textOf(parts.value) : ''))
+
+const placeholderText = computed(
+  () => props.placeholder ?? { datetime: 'Select date and time', date: 'Select date', time: '--:--' }[props.mode]
+)
+const panelLabel = computed(
+  () => ({ datetime: 'Pick a date and time', date: 'Pick a date', time: 'Pick a time' })[props.mode]
+)
+
+// Every step's minutes, and only those: a time saved between them shows in
+// the box, with no minute picked in the list.
 const minutes = computed(() => {
-  const step = Math.max(1, Math.min(60, Math.floor(props.step)))
-  const list = Array.from({ length: Math.ceil(60 / step) }, (_, index) => twoDigits(index * step))
-  const saved = parts.value.minute
-  return saved && !list.includes(saved) ? [...list, saved].sort() : list
+  const step = Math.max(1, Math.min(60, Math.floor(props.step ?? MINUTE_STEPS[props.mode])))
+  return Array.from({ length: Math.ceil(60 / step) }, (_, index) => twoDigits(index * step))
 })
+
+// --- the earliest and latest it can be ------------------------------------------------
+
+const minParts = computed(() => partsOf(props.min))
+const maxParts = computed(() => partsOf(props.max))
+const hasMin = computed(() => Boolean(hasDate.value ? minParts.value.date : minParts.value.hour))
+const hasMax = computed(() => Boolean(hasDate.value ? maxParts.value.date : maxParts.value.hour))
+
+/** A day before the earliest or after the latest. */
+const dayOutside = (date: string) =>
+  (hasMin.value && date < minParts.value.date) || (hasMax.value && date > maxParts.value.date)
+
+/** A time on the day picked (or a time alone) before the earliest or after the latest. */
+const timeOutside = (hour: string, minute: string) => {
+  const value = valueOf({ date: parts.value.date, hour, minute })
+  return (hasMin.value && value < valueOf(minParts.value)) || (hasMax.value && value > valueOf(maxParts.value))
+}
+// An hour none of whose minutes can be picked.
+const hourOutside = (hour: string) => timeOutside(hour, '59') && timeOutside(hour, '00')
+const minuteOutside = (minute: string) => Boolean(parts.value.hour) && timeOutside(parts.value.hour, minute)
+
+// What a form saving it is told: nothing, or why it can't be saved yet.
+const invalidReason = computed(() => {
+  if (!hasValue.value) return props.required ? { datetime: 'Pick a date and time.', date: 'Pick a date.', time: 'Pick a time.' }[props.mode] : ''
+  const value = valueOf(parts.value)
+  if (hasMin.value && value < valueOf(minParts.value)) return `Pick one on or after ${textOf(minParts.value)}.`
+  if (hasMax.value && value > valueOf(maxParts.value)) return `Pick one on or before ${textOf(maxParts.value)}.`
+  return ''
+})
+
+watchEffect(() => validatorRef.value?.setCustomValidity?.(invalidReason.value))
 
 // --- the month shown ----------------------------------------------------------------
 
@@ -280,6 +390,9 @@ const activeDate = ref(today)
 const activeHour = ref(0)
 const activeMinute = ref(0)
 
+// With a date, the time waits for one.
+const canPickTime = computed(() => !hasDate.value || Boolean(parts.value.date))
+
 // The row in the middle of its list, so the ones either side show too.
 const centre = (list: HTMLElement | null, index: number) => {
   const row = list?.children[index] as HTMLElement | undefined
@@ -309,8 +422,7 @@ const place = () => {
   panelStyle.value = {
     left: `${left}px`,
     top: upward ? 'auto' : `${rect.bottom + 4}px`,
-    bottom: upward ? `${window.innerHeight - rect.top + 4}px` : 'auto',
-    fontSize: getComputedStyle(box).fontSize
+    bottom: upward ? `${window.innerHeight - rect.top + 4}px` : 'auto'
   }
 }
 
@@ -337,18 +449,26 @@ onBeforeUnmount(() => {
 
 // --- opening, picking, closing ----------------------------------------------------
 
-// The hours and minutes on the time it has, or the one a new date starts at.
+// The hours and minutes on the time it has, or the one a new date starts at
+// (9 am for a time alone).
 const showTime = () => {
-  const [hour, minute] = (parts.value.date ? `${parts.value.hour}:${parts.value.minute}` : props.defaultTime).split(':')
+  const [hour, minute] = parts.value.hour
+    ? [parts.value.hour, parts.value.minute]
+    : hasDate.value
+      ? props.defaultTime.split(':')
+      : ['09', '00']
   activeHour.value = Math.max(0, HOURS.indexOf(hour!))
   activeMinute.value = Math.max(0, minutes.value.indexOf(minute!))
 }
 
 const openPanel = () => {
   if (open.value || props.disabled) return
-  activeDate.value = parts.value.date || today
-  showMonthOf(activeDate.value)
-  column.value = 'date'
+  if (hasDate.value) {
+    // The day it has, or today, or the earliest it can be when that's later.
+    activeDate.value = parts.value.date || (hasMin.value && today < minParts.value.date ? minParts.value.date : today)
+    showMonthOf(activeDate.value)
+  }
+  column.value = hasDate.value ? 'date' : 'hour'
   showTime()
   open.value = true
 }
@@ -366,15 +486,26 @@ const onBoxClick = (event: MouseEvent) => {
 }
 
 const set = (value: string) => {
-  if (value === props.modelValue) return
+  if (value === (props.modelValue || '')) return
   emit('update:modelValue', value)
   emit('change', value)
 }
 
-// A day keeps its time, or takes the default, and the hours are next.
+// A day alone finishes it. With a time, the day keeps its time (or takes the
+// default), kept within the earliest and latest it can be, and the hours are
+// next.
 const pickDate = (date: string) => {
-  const time = parts.value.date ? `${parts.value.hour}:${parts.value.minute}` : props.defaultTime
-  set(`${date}T${time}`)
+  if (dayOutside(date)) return
+  if (!hasTime.value) {
+    set(date)
+    close()
+    return
+  }
+  const [hour, minute] = parts.value.hour ? [parts.value.hour, parts.value.minute] : props.defaultTime.split(':')
+  let value = valueOf({ date, hour: hour!, minute: minute! })
+  if (hasMin.value && value < valueOf(minParts.value)) value = valueOf({ ...minParts.value, date })
+  if (hasMax.value && value > valueOf(maxParts.value)) value = valueOf({ ...maxParts.value, date })
+  set(value)
   activeDate.value = date
   showMonthOf(date)
   column.value = 'hour'
@@ -384,21 +515,23 @@ const pickDate = (date: string) => {
   })
 }
 
+// An hour keeps its minutes, or takes :00, and the minutes are next.
 const pickHour = (hour: string) => {
-  if (!parts.value.date) return
-  set(`${parts.value.date}T${hour}:${parts.value.minute}`)
+  if (!canPickTime.value || hourOutside(hour)) return
+  set(valueOf({ date: parts.value.date, hour, minute: parts.value.minute || '00' }))
   activeHour.value = HOURS.indexOf(hour)
   column.value = 'minute'
+  activeMinute.value = Math.max(0, minutes.value.indexOf(parts.value.minute || '00'))
 }
 
-// The minutes finish it.
+// The minutes finish it, once there's an hour.
 const pickMinute = (minute: string) => {
-  if (!parts.value.date) return
-  set(`${parts.value.date}T${parts.value.hour}:${minute}`)
+  if (!canPickTime.value || !parts.value.hour || minuteOutside(minute)) return
+  set(valueOf({ ...parts.value, minute }))
   close()
 }
 
-const showClear = computed(() => props.clearable && Boolean(parts.value.date) && !props.disabled)
+const showClear = computed(() => props.clearable && hasValue.value && !props.disabled)
 
 const clear = () => {
   set('')
@@ -452,9 +585,10 @@ const onKeydown = (event: KeyboardEvent) => {
     if (column.value === 'hour') pickHour(HOURS[activeHour.value]!)
     else pickMinute(minutes.value[activeMinute.value]!)
   } else if (key === 'ArrowLeft') {
-    column.value = column.value === 'minute' ? 'hour' : 'date'
+    if (column.value === 'minute') column.value = 'hour'
+    else if (hasDate.value) column.value = 'date'
   } else if (key === 'ArrowRight') {
-    column.value = 'minute'
+    if (parts.value.hour) column.value = 'minute'
   } else {
     moveTime(key === 'ArrowDown' ? 1 : -1)
   }
@@ -464,7 +598,7 @@ const onKeydown = (event: KeyboardEvent) => {
 <style scoped>
 /* The box as a text box is drawn when the page doesn't draw it. No
    specificity, so a page's own classes and styles win. */
-:where(.app-datetime) {
+:where(.app-picker) {
   display: inline-block;
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--border-light);
@@ -475,7 +609,7 @@ const onKeydown = (event: KeyboardEvent) => {
   vertical-align: middle;
 }
 
-.app-datetime {
+.app-picker {
   position: relative;
   box-sizing: border-box;
   /* The text in the middle of a box given a fixed height. */
@@ -483,19 +617,19 @@ const onKeydown = (event: KeyboardEvent) => {
   cursor: pointer;
 }
 
-.app-datetime.is-disabled {
+.app-picker.is-disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.app-datetime:has(.app-datetime__field:focus-visible),
-.app-datetime.is-open {
+.app-picker:has(.app-picker__field:focus-visible),
+.app-picker.is-open {
   outline: 2px solid var(--dark-green);
   outline-offset: 2px;
 }
 
-/* What's picked, with room on the right for the calendar icon. */
-.app-datetime__field {
+/* What's picked, with room on the right for the icon. */
+.app-picker__field {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -513,20 +647,23 @@ const onKeydown = (event: KeyboardEvent) => {
   cursor: inherit;
 }
 
-.app-datetime.app-input .app-datetime__field {
+/* Large, or the shared text box (app-input): the page's line height, as
+   the text boxes beside it have, so it's as tall as they are. */
+.app-picker.is-large .app-picker__field,
+.app-picker.app-input .app-picker__field {
   line-height: inherit;
 }
 
-.app-datetime__field.is-empty {
+.app-picker__field.is-empty {
   color: var(--text-muted);
 }
 
 /* The clear button, left of the icon, and the room the text leaves for it. */
-.app-datetime.has-clear .app-datetime__field {
+.app-picker.has-clear .app-picker__field {
   padding-right: 3rem;
 }
 
-.app-datetime__clear {
+.app-picker__clear {
   position: absolute;
   top: 50%;
   right: 1.9rem;
@@ -545,13 +682,13 @@ const onKeydown = (event: KeyboardEvent) => {
   transform: translateY(-50%);
 }
 
-.app-datetime__clear:hover,
-.app-datetime__clear:focus-visible {
+.app-picker__clear:hover,
+.app-picker__clear:focus-visible {
   background: var(--bg-light);
   color: var(--teal);
 }
 
-.app-datetime__icon {
+.app-picker__icon {
   position: absolute;
   top: 50%;
   right: 0.6rem;
@@ -561,13 +698,27 @@ const onKeydown = (event: KeyboardEvent) => {
   transform: translateY(-50%);
 }
 
-.app-datetime.is-open .app-datetime__icon {
+.app-picker.is-open .app-picker__icon {
   color: var(--dark-green);
 }
 
-/* The panel: the month, a line, then the hours and minutes. */
-.app-datetime__panel {
+.app-picker__validator {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The panel: the month, a line, then the hours and minutes. The same size
+   wherever it opens, whatever the box's own text size (--picker-text). */
+.app-picker__panel {
   position: fixed;
+  font-size: var(--picker-text, 1rem);
   z-index: 2200;
   display: flex;
   align-items: stretch;
@@ -580,14 +731,13 @@ const onKeydown = (event: KeyboardEvent) => {
   color: var(--teal);
 }
 
-.app-datetime__calendar {
+.app-picker__calendar {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding-right: 0.45rem;
 }
 
-.app-datetime__top {
+.app-picker__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -595,11 +745,12 @@ const onKeydown = (event: KeyboardEvent) => {
   padding-bottom: 0.15rem;
 }
 
-.app-datetime__month {
-  font-weight: 700;
+.app-picker__month {
+  font-size: 1em;
+  font-weight: 600;
 }
 
-.app-datetime__nav {
+.app-picker__nav {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -614,26 +765,26 @@ const onKeydown = (event: KeyboardEvent) => {
   cursor: pointer;
 }
 
-.app-datetime__nav:hover {
+.app-picker__nav:hover {
   background: var(--light-green);
 }
 
-.app-datetime__weekdays,
-.app-datetime__days {
+.app-picker__weekdays,
+.app-picker__days {
   display: grid;
-  grid-template-columns: repeat(7, 1.65em);
+  grid-template-columns: repeat(7, var(--picker-day-width, 1.65em));
   gap: 0.1em;
 }
 
-.app-datetime__weekdays span {
+.app-picker__weekdays span {
   color: var(--text-muted);
   font-size: 0.75em;
   font-weight: 700;
   text-align: center;
 }
 
-.app-datetime__day {
-  height: 1.7em;
+.app-picker__day {
+  height: var(--picker-day-height, 1.7em);
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -645,22 +796,22 @@ const onKeydown = (event: KeyboardEvent) => {
   cursor: pointer;
 }
 
-.app-datetime__day:hover,
-.app-datetime__day.is-active {
+.app-picker__day:hover:not(:disabled),
+.app-picker__day.is-active {
   background: var(--light-green);
 }
 
-.app-datetime__day.is-other {
+.app-picker__day.is-other {
   color: var(--text-muted);
   opacity: 0.6;
 }
 
-.app-datetime__day.is-today {
+.app-picker__day.is-today {
   box-shadow: inset 0 0 0 1px var(--dark-green);
   font-weight: 700;
 }
 
-.app-datetime__day.is-selected {
+.app-picker__day.is-selected {
   background: var(--dark-green);
   box-shadow: none;
   color: var(--white, #ffffff);
@@ -668,29 +819,40 @@ const onKeydown = (event: KeyboardEvent) => {
   opacity: 1;
 }
 
-/* As tall as the month beside it, each column scrolling on its own. */
-.app-datetime__time {
+/* Before the earliest or after the latest it can be. */
+.app-picker__day:disabled {
+  color: var(--text-muted);
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Each column scrolling on its own: beside a month, as tall as it. */
+.app-picker__time {
   display: flex;
   gap: 0.1rem;
+}
+
+.app-picker__time.has-date {
+  margin-left: 0.45rem;
   padding-left: 0.45rem;
   border-left: 1px solid var(--border-light);
 }
 
-.app-datetime__time.is-waiting {
+.app-picker__time.is-waiting {
   opacity: 0.45;
 }
 
-.app-datetime__time.is-waiting .app-datetime__option {
+.app-picker__time.is-waiting .app-picker__option {
   cursor: not-allowed;
 }
 
-.app-datetime__column {
+.app-picker__column {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.app-datetime__heading {
+.app-picker__heading {
   padding: 0.35rem 0 0.4rem;
   color: var(--text-muted);
   font-size: 0.7em;
@@ -700,10 +862,8 @@ const onKeydown = (event: KeyboardEvent) => {
   text-transform: uppercase;
 }
 
-.app-datetime__list {
+.app-picker__list {
   position: relative;
-  flex: 1 1 0;
-  min-height: 0;
   margin: 0;
   padding: 0 0.15rem;
   overflow-y: auto;
@@ -712,34 +872,50 @@ const onKeydown = (event: KeyboardEvent) => {
   scrollbar-width: none;
 }
 
-.app-datetime__list::-webkit-scrollbar {
+.app-picker__list::-webkit-scrollbar {
   display: none;
 }
 
-.app-datetime__colon {
+/* Beside a month, as tall as it; alone, about seven rows. */
+.app-picker__time.has-date .app-picker__list {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.app-picker__time:not(.has-date) .app-picker__list {
+  height: 12em;
+}
+
+.app-picker__colon {
   align-self: center;
   color: var(--text-muted);
   font-weight: 700;
 }
 
-.app-datetime__option {
-  padding: 0.1rem 0.4rem;
-  line-height: 1.35;
+.app-picker__option {
+  padding: var(--picker-option-padding, 0.1rem 0.4rem);
   border-radius: 6px;
   font-size: 0.9em;
   font-variant-numeric: tabular-nums;
+  line-height: var(--picker-option-line-height, 1.35);
   text-align: center;
   cursor: pointer;
 }
 
-.app-datetime__option:hover,
-.app-datetime__option.is-active {
+.app-picker__option:hover,
+.app-picker__option.is-active {
   background: var(--light-green);
 }
 
-.app-datetime__option.is-selected {
+.app-picker__option.is-selected {
   background: var(--dark-green);
   color: var(--white, #ffffff);
   font-weight: 600;
+}
+
+.app-picker__option.is-disabled:not(.is-selected) {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 </style>

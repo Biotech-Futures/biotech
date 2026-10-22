@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import FinalistPresentationPage from '@/views/management/FinalistPresentationPage.vue'
 import {
   addPresentationSlot,
@@ -15,6 +15,12 @@ import {
 } from '@/utils/managementAPI'
 import { ApiError } from '@/utils/apiError'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { pickerText, setPicker } from '@/__tests__/appPicker'
+
+// The Add row's Start and End, and those in the first row while it's edited.
+const addStart = '.finalist-presentation__add .finalist-presentation__field:nth-of-type(1) .app-picker'
+const addEnd = '.finalist-presentation__add .finalist-presentation__field:nth-of-type(2) .app-picker'
+const rowEnd = 'tbody tr:first-child td:nth-child(2) .app-picker'
 
 vi.mock('@/utils/managementAPI', () => ({
   allocatePresentationSlot: vi.fn(),
@@ -86,18 +92,6 @@ const rows = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
   wrapper
     .findAll('.finalist-presentation__setup tbody tr')
     .map((r) => r.findAll('td').slice(0, 2).map((c) => c.text()))
-
-// A time picker's time, and picking one: its hour, then its minutes.
-const timeOf = (picker: DOMWrapper<Element>) => picker.find('button').text()
-const pickTime = async (picker: DOMWrapper<Element>, time: string) => {
-  const [hour, minute] = time.split(':')
-  await picker.trigger('click')
-  const panel = document.getElementById(picker.find('button').attributes('aria-controls')!)!
-  for (const option of [`[data-hour="${hour}"]`, `[data-minute="${minute}"]`]) {
-    panel.querySelector(option)!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
-    await flushPromises()
-  }
-}
 
 const allocation = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
   wrapper.find('.finalist-presentation__allocate')
@@ -187,14 +181,13 @@ describe('Finalist Presentation', () => {
   it('adds a time, then offers the next one straight after it', async () => {
     addMock.mockResolvedValue(slots())
     const wrapper = await mountPage()
-    const [start, end] = wrapper.findAll('.finalist-presentation__add .app-time')
-    await pickTime(start!, '10:00')
-    await pickTime(end!, '10:30')
+    await setPicker(wrapper, addStart, '10:00')
+    await setPicker(wrapper, addEnd, '10:30')
     await buttonNamed(wrapper, 'Add Time').trigger('click')
     await flushPromises()
     expect(addMock).toHaveBeenCalledWith({ starts_at: '10:00', ends_at: '10:30' })
-    expect(timeOf(start!)).toBe('10:30')
-    expect(timeOf(end!)).toBe('11:00')
+    expect(pickerText(wrapper, addStart)).toBe('10:30')
+    expect(pickerText(wrapper, addEnd)).toBe('11:00')
   })
 
   it("shows why a time wasn't added", async () => {
@@ -202,9 +195,8 @@ describe('Finalist Presentation', () => {
       new ApiError({ error: 'The end time must be after the start time.', code: 'invalid', request_id: 'x' })
     )
     const wrapper = await mountPage()
-    const [start, end] = wrapper.findAll('.finalist-presentation__add .app-time')
-    await pickTime(start!, '10:00')
-    await pickTime(end!, '09:00')
+    await setPicker(wrapper, addStart, '10:00')
+    await setPicker(wrapper, addEnd, '09:00')
     await buttonNamed(wrapper, 'Add Time').trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toBe('The end time must be after the start time.')
@@ -215,9 +207,9 @@ describe('Finalist Presentation', () => {
     deleteMock.mockResolvedValue(slots({ slots: [] }))
     const wrapper = await mountPage()
     await wrapper.findAll('tbody tr')[0]!.findAll('button')[0]!.trigger('click') // Edit
-    const pickers = wrapper.findAll('tbody tr')[0]!.findAll('.app-time')
-    expect(pickers.map(timeOf)).toEqual(['09:30', '10:00'])
-    await pickTime(pickers[1]!, '10:15')
+    const pickers = wrapper.findAll('tbody tr')[0]!.findAll('.app-picker [data-test="app-picker-field"]')
+    expect(pickers.map((picker) => picker.text())).toEqual(['09:30', '10:00'])
+    await setPicker(wrapper, rowEnd, '10:15')
     await buttonNamed(wrapper, 'Save').trigger('click')
     await flushPromises()
     expect(updateMock).toHaveBeenCalledWith(1, { starts_at: '09:30', ends_at: '10:15' })

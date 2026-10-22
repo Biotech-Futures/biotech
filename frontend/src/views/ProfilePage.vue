@@ -562,17 +562,9 @@
             <form v-if="availabilityEditing" class="mentor-slots" data-test="mentor-availability-form" @submit.prevent="saveAvailability">
               <div v-for="(slot, index) in availabilityDraft" :key="index" class="mentor-slot" :data-test="`mentor-slot-${index}`">
                 <AppSelect v-model="slot.weekday" class="mentor-slot__day" :aria-label="`Day ${index + 1}`" :options="WEEKDAY_OPTIONS" placeholder="Day" />
-                <span class="mentor-slot__time">
-                  <AppSelect :model-value="slot.startHour" class="mentor-slot__part" :aria-label="`From, hour, time ${index + 1}`" :options="HOUR_OPTIONS" :searchable="false" placeholder="--" @update:model-value="(value) => pickHour(slot, 'start', value)" />
-                  <span class="mentor-slot__muted">:</span>
-                  <AppSelect v-model="slot.startMinute" class="mentor-slot__part" :aria-label="`From, minutes, time ${index + 1}`" :options="minuteOptions(slot.startMinute)" :searchable="false" placeholder="--" />
-                </span>
+                <AppTimePicker v-model="slot.start" :aria-label="`From, time ${index + 1}`" />
                 <span class="mentor-slot__muted">to</span>
-                <span class="mentor-slot__time">
-                  <AppSelect :model-value="slot.endHour" class="mentor-slot__part" :aria-label="`To, hour, time ${index + 1}`" :options="HOUR_OPTIONS" :searchable="false" placeholder="--" @update:model-value="(value) => pickHour(slot, 'end', value)" />
-                  <span class="mentor-slot__muted">:</span>
-                  <AppSelect v-model="slot.endMinute" class="mentor-slot__part" :aria-label="`To, minutes, time ${index + 1}`" :options="minuteOptions(slot.endMinute)" :searchable="false" placeholder="--" />
-                </span>
+                <AppTimePicker v-model="slot.end" :aria-label="`To, time ${index + 1}`" />
                 <button type="button" class="mentor-slot__remove" :aria-label="`Remove time ${index + 1}`" @click="availabilityDraft.splice(index, 1)">
                   <i class="fas fa-xmark" aria-hidden="true"></i>
                 </button>
@@ -666,10 +658,10 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import AppSelect from '@/components/AppSelect.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
 import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import {
-  HOUR_OPTIONS,
   MAX_SLOTS,
   MENTOR_BACKGROUNDS,
   STUDY_YEAR_OPTIONS,
@@ -680,9 +672,7 @@ import {
   capacityLabel,
   isStudyingBackground,
   mentorBackgroundCode,
-  minuteOptions,
-  pickHour,
-  splitSlot,
+  draftSlot,
 } from '@/utils/mentorForm'
 import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
 import AppSuggestInput from '@/components/AppSuggestInput.vue'
@@ -1077,7 +1067,7 @@ const availabilityEditing = ref(false)
 const availabilityDraft = ref([])
 
 const startAvailabilityEdit = () => {
-  availabilityDraft.value = (auth.user?.mentor_details?.mentorAvailability || []).map(splitSlot)
+  availabilityDraft.value = (auth.user?.mentor_details?.mentorAvailability || []).map(draftSlot)
   error.value = ''
   availabilityEditing.value = true
 }
@@ -1966,11 +1956,9 @@ onMounted(async () => {
 .student-edit-form__wide { grid-column:1 / -1; }
 .mentor-slots { display:grid; gap:.6rem; margin-top:1rem; }
 .mentor-slot { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
-.mentor-slots .app-select { padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); }
+.mentor-slots .app-select, .mentor-slots .app-picker { padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); }
 .mentor-slots .mentor-slot__day { flex:1 1 7rem; min-width:7rem; }
-.mentor-slot__time { display:inline-flex; align-items:center; gap:.2rem; }
 /* Just wide enough for two digits and the arrow. */
-.mentor-slots .mentor-slot__part { width:3.5rem; padding-left:.5rem; padding-right:.5rem; }
 .mentor-slot__muted { color:var(--text-muted); font-size:.85rem; }
 .mentor-slot__remove { padding:.25rem .4rem; border:none; background:transparent; color:var(--text-muted); cursor:pointer; }
 .mentor-slots > .profile-edit-button { justify-self:start; }

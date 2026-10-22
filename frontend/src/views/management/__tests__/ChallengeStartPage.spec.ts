@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import ChallengeStartPage from '@/views/management/ChallengeStartPage.vue'
+import { pickerText, pickerValue, setPicker } from '@/__tests__/appPicker'
 import { fetchChallengeStart, saveChallengeStart } from '@/utils/managementAPI'
 
 vi.mock('@/utils/managementAPI', () => ({
@@ -35,9 +36,10 @@ describe('Challenge Start', () => {
     expect(wrapper.get('.supervisor-pages__title').text()).toBe('Pages Visibility')
     expect(wrapper.get('[data-test="challenge-start-state"]').text()).toContain('27 July 2026')
     expect(wrapper.get('[data-test="challenge-start-set-by"]').text()).toMatch(/^Set by Test Admin on /)
-    expect((wrapper.get('[data-test="challenge-start-date"]').element as HTMLInputElement).value).toBe('2026-07-27')
+    expect(pickerValue(wrapper, '[data-test="challenge-start-date"]')).toBe('2026-07-27')
+    expect(pickerText(wrapper, '[data-test="challenge-start-date"]')).toBe('27 Jul 2026')
 
-    await wrapper.get('[data-test="challenge-start-date"]').setValue('2026-08-03')
+    await setPicker(wrapper, '[data-test="challenge-start-date"]', '2026-08-03')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(saveChallengeStart).toHaveBeenLastCalledWith('2026-08-03')

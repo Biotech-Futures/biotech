@@ -28,7 +28,7 @@
         <form class="challenge-start__form" @submit.prevent="save(startsOn || null)">
           <label class="challenge-start__field">
             <span>Starts on</span>
-            <input v-model="startsOn" type="date" class="app-input app-input--compact" data-test="challenge-start-date" />
+            <AppDatePicker v-model="startsOn" class="app-input app-input--compact" data-test="challenge-start-date" />
           </label>
           <div class="challenge-start__actions">
             <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
@@ -52,6 +52,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatStatementTime } from '@/utils/date'
@@ -156,14 +157,9 @@ onMounted(async () => {
 }
 
 /* The shared compact box (app-input), at its own width. */
-.challenge-start__field input {
+.challenge-start__field .app-input {
   width: auto;
   max-width: none;
-}
-
-.challenge-start__field input:focus {
-  outline: none;
-  border-color: var(--dark-green);
 }
 
 .challenge-start__actions {

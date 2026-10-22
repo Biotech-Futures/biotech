@@ -73,7 +73,7 @@
         <form class="deadline__form" @submit.prevent="confirmOpen = true">
           <label class="deadline__field">
             <span>Closes at</span>
-            <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input app-input app-input--compact" />
+            <AppDateTimePicker v-model="closesAtLocal" required class="deadline__input app-input app-input--compact" />
           </label>
           <label class="deadline__field">
             <span>Grace hours</span>
@@ -124,6 +124,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
 import {
   fetchSubmissionDeadline,
   saveSubmissionDeadline,

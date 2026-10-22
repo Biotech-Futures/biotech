@@ -40,55 +40,21 @@ export const isStudyingBackground = (background: AppSelectOption['value'] | unde
 export const capacityLabel = (count: number | null | undefined) =>
   count == null ? '—' : `${count} ${count === 1 ? 'group' : 'groups'}`
 
-// A weekly time they're free (Monday is 0), each end as its hour and its
-// minutes, put back together as "HH:MM" to save.
+// A weekly time they're free (Monday is 0), from and to as "HH:MM", each
+// picked with a time picker (AppTimePicker) in 5-minute steps; empty until
+// picked.
 export interface MentorSlot {
   weekday: AppSelectOption['value']
-  startHour: AppSelectOption['value']
-  startMinute: AppSelectOption['value']
-  endHour: AppSelectOption['value']
-  endMinute: AppSelectOption['value']
+  start: string
+  end: string
 }
-export const blankSlot = (): MentorSlot => ({
-  weekday: null,
-  startHour: null,
-  startMinute: null,
-  endHour: null,
-  endMinute: null
-})
-export const splitSlot = (slot: { weekday: number; start: string; end: string }): MentorSlot => ({
+export const blankSlot = (): MentorSlot => ({ weekday: null, start: '', end: '' })
+/** A saved weekly time as the form edits it. */
+export const draftSlot = (slot: { weekday: number; start: string; end: string }): MentorSlot => ({
   weekday: slot.weekday,
-  startHour: slot.start.slice(0, 2),
-  startMinute: slot.start.slice(3, 5),
-  endHour: slot.end.slice(0, 2),
-  endMinute: slot.end.slice(3, 5)
+  start: slot.start.slice(0, 5),
+  end: slot.end.slice(0, 5)
 })
-
-const twoDigits = (count: number) => String(count).padStart(2, '0')
-export const HOUR_OPTIONS: AppSelectOption[] = Array.from({ length: 24 }, (_, hour) => ({
-  value: twoDigits(hour),
-  label: twoDigits(hour)
-}))
-// 00 to 55 in 5-minute steps; minutes saved between them stay a choice.
-const FIVE_MINUTES: AppSelectOption[] = Array.from({ length: 12 }, (_, step) => ({
-  value: twoDigits(step * 5),
-  label: twoDigits(step * 5)
-}))
-export const minuteOptions = (current: AppSelectOption['value']): AppSelectOption[] =>
-  typeof current === 'string' && current && !FIVE_MINUTES.some((option) => option.value === current)
-    ? [...FIVE_MINUTES, { value: current, label: current }].sort((a, b) => a.label.localeCompare(b.label))
-    : FIVE_MINUTES
-
-// An hour picked first takes :00 until its minutes are picked.
-export const pickHour = (slot: MentorSlot, end: 'start' | 'end', hour: AppSelectOption['value']) => {
-  if (end === 'start') {
-    slot.startHour = hour
-    slot.startMinute ??= '00'
-  } else {
-    slot.endHour = hour
-    slot.endMinute ??= '00'
-  }
-}
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 export const WEEKDAY_OPTIONS: AppSelectOption[] = WEEKDAYS.map((day, index) => ({ value: index, label: day }))
 /** As many weekly times as a mentor can give. */
@@ -101,13 +67,11 @@ export const availabilityTimes = (
 ): { weekday: AppSelectOption['value']; start: string; end: string }[] | string => {
   const availability = []
   for (const slot of slots) {
-    const parts = [slot.weekday, slot.startHour, slot.startMinute, slot.endHour, slot.endMinute]
+    const parts = [slot.weekday, slot.start || null, slot.end || null]
     if (parts.every((part) => part === null)) continue
     if (parts.some((part) => part === null)) return 'Give each weekly time a day and both times.'
-    const start = `${slot.startHour}:${slot.startMinute}`
-    const end = `${slot.endHour}:${slot.endMinute}`
-    if (end <= start) return 'Each weekly time must end after it starts.'
-    availability.push({ weekday: slot.weekday, start, end })
+    if (slot.end <= slot.start) return 'Each weekly time must end after it starts.'
+    availability.push({ weekday: slot.weekday, start: slot.start, end: slot.end })
   }
   return availability
 }
