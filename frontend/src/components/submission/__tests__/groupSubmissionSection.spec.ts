@@ -564,6 +564,63 @@ describe('the Plan tab', () => {
     })
   })
 
+  describe('a reload that fails', () => {
+    type Mounted = Awaited<ReturnType<typeof mountAt>>['wrapper']
+    const stub = (wrapper: Mounted) => wrapper.findComponent({ name: 'GroupPlanSectionStub' })
+    const loaded = () => planWith('Introduce yourself', 'Agree a time')
+    const ticked = () => ({ ...loaded().items[0], completed: true })
+
+    /** A plan on screen with a saved tick, then a revisit whose reload the test holds. */
+    const revisitWithPendingReload = async () => {
+      planApi.list.mockResolvedValue(loaded())
+      const { wrapper, router } = await mountAt('/groups/1/plan', 'student')
+      stub(wrapper).vm.$emit('taskUpdated', '1', ticked())
+      await flushPromises()
+      await wrapper.find('[data-testid="section-tab-tasks"]').trigger('click')
+      await flushPromises()
+
+      const pending = controlled()
+      await wrapper.find('[data-testid="section-tab-plan"]').trigger('click')
+      await flushPromises()
+      expect(planApi.list).toHaveBeenCalledTimes(2)
+      return { wrapper, router, pending }
+    }
+
+    it.each([
+      ['a network error', () => new Error('Network down')],
+      ['a server error', () => apiError(500)],
+    ])('keeps the plan already on screen after %s', async (_label, failure) => {
+      const { wrapper, router, pending } = await revisitWithPendingReload()
+
+      pending['1'].reject(failure())
+      await flushPromises()
+
+      // Same tasks and ticks, still open and usable; no error view or retry pill.
+      expect(stub(wrapper).props('items')).toEqual([ticked(), loaded().items[1]])
+      expect(router.currentRoute.value.fullPath).toBe('/groups/1/plan')
+      expect(wrapper.find('[data-testid="section-tab-plan"]').classes()).toContain('active')
+      expect(wrapper.find('[data-testid="section-body-plan"] [role="alert"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="section-plan-retry"]').exists()).toBe(false)
+      expect(planApi.list).toHaveBeenCalledTimes(2)
+
+      // A tick saved afterwards still lands.
+      stub(wrapper).vm.$emit('taskUpdated', '1', { ...loaded().items[1], completed: true })
+      await flushPromises()
+      expect((stub(wrapper).props('items') as { completed: boolean }[]).map((i) => i.completed)).toEqual([true, true])
+    })
+
+    it.each([404, 403])('still leaves the plan when the reload answers %i', async (status) => {
+      const { wrapper, router, pending } = await revisitWithPendingReload()
+
+      pending['1'].reject(apiError(status))
+      await flushPromises()
+
+      expect(router.currentRoute.value.fullPath).toBe('/groups/1')
+      expect(wrapper.find('[data-testid="section-tab-plan"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="section-body-plan"]').exists()).toBe(false)
+    })
+  })
+
   it('keeps the other tabs working alongside it', async () => {
     planApi.list.mockResolvedValue(planWith('Introduce yourself'))
     const { wrapper, router } = await mountAt('/groups/1/plan', 'student')

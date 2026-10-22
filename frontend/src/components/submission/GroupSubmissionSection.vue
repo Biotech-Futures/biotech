@@ -230,9 +230,13 @@ async function loadPlan({ quiet = false } = {}) {
     planStatus.value = loaded.items.length ? 'ready' : 'unavailable'
   } catch (err) {
     if (request !== planRequest) return
-    plan.value = null
     const status = err instanceof ApiError ? err.status : undefined
-    planStatus.value = status === 404 || status === 403 ? 'unavailable' : 'error'
+    const hidden = status === 404 || status === 403
+    // A quiet reload that fails for a passing reason keeps the plan already
+    // on screen, ticks and all; the next visit to Plan tries again.
+    if (quiet && plan.value && !hidden) return
+    plan.value = null
+    planStatus.value = hidden ? 'unavailable' : 'error'
   }
 }
 
