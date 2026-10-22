@@ -41,6 +41,7 @@ from apps.admin.services.known_university import (
     list_known_universities,
     rename_known_university,
 )
+from apps.admin.services.plan_progress import get_plan_progress
 from apps.admin.services.plan_stage import (
     create_plan_stage,
     delete_plan_stage,
@@ -1929,9 +1930,18 @@ class AdminPlanTaskListCreateView(APIView):
         return Response(result, status=code)
 
 
+class AdminPlanProgressView(APIView):
+    """GET /api/v1/admin/plan-task/progress/ - current-cohort progress matrix."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_plan_progress())
+
+
 class AdminPlanTaskDetailView(APIView):
     """GET/PATCH/DELETE /api/v1/admin/plan-task/<id>/ — read / edit / soft-delete.
-    GP5 adds the literal ``plan-task/progress/`` route before this pattern."""
+    The literal ``plan-task/progress/`` route precedes this pattern."""
 
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
