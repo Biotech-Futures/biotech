@@ -163,7 +163,12 @@ import { deliveryNote } from '@/composables/useEmailRun'
 import { resendSystemEmail } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
 import { formatShortDateTime, formatStatementTime } from '@/utils/date'
-import { nameParts, type SystemEmailLogEntry, type SystemEmailMailApi } from '@/utils/systemEmail'
+import {
+  mailApiNote as mailApiNoteFor,
+  nameParts,
+  type SystemEmailLogEntry,
+  type SystemEmailMailApi
+} from '@/utils/systemEmail'
 import MissedPerson from '@/views/management/MissedPerson.vue'
 
 const props = defineProps<{
@@ -177,23 +182,8 @@ const props = defineProps<{
 }>()
 
 // Where a key comes from, and where it goes.
-const makeKey = (which: string) =>
-  `Make ${which} in hPanel under Emails, Agentic Mail, API access, and set it as HOSTINGER_MAIL_API_KEY in Azure.`
-
 // Why bounced emails aren't being checked, or '' when they are.
-const mailApiNote = computed(() => {
-  const state = props.mailApi
-  if (!state?.problem) return ''
-  const when = state.at ? formatStatementTime(state.at) : ''
-  if (state.problem === 'unset') {
-    return `Bounced emails aren't being checked because the Hostinger Mail API key isn't set. ${makeKey('one')}`
-  }
-  if (state.problem === 'rejected') {
-    return `Bounced emails aren't being checked because Hostinger rejected the Mail API key at ${when}. ${makeKey('a new one')}`
-  }
-  const answer = state.status ? `answered ${state.status}` : "didn't answer"
-  return `Bounced emails couldn't be checked at ${when} because Hostinger's Mail API ${answer}. It's tried again every 10 minutes.`
-})
+const mailApiNote = computed(() => mailApiNoteFor(props.mailApi, formatStatementTime))
 
 const email = computed(() => props.emails.find((item) => item.key === props.selectedKey) ?? null)
 

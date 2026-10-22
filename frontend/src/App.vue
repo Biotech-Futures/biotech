@@ -468,19 +468,29 @@ const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
+  () => auth.isAuthenticated && !auth.isAdmin,
+  (followsVisibility) => {
+    if (followsVisibility) void loadSupervisorPages()
+  },
+  { immediate: true },
+)
+watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
-    if (!isSupervisor) return
-    void loadSupervisorPages()
-    void loadSupervisorResults()
+    if (isSupervisor) void loadSupervisorResults()
   },
   { immediate: true },
 )
 
-// The top-level links every role sees; supervisors only once Management >
-// Supervisor Pages Visibility shows them.
+// The top-level links every role sees, once Management > Challenge Start >
+// Pages Visibility's date comes (admins always). Until then a supervisor has
+// their own pages below, and a student or mentor their profile.
 const mainNavLinks = computed(() => {
-  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
+  if (!auth.isAdmin && !supervisorPagesShown.value) {
+    return auth.isSupervisor
+      ? []
+      : [{ to: '/profile', label: 'My Profile', icon: 'fa-user', active: route.path === '/profile' }]
+  }
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]

@@ -357,9 +357,8 @@ export interface FinalistListResponse {
 }
 
 // GET /api/v1/grading/groups/{id}/ — composite marking payload for one group.
-export function fetchGroupMarking(groupId: number, year?: number): Promise<GroupMarkingPayload> {
-  const qs = year ? `?year=${year}` : ''
-  return requestJson<GroupMarkingPayload>(`/api/v1/grading/groups/${groupId}/${qs}`)
+export function fetchGroupMarking(groupId: number): Promise<GroupMarkingPayload> {
+  return requestJson<GroupMarkingPayload>(`/api/v1/grading/groups/${groupId}/`)
 }
 
 // POST /api/v1/grading/grades/bulk/ — upsert many grades in one round trip.
@@ -393,9 +392,8 @@ export function saveGradesBulk(
 
 // GET /api/v1/grading/components/{code}/ — table payload for the
 // per-component marking flow ("sit down and mark all posters").
-export function fetchComponentRows(code: string, year?: number): Promise<ComponentListPayload> {
-  const qs = year ? `?year=${year}` : ''
-  return requestJson<ComponentListPayload>(`/api/v1/grading/components/${encodeURIComponent(code)}/${qs}`)
+export function fetchComponentRows(code: string): Promise<ComponentListPayload> {
+  return requestJson<ComponentListPayload>(`/api/v1/grading/components/${encodeURIComponent(code)}/`)
 }
 
 // GET /api/v1/grading/groups/{id}/download/ — sync zip fetch + browser save.

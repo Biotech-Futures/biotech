@@ -146,7 +146,8 @@ const confirm = async () => {
   submitError.value = ''
   try {
     await confirmStudentAssignments(
-      picked.map((student) => ({ studentId: student.id, groupId: props.group.id }))
+      picked.map((student) => ({ studentId: student.id, groupId: props.group.id })),
+      { onlyUngrouped: true }
     )
     emit('added', picked)
   } catch (err) {

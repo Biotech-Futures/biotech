@@ -24,6 +24,7 @@ import {
 } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
 import { appSelectLabels, appSelectText, openAppSelect, pickAppSelect } from '@/__tests__/appSelect'
+import { pickerText, setPicker } from '@/__tests__/appPicker'
 import type { AdminGroupDetail, AdminUser } from '@/utils/adminAPI'
 
 vi.mock('@/utils/adminAPI', () => ({
@@ -195,7 +196,7 @@ describe('admin user form: adding a user', () => {
     expect(wrapper.find('#f-mfield').exists()).toBe(false)
 
     // A university student gives their year and field of study.
-    await pickAppSelect(wrapper, '#f-mbg', 'University Student - Postgraduate')
+    await pickAppSelect(wrapper, '#f-mbg', 'University Student – Postgraduate')
     await wrapper.find('#f-minst').setValue('Uni')
     await pickAppSelect(wrapper, '#f-myear', 'Year 2')
     await wrapper.find('#f-mfield').setValue('Biology')
@@ -203,10 +204,14 @@ describe('admin user form: adding a user', () => {
     await wrapper.find('[data-test="form-mentor-add-slot"]').trigger('click')
     const slot = '[data-test="form-mentor-slot-0"]'
     await pickAppSelect(wrapper.find(slot), '[aria-label="Day 1"]', 'Monday')
-    await pickAppSelect(wrapper.find(slot), '[aria-label="From, hour, time 1"]', '18')
-    await pickAppSelect(wrapper.find(slot), '[aria-label="To, hour, time 1"]', '19')
-    // The answers are optional.
-    await wrapper.find('#f-mentorMentoringApproach').setValue('Weekly calls')
+    await setPicker(wrapper, `${slot} [aria-label="From, time 1"]`, '18:00')
+    await setPicker(wrapper, `${slot} [aria-label="To, time 1"]`, '19:00')
+    // The answer is optional.
+    await wrapper.find('#f-mentorReason').setValue('To help')
+    // Hours a week, relevant background and how they'd mentor aren't asked.
+    expect(wrapper.find('#f-mhours').exists()).toBe(false)
+    expect(wrapper.find('#f-mentorRelevantBackground').exists()).toBe(false)
+    expect(wrapper.find('#f-mentorMentoringApproach').exists()).toBe(false)
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(createAdminUser).toHaveBeenCalledWith(
@@ -217,12 +222,14 @@ describe('admin user form: adding a user', () => {
         mentorUniversityYear: '2',
         mentorFieldOfStudy: 'Biology',
         mentorMaxGroupCount: 2,
-        mentorWeeklyHours: null,
         mentorAvailability: [{ weekday: 0, start: '18:00', end: '19:00' }],
-        mentorReason: '',
-        mentorMentoringApproach: 'Weekly calls'
+        mentorReason: 'To help'
       })
     )
+    const sent = vi.mocked(createAdminUser).mock.lastCall![0]
+    for (const gone of ['mentorWeeklyHours', 'mentorRelevantBackground', 'mentorMentoringApproach']) {
+      expect(sent).not.toHaveProperty(gone)
+    }
   })
 
   it('adds a mentor from just an email and role, the rest left for later', async () => {
@@ -1188,10 +1195,7 @@ describe('admin user detail: a mentor edited part by part', () => {
       mentorFieldOfStudy: 'Biology',
       mentorCompany: '',
       mentorReason: 'To help',
-      mentorRelevantBackground: 'Lab work',
-      mentorMentoringApproach: 'Weekly calls',
       mentorMaxGroupCount: 3,
-      mentorWeeklyHours: 4,
       mentorAvailability: [
         { weekday: 0, start: '18:00', end: '20:00' },
         { weekday: 2, start: '17:00', end: '19:00' }
@@ -1230,12 +1234,12 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(rows.slice(0, 3)).toEqual(['Name', 'Pronouns', 'Background'])
     expect(wrapper.find('[data-test="admin-mentor-pronouns"] dd').text()).toBe('She/her')
     // Its year of study shows, as for anyone at university.
-    expect(wrapper.find('[data-test="admin-mentor-background-label"]').text()).toBe('University Student - Undergraduate')
+    expect(wrapper.find('[data-test="admin-mentor-background-label"]').text()).toBe('University Student – Undergraduate')
     expect(rows).toContain('Year of study')
 
     // Edit picks the list's choice, so saving stores it.
     await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
-    expect(appSelectText(wrapper, '#admin-mentor-background')).toBe('University Student - Undergraduate')
+    expect(appSelectText(wrapper, '#admin-mentor-background')).toBe('University Student – Undergraduate')
   })
 
   it('shows Account, Groups, Mentor Details and Application Form, each with Edit, and nothing at the bottom', () => {
@@ -1255,18 +1259,19 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
   })
 
-  it('shows their groups in one row, what their background asks, and their hours per week', () => {
+  it('shows their groups in one row, what their background asks, and why they would mentor', () => {
     const wrapper = openDetail(mentor({ mentorGroups: [{ id: 2, name: 'BTF2', studentCount: 3 }, { id: 10, name: 'BTF10', studentCount: 1 }] }))
 
     expect(wrapper.find('[data-test="admin-mentor-group-names"]').text()).toBe('BTF2, BTF10')
     const details = wrapper.find('[data-test="admin-mentor-details"]').text()
-    for (const text of ['University Student - Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
+    for (const text of ['University Student – Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
       expect(details).toContain(text)
     }
     expect(details).not.toContain('Company')
-    expect(wrapper.find('[data-test="admin-mentor-hours"]').text()).toBe('4 hours')
-    expect(openDetail(mentor({ mentorWeeklyHours: null })).find('[data-test="admin-mentor-hours"]').text()).toBe('—')
-    expect(wrapper.find('[data-test="admin-answer-view-mentorMentoringApproach"]').text()).toBe('Weekly calls')
+    expect(details).not.toContain('Hours per week')
+    expect(wrapper.find('[data-test="admin-answer-view-mentorReason"]').text()).toBe('To help')
+    expect(wrapper.find('[data-test="admin-answer-view-mentorRelevantBackground"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="admin-answer-view-mentorMentoringApproach"]').exists()).toBe(false)
 
     const industry = openDetail(mentor({ mentorBackground: 'industry', mentorCompany: 'Acme Bio', mentorInstitution: '' }))
     const industryDetails = industry.find('[data-test="admin-mentor-details"]').text()
@@ -1349,7 +1354,7 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(form().find('[data-test="admin-mentor-year"]').exists()).toBe(false)
 
     await form().find('[data-test="admin-mentor-company"]').setValue('Acme Bio')
-    await form().find('[data-test="admin-mentor-hours-input"]').setValue('6')
+    expect(form().find('[data-test="admin-mentor-hours-input"]').exists()).toBe(false)
     await form().trigger('submit')
     await flushPromises()
 
@@ -1363,8 +1368,7 @@ describe('admin user detail: a mentor edited part by part', () => {
       mentorUniversityYear: '',
       mentorFieldOfStudy: '',
       interests: ['Biomedical Innovations', 'Structural Biology'],
-      mentorMaxGroupCount: 3,
-      mentorWeeklyHours: 6
+      mentorMaxGroupCount: 3
     })
   })
 
@@ -1381,24 +1385,6 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(updateAdminUser).toHaveBeenCalledWith(5, expect.objectContaining({ mentorFieldOfStudy: '', interests: [] }))
   })
 
-  it('takes hours per week as a whole number from 1 to 40', async () => {
-    const wrapper = openDetail(mentor())
-    await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
-    const hours = wrapper.find('[data-test="admin-mentor-hours-input"]')
-    // A number box with its arrows that refuses e, +, - and ., two digits at most.
-    expect(hours.attributes('type')).toBe('number')
-    const press = new KeyboardEvent('keydown', { key: 'e', cancelable: true })
-    hours.element.dispatchEvent(press)
-    expect(press.defaultPrevented).toBe(true)
-    await hours.setValue('412')
-    expect((hours.element as HTMLInputElement).value).toBe('41')
-    await wrapper.find('[data-test="admin-mentor-details-form"]').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('Hours per week must be a whole number from 1 to 40.')
-    expect(updateAdminUser).not.toHaveBeenCalled()
-  })
-
   it('shows each weekly time, and edits them as day and times', async () => {
     vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: mentor() })
     const wrapper = openDetail(mentor())
@@ -1412,27 +1398,27 @@ describe('admin user detail: a mentor edited part by part', () => {
     // A third time, then the first taken away.
     await wrapper.find('[data-test="admin-mentor-add-slot"]').trigger('click')
     await pickAppSelect(wrapper, '[data-test="admin-mentor-slot-2"]', 'Friday')
-    // Each time as its hour and its minutes, the minutes in 5-minute steps.
+    // Each time picked with the time picker: every hour, and the minutes in
+    // 5-minute steps.
     const slot = (part: string) => `[data-test="admin-mentor-slot-2-${part}"]`
-    expect(await appSelectLabels(wrapper, slot('start-minute'))).toEqual([
+    await wrapper.find(slot('start')).trigger('click')
+    // In place, as the sheet's spec stubs Teleport.
+    const panel = wrapper.find('.app-picker__panel')
+    expect(panel.findAll('[data-hour]')).toHaveLength(24)
+    expect(panel.findAll('[data-minute]').map((minute) => minute.text())).toEqual([
       '00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'
     ])
-    await wrapper.find(`${slot('start-minute')} input`).trigger('blur')
-    expect((await appSelectLabels(wrapper, slot('start-hour'))).length).toBe(24)
-    await wrapper.find(`${slot('start-hour')} input`).trigger('blur')
-    // An hour picked first takes :00.
-    await pickAppSelect(wrapper, slot('start-hour'), '10')
-    expect(appSelectText(wrapper, slot('start-minute'))).toBe('00')
-    await pickAppSelect(wrapper, slot('start-minute'), '30')
-    await pickAppSelect(wrapper, slot('end-hour'), '09')
+    await wrapper.find(slot('start')).trigger('click')
+    await setPicker(wrapper, slot('start'), '10:30')
+    await setPicker(wrapper, slot('end'), '09:00')
     await form().trigger('submit')
     await flushPromises()
     expect(form().text()).toContain('Each weekly time must end after it starts.')
     expect(updateAdminUser).not.toHaveBeenCalled()
 
-    await pickAppSelect(wrapper, slot('end-hour'), '12')
-    // A saved time shows as its hour and minutes.
-    expect(appSelectText(wrapper, '[data-test="admin-mentor-slot-0-start-hour"]')).toBe('18')
+    await setPicker(wrapper, slot('end'), '12:00')
+    // A saved time shows as it was saved.
+    expect(pickerText(wrapper, '[data-test="admin-mentor-slot-0-start"]')).toBe('18:00')
     await form().find('[data-test="admin-mentor-slot-0"] .admin-users-detail__slot-remove').trigger('click')
     await form().trigger('submit')
     await flushPromises()
@@ -1444,27 +1430,25 @@ describe('admin user detail: a mentor edited part by part', () => {
     })
   })
 
-  it('edits the three answers, each kept to 150 words', async () => {
+  it('edits why they would mentor, kept to 150 words', async () => {
     vi.mocked(updateAdminUser).mockResolvedValue({ msg: 'ok', data: mentor() })
     const wrapper = openDetail(mentor())
     await wrapper.find('[data-test="admin-edit-application"]').trigger('click')
 
     const form = wrapper.find('[data-test="admin-application-form"]')
     expect(form.text()).toContain('Why would you like to mentor?')
-    await form.find('[data-test="admin-answer-mentorMentoringApproach"]').setValue('word '.repeat(151))
+    expect(form.text()).not.toContain('Relevant background')
+    expect(form.text()).not.toContain('How would you mentor BIOTech groups?')
+    await form.find('[data-test="admin-answer-mentorReason"]').setValue('word '.repeat(151))
     expect(form.text()).toContain('151/150 words')
     await form.trigger('submit')
     await flushPromises()
-    expect(form.text()).toContain('Keep each answer to 150 words or fewer.')
+    expect(form.text()).toContain('Keep the answer to 150 words or fewer.')
 
-    await form.find('[data-test="admin-answer-mentorMentoringApproach"]').setValue('Fortnightly calls')
+    await form.find('[data-test="admin-answer-mentorReason"]').setValue('To share what I know')
     await form.trigger('submit')
     await flushPromises()
-    expect(updateAdminUser).toHaveBeenCalledWith(5, {
-      mentorRelevantBackground: 'Lab work',
-      mentorReason: 'To help',
-      mentorMentoringApproach: 'Fortnightly calls'
-    })
+    expect(updateAdminUser).toHaveBeenCalledWith(5, { mentorReason: 'To share what I know' })
   })
 })
 

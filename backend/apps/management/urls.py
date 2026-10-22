@@ -14,6 +14,8 @@ from .views import (
     BounceCheckTriggerView,
     SendWaitingEmailsView,
     ChallengeStartView,
+    ResourceReleasesView,
+    ResourceReleaseView,
     RegistrationOpenView,
     RegistrationSupervisorsView,
     RegistrationSupervisorView,
@@ -74,6 +76,9 @@ urlpatterns = [
     path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
     # Management > Challenge Start.
     path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
+    # Challenge Start > Release Resources.
+    path("resource-releases/", ResourceReleasesView.as_view(), name="resource-releases"),
+    path("resource-releases/<int:resource_id>/", ResourceReleaseView.as_view(), name="resource-release"),
     # Late Registration > Supervisors After Close.
     path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
     path(

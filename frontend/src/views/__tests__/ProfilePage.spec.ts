@@ -5,6 +5,7 @@ import ProfilePage from '@/views/ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
 import { formatDayMonthTime } from '@/utils/date'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { setPicker } from '@/__tests__/appPicker'
 
 vi.mock('@/utils/csrf', () => ({
   buildSessionHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -93,7 +94,7 @@ describe('Student profile', () => {
     expect(wrapper.find('.profile-interest').exists()).toBe(false)
     expect(wrapper.get('[data-test="student-pronouns"]').text()).toContain('She/her')
     const fields = wrapper.findAll('.profile-field-label').map((label) => label.text())
-    expect(fields.indexOf('Pronouns:')).toBe(fields.indexOf('Areas of Interest:') + 1)
+    expect(fields.indexOf('Pronouns:')).toBe(fields.indexOf('Area(s) of Interest:') + 1)
 
     const supervisor = wrapper.get('[data-test="student-supervisor"]')
     expect(supervisor.get('.profile-section-title').text()).toBe('Supervisor Details')
@@ -114,7 +115,7 @@ describe('Student profile', () => {
     expect(appSelectText(wrapper, '[data-test="student-pronouns-select"]')).toBe('Other')
     expect((wrapper.get('[data-test="student-pronouns-other"]').element as HTMLInputElement).value).toBe('Xe/xem')
     expect(await appSelectLabels(wrapper, '[data-test="student-pronouns-select"]')).toEqual([
-      'Not set', 'She/her', 'He/him', 'They/them', 'Prefer not to say', 'Other',
+      'She/her', 'He/him', 'They/them', 'Other',
     ])
 
     await pickAppSelect(wrapper, '[data-test="student-pronouns-select"]', 'They/them')
@@ -285,7 +286,7 @@ describe('Mentor profile', () => {
       pronouns: 'She/her', interests: ['Biomedical Innovations'],
       mentor_details: {
         mentorBackground: 'Undergraduate Student', mentorInstitution: 'University of Sydney', mentorCompany: '',
-        mentorUniversityYear: '2', mentorFieldOfStudy: 'Biology', mentorMaxGroupCount: 2, mentorWeeklyHours: 4,
+        mentorUniversityYear: '2', mentorFieldOfStudy: 'Biology', mentorMaxGroupCount: 2,
         mentorAvailability: [{ weekday: 0, start: '18:00', end: '19:30' }],
         mentorGroups: [{ id: 1, name: 'BTF1' }, { id: 3, name: 'BTF3' }],
       },
@@ -314,7 +315,7 @@ describe('Mentor profile', () => {
     await flushPromises()
     await wrapper.get('[data-test="mentor-details-edit"]').trigger('click')
     // An old typed background picks the list's choice it means.
-    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('University Student - Undergraduate')
+    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('University Student – Undergraduate')
 
     // Their name first, edited here too.
     expect((wrapper.get('[data-test="mentor-first-name"]').element as HTMLInputElement).value).toBe('Mia')
@@ -329,8 +330,9 @@ describe('Mentor profile', () => {
     expect(patchBody()).toMatchObject({
       firstName: 'Mia', lastName: 'Ng',
       mentorBackground: 'industry', mentorCompany: 'Acme Bio', mentorInstitution: '', mentorUniversityYear: '',
-      mentorFieldOfStudy: '', mentorMaxGroupCount: 2, mentorWeeklyHours: 4, pronouns: 'She/her',
+      mentorFieldOfStudy: '', mentorMaxGroupCount: 2, pronouns: 'She/her',
     })
+    expect(patchBody()).not.toHaveProperty('mentorWeeklyHours')
     wrapper.unmount()
   })
 
@@ -341,8 +343,8 @@ describe('Mentor profile', () => {
     await wrapper.get('[data-test="mentor-add-slot"]').trigger('click')
     const slot = wrapper.find('[data-test="mentor-slot-1"]')
     await pickAppSelect(slot, '[aria-label="Day 2"]', 'Friday')
-    await pickAppSelect(slot, '[aria-label="From, hour, time 2"]', '09')
-    await pickAppSelect(slot, '[aria-label="To, hour, time 2"]', '10')
+    await setPicker(wrapper, '[data-test="mentor-slot-1"] [aria-label="From, time 2"]', '09:00')
+    await setPicker(wrapper, '[data-test="mentor-slot-1"] [aria-label="To, time 2"]', '10:00')
     await wrapper.get('[data-test="mentor-availability-form"]').trigger('submit')
     await flushPromises()
     expect(patchBody().mentorAvailability).toEqual([
@@ -374,10 +376,10 @@ describe('Mentor profile', () => {
     const details = wrapper.get('[data-test="mentor-details"]').text()
     expect(wrapper.get('[data-test="mentor-name"]').text()).toContain('Mia Ng')
     // An old typed background, read as the list's choice: so its year shows.
-    expect(details).toContain('University Student - Undergraduate')
+    expect(details).toContain('University Student – Undergraduate')
     expect(details).toContain('Year 2')
     expect(details).toContain('2 groups')
-    expect(details).toContain('4 hours')
+    expect(details).not.toContain('Hours per week')
     expect(details).toContain('She/her')
     expect(wrapper.get('[data-test="mentor-availability"]').text()).toContain('Monday:18:00 to 19:30')
     expect(wrapper.text()).not.toContain('Mentor Reason')

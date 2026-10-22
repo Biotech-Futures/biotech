@@ -53,7 +53,7 @@
              row and drawn as part of it, as Extend Deadline's reasons. -->
         <template #row-detail="{ row }">
           <div class="students-interests">
-            <span class="students-interests__label">Areas of Interest:</span>
+            <span class="students-interests__label">Area(s) of Interest:</span>
             {{ (row.interests as string[]).join(', ') }}
           </div>
         </template>

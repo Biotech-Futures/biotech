@@ -26,10 +26,9 @@
           </label>
           <label class="release-results__field">
             <span>Survey Closes</span>
-            <input
+            <AppDatePicker
               v-model="form.survey_closes"
               class="app-input app-input--compact"
-              type="date"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && closesPast }"
             />
@@ -274,6 +273,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import { describeRun, isBusy, queuedMessage, queuedNote, RUN_MESSAGE_MS, useEmailRun } from '@/composables/useEmailRun'
 import { useFlashMessage } from '@/composables/useFlashMessage'
@@ -604,7 +604,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
 }
 
 /* The shared compact box (app-input), filling its column. */
-.release-results__field input {
+.release-results__field .app-input {
   width: auto;
   max-width: none;
 }
@@ -614,7 +614,7 @@ onMounted(() => Promise.all([loadDetails(), loadSheetSupervisors()]))
   border-color: var(--dark-green);
 }
 
-.release-results__field input.is-invalid {
+.release-results__field .is-invalid {
   border-color: var(--danger);
 }
 

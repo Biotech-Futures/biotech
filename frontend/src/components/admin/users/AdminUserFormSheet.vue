@@ -147,6 +147,8 @@
               v-model="form.pronounsChoice"
               class="form-input app-input"
               :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
               :searchable="false"
             />
           </div>
@@ -226,21 +228,6 @@
               @update:model-value="(value) => (form.mentorMaxGroupCount = value === null ? undefined : Number(value))"
             />
           </div>
-          <div class="form-field">
-            <label class="form-label" for="f-mhours">Hours per week</label>
-            <input
-              id="f-mhours"
-              :value="form.mentorWeeklyHours"
-              class="form-input app-input"
-              type="number"
-              inputmode="numeric"
-              min="1"
-              :max="MAX_WEEKLY_HOURS"
-              @input="onHoursInput"
-              @keydown="refuseNonDigitKey"
-              @paste="refuseNonDigitPaste"
-            />
-          </div>
         </template>
 
         <!-- A student's pronouns, after their interests as the user panel has them. -->
@@ -252,6 +239,8 @@
               v-model="form.pronounsChoice"
               class="form-input app-input"
               :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
               :searchable="false"
             />
           </div>
@@ -354,47 +343,17 @@
             :options="WEEKDAY_OPTIONS"
             placeholder="Day"
           />
-          <span class="admin-users-form__time">
-            <AppSelect
-              :model-value="slot.startHour"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`From, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'start', value)"
-            />
-            <span class="admin-users-form__muted">:</span>
-            <AppSelect
-              v-model="slot.startMinute"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`From, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.startMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.start"
+            class="form-input admin-users-form__time"
+            :aria-label="`From, time ${index + 1}`"
+          />
           <span class="admin-users-form__muted">to</span>
-          <span class="admin-users-form__time">
-            <AppSelect
-              :model-value="slot.endHour"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`To, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'end', value)"
-            />
-            <span class="admin-users-form__muted">:</span>
-            <AppSelect
-              v-model="slot.endMinute"
-              class="form-input admin-users-form__time-part"
-              :aria-label="`To, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.endMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.end"
+            class="form-input admin-users-form__time"
+            :aria-label="`To, time ${index + 1}`"
+          />
           <button
             type="button"
             class="admin-users-form__slot-remove"
@@ -415,7 +374,7 @@
           Add a time
         </button>
 
-        <!-- The three questions registering asks, 150 words each at most. -->
+        <!-- The question registering asks, 150 words at most. -->
         <div class="admin-users-form__section">Application Form</div>
         <div
           v-for="question in APPLICATION_QUESTIONS"
@@ -495,6 +454,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import type { AdminGroupDetail, AdminUser, AdminUserCountry, AdminUserState, CreateUserPayload } from '@/utils/adminAPI'
 import {
   confirmStudentAssignments,
@@ -507,13 +467,10 @@ import {
 import { apiErrorFromUnknown, logApiError } from '@/utils/apiError'
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
 import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
-import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import {
   APPLICATION_QUESTIONS,
-  HOUR_OPTIONS,
   MAX_ANSWER_WORDS,
   MAX_SLOTS,
-  MAX_WEEKLY_HOURS,
   MENTOR_BACKGROUNDS,
   STUDY_YEAR_OPTIONS,
   WEEKDAY_OPTIONS,
@@ -522,14 +479,12 @@ import {
   capacityLabel,
   isStudyingBackground,
   mentorBackgroundCode,
-  minuteOptions,
-  pickHour,
-  splitSlot,
+  draftSlot,
   vAutoGrow,
   wordCount,
   type MentorSlot
 } from '@/utils/mentorForm'
-import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import { formatFullDate, roleLabel, userName } from '@/utils/userFormat'
 import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'
@@ -554,12 +509,8 @@ interface UserForm {
   mentorUniversityYear: AppSelectOption['value']
   mentorFieldOfStudy: string
   mentorMaxGroupCount?: number
-  /** Digits as typed: 1 to 40, or none. */
-  mentorWeeklyHours: string
   mentorAvailability: MentorSlot[]
-  mentorRelevantBackground: string
   mentorReason: string
-  mentorMentoringApproach: string
   guardianFirstName: string
   guardianLastName: string
   guardianEmail: string
@@ -623,11 +574,8 @@ const defaultForm = (): UserForm => ({
   mentorUniversityYear: null,
   mentorFieldOfStudy: '',
   mentorMaxGroupCount: undefined,
-  mentorWeeklyHours: '',
   mentorAvailability: [],
-  mentorRelevantBackground: '',
   mentorReason: '',
-  mentorMentoringApproach: '',
   guardianFirstName: '',
   guardianLastName: '',
   guardianEmail: '',
@@ -764,11 +712,8 @@ const initForm = (editingUser: AdminUser | null) => {
           mentorUniversityYear: editingUser.mentorUniversityYear || null,
           mentorFieldOfStudy: editingUser.mentorFieldOfStudy || '',
           mentorMaxGroupCount: editingUser.mentorMaxGroupCount ?? undefined,
-          mentorWeeklyHours: editingUser.mentorWeeklyHours ? String(editingUser.mentorWeeklyHours) : '',
-          mentorAvailability: (editingUser.mentorAvailability || []).map(splitSlot),
-          mentorRelevantBackground: editingUser.mentorRelevantBackground || '',
-          mentorReason: editingUser.mentorReason || '',
-          mentorMentoringApproach: editingUser.mentorMentoringApproach || ''
+          mentorAvailability: (editingUser.mentorAvailability || []).map(draftSlot),
+          mentorReason: editingUser.mentorReason || ''
         }
       : {}),
     ...originalGuardian.value,
@@ -897,21 +842,12 @@ const capacityOptions = computed<AppSelectOption[]>(() => {
   return [...counts].sort((a, b) => a - b).map((count) => ({ value: count, label: capacityLabel(count) }))
 })
 
-// Hours per week: a number box taking two digits at most.
-const onHoursInput = (event: Event) => {
-  form.mentorWeeklyHours = String(keptDigits(event.target as HTMLInputElement, 2))
-}
-
 // What's given wrong: anything may be left out, to be filled in later.
 const mentorProblem = (): string => {
-  const hours = form.mentorWeeklyHours.trim()
-  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
-    return `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
-  }
   const times = availabilityTimes(form.mentorAvailability)
   if (typeof times === 'string') return times
   if (APPLICATION_QUESTIONS.some((question) => wordCount(form[question.key]) > MAX_ANSWER_WORDS)) {
-    return `Keep each answer to ${MAX_ANSWER_WORDS} words or fewer.`
+    return `Keep the answer to ${MAX_ANSWER_WORDS} words or fewer.`
   }
   return ''
 }
@@ -920,7 +856,6 @@ const mentorProblem = (): string => {
 const mentorPayload = (): Record<string, unknown> => {
   const industry = form.mentorBackground === 'industry'
   const times = availabilityTimes(form.mentorAvailability)
-  const hours = form.mentorWeeklyHours.trim()
   return {
     mentorBackground: form.mentorBackground,
     mentorCompany: industry ? form.mentorCompany : '',
@@ -928,11 +863,8 @@ const mentorPayload = (): Record<string, unknown> => {
     mentorUniversityYear: mentorStudying.value ? form.mentorUniversityYear : '',
     mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
     mentorMaxGroupCount: form.mentorMaxGroupCount,
-    mentorWeeklyHours: hours ? Number(hours) : null,
     mentorAvailability: typeof times === 'string' ? [] : times,
-    mentorRelevantBackground: form.mentorRelevantBackground.trim(),
-    mentorReason: form.mentorReason.trim(),
-    mentorMentoringApproach: form.mentorMentoringApproach.trim()
+    mentorReason: form.mentorReason.trim()
   }
 }
 
@@ -1201,20 +1133,11 @@ const submitForm = async () => {
   width: auto;
 }
 
-/* A time: its hour and its minutes, together. */
-.admin-users-form__time {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-
-/* Just wide enough for two digits and the arrow. */
-.form-input.admin-users-form__time-part {
+/* A time (AppTimePicker): as wide as it needs. */
+.form-input.admin-users-form__time {
   flex: none;
-  width: 3.5rem;
+  width: auto;
   min-width: 0;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
 }
 
 .admin-users-form__muted {
@@ -1383,7 +1306,7 @@ const submitForm = async () => {
 /* The weekly times and the application's answers keep their own box; the
    rest are the shared one (app-input). */
 .admin-users-form__day,
-.admin-users-form__time-part,
+.admin-users-form__time,
 .admin-users-form__textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border-light);

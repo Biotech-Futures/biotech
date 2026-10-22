@@ -91,7 +91,7 @@
          under the row and drawn as part of it, as Extend Deadline's reasons. -->
     <template v-if="showsInterests" #row-detail="{ row }">
       <div class="admin-view-table__interests">
-        <span class="admin-view-table__interests-label">Areas of Interest:</span>
+        <span class="admin-view-table__interests-label">Area(s) of Interest:</span>
         {{ toRow(row).interests!.join(', ') }}
       </div>
     </template>

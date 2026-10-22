@@ -187,6 +187,8 @@ async function submit() {
 onMounted(async () => {
   try {
     data.value = await fetchConsentForm(token.value)
+    // Just signed (a refresh): its thank-you, not the form again.
+    if (data.value.completed) signed.value = data.value.completed
     fullName.value = [data.value.guardianFirstName, data.value.guardianLastName].filter(Boolean).join(' ')
   } catch (error) {
     showLinkError(error)

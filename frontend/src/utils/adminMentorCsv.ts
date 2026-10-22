@@ -93,6 +93,7 @@ function mapMentorBackground(raw: string): string | null {
   const value = raw.trim().toLowerCase()
   if (!value) return null
   if (value === 'industry') return 'industry'
+  if (value.startsWith('academic')) return 'academic'
   if (value.includes('undergraduate')) return 'undergraduate'
   if (value.includes('postgraduate')) return 'postgraduate'
   if (value.includes('hdr')) return 'hdr'
@@ -235,7 +236,7 @@ export const MENTOR_CSV_TEMPLATE = buildCsvTemplate(
     ['mentorReason', 'Mentor Reason', 'I want to support students exploring biotech careers.'],
     ['capacity', 'Capacity', '2'],
     ['interests', 'Expertise', 'Genetics, Bioinformatics'],
-    ['background', 'Background', 'Postgraduate'],
+    ['background', 'Background', 'University Student – Postgraduate'],
     ['institution', 'Institution or Company', 'University of Sydney']
   ]
 )

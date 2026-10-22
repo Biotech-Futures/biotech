@@ -23,7 +23,7 @@
         </li>
         <li>
           <span class="year__fact-label">Challenge start</span>
-          <span v-if="challengeStart">{{ dayText(challengeStart) }}</span>
+          <span v-if="challengeStart">{{ formatStatementTime(challengeStart) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
@@ -67,18 +67,12 @@
       <div class="card-header">
         <h3 class="card-title">Prepare New Year</h3>
       </div>
-      <ol class="year__steps">
-        <li>
-          Grading shows only the new year's submissions and finalists - previous years
-          stay on record.
-        </li>
-        <li>Sets the last year's deadline on the Submission Deadline tab.</li>
-        <li>Resets marks and certificates from their tabs.</li>
-        <li>Clears all per-group deadline extensions.</li>
-        <li>Ends all group memberships - students, mentors and supervisors.</li>
-        <li>Deactivates student, mentor and supervisor accounts and signs them out.</li>
-        <li>Unpublishes last year's announcements so the new cohort starts clean.</li>
-      </ol>
+      <div v-for="group in steps" :key="group.title" class="year__group">
+        <h4 class="year__group-title">{{ group.title }}</h4>
+        <ul class="year__steps">
+          <li v-for="step in group.steps" :key="step">{{ step }}</li>
+        </ul>
+      </div>
       <p class="year__hint">
         These steps are instructions for the backend - the Start new year button will
         run them automatically once it's built.
@@ -119,6 +113,38 @@ const registration = ref<RegistrationState | null>(null)
 const challengeStart = ref<string | null>(null)
 const symposiumDate = ref<string | null>(null)
 
+// What Start new year does, by area, and what it leaves as it is.
+const steps: { title: string; steps: string[] }[] = [
+  {
+    title: 'People and Groups',
+    steps: [
+      'Deactivates all student, mentor and supervisor accounts and signs them out. Admins stay active. Accounts are reactivated only by registering again.',
+      'Archives all groups. Groups start with the new year and new groups start again from BTF01.',
+      'The 3 Guardian tables show only students registered or reactivated in the new challenge year.'
+    ]
+  },
+  {
+    title: 'Group Work and Content',
+    steps: [
+      'Archives all group tasks, chats and submissions.',
+      'Archives all events and announcements, and hides all resources.'
+    ]
+  },
+  {
+    title: 'Management',
+    steps: [
+      'Resets the sent progress of every email.',
+      'Clears these dates: Registration Start and End, Challenge Start, Pages Visibility, Submission Deadline, Symposium (with Confirm Attendance and Slides Due) and Results (Survey Closes).',
+      "Archives late registration links, extensions, slot allocations, marks and certificates. Resets each supervisor's late registration permission and resource visibility.",
+      'Clears the Symposium registration link and the feedback survey link.'
+    ]
+  },
+  {
+    title: 'Stays',
+    steps: ['Presentation Times, marking rubrics, Document Setup and the Known Universities list.']
+  }
+]
+
 /** "27/07/2026", as the deadlines read without their time. */
 const dayText = (value: string) => value.split('-').reverse().join('/')
 
@@ -151,7 +177,7 @@ onMounted(async () => {
     registration.value = null
   }
   try {
-    challengeStart.value = (await fetchChallengeStart()).starts_on
+    challengeStart.value = (await fetchChallengeStart()).starts_at
   } catch {
     challengeStart.value = null
   }
@@ -232,6 +258,13 @@ onMounted(async () => {
 
 .year__muted {
   color: var(--text-muted);
+}
+
+.year__group-title {
+  margin: 0 0 0.4rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .year__steps {

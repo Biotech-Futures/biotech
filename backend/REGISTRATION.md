@@ -154,8 +154,7 @@ handling. The request needs the same session, `X-CSRFToken` and UUID
       "affiliation": "postgraduate", "institution": "University of Sydney",
       "company": "", "universityYear": "2", "fieldOfStudy": "Bioengineering",
       "interests": ["Biomedical Innovations"],
-      "capacity": "3", "weeklyHours": "4",
-      "background": "...", "motivation": "...", "mentoringApproach": "..."
+      "capacity": "3", "motivation": "..."
     }
   }
 }
@@ -173,20 +172,21 @@ handling. The request needs the same session, `X-CSRFToken` and UUID
 | `universityYear` | `1` to `4` or `5+`; required for `undergraduate` and `postgraduate` |
 | `interests` | At least one, at most 100 |
 | `capacity` | `1` to `5`; becomes the mentor's maximum number of groups |
-| `weeklyHours` | Required whole number from 1 to 40 |
-| `background`, `motivation`, `mentoringApproach` | Required, 150 words each (split on spaces, as the form counts them) |
+| `motivation` | Required, 150 words at most (split on spaces, as the form counts them) |
 | `availability` | Optional weekly slots `{weekday: "0"-"6" (Monday is 0), start, end}` as `HH:MM`; the form no longer sends them, but they're saved when given |
 
-Unknown fields are refused. Every rule the form checks is checked again here,
-and each error comes back on its own field (`mentor.<field>`).
+Unknown fields are refused, including `weeklyHours`, `background` and
+`mentoringApproach`, which the form no longer asks for. Every rule the form
+checks is checked again here, and each error comes back on its own field
+(`mentor.<field>`).
 
 A mentor is saved in one transaction:
 
 - an account that is **pending and inactive** (no password), so they can't
   sign in until an admin activates them on Admin > Mentors;
 - the `mentor` role from now, with **no end date**;
-- a mentor profile with every field above (the background text is
-  `relevant_background`, the motivation `mentor_reason`);
+- a mentor profile with every field above (the motivation is
+  `mentor_reason`);
 - their interests (a name not already listed is added) and any weekly slots.
 
 The answer is the usual receipt with **`student_count: 0`**:

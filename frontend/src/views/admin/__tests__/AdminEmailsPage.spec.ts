@@ -5,6 +5,7 @@ import AdminEmailsPage from '@/views/admin/AdminEmailsPage.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
 import {
+  fetchSystemEmailAlwaysOn,
   fetchSystemEmailLog,
   fetchSystemEmailMailApi,
   fetchSystemEmailUnseenFailures,
@@ -24,6 +25,7 @@ import { formatShortDateTime, formatStatementTime } from '@/utils/date'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/adminAPI', () => ({
+  fetchSystemEmailAlwaysOn: vi.fn(),
   fetchSystemEmailLog: vi.fn(),
   fetchSystemEmailMailApi: vi.fn(),
   fetchSystemEmailUnseenFailures: vi.fn(),
@@ -106,6 +108,60 @@ beforeEach(() => {
   vi.mocked(previewSystemEmailTemplate).mockResolvedValue(preview)
   // Most tests use an email with nothing of a person's own, so no "of" list.
   vi.mocked(fetchSystemEmailTestRecipients).mockResolvedValue(null)
+  // No problems found unless a test says so.
+  vi.mocked(fetchSystemEmailAlwaysOn).mockResolvedValue({ state: 'on', lastSeenAt: null })
+  vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: '', at: null, status: null })
+})
+
+describe('the alerts at the top', () => {
+  it('says when Always On looks off, and how to turn it on', async () => {
+    vi.mocked(fetchSystemEmailAlwaysOn).mockResolvedValue({ state: 'off', lastSeenAt: '2026-10-22T01:00:00Z' })
+    const wrapper = await mountPage()
+
+    const alert = wrapper.find('[data-test="emails-always-on"]').text()
+    expect(alert).toContain('Always On looks off for the backend')
+    expect(alert).toContain(`Azure last called it at ${formatStatementTime('2026-10-22T01:00:00Z')}`)
+    expect(alert).toContain('App Services > biotechBe > Configuration > General settings > Always on.')
+  })
+
+  it('says nothing while Always On is on, still being checked, or off Azure', async () => {
+    for (const state of ['on', 'checking', 'not_azure'] as const) {
+      vi.mocked(fetchSystemEmailAlwaysOn).mockResolvedValue({ state, lastSeenAt: null })
+      const wrapper = await mountPage()
+      expect(wrapper.find('[data-test="emails-always-on"]').exists()).toBe(false)
+    }
+  })
+
+  it('says when the Hostinger Mail API key is missing or rejected, not when a check simply failed', async () => {
+    vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'rejected', at: '2026-10-22T02:00:00Z', status: 401 })
+    let wrapper = await mountPage()
+    expect(wrapper.find('[data-test="emails-mail-api-key"]').text()).toContain('Hostinger rejected the Mail API key')
+
+    vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'unset', at: null, status: null })
+    wrapper = await mountPage()
+    expect(wrapper.find('[data-test="emails-mail-api-key"]').text()).toContain("key isn't set")
+
+    vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'failed', at: '2026-10-22T02:00:00Z', status: null })
+    wrapper = await mountPage()
+    expect(wrapper.find('[data-test="emails-mail-api-key"]').exists()).toBe(false)
+  })
+
+  it('checks again while the page is open', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = await mountPage()
+      expect(wrapper.find('[data-test="emails-always-on"]').exists()).toBe(false)
+
+      vi.mocked(fetchSystemEmailAlwaysOn).mockResolvedValue({ state: 'off', lastSeenAt: null })
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000)
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="emails-always-on"]').exists()).toBe(true)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('AdminEmailsPage', () => {
@@ -701,9 +757,11 @@ describe('AdminEmailsPage', () => {
 
     const headings = () => wrapper.findAll('[data-test="email-group"]').map((heading) => heading.text())
     expect(headings()).toEqual(['Sign-in', 'Guardians', 'Messages and events', 'Submissions', 'Symposium', 'Results'])
-    // Each heading sits right above its group's first email.
+    // Each heading sits right above its group's first email, and Registration
+    // above its groups (Guardians here).
     const items = wrapper.findAll('.email-type-list__items > li').map((item) => item.text().split(' ')[0])
-    expect(items.slice(0, 4)).toEqual(['Sign-in', 'login_code', 'Guardians', 'guardian_details_request'])
+    expect(items.slice(0, 5)).toEqual(['Sign-in', 'login_code', 'Registration', 'Guardians', 'guardian_details_request'])
+    expect(wrapper.findAll('[data-test="email-section"]').map((heading) => heading.text())).toEqual(['Registration'])
 
     // A search shows only the headings of the groups it finds.
     await wrapper.find('.email-type-list__search-input').setValue('results')

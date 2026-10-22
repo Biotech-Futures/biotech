@@ -39,11 +39,11 @@
         <div class="finalist-presentation__add">
           <label class="finalist-presentation__field">
             <span>Start</span>
-            <input v-model="draft.starts_at" type="time" class="finalist-presentation__time app-input app-input--compact" />
+            <AppTimePicker v-model="draft.starts_at" class="finalist-presentation__time app-input app-input--compact" />
           </label>
           <label class="finalist-presentation__field">
             <span>End</span>
-            <input v-model="draft.ends_at" type="time" class="finalist-presentation__time app-input app-input--compact" />
+            <AppTimePicker v-model="draft.ends_at" class="finalist-presentation__time app-input app-input--compact" />
           </label>
           <button
             type="button"
@@ -63,20 +63,18 @@
           empty-message="No times yet."
         >
           <template #cell-starts_at="{ row }">
-            <input
+            <AppTimePicker
               v-if="editingId === row.id"
               v-model="edit.starts_at"
-              type="time"
               class="finalist-presentation__time"
               aria-label="Start"
             />
             <template v-else>{{ formatTime(String(row.starts_at)) }}</template>
           </template>
           <template #cell-ends_at="{ row }">
-            <input
+            <AppTimePicker
               v-if="editingId === row.id"
               v-model="edit.ends_at"
-              type="time"
               class="finalist-presentation__time"
               aria-label="End"
             />
@@ -277,6 +275,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import {
   addPresentationSlot,
   allocatePresentationSlot,
@@ -668,8 +667,4 @@ const remove = async (id: number) => {
   max-width: none;
 }
 
-.finalist-presentation__time:focus {
-  outline: none;
-  border-color: var(--dark-green);
-}
 </style>

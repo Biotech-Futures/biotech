@@ -18,12 +18,12 @@
         </label>
         <label class="extensions__field">
           <span>Extended until</span>
-          <input
+          <AppDateTimePicker
             v-model="untilLocal"
-            type="datetime-local"
             :min="minLocal || undefined"
             required
             class="extensions__input app-input app-input--compact"
+            default-time="23:59"
           />
         </label>
         <label class="extensions__field">
@@ -184,6 +184,7 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import { describeBrowserTimeZone, formatShortDateTime, formatStatementTime } from '@/utils/date'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
+import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
 
 const localTimeZone = describeBrowserTimeZone()
 

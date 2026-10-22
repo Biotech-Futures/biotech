@@ -4,12 +4,34 @@ from django.utils import timezone
 
 from apps.users.models import MentorProfile, StudentProfile
 
-from .models import GroupMembership
+from .models import GroupMembership, Groups
 
 
 MEMBER_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.STUDENT
 MENTOR_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.MENTOR
 SUPERVISOR_MEMBERSHIP_ROLE = GroupMembership.MembershipRoleChoices.SUPERVISOR
+
+
+def check_room_for_students(group, user_ids, *, named=False):
+    """Refuse adding these students when the group would then have more than
+    five, counting every student in it, whoever their supervisor. Its row is
+    locked first, so two adds at once can't both take its last place. A
+    student already in it counts once. ``named``: the message names the group
+    ("BTF12 already has 5 students."), for a change to several at once."""
+    from apps.users.registration_intake import GROUP_MAX_STUDENTS
+
+    Groups.objects.select_for_update().filter(pk=group.pk).first()
+    adding = set(user_ids)
+    staying = GroupMembership.objects.filter(
+        group=group, left_at__isnull=True, membership_role=MEMBER_MEMBERSHIP_ROLE,
+    ).exclude(user_id__in=adding).count()
+    room = GROUP_MAX_STUDENTS - staying
+    if len(adding) > room:
+        label = group.group_name if named else "This group"
+        raise ValidationError(
+            f"{label} already has {GROUP_MAX_STUDENTS} students." if room <= 0
+            else f"{label} has room for {room} more student{'' if room == 1 else 's'}."
+        )
 
 
 @transaction.atomic
