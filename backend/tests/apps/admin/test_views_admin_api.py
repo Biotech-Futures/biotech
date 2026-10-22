@@ -636,7 +636,7 @@ class AdminViewApiTests(TestCase):
 
         self.assertEqual(mary["mentorGroupCapacity"], 4)
         # The background reads as it does on the mentor's own form.
-        self.assertEqual(mary["mentorBackgroundLabel"], "University Student - Postgraduate")
+        self.assertEqual(mary["mentorBackgroundLabel"], "University Student – Postgraduate")
         self.assertEqual(mary["mentorYearOfStudy"], "2")
         self.assertEqual(mary["mentorFieldOfStudy"], "Molecular Biology")
         self.assertEqual(mary["pronouns"], "She/her")
@@ -742,6 +742,8 @@ class AdminViewApiTests(TestCase):
         mary_row = next(row for row in rows[1:] if "mentor1@example.com" in row)
         # A mentor: their own details, and dashes for the student's.
         self.assertEqual(cell(mary_row, "Group Capacity"), "4")
+        # The label's en dash as a plain hyphen: the CSV writes it so
+        # (_sanitize_csv_text).
         self.assertEqual(
             cell(mary_row, "Mentor Background"), "University Student - Postgraduate"
         )

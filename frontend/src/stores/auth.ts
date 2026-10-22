@@ -146,7 +146,8 @@ export const useAuthStore = defineStore('auth', {
 
       const first = state.user.first_name?.[0] || ''
       const last = state.user.last_name?.[0] || ''
-      return (first + last).toUpperCase() || state.user.email[0].toUpperCase()
+      // No name: the email's first letter, and none without an email either.
+      return (first + last).toUpperCase() || state.user.email?.[0]?.toUpperCase() || ''
     },
 
     normalizedRole: (state) => resolveNormalizedRole(state.user),

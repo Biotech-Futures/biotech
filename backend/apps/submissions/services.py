@@ -34,7 +34,8 @@ class DeadlineInfo:
 
 
 def active_deadline() -> Deadline | None:
-    return Deadline.objects.filter(is_active=True).order_by("-created_at").first()
+    # The newest; two set in the same clock tick, the later saved (higher id).
+    return Deadline.objects.filter(is_active=True).order_by("-created_at", "-id").first()
 
 
 def current_cohort() -> int:
