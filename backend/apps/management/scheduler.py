@@ -49,7 +49,8 @@ class Job:
     run: str
 
 
-# As the GitHub workflows ran them, at their odd minutes (UTC).
+# The frequent ones as the GitHub workflows ran them, at their odd minutes;
+# the daily ones on the hour, one after another (UTC).
 JOBS: tuple[Job, ...] = (
     Job("bounce_check", "Bounced email check", 10, 3,
         "apps.management.services.bounce_check:start_check"),
@@ -57,13 +58,13 @@ JOBS: tuple[Job, ...] = (
     Job("unread_digest", "Unread messages digest", 15, 7, "apps.chat.services.digest:dispatch_unread_digest"),
     Job("auto_submit", "Submission auto-submit", 60, 7, "apps.submissions.autosubmit:auto_submit_due"),
     Job("rsvp_reminders", "RSVP reminders", 60, 23, "apps.management.scheduler:queue_rsvp_reminders"),
-    Job("submission_reminders", "Submission reminders", DAY, 7 * 60 + 17,
+    Job("submission_reminders", "Submission reminders", DAY, 21 * 60,
         "apps.submissions.reminders:queue_reminder_runs"),
-    Job("guardian_details_reminders", "Guardian details reminders", DAY, 6 * 60 + 41,
+    Job("guardian_details_reminders", "Guardian details reminders", DAY, 19 * 60,
         "apps.management.scheduler:queue_guardian_details_reminders"),
-    Job("guardian_consent_reminders", "Guardian consent reminders", DAY, 6 * 60 + 47,
+    Job("guardian_consent_reminders", "Guardian consent reminders", DAY, 18 * 60,
         "apps.management.scheduler:queue_guardian_consent_reminders"),
-    Job("supervisor_registration_status", "Supervisor registration status", DAY, 22 * 60 + 3,
+    Job("supervisor_registration_status", "Supervisor registration status", DAY, 20 * 60,
         "apps.management.scheduler:queue_supervisor_registration_status"),
 )
 

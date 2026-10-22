@@ -674,10 +674,15 @@ GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", defa
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
 # The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
-# on the server once started, over this many mail server connections at once.
-# Raise it only as far as the mailbox's sending limits allow. Tests set the
-# sync flag to send inline, one at a time.
-BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+# on the server once started, over this many mail server connections at once,
+# each taking the next email as it's free. When the mail server pushes back
+# (won't take a connection, or emails start failing for anything but an
+# address refused) one is dropped at once, down to BULK_EMAIL_MIN_WORKERS, and that mailbox's runs use that many
+# for BULK_EMAIL_FEWER_MINUTES before trying again. Tests set the sync flag
+# to send inline, the connections taking turns.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=3, cast=int)
+BULK_EMAIL_MIN_WORKERS = config("BULK_EMAIL_MIN_WORKERS", default=2, cast=int)
+BULK_EMAIL_FEWER_MINUTES = config("BULK_EMAIL_FEWER_MINUTES", default=60, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
 # Once a run has tried every email, it waits this many seconds, then tries
 # once more the ones that failed: Management's bulk emails, announcements, the

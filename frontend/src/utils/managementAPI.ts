@@ -623,6 +623,8 @@ export interface EmailRun {
   missed: { who: string; reason: string }[]
   started_at: string
   finished_at: string | null
+  /** Sent over fewer mail server connections, the server having pushed back. */
+  limited?: boolean
 }
 
 export interface EmailRunState {

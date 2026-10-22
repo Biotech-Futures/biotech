@@ -441,6 +441,11 @@ class EmailSendRun(models.Model):
     # Who it couldn't reach and why, as the page lists them:
     # {"who": "(BTF07) Amy Chen", "reason": "address refused"}.
     missed = models.JSONField(default=list, blank=True)
+    # A run's: how many mail server connections it ended up sending over
+    # (fewer than BULK_EMAIL_WORKERS once the server pushed back); none for
+    # a job. A mailbox queue's: until when its runs use fewer connections.
+    connections = models.PositiveSmallIntegerField(null=True, blank=True)
+    fewer_connections_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "email_send_run"

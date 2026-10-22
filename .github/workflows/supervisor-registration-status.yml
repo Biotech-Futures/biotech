@@ -14,12 +14,12 @@ name: Weekly supervisor registration status
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# 22:03 UTC is 8:03am in Sydney during registration (AEST, UTC+10), 9:03am
-# under daylight saving. The odd minute avoids GitHub's top-of-hour cron
-# congestion.
+# 20:00 UTC (7am in Sydney under daylight saving, 6am in winter), an hour
+# after the guardian details reminders. The backend runs these itself once
+# SCHEDULER_ENABLED is set (apps.management.scheduler), at the same time.
 on:
   schedule:
-    - cron: "3 22 * * *"
+    - cron: "0 20 * * *"
   workflow_dispatch:
 
 jobs:
