@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import ProfilePage from '@/views/ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import { formatDayMonthTime } from '@/utils/date'
 
 vi.mock('@/utils/csrf', () => ({
@@ -158,6 +161,162 @@ describe('Student profile', () => {
       `Last emailed ${formatDayMonthTime('2026-09-14T03:00:00Z')}. They'll be emailed again tomorrow.`
     )
     expect(wrapper.text()).not.toContain('Last reminder email sent')
+    wrapper.unmount()
+  })
+})
+
+describe('Supervisor profile: every group they are in (SP1)', () => {
+  // The supervisor's own groups (?mine=true), as the server sends them.
+  let myGroups: Response | Promise<Response>
+  const fetchMock = vi.fn()
+  // The group list the store loads (the student Team members request, made on
+  // every profile, asks for page_size=1 and is left as it was).
+  const groupsRequests = () =>
+    fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('page_size=100&mine=true'))
+  const page = (...groups: [number, string][]) =>
+    new Response(JSON.stringify({ results: groups.map(([id, group_name]) => ({ id, group_name })), next: null }))
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = {
+      id: 7, email: 'sam@example.org', first_name: 'Sam', last_name: 'Lee',
+      current_role_name: 'supervisor', supervisor_school_name: 'Cardinal College', supervised_students: [],
+    } as never
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+    // Group pages open to supervisors, so each group is a link (following one
+    // through the app's router: ProfilePageGroupLinks.spec.ts).
+    setSupervisorPages({ shown: true })
+    myGroups = page()
+    fetchMock.mockReset()
+    fetchMock.mockImplementation(async (input: string) => {
+      if (input.includes('mine=true') && input.includes('page_size=100')) return myGroups
+      // The student Team members request, which has nothing for a supervisor.
+      return new Response(JSON.stringify({ results: [] }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  const mountProfile = async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/profile', name: 'profile', component: { template: '<div />' } },
+        { path: '/groups/:id', name: 'group-detail', component: { template: '<div />' } },
+      ],
+    })
+    await router.push('/profile')
+    const wrapper = mount(ProfilePage, { global: { plugins: [router] } })
+    await flushPromises()
+    return wrapper
+  }
+  const section = (wrapper: Awaited<ReturnType<typeof mountProfile>>) => wrapper.find('[data-test="supervisor-groups"]')
+  const links = (wrapper: Awaited<ReturnType<typeof mountProfile>>) =>
+    section(wrapper).findAll('a').map((link) => [link.text(), link.attributes('href')])
+
+  it('lists every group, each linking to its own group page, in natural order', async () => {
+    myGroups = page([10, 'BTF10'], [5, 'BTF5'], [9, 'BTF9'])
+    const wrapper = await mountProfile()
+
+    expect(links(wrapper)).toEqual([['BTF5', '/groups/5'], ['BTF9', '/groups/9'], ['BTF10', '/groups/10']])
+    expect(groupsRequests()).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('shows a supervisor with one group exactly that group', async () => {
+    myGroups = page([3, 'BTF3'])
+    const wrapper = await mountProfile()
+
+    expect(links(wrapper)).toEqual([['BTF3', '/groups/3']])
+    wrapper.unmount()
+  })
+
+  it('says so when they are in no groups', async () => {
+    const wrapper = await mountProfile()
+
+    expect(section(wrapper).text()).toContain('You are not in any groups yet.')
+    expect(section(wrapper).find('a').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows loading until the groups arrive', async () => {
+    let answer!: (response: Response) => void
+    myGroups = new Promise((resolve) => { answer = resolve })
+    const wrapper = await mountProfile()
+    expect(section(wrapper).text()).toContain('Loading your groups')
+    expect(section(wrapper).text()).not.toContain('not in any groups')
+
+    answer(page([4, 'BTF4']))
+    await flushPromises()
+    expect(links(wrapper)).toEqual([['BTF4', '/groups/4']])
+    wrapper.unmount()
+  })
+
+  it('says the groups could not be loaded, rather than that there are none', async () => {
+    myGroups = new Response(JSON.stringify({ error: 'Server error', code: 'x', request_id: 'r' }), { status: 500 })
+    const wrapper = await mountProfile()
+
+    expect(section(wrapper).text()).toContain('Your groups could not be loaded.')
+    expect(section(wrapper).text()).not.toContain('not in any groups')
+    expect(section(wrapper).find('a').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reuses groups already loaded this session', async () => {
+    const groups = useGroupsStore()
+    groups.groups = [
+      { id: '12', name: 'BTF12', memberCount: 4, createdAt: '' },
+      { id: '2', name: 'BTF2', memberCount: 3, createdAt: '' },
+    ]
+    groups.loaded = true
+    const wrapper = await mountProfile()
+
+    expect(links(wrapper)).toEqual([['BTF2', '/groups/2'], ['BTF12', '/groups/12']])
+    expect(groupsRequests()).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('loads them once the profile turns out to be a supervisor', async () => {
+    const auth = useAuthStore()
+    const supervisor = auth.user
+    auth.user = null
+    myGroups = page([6, 'BTF6'])
+    const wrapper = await mountProfile()
+    expect(groupsRequests()).toEqual([])
+
+    auth.user = supervisor
+    await flushPromises()
+    expect(links(wrapper)).toEqual([['BTF6', '/groups/6']])
+    wrapper.unmount()
+  })
+
+  it('gives a supervisor no student Team members section', async () => {
+    myGroups = page([5, 'BTF5'])
+    const wrapper = await mountProfile()
+
+    expect(wrapper.text()).not.toContain('Team members')
+    expect(wrapper.find('.team-table').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+describe('Groups on other profiles', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it.each(['student', 'mentor'])('a %s gets no Groups section and no group list request', async (role) => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = { id: 8, email: 'x@example.org', first_name: 'Ana', last_name: 'Ruiz', current_role_name: role } as never
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+    const fetchMock = vi.fn<(input: string) => Promise<Response>>(async () => new Response(JSON.stringify({ results: [] })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="supervisor-groups"]').exists()).toBe(false)
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('page_size=100'))).toEqual([])
     wrapper.unmount()
   })
 })
