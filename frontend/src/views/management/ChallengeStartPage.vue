@@ -1,7 +1,6 @@
 <template>
-  <!-- Management > Challenge Start: when this year's challenge starts, then what
-       students, mentors and supervisors see (Pages Visibility) and when each
-       resource is released (Release Resources), set as the challenge begins. -->
+  <!-- Management > Challenge Start: when this year's challenge starts, then when
+       each resource is released (Release Resources), set as the challenge begins. -->
   <div class="challenge-start-page">
     <section class="card challenge-start">
       <!-- Headed as a Management page's first card is. -->
@@ -55,7 +54,6 @@
         <p v-if="error" class="challenge-start__error" role="alert">{{ error }}</p>
       </template>
     </section>
-    <SupervisorPagesPage />
     <ReleaseResourcesPage />
   </div>
 </template>
@@ -74,7 +72,6 @@ import {
 } from '@/utils/date'
 import { fetchChallengeStart, saveChallengeStart, type ChallengeStart } from '@/utils/managementAPI'
 import ReleaseResourcesPage from './ReleaseResourcesPage.vue'
-import SupervisorPagesPage from './SupervisorPagesPage.vue'
 
 const isLoading = ref(true)
 const isSaving = ref(false)

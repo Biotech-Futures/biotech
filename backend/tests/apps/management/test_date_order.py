@@ -5,6 +5,7 @@ checked against."""
 from datetime import datetime, timezone as dt_timezone
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.management.models import ChallengeStart
@@ -18,7 +19,9 @@ REGISTRATION = "/api/v1/registration-management/"
 
 
 def at(month, day, hour=0):
-    return datetime(2026, month, day, hour, tzinfo=dt_timezone.utc)
+    # This year's, whatever the clock says: Registration Dates are the
+    # calendar year's, so a fixed year stops lining up once the year moves on.
+    return datetime(timezone.now().year, month, day, hour, tzinfo=dt_timezone.utc)
 
 
 class DateOrderTests(TestCase):
@@ -49,10 +52,10 @@ class DateOrderTests(TestCase):
         for too_early in (at(1, 15), at(2, 1)):
             response = self.put_start(too_early)
             self.assertEqual(response.status_code, 400)
-            self.assertIn("Challenge Start must be later than Registration Opens (01/02/2026 at 00:00).", str(response.json()))
+            self.assertIn(f"Challenge Start must be later than Registration Opens (01/02/{self.year} at 00:00).", str(response.json()))
         response = self.put_start(at(10, 1))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("earlier than the Submission Deadline (01/10/2026 at 00:00)", str(response.json()))
+        self.assertIn(f"earlier than the Submission Deadline (01/10/{self.year} at 00:00)", str(response.json()))
         self.assertEqual(self.put_start(at(4, 1)).status_code, 200)
         # Clearing it is always fine.
         self.assertEqual(self.put_start(None).status_code, 200)
@@ -61,22 +64,22 @@ class DateOrderTests(TestCase):
         ChallengeStart.objects.update_or_create(year=self.year, defaults={"starts_at": at(4, 1)})
         response = self.post_deadline(at(4, 1))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("must be later than Challenge Start (01/04/2026 at 00:00)", str(response.json()))
+        self.assertIn(f"must be later than Challenge Start (01/04/{self.year} at 00:00)", str(response.json()))
         # With no challenge start, registration's close still counts.
         ChallengeStart.objects.filter(year=self.year).update(starts_at=None)
         response = self.post_deadline(at(2, 20))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("must be later than Registration Closes (01/03/2026 at 00:00)", str(response.json()))
+        self.assertIn(f"must be later than Registration Closes (01/03/{self.year} at 00:00)", str(response.json()))
         self.assertEqual(self.post_deadline(at(9, 1)).status_code, 200)
 
     def test_registration_opens_before_the_challenge_and_closes_before_the_deadline(self):
         ChallengeStart.objects.update_or_create(year=self.year, defaults={"starts_at": at(4, 1)})
         response = self.post_window(opens_at=at(4, 2), closes_at=at(5, 1))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Registration Opens must be earlier than Challenge Start (01/04/2026 at 00:00).", str(response.json()))
+        self.assertIn(f"Registration Opens must be earlier than Challenge Start (01/04/{self.year} at 00:00).", str(response.json()))
         response = self.post_window(closes_at=at(10, 2))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Registration Closes must be earlier than the Submission Deadline (01/10/2026 at 00:00).", str(response.json()))
+        self.assertIn(f"Registration Closes must be earlier than the Submission Deadline (01/10/{self.year} at 00:00).", str(response.json()))
         self.assertEqual(self.post_window(opens_at=at(1, 1), closes_at=at(9, 1)).status_code, 200)
 
     def test_dates_not_set_are_not_checked_against(self):

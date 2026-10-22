@@ -134,7 +134,7 @@ const steps: { title: string; steps: string[] }[] = [
     title: 'Management',
     steps: [
       'Resets the sent progress of every email.',
-      'Clears these dates: Registration Start and End, Challenge Start, Pages Visibility, Submission Deadline, Symposium (with Confirm Attendance and Slides Due) and Results (Survey Closes).',
+      'Clears these dates: Registration Start and End, Challenge Start, Submission Deadline, Symposium (with Confirm Attendance and Slides Due) and Results (Survey Closes).',
       "Archives late registration links, extensions, slot allocations, marks and certificates. Resets each supervisor's late registration permission and resource visibility.",
       'Clears the Symposium registration link and the feedback survey link.'
     ]
