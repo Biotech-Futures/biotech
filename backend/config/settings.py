@@ -265,6 +265,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    # First, so Azure's Always On calls are noted before anything redirects them.
+    "apps.services.always_on.AlwaysOnPingMiddleware",
+    # Starts this process's timer for the timed jobs, when SCHEDULER_ENABLED.
+    "apps.management.scheduler.SchedulerStartMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # GZip must sit above middleware that touches response content.
     "django.middleware.gzip.GZipMiddleware",
@@ -791,6 +795,10 @@ QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, 
 # QuickEmailVerification answered as not existing (the user can confirm past
 # it). Off unless set.
 EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
+
+# The backend runs its timed jobs itself (apps.management.scheduler) instead
+# of waiting for GitHub's schedules. Off unless set; needs Always On.
+SCHEDULER_ENABLED = config("SCHEDULER_ENABLED", default="false", cast=env_bool)
 
 # Limits on checking addresses before a registration is submitted: addresses
 # in one request (fewer for anyone not signed in), new lookups one IP address

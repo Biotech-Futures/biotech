@@ -580,3 +580,22 @@ class NonSubmissionEmail(models.Model):
 
     def __str__(self):
         return f"Non-submission emailed: {self.group}"
+
+
+class ScheduledJobRun(models.Model):
+    """One timed job the backend runs itself (apps.management.scheduler): the
+    slot it last ran for, so only one process runs each slot, and how its
+    last run went, for Management > Email Checks."""
+
+    name = models.CharField(max_length=64, unique=True)
+    last_slot = models.DateTimeField(null=True, blank=True)
+    last_started_at = models.DateTimeField(null=True, blank=True)
+    last_finished_at = models.DateTimeField(null=True, blank=True)
+    last_ok = models.BooleanField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        db_table = "scheduled_job_run"
+
+    def __str__(self):
+        return f"Scheduled job {self.name}"

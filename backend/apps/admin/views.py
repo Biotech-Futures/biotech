@@ -1881,6 +1881,30 @@ class SystemEmailMailApiView(APIView):
         return Response(get_mail_api_state())
 
 
+class ScheduledJobsView(APIView):
+    """GET /api/v1/admin/scheduled-jobs/ — the timed jobs the backend runs
+    itself, and each one's last run (see ``management.scheduler``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.services.system_email import get_scheduled_jobs
+
+        return Response(get_scheduled_jobs())
+
+
+class SystemEmailAlwaysOnView(APIView):
+    """GET /api/v1/admin/email-settings/always-on/ — whether Azure's Always On
+    is keeping the backend awake (see ``services.always_on``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.services.system_email import get_always_on_state
+
+        return Response(get_always_on_state())
+
+
 class SystemEmailResendView(APIView):
     """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
     email again to the people it missed, queued to send in its turn (202),

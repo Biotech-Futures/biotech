@@ -578,6 +578,20 @@ def get_mail_api_state() -> dict:
     return {"msg": "Mail API state retrieved", "data": mail_api_state()}
 
 
+def get_scheduled_jobs() -> dict:
+    """The timed jobs the backend runs itself and how each last went, for Email Checks."""
+    from apps.management.scheduler import job_states
+
+    return {"msg": "Scheduled jobs retrieved", "data": job_states()}
+
+
+def get_always_on_state() -> dict:
+    """Whether Azure's Always On is keeping the backend awake, for the top of System Emails."""
+    from apps.services.always_on import always_on_state
+
+    return {"msg": "Always On state retrieved", "data": always_on_state()}
+
+
 def get_unseen_failures() -> dict:
     """The count on the Failed Sending Emails button."""
     return {"msg": "Unseen failed emails counted", "data": {"unseen": unseen_failures()}}

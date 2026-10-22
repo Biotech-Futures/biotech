@@ -19,6 +19,8 @@ import {
   systemEmailUnseenSchema,
   systemEmailMailApiSchema,
   type SystemEmailMailApi,
+  systemEmailAlwaysOnSchema,
+  type SystemEmailAlwaysOn,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -585,6 +587,28 @@ export interface EmailCheckKey {
   exhaustedAt: string | null
   retryAt: string | null
 }
+
+/** A timed job the backend runs itself, and how its last run went. */
+export interface ScheduledJob {
+  name: string
+  label: string
+  /** How often, in minutes (1440 daily), and when in each period, in minutes past its start (UTC). */
+  every: number
+  at: number
+  lastStartedAt: string | null
+  lastFinishedAt: string | null
+  ok: boolean | null
+  error: string
+}
+
+export interface ScheduledJobs {
+  /** Whether the backend's timer is switched on (SCHEDULER_ENABLED). */
+  enabled: boolean
+  jobs: ScheduledJob[]
+}
+
+export const fetchScheduledJobs = () =>
+  adminGet<AdminEnvelope<ScheduledJobs>>('/scheduled-jobs/').then((env) => env.data)
 
 export interface EmailCheckCredits {
   free: EmailCheckKey
@@ -1751,6 +1775,12 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 /** Seen by every admin from now on; returns the count left, normally 0. */
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether Azure's Always On is keeping the backend awake, for the top of System Emails. */
+export const fetchSystemEmailAlwaysOn = (): Promise<SystemEmailAlwaysOn> =>
+  adminGet<AdminEnvelope<unknown>>('/email-settings/always-on/').then((env) =>
+    systemEmailAlwaysOnSchema.parse(env.data)
+  )
 
 /** Whether bounced emails can be checked, for the top of the Log. */
 export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>

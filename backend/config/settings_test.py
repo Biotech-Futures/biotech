@@ -66,6 +66,7 @@ QEV_API_KEY = "test-dummy-key"
 QEV_PAID_API_KEY = "test-dummy-paid-key"
 # Off whatever the environment says; the tests that need it turn it on.
 EMAIL_PRECHECK_ENABLED = False
+SCHEDULER_ENABLED = False
 EMAIL_CHECK_ON_EDIT = False
 EMAIL_VERIFICATION_DISPATCH_SYNC = True
 
