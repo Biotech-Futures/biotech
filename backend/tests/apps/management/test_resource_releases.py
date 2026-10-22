@@ -103,7 +103,10 @@ class ResourceReleaseTests(TestCase):
             released_at=datetime(last_year, 2, 12, tzinfo=SYDNEY),
         )
         self.make("Attachment", kind=Resources.ResourceKind.ATTACHMENT)
-        self.make("Gone", deleted_at=timezone.now())
+        # Uploaded before it's deleted (a resource can't be deleted first),
+        # whatever the clock's resolution.
+        now = timezone.now()
+        self.make("Gone", uploaded_at=now - timedelta(days=1), deleted_at=now)
         self.make("Brainstorm guide")
         rows = self.admin_client.get(LIST_URL).json()["resources"]
         self.assertEqual([row["name"] for row in rows], ["Brainstorm guide", "Ethics primer"])
