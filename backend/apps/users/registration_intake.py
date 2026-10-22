@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from urllib.parse import quote
 
 from django.conf import settings
@@ -417,6 +417,12 @@ def current_window(*, lock=False):
     return window
 
 
+def registration_end(window):
+    """When this year's registration ends: its closing date, or with none set,
+    the end of its year (when the next year's registration begins)."""
+    return window.closes_at or datetime(window.year + 1, 1, 1, tzinfo=dt_timezone.utc)
+
+
 def registers_after_close(user) -> bool:
     """Whether ``user`` can register students while registration is closed by
     its dates: an admin, or a supervisor an admin has let (Management >
@@ -565,6 +571,16 @@ def student_count(group):
     ).count()
 
 
+def place_when_formed(group):
+    """A student group goes onto the Groups board by itself (as My Groups'
+    Create all groups puts one there) once two of its students have
+    registered. One student on their own waits in the Waiting Area for a
+    teammate to join with the code."""
+    if group.placed_at is None and student_count(group) >= 2:
+        group.placed_at = timezone.now()
+        group.save(update_fields=["placed_at"])
+
+
 def save_group(users, payload, actor, *, joining=None):
     # A student joining a group (``joining``, from joinable_group) is a member
     # of it at once.
@@ -574,6 +590,7 @@ def save_group(users, payload, actor, *, joining=None):
                 group=joining, user=user, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
             ) for user in users
         ])
+        place_when_formed(joining)
         sync_supervisor_memberships_for_student(users[0].pk)
         log_audit_event(
             actor=actor, entity_type="group", entity_id=joining.pk, action="registration_join",
@@ -605,6 +622,8 @@ def save_group(users, payload, actor, *, joining=None):
             interest_desc__iexact=description, defaults={"interest_desc": description},
         )
         GroupInterest.objects.get_or_create(group=group, interest=interest)
+    if group.formed_by == Groups.FormedBy.MEMBERS:
+        place_when_formed(group)
     sync_supervisor_memberships_for_student(users[0].pk)
     log_audit_event(
         actor=actor, entity_type="group", entity_id=group.pk, action="registration",
@@ -830,7 +849,7 @@ def register(request):
                 if journey in SUPERVISOR_JOURNEYS and supervisor.get("admin") else None
             )
             transaction.on_commit(lambda: send_registration_emails(
-                journey, users, supervisor=registering, admin_for=admin_for,
+                journey, users, supervisor=registering, admin_for=admin_for, group=group,
             ))
             # Each guardian named is sent the consent form ("Approval required")
             # as soon as it's saved, not at the next daily run.
@@ -899,7 +918,8 @@ class RegistrationGroupCodeView(APIView):
 
     def post(self, request):
         try:
-            held = GroupCodeReservation.hold_new()
+            # Held until registration ends, so the code shared stays the group's.
+            held = GroupCodeReservation.hold_new(until=registration_end(current_window()))
         except GroupCodeUnavailable as exc:
             raise RegistrationConflict(str(exc)) from exc
         return Response(
@@ -1036,6 +1056,11 @@ class RegistrationManagementView(APIView):
                 serializer = WindowInput(window, data=request.data, partial=True)
                 serializer.is_valid(raise_exception=True)
                 serializer.save(updated_by=request.user, updated_at=timezone.now())
+                # Codes held for student groups last until registration ends,
+                # so they move with its end.
+                GroupCodeReservation.objects.filter(expires_at__gt=timezone.now()).update(
+                    expires_at=registration_end(serializer.instance),
+                )
                 return Response({"window": serializer.data})
             if action == "invite":
                 try:

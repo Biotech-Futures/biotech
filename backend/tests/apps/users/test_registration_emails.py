@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.groups.models import Groups
 from apps.services.system_email import render_system_email
 from apps.submissions.services import current_cohort
 from tests.apps.users.test_registration_multi_student import MultiStudentSetup, batch
@@ -36,6 +37,10 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
             [(call.args[0], call.args[1], call.args[2]["First_Name"]) for call in send.call_args_list],
             [("registration_group", student["email"], student["firstName"]) for student in students],
         )
+        # Each with the group's code, to share with teammates still to register.
+        code = Groups.objects.get().code
+        self.assertTrue(code)
+        self.assertEqual({call.args[2]["GROUP_CODE"] for call in send.call_args_list}, {code})
 
     def test_a_student_joining_a_group_by_its_code_gets_it_too(self):
         response = self.post_batch(batch("student_team"))
@@ -46,6 +51,7 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
         joiner = body["payload"]["students"][0]
         send.assert_called_once()
         self.assertEqual(send.call_args.args[:2], ("registration_group", joiner["email"]))
+        self.assertEqual(send.call_args.args[2]["GROUP_CODE"], response.data["group_code"])
 
     def test_nothing_for_a_registration_that_fails(self):
         body = batch("student_individual")
@@ -122,6 +128,16 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
         self.assertEqual(rendered.subject, "BIOTech Futures: Registration")
         for text in ("Hi Ben,", "registration was successful", "the 2026 BIOTech Futures Challenge as a team."):
             self.assertIn(text, rendered.html)
+        self.assertNotIn("Your group code is", rendered.html)
+
+    def test_the_group_one_gives_the_groups_code(self):
+        rendered = render_system_email(
+            "registration_group", {"First_Name": "Ben", "YEAR": "2026", "GROUP_CODE": "482913"},
+        )
+        html = " ".join(rendered.html.split())
+        self.assertIn("Your group code is <strong", html)
+        self.assertIn("482913</strong>", html)
+        self.assertIn("It works until registration closes.", html)
 
     def test_the_supervisor_one_reads_as_the_clients_email_with_my_students(self):
         rendered = render_system_email(

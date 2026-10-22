@@ -367,7 +367,7 @@
             <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
               <div class="section-divider section-divider--first">
                 <h3>Supervisor</h3>
-                <p>If the students have a supervisor, search for them by email.</p>
+                <p>A supervisor is usually a teacher, but can also be a guardian.</p>
               </div>
               <SupervisorSearchField
                 id="admin-supervisor-email"
@@ -406,7 +406,7 @@
               <div v-else-if="currentStep === 2" class="step-stack">
                 <div class="section-divider section-divider--first">
                   <h3>Supervisor</h3>
-                  <p>If you have a supervisor, fill in their details.</p>
+                  <p>A supervisor is usually a teacher, but can also be a guardian.</p>
                 </div>
                 <div class="field-grid">
                   <RegistrationTextField
@@ -517,7 +517,7 @@
                   <!-- The group's supervisor, on a line below its code. -->
                   <div class="section-divider">
                     <h3>Supervisor</h3>
-                    <p>If you have a supervisor, fill in their details.</p>
+                    <p>A supervisor is usually a teacher, but can also be a guardian.</p>
                   </div>
                   <div class="field-grid">
                     <RegistrationTextField
@@ -1534,12 +1534,13 @@ const CAPACITY_OPTIONS: AppSelectOption[] = ['1', '2', '3', '4', '5'].map((count
   label: `${count} ${count === '1' ? 'group' : 'groups'}`,
 }))
 
+// The same backgrounds, in the same words, as everywhere a mentor's are shown.
 const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
-  { value: 'undergraduate', label: 'Undergraduate student' },
-  { value: 'postgraduate', label: 'Postgraduate coursework student' },
-  { value: 'hdr', label: 'HDR / research student' },
-  { value: 'academic', label: 'Academic / research staff' },
-  { value: 'industry', label: 'Industry professional' },
+  { value: 'academic', label: 'Academic' },
+  { value: 'industry', label: 'Industry' },
+  { value: 'undergraduate', label: 'University Student – Undergraduate' },
+  { value: 'postgraduate', label: 'University Student – Postgraduate' },
+  { value: 'hdr', label: 'University Student – HDR' },
 ]
 
 const props = withDefaults(
@@ -1929,7 +1930,7 @@ const studentPathwayOptions: { value: RegistrationJourney; title: string; descri
   {
     value: 'student_individual',
     title: "I don't have a group",
-    description: 'Register on your own.',
+    description: 'Register on your own. You will be matched with a group when the challenge starts.',
   },
 ]
 const pathwayHeading = computed(() =>

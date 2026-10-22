@@ -26,7 +26,6 @@ export const PRONOUN_OPTIONS = [
   'She/her',
   'He/him',
   'They/them',
-  'Prefer not to say',
   'Other',
 ] as const
 

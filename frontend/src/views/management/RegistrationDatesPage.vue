@@ -42,22 +42,22 @@
       <form class="registration-dates__form" @submit.prevent="save">
         <label class="registration-dates__field">
           <span>Opens</span>
-          <input
+          <AppDateTimePicker
+            v-model="opensLocal"
             class="app-input app-input--compact"
-            :value="opensLocal"
-            type="datetime-local"
             data-test="registration-opens"
-            @input="opensLocal = withDefaultTime(opensLocal, ($event.target as HTMLInputElement).value)"
+            default-time="23:59"
+            clearable
           />
         </label>
         <label class="registration-dates__field">
           <span>Closes</span>
-          <input
+          <AppDateTimePicker
+            v-model="closesLocal"
             class="app-input app-input--compact"
-            :value="closesLocal"
-            type="datetime-local"
             data-test="registration-closes"
-            @input="closesLocal = withDefaultTime(closesLocal, ($event.target as HTMLInputElement).value)"
+            default-time="23:59"
+            clearable
           />
         </label>
         <div class="registration-dates__actions">
@@ -80,6 +80,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
 
 import { loadRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -108,11 +109,6 @@ const toLocalInput = (value: string | null) => {
   const date = new Date(value)
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
-
-// A date picked into an empty field is at 23:59, not the time it was picked
-// at (as the browser fills in); a time chosen after that stays.
-const withDefaultTime = (before: string, picked: string) =>
-  !before && picked ? `${picked.slice(0, 10)}T23:59` : picked
 
 // datetime-local is timezone-less: Date() reads it as local time, and
 // toISOString() gives the instant the server keeps.
@@ -231,14 +227,9 @@ onMounted(async () => {
 }
 
 /* The shared compact box (app-input), at its own width. */
-.registration-dates__field input {
+.registration-dates__field .app-input {
   width: auto;
   max-width: none;
-}
-
-.registration-dates__field input:focus {
-  outline: none;
-  border-color: var(--dark-green);
 }
 
 .registration-dates__actions {

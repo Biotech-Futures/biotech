@@ -109,6 +109,8 @@
               class="app-input"
               :model-value="student.pronouns"
               :options="PRONOUN_SELECT_OPTIONS"
+              placeholder="Select pronouns"
+              clearable
               @update:model-value="(value) => (student.pronouns = String(value ?? ''))"
             />
           </label>
@@ -203,11 +205,11 @@ import RegistrationInterestSelector from '@/components/registration/Registration
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import {
   isAustralia,
-  PRONOUN_OPTIONS,
   stateLabel,
   type StudentDetails,
 } from '@/registration/registration'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
+import { PRONOUN_SELECT_OPTIONS } from '@/utils/pronouns'
 
 const props = withDefaults(
   defineProps<{
@@ -244,11 +246,6 @@ const YEAR_LEVEL_OPTIONS: AppSelectOption[] = ['9', '10', '11', '12'].map((year)
   value: year,
   label: `Year ${year}`,
 }))
-// "Select pronouns" first, a choice of its own that leaves them unsaid.
-const PRONOUN_SELECT_OPTIONS: AppSelectOption[] = [
-  { value: '', label: 'Select pronouns' },
-  ...PRONOUN_OPTIONS.map((pronoun) => ({ value: pronoun, label: pronoun })),
-]
 // The countries, and in Australia its states, from the database, for dropdowns.
 const countryOptions = useCountryOptions()
 const stateOptions = useStateOptions(() => student.value.country)

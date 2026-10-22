@@ -188,6 +188,8 @@
               class="student-sheet__input app-input"
               data-test="student-sheet-pronouns"
               :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
               :searchable="false"
             />
           </label>
@@ -327,7 +329,7 @@ import FormSheet from '@/components/admin/FormSheet.vue'
 import { useFlashMessage } from '@/composables/useFlashMessage'
 import { formatShortDateTime } from '@/utils/date'
 import { DEFAULT_GROUP_INTERESTS } from '@/utils/supervisedGroups'
-import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
 import {
   fetchStudentEditOptions,

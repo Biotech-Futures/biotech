@@ -147,6 +147,8 @@
               v-model="form.pronounsChoice"
               class="form-input app-input"
               :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
               :searchable="false"
             />
           </div>
@@ -252,6 +254,8 @@
               v-model="form.pronounsChoice"
               class="form-input app-input"
               :options="PRONOUN_SELECT_OPTIONS"
+              :placeholder="PRONOUN_PLACEHOLDER"
+              clearable
               :searchable="false"
             />
           </div>
@@ -529,7 +533,7 @@ import {
   wordCount,
   type MentorSlot
 } from '@/utils/mentorForm'
-import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import { formatFullDate, roleLabel, userName } from '@/utils/userFormat'
 import { INTEREST_OPTIONS, USER_ROLES, type UserRole } from '@/utils/userOptions'

@@ -159,6 +159,7 @@ EMAIL_TYPES = (
         merge_tags=(
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            MergeTag("group_code", "The group's code, for teammates to join", "482913", "GROUP_CODE"),
             *_BRAND_TAGS,
         ),
     ),

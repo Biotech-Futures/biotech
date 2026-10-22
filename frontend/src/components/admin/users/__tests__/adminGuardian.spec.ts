@@ -195,7 +195,7 @@ describe('admin user form: adding a user', () => {
     expect(wrapper.find('#f-mfield').exists()).toBe(false)
 
     // A university student gives their year and field of study.
-    await pickAppSelect(wrapper, '#f-mbg', 'University Student - Postgraduate')
+    await pickAppSelect(wrapper, '#f-mbg', 'University Student – Postgraduate')
     await wrapper.find('#f-minst').setValue('Uni')
     await pickAppSelect(wrapper, '#f-myear', 'Year 2')
     await wrapper.find('#f-mfield').setValue('Biology')
@@ -1230,12 +1230,12 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(rows.slice(0, 3)).toEqual(['Name', 'Pronouns', 'Background'])
     expect(wrapper.find('[data-test="admin-mentor-pronouns"] dd').text()).toBe('She/her')
     // Its year of study shows, as for anyone at university.
-    expect(wrapper.find('[data-test="admin-mentor-background-label"]').text()).toBe('University Student - Undergraduate')
+    expect(wrapper.find('[data-test="admin-mentor-background-label"]').text()).toBe('University Student – Undergraduate')
     expect(rows).toContain('Year of study')
 
     // Edit picks the list's choice, so saving stores it.
     await wrapper.find('[data-test="admin-edit-mentor-details"]').trigger('click')
-    expect(appSelectText(wrapper, '#admin-mentor-background')).toBe('University Student - Undergraduate')
+    expect(appSelectText(wrapper, '#admin-mentor-background')).toBe('University Student – Undergraduate')
   })
 
   it('shows Account, Groups, Mentor Details and Application Form, each with Edit, and nothing at the bottom', () => {
@@ -1260,7 +1260,7 @@ describe('admin user detail: a mentor edited part by part', () => {
 
     expect(wrapper.find('[data-test="admin-mentor-group-names"]').text()).toBe('BTF2, BTF10')
     const details = wrapper.find('[data-test="admin-mentor-details"]').text()
-    for (const text of ['University Student - Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
+    for (const text of ['University Student – Postgraduate', 'Uni of Sydney', 'Year 2', 'Biology', 'Structural Biology', '3 groups']) {
       expect(details).toContain(text)
     }
     expect(details).not.toContain('Company')

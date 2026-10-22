@@ -139,7 +139,7 @@
           <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
             <label>First name<input v-model.trim="nameDraft.first_name" class="app-input" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="nameDraft.last_name" class="app-input" required maxlength="255" /></label>
-            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="supervisor-pronouns-select" /></label>
+            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="supervisor-pronouns-select" /></label>
             <label v-if="supervisorPronouns.choice === 'Other'">Your pronouns<input v-model="supervisorPronouns.other" class="app-input" maxlength="100" data-test="supervisor-pronouns-other" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
@@ -222,7 +222,7 @@
             <label>School<input v-model.trim="studentDraft.school_name" class="app-input" required maxlength="255" /></label>
             <label>Year level<AppSelect v-model="studentDraft.year_lvl" class="app-input" :options="YEAR_LEVEL_OPTIONS" required /></label>
             <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
-            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" data-test="student-pronouns-select" /></label>
+            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="student-pronouns-select" /></label>
             <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" class="app-input" maxlength="100" data-test="student-pronouns-other" /></label>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
             <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save' }}</button></div>
@@ -487,7 +487,7 @@
             <form v-if="mentorDetailsEditing" class="student-edit-form" data-test="mentor-details-form" @submit.prevent="saveMentorDetails">
               <label>First name<input v-model.trim="mentorDraft.firstName" class="app-input" maxlength="150" data-test="mentor-first-name" /></label>
               <label>Last name<input v-model.trim="mentorDraft.lastName" class="app-input" maxlength="150" data-test="mentor-last-name" /></label>
-              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="mentor-pronouns" /></label>
+              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="mentor-pronouns" /></label>
               <label v-if="mentorPronouns.choice === 'Other'">Your pronouns<input v-model="mentorPronouns.other" class="app-input" maxlength="100" /></label>
               <label>Background<AppSelect v-model="mentorDraft.background" class="app-input" :options="mentorBackgroundOptions" :searchable="false" placeholder="Choose a background" data-test="mentor-background" /></label>
               <label v-if="mentorDraft.background === 'industry'">Company<input v-model.trim="mentorDraft.company" class="app-input" maxlength="255" data-test="mentor-company" /></label>
@@ -634,7 +634,7 @@
           <form v-if="adminDetailsEditing" class="student-edit-form" data-test="admin-details-form" @submit.prevent="saveAdminDetails">
             <label>First name<input v-model.trim="adminDraft.firstName" class="app-input" required maxlength="150" data-test="admin-first-name" /></label>
             <label>Last name<input v-model.trim="adminDraft.lastName" class="app-input" required maxlength="150" data-test="admin-last-name" /></label>
-            <label>Pronouns<AppSelect v-model="adminPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="admin-pronouns" /></label>
+            <label>Pronouns<AppSelect v-model="adminPronouns.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="admin-pronouns" /></label>
             <label v-if="adminPronouns.choice === 'Other'">Your pronouns<input v-model="adminPronouns.other" class="app-input" maxlength="100" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="adminDetailsEditing = false">Cancel</button>
@@ -667,7 +667,7 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import AppSelect from '@/components/AppSelect.vue'
-import { PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import {
   HOUR_OPTIONS,
   MAX_SLOTS,

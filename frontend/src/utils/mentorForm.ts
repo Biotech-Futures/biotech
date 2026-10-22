@@ -5,11 +5,11 @@ import type { Directive } from 'vue'
 import type { AppSelectOption } from '@/components/AppSelect.vue'
 
 export const MENTOR_BACKGROUNDS: AppSelectOption[] = [
-  { value: 'undergraduate', label: 'University Student - Undergraduate' },
-  { value: 'postgraduate', label: 'University Student - Postgraduate' },
-  { value: 'hdr', label: 'University Student - HDR' },
-  { value: 'academic', label: 'Academic / research staff' },
-  { value: 'industry', label: 'Industry' }
+  { value: 'academic', label: 'Academic' },
+  { value: 'industry', label: 'Industry' },
+  { value: 'undergraduate', label: 'University Student – Undergraduate' },
+  { value: 'postgraduate', label: 'University Student – Postgraduate' },
+  { value: 'hdr', label: 'University Student – HDR' }
 ]
 export const STUDY_YEAR_OPTIONS: AppSelectOption[] = [
   { value: '1', label: 'Year 1' },

@@ -362,9 +362,10 @@ class GroupCodeReservation(models.Model):
     """A group code (numbers only, see ``new_group_code``) held for a student
     creating a group: shown while they register, so they can save it and
     share it with their teammates, and taken by the group once it's
-    registered (``Groups.create_with_code``). Held for ``HOLD``; an expired
-    hold counts for nothing."""
+    registered (``Groups.create_with_code``). Held until registration ends
+    (``hold_new``'s ``until``); an expired hold counts for nothing."""
 
+    # The least a code is held for, even when registration ends sooner.
     HOLD = timedelta(hours=24)
 
     code = models.CharField(max_length=12, unique=True)
@@ -380,17 +381,18 @@ class GroupCodeReservation(models.Model):
         return self.code
 
     @classmethod
-    def hold_new(cls) -> "GroupCodeReservation":
-        """Hold a new code for ``HOLD``. An expired hold of the same code is
-        let go first."""
+    def hold_new(cls, until=None) -> "GroupCodeReservation":
+        """Hold a new code until ``until`` (when registration ends), and for
+        ``HOLD`` at least. An expired hold of the same code is let go first."""
         now = timezone.now()
+        expires_at = max(until, now + cls.HOLD) if until else now + cls.HOLD
         for _ in range(5):
             code = new_group_code()
             try:
                 with transaction.atomic():
                     cls.objects.filter(code=code, expires_at__lte=now).delete()
                     return cls.objects.create(
-                        code=code, token=secrets.token_urlsafe(32), expires_at=now + cls.HOLD,
+                        code=code, token=secrets.token_urlsafe(32), expires_at=expires_at,
                     )
             except IntegrityError:
                 continue

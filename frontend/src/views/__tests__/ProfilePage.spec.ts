@@ -114,7 +114,7 @@ describe('Student profile', () => {
     expect(appSelectText(wrapper, '[data-test="student-pronouns-select"]')).toBe('Other')
     expect((wrapper.get('[data-test="student-pronouns-other"]').element as HTMLInputElement).value).toBe('Xe/xem')
     expect(await appSelectLabels(wrapper, '[data-test="student-pronouns-select"]')).toEqual([
-      'Not set', 'She/her', 'He/him', 'They/them', 'Prefer not to say', 'Other',
+      'She/her', 'He/him', 'They/them', 'Other',
     ])
 
     await pickAppSelect(wrapper, '[data-test="student-pronouns-select"]', 'They/them')
@@ -314,7 +314,7 @@ describe('Mentor profile', () => {
     await flushPromises()
     await wrapper.get('[data-test="mentor-details-edit"]').trigger('click')
     // An old typed background picks the list's choice it means.
-    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('University Student - Undergraduate')
+    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('University Student – Undergraduate')
 
     // Their name first, edited here too.
     expect((wrapper.get('[data-test="mentor-first-name"]').element as HTMLInputElement).value).toBe('Mia')
@@ -374,7 +374,7 @@ describe('Mentor profile', () => {
     const details = wrapper.get('[data-test="mentor-details"]').text()
     expect(wrapper.get('[data-test="mentor-name"]').text()).toContain('Mia Ng')
     // An old typed background, read as the list's choice: so its year shows.
-    expect(details).toContain('University Student - Undergraduate')
+    expect(details).toContain('University Student – Undergraduate')
     expect(details).toContain('Year 2')
     expect(details).toContain('2 groups')
     expect(details).toContain('4 hours')

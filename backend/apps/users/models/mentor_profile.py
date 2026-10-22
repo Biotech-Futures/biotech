@@ -4,11 +4,11 @@ from django.db.models import Q
 
 class MentorProfile(models.Model):
     class BackgroundChoices(models.TextChoices):
+        ACADEMIC = "academic", "Academic"
         INDUSTRY = "industry", "Industry"
-        UG = "undergraduate", "University Student - Undergraduate"
-        PG = "postgraduate", "University Student - Postgraduate"
-        HDR = "hdr", "University Student - HDR"
-        ACADEMIC = "academic", "Academic / research staff"
+        UG = "undergraduate", "University Student – Undergraduate"
+        PG = "postgraduate", "University Student – Postgraduate"
+        HDR = "hdr", "University Student – HDR"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     background = models.CharField(max_length=50, choices=BackgroundChoices.choices, blank=True, null=True)

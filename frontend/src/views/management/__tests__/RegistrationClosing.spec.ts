@@ -70,7 +70,7 @@ describe('Registration Dates', () => {
 
     expect(wrapper.get('[data-test="registration-dates-state"]').text()).toContain('Registration has closed')
     expect(wrapper.get('[data-test="registration-dates-set-by"]').text()).toMatch(/^Set by Test Admin on /)
-    expect((wrapper.get('[data-test="registration-closes"]').element as HTMLInputElement).value).not.toBe('')
+    expect(wrapper.get('[data-test="registration-closes"]').text()).not.toBe('Select date and time')
 
     await wrapper.findAll('button').find((button) => button.text() === 'Clear Dates')!.trigger('click')
     await flushPromises()

@@ -315,6 +315,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -598,6 +600,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-mentor-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -988,6 +992,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-supervisor-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -1117,6 +1123,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-admin-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -1228,7 +1236,7 @@ import {
   wordCount,
   type MentorSlot
 } from '@/utils/mentorForm'
-import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
 
 const props = withDefaults(

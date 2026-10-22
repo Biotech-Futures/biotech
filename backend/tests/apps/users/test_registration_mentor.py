@@ -96,7 +96,7 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         ind = MentorProfile.objects.get(user__email="ind@example.test")
         self.assertEqual((ind.background, ind.company, ind.institution, ind.field_of_study), ("industry", "Cochlear", "", ""))
         acad = MentorProfile.objects.get(user__email="acad@example.test")
-        self.assertEqual((acad.background, acad.get_background_display()), ("academic", "Academic / research staff"))
+        self.assertEqual((acad.background, acad.get_background_display()), ("academic", "Academic"))
 
     def test_what_the_form_asks_for_is_checked_again_here(self):
         long = " ".join(["word"] * 151)
