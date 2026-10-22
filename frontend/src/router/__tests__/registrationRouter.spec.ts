@@ -61,10 +61,13 @@ describe('registration in the current application router', () => {
         id: 1, email: `${role}@example.test`, first_name: 'Member',
         last_name: 'User', current_role_name: role,
       })
-      for (const path of ['/dashboard', '/groups', '/events', '/announcements', '/resources']) {
+      for (const path of ['/dashboard', '/events', '/announcements', '/resources']) {
         await router.push(path)
         expect(router.currentRoute.value.path).toBe(path)
       }
+      // Groups opens each role's own groups page (resolveGroupsLanding), never their profile.
+      await router.push('/groups')
+      expect(router.currentRoute.value.path).not.toBe('/profile')
     },
   )
 })
