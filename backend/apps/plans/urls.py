@@ -11,4 +11,9 @@ urlpatterns = [
         views.GroupPlanTaskListView.as_view(),
         name="group-plan-tasks",
     ),
+    path(
+        "groups/<int:group_id>/tasks/<int:task_id>/check/",
+        views.GroupPlanTaskCheckView.as_view(),
+        name="group-plan-task-check",
+    ),
 ]
