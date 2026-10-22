@@ -65,6 +65,13 @@ const router = createRouter({
       return { left: 0, top: 0 }
     }
 
+    // A resource's own page opens at its top, not as far down as the page
+    // it was opened from (Release Resources sits low on Challenge Start).
+    // The browser's back and forward still return to where they were.
+    if (to.name === 'resource-detail' && to.path !== from.path && !savedPosition) {
+      return { left: 0, top: 0 }
+    }
+
     return savedPosition ?? undefined
   },
 })

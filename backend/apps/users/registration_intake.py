@@ -296,6 +296,13 @@ class WindowInput(serializers.ModelSerializer):
         closes = data.get("closes_at", self.instance.closes_at)
         if opens and closes and opens >= closes:
             raise serializers.ValidationError({"closes_at": "Closing must be after opening."})
+        # Opening before the challenge starts, closing before submissions close.
+        from apps.management.services.date_order import registration_problems
+
+        request = self.context.get("request")
+        problems = registration_problems(opens, closes, self.instance.year, getattr(request, "user", None))
+        if problems:
+            raise serializers.ValidationError(problems)
         return data
 
 
@@ -1053,7 +1060,7 @@ class RegistrationManagementView(APIView):
         with transaction.atomic():
             window = current_window(lock=True)
             if action == "window":
-                serializer = WindowInput(window, data=request.data, partial=True)
+                serializer = WindowInput(window, data=request.data, partial=True, context={"request": request})
                 serializer.is_valid(raise_exception=True)
                 serializer.save(updated_by=request.user, updated_at=timezone.now())
                 # Codes held for student groups last until registration ends,

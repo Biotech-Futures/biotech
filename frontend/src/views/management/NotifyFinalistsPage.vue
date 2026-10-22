@@ -24,7 +24,7 @@
             />
           </label>
           <label class="notify-finalists__field notify-finalists__field--wide">
-            <span>Registration Link</span>
+            <span>Symposium Registration Link</span>
             <input v-model="form.registration_url" class="app-input app-input--compact" type="url" placeholder="https://…" />
           </label>
         </div>

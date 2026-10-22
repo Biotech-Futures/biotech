@@ -193,6 +193,7 @@ import {
 } from '../utils/resourcesAPI'
 import { ApiError } from '../utils/apiError'
 import { formatDayMonth } from '../utils/date'
+import { resourceFileIcon } from '../utils/resource'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -362,16 +363,8 @@ const getResourceKindLabel = (kind: ResourceKind): string => {
   return labelsByKind[kind] || formatTypeName(kind)
 }
 
-const getResourceIcon = (resource: Resource): string => {
-  const mimeType = resource.file_mime_type?.toLowerCase() || ''
-  if (resource.kind === 'page') return 'fas fa-globe'
-  if (resource.kind === 'attachment') return 'fas fa-paperclip'
-  if (mimeType.includes('pdf')) return 'fas fa-file-pdf'
-  if (mimeType.startsWith('image/')) return 'fas fa-file-image'
-  if (mimeType.startsWith('video/')) return 'fas fa-file-video'
-  if (mimeType.startsWith('audio/')) return 'fas fa-file-audio'
-  return 'fas fa-file-alt'
-}
+// As Release Resources draws it (utils/resource).
+const getResourceIcon = (resource: Resource): string => resourceFileIcon(resource)
 
 const formatFileSize = (value?: number | null): string => {
   if (!Number.isFinite(value || 0) || !value || value <= 0) return '-'

@@ -40,6 +40,7 @@
             v-model="shownFromLocal"
             class="app-input app-input--compact"
             data-test="pages-visibility-date"
+            default-time="23:59"
             clearable
           />
         </label>

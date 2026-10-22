@@ -757,9 +757,11 @@ describe('AdminEmailsPage', () => {
 
     const headings = () => wrapper.findAll('[data-test="email-group"]').map((heading) => heading.text())
     expect(headings()).toEqual(['Sign-in', 'Guardians', 'Messages and events', 'Submissions', 'Symposium', 'Results'])
-    // Each heading sits right above its group's first email.
+    // Each heading sits right above its group's first email, and Registration
+    // above its groups (Guardians here).
     const items = wrapper.findAll('.email-type-list__items > li').map((item) => item.text().split(' ')[0])
-    expect(items.slice(0, 4)).toEqual(['Sign-in', 'login_code', 'Guardians', 'guardian_details_request'])
+    expect(items.slice(0, 5)).toEqual(['Sign-in', 'login_code', 'Registration', 'Guardians', 'guardian_details_request'])
+    expect(wrapper.findAll('[data-test="email-section"]').map((heading) => heading.text())).toEqual(['Registration'])
 
     // A search shows only the headings of the groups it finds.
     await wrapper.find('.email-type-list__search-input').setValue('results')

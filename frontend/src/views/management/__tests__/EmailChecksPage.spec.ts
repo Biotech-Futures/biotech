@@ -2,30 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import EmailChecksPage from '@/views/management/EmailChecksPage.vue'
-import { fetchEmailCheckCredits, fetchScheduledJobs, type EmailCheckCredits, type ScheduledJobs } from '@/utils/adminAPI'
+import { fetchEmailCheckCredits, type EmailCheckCredits } from '@/utils/adminAPI'
 import { ApiError } from '@/utils/apiError'
 
-vi.mock('@/utils/adminAPI', () => ({ fetchEmailCheckCredits: vi.fn(), fetchScheduledJobs: vi.fn() }))
-
-const scheduled = (overrides: Partial<ScheduledJobs> = {}): ScheduledJobs => ({
-  enabled: true,
-  jobs: [
-    {
-      name: 'bounce_check', label: 'Bounced email check', every: 10, at: 3,
-      lastStartedAt: '2026-10-22T01:03:00Z', lastFinishedAt: '2026-10-22T01:03:02Z',
-      ok: false, error: 'MailApiError: The Mail API answered 401.'
-    },
-    {
-      name: 'auto_submit', label: 'Submission auto-submit', every: 60, at: 7,
-      lastStartedAt: '2026-10-22T01:07:00Z', lastFinishedAt: '2026-10-22T01:07:01Z', ok: true, error: ''
-    },
-    {
-      name: 'guardian_details_reminders', label: 'Guardian details reminders', every: 1440, at: 401,
-      lastStartedAt: null, lastFinishedAt: null, ok: null, error: ''
-    }
-  ],
-  ...overrides
-})
+vi.mock('@/utils/adminAPI', () => ({ fetchEmailCheckCredits: vi.fn() }))
 
 const credits = (overrides: Partial<EmailCheckCredits> = {}): EmailCheckCredits => ({
   free: {
@@ -58,10 +38,6 @@ const mountPage = async () => {
   await flushPromises()
   return wrapper
 }
-
-beforeEach(() => {
-  vi.mocked(fetchScheduledJobs).mockReset().mockResolvedValue(scheduled())
-})
 
 describe('Email Checks', () => {
   beforeEach(() => {
@@ -134,28 +110,5 @@ describe('Email Checks', () => {
     expect(wrapper.get('[role="alert"]').text()).toBe('Server error')
     // What was read before stays shown.
     expect(wrapper.get('[data-test="email-checks-free"]').text()).toContain('412')
-  })
-
-  it('lists each scheduled job, how often it runs, and how its last run went', async () => {
-    vi.mocked(fetchEmailCheckCredits).mockResolvedValue(credits())
-    const wrapper = await mountPage()
-
-    const table = wrapper.find('[data-test="scheduled-jobs"]').text()
-    expect(table).toContain('Bounced email check')
-    expect(table).toContain('Every 10 minutes')
-    expect(table).toContain('Failed: MailApiError: The Mail API answered 401.')
-    expect(table).toContain('Hourly at :07')
-    expect(table).toContain('OK')
-    expect(table).toContain('Daily at')
-    expect(table).toContain('Not run yet')
-    expect(wrapper.find('[data-test="scheduled-jobs-mode"]').text()).toContain('The backend runs these itself')
-  })
-
-  it("says when the backend's timer is off", async () => {
-    vi.mocked(fetchEmailCheckCredits).mockResolvedValue(credits())
-    vi.mocked(fetchScheduledJobs).mockResolvedValue(scheduled({ enabled: false }))
-    const wrapper = await mountPage()
-
-    expect(wrapper.find('[data-test="scheduled-jobs-mode"]').text()).toContain("SCHEDULER_ENABLED isn't set")
   })
 })

@@ -82,12 +82,12 @@ def template_upload_to(instance, filename):
 
 
 class ChallengeStart(models.Model):
-    """The day a year's challenge starts (Management > Challenge Start): the
-    supervisors' weekly registration status email asks for permission forms to
-    be signed by then. Who last set it, and when."""
+    """When a year's challenge starts, its date and time (Management >
+    Challenge Start): the supervisors' weekly registration status email asks
+    for permission forms to be signed by that day. Who last set it, and when."""
 
     year = models.PositiveSmallIntegerField(unique=True)
-    starts_on = models.DateField(null=True, blank=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -97,7 +97,7 @@ class ChallengeStart(models.Model):
         db_table = "challenge_start"
 
     def __str__(self):
-        return f"Challenge {self.year} starts {self.starts_on or 'unset'}"
+        return f"Challenge {self.year} starts {self.starts_at or 'unset'}"
 
     @classmethod
     def for_year(cls, year: int) -> "ChallengeStart":

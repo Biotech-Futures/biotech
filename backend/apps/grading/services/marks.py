@@ -10,7 +10,7 @@ from . import content
 RELEASED_PARTS = ("SAQ", "POSTER")
 
 
-def grades_payload(group, year: int) -> list[dict]:
+def grades_payload(group) -> list[dict]:
     """One group's marks, every part of them, for its marks summary and the
     group page's Results section.
 
@@ -26,7 +26,7 @@ def grades_payload(group, year: int) -> list[dict]:
     feedback = content.feedback_map([group.id])
     rubrics = {
         r.component_id: r
-        for r in Rubric.objects.filter(year=year, active=True).prefetch_related("criteria")
+        for r in Rubric.objects.filter(active=True).prefetch_related("criteria")
     }
     grades_by_pair: dict[tuple[int, int], Grade] = {}
     submission_ids = {e.submission_id for e in entries.values()}

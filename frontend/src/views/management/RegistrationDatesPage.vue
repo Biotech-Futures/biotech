@@ -48,6 +48,7 @@
             data-test="registration-opens"
             default-time="23:59"
             clearable
+            :max="minuteBeside(order.challengeStart.value, -1)"
           />
         </label>
         <label class="registration-dates__field">
@@ -58,6 +59,7 @@
             data-test="registration-closes"
             default-time="23:59"
             clearable
+            :max="minuteBeside(order.deadlineThisYear.value, -1)"
           />
         </label>
         <div class="registration-dates__actions">
@@ -81,6 +83,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 
 import { loadRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { apiErrorFromUnknown } from '@/utils/apiError'
@@ -147,7 +150,12 @@ const save = () =>
 
 const clearDates = () => write({ opens_at: null, closes_at: null })
 
+// The challenge start and the deadline: opening before the one, closing
+// before the other.
+const order = useDateOrder()
+
 onMounted(async () => {
+  void order.load()
   try {
     show((await fetchRegistrationManagement()).window)
   } catch (err) {

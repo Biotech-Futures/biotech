@@ -197,7 +197,8 @@ const props = withDefaults(
      *  alone limits only the days). */
     min?: string | null
     max?: string | null
-    /** The time a date picked into an empty box starts at. */
+    /** The time a date picked into an empty box starts at (Management's
+     *  pages give 23:59, the end of the day). */
     defaultTime?: string
     /** The minutes offered, in steps of this many: MINUTE_STEPS by default. */
     step?: number

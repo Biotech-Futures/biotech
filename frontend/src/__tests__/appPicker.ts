@@ -34,6 +34,11 @@ export function pickerMin(root: Root, selector: string): string {
   return String(pickerAt(root, selector).props('min') ?? '')
 }
 
+/** The latest it can be, as the page gave it. */
+export function pickerMax(root: Root, selector: string): string {
+  return String(pickerAt(root, selector).props('max') ?? '')
+}
+
 /** Sets it to `value` ('' empties it), as picking it does. */
 export async function setPicker(root: Root, selector: string, value: string): Promise<void> {
   const picker = pickerAt(root, selector)

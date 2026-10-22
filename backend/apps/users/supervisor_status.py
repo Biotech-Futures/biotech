@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Q
@@ -19,6 +20,9 @@ from django.utils import timezone
 from apps.services.system_email import SENT, is_email_enabled, send_system_email
 
 from .models import StudentProfile, SupervisorProfile, User
+
+# The day the challenge starts, as the email names it, is Sydney's.
+CHALLENGE_TZ = ZoneInfo("Australia/Sydney")
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +58,16 @@ def status_counts(supervisor_id: int) -> dict:
 
 
 def challenge_start_text() -> str:
-    """"27 July": this year's challenge start (Management > Challenge Start);
-    "" while it isn't set."""
+    """"27 July": the day this year's challenge starts (Management > Challenge
+    Start), in Sydney; its time isn't named. "" while it isn't set."""
     from apps.management.models import ChallengeStart
     from apps.submissions.services import current_cohort
 
-    starts_on = ChallengeStart.for_year(current_cohort()).starts_on
-    return f"{starts_on.day} {starts_on:%B}" if starts_on else ""
+    starts_at = ChallengeStart.for_year(current_cohort()).starts_at
+    if not starts_at:
+        return ""
+    day = timezone.localtime(starts_at, CHALLENGE_TZ)
+    return f"{day.day} {day:%B}"
 
 
 def status_context(user) -> dict:

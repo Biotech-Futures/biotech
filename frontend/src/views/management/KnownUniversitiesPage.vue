@@ -39,9 +39,6 @@
           />
         </label>
       </template>
-      <template #stats>
-        {{ universities.length }} {{ universities.length === 1 ? 'university' : 'universities' }} listed
-      </template>
       <template #search-side>
         <button type="button" class="btn btn-outline btn-sm" data-test="university-upload-open" @click="openUpload">
           <i class="fas fa-upload" aria-hidden="true"></i>

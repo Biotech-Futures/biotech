@@ -49,7 +49,6 @@ describe('Known Universities', () => {
     expect(wrapper.text()).toContain('Registration asks a student to confirm their school is a school')
     expect(names(wrapper)).toEqual(['UNSW', 'USYD'])
 
-    expect(wrapper.text()).toContain('2 universities listed')
     await wrapper.get('.data-table-search-input').setValue('sy')
     expect(names(wrapper)).toEqual(['USYD'])
     await wrapper.get('.data-table-search-input').setValue('monash')
@@ -246,8 +245,6 @@ describe('Known Universities: the Country filter', () => {
 
     await pickAppSelect(wrapper, filter, 'Australia')
     expect(names(wrapper)).toEqual(['Monash University', 'UNSW'])
-    // The count above the table stays the whole list.
-    expect(wrapper.text()).toContain('4 universities listed')
 
     await wrapper.get('.data-table-search-input').setValue('unsw')
     expect(names(wrapper)).toEqual(['UNSW'])

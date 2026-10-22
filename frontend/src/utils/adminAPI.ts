@@ -583,28 +583,6 @@ export interface EmailCheckKey {
   retryAt: string | null
 }
 
-/** A timed job the backend runs itself, and how its last run went. */
-export interface ScheduledJob {
-  name: string
-  label: string
-  /** How often, in minutes (1440 daily), and when in each period, in minutes past its start (UTC). */
-  every: number
-  at: number
-  lastStartedAt: string | null
-  lastFinishedAt: string | null
-  ok: boolean | null
-  error: string
-}
-
-export interface ScheduledJobs {
-  /** Whether the backend's timer is switched on (SCHEDULER_ENABLED). */
-  enabled: boolean
-  jobs: ScheduledJob[]
-}
-
-export const fetchScheduledJobs = () =>
-  adminGet<AdminEnvelope<ScheduledJobs>>('/scheduled-jobs/').then((env) => env.data)
-
 export interface EmailCheckCredits {
   free: EmailCheckKey
   /** The paid key, with the alert levels already sent for it. */

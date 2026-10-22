@@ -123,6 +123,21 @@ describe('the bottom bar', () => {
     expect(picker(wrapper).classes()).not.toContain('is-disabled')
   })
 
+  it('turns to the page with focusRow and brings it into view, then lets go once someone pages', async () => {
+    Element.prototype.scrollIntoView = vi.fn()
+    const wrapper = mountTable({ rows: many, pageSize: 5, focusRow: 9 })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('6 - 10 out of 12')
+    expect(wrapper.get('tr.data-table-row--focused').attributes('data-row-key')).toBe('9')
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+
+    // Paged on, a change of rows doesn't pull them back to it.
+    await wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await wrapper.setProps({ rows: [...many] })
+    await flushPromises()
+    expect(wrapper.find('.data-table-summary').text()).toBe('11 - 12 out of 12')
+  })
+
   // Rows, headings, bottom bar and scrollbar each 56px: 10 rows fit the
   // 768px window (600px of room under the headings and above the bar).
   const rowsOf56px = () => vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56)

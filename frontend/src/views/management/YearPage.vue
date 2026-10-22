@@ -23,7 +23,7 @@
         </li>
         <li>
           <span class="year__fact-label">Challenge start</span>
-          <span v-if="challengeStart">{{ dayText(challengeStart) }}</span>
+          <span v-if="challengeStart">{{ formatStatementTime(challengeStart) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
@@ -151,7 +151,7 @@ onMounted(async () => {
     registration.value = null
   }
   try {
-    challengeStart.value = (await fetchChallengeStart()).starts_on
+    challengeStart.value = (await fetchChallengeStart()).starts_at
   } catch {
     challengeStart.value = null
   }

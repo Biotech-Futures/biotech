@@ -23,6 +23,7 @@
             :min="minLocal || undefined"
             required
             class="extensions__input app-input app-input--compact"
+            default-time="23:59"
           />
         </label>
         <label class="extensions__field">

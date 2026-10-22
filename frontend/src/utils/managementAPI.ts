@@ -304,12 +304,12 @@ export function fetchRegistrationOpen(): Promise<RegistrationState> {
   return requestJson<RegistrationState>('/api/v1/management/registration-open/')
 }
 
-/** Management > Challenge Start: the day this year's challenge starts, which
+/** Management > Challenge Start: when this year's challenge starts, whose day
  *  the supervisors' weekly registration status email names. */
 export interface ChallengeStart {
   year: number
-  /** "2026-07-27"; null while it isn't set. */
-  starts_on: string | null
+  /** The instant, as the server keeps it; null while it isn't set. */
+  starts_at: string | null
   /** Who last set it, and when; "" and none until someone has. */
   set_by: string
   updated_at: string | null
@@ -320,11 +320,11 @@ export function fetchChallengeStart(): Promise<ChallengeStart> {
   return requestJson<ChallengeStart>('/api/v1/management/challenge-start/')
 }
 
-// PUT /api/v1/management/challenge-start/ — null clears it.
-export function saveChallengeStart(startsOn: string | null): Promise<ChallengeStart> {
+// PUT /api/v1/management/challenge-start/ — an instant, or null to clear it.
+export function saveChallengeStart(startsAt: string | null): Promise<ChallengeStart> {
   return requestJson<ChallengeStart>('/api/v1/management/challenge-start/', {
     method: 'PUT',
-    body: JSON.stringify({ starts_on: startsOn }),
+    body: JSON.stringify({ starts_at: startsAt }),
   })
 }
 
@@ -437,6 +437,41 @@ export function saveSupervisorPages(
 ): Promise<SupervisorPagesState> {
   return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/', {
     method: 'PUT',
+    body: JSON.stringify(change)
+  })
+}
+
+/** Management > Challenge Start > Release Resources: a resource, whether it's
+ *  shown, its release date ("YYYY-MM-DD": hidden, it appears from the start
+ *  of that day, Sydney time), whether students, mentors and supervisors have
+ *  it now, and when it was released last year. */
+export interface ResourceReleaseRow {
+  id: number
+  name: string
+  /** What its icon is drawn from (resourceFileIcon). */
+  kind?: string
+  file_mime_type?: string | null
+  shown: boolean
+  release_on: string | null
+  released: boolean
+  last_released_at: string | null
+}
+
+// GET /api/v1/management/resource-releases/ — every resource, by name.
+export function fetchResourceReleases(): Promise<ResourceReleaseRow[]> {
+  return requestJson<{ resources: ResourceReleaseRow[] }>('/api/v1/management/resource-releases/').then(
+    (body) => body.resources
+  )
+}
+
+// PATCH /api/v1/management/resource-releases/<id>/ — shown or hidden, or its
+// release date (null for none): the row as it is then.
+export function saveResourceRelease(
+  id: number,
+  change: { shown?: boolean; release_on?: string | null }
+): Promise<ResourceReleaseRow> {
+  return requestJson<ResourceReleaseRow>(`/api/v1/management/resource-releases/${id}/`, {
+    method: 'PATCH',
     body: JSON.stringify(change)
   })
 }

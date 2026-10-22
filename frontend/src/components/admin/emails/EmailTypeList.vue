@@ -34,10 +34,20 @@
 
     <ul v-else class="email-type-list__items">
       <template v-for="(template, index) in filtered" :key="template.key">
+        <!-- Registration's heading, above the first of its groups shown. -->
+        <li
+          v-if="startsSection(index)"
+          class="email-type-list__heading email-type-list__heading--section"
+          role="presentation"
+          data-test="email-section"
+        >
+          {{ sectionOf(groupOf(template.key)) }}
+        </li>
         <!-- The group's heading, above the first of its emails shown. -->
         <li
-          v-if="index === 0 || groupOf(template.key) !== groupOf(filtered[index - 1]!.key)"
+          v-if="startsGroup(index)"
           class="email-type-list__heading"
+          :class="{ 'email-type-list__heading--sub': sectionOf(groupOf(template.key)) }"
           role="presentation"
           data-test="email-group"
         >
@@ -131,6 +141,22 @@ const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [
 // An email not placed in a group yet still gets a heading.
 const groupOf = (key: string) => GROUP_OF.get(key) ?? 'Other'
 
+// Registration's three groups, under a heading of their own.
+const SECTION_OF: Record<string, string> = {
+  'Self registration': 'Registration',
+  'Supervisor registration': 'Registration',
+  Guardians: 'Registration'
+}
+const sectionOf = (group: string) => SECTION_OF[group] ?? ''
+
+// The first email shown of its group, or of its section.
+const startsGroup = (index: number) =>
+  index === 0 || groupOf(filtered.value[index]!.key) !== groupOf(filtered.value[index - 1]!.key)
+const startsSection = (index: number) => {
+  const section = sectionOf(groupOf(filtered.value[index]!.key))
+  return Boolean(section) && (index === 0 || sectionOf(groupOf(filtered.value[index - 1]!.key)) !== section)
+}
+
 
 const filtered = computed(() => {
   const term = query.value.trim().toLowerCase()
@@ -199,6 +225,19 @@ const filtered = computed(() => {
 
 .email-type-list__heading:first-child {
   margin-top: 0;
+}
+
+/* Registration, over its three groups: a size up, and darker. */
+.email-type-list__heading--section {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+/* A group under it, set in a little. */
+.email-type-list__heading--sub {
+  padding-left: 0.75rem;
 }
 
 .email-type-list__item {
