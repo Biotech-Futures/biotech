@@ -11,7 +11,6 @@
       </p>
     </header>
 
-    <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
     <p v-if="error" class="supervisor-error">{{ error }}</p>
 
     <nav class="tab-bar" role="tablist" aria-label="Student registration">
@@ -35,11 +34,13 @@
       class="supervisor-section"
     >
       <h2 class="subheading">{{ section.title }}</h2>
-      <!-- Under the section's heading, above its table. -->
-      <p v-if="loading && !error" class="supervisor-muted supervisor-loading">Loading students...</p>
+      <!-- What was just done (e.g. Consent link copied.), under the table's heading. -->
+      <p v-if="notice" class="supervisor-notice">{{ notice }}</p>
+      <!-- Loading shows inside the table, under its headings, as on Users. -->
       <AppDataTable
         :columns="section.columns"
         :rows="section.rows"
+        :loading="loading"
         :action-columns="section.actionHeading ? 1 : section.rowActions.length"
         :action-headings="section.actionHeading ? [section.actionHeading] : []"
         :default-sort="section.defaultSort"
@@ -139,15 +140,15 @@
         </p>
         <label>
           First name
-          <input v-model="guardianForm.firstName" required />
+          <input v-model="guardianForm.firstName" class="app-input" required />
         </label>
         <label>
           Last name
-          <input v-model="guardianForm.lastName" required />
+          <input v-model="guardianForm.lastName" class="app-input" required />
         </label>
         <label>
           Email
-          <input v-model="guardianForm.email" type="email" />
+          <input v-model="guardianForm.email" class="app-input" type="email" />
         </label>
         <p v-if="guardianError" class="supervisor-error">{{ guardianError }}</p>
         <div class="supervisor-modal-actions">
@@ -201,6 +202,7 @@ import {
   fetchDetailsLinks,
   fetchSupervisedStudents,
   saveGuardianDetails,
+  withConsentSignatures,
   sendSupervisedEmails,
   toStudentRow,
   type SupervisedEmailKind,
@@ -541,8 +543,9 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
     else openGuardianModal(rows)
     return
   }
+  // Consent forms: their signatures fetched now, as the roster leaves them out.
   if (value === 'open-consent') {
-    viewConsentDocuments(rows).catch(() => {
+    viewConsentDocuments(withConsentSignatures(rows)).catch(() => {
       notice.value = ''
       error.value = 'Consent PDF could not be generated.'
     })
@@ -556,7 +559,8 @@ const onSectionAction = async (sectionId: SectionId, value: string, rawRows: Rec
       flashNotice('No consent records are available to download.')
       return
     }
-    downloadConsentDocuments(source)
+    withConsentSignatures(source)
+      .then(downloadConsentDocuments)
       .then(() => {
         error.value = ''
         flashNotice(
@@ -605,16 +609,10 @@ onMounted(loadStudents)
   cursor: pointer;
 }
 
-.supervisor-muted,
 .supervisor-error,
 .supervisor-notice {
   margin: 0 0 1.5rem;
   color: #6c757d;
-}
-
-/* Between the section's heading and its table. */
-.supervisor-loading {
-  margin-bottom: 0.75rem;
 }
 
 .supervisor-error {
@@ -665,13 +663,6 @@ onMounted(loadStudents)
   gap: 0.3rem;
   color: #6c757d;
   font-size: 0.9rem;
-}
-
-.supervisor-modal input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  color: var(--teal);
 }
 
 .supervisor-modal-actions {

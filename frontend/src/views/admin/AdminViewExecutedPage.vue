@@ -100,15 +100,13 @@
         <template #filters>
           <div class="admin-view-executed__group-by">
             <label class="admin-view-executed__group-by-label" for="view-group-by">Group by</label>
-            <select
+            <AppSelect
               id="view-group-by"
-              :value="groupBy"
-              @change="onGroupByChange(($event.target as HTMLSelectElement).value as GroupByOption)"
-            >
-              <option value="none">None</option>
-              <option value="role">Role</option>
-              <option value="status">Status</option>
-            </select>
+              class="table-filter"
+              :model-value="groupBy"
+              :options="GROUP_BY_OPTIONS"
+              @change="(value) => onGroupByChange(value as GroupByOption)"
+            />
           </div>
           <span v-if="groupBy !== 'none'" class="admin-view-executed__group-by-hint">
             Grouping is not yet applied server-side; results are shown sorted, not grouped.
@@ -231,7 +229,6 @@
       :open="viewOpen"
       :user="detailUser"
       @close="onViewClose"
-      @edit="openEditFromView"
       @updated="onDetailUpdated"
     />
 
@@ -243,6 +240,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
@@ -257,6 +255,12 @@ import {
   type GroupByOption,
   type ViewResultRow
 } from '@/composables/admin/useAdminViewExecuted'
+
+const GROUP_BY_OPTIONS: AppSelectOption[] = [
+  { value: 'none', label: 'None' },
+  { value: 'role', label: 'Role' },
+  { value: 'status', label: 'Status' }
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -337,12 +341,6 @@ const openEdit = (user: ViewResultRow): void => {
   formOpen.value = true
 }
 
-const openEditFromView = (): void => {
-  const user = detailUser.value
-  if (!user) return
-  onViewClose()
-  openEdit(user)
-}
 
 const onFormSaved = (): void => {
   void loadResults()
@@ -389,13 +387,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.back-button {
-  align-items: center;
-  display: inline-flex;
-  gap: 0.45rem;
-  margin-bottom: 1rem;
-}
-
 .detail-state {
   align-items: center;
   display: flex;
@@ -474,17 +465,6 @@ onMounted(() => {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
-}
-
-.admin-view-executed__group-by select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .admin-view-executed__group-by-hint {

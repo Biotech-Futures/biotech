@@ -1,7 +1,7 @@
 <template>
   <FormSheet
     v-model="open"
-    :title="isEditing ? 'Edit Resource' : 'Upload Resource'"
+    :title="isEditing ? 'Edit Resource' : 'Add Resource'"
     :description="isEditing ? `Update details for resource #${resource?.id}` : 'Add a new file or page to the resource library.'"
     width="min(100vw, 760px)"
   >
@@ -14,15 +14,13 @@
         <!-- Resource Kind -->
         <div class="form-field form-field--full">
           <label class="form-label" for="res-kind">Resource Kind *</label>
-          <select
+          <AppSelect
             id="res-kind"
             v-model="form.kind"
-            class="form-input filter-select"
+            class="form-input app-input filter-select"
+            :options="KIND_OPTIONS"
             :disabled="isEditing"
-          >
-            <option value="file">File Upload</option>
-            <option value="page">Rich Content Page</option>
-          </select>
+          />
           <p v-if="isEditing" class="admin-resource-form__hint">
             Resource kind cannot be changed after creation.
           </p>
@@ -35,7 +33,7 @@
             id="res-name"
             v-model.trim="form.name"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Mentor Handbook 2026"
             required
             maxlength="255"
@@ -48,7 +46,7 @@
           <textarea
             id="res-desc"
             v-model.trim="form.description"
-            class="form-input"
+            class="form-input app-input app-input--wide"
             rows="3"
             placeholder="Short description for admins and users."
             required
@@ -91,7 +89,7 @@
             id="res-labels"
             v-model.trim="form.labelInput"
             type="text"
-            class="form-input"
+            class="form-input app-input"
             placeholder="e.g. Do's and Don'ts, Group tips"
           />
           <p class="admin-resource-form__hint">
@@ -102,20 +100,12 @@
         <!-- Type -->
         <div class="form-field form-field--full">
           <label class="form-label" for="res-type">Type</label>
-          <select
+          <AppSelect
             id="res-type"
             v-model="form.typeId"
-            class="form-input filter-select"
-          >
-            <option :value="null">Uncategorized</option>
-            <option
-              v-for="typeItem in resourceTypes"
-              :key="typeItem.id"
-              :value="typeItem.id"
-            >
-              {{ typeItem.type_name }}
-            </option>
-          </select>
+            class="form-input app-input filter-select"
+            :options="typeOptions"
+          />
         </div>
       </div>
 
@@ -243,7 +233,7 @@
             :disabled="saving || busy || loadingDetail || (form.kind !== 'page' ? needsOversizeAck : pageNeedsOversizeAck)"
           >
             <span v-if="saving" class="admin-resource-form__spinner" aria-hidden="true"></span>
-            {{ isEditing ? 'Save Changes' : 'Upload Resource' }}
+            {{ isEditing ? 'Save Changes' : 'Add Resource' }}
           </button>
         </div>
       </div>
@@ -253,6 +243,7 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AdminRecordedSessionFields from './AdminRecordedSessionFields.vue'
 
@@ -326,6 +317,16 @@ const editorKey = ref(0)
 
 const availableRoles = ref<AdminResourceRoleItem[]>([])
 const resourceTypes = ref<ResourceType[]>([])
+
+const KIND_OPTIONS: AppSelectOption[] = [
+  { value: 'file', label: 'File Upload' },
+  { value: 'page', label: 'Rich Content Page' }
+]
+
+const typeOptions = computed<AppSelectOption[]>(() => [
+  { value: null, label: 'Uncategorized' },
+  ...resourceTypes.value.map((typeItem) => ({ value: typeItem.id, label: typeItem.type_name }))
+])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
@@ -771,33 +772,21 @@ const submitForm = async () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input). */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
   color: var(--teal);
-  font: inherit;
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.form-input:focus {
+.form-input:focus,
+.form-input:focus-within {
   outline: none;
   border-color: var(--dark-green);
   box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
 .filter-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  padding-right: 2rem;
   cursor: pointer;
 }
 

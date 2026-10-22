@@ -26,10 +26,7 @@
           </select>
         </label>
         <div class="analytics-export-stack">
-          <button class="export-button" type="button" :disabled="exportDisabled || exporting" @click="exportCsv">
-            <i class="fas fa-download"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -54,30 +51,36 @@
           <h2><i class="fas fa-triangle-exclamation"></i> Attention Required</h2>
           <p>Items worth checking before the next programme review.</p>
         </div>
-        <button
-          v-if="displayedAttentionItems.length"
-          type="button"
-          class="view-all-button"
-          :aria-expanded="showAllIssues"
-          aria-controls="attention-issue-details"
-          @click="showAllIssues = !showAllIssues"
-        >
-          {{ showAllIssues ? 'Hide Issues ↑' : 'View All Issues →' }}
-        </button>
       </div>
 
-      <div v-if="displayedAttentionItems.length" class="attention-grid">
+      <div
+        v-if="attentionIssueDetails.length"
+        id="attention-issue-details"
+        class="attention-issue-details"
+      >
         <article
-          v-for="item in displayedAttentionItems"
-          :key="item.label"
-          class="attention-item"
-          :class="`attention-${item.tone}`"
+          v-for="issue in attentionIssueDetails"
+          :key="`detail-${issue.label}`"
+          class="attention-detail-row"
         >
-          <span class="attention-icon"><i :class="item.icon"></i></span>
-          <div>
-          <strong><AnalyticsNumber :value="item.value" /></strong>
-            <p>{{ item.label }}</p>
+          <div class="attention-detail-main">
+            <span class="attention-detail-icon">
+              <i :class="issue.icon"></i>
+            </span>
+
+            <div class="attention-detail-copy">
+              <div class="attention-detail-title">
+                <strong><AnalyticsNumber :value="issue.value" /></strong>
+                <span>{{ issue.label }}</span>
+              </div>
+              <p>{{ issue.description }}</p>
+            </div>
           </div>
+
+          <RouterLink class="attention-detail-button" :to="issue.to">
+            {{ issue.action }}
+            <span aria-hidden="true">→</span>
+          </RouterLink>
         </article>
       </div>
 
@@ -85,39 +88,6 @@
         <i class="fas fa-circle-check" aria-hidden="true"></i>
         <span>{{ unavailableSources.length ? 'No issues in the available data. Some modules could not be checked.' : 'No issues currently require attention.' }}</span>
       </div>
-
-      <Transition name="issues-expand">
-        <div
-          v-if="showAllIssues"
-          id="attention-issue-details"
-          class="attention-issue-details"
-        >
-          <article
-            v-for="issue in attentionIssueDetails"
-            :key="`detail-${issue.label}`"
-            class="attention-detail-row"
-          >
-            <div class="attention-detail-main">
-              <span class="attention-detail-icon">
-                <i :class="issue.icon"></i>
-              </span>
-
-              <div class="attention-detail-copy">
-                <div class="attention-detail-title">
-                  <strong>{{ issue.value }}</strong>
-                  <span>{{ issue.label }}</span>
-                </div>
-                <p>{{ issue.description }}</p>
-              </div>
-            </div>
-
-            <RouterLink class="attention-detail-button" :to="issue.to">
-              {{ issue.action }}
-              <span aria-hidden="true">→</span>
-            </RouterLink>
-          </article>
-        </div>
-      </Transition>
     </section>
 
     <section class="summary-grid" aria-label="Analytics summary">
@@ -372,7 +342,8 @@ import {
   type OverviewAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { useRouter } from 'vue-router'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import { SUMMARY_OPTION, exportFileName, figure, runExport, sourceLabels, summaryCsv, type SummaryRow } from '@/utils/analyticsExport'
 
 const currentYear = new Date().getFullYear()
 const availableAnalyticsYears = ref<number[]>([currentYear])
@@ -385,10 +356,10 @@ const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exporting = ref(false)
 const exportError = ref('')
 const unavailableSources = ref<AnalyticsSource[]>([])
-const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value || unavailableSources.value.length > 0 || selectedData.value.modules.some((module) => module.unavailable))
+// Unavailable sources are named in the export rather than blocking it.
+const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
 
 const overviewSummary = computed(() => {
   const originalSummary = selectedData.value.summary
@@ -691,13 +662,10 @@ const displayedAttentionItems = computed(() =>
   })),
 )
 
-const showAllIssues = ref(false)
-
 useAnalyticsRefreshState('overview', {
   selectedYear,
   registrationPeriod,
-  showAllIssues,
-}, () => !isLoading.value && hasLoaded.value)
+},() => !isLoading.value && hasLoaded.value)
 
 const attentionIssueMeta: Record<
   string,
@@ -969,18 +937,39 @@ const handleViewDetails = async (key: string) => {
   window.alert('This analytics page is not available yet.')
 }
 
-const exportCsv = async () => {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({
-      report: 'overview', year: String(selectedYear.value), registration_period: registrationPeriod.value,
-    }), 'overview')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
-  }
+const exportCsv = () => {
+  exportError.value = runExport(() => {
+    const year = selectedYear.value
+    const rows: SummaryRow[] = [
+      ...overviewSummary.value.flatMap((item) => {
+        const comparison = overviewComparisons.value[item.label]
+        return [
+          figure('Headline', item.label, item.value, '', item.helper),
+          ...(comparison ? [figure('Headline', `${item.label} (${year - 1})`, comparison.previous, '', 'Previous year')] : []),
+        ]
+      }),
+      ...attentionIssueDetails.value.map((item) => figure('Attention required', item.label, item.value, '', item.description)),
+      ...displayedModules.value.flatMap((module) => module.unavailable
+        ? [figure(module.title, module.title, '—')]
+        : [
+            figure(module.title, module.title, module.value, module.unit, module.helper),
+            ...(module.breakdown ?? []).map((part) => figure(module.title, part.label, part.value)),
+            // Only these mini charts have labelled points; the others repeat the breakdown.
+            ...(['registration', 'activity'].includes(module.key)
+              ? module.chart.map((value, index) => figure(module.title, `Trend: ${modulePointLabel(module.key, index)}`, value))
+              : []),
+          ]),
+    ]
+    return {
+      fileName: exportFileName('overview', 'summary', String(year)),
+      csv: summaryCsv({
+        page: 'Overview',
+        covers: `Year ${year}`,
+        filters: [['Registration period', registrationPeriod.value]],
+        unavailable: sourceLabels(unavailableSources.value),
+      }, rows),
+    }
+  })
 }
 
 onBeforeUnmount(() => window.clearTimeout(toastTimer))
@@ -1272,17 +1261,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 .summary-helper {
   margin-top: auto;
   color: #7a8984;
-  font-size: 0.66rem;
+  font-size: 13px;
   line-height: 1.28;
   text-align: right;
-}
-
-.attention-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  background: color-mix(in srgb, currentColor 11%, white);
 }
 
 .sparkline {
@@ -1475,8 +1456,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   gap: 10px;
 }
 
-.details-button,
-.view-all-button {
+.details-button {
   border: 1px solid color-mix(in srgb, currentColor 45%, white);
   border-radius: 7px;
   background: color-mix(in srgb, currentColor 7%, white);
@@ -1512,7 +1492,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .attention-heading h2 {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 18px;
   color: #273a34;
 }
 
@@ -1524,47 +1504,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 .attention-heading p {
   margin: 3px 0 0;
   color: #7c8884;
-  font-size: 0.68rem;
-}
-
-.view-all-button {
-  padding: 7px 10px;
-  color: #017151;
-}
-
-.attention-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.attention-item {
-  position: relative;
-  min-height: 66px;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid #ebefed;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.attention-icon {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-}
-
-.attention-item strong {
-  font-size: 0.86rem;
-}
-
-.attention-item p {
-  margin: 2px 0 0;
-  color: #687872;
-  font-size: 0.59rem;
-  line-height: 1.2;
+  font-size: 13px;
 }
 
 .mock-dot {
@@ -1642,7 +1582,6 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 @media (max-width: 1200px) {
   .summary-grid,
   .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .attention-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -1651,8 +1590,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   .page-actions { width: 100%; flex-wrap: wrap; }
   .date-range { flex: 1; }
   .summary-grid,
-  .module-grid,
-  .attention-grid { grid-template-columns: 1fr; }
+  .module-grid { grid-template-columns: 1fr; }
   .summary-card { min-height: 94px; }
 }
 
@@ -1732,16 +1670,6 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .module-card .mini-bars span {
   background: currentColor !important;
-}
-
-/* Issue controls use official brand colours only. */
-.view-all-button {
-  color: #017151 !important;
-  border-color: #BAD7B8 !important;
-  background: #FFFFFF !important;
-}
-.view-all-button:hover {
-  background: #BAD7B8 !important;
 }
 
 .overview-axis-chart { display:grid; grid-template-columns:28px minmax(0,1fr); gap:8px; align-items:stretch; min-height:82px; margin-top:8px; }
@@ -1826,14 +1754,14 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .attention-detail-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   place-items: center;
   border-radius: 10px;
   background: #e4f0e2;
   color: #017151;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .attention-detail-copy {
@@ -1849,20 +1777,20 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .attention-detail-title strong {
   color: #017151;
-  font-size: 18px;
+  font-size: 24px;
   line-height: 1;
 }
 
 .attention-detail-title span {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .attention-detail-copy p {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   max-width: 820px;
   color: #687872;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
 }
 
@@ -1878,7 +1806,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   border-radius: 8px;
   background: #ffffff;
   color: #017151;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
@@ -1889,19 +1817,6 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   background: #ecf8f4;
   color: #017151;
   text-decoration: none;
-}
-
-.issues-expand-enter-active,
-.issues-expand-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-}
-
-.issues-expand-enter-from,
-.issues-expand-leave-to {
-  opacity: 0;
-  transform: translateY(-5px);
 }
 
 @media (max-width: 760px) {

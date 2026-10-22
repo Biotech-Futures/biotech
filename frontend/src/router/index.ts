@@ -117,7 +117,7 @@ router.beforeEach((to, from, next) => {
 
     next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
   } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
-    // Hidden from supervisors until Management > Supervisor Visibility shows them.
+    // Hidden from supervisors until Management > Supervisor Pages Visibility shows them.
     void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()

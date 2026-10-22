@@ -6,8 +6,10 @@ import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
 import {
   fetchSystemEmailLog,
+  fetchSystemEmailMailApi,
   fetchSystemEmailUnseenFailures,
   markSystemEmailFailuresSeen,
+  resendSystemEmail,
   fetchSystemEmailSettings,
   fetchSystemEmailTemplates,
   fetchSystemEmailTestRecipients,
@@ -19,11 +21,14 @@ import {
 } from '@/utils/adminAPI'
 import type { SystemEmailLogEntry, SystemEmailTemplate } from '@/utils/systemEmail'
 import { formatShortDateTime, formatStatementTime } from '@/utils/date'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/adminAPI', () => ({
   fetchSystemEmailLog: vi.fn(),
+  fetchSystemEmailMailApi: vi.fn(),
   fetchSystemEmailUnseenFailures: vi.fn(),
   markSystemEmailFailuresSeen: vi.fn(),
+  resendSystemEmail: vi.fn(),
   fetchSystemEmailTemplates: vi.fn(),
   fetchSystemEmailSettings: vi.fn(),
   updateSystemEmailTemplate: vi.fn(),
@@ -227,18 +232,18 @@ describe('AdminEmailsPage', () => {
     const wrapper = await mountPage()
     vi.mocked(updateSystemEmailTemplate).mockResolvedValue(buildTemplate({ sender: 'connect' }))
 
-    const select = wrapper.find<HTMLSelectElement>('#password_reset-sender')
+    const select = '#password_reset-sender'
+    expect(appSelectText(wrapper, select)).toBe('info@biotechfutures.org')
     // Only the mailboxes the server can sign in to.
-    expect(select.findAll('option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(wrapper, select)).toEqual([
       'info@biotechfutures.org',
       'connect@biotechfutures.org'
     ])
-    expect(select.element.value).toBe('info')
-    await select.setValue('connect')
+    await pickAppSelect(wrapper, select, 'connect@biotechfutures.org')
     await flushPromises()
 
     expect(updateSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { sender: 'connect' })
-    expect(wrapper.find<HTMLSelectElement>('#password_reset-sender').element.value).toBe('connect')
+    expect(appSelectText(wrapper, select)).toBe('connect@biotechfutures.org')
   })
 
   it('keeps Subject and Body editable while Send from saves', async () => {
@@ -250,7 +255,7 @@ describe('AdminEmailsPage', () => {
       })
     )
 
-    await wrapper.find('#password_reset-sender').setValue('connect')
+    await pickAppSelect(wrapper, '#password_reset-sender', 'connect@biotechfutures.org')
     // Disabling them flashed the Subject box and dropped the Body's toolbar.
     expect(wrapper.find<HTMLInputElement>('#template-subject').element.disabled).toBe(false)
     expect(wrapper.findComponent({ name: 'RichEditor' }).props('readOnly')).toBe(false)
@@ -297,11 +302,16 @@ describe('AdminEmailsPage', () => {
       sentFrom: 'info@biotechfutures.org',
       toGroups: false,
       missed: [],
+      bounced: [],
+      waiting: [],
+      resendable: false,
+      expires: false,
       ...overrides
     })
     const unreachable = "couldn't reach the mail server"
 
     beforeEach(() => {
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: '', at: null, status: null })
       vi.mocked(fetchSystemEmailUnseenFailures).mockResolvedValue(0)
       vi.mocked(markSystemEmailFailuresSeen).mockResolvedValue(0)
       vi.mocked(fetchSystemEmailLog).mockResolvedValue([
@@ -375,15 +385,226 @@ describe('AdminEmailsPage', () => {
       const emails = wrapper.findAll('[data-test="log-email"]')
       // Login code missed nobody, so isn't listed.
       expect(emails).toHaveLength(2)
-      // Two sends: each its own time. One send: its time beside the name.
-      expect(emails[0].find('h3').text()).toBe('Password reset')
+      // When it was sent beside the name; two failed sends: each its own time.
+      expect(emails[0].find('h3').text()).toBe(`Password reset ${at('2026-09-29T13:58:00Z')}`)
       expect(emails[0].findAll('p.email-log__when').map((when) => when.text())).toEqual([
         at('2026-09-29T13:58:00Z'),
         at('2026-09-28T09:00:00Z')
       ])
       expect(emails[0].text()).toContain(`jin@seed.test (BTF06, Jin Fischer) · ${unreachable}`)
+      // One failed send, the one beside the name: its time isn't repeated.
       expect(emails[1].find('h3').text()).toBe(`Finalist notification ${at('2026-09-29T13:58:00Z')}`)
+      expect(emails[1].findAll('p.email-log__when')).toHaveLength(0)
       expect(emails[1].findAll('li')).toHaveLength(2)
+      // Nothing bounced, so no Bounced emails.
+      expect(wrapper.find('[data-test="log-bounced"]').exists()).toBe(false)
+    })
+
+    it('lists bounces apart, by when each was found, above the failed sends', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'finalist_notification',
+          name: 'Finalist notification',
+          lastSentAt: '2026-09-29T13:58:00Z',
+          toGroups: true,
+          bounced: [
+            { at: '2026-10-02T00:10:00Z', people: [{ who: 'seed.mentor.btf06@seed.biotech.test (BTF06, Jin Fischer)', reason: 'no such mailbox' }] },
+            { at: '2026-10-01T04:20:00Z', people: [{ who: 'amy@seed.test (BTF06, Amy Chen)', reason: 'mailbox full' }] }
+          ],
+          missed: [
+            { at: '2026-09-29T13:58:00Z', people: [{ who: 'nadia@seed.test (BTF06, Nadia Kowalski)', reason: unreachable }] }
+          ]
+        }),
+        // Only bounces: still listed.
+        logEntry({
+          key: 'login_code',
+          name: 'Login code',
+          lastSentAt: '2026-09-30T01:00:00Z',
+          bounced: [{ at: '2026-09-30T01:10:00Z', people: [{ who: 'pat@school.test', reason: 'no such mailbox' }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      const [finalist, login] = wrapper.findAll('[data-test="log-email"]')
+      expect(finalist.find('h3').text()).toBe(`Finalist notification ${at('2026-09-29T13:58:00Z')}`)
+      const lines = finalist.findAll('p').map((line) => line.text())
+      expect(lines).toEqual([
+        'Bounced emails:',
+        at('2026-10-02T00:10:00Z'),
+        at('2026-10-01T04:20:00Z'),
+        'Failed emails:'
+      ])
+      expect(finalist.findAll('li').map((item) => item.text())).toEqual([
+        'seed.mentor.btf06@seed.biotech.test (BTF06, Jin Fischer) · no such mailbox',
+        'amy@seed.test (BTF06, Amy Chen) · mailbox full',
+        `nadia@seed.test (BTF06, Nadia Kowalski) · ${unreachable}`
+      ])
+      expect(login.find('[data-test="log-bounced"]').exists()).toBe(true)
+      expect(login.find('[data-test="log-failed"]').exists()).toBe(false)
+    })
+
+    it('lists who an email is waiting to reach while the mail server cannot be reached', async () => {
+      vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+        buildTemplate({ key: 'announcement', name: 'Announcement' })
+      ])
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'announcement',
+          name: 'Announcement',
+          lastSentAt: '2026-10-18T23:22:00Z',
+          waiting: [
+            { who: 'amy@seed.test (BTF06, Amy Chen)', until: '2026-10-21T23:39:00Z' },
+            { who: 'ben@seed.test', until: '2026-10-21T23:39:00Z' }
+          ]
+        })
+      ])
+      const wrapper = await openLog()
+      // Listed on All emails, though it missed nobody yet.
+      const [announcement] = wrapper.findAll('[data-test="log-email"]')
+      expect(announcement.find('[data-test="log-waiting"]').text()).toBe('Waiting to send:')
+      expect(announcement.text()).toContain('tried again every 10 minutes')
+      expect(announcement.findAll('li').map((item) => item.text())).toEqual([
+        `amy@seed.test (BTF06, Amy Chen) · until ${at('2026-10-21T23:39:00Z')}`,
+        `ben@seed.test · until ${at('2026-10-21T23:39:00Z')}`
+      ])
+      expect(announcement.find('[data-test="log-failed"]').exists()).toBe(false)
+
+      // And on the email's own page.
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+      expect(wrapper.find('[data-test="log-missed"] [data-test="log-waiting"]').exists()).toBe(true)
+    })
+
+    it('gives each email it can resend its own Resend, beside its heading', async () => {
+      vi.mocked(resendSystemEmail).mockResolvedValue(
+        'Resending. It can take a few minutes: open the log again to see who it reached.'
+      )
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'announcement',
+          name: 'Announcement',
+          lastSentAt: '2026-10-18T23:39:00Z',
+          resendable: true,
+          missed: [{ at: '2026-10-18T23:39:00Z', people: [{ who: 'amy@seed.test', reason: 'mail server refused it' }] }]
+        }),
+        logEntry({
+          key: 'submission_reminder',
+          name: 'Submission reminder',
+          lastSentAt: '2026-10-18T09:00:00Z',
+          resendable: true,
+          missed: [{ at: '2026-10-18T09:00:00Z', people: [{ who: 'ben@seed.test', reason: 'address refused' }] }]
+        }),
+        // Missed someone, but nobody it can resend to.
+        logEntry({
+          key: 'password_reset',
+          lastSentAt: '2026-10-18T09:00:00Z',
+          missed: [{ at: '2026-10-18T09:00:00Z', people: [{ who: 'cat@seed.test', reason: 'address refused' }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      const [announcement, reminder, reset] = wrapper.findAll('[data-test="log-email"]')
+      expect(announcement.find('.email-log__head [data-test="log-resend"]').text()).toBe('Resend')
+      expect(reminder.find('[data-test="log-resend"]').exists()).toBe(true)
+      expect(reset.find('[data-test="log-resend"]').exists()).toBe(false)
+
+      // Each its own: only the announcement is resent, and says so.
+      await announcement.find('[data-test="log-resend"]').trigger('click')
+      await flushPromises()
+      expect(resendSystemEmail).toHaveBeenCalledWith('announcement')
+      expect(resendSystemEmail).toHaveBeenCalledTimes(1)
+      expect(announcement.find('[data-test="log-resend-note"]').text()).toContain('Resending.')
+      expect(announcement.find('[data-test="log-resend"]').attributes('disabled')).toBeDefined()
+      expect(reminder.find('[data-test="log-resend"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('says first when bounced emails cannot be checked through the Mail API', async () => {
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({
+        problem: 'rejected',
+        at: '2026-10-19T23:03:00Z',
+        status: 403
+      })
+      const wrapper = await openLog()
+      const panel = wrapper.find('[data-test="emails-log-panel"]')
+      const note = panel.find('[data-test="log-mail-api"]')
+      // At the top, before the rest of the log.
+      expect(panel.find('section > *').attributes('data-test')).toBe('log-mail-api')
+      expect(note.text()).toBe(
+        `Bounced emails aren't being checked because Hostinger rejected the Mail API key at ${atInSentence('2026-10-19T23:03:00Z')}. ` +
+          'Make a new one in hPanel under Emails, Agentic Mail, API access, and set it as HOSTINGER_MAIL_API_KEY in Azure.'
+      )
+      expect(note.classes()).toContain('email-log__error')
+    })
+
+    it('says so with no key, or when a check could not get through, and nothing when it can', async () => {
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'unset', at: null, status: null })
+      let wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-mail-api"]').text()).toContain("the Hostinger Mail API key isn't set")
+
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: 'failed', at: '2026-10-19T23:03:00Z', status: null })
+      wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-mail-api"]').text()).toBe(
+        `Bounced emails couldn't be checked at ${atInSentence('2026-10-19T23:03:00Z')} because Hostinger's Mail API didn't answer. ` +
+          "It's tried again every 10 minutes."
+      )
+
+      vi.mocked(fetchSystemEmailMailApi).mockResolvedValue({ problem: '', at: null, status: null })
+      wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-mail-api"]').exists()).toBe(false)
+    })
+
+    it('says a login code or reset link cannot be resent, in place of Resend', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'login_code',
+          name: 'Login code',
+          expires: true,
+          missed: [{ at: '2026-10-19T02:24:00Z', people: [{ who: 'amy@seed.test', reason: unreachable }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      const [login] = wrapper.findAll('[data-test="log-email"]')
+      expect(login.find('[data-test="log-resend"]').exists()).toBe(false)
+      expect(login.find('.email-log__head [data-test="log-expires"]').text()).toBe(
+        "Can't be resent as these expire within minutes. They can ask for a new one."
+      )
+    })
+
+    it('dates an email only waiting for the mail server by when it was tried', async () => {
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'password_changed',
+          name: 'Password changed',
+          resendable: true,
+          waiting: [{ who: 'amy@seed.test', at: '2026-10-19T02:24:00Z', until: '2026-10-22T02:24:00Z' }]
+        })
+      ])
+      const wrapper = await openLog()
+      expect(wrapper.find('[data-test="log-email"] h3').text()).toBe(
+        `Password changed ${at('2026-10-19T02:24:00Z')}`
+      )
+    })
+
+    it('says why a Resend could not go, and lets it be pressed again', async () => {
+      vi.mocked(resendSystemEmail).mockRejectedValue(new Error('Submissions are open until Friday.'))
+      vi.mocked(fetchSystemEmailTemplates).mockResolvedValue([
+        buildTemplate({ key: 'announcement', name: 'Announcement' })
+      ])
+      vi.mocked(fetchSystemEmailLog).mockResolvedValue([
+        logEntry({
+          key: 'announcement',
+          name: 'Announcement',
+          resendable: true,
+          missed: [{ at: '2026-10-18T23:39:00Z', people: [{ who: 'amy@seed.test', reason: 'mail server refused it' }] }]
+        })
+      ])
+      const wrapper = await openLog()
+      // On the email's own page, beside Couldn't be emailed.
+      await wrapper.find('.email-type-list__items .email-type-list__item').trigger('click')
+      const button = wrapper.find('[data-test="log-missed"] .email-log__head [data-test="log-resend"]')
+      await button.trigger('click')
+      await flushPromises()
+      const note = wrapper.find('[data-test="log-resend-note"]')
+      expect(note.text()).toBe('Submissions are open until Friday.')
+      expect(note.classes()).toContain('email-log__error')
+      expect(button.attributes('disabled')).toBeUndefined()
     })
 
     it('shows one email as Notify Finalists does', async () => {
@@ -568,17 +789,21 @@ describe('AdminEmailsPage', () => {
     const control = wrapper.find('[data-test="test-email"]')
     const send = control.findAll('button').find((button) => button.text() === 'Send Test')!
 
-    await control.find('input').setValue('tester@example.com')
+    await control.find('.email-editor__test-to').setValue('tester@example.com')
     await send.trigger('click')
     await flushPromises()
 
     expect(testSendSystemEmailTemplate).toHaveBeenCalledWith('password_reset', { to: 'tester@example.com' })
     expect(control.text()).toContain('Test sent to tester@example.com.')
-    // Save is the green button; Restore default and Send Test share the outlined look.
+    // Save is the green button; Restore default and Send Test share the outlined look,
+    // all full size, as tall as the boxes beside them.
     const button = (label: string) => wrapper.findAll('button').find((b) => b.text() === label)!
-    expect(button('Save changes').classes()).toEqual(expect.arrayContaining(['btn', 'btn-primary', 'btn-sm']))
+    expect(button('Save changes').classes()).toEqual(expect.arrayContaining(['btn', 'btn-primary']))
+    for (const label of ['Save changes', 'Restore default', 'Send Test']) {
+      expect(button(label).classes()).not.toContain('btn-sm')
+    }
     for (const label of ['Restore default', 'Send Test']) {
-      expect(button(label).classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline', 'btn-sm']))
+      expect(button(label).classes()).toEqual(expect.arrayContaining(['btn', 'btn-outline']))
     }
     // An email with nothing of a person's own has no "of" list.
     expect(control.find('[data-test="test-of"]').exists()).toBe(false)
@@ -623,20 +848,20 @@ describe('AdminEmailsPage', () => {
     })
     const wrapper = await mountPage()
     const control = wrapper.find('[data-test="test-email"]')
-    const of = control.find('[data-test="test-of"]')
+    const of = '[data-test="test-of"]'
 
     expect(fetchSystemEmailTestRecipients).toHaveBeenCalledWith('password_reset')
     expect(control.text()).toMatch(/Send Test\s*of\s*(.|\n)*to/)
-    expect(of.findAll('option').map((option) => option.text())).toEqual([
+    // The first one to start with, with no lock on an email that can be switched off.
+    expect(appSelectText(control, of)).toBe('(BTF1, mentor) Aga Smith')
+    expect(await appSelectLabels(control, of)).toEqual([
       '(BTF1, mentor) Aga Smith',
       '(BTF2) Ben Bell'
     ])
-    // The first one to start with, with no lock on an email that can be switched off.
-    expect((of.element as HTMLSelectElement).value).toBe('7')
     expect(control.find('button .fa-lock').exists()).toBe(false)
 
-    await of.setValue('9')
-    await control.find('input').setValue('tester@example.com')
+    await pickAppSelect(control, of, '(BTF2) Ben Bell')
+    await control.find('.email-editor__test-to').setValue('tester@example.com')
     await control.findAll('button').find((button) => button.text() === 'Send Test')!.trigger('click')
     await flushPromises()
 
@@ -656,10 +881,10 @@ describe('AdminEmailsPage', () => {
     const control = wrapper.find('[data-test="test-email"]')
     const of = control.find('[data-test="test-of"]')
 
-    expect(of.text()).toBe('Nobody yet (sample details)')
-    expect(of.attributes('disabled')).toBeDefined()
+    expect(of.find('input').attributes('placeholder')).toBe('Nobody yet (sample details)')
+    expect(of.find('input').attributes('disabled')).toBeDefined()
 
-    await control.find('input').setValue('tester@example.com')
+    await control.find('.email-editor__test-to').setValue('tester@example.com')
     await control.findAll('button').find((button) => button.text() === 'Send Test')!.trigger('click')
     await flushPromises()
 
@@ -677,15 +902,15 @@ describe('AdminEmailsPage', () => {
     await flushPromises()
 
     expect(fetchSystemEmailTestRecipients).toHaveBeenLastCalledWith('login_code')
-    expect(wrapper.find('[data-test="test-of"]').text()).toBe('(BTF3) Cai Chen')
+    expect(appSelectText(wrapper, '[data-test="test-of"]')).toBe('(BTF3) Cai Chen')
     // A critical email can't be test sent: Send Test shows a lock and is off,
     // while anyone can still be picked and an address typed.
     const control = wrapper.find('[data-test="test-email"]')
     const send = control.find('button')
     expect(send.find('.fa-lock').exists()).toBe(true)
     expect(send.attributes('disabled')).toBeDefined()
-    expect(control.find('input').attributes('disabled')).toBeUndefined()
-    expect(control.find('[data-test="test-of"]').attributes('disabled')).toBeUndefined()
+    expect(control.find('.email-editor__test-to').attributes('disabled')).toBeUndefined()
+    expect(control.find('[data-test="test-of"] input').attributes('disabled')).toBeUndefined()
     expect(control.find('[data-test="test-of"] .fa-lock').exists()).toBe(false)
   })
 })

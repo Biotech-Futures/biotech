@@ -163,6 +163,18 @@ describe('email buttons', () => {
     )
   })
 
+  it('moves a button to the centre of its line and back (Left / Centre on the Button menu)', () => {
+    // The cursor in the button first, as when its menu is open.
+    const place = (align: 'left' | 'center') => (editor: Editor) => {
+      editor.commands.setTextSelection(3)
+      editor.commands.setEmailButton({ align })
+    }
+    const centred = edit(FINALIST_BUTTON, place('center'))
+    expect(centred).toMatch(/text-align:\s*center/)
+    expect(centred).toContain('Register for the Symposium')
+    expect(edit(centred, place('left'))).toMatch(/text-align:\s*left/)
+  })
+
   it('takes the colour from the cell when the link has none', () => {
     expect(edit(CELL_BUTTON)).toBe(
       button(

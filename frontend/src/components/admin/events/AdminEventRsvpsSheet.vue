@@ -10,10 +10,6 @@
     <div class="admin-event-rsvps">
       <!-- Summary Counts Bar -->
       <div v-if="!loading && rsvps.length" class="admin-event-rsvps__stats">
-        <div class="admin-event-rsvps__stat-pill">
-          <span class="admin-event-rsvps__stat-label">Total</span>
-          <span class="admin-event-rsvps__stat-val">{{ rsvps.length }}</span>
-        </div>
         <div class="admin-event-rsvps__stat-pill admin-event-rsvps__stat-pill--accepted">
           <span class="admin-event-rsvps__stat-label">Going</span>
           <span class="admin-event-rsvps__stat-val">{{ countByStatus('accepted') }}</span>
@@ -39,7 +35,7 @@
           <input
             v-model.trim="searchFilter"
             type="search"
-            class="admin-event-rsvps__search-input"
+            class="admin-event-rsvps__search-input table-search"
             placeholder="Search attendees by name or email..."
             aria-label="Search attendees"
           />
@@ -54,18 +50,12 @@
           </button>
         </div>
 
-        <select
+        <AppSelect
           v-model="statusFilter"
-          class="admin-event-rsvps__status-select"
+          class="admin-event-rsvps__status-select table-filter"
           aria-label="Filter by RSVP status"
-        >
-          <option value="">All statuses</option>
-          <option value="accepted">Going</option>
-          <option value="tentative">Maybe</option>
-          <option value="waitlisted">Waitlisted</option>
-          <option value="declined">Not going</option>
-          <option value="pending">Pending</option>
-        </select>
+          :options="STATUS_OPTIONS"
+        />
       </div>
 
       <!-- Error alert -->
@@ -135,12 +125,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
 import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
 import { formatShortDateTime } from '@/utils/date'
 import { roleLabel } from '@/utils/userFormat'
 import type { BackendEvent } from '@/utils/eventsAPI'
+
+const STATUS_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'All statuses' },
+  { value: 'accepted', label: 'Going' },
+  { value: 'tentative', label: 'Maybe' },
+  { value: 'waitlisted', label: 'Waitlisted' },
+  { value: 'declined', label: 'Not going' },
+  { value: 'pending', label: 'Pending' }
+]
 
 const props = defineProps<{
   open: boolean
@@ -171,7 +171,7 @@ const sheetTitle = computed(() => `RSVPs: ${eventName.value}`)
 const sheetDescription = computed(() => {
   if (!props.event?.id) return ''
   const count = rsvps.value.length
-  return `Event #${props.event.id} · ${count} ${count === 1 ? 'response' : 'responses'}`
+  return `${count} ${count === 1 ? 'response' : 'responses'}`
 })
 
 const onDismiss = () => {
@@ -395,42 +395,39 @@ const rsvpRows = computed(() =>
 }
 
 .admin-event-rsvps__stat-label {
-  color: var(--text-muted);
   font-weight: 600;
 }
 
 .admin-event-rsvps__stat-val {
   font-weight: 700;
-  color: var(--teal);
 }
 
-.admin-event-rsvps__stat-pill--accepted {
-  background-color: rgba(1, 113, 81, 0.08);
-  border-color: rgba(1, 113, 81, 0.25);
-}
-.admin-event-rsvps__stat-pill--accepted .admin-event-rsvps__stat-val {
+.admin-event-rsvps__stat-pill--accepted,
+.rsvp-badge-accepted {
+  background-color: rgba(195, 236, 202, 0.45);
+  border-color: #c3ecca;
   color: var(--dark-green);
 }
 
-.admin-event-rsvps__stat-pill--tentative {
-  background-color: rgba(243, 230, 157, 0.4);
-  border-color: rgba(180, 150, 50, 0.3);
+.admin-event-rsvps__stat-pill--tentative,
+.rsvp-badge-tentative {
+  background-color: rgba(243, 230, 157, 0.45);
+  border-color: #f3e69d;
+  color: var(--teal);
 }
 
-.admin-event-rsvps__stat-pill--waitlisted {
-  background-color: rgba(38, 105, 125, 0.1);
-  border-color: rgba(38, 105, 125, 0.25);
-}
-.admin-event-rsvps__stat-pill--waitlisted .admin-event-rsvps__stat-val {
+.admin-event-rsvps__stat-pill--waitlisted,
+.rsvp-badge-waitlisted {
+  background-color: rgba(38, 105, 125, 0.12);
+  border-color: #26697d;
   color: #26697d;
 }
 
-.admin-event-rsvps__stat-pill--declined {
-  background-color: rgba(220, 53, 69, 0.06);
-  border-color: rgba(220, 53, 69, 0.2);
-}
-.admin-event-rsvps__stat-pill--declined .admin-event-rsvps__stat-val {
-  color: var(--danger);
+.admin-event-rsvps__stat-pill--declined,
+.rsvp-badge-declined {
+  background-color: rgba(255, 80, 80, 0.12);
+  border-color: #ff5050;
+  color: #ff5050;
 }
 
 .admin-event-rsvps__toolbar {
@@ -456,14 +453,10 @@ const rsvpRows = computed(() =>
   pointer-events: none;
 }
 
+/* The table's search box, with room on the right for its clear button. */
 .admin-event-rsvps__search-input {
-  width: 100%;
-  padding: 0.5rem 2rem 0.5rem 2.2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  padding-right: 2rem;
   background: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
 }
 
 .admin-event-rsvps__search-input:focus {
@@ -484,20 +477,9 @@ const rsvpRows = computed(() =>
   border-radius: 999px;
 }
 
+/* The table's filter box. */
 .admin-event-rsvps__status-select {
-  padding: 0.5rem 1.8rem 0.5rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-                    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
   cursor: pointer;
 }
 
@@ -605,34 +587,15 @@ const rsvpRows = computed(() =>
   display: inline-block;
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
+  border: 1px solid transparent;
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: capitalize;
 }
 
-.rsvp-badge-accepted {
-  background: var(--light-green);
-  color: var(--dark-green);
-}
-
-.rsvp-badge-tentative {
-  background: var(--warning, #f3e69d);
-  color: var(--teal);
-}
-
-.rsvp-badge-waitlisted {
-  background: rgba(38, 105, 125, 0.15);
-  color: #26697d;
-}
-
-.rsvp-badge-declined {
-  background: var(--bg-light);
-  color: var(--text-muted);
-}
-
 .rsvp-badge-pending {
-  background: #f0e6f6;
-  color: #6a329f;
+  color: #5e5e5e;
+  background: #e8e8e8;
 }
 
 .admin-event-rsvps__media-flag {

@@ -132,11 +132,7 @@
       <template #filters>
         <label class="admin-groups__filter-field">
           <span class="admin-groups__filter-label">Mentor status</span>
-          <select v-model="mentorStatus" aria-label="Mentor status">
-            <option value="">All</option>
-            <option value="matched">Matched</option>
-            <option value="unmatched">Unmatched</option>
-          </select>
+          <AppSelect v-model="mentorStatus" class="table-filter" aria-label="Mentor status" :options="MENTOR_STATUS_OPTIONS" />
         </label>
       </template>
       <template #cell-name="{ row }">
@@ -256,6 +252,7 @@
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
@@ -291,6 +288,12 @@ const route = useRoute()
 // "Groups & Matching" section rather than giving each its own admin route.
 // The two matching tabs live in their own components so this file stays a shell.
 const activeTab = ref<'groups' | 'student-matching' | 'mentor-matching' | 'matched'>('groups')
+
+const MENTOR_STATUS_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'All' },
+  { value: 'matched', label: 'Matched' },
+  { value: 'unmatched', label: 'Unmatched' }
+]
 
 const columns: DataTableColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
@@ -818,17 +821,6 @@ const submitForm = async () => {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
-}
-
-.admin-groups__filter-field select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .admin-groups__error {

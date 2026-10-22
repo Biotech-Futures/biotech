@@ -27,7 +27,7 @@
         ref="input"
         v-model="link"
         type="text"
-        class="link-dialog__input"
+        class="link-dialog__input app-input app-input--wide"
         :class="{ 'link-dialog__input--invalid': error }"
         placeholder="https://biotechfutures.org"
         autocomplete="off"
@@ -180,12 +180,8 @@ const remove = () => {
   color: #6b7280;
 }
 
+/* The shared box (app-input), across the dialog. */
 .link-dialog__input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
   color: #111827;
   background: #ffffff;
 }

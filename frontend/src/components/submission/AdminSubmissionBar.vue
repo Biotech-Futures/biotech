@@ -83,6 +83,14 @@ const emit = defineEmits<{ edit: []; save: []; submit: []; discard: []; done: []
   border-bottom-color: var(--accent);
 }
 
+/* Team, entry and students side by side on one line, wrapping only when the page is narrow. */
+.admin-bar__summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem 1.5rem;
+  flex-wrap: wrap;
+}
+
 .admin-bar__title {
   display: flex;
   align-items: baseline;
@@ -118,9 +126,9 @@ const emit = defineEmits<{ edit: []; save: []; submit: []; discard: []; done: []
 
 .admin-bar__facts {
   display: flex;
-  gap: 0.4rem 1.25rem;
+  gap: 0.4rem 1.5rem;
   flex-wrap: wrap;
-  margin: 0.25rem 0 0;
+  margin: 0;
   font-size: 0.875rem;
   color: var(--muted);
 }

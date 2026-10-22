@@ -13,7 +13,7 @@
       <input
         v-model="search"
         type="search"
-        class="form-input group-add__search-input"
+        class="form-input app-input group-add__search-input"
         placeholder="Search ungrouped students..."
         aria-label="Search ungrouped students"
         :disabled="busy"
@@ -177,17 +177,9 @@ const confirm = async () => {
   font-size: 0.875rem;
 }
 
-/* .form-input isn't global — each admin component styles it — so match the
-   other admin form sheets here. */
+/* The shared box (app-input), on the panel's own background. */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--teal);
-  font: inherit;
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 

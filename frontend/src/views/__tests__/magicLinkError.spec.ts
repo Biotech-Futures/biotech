@@ -94,8 +94,7 @@ describe('magic-link error copy', () => {
     expect(wrapper?.text()).toContain(en.signIn)
     expect(wrapper?.find('.language-switcher').exists()).toBe(false)
     expect(wrapper?.text()).not.toContain('简体中文')
-    // Register now is hidden for now.
-    expect(wrapper?.find('.legacy-links a[href="#/register"]').exists()).toBe(false)
+    expect(wrapper?.get('.legacy-links a[href="#/register"]').text()).toBe('Register now')
   })
 
   it('tells a throttled user to wait and blocks the submit button', async () => {

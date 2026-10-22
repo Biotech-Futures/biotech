@@ -1,17 +1,39 @@
 import {
   createStudent,
+  isBlankStudent,
+  interestOption,
   parseRegistrationInterests,
   type StudentDetails,
   type RegistrationIntakeJourney,
+  hasSupervisor,
 } from './registration'
 import type { RegistrationRequest } from './registrationGateway'
 
-export const REGISTRATION_OVERRIDE_NAMES = [
-  'ConfirmSchoolOverride',
-  'ConfirmNameEmailOverride',
-] as const
+/** Each warning's override, and the student field (under students.N) its
+ *  warning is about. */
+export const REGISTRATION_OVERRIDE_FIELDS = {
+  ConfirmSchoolOverride: 'school',
+  ConfirmNameEmailOverride: 'email',
+  // An address the email check found doesn't exist: the student's or their guardian's.
+  ConfirmEmailInvalidOverride: 'email',
+  ConfirmGuardianEmailInvalidOverride: 'guardian.email',
+} as const
+
+export const REGISTRATION_OVERRIDE_NAMES = Object.keys(REGISTRATION_OVERRIDE_FIELDS) as Array<
+  keyof typeof REGISTRATION_OVERRIDE_FIELDS
+>
 
 type OverrideName = (typeof REGISTRATION_OVERRIDE_NAMES)[number]
+
+/** A warning's override path, students.N.overrides.<name>: the student's
+ *  index and the override's name, or null if it isn't one. */
+export const parseOverridePath = (path: string): { index: number; name: OverrideName } | null => {
+  const match = /^students\.(\d+)\.overrides\.(\w+)$/.exec(path)
+  // Own keys only: `in` would also accept inherited names like "toString".
+  if (!match || !Object.prototype.hasOwnProperty.call(REGISTRATION_OVERRIDE_FIELDS, match[2]!))
+    return null
+  return { index: Number(match[1]), name: match[2] as OverrideName }
+}
 type SubmittedStudent = Omit<StudentDetails, 'emailConfirm'> & {
   groupingPreference?: string
   overrides?: Partial<Record<OverrideName, boolean>>
@@ -24,7 +46,7 @@ export const studentRequestPrefixes = (request: RegistrationRequest): string[] =
     case 'student_team':
       return [
         'studentTeam.creator',
-        ...request.payload.teammates.map((_, index) => `studentTeam.teammates.${index}`),
+        ...registeredTeammates(request).map((index) => `studentTeam.teammates.${index}`),
       ]
     case 'supervisor_individual':
       return ['supervisorIndividual.student']
@@ -36,6 +58,19 @@ export const studentRequestPrefixes = (request: RegistrationRequest): string[] =
       return []
   }
 }
+
+/** A student joining a registered group by its code, instead of creating one. */
+const joiningGroup = (request: RegistrationRequest) =>
+  request.journey === 'student_team' && Boolean(request.payload.joinCode?.trim())
+
+/** The teammates registered with a student group (their places in it): none
+ *  when joining one, and none left empty. */
+const registeredTeammates = (request: RegistrationRequest) =>
+  request.journey !== 'student_team' || joiningGroup(request)
+    ? []
+    : request.payload.teammates.flatMap((student, index) =>
+        isBlankStudent({ ...student, emailConfirm: '' }) ? [] : [index],
+      )
 
 const journeyPrefix: Record<RegistrationIntakeJourney, string> = {
   student_individual: 'studentIndividual',
@@ -53,7 +88,8 @@ export const registrationFormPath = (request: RegistrationRequest, path: string)
     return prefix ? `${prefix}${student[2]}` : path
   }
   if (path === 'group.interests') return `${journeyPrefix[request.journey]}.interests`
-  if (path.startsWith('supervisor.') || path === 'supervisorMode') {
+  if (path === 'group.joinCode') return 'studentTeam.joinCode'
+  if (path.startsWith('supervisor.')) {
     return `${journeyPrefix[request.journey]}.${path}`
   }
   if (path === 'source.rowNumbers') return 'supervisorCsv.file'
@@ -64,22 +100,23 @@ export const buildProductionRegistrationRequest = (
   request: RegistrationRequest,
   overrideFlags: Record<string, boolean> = {},
 ) => {
+  // The policies agreed to: the page sends nothing until they're ticked
+  // (RegistrationPage's last step), and the backend needs them from a student
+  // or mentor registering themselves; a supervisor's journeys don't ask.
   if (request.journey === 'mentor') {
-    const mentor = {
-      ...request.payload.mentor,
-      languages: request.payload.mentor.languagesPreferNot ? '' : request.payload.mentor.languages,
-      dateOfBirth: request.payload.mentor.dateOfBirthPreferNot
-        ? ''
-        : request.payload.mentor.dateOfBirth,
-    }
-    return { journey: request.journey, payload: { mentor } }
+    return { journey: request.journey, payload: { mentor: request.payload.mentor }, policiesAgreed: true }
   }
   const students: SubmittedStudent[] = (() => {
     switch (request.journey) {
       case 'student_individual':
         return [request.payload.student]
       case 'student_team':
-        return [{ ...request.payload.creator, interests: [] }, ...request.payload.teammates]
+        // Member 1's own Areas of Interest go with them; the group's are its own.
+        // Joining a group registers only them; teammates left empty aren't.
+        return [
+          request.payload.creator,
+          ...registeredTeammates(request).map((index) => request.payload.teammates[index]!),
+        ]
       case 'supervisor_individual':
         return [
           { ...request.payload.student, groupingPreference: request.payload.groupingPreference },
@@ -93,13 +130,10 @@ export const buildProductionRegistrationRequest = (
           })
           void _confirmation
           const guardian = {
+            ...defaults.guardian,
             firstName: values.guardian_first_name,
             lastName: values.guardian_last_name,
             email: values.guardian_email,
-            phone: '',
-            relationship:
-              values.guardian_relationship as StudentDetails['guardian']['relationship'],
-            relationshipOther: values.guardian_relationship_other,
           }
           return {
             ...defaults,
@@ -110,10 +144,12 @@ export const buildProductionRegistrationRequest = (
             yearLevel: values.year_level as StudentDetails['yearLevel'],
             country: values.country,
             state: values.state,
-            interests: parseRegistrationInterests(values.interests),
+            // As the options name them.
+            interests: parseRegistrationInterests(values.interests).map(
+              (interest) => interestOption(interest) ?? interest,
+            ),
             guardian,
             guardianDeferred: !guardian.firstName || !guardian.lastName || !guardian.email,
-            groupingPreference: values.grouping_preference,
           }
         })
     }
@@ -123,12 +159,11 @@ export const buildProductionRegistrationRequest = (
     overrides: {},
   }))
   for (const [path, flag] of Object.entries(overrideFlags)) {
-    const match =
-      /^students\.(\d+)\.overrides\.(ConfirmSchoolOverride|ConfirmNameEmailOverride)$/.exec(path)
-    const student = match ? students[Number(match[1])] : undefined
-    if (!match || !student || typeof flag !== 'boolean')
+    const override = parseOverridePath(path)
+    const student = override ? students[override.index] : undefined
+    if (!override || !student || typeof flag !== 'boolean')
       throw new Error('Invalid registration warning override.')
-    student.overrides = { ...student.overrides, [match[2]!]: flag }
+    student.overrides = { ...student.overrides, [override.name]: flag }
   }
   const source =
     request.journey === 'supervisor_csv'
@@ -140,11 +175,26 @@ export const buildProductionRegistrationRequest = (
       : { method: request.journey }
   const supervisor =
     request.journey === 'student_individual' || request.journey === 'student_team'
-      ? { supervisor: request.payload.supervisor, supervisorMode: request.payload.supervisorMode }
+      ? // Only a supervisor that was given (it's optional), and none when
+        // joining a group (it has its own).
+        hasSupervisor(request.payload.supervisor) && !joiningGroup(request)
+        ? { supervisor: request.payload.supervisor }
+        : {}
+      : {}
+  // A student group takes the code held for it (groupCode.ts), when it has one.
+  const codeToken =
+    request.journey === 'student_team' && request.payload.groupCodeToken
+      ? { codeToken: request.payload.groupCodeToken }
       : {}
   const group =
-    request.journey === 'student_team' || request.journey === 'supervisor_group'
-      ? { group: { interests: request.payload.interests } }
-      : {}
-  return { journey: request.journey, payload: { students, source, ...supervisor, ...group } }
+    request.journey === 'student_team' && joiningGroup(request)
+      ? { group: { joinCode: request.payload.joinCode.trim() } }
+      : request.journey === 'student_team'
+        ? // No shared interests: each member's own go with them.
+          { group: { ...codeToken } }
+        : request.journey === 'supervisor_group'
+          ? { group: { interests: request.payload.interests } }
+          : {}
+  const agreed = request.journey.startsWith('supervisor_') ? {} : { policiesAgreed: true }
+  return { journey: request.journey, payload: { students, source, ...supervisor, ...group }, ...agreed }
 }

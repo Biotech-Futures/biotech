@@ -7,7 +7,7 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
       /^studentIndividual\.student\.(school|yearLevel|country|state|interests|pronouns|pronounsOther|profilePhoto)$/,
       1,
     ],
-    [/^studentIndividual\.(supervisor|supervisorMode)(\.|$)/, 2],
+    [/^studentIndividual\.supervisor(\.|$)/, 2],
     [/^studentIndividual\.student\.(guardian|guardianDeferred)(\.|$)/, 2],
   ],
   student_team: [
@@ -16,27 +16,23 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
       /^studentTeam\.creator\.(school|yearLevel|country|state|interests|pronouns|pronounsOther|profilePhoto)$/,
       1,
     ],
-    [/^studentTeam\.(supervisor|supervisorMode)(\.|$)/, 1],
+    [/^studentTeam\.supervisor(\.|$)/, 2],
     [/^studentTeam\.creator\.(guardian|guardianDeferred)(\.|$)/, 1],
-    [/^studentTeam\.(interests|teammates|size)(\.|$)/, 2],
+    [/^studentTeam\.(teammates|size|joinCode)(\.|$)/, 2],
   ],
   supervisor_individual: [[/^supervisorIndividual\.(student|extraStudents)(\.|$)/, 0]],
   supervisor_group: [
-    [/^supervisorGroup\.interests(\.|$)/, 0],
-    [/^supervisorGroup\.(students|size)(\.|$)/, 1],
+    [/^supervisorGroup\.(students|size)(\.|$)/, 0],
+    [/^supervisorGroup\.interests(\.|$)/, 1],
   ],
   supervisor_csv: [
     [/^supervisorCsv\.(file|fileName)$/, 0],
     [/^supervisorCsv\.(rows|excludedRowNumbers|invalid)(\.|$)/, 1],
   ],
   mentor: [
-    [/^mentor\.(firstName|lastName|email|phone|country|state)$/, 0],
+    [/^mentor\.(firstName|lastName|email|country|state)$/, 0],
     [/^mentor\.(affiliation|institution|company|universityYear|fieldOfStudy)$/, 1],
-    [/^mentor\.(interests|capacity|background|motivation)$/, 2],
-    [
-      /^mentor\.(indigenousStatus|languages|languagesPreferNot|dateOfBirth|dateOfBirthPreferNot|safeguardingJurisdiction|safeguardingStatus|complianceDeclaration|attestation)$/,
-      3,
-    ],
+    [/^mentor\.(interests|capacity|weeklyHours|background|motivation|mentoringApproach)$/, 2],
   ],
 }
 

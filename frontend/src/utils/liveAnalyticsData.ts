@@ -31,6 +31,7 @@ import {
   type AdminMentor,
   type AdminUser,
   type EmailDeliveryAnalyticsResponse,
+  type EmailSendToRecipient,
   type GroupActivityResponse,
   type LoginActivityResponse,
   type ResourceAnalyticsResponse,
@@ -62,13 +63,13 @@ export function analyticsSourceAvailable(bundle: AnalyticsAvailability, source: 
 
 export const ANALYTICS_CACHE_TTL_MS = ANALYTICS_REFRESH_INTERVAL_MS
 
-function createCachedLoader<T>(fetcher: () => Promise<T>) {
+function createCachedLoader<T>(fetcher: (force: boolean) => Promise<T>) {
   let cached: Promise<T> | null = null
   let expiresAt = 0
   const load = (force = false) => {
     if (!cached || force || Date.now() >= expiresAt) {
       expiresAt = Number.POSITIVE_INFINITY
-      const request = fetcher()
+      const request = fetcher(force)
       cached = request
       void request.then(() => {
         if (cached === request) expiresAt = Date.now() + ANALYTICS_CACHE_TTL_MS
@@ -81,6 +82,87 @@ function createCachedLoader<T>(fetcher: () => Promise<T>) {
   }
   load.clear = () => { cached = null; expiresAt = 0 }
   return load
+}
+
+// One response cache shared by every Analytics page, keyed by source and date
+// range. Moving between pages or back to a recent date range reuses the
+// response instead of waiting for the same request again. Failed requests are
+// never cached; entries expire with the page refresh interval.
+const SOURCE_CACHE_LIMIT = 40
+const sourceCache = new Map<string, { promise: Promise<unknown>; expiresAt: number }>()
+
+function cachedRequest<T>(key: string, fetcher: () => Promise<T>, force = false): Promise<T> {
+  const entry = sourceCache.get(key)
+  if (entry && !force && Date.now() < entry.expiresAt) return entry.promise as Promise<T>
+  const promise = fetcher()
+  const record = { promise: promise as Promise<unknown>, expiresAt: Number.POSITIVE_INFINITY }
+  sourceCache.delete(key)
+  sourceCache.set(key, record)
+  while (sourceCache.size > SOURCE_CACHE_LIMIT) {
+    const oldest = sourceCache.keys().next().value
+    if (oldest === undefined) break
+    sourceCache.delete(oldest)
+  }
+  promise.then(
+    () => { record.expiresAt = Date.now() + ANALYTICS_CACHE_TTL_MS },
+    () => { if (sourceCache.get(key) === record) sourceCache.delete(key) },
+  )
+  return promise
+}
+
+const rangeKey = (start?: string, end?: string) => `${start ?? ''}..${end ?? ''}`
+
+/** Group activity for a date range, served from the shared cache. */
+export const loadGroupActivityRange = (start?: string, end?: string, force = false) =>
+  cachedRequest(`groupActivity:${rangeKey(start, end)}`, () => fetchGroupActivity(start, end), force)
+
+/** Login activity for a date range, served from the shared cache. */
+export const loadLoginActivityRange = (start?: string, end?: string, force = false) =>
+  cachedRequest(`loginActivity:${rangeKey(start, end)}`, () => fetchLoginActivity(start, end), force)
+
+function inRange(date: string, start?: string, end?: string) {
+  return (!start || date >= start) && (!end || date <= end)
+}
+
+/**
+ * Derive a date-range group activity response from the full (unranged) one,
+ * matching the API: every active group and member keeps its row (zero counts
+ * included), and only message counts and daily rows depend on the range.
+ * Returns null when the full response lacks the per-user daily breakdown.
+ */
+export function sliceGroupActivity(
+  full: GroupActivityResponse,
+  start?: string,
+  end?: string,
+): GroupActivityResponse | null {
+  const userDaily = full.messages_by_user_by_group_by_day
+  if (!userDaily) return null
+  if (!start && !end) return full
+  const groupDaily = full.messages_by_group_by_day.filter((row) => inRange(row.date, start, end))
+  const userDailyInRange = userDaily.filter((row) => inRange(row.date, start, end))
+  const groupTotals = new Map<number, number>()
+  for (const row of groupDaily) groupTotals.set(row.group_id, (groupTotals.get(row.group_id) ?? 0) + row.message_count)
+  const userTotals = new Map<number, number>()
+  for (const row of userDailyInRange) userTotals.set(row.user_id, (userTotals.get(row.user_id) ?? 0) + row.message_count)
+  return {
+    ...full,
+    messages_by_group: full.messages_by_group.map((row) => ({ ...row, message_count: groupTotals.get(row.group_id) ?? 0 })),
+    messages_by_user: full.messages_by_user.map((row) => ({ ...row, message_count: userTotals.get(row.user_id) ?? 0 })),
+    messages_by_day: full.messages_by_day.filter((row) => inRange(row.date, start, end)),
+    messages_by_group_by_day: groupDaily,
+    messages_by_user_by_group_by_day: userDailyInRange,
+    mentor_activity_by_day: full.mentor_activity_by_day?.filter((row) => inRange(row.date, start, end)),
+    query_range: { start: start ?? null, end: end ?? null },
+  }
+}
+
+/**
+ * Group activity for a range, computed on the client from the full response
+ * whenever possible so changing dates is instant; otherwise fetched (cached).
+ */
+export function groupActivityForRange(full: GroupActivityResponse | undefined, start?: string, end?: string) {
+  const sliced = full ? sliceGroupActivity(full, start, end) : null
+  return sliced ? Promise.resolve(sliced) : loadGroupActivityRange(start, end)
 }
 
 function emptyGroupActivity(): GroupActivityResponse {
@@ -98,27 +180,40 @@ function emptyGroupActivity(): GroupActivityResponse {
   }
 }
 
-const sourceLoaders = {
+const sourceFetchers = {
   users: fetchAllUsers,
   groups: fetchAllGroups,
   mentors: fetchMentors,
-  groupActivity: fetchGroupActivity,
-  loginActivity: fetchLoginActivity,
-  resourceAnalytics: fetchResourceAnalytics,
+  groupActivity: () => fetchGroupActivity(),
+  loginActivity: () => fetchLoginActivity(),
+  resourceAnalytics: () => fetchResourceAnalytics(),
   emailAnalytics: fetchEmailDeliveryAnalytics,
   resources: fetchAllResources,
 }
+
+const sourceLoaders = Object.fromEntries(
+  (Object.keys(sourceFetchers) as AnalyticsSource[]).map((source) => [
+    source,
+    // Unranged sources share the same key as an unranged range request.
+    (force = false) => cachedRequest(
+      source === 'groupActivity' || source === 'loginActivity' ? `${source}:${rangeKey()}` : source,
+      sourceFetchers[source] as () => Promise<unknown>,
+      force,
+    ),
+  ]),
+) as Record<AnalyticsSource, (force?: boolean) => Promise<unknown>>
 
 function emptySources(): LiveBundle {
   return {
     users: [], groups: [], mentors: [], groupActivity: emptyGroupActivity(), loginActivity: undefined,
     resourceAnalytics: {
       total_clicks: 0, unique_users: 0, active_resources: 0,
-      clicks_by_day: [], top_resources: [], clicks_by_category: [], query_range: { start: null, end: null },
+      clicks_by_day: [], top_resources: [], clicks_by_resource_by_day: [], clicks_by_category: [],
+      query_range: { start: null, end: null },
     },
     emailAnalytics: {
       snapshot_at: null, mailboxes: [], totals: { attempted: 0, delivered: 0, failed: 0, delivery_runs: 0 },
-      hourly: [], daily: [], recent_deliveries: [],
+      hourly: [], daily: [], recent_deliveries: [], recent_sends: [],
     },
     resources: [],
   }
@@ -126,8 +221,8 @@ function emptySources(): LiveBundle {
 
 // Settle sources independently. Empty containers are only safe with their
 // availability flags: views must never interpret a failed source as zero.
-async function loadSources(sources: AnalyticsSource[], required: AnalyticsSource[] = []) {
-  const results = await Promise.allSettled(sources.map((source) => sourceLoaders[source]()))
+async function loadSources(sources: AnalyticsSource[], required: AnalyticsSource[] = [], force = false) {
+  const results = await Promise.allSettled(sources.map((source) => sourceLoaders[source](force)))
   const unavailableSources = sources.filter((_, index) => results[index]?.status === 'rejected')
   if (unavailableSources.length === sources.length || required.some((source) => unavailableSources.includes(source))) {
     throw new Error('The data required for this view could not be loaded. Other analytics pages may still be available.')
@@ -139,17 +234,17 @@ async function loadSources(sources: AnalyticsSource[], required: AnalyticsSource
 }
 
 // Cache per page so one page's failure or refresh does not invalidate another.
-const usersPageLoader = createCachedLoader(() => loadSources(['users', 'loginActivity'], ['users']))
-const registrationPageLoader = createCachedLoader(() => loadSources(['users'], ['users']))
-const groupsPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'groupActivity'], ['groups']))
-const activityPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'groupActivity', 'loginActivity']))
-const messagesPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'groupActivity'], ['groupActivity']))
-const mentorsPageLoader = createCachedLoader(() => loadSources(['users', 'groups', 'mentors', 'groupActivity'], ['mentors']))
-const resourcesPageLoader = createCachedLoader(() => loadSources(['resourceAnalytics', 'resources']))
-const emailPageLoader = createCachedLoader(() => loadSources(['emailAnalytics'], ['emailAnalytics']))
-const overviewPageLoader = createCachedLoader(() => loadSources([
+const usersPageLoader = createCachedLoader((force) => loadSources(['users', 'loginActivity'], ['users'], force))
+const registrationPageLoader = createCachedLoader((force) => loadSources(['users'], ['users'], force))
+const groupsPageLoader = createCachedLoader((force) => loadSources(['users', 'groups', 'groupActivity'], ['groups'], force))
+const activityPageLoader = createCachedLoader((force) => loadSources(['users', 'groups', 'groupActivity', 'loginActivity'], [], force))
+const messagesPageLoader = createCachedLoader((force) => loadSources(['users', 'groups', 'groupActivity'], ['groupActivity'], force))
+const mentorsPageLoader = createCachedLoader((force) => loadSources(['users', 'groups', 'mentors', 'groupActivity'], ['mentors'], force))
+const resourcesPageLoader = createCachedLoader((force) => loadSources(['resourceAnalytics', 'resources'], [], force))
+const emailPageLoader = createCachedLoader((force) => loadSources(['emailAnalytics'], ['emailAnalytics'], force))
+const overviewPageLoader = createCachedLoader((force) => loadSources([
   'users', 'groups', 'groupActivity', 'loginActivity', 'resourceAnalytics', 'emailAnalytics', 'resources',
-]))
+], [], force))
 
 export const loadUsersAnalyticsBundle = (force = false) => usersPageLoader(force)
 export const loadRegistrationAnalyticsBundle = (force = false) => registrationPageLoader(force)
@@ -179,6 +274,7 @@ export const loadResourceAnalyticsBundle = loadResourcesAnalyticsBundle
 export const loadEmailAnalyticsBundle = loadEmailMonitoringAnalyticsBundle
 
 export function clearLiveAnalyticsCache() {
+  sourceCache.clear()
   for (const loader of [
     usersPageLoader,
     registrationPageLoader,
@@ -190,6 +286,17 @@ export function clearLiveAnalyticsCache() {
     emailPageLoader,
     overviewPageLoader,
   ]) loader.clear()
+}
+
+/**
+ * Warm the shared cache with every Analytics source so opening any Analytics
+ * page right after sign-in does not wait. Failures are ignored here; pages
+ * report them when they load.
+ */
+export function prefetchAnalytics() {
+  return Promise.allSettled(
+    (Object.keys(sourceFetchers) as AnalyticsSource[]).map((source) => sourceLoaders[source]()),
+  )
 }
 
 const roleTitle = (role: string | null): ActivityRole | null => {
@@ -278,8 +385,15 @@ function participantCounts(users: AdminUser[]): ParticipantYearCounts {
   }
 }
 
+/** Registered by the end of `year`. Undated legacy accounts can only be
+ *  represented safely in the live year. */
+export function registeredByYear(user: AdminUser, year: number) {
+  const joined = registrationDate(user)
+  return joined ? joined.getUTCFullYear() <= year : year === new Date().getUTCFullYear()
+}
+
 export function participantYearComparison(users: AdminUser[], year: number) {
-  const currentRows = roleUsers(users)
+  const currentRows = roleUsers(users).filter((user) => registeredByYear(user, year))
   const previousRows = currentRows.filter((user) => {
     const joined = registrationDate(user)
     return joined !== null && joined.getUTCFullYear() <= year - 1
@@ -311,11 +425,33 @@ function monthlyCumulative(users: AdminUser[], role: ActivityRole, year: number)
   return result
 }
 
-export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAnalyticsYear {
-  const users = roleUsers(bundle.users)
-  const asOf = safeDate(bundle.loginActivity?.latest_activity_date)
-    ?? latestObservedDate(users, bundle.groupActivity, bundle.loginActivity)
-  const year = new Date().getUTCFullYear()
+export function usersAnalyticsAsOf(bundle: ParticipantAnalyticsBundle, year: number) {
+  const activityDatesInYear = bundle.loginActivity?.by_day
+    .map((row) => row.date)
+    .filter((date) => Number(date.slice(0, 4)) === year)
+    .sort()
+  const latestActivityInYear = activityDatesInYear?.[activityDatesInYear.length - 1]
+
+  if (latestActivityInYear) return latestActivityInYear
+  if (year === new Date().getUTCFullYear()) return liveAnalyticsAsOf(bundle)
+  return `${year}-12-31`
+}
+
+export function buildUsersAnalytics(
+  bundle: ParticipantAnalyticsBundle,
+  year = new Date().getUTCFullYear(),
+): UserAnalyticsYear {
+  const systemYear = new Date().getUTCFullYear()
+  const users = roleUsers(bundle.users).filter((user) => registeredByYear(user, year))
+  const asOf = safeDate(usersAnalyticsAsOf(bundle, year))
+    ?? new Date(Date.UTC(year, 11, 31))
+  // asOf is a whole UTC day, so only a login after that day happened after
+  // the selected year. The live year's asOf is its latest day: keep every login.
+  const cutoff = year === systemYear ? null : new Date(asOf.getTime() + 86_400_000)
+  const loggedInAfterCutoff = (user: AdminUser) => {
+    const last = safeDate(user.lastLogin)
+    return cutoff !== null && last !== null && last >= cutoff
+  }
   const students = users.filter((user) => roleTitle(user.role) === 'Student')
   const mentors = users.filter((user) => roleTitle(user.role) === 'Mentor')
   const supervisors = users.filter((user) => roleTitle(user.role) === 'Supervisor')
@@ -325,9 +461,18 @@ export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAna
   const loggedInThisYear = (rows: AdminUser[]) => rows.filter((user) =>
     safeDate(user.lastLogin)?.getUTCFullYear() === year,
   ).length
-  const loginCountByRole: Record<ActivityRole, number> = {
-    Student: loggedInThisYear(students), Mentor: loggedInThisYear(mentors), Supervisor: loggedInThisYear(supervisors),
-  }
+  const recordedYear = bundle.loginActivity?.by_year.find((row) => row.year === year)
+  const loginCountByRole: Record<ActivityRole, number> = year === systemYear
+    ? {
+        Student: loggedInThisYear(students),
+        Mentor: loggedInThisYear(mentors),
+        Supervisor: loggedInThisYear(supervisors),
+      }
+    : {
+        Student: recordedYear?.students ?? 0,
+        Mentor: recordedYear?.mentors ?? 0,
+        Supervisor: recordedYear?.supervisors ?? 0,
+      }
   const rate = (role: ActivityRole, rows: AdminUser[]) => percent(loginCountByRole[role], rows.length)
   const recency = [
     { label: '< 7 days', min: 0, max: 6 },
@@ -339,12 +484,18 @@ export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAna
     label: bucket.label,
     value: users.filter((user) => {
       const last = safeDate(user.lastLogin)
-      if (!last) return false
+      if (!last || loggedInAfterCutoff(user)) return false
       const days = daysBetween(last, asOf)
       return days >= bucket.min && days <= bucket.max
     }).length,
   }))
-  recency.push({ label: 'Never', value: users.filter((user) => !user.lastLogin).length })
+  recency.push({
+    label: 'Never',
+    value: users.filter((user) => {
+      const last = safeDate(user.lastLogin)
+      return !last
+    }).length,
+  })
 
   const regionsMap = new Map<string, number>()
   const interestMap = new Map<string, { students: number; mentors: number }>()
@@ -388,11 +539,18 @@ export function buildUsersAnalytics(bundle: ParticipantAnalyticsBundle): UserAna
       mentors: rate('Mentor', mentors),
       supervisors: rate('Supervisor', supervisors),
     },
+    // Login audit rows only exist for years with recorded logins.
+    loginRatesAvailable: year === systemYear || recordedYear !== undefined,
     dailyActivity: { labels: dailyLabels, total: dailyTotal },
     lastLogin: recency,
-    userLastLogins: users.map((user) => {
-      const activityStatus = loginStatus(user, asOf)
-      const lastLoginDate = safeDate(user.lastLogin)
+    // A last login after a historical cutoff proves only that the account
+    // logged in later; it cannot tell us whether the user had never logged in
+    // by the selected year. Leave those rows out instead of mislabelling them
+    // as "Never".
+    userLastLogins: users.filter((user) => !loggedInAfterCutoff(user)).map((user) => {
+      const recordedLastLogin = safeDate(user.lastLogin)
+      const lastLoginDate = recordedLastLogin
+      const activityStatus = lastLoginDate ? loginStatus(user, asOf) : 'Never'
       const status: 'Recent' | 'Inactive' | 'Never' =
         activityStatus === 'Active' ? 'Recent' : activityStatus
 
@@ -559,17 +717,9 @@ export function buildRegistrationAnalytics(bundle: ParticipantAnalyticsBundle) {
   }
 }
 
-function groupBucket(size: number) {
-  if (size === 0) return '0'
-  if (size <= 2) return '1–2'
-  if (size <= 4) return '3–4'
-  if (size <= 6) return '5–6'
-  if (size <= 8) return '7–8'
-  if (size <= 10) return '9–10'
-  if (size <= 12) return '11–12'
-  if (size <= 14) return '13–14'
-  return '15+'
-}
+// A group has at most 5 students. Group size counts students only; mentors and
+// supervisors are not part of it.
+export const MAX_STUDENTS_PER_GROUP = 5
 
 function groupMentors(group: AdminGroup) {
   if (group.mentors) return group.mentors
@@ -577,48 +727,79 @@ function groupMentors(group: AdminGroup) {
 }
 
 export function analyticsYears(bundle: Pick<LiveBundle, 'users' | 'groupActivity' | 'loginActivity'>) {
-  const years = new Set<number>()
+  const years = new Set<number>([new Date().getUTCFullYear()])
   for (const row of bundle.groupActivity.messages_by_day) years.add(Number(row.date.slice(0, 4)))
   for (const row of bundle.loginActivity?.by_day ?? []) years.add(Number(row.date.slice(0, 4)))
   for (const user of bundle.users) {
-    const date = safeDate(user.activatedAt ?? user.invitedAt)
+    const date = registrationDate(user)
     if (date) years.add(date.getUTCFullYear())
   }
+  return [...years].filter(Number.isFinite).sort((a, b) => b - a)
+}
+
+export function groupAnalyticsYears(bundle: CoreAnalyticsBundle) {
+  // Only offer years for which the backend supplied a complete year-end
+  // snapshot. Group creation and message dates alone cannot reconstruct
+  // historical membership distributions.
+  const years = new Set<number>(
+    (bundle.groupActivity.group_summary_by_year ?? [])
+      .filter((row) => row.group_size_distribution !== undefined)
+      .map((row) => row.year),
+  )
   if (!years.size) years.add(new Date().getUTCFullYear())
-  return [...years].sort((a, b) => b - a)
+  return [...years].filter(Number.isFinite).sort((a, b) => b - a)
 }
 
 export function buildGroupsAnalytics(
   bundle: CoreAnalyticsBundle,
   activityYear = liveAnalyticsYear(bundle),
 ): GroupsAnalyticsYear {
-  const groups = bundle.groups
-  const groupMessages = new Map(bundle.groupActivity.messages_by_group.map((row) => [String(row.group_id), row.message_count]))
+  const systemYear = new Date().getUTCFullYear()
+  const groups = bundle.groups.filter((group) => {
+    const created = safeDate(group.createdAt)
+    return created ? created.getUTCFullYear() <= activityYear : activityYear === systemYear
+  })
+  const selectedSummary = bundle.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === activityYear)
+  const selectedAverage = bundle.groupActivity.average_group_size_by_year
+    ?.find((row) => row.year === activityYear)
+  const historicalSummary = activityYear === systemYear ? undefined : selectedSummary
   const sizes = groups.map((group) => group.members.filter((member) => member.role.toLowerCase() === 'student').length)
-  const withMentor = groups.filter((group) => groupMentors(group).length > 0).length
+  const localWithMentor = groups.filter((group) => groupMentors(group).length > 0).length
+  const withMentor = selectedSummary?.groups_with_mentor ?? localWithMentor
+  const totalGroups = selectedSummary?.group_count ?? groups.length
   const totalStudents = sizes.reduce((sum, value) => sum + value, 0)
-  const averageGroupSize = groups.length ? Number((totalStudents / groups.length).toFixed(1)) : 0
+  const averageGroupSize = selectedAverage?.average_group_size
+    ?? (groups.length ? Number((totalStudents / groups.length).toFixed(1)) : 0)
   const previousAverageGroupSize = bundle.groupActivity.average_group_size_by_year
     ?.find((row) => row.year === activityYear - 1)?.average_group_size ?? null
   const previousGroupSummary = bundle.groupActivity.group_summary_by_year
     ?.find((row) => row.year === activityYear - 1)
-  const buckets = ['0', '1–2', '3–4', '5–6', '7–8', '9–10', '11–12', '13–14', '15+']
-  const groupSizeDistribution = buckets.map((label) => ({ label, value: 0 }))
-  for (const size of sizes) {
-    const item = groupSizeDistribution.find((row) => row.label === groupBucket(size))
-    if (item) item.value += 1
+  const groupSizeDistribution = historicalSummary?.group_size_distribution
+    ?.map((bucket) => ({
+      label: bucket.student_count > MAX_STUDENTS_PER_GROUP
+        ? `Over ${MAX_STUDENTS_PER_GROUP}`
+        : String(bucket.student_count),
+      value: bucket.group_count,
+    }))
+    ?? Array.from({ length: MAX_STUDENTS_PER_GROUP + 1 }, (_, size) => ({
+      label: String(size),
+      value: sizes.filter((value) => value === size).length,
+    }))
+  // Groups above the limit are shown only when they exist, so data problems
+  // stay visible without a permanently empty bucket.
+  const overCapacity = historicalSummary?.over_capacity_groups
+    ?? sizes.filter((size) => size > MAX_STUDENTS_PER_GROUP).length
+  if (!historicalSummary && overCapacity) {
+    groupSizeDistribution.push({ label: `Over ${MAX_STUDENTS_PER_GROUP}`, value: overCapacity })
   }
 
-  const ratioMap = new Map<string, number>()
-  for (const group of groups) {
-    const size = new Set(group.members.filter((m) => m.role.toLowerCase() === 'student').map((m) => m.id)).size
-    const mentorIds = new Set(groupMentors(group).map((mentor) => mentor.id))
-    const perMentor = mentorIds.size ? size / mentorIds.size : null
-    const label = perMentor === null ? 'No mentor' : perMentor >= 12 ? '1:12+' : `1:${Number(perMentor.toFixed(2))}`
-    ratioMap.set(label, (ratioMap.get(label) ?? 0) + 1)
-  }
-
-  const recentEnd = liveAnalyticsAsOf(bundle)
+  const activityDates = bundle.groupActivity.messages_by_day
+    .map((row) => row.date)
+    .filter((date) => Number(date.slice(0, 4)) === activityYear)
+    .sort()
+  const recentEnd = activityDates[activityDates.length - 1]
+    ?? (activityYear === systemYear ? liveAnalyticsAsOf(bundle) : `${activityYear}-12-31`)
   const recentStartDate = new Date(`${recentEnd}T00:00:00Z`)
   recentStartDate.setUTCDate(recentStartDate.getUTCDate() - 6)
   const recentStart = recentStartDate.toISOString().slice(0, 10)
@@ -627,14 +808,22 @@ export function buildGroupsAnalytics(
       .filter((row) => row.date >= recentStart && row.date <= recentEnd && row.message_count > 0)
       .map((row) => String(row.group_id)),
   )
-  const active = groups.filter((group) => recentGroupIds.has(String(group.id))).length
-  const notStarted = groups.filter(
-    (group) => (groupMessages.get(String(group.id)) ?? 0) === 0 && group.members.length === 0,
-  ).length
-  const inactive = Math.max(0, groups.length - active - notStarted)
+  const messagesThroughSelectedYear = new Set(
+    bundle.groupActivity.messages_by_group_by_day
+      .filter((row) => Number(row.date.slice(0, 4)) <= activityYear && row.message_count > 0)
+      .map((row) => String(row.group_id)),
+  )
+  const active = historicalSummary?.active_groups
+    ?? groups.filter((group) => recentGroupIds.has(String(group.id))).length
+  const notStarted = historicalSummary?.not_started_groups
+    ?? groups.filter(
+      (group) => !messagesThroughSelectedYear.has(String(group.id)) && group.members.length === 0,
+    ).length
+  const inactive = historicalSummary?.inactive_groups
+    ?? Math.max(0, totalGroups - active - notStarted)
 
   return {
-    totalGroups: groups.length,
+    totalGroups,
     groupGrowth: null,
     averageGroupSize,
     averageGroupSizePrevious: previousAverageGroupSize,
@@ -643,31 +832,31 @@ export function buildGroupsAnalytics(
       ? Number((((averageGroupSize - previousAverageGroupSize) / previousAverageGroupSize) * 100).toFixed(1))
       : null,
     groupsWithMentor: withMentor,
-    groupsWithoutMentor: groups.length - withMentor,
-    mentorStudentRatio: bundle.groupActivity.students_per_mentor,
+    groupsWithoutMentor: selectedSummary?.groups_without_mentor ?? Math.max(groups.length - withMentor, 0),
+    mentorStudentRatio: selectedSummary?.students_per_mentor ?? (() => {
+      const mentoredGroups = groups.filter((group) => groupMentors(group).length > 0)
+      const mentorAssignments = mentoredGroups.reduce((sum, group) => sum + groupMentors(group).length, 0)
+      const assignedStudents = mentoredGroups.reduce(
+        (sum, group) => sum + group.members.filter((member) => member.role.toLowerCase() === 'student').length,
+        0,
+      )
+      return mentorAssignments ? Number((assignedStudents / mentorAssignments).toFixed(2)) : null
+    })(),
     comparisonPreviousYear: activityYear - 1,
     groupsWithMentorPrevious: previousGroupSummary?.groups_with_mentor ?? null,
     groupsWithoutMentorPrevious: previousGroupSummary?.groups_without_mentor ?? null,
     mentorStudentRatioPrevious: previousGroupSummary?.students_per_mentor ?? null,
-    smallGroups: sizes.filter((size) => size < 3).length,
+    smallGroups: historicalSummary?.small_groups ?? sizes.filter((size) => size < 3).length,
     inactiveRecent: inactive + notStarted,
-    nearCapacity: sizes.filter((size) => size >= 10).length,
+    nearCapacity: historicalSummary?.full_groups
+      ?? sizes.filter((size) => size === MAX_STUDENTS_PER_GROUP).length,
+    overCapacity,
     groupSizeDistribution,
     groupStatus: [
       { label: 'Active', value: active, color: BTF_COLORS.darkGreen },
       { label: 'Inactive', value: inactive, color: BTF_COLORS.mintGreen },
       { label: 'Not started', value: notStarted, color: BTF_COLORS.lightGreen },
     ],
-    ratioDistribution: [...ratioMap.entries()]
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => {
-        if (a.label === 'No mentor') return 1
-        if (b.label === 'No mentor') return -1
-        const ratioValue = (label: string) => label === '1:12+'
-          ? 12
-          : Number(label.slice(2))
-        return ratioValue(b.label) - ratioValue(a.label)
-      }),
     groupActivity: Array.from({ length: 12 }, (_, month) => {
       const activeGroupIds = new Set(
         bundle.groupActivity.messages_by_group_by_day
@@ -769,6 +958,14 @@ export function buildResourcesAnalytics(bundle: ResourceAnalyticsBundle) {
     activeResources: analytics.active_resources,
     mostUsedResource: analytics.top_resources[0]?.resource_name ?? '—',
     dailyClicks: analytics.clicks_by_day.map((row) => ({ label: row.date, clicks: row.click_count })),
+    // null when the backend does not provide per-resource daily usage yet.
+    resourceDaily: analytics.clicks_by_resource_by_day?.map((row) => ({
+      date: row.date,
+      resourceId: row.resource_id,
+      name: row.resource_name,
+      clicks: row.click_count,
+      uniqueUsers: row.unique_users,
+    })) ?? null,
     resources,
     byType: analytics.clicks_by_category.map((row, index) => ({
       label: row.category_name ?? 'Uncategorised',
@@ -807,6 +1004,13 @@ export function buildMentorData(bundle: MentorAnalyticsBundle) {
       capacity: mentor.maxGroupCount ?? 0,
       groupIds: groups.map((group) => group.id),
       studentIds: [...new Set(studentIds)],
+      region: mentor.countryName,
+      interests: mentor.interests,
+      institution: mentor.institution,
+      accountActive: mentor.accountStatus ? mentor.accountStatus === 'active' : mentor.isActive,
+      accountStatus: mentor.accountStatus ?? null,
+      email: mentor.email,
+      lastLogin: mentor.lastLogin,
     }
   })
 
@@ -876,6 +1080,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
   const hourlyUsage = [...new Set([...infoHourly.keys(), ...connectHourly.keys()])]
     .sort((left, right) => left.localeCompare(right))
     .map((hour) => ({
+      hour,
       label: `${hour.slice(0, 13).replace('T', ' ')}:00 UTC`,
       info: infoHourly.get(hour)?.attempted ?? 0,
       connect: connectHourly.get(hour)?.attempted ?? 0,
@@ -899,6 +1104,7 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
   const daily = [...combinedDailyMap.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, value]) => ({
+      date,
       label: new Date(`${date}T00:00:00Z`).toLocaleDateString('en-AU', {
         day: '2-digit',
         month: 'short',
@@ -996,30 +1202,110 @@ export function buildEmailMonitoring(bundle: EmailAnalyticsBundle): EmailMonitor
       averageOpenedPerUser: null,
       averageClickedPerUser: null,
     },
-    logs: email.recent_deliveries.map((row) => {
-      const status: EmailLog['status'] =
-        row.status === 'partial' || (row.success_count > 0 && row.failure_count > 0)
-          ? 'Partial'
-          : row.status === 'failed' || (row.failure_count > 0 && row.success_count === 0)
-            ? 'Failed'
-            : 'Delivered'
-
-      return {
-        id: row.id,
-        sender: row.initiated_by_name || 'System',
-        senderEmail: row.initiated_by_email || '—',
-        recipient: `Announcement audience (${row.recipient_count})`,
-        recipientEmail: '—',
-        title: row.title,
-        sentAt: new Date(row.started_at).toLocaleString('en-AU', {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        }),
-        status,
-      }
-    }),
+    logs: email.recent_sends
+      ? email.recent_sends.map((row) => ({
+          // A send still going has no id yet; its delivery row's id, negated,
+          // keeps the row apart from finished sends.
+          id: row.id ?? -(row.delivery_id ?? 0),
+          sender: row.initiated_by_name || 'System',
+          senderEmail: row.initiated_by_email || '—',
+          recipient: recipientCount(row.attempted),
+          recipientEmail: '—',
+          title: row.title ?? row.email_type_label,
+          type: row.email_type_label,
+          sentAt: formatLogTime(row.started_at),
+          sentAtIso: row.started_at,
+          status: logStatus(row.status, row.delivered, row.failed, row.status === 'sending'),
+          attempted: row.attempted,
+          delivered: row.delivered,
+          failed: row.failed,
+          sendId: row.id,
+          recipientsRecorded: row.recipients_recorded ?? 0,
+        }))
+      : email.recent_deliveries.map((row) => ({
+          id: row.id,
+          sender: row.initiated_by_name || 'System',
+          senderEmail: row.initiated_by_email || '—',
+          recipient: `Announcement audience (${row.recipient_count})`,
+          recipientEmail: '—',
+          title: row.title,
+          type: 'Announcement notification',
+          sentAt: formatLogTime(row.started_at),
+          sentAtIso: row.started_at,
+          status: logStatus(
+            row.status,
+            row.success_count,
+            row.failure_count,
+            isRecentIncompleteAnnouncement(row, email.snapshot_at),
+          ),
+          attempted: row.recipient_count,
+          delivered: row.success_count,
+          failed: row.failure_count,
+          sendId: null,
+          recipientsRecorded: 0,
+        })),
   }
 }
+
+/** One row per email sent to a matching recipient, for the recipient search. */
+export function buildRecipientEmailLogs(rows: EmailSendToRecipient[]): EmailLog[] {
+  return rows.map((row) => ({
+    id: row.id,
+    sender: row.initiated_by_name || 'System',
+    senderEmail: row.initiated_by_email || '—',
+    recipient: row.recipient.name || '—',
+    recipientEmail: row.recipient.email,
+    title: row.title ?? row.email_type_label,
+    type: row.email_type_label,
+    sentAt: formatLogTime(row.started_at),
+    sentAtIso: row.started_at,
+    status: row.recipient.status === 'delivered' ? 'Delivered' : 'Failed',
+    attempted: row.attempted,
+    delivered: row.delivered,
+    failed: row.failed,
+    sendId: row.id,
+    recipientsRecorded: row.attempted,
+    recipientReason: row.recipient.status === 'delivered' ? '' : (row.recipient.reason || "couldn't be sent"),
+  }))
+}
+
+function logStatus(status: string, delivered: number, failed: number, sending = false): EmailLog['status'] {
+  if (sending) return 'Sending'
+  // Counts describe the completed result more reliably than a stale status
+  // value left behind by an interrupted or older delivery workflow.
+  if (delivered > 0 && failed > 0) return 'Partial'
+  if (delivered > 0) return 'Delivered'
+  if (failed > 0) return 'Failed'
+  if (status === 'partial') return 'Partial'
+  if (status === 'failed') return 'Failed'
+  return 'Delivered'
+}
+
+const EMAIL_SENDING_GRACE_MS = 30 * 60 * 1000
+
+function isRecentIncompleteAnnouncement(
+  row: EmailDeliveryAnalyticsResponse['recent_deliveries'][number],
+  snapshotAt: string | null,
+) {
+  const incomplete = row.completed_at === null
+    || (row.completed_at === undefined
+      && row.recipient_count > 0
+      && row.success_count + row.failure_count === 0)
+  if (!incomplete) return false
+
+  const started = safeDate(row.started_at)
+  const snapshot = safeDate(snapshotAt) ?? new Date()
+  if (!started) return false
+  const elapsed = snapshot.getTime() - started.getTime()
+  return elapsed >= 0 && elapsed <= EMAIL_SENDING_GRACE_MS
+}
+
+const recipientCount = (count: number) => `${count} recipient${count === 1 ? '' : 's'}`
+
+const formatLogTime = (value: string) => new Date(value).toLocaleString('en-AU', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
 
 function registrationsByRecentPeriods(users: AdminUser[], asOf: Date) {
   const participantUsers = roleUsers(users)
@@ -1145,7 +1431,7 @@ export function buildOverviewAnalytics(bundle: OverviewAnalyticsBundle): Analyti
       },
       {
         key: 'email', title: 'Email Monitoring', value: email.overallStats.sent.toLocaleString(), unit: '24h recipients',
-        helper: 'Announcement delivery attempts in the current rolling 24-hour window', icon: 'mail-check', tone: 'orange', source: 'live-api',
+        helper: 'Email delivery attempts (every email type) in the current rolling 24-hour window', icon: 'mail-check', tone: 'orange', source: 'live-api',
         chart: email.mailboxes.map((mailbox) => percent(mailbox.currentUsage, mailbox.quotaLimit)),
       },
     ],

@@ -1,7 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
+
+// Management > Supervisor Pages Visibility, as it starts: the pages hidden.
+vi.mock('@/utils/managementAPI', async (original) => ({
+  ...(await original<typeof import('@/utils/managementAPI')>()),
+  fetchSupervisorPages: vi.fn(async () => ({ shown: false })),
+}))
 
 describe('registration in the current application router', () => {
   beforeEach(async () => {

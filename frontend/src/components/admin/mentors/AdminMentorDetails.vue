@@ -15,13 +15,13 @@
     </section>
 
     <section>
-      <p class="admin-mentors__section-title">Interests</p>
+      <p class="admin-mentors__section-title">Expertise</p>
       <div v-if="mentor.interests.length" class="admin-mentors__chips">
         <span v-for="interest in mentor.interests" :key="interest" class="admin-mentors__chip">
           {{ interest }}
         </span>
       </div>
-      <p v-else class="admin-mentors__muted">No interests listed.</p>
+      <p v-else class="admin-mentors__muted">No expertise listed.</p>
     </section>
 
     <section>

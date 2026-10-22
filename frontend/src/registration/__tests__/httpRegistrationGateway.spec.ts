@@ -136,11 +136,11 @@ describe('HTTP registration gateway', () => {
       ensureCsrf,
     })
 
+    // A group of two: Member 2 given (one left empty isn't registered).
+    const forms = createRegistrationForms()
+    forms.studentTeam.teammates[0]!.firstName = 'Jamie'
     const result = await gateway.submit(
-      buildRegistrationRequest(
-        'data' in body ? 'student_team' : 'mentor',
-        createRegistrationForms(),
-      ),
+      buildRegistrationRequest('data' in body ? 'student_team' : 'mentor', forms),
     )
 
     expect(result.ok).toBe(true)
@@ -283,9 +283,6 @@ describe('HTTP registration gateway', () => {
         guardian_first_name: '',
         guardian_last_name: '',
         guardian_email: '',
-        guardian_relationship: '',
-        guardian_relationship_other: '',
-        grouping_preference: '',
       },
     }))
     const result = await gateway.submit(buildRegistrationRequest('supervisor_csv', forms))

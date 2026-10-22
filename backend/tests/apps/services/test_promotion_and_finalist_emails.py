@@ -3,6 +3,7 @@ The waitlist promotion and finalist emails go through the shared system email pa
 Run with: python manage.py test tests.apps.services.test_promotion_and_finalist_emails
 """
 
+import smtplib
 from datetime import datetime, timedelta, timezone as dt_timezone
 from unittest import mock
 
@@ -106,7 +107,9 @@ class WaitlistPromotionEmailTests(TestCase):
 
     def test_send_failure_is_logged_not_raised(self):
         event = _event(location="Great Hall")
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("smtp down")), \
+        # Turned away by the mail server (one it can't reach is kept to send later).
+        rejected = smtplib.SMTPDataError(554, b"Message rejected")
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=rejected), \
                 self.assertLogs("apps.events.promotion_email", level="ERROR"):
             self._send(event)  # must not raise: the promotion already happened
 

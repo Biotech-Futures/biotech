@@ -324,7 +324,7 @@ def _work(email: TeamEmail, actor, options: dict) -> list[Work]:
         if team.id not in due.emailed and (limit is None or team.id in limit):
             # Anyone a run already reached isn't emailed again.
             people = member_labels(team, still_due(email.key, team, due.recipients[team.id]))
-            work.append(Work(list(people.values()), partial(_send_team, email, team, people, details, actor)))
+            work.append(Work(list(people.values()), partial(_send_team, email, team, people, details, actor), list(people)))
     return work
 
 

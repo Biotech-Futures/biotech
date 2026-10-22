@@ -18,6 +18,14 @@ import {
   type StudentDetails,
 } from '@/registration/registration'
 import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
+import { pickAppSelect } from '@/__tests__/appSelect'
+
+// Submitting: the BIOTech Futures policies agreed to first, as anyone
+// registering must tick them on the last step.
+const submitForm = async (page: { vm: unknown; get: (selector: string) => { trigger: (event: string) => Promise<unknown> } }) => {
+  ;(page.vm as { policiesAgreed: boolean }).policiesAgreed = true
+  await page.get('form').trigger('submit')
+}
 
 const studentCsv = () =>
   `${registrationCsvTemplate()}Alex,Morgan,alex@example.test,High School,10,Australia,NSW,Biomedical Innovations,Taylor,Morgan,taylor@example.test,Parent,,\r\n`
@@ -119,7 +127,7 @@ const prepareStudent = async (wrapper: VueWrapper) => {
 const prepareMentor = async (wrapper: VueWrapper) => {
   const setup = setupOf(wrapper)
   setup.journey = 'mentor'
-  setup.currentStep = 4
+  setup.currentStep = 3
   Object.assign(setup.forms.mentor, {
     firstName: 'Riley',
     lastName: 'Chen',
@@ -130,11 +138,10 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     company: 'Bio Labs',
     interests: ['Biomedical Innovations'],
     capacity: '2',
+    weeklyHours: '3',
     background: 'Biotechnology product development.',
     motivation: 'Support the next generation of researchers.',
-    safeguardingJurisdiction: 'Victoria, Australia',
-    complianceDeclaration: true,
-    attestation: true,
+    mentoringApproach: 'Weekly check-ins and feedback on each milestone.',
   })
   await wrapper.vm.$nextTick()
 }
@@ -142,7 +149,7 @@ const prepareMentor = async (wrapper: VueWrapper) => {
 const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
   const setup = setupOf(wrapper)
   setup.journey = 'supervisor_individual'
-  setup.currentStep = 1
+  setup.currentStep = 0
   Object.assign(setup.forms.supervisorIndividual.student, {
     firstName: 'Alex',
     lastName: 'Morgan',
@@ -159,7 +166,7 @@ const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
 }
 
 const submit = async (wrapper: VueWrapper) => {
-  await wrapper.get('form').trigger('submit')
+  await submitForm(wrapper)
   await wrapper.vm.$nextTick()
 }
 
@@ -178,6 +185,8 @@ const successfulGateway = (journey: 'student_individual' | 'mentor'): Registrati
 })
 
 beforeEach(() => {
+  // No registration progress kept from another test.
+  sessionStorage.clear()
   vi.stubGlobal('scrollTo', vi.fn())
   resetCsrfToken()
 })
@@ -225,7 +234,7 @@ describe('registration gateway UI integration', () => {
     setup.handlePhoto(setup.forms.studentIndividual.student, 'studentIndividual.student', photo)
     await wrapper.vm.$nextTick()
     await submit(wrapper)
-    await vi.waitFor(() => expect(wrapper.text()).toContain('REG-HTTP'))
+    await vi.waitFor(() => expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete'))
     const [url, init] = send.mock.calls[0]!
     expect(url).toBe(endpoint)
     expect(init?.credentials).toBe('include')
@@ -271,12 +280,16 @@ describe('registration gateway UI integration', () => {
       guardian: createRegistrationForms().studentTeam.creator.guardian,
     }
     setup.forms.studentTeam.supervisor = { ...setup.forms.studentIndividual.supervisor }
-    setup.forms.studentTeam.interests = ['Water & Energy Tech']
     Object.assign(setup.forms.studentTeam.teammates[0]!, {
       firstName: 'Jamie',
       lastName: 'Student',
       email: 'jamie@example.test',
       emailConfirm: 'jamie@example.test',
+      // Every member gives their school, year and location.
+      school: 'Example Secondary College',
+      yearLevel: '10',
+      country: 'Australia',
+      state: 'NSW',
     })
     await wrapper.vm.$nextTick()
     await submit(wrapper)
@@ -291,9 +304,9 @@ describe('registration gateway UI integration', () => {
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(send.mock.calls[0]![0]).toMatchObject({
       journey: 'student_team',
-      payload: { interests: ['Water & Energy Tech'], teammates: [{ guardianDeferred: true }] },
+      payload: { teammates: [{ guardianDeferred: true }] },
     })
-    expect(wrapper.text()).toContain('REG-GROUP')
+    expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
     wrapper.unmount()
   })
 
@@ -362,7 +375,7 @@ describe('registration gateway UI integration', () => {
     await prepareStudent(wrapper)
     await submit(wrapper)
     expect(wrapper.find('.registration-warnings').exists()).toBe(true)
-    expect(wrapper.find('.success-panel').exists()).toBe(false)
+    expect(wrapper.find('.success-body').exists()).toBe(false)
     await submit(wrapper)
     expect(send).toHaveBeenCalledTimes(1)
     await wrapper.get('.registration-warnings input').setValue(true)
@@ -372,7 +385,7 @@ describe('registration gateway UI integration', () => {
       'students.0.overrides.ConfirmSchoolOverride': true,
     })
     expect(send.mock.calls[1]![1]?.idempotencyKey).not.toBe(send.mock.calls[0]![1]?.idempotencyKey)
-    expect(wrapper.find('.success-panel').exists()).toBe(true)
+    expect(wrapper.find('.success-body').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -420,13 +433,13 @@ describe('registration gateway UI integration', () => {
     uploadedRows[0].values.email = 'invalid'
     setup.forms.supervisorCsv.rows = revalidateRegistrationCsvRows(uploadedRows)
     await wrapper.vm.$nextTick()
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(1)
     expect(send).not.toHaveBeenCalled()
     await wrapper.get('button[aria-label="Edit row 2"]').trigger('click')
     await wrapper.get('#csv-row-2-email').setValue('corrected@example.test')
-    await wrapper.get('#csv-row-2-year_level').setValue('11')
-    await wrapper.get('#csv-row-2-first_name').setValue('Corrected Alex')
+    await pickAppSelect(wrapper, '#csv-row-2-yearLevel', 'Year 11')
+    await wrapper.get('#csv-row-2-firstName').setValue('Corrected Alex')
     expect(setup.forms.supervisorCsv.rows[0].category).toBe('valid')
     expect(wrapper.text()).not.toContain('Student email format is invalid.')
     const excluded = {
@@ -437,14 +450,11 @@ describe('registration gateway UI integration', () => {
     setup.forms.supervisorCsv.rows.push(excluded)
     setup.forms.supervisorCsv.excludedRowNumbers = [3]
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.form-footer button[type="submit"]').attributes('disabled')).toBeDefined()
-    await wrapper.get('form').trigger('submit')
-    expect(setup.currentStep).toBe(1)
-    expect(send).not.toHaveBeenCalled()
-    await wrapper.get('.csv-editor-footer button').trigger('click')
-    await wrapper.get('form').trigger('submit')
+    // Continue with the row still open: it closes, and Review opens.
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(2)
-    await wrapper.get('form').trigger('submit')
+    expect(wrapper.find('#csv-row-editor').exists()).toBe(false)
+    await submitForm(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(send.mock.calls[0]![0]).toMatchObject({
       journey: 'supervisor_csv',
@@ -463,11 +473,11 @@ describe('registration gateway UI integration', () => {
       },
     })
     // Registered (a supervisor's finished page gives no reference).
-    expect(wrapper.get('.success-body h3').text()).toBe('Registration complete')
+    expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
     wrapper.unmount()
   })
 
-  it('puts row confirmation after the fields and prevents all submission and step bypasses while editing', async () => {
+  it('puts Done editing after the fields, and leaves Back, the steps and Submit open while editing', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,
       receipt: {
@@ -491,30 +501,21 @@ describe('registration gateway UI integration', () => {
     expect(confirmation.text()).toBe('Done editing')
     expect(confirmation.attributes('type')).toBe('button')
     expect(
-      editor.get('.csv-fields').element.compareDocumentPosition(confirmation.element) &
+      editor.get('.student-editor').element.compareDocumentPosition(confirmation.element) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(wrapper.get('.form-footer button[type="submit"]').attributes('disabled')).toBeDefined()
-    expect(
-      wrapper
-        .findAll('.step-navigation button')
-        .every((button) => button.attributes('disabled') !== undefined),
-    ).toBe(true)
-    expect(wrapper.get('.change-journey').attributes('disabled')).toBeDefined()
-    setup.goToStep(2)
-    setup.changeJourney()
-    expect(setup.currentStep).toBe(1)
-    expect(setup.journey).toBe('supervisor_csv')
-    setup.currentStep = 2
-    await setup.submitRegistration()
-    expect(send).not.toHaveBeenCalled()
-    expect(setup.currentStep).toBe(1)
-    await confirmation.trigger('click')
+    // Nothing locked while a row is open: its changes are already in it.
     expect(wrapper.get('.form-footer button[type="submit"]').attributes('disabled')).toBeUndefined()
-    await wrapper.get('form').trigger('submit')
-    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('.change-journey').attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('.step-navigation button')[2]!.attributes('disabled')).toBeUndefined()
+    // Going to Review closes it.
+    setup.goToStep(2)
+    await wrapper.vm.$nextTick()
+    expect(setup.currentStep).toBe(2)
+    expect(wrapper.find('#csv-row-editor').exists()).toBe(false)
+    await submitForm(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
-    expect(wrapper.get('.success-body h3').text()).toBe('Registration complete')
+    expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete')
     wrapper.unmount()
   })
 
@@ -526,7 +527,7 @@ describe('registration gateway UI integration', () => {
     setup.forms.supervisorCsv.fileName = 'duplicates.csv'
     setup.forms.supervisorCsv.rows = [row, { ...row, rowNumber: 3, values: { ...row.values } }]
     await wrapper.vm.$nextTick()
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(1)
     await wrapper.get('button[aria-label="Edit row 3"]').trigger('click')
     await wrapper.get('#csv-row-3-email').setValue('second@example.test')
@@ -544,7 +545,7 @@ describe('registration gateway UI integration', () => {
       .findAll('button')
       .find((button) => button.text() === 'Done editing')!
       .trigger('click')
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     expect(setup.currentStep).toBe(2)
     wrapper.unmount()
   })
@@ -571,7 +572,7 @@ describe('registration gateway UI integration', () => {
     ]
     setup.forms.supervisorCsv.excludedRowNumbers = [2]
     await wrapper.vm.$nextTick()
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     await vi.waitFor(() => expect(wrapper.find('#csv-row-3-email').exists()).toBe(true))
     expect(wrapper.get('#csv-row-3-email').attributes('aria-invalid')).toBe('true')
     expect(wrapper.text()).toContain('Choose a different email.')
@@ -602,9 +603,8 @@ describe('registration gateway UI integration', () => {
     await wrapper.findAll('tbody tr')[1].get('input[type="checkbox"]').setValue(true)
     expect(setup.forms.supervisorCsv.rows[0].category).toBe('valid')
     await wrapper.get('#csv-edit-3').trigger('click')
-    await wrapper.get('#csv-row-3-first_name').setValue('Repaired student')
+    await wrapper.get('#csv-row-3-firstName').setValue('Repaired student')
     expect(setup.forms.supervisorCsv.excludedRowNumbers).toEqual([3])
-    expect(wrapper.get('#csv-row-3-email').attributes('type')).toBe('text')
     await wrapper.findAll('tbody tr')[1].get('input[type="checkbox"]').setValue(false)
     expect(setup.forms.supervisorCsv.rows.map((entry) => entry.category)).toEqual([
       'invalid',
@@ -636,6 +636,8 @@ describe('registration gateway UI integration', () => {
       emailConfirm: 'sam@example.com',
       interests: ['Water & Energy Tech'],
     })
+    // Students added: registered from Review, as before.
+    setupOf(wrapper).currentStep = 1
     await wrapper.vm.$nextTick()
     await submit(wrapper)
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1))
@@ -649,11 +651,13 @@ describe('registration gateway UI integration', () => {
     // The group's interests are theirs; the members have none of their own.
     expect(request.payload.interests).toEqual(['Biomedical Innovations', 'Water & Energy Tech'])
     expect(request.payload.students.every((student) => !student.interests.length)).toBe(true)
+    // Then the saved registration's page, as before.
     await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
+    expect(wrapper.find('[data-test="registered-note"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('opens a fresh individual student form directly after supervisor registration', async () => {
+  it('stays on an empty Register one student form after registering, saying who was registered', async () => {
     const send = vi.fn<RegistrationGateway['submit']>().mockResolvedValue({
       ok: true,
       receipt: {
@@ -666,11 +670,12 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountSupervisorWithGateway({ submit: send })
     await prepareSupervisorStudent(wrapper)
     await submit(wrapper)
-    await vi.waitFor(() => expect(wrapper.find('.success-body').exists()).toBe(true))
-    await wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'Register another student')!
-      .trigger('click')
+    // No confirmation page: the note under the description, the form empty again.
+    await vi.waitFor(() =>
+      expect(wrapper.get('.journey-context [data-test="registered-note"]').text()).toBe(
+        'Registration successful: Alex Morgan (alex@example.com) is registered.',
+      ),
+    )
     expect(setupOf(wrapper).journey).toBe('supervisor_individual')
     expect(setupOf(wrapper).currentStep).toBe(0)
     expect(wrapper.get('#supervisorIndividual-student-email').element).toHaveProperty('value', '')
@@ -694,7 +699,23 @@ describe('registration gateway UI integration', () => {
         'Registration submission is not configured in this environment.',
       ),
     )
-    expect(wrapper.text()).not.toContain('Registration details received')
+    expect(wrapper.text()).not.toContain('Registration Complete')
+  })
+
+  it('needs the BIOTech Futures policies agreed to before submitting', async () => {
+    const send = vi.fn<RegistrationGateway['submit']>()
+    const wrapper = mountWithGateway({ submit: send })
+    await prepareStudent(wrapper)
+
+    const agree = wrapper.get('[data-test="policies-agree"]')
+    expect(wrapper.get('.policies-agree a').attributes('href')).toBe('https://www.biotechfutures.org/policies')
+    await wrapper.get('form').trigger('submit')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Tick the box to agree to the BIOTech Futures policies.')
+    expect(send).not.toHaveBeenCalled()
+
+    await agree.setValue(true)
+    expect(wrapper.find('.policies-agree__error').exists()).toBe(false)
   })
 
   it('shows loading and then the guardian-consent-required student outcome', async () => {
@@ -719,7 +740,7 @@ describe('registration gateway UI integration', () => {
         submittedAt: '2026-09-02T06:00:00.000Z',
       },
     })
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration details received'))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
     expect(wrapper.text()).toContain('Guardian consent is still required before full registration')
   })
 
@@ -743,7 +764,7 @@ describe('registration gateway UI integration', () => {
     expect(document.activeElement).toBe(email.element)
     expect(wrapper.text()).toContain('This address is already registered.')
     expect(wrapper.text()).toContain('Review the highlighted information.')
-    expect(wrapper.text()).not.toContain('Registration details received')
+    expect(wrapper.text()).not.toContain('Registration Complete')
   })
 
   it('preserves later server errors while an earlier step is corrected', async () => {
@@ -754,7 +775,7 @@ describe('registration gateway UI integration', () => {
           message: 'Review the highlighted information.',
           fieldErrors: {
             'studentIndividual.student.email': 'Choose another student email.',
-            'studentIndividual.supervisor.school': 'Choose a recognized school.',
+            'studentIndividual.supervisor.email': 'Choose another supervisor email.',
           },
         }
       },
@@ -771,8 +792,8 @@ describe('registration gateway UI integration', () => {
 
     setupOf(wrapper).currentStep = 2
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('Choose a recognized school.')
-    expect(wrapper.get('#student-individual-supervisor-school').attributes('aria-invalid')).toBe(
+    expect(wrapper.text()).toContain('Choose another supervisor email.')
+    expect(wrapper.get('#student-individual-supervisor-email').attributes('aria-invalid')).toBe(
       'true',
     )
     expect(setupOf(wrapper).serverFieldErrors['studentIndividual.student.email']).toBeUndefined()
@@ -846,7 +867,7 @@ describe('registration gateway UI integration', () => {
     expect(document.activeElement).toBe(wrapper.get('.error-summary').element)
 
     await submit(wrapper)
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration details received'))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
     expect(submitMock).toHaveBeenCalledTimes(2)
     expect(submitMock.mock.calls[1]![1]?.idempotencyKey).toBe(
       submitMock.mock.calls[0]![1]?.idempotencyKey,
@@ -926,7 +947,7 @@ describe('registration gateway UI integration', () => {
     expect(setupOf(wrapper).forms.studentIndividual.student.email).toBe('alex@example.com')
 
     await submit(wrapper)
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration details received'))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
     expect(submitMock).toHaveBeenCalledTimes(2)
   })
 
@@ -936,6 +957,6 @@ describe('registration gateway UI integration', () => {
     await submit(wrapper)
 
     await vi.waitFor(() => expect(wrapper.text()).toContain('Application received'))
-    expect(wrapper.text()).toContain('pending safeguarding and administrator review')
+    expect(wrapper.text()).toContain('pending administrator review')
   })
 })

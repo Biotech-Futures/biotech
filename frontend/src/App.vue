@@ -66,7 +66,8 @@
       </button>
     </header>
     <!-- A public page in the site (meta.siteHeader): the same top bar, with
-         just the logo, as its visitor isn't signed in. -->
+         just the logo, as its visitor isn't signed in; Registration's
+         (meta.siteHeaderSignIn) has Sign in on the right. -->
     <header v-else-if="isLoginPage && route.meta.siteHeader === true" class="header">
       <div class="header-content">
         <div class="logo-section">
@@ -76,6 +77,10 @@
             </span>
             <span class="logo-text">{{ BRAND_CONNECT }}</span>
           </span>
+        </div>
+        <div v-if="route.meta.siteHeaderSignIn === true" class="header-nav">
+          <span class="header-note">Already registered?</span>
+          <RouterLink to="/login" class="header-sign-in">Sign in</RouterLink>
         </div>
       </div>
     </header>
@@ -243,19 +248,15 @@
 
           <!-- One dropdown however many groups there are: an admin's is every
                group. Picking one opens it. -->
-          <select
+          <AppSelect
             v-else
             id="sidebar-group-select"
             class="sidebar-group-select"
-            :value="activeSidebarGroupId"
-            @change="openSidebarGroup"
-          >
-            <option v-if="!activeSidebarGroupId" value="" disabled>Choose a group</option>
-            <option v-for="groupOption in sidebarGroups" :key="groupOption.id" :value="groupOption.id">
-              {{ groupOption.name
-              }}{{ groupOption.hasUnread && !isSidebarGroupActive(groupOption.id) ? ' • New' : '' }}
-            </option>
-          </select>
+            :model-value="activeSidebarGroupId"
+            :options="sidebarGroupOptions"
+            placeholder="Choose a group"
+            @update:model-value="openSidebarGroup"
+          />
         </section>
       </aside>
 
@@ -323,11 +324,12 @@ import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
+import { clearLiveAnalyticsCache, prefetchAnalytics } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
@@ -424,10 +426,11 @@ const programSearchQuery = ref('')
 // expanded on large ones, matching the layout the user sees. Keeps in sync
 // with viewport changes (e.g. loading at desktop width then resizing down).
 type SidebarSectionKey = 'analytics' | 'supervisor' | 'admin'
+// On large screens Admin starts open and Analytics folded.
 const collapsedSidebarSections = ref<Record<SidebarSectionKey, boolean>>({
-  analytics: false,
+  analytics: true,
   supervisor: false,
-  admin: true,
+  admin: false,
 })
 let adminSubnavMediaQuery: MediaQueryList | null = null
 
@@ -475,7 +478,7 @@ watch(
 )
 
 // The top-level links every role sees; supervisors only once Management >
-// Supervisor Visibility shows them.
+// Supervisor Pages Visibility shows them.
 const mainNavLinks = computed(() => {
   if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
   const links: MainNavEntry[] = [
@@ -512,8 +515,8 @@ const sidebarSections = computed(() => {
       links: [
         { label: 'My Profile', to: '/profile', active: path === '/profile' },
         { label: 'Registration', to: '/supervisor/registration', active: path === '/supervisor/registration' },
-        { label: 'My Students', to: '/my-students', active: path.startsWith('/my-students') },
-        { label: 'My Groups', to: '/my-groups', active: path === '/my-groups' },
+        { label: 'Students', to: '/my-students', active: path.startsWith('/my-students') },
+        { label: 'Groups', to: '/my-groups', active: path === '/my-groups' },
         ...(supervisorResultsShown.value
           ? [{ label: 'Results', to: '/my-results', active: path === '/my-results' }]
           : []),
@@ -534,6 +537,7 @@ const sidebarSections = computed(() => {
         { label: 'Views', to: '/admin/views', active: path.startsWith('/admin/views') },
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
+        { label: 'Role Tasks', to: '/admin/role-tasks', active: path.startsWith('/admin/role-tasks') },
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
@@ -759,9 +763,16 @@ const hasOtherGroupUnread = computed(() =>
   ),
 )
 
-const openSidebarGroup = (event: Event) => {
-  const id = (event.target as HTMLSelectElement).value
-  if (id) void router.push({ name: 'group-detail', params: { id } })
+// Each group, marked New when it has unread messages and isn't the one open.
+const sidebarGroupOptions = computed<AppSelectOption[]>(() =>
+  sidebarGroups.value.map((groupOption) => ({
+    value: groupOption.id,
+    label: `${groupOption.name}${groupOption.hasUnread && !isSidebarGroupActive(groupOption.id) ? ' • New' : ''}`,
+  })),
+)
+
+const openSidebarGroup = (id: AppSelectValue) => {
+  if (id) void router.push({ name: 'group-detail', params: { id: String(id) } })
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -784,6 +795,38 @@ const handleKeydown = (event: KeyboardEvent) => {
     avatarRef.value?.focus?.()
   }
 }
+
+// Warm the Analytics cache for admins once the rest of the site has loaded,
+// so opening Analytics does not wait. It runs after the page's own requests
+// (window load, then idle time) and again for each newly signed-in admin.
+let analyticsPrefetchUserId: number | string | null = null
+const scheduleAnalyticsPrefetch = () => {
+  const userId = auth.user?.id ?? null
+  if (!auth.isAdmin || userId === null || analyticsPrefetchUserId === userId) return
+  analyticsPrefetchUserId = userId
+  const run = () => {
+    if (!auth.isAdmin || auth.user?.id !== userId) return
+    void prefetchAnalytics()
+  }
+  const whenIdle = () => {
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => void
+    }).requestIdleCallback
+    if (typeof ric === 'function') ric(run, { timeout: 5000 })
+    else window.setTimeout(run, 1500)
+  }
+  if (document.readyState === 'complete') whenIdle()
+  else window.addEventListener('load', whenIdle, { once: true })
+}
+
+watch(
+  () => [auth.user?.id, auth.isAdmin],
+  () => {
+    if (!auth.isAdmin) analyticsPrefetchUserId = null
+    scheduleAnalyticsPrefetch()
+  },
+  { immediate: true },
+)
 
 // Sidebar group list is non-critical — defer behind requestIdleCallback
 // so we don't fight the main page's fetches for connection budget.
@@ -1000,6 +1043,34 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  /* As tall as the signed-in bar's search box, so every top bar (a public
+     page's too) is the same height. */
+  min-height: 2.875rem;
+}
+
+/* A public page's way to sign in: a white button on the bar, as the
+   signed-in bar's search box is white, with a note before it. */
+.header-note {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+}
+
+.header-sign-in {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--dark-green);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.18s ease;
+}
+
+.header-sign-in:hover,
+.header-sign-in:focus-visible {
+  background: var(--light-green);
 }
 
 .logo-section {
@@ -1573,7 +1644,7 @@ select {
   cursor: pointer;
 }
 
-.sidebar-group-select:focus {
+.sidebar-group-select:focus-within {
   outline: 2px solid var(--dark-green);
   outline-offset: 1px;
 }

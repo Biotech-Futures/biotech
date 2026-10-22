@@ -13,6 +13,7 @@ import {
   startResultsEmail,
   updateResultsEmailDetails
 } from '@/utils/managementAPI'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
 vi.mock('@/utils/managementAPI', () => ({
   downloadResultsSampleSheet: vi.fn(),
@@ -226,8 +227,8 @@ describe('preview of the person picked', () => {
     previewMock.mockResolvedValue({ subject: 'Results', to: 'Ann Wu', html: '<p>email</p>', attachments: [] })
     const wrapper = await mountPage()
     const [groupSelect, supervisorSelect] = wrapper.findAll('.test-email__select')
-    await groupSelect!.setValue('2:12')
-    await supervisorSelect!.setValue('9')
+    await pickAppSelect(groupSelect!, 'input', '(BTF02) Ben Lee')
+    await pickAppSelect(supervisorSelect!, 'input', 'Ann Wu')
     await buttonNamed(wrapper, /^Preview Group Email$/).trigger('click')
     await flushPromises()
     expect(previewMock).toHaveBeenLastCalledWith('groups', expect.any(Object), '2:12')
@@ -260,9 +261,9 @@ describe('sample spreadsheet', () => {
     const sheetMock = vi.mocked(downloadSupervisorMarksSheet)
     sheetMock.mockReset().mockResolvedValueOnce()
     const wrapper = await mountPage()
-    const select = wrapper.find('.release-results__supervisor-select')
-    expect(select.findAll('option').map((o) => o.text())).toEqual(['Sam Lee', 'Ann Wu'])
-    await select.setValue('9')
+    expect(await appSelectLabels(wrapper, '.release-results__supervisor-select')).toEqual(['Sam Lee', 'Ann Wu'])
+    await wrapper.find('.release-results__supervisor-select input').trigger('blur')
+    await pickAppSelect(wrapper, '.release-results__supervisor-select', 'Ann Wu')
     await buttonNamed(wrapper, /^Download Supervisor Marks$/).trigger('click')
     await flushPromises()
     expect(sheetMock).toHaveBeenCalledWith('9')
@@ -271,7 +272,7 @@ describe('sample spreadsheet', () => {
 
   it('Download Supervisor Marks is off while no supervisor is due the email', async () => {
     const wrapper = await mountPage()
-    expect(wrapper.find('.release-results__supervisor-select option').text()).toBe('Nobody yet')
+    expect(appSelectText(wrapper, '.release-results__supervisor-select')).toBe('Nobody yet')
     expect(buttonNamed(wrapper, /^Download Supervisor Marks$/).attributes('disabled')).toBeDefined()
   })
 

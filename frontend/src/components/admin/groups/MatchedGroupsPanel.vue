@@ -78,18 +78,14 @@
         </template>
         <template #actions="{ row }">
           <div v-if="replacingId === groupOf(row).membershipId" class="matched-groups__replace-form">
-            <select
+            <AppSelect
               v-model="selectedMentorId"
               class="form-input matched-groups__replace-select"
               :disabled="replaceBusy"
               :aria-label="`Replacement mentor for ${groupOf(row).groupName}`"
-            >
-              <option value="">Select action</option>
-              <option :value="UNASSIGN_VALUE">— Unassign (leave unmatched)</option>
-              <option v-for="m in optionsFor(groupOf(row))" :key="m.mentorId" :value="String(m.mentorId)">
-                {{ m.name }}{{ m.remainingCapacity === 0 ? ' (full)' : '' }}
-              </option>
-            </select>
+              :options="replaceOptionsFor(groupOf(row))"
+              searchable
+            />
             <button
               type="button"
               class="btn btn-sm"
@@ -177,6 +173,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import MentorReplaceDialog from '@/components/admin/MentorReplaceDialog.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import {
@@ -363,6 +360,16 @@ const optionsFor = (group: MatchedGroup): MentorListItem[] =>
   mentors.value.filter(
     (m) => showFullMentors.value || m.remainingCapacity > 0 || m.mentorId === group.mentor.mentorId
   )
+
+// "Select action", Unassign, then each mentor (marked when full).
+const replaceOptionsFor = (group: MatchedGroup): AppSelectOption[] => [
+  { value: '', label: 'Select action' },
+  { value: UNASSIGN_VALUE, label: '— Unassign (leave unmatched)' },
+  ...optionsFor(group).map((m) => ({
+    value: String(m.mentorId),
+    label: `${m.name}${m.remainingCapacity === 0 ? ' (full)' : ''}`
+  }))
+]
 
 const confirmReplace = async (group: MatchedGroup) => {
   if (!selectedMentorId.value) return

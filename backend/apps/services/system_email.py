@@ -37,7 +37,8 @@ from .email_log import note_send, reason_for
 from .email_registry import MERGE_TAG_RE, get_email_type, is_known_email_type
 from .mailer import send_async
 from .models import SystemEmailSettings, SystemEmailTemplate
-from .retry import send_with_retry
+from .retry import WAITING
+from .waiting_email import send_or_wait
 
 logger = logging.getLogger(__name__)
 
@@ -461,6 +462,9 @@ def send_system_email(
     for send errors. With ``background=True`` the message is handed to the mail
     pool and ``SENT`` means queued. A send that fails is tried once more at
     once, over a fresh connection (see ``retry``); only then is it a miss.
+    When the mail server can't be reached, the email is kept and sent once it
+    can be (see ``waiting_email``), and that's ``SENT`` too: the Log lists it
+    as waiting.
     """
     if not is_email_enabled(key):
         logger.info("system_email.skipped_disabled key=%s", key)
@@ -479,7 +483,7 @@ def send_system_email(
         return SENT
 
     try:
-        send_with_retry(message)
+        outcome = send_or_wait(message, key=key, retry=True, sent_by=sent_by)
     except Exception as exc:
         # Not logger.exception: SMTP errors carry recipient addresses in their args.
         logger.error("system_email.send_failed key=%s error=%s", key, type(exc).__name__)
@@ -492,8 +496,11 @@ def send_system_email(
             delivered=0,
             failed=recipient_count,
             source_mailbox=message.from_email,
+            recipients=message.recipients(),
         )
         return FAILED
+    if outcome is WAITING:
+        return SENT
     recipient_count = len(message.recipients())
     note_send(
         key,
@@ -502,6 +509,7 @@ def send_system_email(
         delivered=recipient_count,
         failed=0,
         source_mailbox=message.from_email,
+        recipients=message.recipients(),
     )
     return SENT
 
@@ -516,7 +524,7 @@ class _NotedSend:
 
     def send(self):
         try:
-            send_with_retry(self.message)
+            outcome = send_or_wait(self.message, key=self.key, retry=True, sent_by=self.sent_by)
         except Exception as exc:
             recipient_count = len(self.message.recipients())
             note_send(
@@ -527,8 +535,12 @@ class _NotedSend:
                 delivered=0,
                 failed=recipient_count,
                 source_mailbox=self.message.from_email,
+                recipients=self.message.recipients(),
             )
             raise
+        if outcome is WAITING:
+            # Kept to send once the mail server can be reached: the Log lists it as waiting.
+            return
         recipient_count = len(self.message.recipients())
         note_send(
             self.key,
@@ -537,4 +549,5 @@ class _NotedSend:
             delivered=recipient_count,
             failed=0,
             source_mailbox=self.message.from_email,
+            recipients=self.message.recipients(),
         )

@@ -15,18 +15,15 @@
 
     <div class="form-field">
       <label class="form-label" for="assign-group-select">Group</label>
-      <select
+      <AppSelect
         id="assign-group-select"
         v-model="selectedGroupId"
-        class="form-input"
+        class="form-input app-input"
+        :options="groupOptions"
+        :placeholder="loadingGroups ? 'Loading groups...' : 'Select a group'"
+        searchable
         :disabled="loadingGroups || busy"
-      >
-        <option value="">{{ loadingGroups ? 'Loading groups...' : 'Select a group' }}</option>
-        <option v-for="group in groups" :key="group.id" :value="String(group.id)">
-          {{ group.name }} · {{ group.studentCount }}/{{ DEFAULT_GROUP_MAX_SIZE }}
-          ({{ group.remaining }} left)
-        </option>
-      </select>
+      />
       <p v-if="!loadingGroups && groups.length === 0" class="assign-dialog__hint">
         No groups with available space. Students can be assigned once a group has free seats.
       </p>
@@ -60,6 +57,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import {
   type AdminUser,
@@ -97,6 +95,13 @@ const loadingGroups = ref(false)
 const busy = ref(false)
 const error = ref('')
 const groups = ref<GroupWithCapacity[]>([])
+
+const groupOptions = computed<AppSelectOption[]>(() =>
+  groups.value.map((group) => ({
+    value: String(group.id),
+    label: `${group.name} · ${group.studentCount}/${DEFAULT_GROUP_MAX_SIZE} (${group.remaining} left)`
+  }))
+)
 const selectedGroupId = ref('')
 
 const selectedGroup = computed(() => groups.value.find((g) => String(g.id) === selectedGroupId.value))

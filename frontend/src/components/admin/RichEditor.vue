@@ -350,6 +350,22 @@ const buttonLook = computed(() => {
   return lookOf(BUTTON_LOOKS, editor.value.getAttributes('emailButton').style ?? '')?.id ?? null
 })
 
+// Where the button the cursor is in sits on its line.
+const BUTTON_PLACES = [
+  { align: 'left', label: 'Left' },
+  { align: 'center', label: 'Centre' },
+] as const
+const buttonAlign = computed(() => {
+  void updateTick.value
+  if (!editor.value?.isActive('emailButton')) return null
+  return editor.value.getAttributes('emailButton').align === 'center' ? 'center' : 'left'
+})
+
+function alignButton(align: 'left' | 'center') {
+  emailMenu.value = null
+  editor.value?.chain().focus().setEmailButton({ align }).run()
+}
+
 /** The colour and size on the selected text, if it has its own. */
 const colourAt = computed(() => {
   void updateTick.value
@@ -1044,6 +1060,18 @@ defineExpose({ insertText })
                 {{ look.label }}
               </button>
               <template v-if="isActive('emailButton')">
+                <div class="email-look-sep"></div>
+                <!-- Where the button sits on its line: left, or centred. -->
+                <button
+                  v-for="place in BUTTON_PLACES"
+                  :key="place.align"
+                  type="button"
+                  class="dropdown-item"
+                  :class="{ active: buttonAlign === place.align }"
+                  @mousedown.prevent="alignButton(place.align)"
+                >
+                  {{ place.label }}
+                </button>
                 <div class="email-look-sep"></div>
                 <button type="button" class="dropdown-item" @mousedown.prevent="changeButtonLink">
                   Change link…

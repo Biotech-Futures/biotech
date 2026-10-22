@@ -1,5 +1,8 @@
+import secrets
 from contextlib import contextmanager
+from datetime import timedelta
 
+from django.conf import settings
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CharField, F, Max, Q, Value, When
 from django.db.models.functions import Concat, Length, Lower, LPad, Substr, Trim
@@ -165,12 +168,33 @@ class GroupManager(models.Manager.from_queryset(GroupQuerySet)):
 
 
 class Groups(models.Model):
+    class FormedBy(models.TextChoices):
+        """Who formed a group: its members while registering (Create a student
+        group), a supervisor (on their Registration page or My Groups), or an
+        admin. Blank when it wasn't recorded."""
+        MEMBERS = "members", "Its members"
+        SUPERVISOR = "supervisor", "A supervisor"
+        ADMIN = "admin", "An admin"
+
     objects = GroupManager()
 
     group_name = models.CharField(max_length=255)
     year = models.PositiveSmallIntegerField(default=default_group_year)
     created_at = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # A student group's code to share with its teammates: numbers only, apart
+    # from its name, held while registering (GroupCodeReservation). None for
+    # other groups.
+    code = models.CharField(max_length=12, unique=True, null=True, blank=True)
+    # Who formed it (FormedBy), and the person: the student who created it, or
+    # the supervisor or admin.
+    formed_by = models.CharField(max_length=16, choices=FormedBy.choices, blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    # A group formed while registering waits in My Groups' Waiting Area until
+    # a supervisor makes it a BIOTech group there (Create all groups): when.
+    placed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'groups'
@@ -201,6 +225,34 @@ class Groups(models.Model):
 
     def __str__(self):
         return self.group_name
+
+    def mark_formed(self, by, user=None):
+        """Record who formed it (``FormedBy``) and the person, if signed in."""
+        self.formed_by = by
+        self.created_by = user if getattr(user, "pk", None) else None
+        self.save(update_fields=["formed_by", "created_by"])
+
+    @classmethod
+    def create_with_code(cls, token: str = "") -> "Groups":
+        """A student group: auto-named (``BTF<n>``), with the code held for it
+        while registering (``token``), letting the hold go. A hold that's gone
+        or expired gets a new code."""
+        with transaction.atomic():
+            held = (
+                GroupCodeReservation.objects.select_for_update()
+                .filter(token=token, expires_at__gt=timezone.now())
+                .first()
+                if token else None
+            )
+            code = held.code if held else None
+            if held:
+                held.delete()
+            group = cls.create_auto_named()
+            if code is None or cls.objects.filter(code=code).exists():
+                code = new_group_code()
+            group.code = code
+            group.save(update_fields=["code"])
+            return group
 
     @classmethod
     def create_auto_named(cls) -> "Groups":
@@ -282,3 +334,64 @@ def saving_group_name(name: str, year: int):
         if not is_duplicate_name_violation(exc):
             raise
         raise GroupNameTaken(duplicate_name_message(name, year)) from exc
+
+
+# A student group's code: this many digits, never starting with 0.
+GROUP_CODE_DIGITS = 6
+
+
+class GroupCodeUnavailable(Exception):
+    """No free group code could be found (all tried were taken)."""
+
+
+def new_group_code() -> str:
+    """A ``GROUP_CODE_DIGITS``-digit code no group has and none is holding."""
+    now = timezone.now()
+    low = 10 ** (GROUP_CODE_DIGITS - 1)
+    for _ in range(20):
+        code = str(low + secrets.randbelow(9 * low))
+        if not (
+            Groups.objects.filter(code=code).exists()
+            or GroupCodeReservation.objects.filter(code=code, expires_at__gt=now).exists()
+        ):
+            return code
+    raise GroupCodeUnavailable("No free group code could be found. Try again.")
+
+
+class GroupCodeReservation(models.Model):
+    """A group code (numbers only, see ``new_group_code``) held for a student
+    creating a group: shown while they register, so they can save it and
+    share it with their teammates, and taken by the group once it's
+    registered (``Groups.create_with_code``). Held for ``HOLD``; an expired
+    hold counts for nothing."""
+
+    HOLD = timedelta(hours=24)
+
+    code = models.CharField(max_length=12, unique=True)
+    # The holder's secret: whoever has it can register the group with the code.
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "group_code_reservation"
+
+    def __str__(self):
+        return self.code
+
+    @classmethod
+    def hold_new(cls) -> "GroupCodeReservation":
+        """Hold a new code for ``HOLD``. An expired hold of the same code is
+        let go first."""
+        now = timezone.now()
+        for _ in range(5):
+            code = new_group_code()
+            try:
+                with transaction.atomic():
+                    cls.objects.filter(code=code, expires_at__lte=now).delete()
+                    return cls.objects.create(
+                        code=code, token=secrets.token_urlsafe(32), expires_at=now + cls.HOLD,
+                    )
+            except IntegrityError:
+                continue
+        raise GroupCodeUnavailable("No free group code could be found. Try again.")

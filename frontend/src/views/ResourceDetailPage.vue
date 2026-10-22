@@ -527,13 +527,6 @@ onBeforeUnmount(clearPreview)
 </script>
 
 <style scoped>
-.back-button {
-  align-items: center;
-  display: inline-flex;
-  gap: 0.45rem;
-  margin-bottom: 1rem;
-}
-
 .detail-state {
   align-items: center;
   display: flex;

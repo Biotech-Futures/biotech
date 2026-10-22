@@ -28,16 +28,15 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
 
@@ -261,9 +260,6 @@
                     @mousemove="moveTooltip"
                     @mouseleave="hideTooltip"
                   />
-                  <text v-if="showPointValue(point.index, series.values.length)" :x="point.x" :y="Math.max(point.y - 12, 14)" text-anchor="middle" class="activity-value">
-                    {{ point.value }}
-                  </text>
                 </g>
               </template>
 
@@ -585,7 +581,7 @@
               <input
                 v-model.number="userActivityThreshold"
                 type="number"
-                min="0"
+                min="1"
                 max="3650"
                 step="1"
                 aria-label="User active threshold in days"
@@ -665,7 +661,10 @@
         <article class="analytics-card insights-card">
           <AnalyticsKeyInsights
             :items="activityInsightItems"
-            description="Summarises login coverage and identifies the participant role with the strongest login rate."
+            :subtitle="activityInsightSnapshotLabel"
+            :description="activityInsightSnapshotDate
+              ? `Cumulative login coverage and role comparisons as at ${activityInsightSnapshotDate}.`
+              : 'Cumulative login coverage; no latest login activity date is available.'"
           />
         </article>
       </div>
@@ -696,7 +695,7 @@ import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vu
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
-import { fetchLoginActivity, type LoginActivityResponse } from '@/utils/liveAnalyticsApi'
+import type { LoginActivityResponse } from '@/utils/liveAnalyticsApi'
 import { useRoute } from 'vue-router'
 import type {
   ActivityAnalyticsData,
@@ -717,8 +716,26 @@ import {
   liveAnalyticsAsOf,
   liveAnalyticsYear,
   loadActivityAnalyticsBundle,
+  loadLoginActivityRange,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const data = reactive<ActivityAnalyticsData>({
   totalUsers: 0,
@@ -736,6 +753,7 @@ const liveUserData = ref<UserAnalyticsYear>({
   totalUsers: 0, students: 0, mentors: 0, supervisors: 0,
   totalGrowth: null, studentGrowth: null, mentorGrowth: null, supervisorGrowth: null,
   loginRates: { students: 0, mentors: 0, supervisors: 0 },
+  loginRatesAvailable: true,
   dailyActivity: { labels: [], total: [] },
   lastLogin: [], userLastLogins: [],
   registration: { students: [], mentors: [], supervisors: [] },
@@ -748,8 +766,8 @@ const liveGroupData = ref<GroupsAnalyticsYear>({
   comparisonPreviousYear: new Date().getFullYear() - 1,
   groupsWithMentorPrevious: null, groupsWithoutMentorPrevious: null,
   mentorStudentRatioPrevious: null,
-  smallGroups: 0, inactiveRecent: 0, nearCapacity: 0,
-  groupSizeDistribution: [], groupStatus: [], ratioDistribution: [], groupActivity: [],
+  smallGroups: 0, inactiveRecent: 0, nearCapacity: 0, overCapacity: 0,
+  groupSizeDistribution: [], groupStatus: [], groupActivity: [],
 })
 const liveYear = ref(new Date().getFullYear())
 const unavailableSources = ref<AnalyticsSource[]>([])
@@ -819,9 +837,10 @@ function applyGroupStatusFilter(status: GroupActivityDetailStatus) {
   highlightedGroupStatus.value = status
 }
 
-const USER_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.userThresholdDays'
+// Renamed when the default became the shared 14-day window, so an old saved 7 does not linger.
+const USER_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.userActiveWindowDays'
 const GROUP_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.groupThresholdDays'
-const DEFAULT_USER_ACTIVITY_THRESHOLD_DAYS = 7
+const DEFAULT_USER_ACTIVITY_THRESHOLD_DAYS = ACTIVE_WINDOW_DAYS
 const DEFAULT_GROUP_ACTIVITY_THRESHOLD_DAYS = 3
 
 function savedThreshold(key: string, fallback: number) {
@@ -841,7 +860,7 @@ function normaliseThreshold(scope: 'users' | 'groups') {
   const target = scope === 'users' ? userActivityThreshold : groupActivityThreshold
   const parsed = Number(target.value)
   target.value = Number.isFinite(parsed)
-    ? Math.min(3650, Math.max(0, Math.round(parsed)))
+    ? Math.min(3650, Math.max(scope === 'users' ? 1 : 0, Math.round(parsed)))
     : scope === 'users'
       ? DEFAULT_USER_ACTIVITY_THRESHOLD_DAYS
       : DEFAULT_GROUP_ACTIVITY_THRESHOLD_DAYS
@@ -972,10 +991,17 @@ async function loadActivityWindowComparison() {
     activityWindowComparison.value = null
     return
   }
+  // The unranged response already compares windows ending on the latest
+  // login date, so the default end date needs no extra request.
+  const loaded = liveCoreBundle.value?.loginActivity
+  if (loaded?.active_user_comparison && loaded.latest_activity_date === selectedEndDate.value) {
+    activityWindowComparison.value = loaded.active_user_comparison
+    return
+  }
   const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - 59)
   try {
-    const response = await fetchLoginActivity(
+    const response = await loadLoginActivityRange(
       start.toISOString().slice(0, 10),
       selectedEndDate.value,
     )
@@ -1144,11 +1170,6 @@ function showXAxisLabel(index: number, length: number) {
   const step = Math.ceil((length - 1) / 9)
   return index === 0 || index === length - 1 || index % step === 0
 }
-
-function showPointValue(index: number, length: number) {
-  return length <= 14 || showXAxisLabel(index, length)
-}
-
 
 const groupMonthLabels = computed(() => trendBuckets.value.map((bucket) => bucket.shortLabel))
 const groupActiveValues = computed(() => {
@@ -1444,7 +1465,7 @@ const yearUsers = computed(() =>
         ? 'Inactive'
         : user.lastLogin === null || user.daysInactive === null
         ? 'Never'
-        : user.daysInactive <= Number(userActivityThreshold.value)
+        : user.daysInactive < Number(userActivityThreshold.value)
           ? 'Active'
           : 'Inactive'
     ) as ActivityStatus,
@@ -1524,6 +1545,25 @@ const mostActiveRole = computed(() =>
     role: 'Student' as ActivityRole,
     value: 0,
   },
+)
+const activityInsightSnapshotDate = computed(() => {
+  // These insights describe login coverage, so their date must come from the
+  // login activity source rather than newer registration, group or message data.
+  const asOf = liveCoreBundle.value?.loginActivity?.latest_activity_date ?? ''
+  const date = parseInputDate(asOf)
+  return date
+    ? date.toLocaleDateString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : null
+})
+const activityInsightSnapshotLabel = computed(() =>
+  activityInsightSnapshotDate.value
+    ? `Data as at ${activityInsightSnapshotDate.value}`
+    : 'No login activity date available',
 )
 const activityInsightItems = computed(() => [
   { key: 'logged-in', value: `${selectedLoggedInRate.value}%`, text: 'of current participants have logged in at least once.' },
@@ -1607,7 +1647,8 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     liveGroupData.value = buildGroupsAnalytics(bundle)
     liveCoreBundle.value = bundle
     if (!preserveFilters) applyObservedTrendRange()
-    await loadActivityWindowComparison()
+    // Show the page now; the window KPIs update when their comparison arrives.
+    void loadActivityWindowComparison()
     const hasParticipants = bundle.users.some((user) =>
       ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
     )
@@ -1670,41 +1711,114 @@ onMounted(async () => {
   })
 })
 
-function exportCsv() {
-  const rows = viewMode.value === 'groups'
-    ? [
-        ['Group ID', 'Group', 'Mentors', 'Activity Status', 'Last Message Date (UTC)', 'Days Since Last Message'],
-        ...filteredGroupRows.value.map((group) => [
-          group.id,
-          group.name,
-          group.mentors.join('; ') || 'None',
-          group.status,
-          group.lastActiveDate ?? 'No messages recorded',
-          group.daysSinceActive ?? '',
-        ]),
-      ]
-    : [
-        ['User', 'Role', 'Last Login', activityMetricHeading.value, 'Status'],
-        ...filteredUsers.value.map((user) => [
-          user.name,
-          user.role,
-          formatLogin(user.lastLogin),
-          activityMetricValue(user),
-          statusLabel(user.status),
-        ]),
-      ]
+const exportError = ref('')
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  {
+    ...DETAILS_OPTION,
+    description: viewMode.value === 'groups'
+      ? 'One row per group in the table below, with its filters'
+      : 'One row per user in the table below, with its filters',
+  },
+])
 
-  const csv = rows
-    .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
-    .join('\n')
+function activitySummary() {
+  const start = selectedStartDate.value
+  const end = selectedEndDate.value
+  const comparison = activityWindowComparison.value
+  const windows = [
+    ['Daily active users', yearKpis.value.dailyActive, comparison?.daily.previous, 'The selected day'],
+    ['Weekly active users', yearKpis.value.weeklyActive, comparison?.weekly.previous, '7 days ending on the selected date'],
+    ['Monthly active users', yearKpis.value.monthlyActive, comparison?.monthly.previous, '30 days ending on the selected date'],
+  ] as const
+  const rows: SummaryRow[] = [
+    ...windows.flatMap(([label, current, previous, notes]) => [
+      figure('Active users', label, current, 'users', notes),
+      figure('Active users', `${label} (previous period)`, previous, 'users', 'The same length of time just before'),
+    ]),
+    figure('Logins', 'Participants who have logged in', loggedInCount.value, 'users'),
+    figure('Logins', 'Logged in at least once', selectedLoggedInRate.value, '%'),
+    figure('Logins', 'Never logged in', selectedNeverLoggedIn.value, 'users'),
+    figure('Logins', `Login events in ${selectedYear.value}`, yearlyLoginComparison.value.current, 'logins'),
+    figure('Logins', `Login events in ${yearlyLoginComparison.value.previousYear}`, yearlyLoginComparison.value.previous, 'logins'),
+    ...filteredRoleLoginRates.value.map((rate) => figure('Logged in at least once by role', `${rate.role}s`, rate.value, '%')),
+    ...selectedLoginRecency.value.map((bucket) => figure('Last login', bucket.label, bucket.value, 'users')),
+    ...chartSeries.value.flatMap((series) => trendBuckets.value.map((bucket, index) =>
+      figure(`Logins (${series.label})`, bucket.key, series.values[index] ?? 0, 'logins', `${trendIntervalLabel.value} buckets`),
+    )),
+    figure('Group activity', 'Active groups', groupActiveCount.value, 'groups', `A message within ${groupActivityThreshold.value} days`),
+    figure('Group activity', 'Inactive groups', groupInactiveCount.value, 'groups'),
+    figure('Group activity', 'Not started', groupNotStartedCount.value, 'groups', 'No messages yet'),
+    ...trendBuckets.value.flatMap((bucket, index) => [
+      figure('Groups with messages', bucket.key, groupActiveValues.value[index] ?? 0, 'groups'),
+      figure('Groups without messages', bucket.key, groupInactiveValues.value[index] ?? 0, 'groups'),
+    ]),
+    ...activityInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+  ]
+  return {
+    fileName: exportFileName('activity', 'summary', `${start} to ${end}`),
+    csv: summaryCsv({
+      page: 'Activity',
+      covers: `${start} to ${end} (UTC)`,
+      filters: [
+        ['Trend interval', trendInterval.value],
+        ['Role', selectedRole.value],
+        ['Active window (users)', `${userActivityThreshold.value} days`],
+        ['Active window (groups)', `${groupActivityThreshold.value} days`],
+      ],
+      dataAsOf: liveCoreBundle.value ? liveAnalyticsAsOf(liveCoreBundle.value) : null,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
+  }
+}
 
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `activity-analytics-${viewMode.value}-${selectedYear.value}.csv`
-  anchor.click()
-  URL.revokeObjectURL(url)
+function activityDetails() {
+  if (viewMode.value === 'groups') {
+    const rows = filteredGroupRows.value.map((group) => [
+      group.id,
+      group.name,
+      group.mentors.join('; '),
+      group.status,
+      group.lastActiveDate ?? '',
+      group.daysSinceActive,
+    ])
+    return {
+      fileName: exportFileName('activity', 'details', `groups ${selectedEndDate.value}`),
+      csv: detailsCsv(
+        ['Group ID', 'Group', 'Mentors', `Activity Status (${groupActivityThreshold.value} days)`, 'Last Message Day (UTC)', 'Days Since Last Message'],
+        rows,
+      ),
+    }
+  }
+  const activeWindow = Number(userActivityThreshold.value)
+  const accounts = new Map((liveCoreBundle.value?.users ?? []).map((user) => [user.id, user]))
+  // Account status and login recency are separate columns: a deactivated
+  // account can still have logged in recently.
+  const rows = filteredUsers.value.map((user) => {
+    const account = accounts.get(user.id)
+    const days = user.lastLogin === null ? null : user.daysInactive
+    return [
+      user.id,
+      user.name,
+      account?.email,
+      user.role,
+      accountStatusLabel(user.accountStatus ?? account?.accountStatus, user.isActive),
+      days === null ? 'Never logged in' : days < activeWindow ? 'Active' : 'Inactive',
+      isoUtc(user.lastLogin),
+      days,
+    ]
+  })
+  return {
+    fileName: exportFileName('activity', 'details', `users ${selectedEndDate.value}`),
+    csv: detailsCsv(
+      ['User ID', 'Name', 'Email', 'Role', 'Account Status', `Activity Status (${activeWindow} days)`, 'Last Login (UTC)', 'Days Since Last Login'],
+      rows,
+    ),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? activitySummary : activityDetails)
 }
 </script>
 
@@ -2326,6 +2440,12 @@ h1 {
   overflow: auto;
   border: 1px solid #e0e8e5;
   border-radius: 12px;
+}
+
+@media (min-width: 1201px) {
+  .activity-analytics-page #user-activity-details .table-wrap {
+    max-height: 620px;
+  }
 }
 
 table {
@@ -3224,12 +3344,12 @@ tbody tr:hover td {
 
 .activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong {
   width: 100%;
-  text-align: center;
+  text-align: left;
 }
 
 .activity-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 @media (max-width: 1279px) {

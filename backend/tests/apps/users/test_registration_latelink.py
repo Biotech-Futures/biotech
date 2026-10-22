@@ -20,7 +20,7 @@ from apps.common.storage import get_profile_image_storage, reset_managed_storage
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import (
     AdminScope, KnownUniversity, RegistrationInvitation, RegistrationSubmission,
-    RegistrationWindow, StudentProfile, SupervisorProfile, User,
+    RegistrationWindow, StudentProfile, StudentSupervisor, SupervisorProfile, User,
 )
 from apps.users.registration_intake import invitation_token, save_student, token_hash
 from apps.users.serializers import UserRegisterBodySerializer, UserSerializer
@@ -33,6 +33,7 @@ MANAGEMENT = "/api/v1/registration-management/"
 def request_body():
     return {
         "journey": "student_individual",
+        "policiesAgreed": True,
         "payload": {
             "students": [{
                 "firstName": "Jordan", "lastName": "Lee", "email": "jordan.lee@example.com",
@@ -45,10 +46,8 @@ def request_body():
                 },
                 "overrides": {},
             }],
-            "supervisorMode": "school",
             "supervisor": {
                 "firstName": "Sam", "lastName": "Teacher", "email": "teacher@example.com",
-                "school": "Example High",
             },
             "source": {"method": "student_individual"},
         },
@@ -209,6 +208,9 @@ class ManagementTests(RegistrationSetup, TestCase):
             items = {item["id"]: item for item in self.staff_client.get(MANAGEMENT).data["invitations"]}
         self.assertEqual(items[used["id"]]["status"], "used")
         self.assertEqual(items[expired["id"]]["status"], "expired")
+        # Who registered with each: the used link's student, none yet for the other.
+        registered = RegistrationSubmission.objects.get(invitation_id=used["id"]).student.email
+        self.assertEqual((items[used["id"]]["email"], items[expired["id"]]["email"]), (registered, ""))
 
     def test_invalid_or_wrong_year_revoke_ids_are_rejected(self):
         for value in (None, "", 0, [], "abc"):
@@ -251,7 +253,7 @@ class ManagementTests(RegistrationSetup, TestCase):
 
 
 class IntakeTests(RegistrationSetup, TestCase):
-    def test_open_registration_saves_pending_student_and_real_receipt(self):
+    def test_open_registration_saves_an_active_student_and_real_receipt(self):
         response = self.submit()
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(set(response.data), {"reference_code", "journey", "student_count", "created_at"})
@@ -261,12 +263,13 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertEqual(row.created_at.isoformat(), response.data["created_at"])
         user = row.student
         profile = StudentProfile.objects.get(user=user)
-        self.assertEqual(user.account_status, User.AccountStatus.PENDING)
-        self.assertFalse(user.is_active)
+        # Active straight away: a student is never Pending.
+        self.assertEqual(user.account_status, User.AccountStatus.ACTIVE)
+        self.assertTrue(user.is_active)
         self.assertFalse(user.has_usable_password())
         self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
-        self.assertIsNone(user.activated_at)
+        self.assertIsNotNone(user.activated_at)
         self.assertFalse(profile.has_join_permission)
         self.assertIsNone(profile.joinperm_responseID)
         self.assertEqual(profile.pg_email, "guardian@example.com")
@@ -487,7 +490,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         body = copy.deepcopy(self.body)
         student = body["payload"]["students"][0]
         student.update(firstName="William", lastName="Nixon", email="wiliam.nixon@example.com", school="USYD")
-        KnownUniversity.objects.get_or_create(name="USYD")
+        KnownUniversity.objects.get_or_create(full_name="USYD")
         return body
 
     def test_all_soft_warnings_have_canonical_paths_and_do_not_burn_link(self):
@@ -575,8 +578,8 @@ class SharedValidationTests(RegistrationSetup, TestCase):
     def test_supervisor_student_identity_conflict_is_hard(self):
         invite = self.mint()
         for supervisor in (
-            {"firstName": "Jordan", "lastName": "Lee", "email": "teacher@example.com", "school": "Example High"},
-            {"firstName": "Sam", "lastName": "Teacher", "email": "jordan.lee@example.com", "school": "Example High"},
+            {"firstName": "Jordan", "lastName": "Lee", "email": "teacher@example.com"},
+            {"firstName": "Sam", "lastName": "Teacher", "email": "jordan.lee@example.com"},
         ):
             body = copy.deepcopy(self.body)
             body["payload"]["supervisor"] = supervisor
@@ -599,21 +602,28 @@ class SharedValidationTests(RegistrationSetup, TestCase):
         self.assertNotIn("warnings", response.data)
         self.assert_not_consumed(invite)
 
-    def test_parent_mode_requires_matching_guardian_and_grants_no_role(self):
-        body = self.warning_body()
-        body["payload"]["supervisorMode"] = "parent"
-        response = self.submit(body=body)
-        self.assertEqual(response.status_code, 400)
-        self.assertNotIn("warnings", response.data)
+    def test_a_student_may_register_without_a_supervisor(self):
+        del self.body["payload"]["supervisor"]
+        response = self.submit()
+        self.assertEqual(response.status_code, 201, response.data)
+        row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
+        self.assertEqual(row.supervisor_details, {})
+        self.assertFalse(StudentSupervisor.objects.exists())
+
+    def test_a_nominated_supervisor_is_only_their_name_and_email(self):
+        # No supervisor type or school any more: either is refused.
+        for change in ({"supervisorMode": "school"}, {"supervisorMode": "parent"}):
+            body = copy.deepcopy(self.body)
+            body["payload"].update(change)
+            self.assertEqual(self.submit(body=body).status_code, 400)
         body = copy.deepcopy(self.body)
-        body["payload"]["supervisorMode"] = "parent"
-        body["payload"]["supervisor"] = {
-            "firstName": "Taylor", "lastName": "Lee", "email": "guardian@example.com", "school": "",
-        }
-        self.assertEqual(self.submit(body=body).status_code, 201)
-        self.assertFalse(User.objects.filter(email="guardian@example.com").exists())
-        self.assertFalse(StudentProfile.objects.get().has_join_permission)
-        self.assertEqual(RoleAssignmentHistory.objects.count(), 1)
+        body["payload"]["supervisor"]["school"] = "Example High"
+        self.assertEqual(self.submit(body=body).status_code, 400)
+
+        self.assertEqual(self.submit().status_code, 201)
+        self.assertEqual(RegistrationSubmission.objects.get().supervisor_details, {
+            "firstName": "Sam", "lastName": "Teacher", "email": "teacher@example.com",
+        })
 
     def test_shared_serializer_retains_represented_guardian_rules(self):
         from apps.users.registration_intake import validation_body
@@ -626,7 +636,7 @@ class SharedValidationTests(RegistrationSetup, TestCase):
             self.assertEqual(serializer.is_valid(), expected, serializer.errors)
 
     def test_known_university_alias_normalizes_and_legacy_serializer_uses_same_warning(self):
-        KnownUniversity.objects.create(name="  Example   Institute ")
+        KnownUniversity.objects.create(full_name="  Example   Institute ")
         self.assertTrue(KnownUniversity.matches(" example institute "))
         from apps.users.registration_intake import validation_body
         body = validation_body(self.body["payload"]["students"][0], self.body["payload"]["supervisor"])
@@ -894,3 +904,18 @@ class PostgreSQLRaceTests(RegistrationSetup, TransactionTestCase):
         self.assertIn((revoked.status_code, redeemed.status_code), ((200, 400), (409, 201)))
         self.assertNotEqual(item.revoked_at is None, item.used_at is None)
         self.assertEqual(StudentProfile.objects.count(), int(item.used_at is not None))
+
+
+class RegistrationDatesSetByTests(RegistrationSetup, TestCase):
+    """Management > Registration > Registration Dates: who last saved them."""
+
+    def test_saving_the_dates_records_who_set_them_and_when(self):
+        self.assertEqual(self.staff_client.get(MANAGEMENT).data["window"]["set_by"], "")
+        response = self.staff_client.post(MANAGEMENT, {
+            "action": "window", "closes_at": (timezone.now() + timedelta(days=3)).isoformat(),
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["window"]["set_by"], "Staff Member")
+        window = self.staff_client.get(MANAGEMENT).data["window"]
+        self.assertEqual(window["set_by"], "Staff Member")
+        self.assertIsNotNone(window["updated_at"])

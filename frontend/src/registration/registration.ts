@@ -30,6 +30,7 @@ export const PRONOUN_OPTIONS = [
   'Other',
 ] as const
 
+// Upload student details's columns, in this order (see parseRegistrationCsv).
 export const CSV_HEADERS = [
   'first_name',
   'last_name',
@@ -42,12 +43,10 @@ export const CSV_HEADERS = [
   'guardian_first_name',
   'guardian_last_name',
   'guardian_email',
-  'guardian_relationship',
-  'guardian_relationship_other',
-  'grouping_preference',
 ] as const
 
-export const MAX_CSV_ROWS = 500
+
+export const MAX_CSV_ROWS = 1000
 
 export type CsvHeader = (typeof CSV_HEADERS)[number]
 export type CsvCategory = 'valid' | 'review-required' | 'invalid'
@@ -84,25 +83,30 @@ export interface StudentDetails {
   guardian: GuardianDetails
 }
 
+/** A student's nominated supervisor (a teacher or school supervisor). */
 export interface SupervisorDetails {
   firstName: string
   lastName: string
   email: string
-  school: string
 }
 
 export interface StudentIndividualForm {
   student: StudentDetails
-  supervisorMode: 'school' | 'parent'
   supervisor: SupervisorDetails
 }
 
 export interface StudentTeamForm {
   creator: StudentDetails
   teammates: StudentDetails[]
-  interests: string[]
-  supervisorMode: 'school' | 'parent'
   supervisor: SupervisorDetails
+  /** The group's code (6 digits, apart from its name), held for it while registering, and the
+   *  token the group takes it by. Empty until held (or if it couldn't be). */
+  groupCode: string
+  groupCodeToken: string
+  /** When its hold ends (ISO): a new code is held after that. */
+  groupCodeExpiresAt: string
+  /** A registered group's code, to join it instead of creating one. */
+  joinCode: string
 }
 
 export interface SupervisorIndividualForm {
@@ -141,7 +145,6 @@ export interface MentorForm {
   firstName: string
   lastName: string
   email: string
-  phone: string
   country: string
   state: string
   affiliation: '' | 'undergraduate' | 'postgraduate' | 'hdr' | 'academic' | 'industry'
@@ -153,16 +156,19 @@ export interface MentorForm {
   capacity: '' | '1' | '2' | '3' | '4' | '5'
   background: string
   motivation: string
-  indigenousStatus: '' | 'Yes' | 'No' | 'Prefer not to say'
-  languages: string
-  languagesPreferNot: boolean
-  dateOfBirth: string
-  dateOfBirthPreferNot: boolean
-  safeguardingJurisdiction: string
-  safeguardingStatus: 'pending-review'
-  complianceDeclaration: boolean
-  attestation: boolean
+  /** How they would mentor BIOTech groups. */
+  mentoringApproach: string
+  /** How many hours a week they can give a group: a whole number, 1 to 40. */
+  weeklyHours: string
 }
+
+/** The most hours a week a mentor can say they'll give. */
+export const MAX_WEEKLY_HOURS = 40
+
+/** The most words a mentor's written answers may have. */
+export const MENTOR_MAX_WORDS = 150
+
+export const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
 
 export interface RegistrationForms {
   studentIndividual: StudentIndividualForm
@@ -171,6 +177,9 @@ export interface RegistrationForms {
   supervisorGroup: SupervisorGroupForm
   supervisorCsv: SupervisorCsvForm
   mentor: MentorForm
+  /** An admin's students' supervisor (Management > Registration): an existing
+   *  supervisor's email, if they choose one, on every supervisor journey. */
+  adminSupervisorEmail: string
 }
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -188,6 +197,11 @@ export const createGuardian = (): GuardianDetails => ({
 
 export const isAustralia = (country: string) => country.trim().toLowerCase() === 'australia'
 
+/** The location field after Country: Australia's State (required, from the
+ *  database's states), else a Region (optional, typed in). */
+// Called State everywhere; it's required in Australia alone (see isAustralia).
+export const stateLabel = () => 'State'
+
 export const createStudent = (options: { deferGuardian?: boolean } = {}): StudentDetails => ({
   firstName: '',
   lastName: '',
@@ -195,7 +209,8 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   emailConfirm: '',
   school: '',
   yearLevel: '',
-  country: 'Australia',
+  // Picked by whoever fills it in: no country is chosen for anyone.
+  country: '',
   state: '',
   interests: [],
   pronouns: '',
@@ -205,17 +220,44 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   guardian: createGuardian(),
 })
 
+/** A group member left empty (their country aside, which starts filled in):
+ *  not asked for, nor registered. Any of it given, all of it is asked for. */
+export const isBlankStudent = (student: StudentDetails) =>
+  ![
+    student.firstName,
+    student.lastName,
+    student.email,
+    student.school,
+    student.yearLevel,
+    student.state,
+    student.pronouns,
+    student.guardian.firstName,
+    student.guardian.lastName,
+    student.guardian.email,
+  ].some((value) => value.trim()) &&
+  !student.interests.length &&
+  !student.profilePhoto
+
+/** Whether any of a (optional) nominated supervisor's details were given. */
+export const hasSupervisor = (supervisor: SupervisorDetails) =>
+  Boolean(supervisor.firstName.trim() || supervisor.lastName.trim() || supervisor.email.trim())
+
+/** A nominated supervisor on Review: their name and email, or none. */
+export const supervisorSummary = (supervisor: SupervisorDetails) =>
+  hasSupervisor(supervisor)
+    ? `${supervisor.firstName} ${supervisor.lastName} · ${supervisor.email}`.trim()
+    : ''
+
 export const createSupervisor = (): SupervisorDetails => ({
   firstName: '',
   lastName: '',
   email: '',
-  school: '',
 })
 
-export const createPendingPeer = (): StudentDetails => ({
-  ...createStudent({ deferGuardian: true }),
-  country: '',
-})
+// A group member: their own details as Member 1's, with their guardian's
+// contact optional. Their country follows Member 1's (none until Member 1
+// picks one; see RegistrationPage).
+export const createPendingPeer = (): StudentDetails => createStudent({ deferGuardian: true })
 
 export const parseRegistrationInterests = (value: string): string[] =>
   value
@@ -223,18 +265,24 @@ export const parseRegistrationInterests = (value: string): string[] =>
     .map((interest) => interest.trim())
     .filter(Boolean)
 
+/** The Areas of Interest option ``text`` names, whatever its case; none when it isn't one. */
+export const interestOption = (text: string): (typeof INTEREST_CATEGORIES)[number] | undefined =>
+  INTEREST_CATEGORIES.find((option) => option.toLowerCase() === text.trim().toLowerCase())
+
 export const createRegistrationForms = (): RegistrationForms => ({
+  adminSupervisorEmail: '',
   studentIndividual: {
     student: createStudent(),
-    supervisorMode: 'school',
     supervisor: createSupervisor(),
   },
   studentTeam: {
     creator: createStudent(),
     teammates: [createPendingPeer()],
-    interests: [],
-    supervisorMode: 'school',
     supervisor: createSupervisor(),
+    groupCode: '',
+    groupCodeToken: '',
+    groupCodeExpiresAt: '',
+    joinCode: '',
   },
   supervisorIndividual: {
     student: createStudent({ deferGuardian: true }),
@@ -254,8 +302,7 @@ export const createRegistrationForms = (): RegistrationForms => ({
     firstName: '',
     lastName: '',
     email: '',
-    phone: '',
-    country: 'Australia',
+    country: '',
     state: '',
     affiliation: '',
     institution: '',
@@ -266,15 +313,8 @@ export const createRegistrationForms = (): RegistrationForms => ({
     capacity: '',
     background: '',
     motivation: '',
-    indigenousStatus: 'Prefer not to say',
-    languages: '',
-    languagesPreferNot: false,
-    dateOfBirth: '',
-    dateOfBirthPreferNot: false,
-    safeguardingJurisdiction: '',
-    safeguardingStatus: 'pending-review',
-    complianceDeclaration: false,
-    attestation: false,
+    mentoringApproach: '',
+    weeklyHours: '',
   },
 })
 
@@ -343,7 +383,6 @@ const csvRowCategory = (
     ['school', 'School is required.'],
     ['year_level', 'Year level is required.'],
     ['country', 'Country is required.'],
-    ['interests', 'At least one interest is required.'],
   ]
 
   required.forEach(([key, message]) => {
@@ -357,40 +396,25 @@ const csvRowCategory = (
   if (values.year_level && !['9', '10', '11', '12'].includes(values.year_level)) {
     fieldErrors.year_level = 'Year level must be 9, 10, 11, or 12.'
   }
-  if (values.country.toLowerCase() === 'australia' && !values.state) {
-    fieldErrors.state = 'State or territory is required for Australian students.'
+  // As the student form: a State in Australia, a Region (optional) elsewhere.
+  if (isAustralia(values.country) && !values.state) {
+    fieldErrors.state = 'Enter the Australian state or territory.'
   }
   if (values.guardian_email && !isValidRegistrationEmail(values.guardian_email)) {
     fieldErrors.guardian_email = 'Guardian email format is invalid.'
   }
   if (guardianIsStudent)
     fieldErrors.guardian_email = 'A student in this import cannot be listed as a guardian.'
-  if (
-    values.grouping_preference &&
-    !['school_only', 'cross_school'].includes(values.grouping_preference)
-  ) {
-    fieldErrors.grouping_preference = 'Grouping preference must be school_only or cross_school.'
-  }
-  if (
-    values.guardian_relationship &&
-    !['Parent', 'Legal guardian', 'Other'].includes(values.guardian_relationship)
-  ) {
-    fieldErrors.guardian_relationship = 'Guardian relationship is not recognised.'
-  }
-  if (values.guardian_relationship === 'Other' && !values.guardian_relationship_other) {
-    fieldErrors.guardian_relationship_other = 'Describe the Other guardian relationship.'
-  }
 
-  const selectedInterests = parseRegistrationInterests(values.interests)
-  if (!selectedInterests.length) fieldErrors.interests = 'At least one interest is required.'
-  const unknownInterests = selectedInterests.filter(
-    (interest) => !INTEREST_CATEGORIES.includes(interest as (typeof INTEREST_CATEGORIES)[number]),
+  // Optional, but each one of the Areas of Interest options.
+  const unknownInterests = parseRegistrationInterests(values.interests).filter(
+    (interest) => !interestOption(interest),
   )
   if (unknownInterests.length) {
-    reviewIssues.push(`Interest needs review: ${unknownInterests.join(', ')}.`)
+    fieldErrors.interests = `Not an Areas of Interest option: ${unknownInterests.join(', ')}.`
   }
 
-  // A guardian is their name and email; a relationship, if given, is checked above.
+  // A guardian is their name and email.
   const guardianCore = [values.guardian_first_name, values.guardian_last_name, values.guardian_email]
   if (guardianCore.every((entry) => !entry)) {
     reviewIssues.push('Guardian details are deferred; student follow-up will be required.')
@@ -445,29 +469,27 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`] }
   }
 
+  // The template's headers exactly, in its order; columns after them are ignored.
   const headers = matrix[0].cells.map((header) => header.trim())
-  const missing = CSV_HEADERS.filter((header) => !headers.includes(header))
-  const duplicate = CSV_HEADERS.filter(
-    (header) => headers.filter((candidate) => candidate === header).length > 1,
+  const errors = CSV_HEADERS.flatMap((header, index) =>
+    headers[index] === header
+      ? []
+      : [`Column ${index + 1} must be ${header}${headers[index] ? `, not ${headers[index]}` : ''}.`],
   )
-  const unexpected = headers.filter((header) => !CSV_HEADERS.includes(header as CsvHeader))
-  const errors: string[] = []
-  if (missing.length) errors.push(`Missing columns: ${missing.join(', ')}.`)
-  if (duplicate.length) errors.push(`Duplicate columns: ${duplicate.join(', ')}.`)
-  if (unexpected.length) errors.push(`Unexpected columns: ${unexpected.join(', ')}.`)
   if (errors.length) return { rows: [], errors }
 
-  const rows: CsvRow[] = matrix.slice(1).map(({ cells, rowNumber }) => {
-    const values = Object.fromEntries(
-      CSV_HEADERS.map((header) => [header, (cells[headers.indexOf(header)] || '').trim()]),
-    ) as Record<CsvHeader, string>
-    return {
+  const rows: CsvRow[] = matrix
+    .slice(1)
+    .map(({ cells, rowNumber }) => ({
       rowNumber,
-      values,
-      category: 'valid',
+      values: Object.fromEntries(
+        CSV_HEADERS.map((header, index) => [header, (cells[index] || '').trim()]),
+      ) as Record<CsvHeader, string>,
+      category: 'valid' as const,
       issues: [],
-    }
-  })
+    }))
+    // A row with something only in the ignored columns is ignored too.
+    .filter(({ values }) => Object.values(values).some(Boolean))
 
   return {
     rows: revalidateRegistrationCsvRows(rows),

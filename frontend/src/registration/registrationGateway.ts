@@ -1,5 +1,7 @@
 import type { InjectionKey } from 'vue'
 
+import type { EmailCheckOutcome, EmailCheckProgress } from '@/registration/emailPrecheck'
+
 import {
   payloadForRegistrationJourney,
   sanitizeRegistrationPayload,
@@ -67,6 +69,8 @@ export interface RegistrationReceipt {
   journey: RegistrationIntakeJourney
   studentCount: number
   submittedAt: string
+  /** A student group's code (6 digits), when one was registered. */
+  groupCode?: string
 }
 
 export interface RegistrationWarning {
@@ -85,17 +89,29 @@ export type RegistrationGatewayResult =
       warnings?: RegistrationWarning[]
     }
 
+export interface RegistrationSubmitOptions {
+  attachments?: Record<string, File>
+  invitationToken?: string
+  idempotencyKey?: string
+  overrides?: Record<string, boolean>
+  /** An admin's students' supervisor, by their email, on a supervisor
+   *  journey (Management > Registration); only one that was chosen. */
+  supervisorEmail?: string
+}
+
 export interface RegistrationGateway {
   supportedJourneys?: readonly RegistrationIntakeJourney[]
   submit(
     request: RegistrationRequest,
-    options?: {
-      attachments?: Record<string, File>
-      invitationToken?: string
-      idempotencyKey?: string
-      overrides?: Record<string, boolean>
-    },
+    options?: RegistrationSubmitOptions,
   ): Promise<RegistrationGatewayResult>
+  /** Check the registration's email addresses before submitting it
+   *  (emailPrecheck.ts), when this gateway can. Never throws. */
+  checkEmails?(
+    request: RegistrationRequest,
+    options: Pick<RegistrationSubmitOptions, 'invitationToken' | 'overrides' | 'supervisorEmail'>,
+    onProgress: (progress: EmailCheckProgress) => void,
+  ): Promise<EmailCheckOutcome>
 }
 
 export const REGISTRATION_GATEWAY_KEY: InjectionKey<RegistrationGateway> =
