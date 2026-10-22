@@ -244,6 +244,7 @@ class SchoolWarningTests(KnownUniversityApiTestCase):
         return UserRegisterBodySerializer(data={
             "Title": "kid@example.com", "FirstName": "Kid", "Surname": "Student",
             "Country": "Australia", "Region": "NSW",
+            "SupervisorEmail": "teacher@example.com", "SupervisorFirstName": "Sam", "SupervisorSurname": "Teacher",
             "GuardianEmail": "parent@example.com", "GuardianName": "Pat", "GuardianSurname": "Parent",
             "SchoolName": school, "YearLevel": "10", "Areaofinterest": "Biotechnology",
         })

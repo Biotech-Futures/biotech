@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchRegistrationSupervisors } from '@/utils/managementAPI'
 
 import { REGISTRATION_GATEWAY_KEY, type RegistrationGateway } from '@/registration/registrationGateway'
 import RegistrationPage from '@/views/RegistrationPage.vue'
@@ -39,7 +40,16 @@ type Setup = {
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
   vi.stubGlobal('scrollTo', vi.fn())
+  vi.mocked(fetchRegistrationSupervisors).mockReset().mockResolvedValue([
+    { user_id: 7, name: 'Sam Lee', email: 'sam@school.test', school: 'Example High', students: 3, register_after_close: false },
+  ])
+})
+
+afterEach(() => {
+  document.body.innerHTML = ''
+  vi.unstubAllGlobals()
 })
 
 describe('admin registration', () => {
@@ -65,7 +75,7 @@ describe('admin registration', () => {
     await option.trigger('mousedown')
     expect((search.element as HTMLInputElement).value).toBe('sam@school.test')
 
-    // Not one of the list: asked to choose one.
+    // Missing or malformed supervisor emails are blocked locally.
     Object.assign(setup.forms.supervisorIndividual.student, {
       firstName: 'Alex', lastName: 'Morgan', email: 'alex@example.com', emailConfirm: 'alex@example.com',
       school: 'Example High', yearLevel: '10', country: 'Australia', state: 'NSW', guardianDeferred: true,
@@ -75,13 +85,13 @@ describe('admin registration', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(send).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Choose a supervisor from the list.')
+    expect(wrapper.text()).toContain('Enter the supervisor email.')
 
-    await search.setValue('someone@else.test')
-    await submitForm(wrapper)
+    await search.setValue('not-an-email')
+    await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(send).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('Choose a supervisor from the list.')
+    expect(wrapper.text()).toContain('Enter a valid supervisor email.')
 
     await search.setValue('sam@school.test')
     await submitForm(wrapper)
@@ -90,4 +100,56 @@ describe('admin registration', () => {
     expect(send.mock.calls[0]![1]!.supervisorEmail).toBe('sam@school.test')
     wrapper.unmount()
   })
+
+  it.each(['failed', 'empty', 'loading', 'omitted'])('validates manually entered emails on the server when the list is %s', async (state) => {
+    const fetchSupervisors = vi.mocked(fetchRegistrationSupervisors)
+    if (state === 'failed') fetchSupervisors.mockRejectedValueOnce(new Error('Unavailable'))
+    if (state === 'empty') fetchSupervisors.mockResolvedValueOnce([])
+    if (state === 'loading') fetchSupervisors.mockImplementationOnce(() => new Promise(() => {}))
+    // The populated list also omits valid profiles whose users are inactive.
+    const send = vi.fn<RegistrationGateway['submit']>()
+      .mockResolvedValueOnce({
+        ok: false,
+        message: 'Registration could not be saved.',
+        fieldErrors: { supervisorEmail: 'No supervisor has this email.' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        receipt: { referenceCode: 'R', journey: 'supervisor_individual', studentCount: 1, submittedAt: '2026-10-18T00:00:00Z' },
+      })
+    const wrapper = mountAdmin({ submit: send })
+    try {
+      await flushPromises()
+      const setup = wrapper.vm as unknown as Setup
+      setup.journey = 'supervisor_individual'
+      Object.assign(setup.forms.supervisorIndividual.student, {
+        firstName: 'Alex', lastName: 'Morgan', email: 'alex@example.com',
+        school: 'Example High', yearLevel: '10', country: 'Australia', state: 'NSW', guardianDeferred: true,
+      })
+      await flushPromises()
+      const search = wrapper.get('#admin-supervisor-email')
+      for (const email of ['', '   ', 'not-an-email']) {
+        await search.setValue(email)
+        await wrapper.get('form').trigger('submit')
+        await flushPromises()
+        expect(send).not.toHaveBeenCalled()
+        expect(search.attributes('aria-invalid')).toBe('true')
+      }
+      await search.setValue('unknown@school.test')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(send).toHaveBeenCalledOnce()
+      expect(wrapper.text()).toContain('No supervisor has this email.')
+      expect(search.attributes('aria-invalid')).toBe('true')
+
+      await search.setValue('  OMITTED@school.test  ')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(send).toHaveBeenCalledTimes(2)
+      expect(send.mock.calls[1]![1]!.supervisorEmail).toBe('OMITTED@school.test')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
 })
