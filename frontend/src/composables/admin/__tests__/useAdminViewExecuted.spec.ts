@@ -86,6 +86,25 @@ describe('canonicalColumnKey / columnLabel', () => {
     expect(canonicalColumnKey('group_count')).toBe('group_count')
     expect(columnLabel('group_count')).toBe('Number of Groups')
   })
+
+  it('names the role-specific columns', () => {
+    expect(columnLabel('pronouns')).toBe('Pronouns')
+    expect(columnLabel('mentor_group_capacity')).toBe('Group Capacity')
+    expect(columnLabel('mentor_background')).toBe('Mentor Background')
+    expect(columnLabel('mentor_year_of_study')).toBe('Mentor Year of Study')
+    expect(columnLabel('mentor_field_of_study')).toBe('Mentor Field of Study')
+    expect(columnLabel('supervisor_email')).toBe('Supervisor Email')
+    expect(columnLabel('guardian_email')).toBe('Guardian Email')
+    expect(columnLabel('guardian_permission')).toBe('Guardian Permission')
+  })
+
+  it('reads the other spellings of a role-specific column as the same column', () => {
+    expect(canonicalColumnKey('max_group_count')).toBe('mentor_group_capacity')
+    expect(canonicalColumnKey('group_capacity')).toBe('mentor_group_capacity')
+    expect(canonicalColumnKey('university_year')).toBe('mentor_year_of_study')
+    expect(canonicalColumnKey('field_of_study')).toBe('mentor_field_of_study')
+    expect(canonicalColumnKey('join_permission')).toBe('guardian_permission')
+  })
 })
 
 describe('useAdminViewExecuted: columns', () => {

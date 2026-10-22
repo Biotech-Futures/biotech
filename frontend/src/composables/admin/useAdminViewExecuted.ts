@@ -30,6 +30,19 @@ export type ViewResultRow = AdminUser & {
   groupCount?: number
   /** Names of the groups the user is in, comma separated ("BTF1, BTF6"). */
   groupNumbers?: string
+  /** A mentor's own details: null for anyone who is not a mentor. */
+  mentorBackgroundLabel?: string | null
+  mentorGroupCapacity?: number | null
+  mentorYearOfStudy?: string | null
+  mentorFieldOfStudy?: string | null
+  /** A student's assigned supervisor's email: null for anyone who is not a
+   *  student, or for a student with no supervisor. */
+  supervisorEmail?: string | null
+  /** A student's guardian's email: null for anyone who is not a student. */
+  guardianEmail?: string | null
+  /** Whether a student's guardian gave permission: null for anyone who is not
+   *  a student, so the column can tell "not granted" from "not a student". */
+  guardianPermission?: boolean | null
 }
 
 interface ColumnConfig {
@@ -51,17 +64,33 @@ const COLUMN_ALIASES: Record<string, string> = {
   year_lvl: 'yearlevel',
   groupcount: 'group_count',
   number_of_groups: 'group_count',
-  groupnumber: 'group_number'
+  groupnumber: 'group_number',
+  group_capacity: 'mentor_group_capacity',
+  mentor_capacity: 'mentor_group_capacity',
+  max_group_count: 'mentor_group_capacity',
+  background: 'mentor_background',
+  year_of_study: 'mentor_year_of_study',
+  university_year: 'mentor_year_of_study',
+  field_of_study: 'mentor_field_of_study',
+  join_permission: 'guardian_permission'
 }
 
 const COLUMN_CONFIG: Record<string, ColumnConfig> = {
   name: { label: 'Full Name', sortBy: 'name' },
   email: { label: 'Email', sortBy: 'email' },
   role: { label: 'Role', sortBy: 'role' },
+  pronouns: { label: 'Pronouns' },
   school: { label: 'School / Institution', sortBy: 'school' },
   matched_mentor: { label: 'Matched Mentor / Group' },
   group_number: { label: 'Group Number', sortBy: 'groupNumber' },
   group_count: { label: 'Number of Groups', sortBy: 'groupCount' },
+  mentor_group_capacity: { label: 'Group Capacity' },
+  mentor_background: { label: 'Mentor Background' },
+  mentor_year_of_study: { label: 'Mentor Year of Study' },
+  mentor_field_of_study: { label: 'Mentor Field of Study' },
+  supervisor_email: { label: 'Supervisor Email' },
+  guardian_email: { label: 'Guardian Email' },
+  guardian_permission: { label: 'Guardian Permission' },
   status: { label: 'Status', sortBy: 'status' },
   phone: { label: 'Phone' },
   state: { label: 'State', sortBy: 'state' },

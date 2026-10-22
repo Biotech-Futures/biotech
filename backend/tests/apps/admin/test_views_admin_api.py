@@ -3,6 +3,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+import csv
+import io
+
 from apps.admin.models import AdminView
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory, Roles
@@ -33,7 +36,10 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'all',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_number', 'status'],
+                'visible_columns': [
+                    'name', 'email', 'role', 'school', 'state', 'group_number',
+                    'pronouns', 'status',
+                ],
             },
             {
                 'name': 'All Students',
@@ -43,7 +49,11 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_number', 'status'],
+                'visible_columns': [
+                    'name', 'email', 'role', 'school', 'state', 'group_number',
+                    'pronouns', 'supervisor_email', 'guardian_email',
+                    'guardian_permission', 'status',
+                ],
             },
             {
                 'name': 'All Mentors',
@@ -55,7 +65,9 @@ class AdminViewApiTests(TestCase):
                 'advanced_conditions': [],
                 'visible_columns': [
                     'name', 'email', 'role', 'institution', 'state',
-                    'group_number', 'group_count', 'status',
+                    'group_number', 'group_count', 'pronouns',
+                    'mentor_group_capacity', 'mentor_background',
+                    'mentor_year_of_study', 'mentor_field_of_study', 'status',
                 ],
             },
             {
@@ -96,6 +108,18 @@ class AdminViewApiTests(TestCase):
         # Group
         self.group = Groups.objects.create(group_name="BTF1")
 
+        # The supervisor assigned to the first student, whose email the
+        # "Supervisor Email" column shows.
+        self.supervisor_user = User.objects.create_user(
+            email="supervisor@example.com",
+            first_name="Karen",
+            last_name="Sparck",
+            password="password",
+        )
+        self.supervisor_profile = SupervisorProfile.objects.create(
+            user=self.supervisor_user, school_name="USyd"
+        )
+
         # Student user 1: Active, NSW, in group
         self.student_user = User.objects.create_user(
             email="student1@example.com",
@@ -106,6 +130,7 @@ class AdminViewApiTests(TestCase):
             state=self.state_nsw,
         )
         self.student_user.is_active = True
+        self.student_user.pronouns = "She/her"
         self.student_user.save()
         StudentProfile.objects.create(
             user=self.student_user,
@@ -113,6 +138,10 @@ class AdminViewApiTests(TestCase):
             year_lvl="11",
             pg_first_name="Marco",
             pg_last_name="Bianchi",
+            pg_email="guardian@example.com",
+            parent_guardian_flag=True,
+            has_join_permission=True,
+            supervisor=self.supervisor_profile,
         )
         RoleAssignmentHistory.objects.create(
             user=self.student_user,
@@ -136,11 +165,16 @@ class AdminViewApiTests(TestCase):
             state=self.state_vic,
         )
         self.mentor_user.is_active = True
+        self.mentor_user.pronouns = "She/her"
         self.mentor_user.save()
         MentorProfile.objects.create(
             user=self.mentor_user,
             institution="Sydney BioTech Institute",
             mentor_reason="Passionate about biology",
+            background=MentorProfile.BackgroundChoices.PG,
+            university_year="2",
+            field_of_study="Molecular Biology",
+            max_group_count=4,
         )
         RoleAssignmentHistory.objects.create(
             user=self.mentor_user,
@@ -463,11 +497,12 @@ class AdminViewApiTests(TestCase):
         # Verify CSV export includes Number of Groups column and values
         csv_res = self.client.get(f"/api/v1/admin/view/{mentors_view.id}/export-csv/")
         csv_content = csv_res.content.decode("utf-8")
-        lines = csv_content.strip().split("\r\n")
-        self.assertIn("Number of Groups", lines[0])
-        mary_line = next((line for line in lines[1:] if "mentor1@example.com" in line), None)
-        self.assertIsNotNone(mary_line)
-        self.assertIn(",2,Active", mary_line)
+        rows = list(csv.reader(io.StringIO(csv_content)))
+        header = rows[0]
+        self.assertIn("Number of Groups", header)
+        mary_row = next(row for row in rows[1:] if "mentor1@example.com" in row)
+        self.assertEqual(mary_row[header.index("Number of Groups")], "2")
+        self.assertEqual(mary_row[header.index("Status")], "Active")
 
     def test_group_number_column_and_sorting(self):
         # "Group Number" is the name of the group(s) a user is in; "Number of
@@ -581,4 +616,137 @@ class AdminViewApiTests(TestCase):
         mary_line = next((line for line in lines[1:] if "mentor1@example.com" in line), None)
         self.assertIsNotNone(mary_line)
         self.assertIn('"BTF1, BTF10"', mary_line)
+
+    def test_mentor_columns_carry_a_mentors_own_details(self):
+        """A mentor's group capacity, background, year of study and field of
+        study are the mentor's, and are readable on a view."""
+        mentors_view = AdminView.objects.get(name="All Mentors")
+        for column in (
+            "mentor_group_capacity",
+            "mentor_background",
+            "mentor_year_of_study",
+            "mentor_field_of_study",
+        ):
+            self.assertIn(column, mentors_view.visible_columns)
+
+        res = self.client.get(f"/api/v1/admin/view/{mentors_view.id}/run/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = {u["email"]: u for u in res.data["data"]["items"]}
+        mary = items["mentor1@example.com"]
+
+        self.assertEqual(mary["mentorGroupCapacity"], 4)
+        # The background reads as it does on the mentor's own form.
+        self.assertEqual(mary["mentorBackgroundLabel"], "University Student - Postgraduate")
+        self.assertEqual(mary["mentorYearOfStudy"], "2")
+        self.assertEqual(mary["mentorFieldOfStudy"], "Molecular Biology")
+        self.assertEqual(mary["pronouns"], "She/her")
+
+    def test_student_columns_carry_the_supervisor_and_guardian_details(self):
+        """A student's assigned supervisor's email, their guardian's email and
+        whether their guardian gave permission."""
+        students_view = AdminView.objects.get(name="All Students")
+        for column in ("supervisor_email", "guardian_email", "guardian_permission"):
+            self.assertIn(column, students_view.visible_columns)
+
+        res = self.client.get(f"/api/v1/admin/view/{students_view.id}/run/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = {u["email"]: u for u in res.data["data"]["items"]}
+        sofia = items["student1@example.com"]
+
+        self.assertEqual(sofia["supervisorEmail"], "supervisor@example.com")
+        self.assertEqual(sofia["guardianEmail"], "guardian@example.com")
+        self.assertTrue(sofia["guardianPermission"])
+
+        # The other student has no guardian details and no supervisor.
+        every_student = AdminView.objects.create(
+            name="Every Student",
+            target_roles=["student"],
+            account_status="all",
+            visible_columns=["name", "email"],
+            is_default=False,
+        )
+        all_res = self.client.get(f"/api/v1/admin/view/{every_student.id}/run/")
+        all_items = {u["email"]: u for u in all_res.data["data"]["items"]}
+        other = all_items["inactive_student@example.com"]
+        self.assertIsNone(other["supervisorEmail"])
+        self.assertIsNone(other["guardianEmail"])
+        self.assertFalse(other["guardianPermission"])
+
+    def test_role_specific_columns_are_empty_for_the_other_role(self):
+        """A column that does not apply to a user carries nothing, so the
+        table shows a dash rather than another role's details."""
+        students_view = AdminView.objects.get(name="All Students")
+        res = self.client.get(f"/api/v1/admin/view/{students_view.id}/run/")
+        items = {u["email"]: u for u in res.data["data"]["items"]}
+
+        # A student has no mentor details.
+        sofia = items["student1@example.com"]
+        self.assertIsNone(sofia["mentorGroupCapacity"])
+        self.assertIsNone(sofia["mentorBackgroundLabel"])
+        self.assertIsNone(sofia["mentorYearOfStudy"])
+        self.assertIsNone(sofia["mentorFieldOfStudy"])
+
+        # A mentor has no guardian or supervisor details.
+        mentors_view = AdminView.objects.get(name="All Mentors")
+        mentors_res = self.client.get(f"/api/v1/admin/view/{mentors_view.id}/run/")
+        mentors = {u["email"]: u for u in mentors_res.data["data"]["items"]}
+        mary = mentors["mentor1@example.com"]
+        self.assertIsNone(mary["guardianEmail"])
+        self.assertIsNone(mary["guardianPermission"])
+        self.assertIsNone(mary["supervisorEmail"])
+
+    def test_new_columns_are_exported_to_csv_with_a_dash_where_they_do_not_apply(self):
+        view = AdminView.objects.create(
+            name="Role Detail View",
+            target_roles=["all"],
+            visible_columns=[
+                "name", "email", "role", "pronouns", "mentor_group_capacity",
+                "mentor_background", "mentor_year_of_study",
+                "mentor_field_of_study", "supervisor_email", "guardian_email",
+                "guardian_permission",
+            ],
+            is_default=False,
+        )
+        res = self.client.get(f"/api/v1/admin/view/{view.id}/export-csv/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        content = res.content.decode("utf-8")
+        rows = list(csv.reader(io.StringIO(content)))
+        header = rows[0]
+        self.assertEqual(
+            header,
+            [
+                "Full Name", "Email", "Role", "Pronouns", "Group Capacity",
+                "Mentor Background", "Mentor Year of Study",
+                "Mentor Field of Study", "Supervisor Email", "Guardian Email",
+                "Guardian Permission",
+            ],
+        )
+
+        def cell(row, name):
+            return row[header.index(name)]
+
+        sofia_row = next(row for row in rows[1:] if "student1@example.com" in row)
+        # A student: pronouns, supervisor and guardian details, and a dash for
+        # the mentor columns that do not apply to them.
+        self.assertEqual(cell(sofia_row, "Pronouns"), "She/her")
+        self.assertEqual(cell(sofia_row, "Supervisor Email"), "supervisor@example.com")
+        self.assertEqual(cell(sofia_row, "Guardian Email"), "guardian@example.com")
+        self.assertEqual(cell(sofia_row, "Guardian Permission"), "Granted")
+        for column in (
+            "Group Capacity", "Mentor Background", "Mentor Year of Study",
+            "Mentor Field of Study",
+        ):
+            self.assertEqual(cell(sofia_row, column), "-")
+
+        mary_row = next(row for row in rows[1:] if "mentor1@example.com" in row)
+        # A mentor: their own details, and dashes for the student's.
+        self.assertEqual(cell(mary_row, "Group Capacity"), "4")
+        self.assertEqual(
+            cell(mary_row, "Mentor Background"), "University Student - Postgraduate"
+        )
+        self.assertEqual(cell(mary_row, "Mentor Year of Study"), "2")
+        self.assertEqual(cell(mary_row, "Mentor Field of Study"), "Molecular Biology")
+        for column in ("Supervisor Email", "Guardian Email", "Guardian Permission"):
+            self.assertEqual(cell(mary_row, column), "-")
 

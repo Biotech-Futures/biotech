@@ -31,4 +31,30 @@ describe('AdminViewColumnSelector.vue', () => {
     await groupNumberCheckbox().trigger('change')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['name']])
   })
+
+  it('offers the role-specific columns', () => {
+    const wrapper = mountSelector()
+    const labels = wrapper.findAll('.column-selector__name').map((el) => el.text())
+
+    expect(labels).toContain('Pronouns')
+    expect(labels).toContain('Group Capacity')
+    expect(labels).toContain('Mentor Background')
+    expect(labels).toContain('Mentor Year of Study')
+    expect(labels).toContain('Mentor Field of Study')
+    expect(labels).toContain('Supervisor Email')
+    expect(labels).toContain('Guardian Email')
+    expect(labels).toContain('Guardian Permission')
+  })
+
+  it('selects a role-specific column', async () => {
+    const wrapper = mountSelector(['name'])
+    const guardianEmailCheckbox = () =>
+      wrapper
+        .findAll('.column-selector__checkbox-label')
+        .find((label) => label.text() === 'Guardian Email')!
+        .find('input')
+
+    await guardianEmailCheckbox().trigger('change')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['name', 'guardian_email']])
+  })
 })
