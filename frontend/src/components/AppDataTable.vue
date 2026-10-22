@@ -659,12 +659,12 @@ const fitting = ref(pageSize.value !== DATA_TABLE_ALL)
 const fittedSize = ref(pageSize.value)
 let measurePending = fitting.value
 
-const countRowsThatFit = () => {
-  if (!fitting.value || !measurePending || !wrapEl.value) return
-  const rows = [...wrapEl.value.querySelectorAll<HTMLElement>('tbody tr.data-table-row')]
-  if (!rows.length) return
-  measurePending = false
-  const box = wrapEl.value
+const shownRows = () => [...(wrapEl.value?.querySelectorAll<HTMLElement>('tbody tr.data-table-row') ?? [])]
+
+// How many of the rows shown fit on screen from the top, with the table's
+// headings and bottom bar under the site's top bar, by their real heights.
+const rowsOnScreen = (rows: HTMLElement[]) => {
+  const box = wrapEl.value!
   const room = tableRowRoom(
     headEl.value?.offsetHeight || undefined,
     bottomEl.value?.offsetHeight || undefined,
@@ -680,6 +680,15 @@ const countRowsThatFit = () => {
     if (used > room) break
     fits += 1
   }
+  return fits
+}
+
+const countRowsThatFit = () => {
+  if (!fitting.value || !measurePending || !wrapEl.value) return
+  const rows = shownRows()
+  if (!rows.length) return
+  measurePending = false
+  const fits = rowsOnScreen(rows)
   // Every row shown fits: the page stays as it is, ready for more rows.
   if (fits === rows.length) return
   const next = Math.max(1, fits)
@@ -713,27 +722,45 @@ const nextPage = () => turnPage(() => {
 })
 watch([search, sortKey, sortDir, pageSize, total], resetPager)
 
-watch(pagedRows, () => void nextTick(() => {
+// Every row shown, and every one of them on screen at once: only then is the
+// picker off (below). A table on All whose rows run past the screen keeps it.
+const allRowsOnScreen = ref(true)
+const checkAllRowsOnScreen = () => {
+  if (!wrapEl.value) return
+  const rows = shownRows()
+  allRowsOnScreen.value = rows.length >= total.value && rowsOnScreen(rows) === rows.length
+}
+
+watch([pagedRows, total], () => void nextTick(() => {
   countRowsThatFit()
+  checkAllRowsOnScreen()
   settlePager()
 }))
+const onResize = () => {
+  refitToWindow()
+  void nextTick(checkAllRowsOnScreen)
+}
 onMounted(() => {
-  void nextTick(countRowsThatFit)
-  window.addEventListener('resize', refitToWindow)
+  void nextTick(() => {
+    countRowsThatFit()
+    checkAllRowsOnScreen()
+  })
+  window.addEventListener('resize', onResize)
 })
-onBeforeUnmount(() => window.removeEventListener('resize', refitToWindow))
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
-// Until someone picks a size: with every row on one page there's nothing to
-// pick, so the picker is off, and a size reads as the rows there are ("8
-// Entries" over "1 - 8 out of 8", not the 10 that would fit). A size someone
-// picked stays as picked, and the picker stays on to change it back.
+// Until someone picks a size: with every row on one page and on screen at
+// once, there's nothing to pick, so the picker is off, and a size reads as the
+// rows there are ("8 Entries" over "1 - 8 out of 8", not the 10 that would
+// fit). A size someone picked stays as picked, and the picker stays on to
+// change it back.
 const picked = ref(false)
 const shownPageSize = computed(() =>
   !picked.value && !showsAll.value && total.value > 0 && total.value < pageSize.value
     ? total.value
     : pageSize.value,
 )
-const pickerDisabled = computed(() => !picked.value && totalPages.value <= 1)
+const pickerDisabled = computed(() => !picked.value && totalPages.value <= 1 && allRowsOnScreen.value)
 
 // 7, 15 and 30, the table's own size among them (the rows there are, while
 // that's what it shows), then All.
