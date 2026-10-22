@@ -16,10 +16,7 @@ vi.mock('@/utils/managementAPI', () => ({
   // Registration's dates and the deadline, which it must come between.
   fetchRegistrationOpen: vi.fn(),
   fetchSubmissionDeadline: vi.fn(),
-  // Pages Visibility, the page's second card.
-  fetchSupervisorPages: vi.fn().mockResolvedValue({ shown: true, shown_from: '2026-07-27T00:00:00Z' }),
-  saveSupervisorPages: vi.fn(),
-  // Release Resources, its third.
+  // Release Resources, the page's second card.
   fetchResourceReleases: vi.fn().mockResolvedValue([]),
   saveResourceRelease: vi.fn(),
 }))
@@ -49,8 +46,6 @@ describe('Challenge Start', () => {
     await flushPromises()
 
     expect(wrapper.get('.card-title').text()).toBe('Challenge Start')
-    // Then what supervisors see, moved here from Late Registration.
-    expect(wrapper.get('.supervisor-pages__title').text()).toBe('Pages Visibility')
     expect(wrapper.get('[data-test="challenge-start-state"]').text()).toContain('27/07/2026 at 23:59')
     expect(wrapper.get('[data-test="challenge-start-set-by"]').text()).toMatch(/^Set by Test Admin on /)
     expect(pickerValue(wrapper, '[data-test="challenge-start-date"]')).toBe('2026-07-27T23:59')

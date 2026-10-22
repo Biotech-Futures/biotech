@@ -226,7 +226,7 @@ onMounted(load)
   text-align: center;
 }
 
-/* Headed as Pages Visibility above it: a plain title, its hint under it. */
+/* A plain title, its hint under it. */
 .release-resources__title {
   font-size: 1.05rem;
   font-weight: 600;

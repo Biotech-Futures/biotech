@@ -194,7 +194,7 @@ const routes: RouteRecordRaw[] = [
       // The registration dates, then registering students as a supervisor does.
       { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
       // Late Registration: late links and supervisors after close. Its old
-      // path still leads to it (Supervisor Pages Visibility's is on Challenge Start).
+      // path still leads to it.
       { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
       { path: 'registration-visibility', redirect: '/management/late-registration' },
       // The names registration treats as a university, not a school.

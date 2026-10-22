@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
 
@@ -45,8 +44,6 @@ describe('admin router guard', () => {
   })
 
   it('redirects authenticated non-admins from admin routes to /dashboard', async () => {
-    // Pages Visibility's date passed, so Home is theirs (until then it's their profile).
-    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     const auth = useAuthStore()
     auth.loginWithUser(memberUser)
 
