@@ -19,6 +19,8 @@ vi.mock('@/utils/adminAPI', () => ({
   deleteAdminResource: vi.fn(),
 }))
 
+// Release times at midday Sydney: the same date in Sydney and in UTC (as CI
+// runs), so each shows one way wherever the specs run.
 const row = (id: number, name: string, extra: Partial<ResourceReleaseRow> = {}): ResourceReleaseRow => ({
   id, name, shown: true, release_on: null, released: true, last_released_at: null, ...extra,
 })
@@ -44,9 +46,9 @@ const names = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(fetchResourceReleases).mockResolvedValue([
-    row(1, 'Zebra notes', { last_released_at: '2025-03-10T00:00:00+11:00' }),
+    row(1, 'Zebra notes', { last_released_at: '2025-03-10T12:00:00+11:00' }),
     row(2, 'Alpha guide'),
-    row(3, 'Ethics primer', { last_released_at: '2025-02-12T00:00:00+11:00' }),
+    row(3, 'Ethics primer', { last_released_at: '2025-02-12T12:00:00+11:00' }),
   ])
 })
 
@@ -100,9 +102,9 @@ describe('Release Resources (Challenge Start)', () => {
 
   it('hides one and sets its release date, each saved as it changes', async () => {
     vi.mocked(saveResourceRelease)
-      .mockResolvedValueOnce(row(3, 'Ethics primer', { shown: false, released: false, last_released_at: '2025-02-12T00:00:00+11:00' }))
-      .mockResolvedValueOnce(row(3, 'Ethics primer', { shown: false, released: false, release_on: '2026-11-30', last_released_at: '2025-02-12T00:00:00+11:00' }))
-      .mockResolvedValueOnce(row(3, 'Ethics primer', { shown: false, released: false, last_released_at: '2025-02-12T00:00:00+11:00' }))
+      .mockResolvedValueOnce(row(3, 'Ethics primer', { shown: false, released: false, last_released_at: '2025-02-12T12:00:00+11:00' }))
+      .mockResolvedValueOnce(row(3, 'Ethics primer', { shown: false, released: false, release_on: '2026-11-30', last_released_at: '2025-02-12T12:00:00+11:00' }))
+      .mockResolvedValueOnce(row(3, 'Ethics primer', { shown: false, released: false, last_released_at: '2025-02-12T12:00:00+11:00' }))
     const wrapper = await mountPage()
 
     wrapper.findAllComponents({ name: 'HideShowSwitch' })[0]!.vm.$emit('change', false)
