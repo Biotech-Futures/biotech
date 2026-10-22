@@ -162,6 +162,34 @@ describe('AdminPlanTasksPage', () => {
     expect(wrapper.text()).toContain('Second task')
   })
 
+  it('filters tasks by stage on the server when a stage is selected', async () => {
+    const fetchMock = fetchMockFor(
+      [stage({ task_count: 3 }), stage({ id: 2, name: 'Next step', position: 1, task_count: 0 })],
+      [task(), task({ id: 11, stage_id: 2, name: 'Second task' })]
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.admin-plan__stage-select')[0].trigger('click')
+    await flushPromises()
+
+    const filtered = lastMutation(fetchMock, '/api/v1/admin/plan-task/', 'GET')
+    expect(String(filtered![0])).toContain('stage_id=1')
+  })
+
+  it('shows whole-stage task counts from the API, not just the shown page', async () => {
+    const fetchMock = fetchMockFor(
+      [stage({ task_count: 9 }), stage({ id: 2, name: 'Next step', position: 1, task_count: 0 })],
+      [task()]
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('.admin-plan__stage-meta').text()).toContain('9')
+  })
+
   it('creates a stage through the sheet', async () => {
     const fetchMock = fetchMockFor([stage()], [task()])
     vi.stubGlobal('fetch', fetchMock)
@@ -235,7 +263,7 @@ describe('AdminPlanTasksPage', () => {
     expect(wrapper.text()).toContain('still contains tasks')
   })
 
-  it('deletes a task after confirming', async () => {
+  it('deletes a task after confirming, closing the dialog and refreshing the list', async () => {
     const fetchMock = fetchMockFor([stage()], [task()])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mountPage()
@@ -248,5 +276,28 @@ describe('AdminPlanTasksPage', () => {
 
     const del = lastMutation(fetchMock, '/api/v1/admin/plan-task/10/', 'DELETE')
     expect(del).toBeTruthy()
+    // A successful delete is an empty 204: the dialog closes, no error shows,
+    // and the list reloads without the deleted row.
+    expect(dialogConfirm(wrapper)).toBeUndefined()
+    expect(wrapper.text()).not.toContain('Task could not be deleted')
+    expect(wrapper.text()).not.toContain('Do the thing')
+    expect(lastMutation(fetchMock, '/api/v1/admin/plan-task/', 'GET')).toBeTruthy()
+  })
+
+  it('deletes an empty stage after confirming, closing the dialog and refreshing', async () => {
+    const fetchMock = fetchMockFor([stage()], [task()])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('.admin-plan__stage-actions button:last-child').trigger('click')
+    await flushPromises()
+    await dialogConfirm(wrapper)!.trigger('click')
+    await flushPromises()
+
+    expect(lastMutation(fetchMock, '/api/v1/admin/plan-stage/1/', 'DELETE')).toBeTruthy()
+    expect(dialogConfirm(wrapper)).toBeUndefined()
+    expect(wrapper.text()).not.toContain('Stage could not be deleted')
+    expect(lastMutation(fetchMock, '/api/v1/admin/plan-stage/', 'GET')).toBeTruthy()
   })
 })

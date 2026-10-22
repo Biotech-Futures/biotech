@@ -23,6 +23,9 @@ from apps.submissions.services import current_cohort
 NAME_MAX_LENGTH = PlanTask._meta.get_field("name").max_length
 LABEL_MAX_LENGTH = PlanTask._meta.get_field("resource_label").max_length
 URL_MAX_LENGTH = PlanTask._meta.get_field("resource_url").max_length
+# The biggest value the field's Postgres integer column can hold; a larger one
+# would pass validation and then raise a DataError on insert.
+POSITION_MAX = 2_147_483_647
 
 AUDIENCE_ROLES = tuple(GroupMembership.MembershipRoleChoices.values)
 COMPLETION_MODES = tuple(PlanTask.CompletionMode.values)
@@ -122,6 +125,8 @@ def _checked_position(payload, *, default=None):
     value = payload["position"]
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None, _refused("position must be a non-negative whole number")
+    if value > POSITION_MAX:
+        return None, _refused(f"position must be {POSITION_MAX} or fewer")
     return value, None
 
 
@@ -226,8 +231,25 @@ def _checked_int_param(value, *, default: int, maximum: int | None = None):
     return parsed, None
 
 
+def _checked_stage_id_param(value):
+    """Optional ``stage_id`` filter: a positive whole number, or None."""
+    if value is None or value == "":
+        return None, None
+    if isinstance(value, bool):
+        return None, _refused("stage_id must be the ID of a stage")
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+    else:
+        return None, _refused("stage_id must be the ID of a stage")
+    if parsed <= 0:
+        return None, _refused("stage_id must be the ID of a stage")
+    return parsed, None
+
+
 def list_plan_tasks(
-    *, page=None, limit=None, sort_by=None, sort_order=None
+    *, page=None, limit=None, sort_by=None, sort_order=None, stage_id=None
 ) -> tuple[dict, int]:
     page, refusal = _checked_int_param(page, default=1)
     if refusal:
@@ -243,8 +265,13 @@ def list_plan_tasks(
         sort_order = "asc"
     elif sort_order not in ("asc", "desc"):
         return _refused("sortOrder must be asc or desc"), 400
+    stage_id, refusal = _checked_stage_id_param(stage_id)
+    if refusal:
+        return refusal, 400
 
     qs = PlanTask.objects.active().select_related("stage", "created_by")
+    if stage_id is not None:
+        qs = qs.filter(stage_id=stage_id)
     descending = sort_order == "desc"
     if sort_by == "name":
         qs = qs.order_by("-name" if descending else "name", "id")

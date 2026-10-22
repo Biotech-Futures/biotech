@@ -637,6 +637,8 @@ export interface AdminPlanStage {
   name: string
   description: string
   position: number
+  /** Live tasks in this stage across the whole plan (not just the shown page). */
+  task_count: number
 }
 
 /** A plan task as the admin builder sees it. */
@@ -670,6 +672,8 @@ export interface AdminPlanTaskListParams {
   limit?: number
   sortBy?: AdminPlanTaskSortBy
   sortOrder?: AdminPlanSortOrder
+  /** Restrict to one stage; omitted means every stage. */
+  stage_id?: number
 }
 
 /** Writable stage fields; `name` required on create. */
@@ -704,9 +708,10 @@ export const createAdminPlanStage = (payload: AdminPlanStagePayload) =>
 export const updateAdminPlanStage = (stageId: number, payload: Partial<AdminPlanStagePayload>) =>
   adminPatch<AdminEnvelope<AdminPlanStage>>(`/plan-stage/${stageId}/`, payload).then((env) => env.data)
 
-/** Soft-deletes an empty stage; refuses (400) one that still holds live tasks. */
+/** Soft-deletes an empty stage; refuses (400) one that still holds live tasks.
+ * A successful DELETE is an empty 204 with no body, so nothing is returned. */
 export const deleteAdminPlanStage = (stageId: number) =>
-  adminDelete<AdminEnvelope<null>>(`/plan-stage/${stageId}/`).then((env) => env.msg)
+  adminDelete<void>(`/plan-stage/${stageId}/`)
 
 export const fetchAdminPlanTasks = (params: AdminPlanTaskListParams = {}) =>
   adminGet<AdminEnvelope<AdminPlanTaskListData>>(`/plan-task/${buildAdminQuery(params)}`).then(
@@ -722,8 +727,9 @@ export const createAdminPlanTask = (payload: AdminPlanTaskPayload) =>
 export const updateAdminPlanTask = (taskId: number, payload: AdminPlanTaskPayload) =>
   adminPatch<AdminEnvelope<AdminPlanTask>>(`/plan-task/${taskId}/`, payload).then((env) => env.data)
 
+/** Soft-deletes a task. A successful DELETE is an empty 204 with no body. */
 export const deleteAdminPlanTask = (taskId: number) =>
-  adminDelete<AdminEnvelope<null>>(`/plan-task/${taskId}/`).then((env) => env.msg)
+  adminDelete<void>(`/plan-task/${taskId}/`)
 
 // ---------------------------------------------------------------------------
 // Groups

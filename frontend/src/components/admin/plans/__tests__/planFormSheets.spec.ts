@@ -8,11 +8,13 @@ const stages = [
   { id: 2, name: 'Next step', description: '', position: 1 }
 ]
 
-const mountSheet = (component: unknown, props: Record<string, unknown> = {}) =>
-  mount(component as never, {
+const mountSheet = (component: unknown, props: Record<string, unknown> = {}) => {
+  const comp = component as any
+  return mount(comp, {
     props: { modelValue: true, ...props },
     global: { stubs: { Teleport: true } }
   })
+}
 
 const emitSave = (wrapper: VueWrapper) => wrapper.emitted('save')?.[0]?.[0]
 

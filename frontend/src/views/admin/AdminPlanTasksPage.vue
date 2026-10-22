@@ -85,6 +85,7 @@
               :page="page"
               :page-size="limit"
               :total-count="totalCount"
+              :max-page-size="PLAN_MAX_PAGE_SIZE"
               two-line-rows
               empty-message="No tasks in the plan yet."
               :action-columns="2"
@@ -278,7 +279,9 @@ const stages = ref<AdminPlanStage[]>([])
 const tasks = ref<AdminPlanTask[]>([])
 const totalCount = ref(0)
 const page = ref(1)
-const limit = ref(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT))
+// The plan API rejects limits above 100, so the fitted size stops there.
+const PLAN_MAX_PAGE_SIZE = 100
+const limit = ref(Math.min(fitPageSize(DATA_TABLE_TWO_LINE_ROW_HEIGHT), PLAN_MAX_PAGE_SIZE))
 const selectedStageId = ref<number | string>(ALL_STAGES)
 const sortState = ref<DataTableSort>({ key: 'position', direction: 'asc' })
 
@@ -331,8 +334,10 @@ const deleteTaskMessage = computed(() => {
 
 const stageName = (stageId: number) =>
   stages.value.find((stage) => stage.id === stageId)?.name ?? '-'
+// Whole-stage totals come from the API, so a populated stage never reads as
+// empty just because its tasks are on another page.
 const stageTaskCount = (stageId: number) =>
-  tasks.value.filter((task) => task.stage_id === stageId).length
+  stages.value.find((stage) => stage.id === stageId)?.task_count ?? 0
 const audienceLabel = (role: AdminPlanAudienceRole) => AUDIENCE_LABELS[role] ?? role
 const modeLabel = (mode: AdminPlanCompletionMode) => MODE_LABELS[mode] ?? mode
 // A due date is a picked day stored as that day's UTC midnight.
@@ -365,7 +370,8 @@ const loadTasks = async () => {
       page: page.value,
       limit: serverPageLimit(limit.value),
       sortBy: sortState.value.key as AdminPlanTaskSortBy,
-      sortOrder: sortState.value.direction
+      sortOrder: sortState.value.direction,
+      stage_id: typeof selectedStageId.value === 'number' ? selectedStageId.value : undefined
     })
     tasks.value = data.items
     totalCount.value = data.total
@@ -386,10 +392,12 @@ const reloadTasksFromFirstPage = () => {
 
 const selectStage = (stageId: number) => {
   selectedStageId.value = selectedStageId.value === stageId ? ALL_STAGES : stageId
+  reloadTasksFromFirstPage()
 }
 
 const onStageFilterChange = (value: AppSelectValue) => {
   selectedStageId.value = value === null ? ALL_STAGES : (value as number | string)
+  reloadTasksFromFirstPage()
 }
 
 const onSortChange = (next: DataTableSort) => {

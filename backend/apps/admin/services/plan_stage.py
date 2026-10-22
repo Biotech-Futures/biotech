@@ -4,13 +4,16 @@ One shared stage list for every group's plan. Stages soft-delete, and a stage
 that still holds live tasks cannot be deleted. Every mutation is audited with
 before/after values so the returning-group checklist can be checked later.
 """
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.audit.services import log_audit_event
 from apps.plans.models import PlanStage, PlanTask
 
 NAME_MAX_LENGTH = PlanStage._meta.get_field("name").max_length
+# The biggest value the field's Postgres integer column can hold; a larger one
+# would pass validation and then raise a DataError on insert.
+POSITION_MAX = 2_147_483_647
 POSITION_FIELDS = ("name", "description", "position")
 STAGE_ENTITY_TYPE = "plan_stage"
 
@@ -52,6 +55,8 @@ def _checked_position(payload, *, default=None):
     value = payload["position"]
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None, _refused("position must be a non-negative whole number")
+    if value > POSITION_MAX:
+        return None, _refused(f"position must be {POSITION_MAX} or fewer")
     return value, None
 
 
@@ -65,11 +70,28 @@ def _unknown_fields(payload, allowed) -> dict | None:
 
 
 def list_plan_stages() -> dict:
-    """All active stages in plan order, including empty ones."""
-    stages = PlanStage.objects.active()
+    """All active stages in plan order, including empty ones.
+
+    Each stage carries ``task_count``: its live task total across the whole
+    plan, not just the page the task table is showing, so a populated stage
+    never reads as empty.
+    """
+    stages = list(PlanStage.objects.active())
+    counts = dict(
+        PlanTask.objects.filter(
+            stage__in=stages, deleted_at__isnull=True
+        )
+        .values_list("stage_id")
+        .annotate(total=models.Count("id"))
+    )
     return {
         "msg": "Stages retrieved successfully",
-        "data": {"items": [_serialize(stage) for stage in stages]},
+        "data": {
+            "items": [
+                {**_serialize(stage), "task_count": counts.get(stage.pk, 0)}
+                for stage in stages
+            ]
+        },
     }
 
 

@@ -117,12 +117,31 @@ class PlanStageApiTests(PlanAdminApiTestCase):
         self.assertNotIn(deleted.pk, [item["id"] for item in items])
         # Empty stages are listed: none of these have tasks.
 
+    def test_list_reports_whole_stage_task_counts(self):
+        first = self.add_stage("First", position=0).json()["data"]
+        second = self.add_stage("Second", position=1).json()["data"]
+        self.add_task(first["id"], "One")
+        self.add_task(first["id"], "Two")
+        self.add_task(second["id"], "Three")
+        # A deleted task does not count towards its stage.
+        gone = self.make_task(PlanStage.objects.get(pk=second["id"]))
+        gone.soft_delete()
+        items = self.client.get(STAGE_LIST_URL).json()["data"]["items"]
+        counts = {item["name"]: item["task_count"] for item in items}
+        self.assertEqual(counts, {"First": 2, "Second": 1})
+
     def test_create_returns_201_with_defaults_and_trims_the_name(self):
         response = self.add_stage("  Getting started  ")
         self.assertEqual(response.status_code, 201, response.content)
         data = response.json()["data"]
         self.assertEqual(
-            data, {"id": data["id"], "name": "Getting started", "description": "", "position": 0}
+            data,
+            {
+                "id": data["id"],
+                "name": "Getting started",
+                "description": "",
+                "position": 0,
+            },
         )
         log = AuditLog.objects.get(entity_type="plan_stage", action="create")
         self.assertEqual(log.actor_user, self.admin)
@@ -139,6 +158,7 @@ class PlanStageApiTests(PlanAdminApiTestCase):
             ({"name": "S", "position": -1}, "non-negative"),
             ({"name": "S", "position": "1"}, "non-negative"),
             ({"name": "S", "position": True}, "non-negative"),
+            ({"name": "S", "position": 2_147_483_648}, "2147483647 or fewer"),
             ({"name": "S", "extra": 1}, "Unknown field: extra"),
         )
         for payload, msg_part in cases:
@@ -282,6 +302,8 @@ class PlanTaskApiTests(PlanAdminApiTestCase):
             ({"name": "T", "stage_id": stage.pk, "audience_role": "student",
               "position": -1}, "non-negative"),
             ({"name": "T", "stage_id": stage.pk, "audience_role": "student",
+              "position": 2_147_483_648}, "2147483647 or fewer"),
+            ({"name": "T", "stage_id": stage.pk, "audience_role": "student",
               "extra": 1}, "Unknown field"),
         )
         for payload, msg_part in cases:
@@ -318,6 +340,30 @@ class PlanTaskApiTests(PlanAdminApiTestCase):
         response = self.client.get(TASK_LIST_URL, {"page": 2, "limit": 2})
         body = response.json()["data"]
         self.assertEqual((body["has_more"], [i["name"] for i in body["items"]]), (False, ["Z task"]))
+
+    def test_list_filters_by_stage_across_pagination(self):
+        first = self.make_stage("First", position=0)
+        second = self.make_stage("Second", position=1)
+        for index in range(3):
+            self.make_task(first, f"A{index}", position=index)
+        self.make_task(second, "Other", position=0)
+        response = self.client.get(TASK_LIST_URL, {"stage_id": first.pk, "page": 1, "limit": 2})
+        body = response.json()["data"]
+        self.assertEqual(body["total"], 3)
+        self.assertTrue(body["has_more"])
+        self.assertEqual([item["name"] for item in body["items"]], ["A0", "A1"])
+        response = self.client.get(TASK_LIST_URL, {"stage_id": first.pk, "page": 2, "limit": 2})
+        body = response.json()["data"]
+        self.assertEqual((body["has_more"], [i["name"] for i in body["items"]]), (False, ["A2"]))
+        # No stage_id returns every stage's tasks.
+        self.assertEqual(self.client.get(TASK_LIST_URL).json()["data"]["total"], 4)
+
+    def test_list_rejects_a_bad_stage_filter(self):
+        for value in ("abc", "0", "-1"):
+            with self.subTest(value=value):
+                self.assertRefused(
+                    self.client.get(TASK_LIST_URL, {"stage_id": value}),
+                    400, "stage_id must be the ID of a stage")
 
     def test_list_sorting(self):
         stage = self.make_stage()

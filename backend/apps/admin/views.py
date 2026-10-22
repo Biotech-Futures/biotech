@@ -1920,6 +1920,7 @@ class AdminPlanTaskListCreateView(APIView):
             limit=request.query_params.get("limit"),
             sort_by=request.query_params.get("sortBy"),
             sort_order=request.query_params.get("sortOrder"),
+            stage_id=request.query_params.get("stage_id"),
         )
         return Response(result, status=code)
 
