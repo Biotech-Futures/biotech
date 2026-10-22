@@ -8,8 +8,7 @@ name: Unread-messages digest
 #
 # Required configuration:
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
-#                              backend env of the same name. Until it's
-#                              set, RSVP_REMINDER_TOKEN stands in.
+#                              backend env of the same name
 #
 # Off-peak minutes (7,22,37,52) dodge GitHub's top-of-hour scheduler spike,
 # which delays :00/:15/:30/:45 crons the most. Scheduled runs can still lag a
@@ -34,10 +33,10 @@ jobs:
       - name: Trigger unread-messages digest
         env:
           BACKEND_URL: https://api.biotechfutures.org
-          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN || secrets.RSVP_REMINDER_TOKEN }}
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
         run: |
           if [ -z "${JOBS_TOKEN}" ]; then
-            echo "Neither EMAIL_JOBS_TOKEN nor RSVP_REMINDER_TOKEN is set (repository secret)." >&2
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
             exit 1
           fi
           # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces

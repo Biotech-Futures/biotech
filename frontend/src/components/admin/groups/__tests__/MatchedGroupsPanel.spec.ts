@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import MatchedGroupsPanel from '@/components/admin/groups/MatchedGroupsPanel.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const activeGroup = {
   membershipId: 100,
@@ -9,8 +10,8 @@ const activeGroup = {
   countryName: 'Australia',
   studentCount: 2,
   students: [
-    { name: 'Ada Lovelace', hasLoggedIn: true, interests: ['Genomics'] },
-    { name: 'Grace Hopper', hasLoggedIn: false, interests: [] }
+    { id: 10, name: 'Ada Lovelace', hasLoggedIn: true, interests: ['Genomics'] },
+    { id: 11, name: 'Grace Hopper', hasLoggedIn: false, interests: [] }
   ],
   mentor: { mentorId: 20, name: 'Marie Curie', isActive: true, countryName: 'Australia', institution: 'USYD' }
 }
@@ -33,7 +34,13 @@ const mentorPool = [
 
 const fetchMockFor = (
   groups: unknown[],
-  opts: { replaceStatus?: number; replaceBody?: unknown; failGroupsRefetch?: boolean } = {}
+  opts: {
+    replaceStatus?: number
+    replaceBody?: unknown
+    failGroupsRefetch?: boolean
+    studentUser?: unknown
+    studentError?: string
+  } = {}
 ) => {
   let matchedGroupsGets = 0
   return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -71,6 +78,61 @@ const fetchMockFor = (
               suggestions: [
                 { mentorUserId: 23, name: 'Rosalind Franklin', institution: 'ANU', remainingCapacity: 2, atCapacity: false, score: 90, reason: 'Great fit' }
               ]
+            }
+          }),
+          { status: 200 }
+        )
+      )
+    }
+    const singleUserMatch = u.match(/\/user\/(\d+)\/?$/)
+    if (method === 'GET' && singleUserMatch) {
+      if (opts.studentError) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: opts.studentError, code: 'not_found' }), { status: 404 })
+        )
+      }
+      const userId = Number(singleUserMatch[1])
+      const user = opts.studentUser ?? {
+        id: userId,
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@example.com',
+        role: 'student',
+        country: 'Australia',
+        state: 'NSW',
+        isActive: true,
+        hasLoggedIn: true,
+        lastLogin: '2026-01-02T10:00:00Z',
+        lastEditedBy: null,
+        lastEditedAt: null,
+        schoolName: 'Science High',
+        yearLevel: 11,
+        interests: ['Genetics', 'Genomics'],
+        groupName: 'BTF1',
+        guardianFirstName: 'Lord',
+        guardianLastName: 'Byron',
+        guardianEmail: 'byron@example.com',
+        joinPermissionReceived: true,
+        joinpermResponseId: 'BTF-10',
+        mediaConsent: true
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ msg: 'ok', data: user }), { status: 200 })
+      )
+    }
+    if (method === 'GET' && u.includes('/user/')) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            msg: 'ok',
+            data: {
+              items: [
+                { id: 10, firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', role: 'student' }
+              ],
+              total: 1,
+              page: 1,
+              limit: 10,
+              hasMore: false
             }
           }),
           { status: 200 }
@@ -118,7 +180,7 @@ describe('MatchedGroupsPanel', () => {
     expect(replaceInactiveButton).toBeDefined()
   })
 
-  it('hides the "Replace Inactive Mentors" button when every mentor is active', async () => {
+  it('disables the "Replace Inactive Mentors" button when every mentor is active', async () => {
     const fetchMock = fetchMockFor([activeGroup])
     vi.stubGlobal('fetch', fetchMock)
     wrapper = mount(MatchedGroupsPanel)
@@ -126,7 +188,8 @@ describe('MatchedGroupsPanel', () => {
 
     expect(wrapper.text()).not.toContain('inactive')
     const replaceInactiveButton = wrapper.findAll('button').find((b) => b.text().includes('Replace Inactive Mentors'))
-    expect(replaceInactiveButton).toBeUndefined()
+    expect(replaceInactiveButton).toBeDefined()
+    expect(replaceInactiveButton!.attributes('disabled')).toBeDefined()
   })
 
   it('expands a row to show its students', async () => {
@@ -154,9 +217,8 @@ describe('MatchedGroupsPanel', () => {
     expect(replaceButton).toBeDefined()
     await replaceButton!.trigger('click')
 
-    const select = wrapper.find('select')
-    expect(select.exists()).toBe(true)
-    await select.setValue('__unassign__')
+    expect(wrapper.find('.matched-groups__replace-select').exists()).toBe(true)
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', '— Unassign (leave unmatched)')
 
     const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
     await confirmButton!.trigger('click')
@@ -178,8 +240,7 @@ describe('MatchedGroupsPanel', () => {
     const replaceButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')
     await replaceButton!.trigger('click')
 
-    const select = wrapper.find('select')
-    await select.setValue('23')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Rosalind Franklin')
 
     const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
     await confirmButton!.trigger('click')
@@ -203,7 +264,7 @@ describe('MatchedGroupsPanel', () => {
     await flushPromises()
 
     await wrapper.findAll('button').find((b) => b.text().trim() === 'Replace Mentor')!.trigger('click')
-    await wrapper.find('select').setValue('23')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Rosalind Franklin')
     await wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')!.trigger('click')
     await flushPromises()
 
@@ -249,8 +310,7 @@ describe('MatchedGroupsPanel', () => {
 
     // Full mentors are hidden by default — reveal Ada King (mentorId 22, 2/2).
     await wrapper.find('input[type="checkbox"]').setValue(true)
-    const select = wrapper.find('select')
-    await select.setValue('22')
+    await pickAppSelect(wrapper, '.matched-groups__replace-select', 'Ada King (full)')
 
     const confirmButton = wrapper.findAll('button').find((b) => b.text().trim() === 'Confirm')
     await confirmButton!.trigger('click')
@@ -259,7 +319,7 @@ describe('MatchedGroupsPanel', () => {
     expect(wrapper.text()).toContain('Mentor is at capacity (2/2).')
     // The inline form must stay open on failure so the admin can pick again,
     // not silently reset as if nothing happened.
-    expect(wrapper.find('select').exists()).toBe(true)
+    expect(wrapper.find('.matched-groups__replace-select').exists()).toBe(true)
   })
 
   it('replaces an inactive mentor via the bulk "Replace Inactive Mentors" dialog', async () => {
@@ -294,5 +354,96 @@ describe('MatchedGroupsPanel', () => {
       assignments: [{ groupId: 2, mentorUserId: 23 }]
     })
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('clicking on a student opens their details sheet matching AdminUserDetailSheet and close returns to matched groups', async () => {
+    const fetchMock = fetchMockFor([activeGroup])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    // Expand the row
+    await wrapper.find('tbody tr').trigger('click')
+
+    // Find and click Ada Lovelace student button
+    const studentBtn = wrapper.findAll('.matched-groups__student-btn').find(
+      (b) => b.text().includes('Ada Lovelace')
+    )
+    expect(studentBtn).toBeDefined()
+    await studentBtn!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+
+    // Title and description update to student details
+    expect(dialog.querySelector('.admin-sheet__title')?.textContent).toBe('Ada Lovelace')
+    expect(dialog.querySelector('.admin-sheet__description')?.textContent).toBe('Account details')
+
+    // Contains Account, Student Details, Guardian Details, and Supervisor and Group
+    expect(dialog.textContent).toContain('Account')
+    expect(dialog.textContent).toContain('ada@example.com')
+    expect(dialog.textContent).toContain('Student Details')
+    expect(dialog.textContent).toContain('Science High')
+    expect(dialog.textContent).toContain('Guardian Details')
+    expect(dialog.textContent).toContain('Supervisor and Group')
+    expect(dialog.textContent).toContain('Lord Byron')
+    expect(dialog.textContent).toContain('byron@example.com')
+
+    // Matched Groups only views a student: no Edit, and no buttons at the bottom
+    expect(Array.from(dialog.querySelectorAll('button')).map((b) => b.textContent?.trim())).not.toContain('Edit')
+    expect(dialog.querySelector('.admin-users-detail__footer')).toBeNull()
+
+    // Close the sheet with its x
+    const closeBtn = dialog.querySelector('.admin-sheet__close') as HTMLButtonElement
+    expect(closeBtn).toBeTruthy()
+    closeBtn.click()
+    await flushPromises()
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    // The matched groups table is still expanded and visible
+    expect(wrapper.text()).toContain('Students (2)')
+  })
+
+  it('shows an error message in the sheet when loading student details fails', async () => {
+    const fetchMock = fetchMockFor([activeGroup], { studentError: 'Student not found in database' })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.find('tbody tr').trigger('click')
+    const studentBtn = wrapper.find('.matched-groups__student-btn')
+    await studentBtn.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+    expect(dialog.textContent).toContain('Student not found in database')
+  })
+
+  it('shows an error and does not search or fall back to unrelated users when student id is missing', async () => {
+    const groupWithStudentWithoutId = {
+      ...activeGroup,
+      students: [
+        { name: 'Unknown Student', hasLoggedIn: false, interests: [] } as unknown as { id: number; name: string; hasLoggedIn: boolean; interests: string[] }
+      ]
+    }
+    const fetchMock = fetchMockFor([groupWithStudentWithoutId])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(MatchedGroupsPanel, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.find('tbody tr').trigger('click')
+    const studentBtn = wrapper.find('.matched-groups__student-btn')
+    await studentBtn.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).toBeTruthy()
+    expect(dialog.textContent).toContain('Could not find details for this student.')
+    // Verify no user list search endpoint was called to search by name or fall back to res.items[0]
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).includes('/user/?') || String(u).includes('/user?'))
+    ).toBe(false)
   })
 })

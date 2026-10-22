@@ -18,6 +18,7 @@ from typing import NamedTuple, Optional
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 from PIL import Image, UnidentifiedImageError
 
 from apps.audit.services import log_audit_event
@@ -28,6 +29,9 @@ from .models import GuardianConsent, GuardianConsentRequest, StudentProfile
 
 
 LINK_LIFETIME = timedelta(days=14)
+# For this long after signing, the link still shows that signing's thank-you
+# (a refresh, say); after that it only says the form has been completed.
+COMPLETED_GRACE = timedelta(minutes=1)
 # The drawn signature, as a PNG data URL from the page's canvas.
 SIGNATURE_PREFIX = "data:image/png;base64,"
 MAX_SIGNATURE_BYTES = 300 * 1024
@@ -85,26 +89,77 @@ def consent_link(token: str) -> str:
     return f"{settings.FRONTEND_BASE_URL}/#/consent/{token}"
 
 
+def _token_for(request: GuardianConsentRequest) -> str:
+    """A link's token, worked out from the request and the server's secret, so
+    a link already out can be copied again while the table still holds only
+    its hash."""
+    value = f"{request.pk}:{int(request.expires_at.timestamp())}"
+    digest = salted_hmac("guardian-consent-link", value, algorithm="sha256").digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+
 def issue_request(profile: StudentProfile, guardian: Guardian, sent_by=None) -> tuple:
-    """A new consent link for ``guardian``. Earlier links for the student stop
-    working, so only the newest email's link can be used. Returns the request
-    and the raw token, which exists only in the emailed link."""
+    """The consent link for ``guardian``: the one already out to them, with
+    its time reset, so every email and copy of it keeps working until they
+    sign; or a new one if there's none. Links out to anyone else for the
+    student (an earlier guardian) stop working. Returns the request and the
+    raw token."""
     now = timezone.now()
-    GuardianConsentRequest.objects.filter(
+    open_links = GuardianConsentRequest.objects.filter(
         student=profile, used_at__isnull=True, revoked_at__isnull=True,
-    ).update(revoked_at=now)
-    token = secrets.token_urlsafe(32)
+    )
+    current = (
+        open_links.filter(guardian_email=guardian.email, for_pending_guardian=guardian.pending)
+        .order_by("-created_at")
+        .first()
+    )
+    if current is not None:
+        token = _token_for(current)
+        # Links made before tokens could be worked out again can't be reused.
+        if _hash(token) == current.token_hash:
+            open_links.exclude(pk=current.pk).update(revoked_at=now)
+            current.valid_until = (now + LINK_LIFETIME).replace(microsecond=0)
+            current.save(update_fields=["valid_until"])
+            return current, token
+    open_links.update(revoked_at=now)
     request = GuardianConsentRequest.objects.create(
         student=profile,
-        token_hash=_hash(token),
+        # A stand-in until the request has the id its token is worked out from.
+        token_hash=_hash(secrets.token_urlsafe(32)),
         guardian_first_name=guardian.first_name,
         guardian_last_name=guardian.last_name,
         guardian_email=guardian.email,
         for_pending_guardian=guardian.pending,
         sent_by=sent_by,
-        expires_at=now + LINK_LIFETIME,
+        # Whole seconds, so the token works out the same after a database
+        # round trip.
+        expires_at=(now + LINK_LIFETIME).replace(microsecond=0),
     )
+    token = _token_for(request)
+    request.token_hash = _hash(token)
+    request.save(update_fields=["token_hash"])
     return request, token
+
+
+def token_still_out(profile: StudentProfile, guardian: Guardian) -> Optional[str]:
+    """The token of the student's newest link if ``guardian`` can still use
+    it, else None. Links made before tokens could be worked out again can't be
+    copied, so those count as gone too."""
+    request = (
+        GuardianConsentRequest.objects.filter(
+            student=profile,
+            used_at__isnull=True,
+            revoked_at__isnull=True,
+            guardian_email=guardian.email,
+            for_pending_guardian=guardian.pending,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if request is None or request.good_until <= timezone.now():
+        return None
+    token = _token_for(request)
+    return token if _hash(token) == request.token_hash else None
 
 
 def open_request(token: str, *, for_update: bool = False) -> GuardianConsentRequest:
@@ -116,16 +171,35 @@ def open_request(token: str, *, for_update: bool = False) -> GuardianConsentRequ
     if request is None:
         raise ConsentLinkError("invalid", "This consent link isn't valid. Check you opened the whole link from the email.")
     if request.used_at:
-        raise ConsentLinkError("used", "This consent form has already been signed. Thank you.")
+        raise ConsentLinkError("used", "This form has already been completed.")
     if request.revoked_at:
         raise ConsentLinkError("replaced", "A newer consent link has been sent. Please use the link in the most recent email.")
-    if request.expires_at <= timezone.now():
+    if request.good_until <= timezone.now():
         raise ConsentLinkError("expired", "This consent link has expired. Contact us and we'll send a new one.")
     current = guardian_to_ask(request.student)
     if current is None or current.email != request.guardian_email or current.pending != request.for_pending_guardian:
         # The student's guardian, or their consent, changed after this was sent.
         raise ConsentLinkError("out_of_date", "This consent link is out of date. Contact us and we'll send a new one.")
     return request
+
+
+def page_for(token: str) -> dict:
+    """What the consent page shows for a link: its form while it can be
+    used; for a minute after it's signed, that signing's thank-you; after
+    that, ConsentLinkError as for any link that can't be used."""
+    request = (
+        GuardianConsentRequest.objects.select_related("student__user", "consent")
+        .filter(token_hash=_hash(token or ""))
+        .first()
+    )
+    signed = getattr(request, "consent", None) if request is not None and request.used_at else None
+    if signed is not None and timezone.now() - request.used_at <= COMPLETED_GRACE:
+        return {
+            "studentName": student_name(request.student),
+            "supportEmail": settings.SUPPORT_EMAIL,
+            "completed": {"reference": signed.reference, "mediaConsent": signed.media_consent},
+        }
+    return form_for(open_request(token))
 
 
 def form_for(request: GuardianConsentRequest) -> dict:
@@ -138,10 +212,26 @@ def form_for(request: GuardianConsentRequest) -> dict:
         "studentName": student_name(profile),
         "guardianFirstName": first,
         "guardianLastName": "" if not first else request.guardian_last_name,
-        "expiresAt": request.expires_at.isoformat(),
+        "expiresAt": request.good_until.isoformat(),
         "supportEmail": settings.SUPPORT_EMAIL,
         "form": render_consent_form(student_name(profile)),
     }
+
+
+def latest_signature_data_url(
+    profile: StudentProfile, consent: Optional[GuardianConsent] = None,
+) -> Optional[str]:
+    """The newest unwithdrawn drawn signature for ``profile``, as a PNG data URL."""
+    if consent is None:
+        consent = (
+            profile.consents.filter(withdrawn_at__isnull=True)
+            .order_by("-signed_at")
+            .only("signature_png")
+            .first()
+        )
+    if consent is None or not consent.signature_png:
+        return None
+    return SIGNATURE_PREFIX + base64.b64encode(bytes(consent.signature_png)).decode()
 
 
 def decode_signature(data_url: str) -> bytes:

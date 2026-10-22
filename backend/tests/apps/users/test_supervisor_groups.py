@@ -213,6 +213,29 @@ class SupervisedGroupsViewTests(TestCase):
         response = self.client.get("/api/v1/users/supervised-groups/")
         self.assertEqual(response.status_code, 403)
 
+    def test_groups_come_back_in_the_order_the_supervisor_moved_them(self):
+        self.client.force_login(self.supervisor)
+        ids = [self.client.post("/api/v1/users/supervised-groups/", {}, format="json").json()["id"] for _ in range(3)]
+        first, second, third = ids
+        other = Groups.objects.create(group_name="BTF99").id
+
+        # Someone else's group is dropped; one left out follows the rest.
+        saved = self.client.put(
+            "/api/v1/users/supervised-groups/order/", {"group_ids": [third, other, first]}, format="json",
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["group_ids"], [third, first])
+        listed = [group["id"] for group in self.client.get("/api/v1/users/supervised-groups/").json()]
+        self.assertEqual(listed, [third, first, second])
+
+    def test_group_order_needs_a_list_of_ids(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.put("/api/v1/users/supervised-groups/order/", {"group_ids": "1,2"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.client.force_login(self.outsider)
+        response = self.client.put("/api/v1/users/supervised-groups/order/", {"group_ids": []}, format="json")
+        self.assertEqual(response.status_code, 403)
+
     def test_supervisor_can_tag_multiple_group_interests(self):
         self.client.force_login(self.supervisor)
         created = self.client.post(
@@ -256,3 +279,55 @@ class SupervisedGroupsViewTests(TestCase):
         self.assertEqual(catalog.status_code, 200)
         self.assertIn("Biomedical Innovations", catalog.json()["interests"])
         self.assertIn("Water & Energy Tech", catalog.json()["interests"])
+
+    def _student_of(self, supervisor_profile, email):
+        user = User.objects.create_user(
+            email=email, first_name="Stu", last_name="Dent", password="Testpass123!",
+            is_active=True, account_status=User.AccountStatus.ACTIVE,
+        )
+        StudentProfile.objects.create(
+            user=user, pg_first_name="Pat", pg_last_name="Dent", parent_guardian_flag=True,
+            supervisor=supervisor_profile, school_name="Test High", year_lvl="10",
+        )
+        return user
+
+    def test_a_shared_group_counts_another_supervisors_students(self):
+        # A group shared with another supervisor: four of their students in it.
+        other = User.objects.create_user(
+            email="other.supervisor@test.com", first_name="Oli", last_name="Other", password="Testpass123!",
+            is_active=True, account_status=User.AccountStatus.ACTIVE,
+        )
+        other_profile = SupervisorProfile.objects.create(user=other, school_name="Other High")
+        group = Groups.objects.create(group_name="BTF50")
+        GroupMembership.objects.create(
+            group=group, user=self.supervisor, membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR,
+        )
+        for index in range(4):
+            GroupMembership.objects.create(
+                group=group, user=self._student_of(other_profile, f"theirs{index}@test.com"),
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            )
+        second = self._student_of(self.sup_profile, "second@test.com")
+        third = self._student_of(self.sup_profile, "third@test.com")
+        url = f"/api/v1/users/supervised-groups/{group.id}/members/"
+        self.client.force_login(self.supervisor)
+
+        two = self.client.post(url, {"user_ids": [self.student.id, second.id], "role": "student"}, format="json")
+        self.assertEqual(two.status_code, 400)
+        self.assertEqual(two.json()["error"], "This group has room for 1 more student.")
+
+        fifth = self.client.post(url, {"user_ids": [self.student.id], "role": "student"}, format="json")
+        self.assertEqual(fifth.status_code, 200)
+        # Already in it: still five, so it's fine.
+        again = self.client.post(url, {"user_ids": [self.student.id], "role": "student"}, format="json")
+        self.assertEqual(again.status_code, 200)
+
+        sixth = self.client.post(url, {"user_ids": [third.id], "role": "student"}, format="json")
+        self.assertEqual(sixth.status_code, 400)
+        self.assertEqual(sixth.json()["error"], "This group already has 5 students.")
+        self.assertEqual(
+            GroupMembership.objects.filter(
+                group=group, left_at__isnull=True, membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+            ).count(),
+            5,
+        )

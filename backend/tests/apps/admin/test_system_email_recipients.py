@@ -205,6 +205,7 @@ class SystemEmailRecipientsTests(TestCase):
     def test_every_email_lists_and_fills_its_recipients_details(self):
         group_emails = {
             "submission_confirmation", "submission_reminder", "finalist_notification",
+            "finalist_submission_confirmation", "finalist_submission_reminder",
             "nonfinalist_invitation", "nonsubmission_notice", "results_team",
         }
         for key, recipients in RECIPIENTS.items():
@@ -258,6 +259,13 @@ class SystemEmailRecipientsTests(TestCase):
         context = recipient_context("submission_confirmation", str(self.btf2.id))
         self.assertEqual(context["GROUP_NAME"], "BTF2")
         self.assertEqual(str(context["SUBMITTED_BY"]), "Ben Bell")
+
+    def test_an_automated_confirmation_names_the_programme(self):
+        Submission.objects.filter(group=self.btf2).update(submitted_by=None, auto_submitted=True)
+
+        context = recipient_context("submission_confirmation", str(self.btf2.id))
+
+        self.assertEqual(context["SUBMITTED_BY"], "BIOTech Futures")
 
     def test_someone_not_on_the_list_is_refused(self):
         mail.outbox = []

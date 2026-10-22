@@ -9,14 +9,14 @@ name: Daily guardian details reminders
 #
 # Required configuration:
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
-#                              backend env of the same name. Until it's
-#                              set, RSVP_REMINDER_TOKEN stands in.
+#                              backend env of the same name
 #
-# 06:41 UTC is late afternoon in Sydney, after school. The odd minute avoids
-# GitHub's top-of-hour cron congestion.
+# 19:00 UTC (6am in Sydney under daylight saving, 5am in winter), an hour
+# after the guardian consent reminders. The backend runs these itself once
+# SCHEDULER_ENABLED is set (apps.management.scheduler), at the same time.
 on:
   schedule:
-    - cron: "41 6 * * *"
+    - cron: "0 19 * * *"
   workflow_dispatch:
 
 jobs:
@@ -28,10 +28,10 @@ jobs:
       - name: Trigger guardian details reminders
         env:
           BACKEND_URL: https://api.biotechfutures.org
-          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN || secrets.RSVP_REMINDER_TOKEN }}
+          JOBS_TOKEN: ${{ secrets.EMAIL_JOBS_TOKEN }}
         run: |
           if [ -z "${JOBS_TOKEN}" ]; then
-            echo "Neither EMAIL_JOBS_TOKEN nor RSVP_REMINDER_TOKEN is set (repository secret)." >&2
+            echo "EMAIL_JOBS_TOKEN is not set (repository secret)." >&2
             exit 1
           fi
           # -f makes curl exit non-zero on HTTP >=400 so the workflow surfaces

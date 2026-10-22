@@ -57,23 +57,21 @@
          its aliases. Saved at once, like the on/off switch. -->
     <div class="editor__field">
       <label class="editor__label" :for="`${emailTemplate.key}-sender`">Send from</label>
-      <select
+      <AppSelect
         :id="`${emailTemplate.key}-sender`"
-        class="editor__title email-editor__sender"
-        :value="emailTemplate.sender"
+        class="editor__title email-editor__sender app-input"
+        :model-value="emailTemplate.sender"
+        :options="senderOptions"
         :disabled="busy"
-        @change="emit('change-sender', ($event.target as HTMLSelectElement).value)"
-      >
-        <option v-for="sender in emailTemplate.senders" :key="sender.key" :value="sender.key">
-          {{ sender.address }}
-        </option>
-      </select>
+        @change="(value) => emit('change-sender', String(value))"
+      />
     </div>
 
-    <!-- Tags go into whichever of Subject or Body was used last. -->
+    <!-- Only a list of the placeholders this email can use: clicking one
+         puts nothing in Subject or Body. -->
     <div class="editor__field">
       <span class="editor__label">Placeholders</span>
-      <MergeTagPalette :tags="emailTemplate.mergeTags" @insert="onInsertTag" />
+      <MergeTagPalette :tags="emailTemplate.mergeTags" :insertable="false" />
     </div>
 
     <div class="editor__field">
@@ -82,18 +80,16 @@
            hint, made password managers (Bitwarden) offer to fill it. -->
       <input
         id="template-subject"
-        ref="subjectInput"
         type="text"
         autocomplete="off"
         data-bwignore
         data-1p-ignore
         data-lpignore="true"
-        class="editor__title"
+        class="editor__title app-input app-input--wide"
         :value="subject"
         :placeholder="emailTemplate.defaultSubject"
         :disabled="saving || restoring"
         maxlength="255"
-        @focus="activeField = 'subject'"
         @input="emit('update:subject', ($event.target as HTMLInputElement).value)"
       />
     </div>
@@ -103,34 +99,46 @@
       <!-- Like Subject, read-only only while its wording is being written: a
            read-only editor drops its toolbar, which flashed on quick saves like
            Send from. -->
-      <div class="email-editor__body" @focusin="activeField = 'body'">
+      <div class="email-editor__body">
         <RichEditor
-          ref="bodyEditor"
           :model-value="body"
           email-mode
           compact
           :link-placeholders="linkPlaceholders"
           :read-only="saving || restoring"
           @update:model-value="emit('update:body', $event)"
-          @focus="activeField = 'body'"
         />
       </div>
     </div>
 
     <footer class="editor__actions">
       <div class="editor__actions-primary">
-        <button type="button" class="btn btn-primary btn-sm" :disabled="!dirty || busy" @click="emit('save')">
+        <button type="button" class="btn btn-primary" :disabled="!dirty || busy" @click="emit('save')">
           {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline"
           :disabled="!emailTemplate.usingSavedContent || busy"
           @click="emit('restore')"
         >
           {{ restoring ? 'Restoring…' : 'Restore default' }}
         </button>
       </div>
+
+      <!-- Send Test doubles as a way to send someone their email directly. A
+           sign-in email can't be sent, but the list still fills the preview. -->
+      <p v-if="testRecipients?.length" class="email-editor__test-note" data-test="send-direct">
+        <template v-if="emailTemplate.locked">
+          Sign-in emails can't be sent from here, but you can preview one for any person:
+        </template>
+        <template v-else>
+          <template v-if="emailTemplate.key === 'guardian_consent_request'">
+            Its consent link stays a sample, so send a guardian their real one from Users.
+          </template>
+          To send a group/person email directly to a person when Needed or for Testing:
+        </template>
+      </p>
 
       <!-- Send the email as it stands to any address, as the group or person
            picked would get it (sample values when nobody is picked). The
@@ -143,7 +151,7 @@
         <!-- A critical email (sign-in, passwords) can't be test sent. -->
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline"
           :disabled="emailTemplate.locked || busy || testRecipientsLoading || !testTo.trim()"
           :title="emailTemplate.locked ? lockedTestReason : undefined"
           @click="sendTest"
@@ -154,27 +162,22 @@
         <template v-if="testRecipientsFailed || testRecipients">
           <span class="email-editor__test-word">of</span>
           <!-- Open even on a critical email, so its preview can show anyone. -->
-          <select
+          <AppSelect
             v-model="testOf"
-            class="email-editor__test-select"
+            class="email-editor__test-select app-input"
             aria-label="Send it as"
             data-test="test-of"
+            :options="testRecipients ?? []"
+            :placeholder="testOfPlaceholder"
             :disabled="!testRecipients?.length"
-          >
-            <option v-if="!testRecipients?.length" value="">
-              {{ testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)' }}
-            </option>
-            <option v-for="option in testRecipients" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
+          />
         </template>
         <span class="email-editor__test-word email-editor__test-word--to">to</span>
         <!-- Password managers leave this box alone. -->
         <input
           v-model="testTo"
           type="email"
-          class="email-editor__test-to"
+          class="email-editor__test-to app-input"
           placeholder="Email address"
           aria-label="Send the test to"
           autocomplete="off"
@@ -197,17 +200,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import MergeTagPalette from '@/components/admin/emails/MergeTagPalette.vue'
 import { isLinkPlaceholder } from '@/components/admin/emailBlocks'
 import {
   mergeTagToken,
   nameParts,
-  type SystemEmailMergeTag,
   type SystemEmailTemplate,
   type SystemEmailTestRecipient
 } from '@/utils/systemEmail'
 import { useAuthStore } from '@/stores/auth'
+import { formatStatementTime } from '@/utils/date'
 
 const RichEditor = defineAsyncComponent(() => import('@/components/admin/RichEditor.vue'))
 
@@ -261,17 +265,11 @@ const lockReason = () => {
   }
 }
 
+// "Last edited by Ada Admin · 05/10/2026 at 15:42".
 const lastEditedLabel = () => {
   const { updatedBy, updatedAt } = props.emailTemplate
   if (!updatedBy || !updatedAt) return ''
-  const when = new Date(updatedAt).toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-  return `Last edited by ${updatedBy} \u00b7 ${when}`
+  return `Last edited by ${updatedBy} \u00b7 ${formatStatementTime(updatedAt)}`
 }
 
 const emit = defineEmits<{
@@ -284,42 +282,19 @@ const emit = defineEmits<{
   (e: 'test-send', to: string): void
 }>()
 
-type EditableField = 'subject' | 'body'
+const senderOptions = computed<AppSelectOption[]>(() =>
+  props.emailTemplate.senders.map((sender) => ({ value: sender.key, label: sender.address }))
+)
 
-const activeField = ref<EditableField>('body')
-const subjectInput = ref<HTMLInputElement | null>(null)
-const bodyEditor = ref<{ insertText: (text: string) => void } | null>(null)
+// With nobody to pick, what the test goes out as instead.
+const testOfPlaceholder = computed(() => {
+  if (props.testRecipients?.length) return ''
+  return props.testRecipientsFailed ? "Couldn't load the list" : 'Nobody yet (sample details)'
+})
 
 const onToggleEnabled = (enabled: boolean) => {
   if (props.emailTemplate.locked && !enabled) return
   emit('toggle-enabled', enabled)
-}
-
-const onInsertTag = (tag: SystemEmailMergeTag) => {
-  const token = mergeTagToken(tag.name)
-  if (activeField.value === 'subject') {
-    insertIntoSubject(token)
-  } else {
-    bodyEditor.value?.insertText(token)
-  }
-}
-
-/** Insert at the caret (or append) so tags land where the admin is typing. */
-const insertIntoSubject = (token: string) => {
-  const input = subjectInput.value
-  if (!input) {
-    emit('update:subject', `${props.subject}${token}`)
-    return
-  }
-  const start = input.selectionStart ?? input.value.length
-  const end = input.selectionEnd ?? start
-  const next = `${input.value.slice(0, start)}${token}${input.value.slice(end)}`
-  emit('update:subject', next)
-  void nextTick(() => {
-    input.focus()
-    const caret = start + token.length
-    input.setSelectionRange(caret, caret)
-  })
 }
 </script>
 
@@ -329,6 +304,19 @@ const insertIntoSubject = (token: string) => {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
+}
+
+/* System Emails' placeholder chips are white; the palette's own green stays
+   on Management's Outcome Announcement. They're only a list to read, so
+   they don't change on hover. */
+.email-editor :deep(.merge-tags__list .merge-tags__tag) {
+  background: var(--white);
+  color: var(--black);
+}
+
+/* Black would vanish on the dark card, so dark mode keeps light text. */
+:root[data-theme='dark'] .email-editor :deep(.merge-tags__list .merge-tags__tag) {
+  color: var(--teal);
 }
 
 /* No line above the buttons here: on System Emails it sits above Preview
@@ -349,6 +337,14 @@ const insertIntoSubject = (token: string) => {
   gap: 0.5rem;
 }
 
+/* Its own line above Send Test, across the footer. */
+.email-editor__test-note {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
 .email-editor__test-word {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -358,36 +354,21 @@ const insertIntoSubject = (token: string) => {
   grid-column: 2;
 }
 
-.email-editor__test-select,
-.email-editor__test-to {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-}
-
-/* As wide as the address box, or wider when a name needs it, up to 25rem. */
-.email-editor__test-select {
-  width: 100%;
-  max-width: 25rem;
-}
-
 .email-editor__test-button-lock {
   margin-right: 0.25rem;
   font-size: 0.75em;
 }
 
 
+/* The shared box (app-input), as is the list above it: 320px, narrowing to
+   13rem when room is short. The list is as wide, or wider when a name needs
+   it, up to the shared box's widest. */
 .email-editor__test-to {
-  /* 17rem, narrowing to 13rem when room is short. */
-  width: 17rem;
+  width: 16rem;
   max-width: 100%;
 }
 
-.email-editor__test-select:focus,
+.email-editor__test-select:focus-within,
 .email-editor__test-to:focus {
   outline: none;
   border-color: var(--dark-green);
@@ -507,11 +488,11 @@ const insertIntoSubject = (token: string) => {
   min-width: 3.5rem;
 }
 
-/* As wide as its addresses, not the whole column. */
-.email-editor__sender {
-  width: auto;
-  min-width: 16rem;
-  background: var(--surface-elevated, #fff);
+/* The Subject box's focus, which editorForm.css gives on :focus. */
+.email-editor__sender:focus-within {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
 }
 
 .email-editor__last-edited {
@@ -539,7 +520,7 @@ const insertIntoSubject = (token: string) => {
 /* Dark theme: the subject and body editor take the grey other pages give
    their boxes, with light text. */
 :root[data-theme='dark'] .email-editor__title {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .email-editor__switch-label {
@@ -563,7 +544,7 @@ const insertIntoSubject = (token: string) => {
 :root[data-theme='dark'] .email-editor :deep(.toolbar-btn:hover:not(:disabled)),
 :root[data-theme='dark'] .email-editor :deep(.dropdown-item:hover) {
   background-color: var(--border-light);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .email-editor :deep(.toolbar-btn.active),
@@ -583,7 +564,7 @@ const insertIntoSubject = (token: string) => {
 }
 
 :root[data-theme='dark'] .email-editor :deep(.dropdown-item) {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .email-editor :deep(.table-context-bar) {
@@ -598,7 +579,7 @@ const insertIntoSubject = (token: string) => {
 }
 
 :root[data-theme='dark'] .email-editor :deep(.raw-html-textarea) {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 /* The writing area stays white, like the email itself, so the template's own

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import FinalistsPage from '@/views/grading/FinalistsPage.vue'
 import {
@@ -8,6 +7,13 @@ import {
   fetchFinalists,
   removeFinalist
 } from '@/utils/gradingAPI'
+
+// A row opens its group through the router.
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }))
+vi.mock('vue-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('vue-router')>()),
+  useRouter: () => ({ push: pushMock })
+}))
 
 vi.mock('@/utils/gradingAPI', () => ({
   addFinalist: vi.fn(),
@@ -19,14 +25,6 @@ const addMock = vi.mocked(addFinalist)
 const candidatesMock = vi.mocked(fetchFinalistCandidates)
 const finalistsMock = vi.mocked(fetchFinalists)
 const removeMock = vi.mocked(removeFinalist)
-
-const GroupSearchInputStub = defineComponent({
-  name: 'GroupSearchInput',
-  props: { modelValue: { type: String, default: '' }, showSuggestions: { type: Boolean, default: true } },
-  emits: ['update:modelValue'],
-  template:
-    '<input class="picker" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
-})
 
 const candidate = (over: Record<string, unknown> = {}) => ({
   group_id: 1,
@@ -51,7 +49,6 @@ const mountPage = async () => {
   const wrapper = mount(FinalistsPage, {
     global: {
       stubs: {
-        GroupSearchInput: GroupSearchInputStub,
         RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
       }
     }
@@ -61,6 +58,7 @@ const mountPage = async () => {
 }
 
 beforeEach(() => {
+  pushMock.mockReset()
   addMock.mockReset().mockResolvedValue(undefined as never)
   removeMock.mockReset().mockResolvedValue(undefined as never)
   candidatesMock.mockReset().mockResolvedValue({
@@ -224,7 +222,7 @@ describe('the group marks ranking', () => {
     candidatesMock.mockResolvedValue({ components: [{ code: 'SAQ', name: 'SAQ' }, { code: 'POSTER', name: 'Poster' }], rows })
     const wrapper = await mountPage()
     // Two submitted, one of them with a part still to mark; one a finalist.
-    expect(wrapper.find('.finalists__stats').text()).toBe('1/2 Fully Marked · 1 Added as Finalist')
+    expect(wrapper.find('.data-table-stats').text()).toBe('1/2 Fully Marked · 1 Added as Finalist')
   })
 
   it('leaves out the asterisk key when every group is fully marked', async () => {
@@ -250,12 +248,14 @@ describe('the group marks ranking', () => {
   it('shows the title and categories on a row of their own under each group', async () => {
     const wrapper = await mountPage()
     // Hidden until Show Details is pressed, which then reads Hide Details.
-    expect(wrapper.find('.finalists__details-row').exists()).toBe(false)
-    const toggle = wrapper.find('.finalists__search-side button')
-    expect(toggle.text()).toBe('Show Details')
-    await toggle.trigger('click')
-    expect(toggle.text()).toBe('Hide Details')
-    const details = wrapper.findAll('.finalists__details-row')
+    const toggle = () => wrapper.find('.finalists__marks-table .data-table-search-side button')
+    expect(wrapper.find('.data-table-detail-row').exists()).toBe(false)
+    expect(toggle().text()).toBe('Show Details')
+    await toggle().trigger('click')
+    expect(toggle().text()).toBe('Hide Details')
+    // No chevrons: every group's details show at once.
+    expect(wrapper.find('.data-table-expand-btn').exists()).toBe(false)
+    const details = wrapper.findAll('.data-table-detail-row')
     expect(details).toHaveLength(2)
     // Title on its line; the categories on the next.
     // Each label beside its value; a long value wraps after the label.
@@ -270,8 +270,8 @@ describe('the group marks ranking', () => {
     // Spans the whole table (SAQ&P. included), like the extensions' reason row.
     expect(details[0]!.find('td').attributes('colspan')).toBe('9')
 
-    await toggle.trigger('click')
-    expect(wrapper.find('.finalists__details-row').exists()).toBe(false)
+    await toggle().trigger('click')
+    expect(wrapper.find('.data-table-detail-row').exists()).toBe(false)
   })
 
   it('tooltips the markers per criterion, first name shown with a group icon', async () => {
@@ -291,11 +291,14 @@ describe('the group marks ranking', () => {
 
   it('live-filters by the search text', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('.picker').setValue('BTF-1')
+    const search = wrapper.find('.finalists__marks-table .data-table-search-input')
+    await search.setValue('BTF-1')
     const rows = wrapper.findAll('.finalists__table')[0]!.findAll('tbody tr')
     expect(rows).toHaveLength(1)
-    await wrapper.find('.picker').setValue('nothing')
-    expect(wrapper.find('.finalists__empty').text()).toBe('No groups match your search.')
+    await search.setValue('nothing')
+    expect(wrapper.findAll('.finalists__table')[0]!.find('.data-table-empty').text()).toBe(
+      'No groups match your search.'
+    )
   })
 
   it('adding from a row flags the group and refreshes both tables', async () => {
@@ -325,12 +328,30 @@ describe('the group marks ranking', () => {
 
   it('pressing Enter in the search only filters, never flags', async () => {
     const wrapper = await mountPage()
-    await wrapper.find('.picker').setValue('BTF-1')
-    await wrapper.find('.picker').trigger('keydown', { key: 'Enter' })
+    const search = wrapper.find('.finalists__marks-table .data-table-search-input')
+    await search.setValue('BTF-1')
+    await search.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(wrapper.find('form').exists()).toBe(false)
     expect(addMock).not.toHaveBeenCalled()
-    expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('BTF-1')
+    expect((search.element as HTMLInputElement).value).toBe('BTF-1')
+  })
+
+  it('opens a group that submitted from its name, but not one with no submission', async () => {
+    const wrapper = await mountPage()
+    const row = (name: string) =>
+      wrapper.findAll('table')[0]!.findAll('tr.data-table-row').find((r) => r.text().includes(name))!
+
+    expect(row('BTF-2').classes()).not.toContain('data-table-row--opens')
+    await row('BTF-2').find('.data-table-cell--primary').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    // Elsewhere on the row: nothing.
+    await row('BTF-1').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await row('BTF-1').find('.data-table-cell--primary').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/grading/groups/1')
   })
 
   it('a refused add is reported', async () => {
@@ -359,6 +380,18 @@ describe('the current finalists', () => {
     expect(table.find('thead th').text()).toBe('#')
     const rows = table.findAll('tbody tr').map((r) => r.findAll('td').slice(0, 2).map((c) => c.text()))
     expect(rows).toEqual([['3', 'BTF-1'], ['2', 'BTF-5'], ['1', 'BTF-9']])
+  })
+
+  it('opens a finalist group from its Group, not the # before it', async () => {
+    const wrapper = await mountPage()
+    const row = wrapper.findAll('table')[1]!.find('tr.data-table-row')
+
+    expect(row.find('.data-table-cell--primary').text()).toBe('BTF-2')
+    await row.find('td').trigger('click')
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await row.find('.data-table-cell--primary').trigger('click')
+    expect(pushMock).toHaveBeenCalledWith('/grading/groups/2')
   })
 
   it('lists who was flagged, when and by whom', async () => {

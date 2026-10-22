@@ -1,5 +1,7 @@
 """The finalist email: its details, its preview, and Notify Finalists,
 which emails every finalist team not yet told."""
+import smtplib
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -102,6 +104,24 @@ class FinalistNotifyAllTests(_GradingFixture):
         # Malformed group_ids is a 400, not a mass send.
         r_bad = self.client.post(url, {"group_ids": "1,2"}, format="json")
         self.assertEqual(r_bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_notify_all_is_refused_while_the_email_is_switched_off(self):
+        from apps.management.models import EmailSendRun
+        from apps.services.email_registry import get_email_type
+        from apps.services.models import SystemEmailTemplate
+
+        _set_email_details()
+        FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
+        SystemEmailTemplate.objects.create(key="finalist_notification", is_enabled=False)
+        self.client.force_authenticate(self.staff)
+
+        r = self.client.post(reverse("management:finalist-notify"))
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        name = get_email_type("finalist_notification").name
+        self.assertEqual(r.json()["detail"], f"{name} is switched off on System Emails.")
+        # No run, so nobody is logged as missed.
+        self.assertFalse(EmailSendRun.objects.filter(key="finalist_notification").exists())
+        self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
 
     def test_notify_all_denied_for_non_staff(self):
         self.client.force_authenticate(self.non_staff)
@@ -298,12 +318,12 @@ class FinalistEmailTests(_GradingFixture):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
         # An earlier send reached the mentor; this one doesn't go at all.
         EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="men@example.com")
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             run = self.client.post(reverse("management:finalist-notify")).json()["run"]
         self.assertEqual(
             (run["due"], run["emailed"], run["failed"], run["missed"]),
-            (1, 0, 1, [{"who": f"stu@example.com ({self.group.group_name}, stu X)", "reason": "lost the mail server connection"}]),
+            (1, 0, 1, [{"who": f"stu@example.com ({self.group.group_name}, stu X)", "reason": "mail server refused it"}]),
         )
         self.assertFalse(FinalistFlag.objects.get(group=self.group).notified)
         # The mentor it reached counts as emailed; the student doesn't.
@@ -333,7 +353,7 @@ class FinalistEmailTests(_GradingFixture):
         FinalistFlag.objects.create(group=self.group, flagged_by=self.staff)
         # An earlier send reached the mentor; this one doesn't go at all.
         EmailDelivery.objects.create(email="finalist_notification", group=self.group, address="men@example.com")
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.finalist_notify", level="ERROR"):
             self.client.post(reverse("management:finalist-notify"))
         # A team flagged after that send.

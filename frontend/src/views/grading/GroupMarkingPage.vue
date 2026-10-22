@@ -20,13 +20,13 @@
     </div>
 
     <div v-else-if="payload" class="group-marking">
-      <div class="group-marking__tabs" role="tablist" aria-label="Components">
+      <div class="tab-bar" role="tablist" aria-label="Components">
         <button
           v-if="combinedAvailable"
           type="button"
           role="tab"
           :aria-selected="isCombined"
-          class="group-marking__tab"
+          class="tab-pill"
           :class="{ active: isCombined }"
           @click="switchTab(COMBINED_CODE)"
         >
@@ -38,7 +38,7 @@
           type="button"
           role="tab"
           :aria-selected="block.component.code === effectiveCode"
-          class="group-marking__tab"
+          class="tab-pill"
           :class="{ active: block.component.code === effectiveCode }"
           @click="switchTab(block.component.code)"
         >
@@ -51,7 +51,7 @@
           {{ payload.group.group_name }}
         </h2>
         <div class="group-marking__search-field">
-          <span class="group-marking__search-label">Search</span>
+          <span class="table-filter-label">Search</span>
           <form class="group-marking__search-form" @submit.prevent="openSearch">
             <GroupSearchInput
               ref="picker"
@@ -944,14 +944,6 @@ const downloadAll = async () => {
   margin-inline: auto;
 }
 
-.group-marking__search-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .group-marking__search-form {
   position: relative;
   display: flex;
@@ -1000,7 +992,7 @@ const downloadAll = async () => {
    sections, as the Marker line's 2rem-tall row brings space of its own. */
 .group-marking__project-title {
   margin: -0.25rem 0 -0.7rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.95rem;
 }
 
@@ -1039,43 +1031,10 @@ const downloadAll = async () => {
   color: var(--dark-green);
 }
 
-/* Segmented pill switcher, matching the Events page view tabs. */
-.group-marking__tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
+/* Start-aligned in the page's column, and with its 16px gap, 20px below. */
+.group-marking > .tab-bar {
   align-self: flex-start;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.group-marking__tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.group-marking__tab:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.group-marking__tab.active {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
+  margin-bottom: 0.25rem;
 }
 
 /* Combined SAQs & Poster section: answers | pdf side by side, rubrics stacked
@@ -1120,7 +1079,7 @@ const downloadAll = async () => {
 }
 
 .group-marking__stamp-marker {
-  color: var(--charcoal);
+  color: var(--teal);
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -1182,7 +1141,7 @@ const downloadAll = async () => {
 .group-marking__rubric-title {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-marking__back {

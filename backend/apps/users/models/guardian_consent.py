@@ -6,7 +6,8 @@ class GuardianConsentRequest(models.Model):
     """A consent link emailed to a student's guardian.
 
     Only a hash of the token is stored, so the table can't be used to open
-    links. A link works once, until it expires, and only while it's the newest
+    links. The token is worked out from the request and the server's secret,
+    so a supervisor can copy a link that's already out. A link works once, until it expires, and only while it's the newest
     one for the student: sending another revokes it.
     """
 
@@ -26,13 +27,21 @@ class GuardianConsentRequest(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # When the link was first due to stop. Its token is worked out from it, so
+    # it never changes; each email or copy of the link resets valid_until.
     expires_at = models.DateTimeField()
+    valid_until = models.DateTimeField(null=True, blank=True)
     used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "guardian_consent_request"
         indexes = [models.Index(fields=["student", "-created_at"])]
+
+    @property
+    def good_until(self):
+        """When the link stops working, unless it's sent or copied again first."""
+        return self.valid_until or self.expires_at
 
 
 class GuardianConsent(models.Model):

@@ -4,6 +4,7 @@ The deadline itself belongs to the submissions app (it gates the student
 portal); this endpoint only lets graders/admins see and set it, going through
 ``services.deadline``.
 """
+
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
@@ -13,6 +14,7 @@ from apps.common.rbac import IsStaffOrAdmin
 from apps.groups.models.groups import Groups
 
 from ..services import deadline as deadlines
+from ..services.date_order import deadline_problem, statement_time
 
 
 class _SetDeadlineSerializer(serializers.Serializer):
@@ -57,7 +59,7 @@ class GroupExtensionListView(APIView):
             return Response(
                 {"detail": (
                     "The extension must be later than the current deadline "
-                    f"({deadline['closes_at'].isoformat()})."
+                    f"({statement_time(deadline['closes_at'], request.user)})."
                 )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -100,6 +102,10 @@ class SubmissionDeadlineView(APIView):
     def post(self, request):
         payload = _SetDeadlineSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        # After the challenge starts and registration closes.
+        problem = deadline_problem(payload.validated_data["closes_at"], request.user)
+        if problem:
+            raise serializers.ValidationError({"closes_at": problem})
         status = deadlines.set_submission_deadline(
             closes_at=payload.validated_data["closes_at"],
             grace_hours=payload.validated_data["grace_hours"],

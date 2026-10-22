@@ -37,7 +37,8 @@ from django.template.loader import get_template
 from django.template.loader_tags import ExtendsNode
 
 from apps.services.email_branding import LOGO_CID, brand_context, logo_data_uri
-from apps.services.email_log import email_log, mark_failures_seen, unseen_failures
+from apps.services.email_log import email_log, mark_failures_seen, reason_for, unseen_failures
+from apps.services.email_metrics import record_email_delivery
 from apps.services.email_registry import (
     EMAIL_TYPES,
     get_email_type,
@@ -45,6 +46,7 @@ from apps.services.email_registry import (
     unknown_merge_tags,
 )
 from apps.services.models import SystemEmailSettings, SystemEmailTemplate
+from apps.services.retry import send_with_retry
 from apps.services.system_email import (
     build_message,
     clean_email_body,
@@ -508,8 +510,19 @@ def send_test_email(
     )
 
     try:
-        message.send(fail_silently=False)
+        # Tried once more if it fails, as every email is.
+        send_with_retry(message)
     except Exception as exc:
+        record_email_delivery(
+            f"test_{key}",
+            source_mailbox=sender.address,
+            attempted=1,
+            delivered=0,
+            failed=1,
+            initiated_by=requested_by,
+            recipients=[recipient],
+            missed={recipient: reason_for(exc)},
+        )
         # Not logger.exception: SMTP errors can carry the address in their args.
         logger.error(
             "admin.system_email.test_send_failed key=%s error=%s",
@@ -520,6 +533,16 @@ def send_test_email(
             "msg": "The test email could not be sent. Check the mail backend and try again.",
             "data": None,
         }
+
+    record_email_delivery(
+        f"test_{key}",
+        source_mailbox=sender.address,
+        attempted=1,
+        delivered=1,
+        failed=0,
+        initiated_by=requested_by,
+        recipients=[recipient],
+    )
 
     return {
         "msg": f"Test email sent to {recipient}",
@@ -535,6 +558,38 @@ def send_test_email(
 def get_email_log() -> dict:
     """The Log on System Emails: each email's last send and who it missed."""
     return {"msg": "System email log retrieved successfully", "data": email_log()}
+
+
+def resend_email(key: str, *, requested_by) -> dict:
+    """Resend on the Log: ``key``'s email again to who it missed. ``data`` is
+    None when it can't go, ``msg`` saying why."""
+    from apps.services.resend import QUEUED, start_resend
+
+    refused = start_resend(key, requested_by)
+    if refused:
+        return {"msg": refused, "data": None}
+    return {"msg": QUEUED, "data": {"key": key, "status": "queued"}}
+
+
+def get_mail_api_state() -> dict:
+    """Whether bounced emails can be checked, for the top of Failed Sending Emails."""
+    from apps.services.email_log import mail_api_state
+
+    return {"msg": "Mail API state retrieved", "data": mail_api_state()}
+
+
+def get_scheduled_jobs() -> dict:
+    """The timed jobs the backend runs itself and how each last went, for Email Checks."""
+    from apps.management.scheduler import job_states
+
+    return {"msg": "Scheduled jobs retrieved", "data": job_states()}
+
+
+def get_always_on_state() -> dict:
+    """Whether Azure's Always On is keeping the backend awake, for the top of System Emails."""
+    from apps.services.always_on import always_on_state
+
+    return {"msg": "Always On state retrieved", "data": always_on_state()}
 
 
 def get_unseen_failures() -> dict:

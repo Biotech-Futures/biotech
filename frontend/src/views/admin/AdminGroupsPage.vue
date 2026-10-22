@@ -1,20 +1,18 @@
 <template>
   <div class="content-area admin-groups">
-    <div class="page-head">
-      <div>
-        <h1>Groups &amp; Matching</h1>
-        <p class="groups-subtitle">
-          Manage student groups, run matching, and review mentor assignments.
-        </p>
-      </div>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">Groups &amp; Matching</h1>
+      <p class="page-subtitle">
+        Manage student groups, run matching and review mentor assignments.
+      </p>
+    </header>
 
     <div class="admin-groups__toolbar">
-      <div class="admin-groups__tabs" role="tablist" aria-label="Groups">
+      <div class="tab-bar" role="tablist" aria-label="Groups">
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'groups' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'groups' }"
           role="tab"
           :aria-selected="activeTab === 'groups'"
           @click="activeTab = 'groups'"
@@ -23,8 +21,8 @@
         </button>
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'student-matching' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'student-matching' }"
           role="tab"
           :aria-selected="activeTab === 'student-matching'"
           @click="activeTab = 'student-matching'"
@@ -33,8 +31,8 @@
         </button>
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'mentor-matching' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'mentor-matching' }"
           role="tab"
           :aria-selected="activeTab === 'mentor-matching'"
           @click="activeTab = 'mentor-matching'"
@@ -43,8 +41,8 @@
         </button>
         <button
           type="button"
-          class="admin-groups__tab"
-          :class="{ 'admin-groups__tab--active': activeTab === 'matched' }"
+          class="tab-pill"
+          :class="{ active: activeTab === 'matched' }"
           role="tab"
           :aria-selected="activeTab === 'matched'"
           @click="activeTab = 'matched'"
@@ -56,7 +54,7 @@
       <div v-if="activeTab === 'groups'" class="admin-groups__actions">
         <button type="button" class="btn btn-primary" @click="openCreate">
           <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Add group</span>
+          <span>Add Group</span>
         </button>
       </div>
     </div>
@@ -66,32 +64,6 @@
     <MatchedGroupsPanel v-else-if="activeTab === 'matched'" />
 
     <template v-else>
-
-    <div class="admin-groups__filters card">
-      <div class="admin-groups__filter-field admin-groups__search-field">
-        <label class="admin-groups__filter-label" for="group-search">Search</label>
-        <div class="admin-groups__search">
-          <i class="fas fa-magnifying-glass admin-groups__search-icon" aria-hidden="true"></i>
-          <input
-            id="group-search"
-            v-model="searchInput"
-            type="search"
-            class="admin-groups__search-input"
-            placeholder="Search by group name..."
-            aria-label="Search groups"
-          />
-        </div>
-      </div>
-
-      <label class="admin-groups__filter-field">
-        <span class="admin-groups__filter-label">Mentor status</span>
-        <select v-model="mentorStatus">
-          <option value="">All</option>
-          <option value="matched">Matched</option>
-          <option value="unmatched">Unmatched</option>
-        </select>
-      </label>
-    </div>
 
     <p v-if="error" class="admin-groups__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
@@ -134,40 +106,34 @@
       </template>
     </div>
 
-    <AdminDataTable
+    <AppDataTable
+      id="admin-groups-table"
       :columns="columns"
-      :rows="rows"
+      :rows="rows as unknown as Record<string, unknown>[]"
       row-key="id"
       :loading="loading"
-      :sort-state="sortState"
+      :selected="pageSelectedIds"
+      :sort="sortState"
       :page="page"
       :page-size="limit"
       :total-count="totalCount"
-      :page-size-options="[25, 50, 100]"
+      v-model:search="searchInput"
+      search-placeholder="Search by group name..."
       empty-message="No groups found."
-      pager-label="Groups pagination"
+      :action-columns="2"
+      clickable-rows
+      @row-click="openDetail(toGroup($event))"
+      @update:selected="onTableSelected"
       @update:sort="onSortChange"
-      @page-change="onPageChange"
-      @page-size-change="onPageSizeChange"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
     >
-      <template #header-select>
-        <input
-          type="checkbox"
-          :checked="allOnPageSelected"
-          :indeterminate.prop="somePageSelected && !allOnPageSelected"
-          aria-label="Select all groups on this page"
-          :disabled="loading || !rows.length"
-          @change="toggleSelectAllPage"
-        />
-      </template>
-      <template #cell-select="{ row }">
-        <input
-          type="checkbox"
-          :checked="isRowSelected(toGroup(row).id)"
-          :aria-label="`Select ${toGroup(row).name}`"
-          :disabled="loading"
-          @change="toggleRow(toGroup(row).id)"
-        />
+      <!-- Mentor status, beside Search. -->
+      <template #filters>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Mentor status</span>
+          <AppSelect v-model="mentorStatus" class="table-filter" aria-label="Mentor status" :options="MENTOR_STATUS_OPTIONS" />
+        </label>
       </template>
       <template #cell-name="{ row }">
         <span class="admin-groups__name">{{ toGroup(row).name }}</span>
@@ -180,27 +146,30 @@
         <span v-else class="admin-groups__unmatched">Unassigned</span>
       </template>
       <template #cell-createdAt="{ row }">
-        {{ formatDateAU(toGroup(row).createdAt) }}
+        {{ formatShortDate(toGroup(row).createdAt) }}
       </template>
-      <template #cell-actions="{ row }">
-        <div class="admin-groups__row-actions">
-          <button type="button" class="btn btn-sm btn-outline" @click.stop="openDetail(toGroup(row))">
-            View
-          </button>
-          <!-- The group's own page, as its members see it: tasks, chat and submission. -->
-          <RouterLink
-            :to="{ name: 'group-detail', params: { id: toGroup(row).id } }"
-            class="btn btn-sm btn-outline"
-            @click.stop
-          >
-            Open
-          </RouterLink>
-          <button type="button" class="btn btn-sm btn-outline" @click.stop="openRename(toGroup(row))">
-            Rename
-          </button>
-        </div>
+      <!-- Open | Rename, each in its own column. Clicking its name shows a
+           group's details. -->
+      <template #actions="{ row, column }">
+        <!-- The group's own page, as its members see it: tasks, chat and submission. -->
+        <RouterLink
+          v-if="column === 0"
+          :to="{ name: 'group-detail', params: { id: toGroup(row).id } }"
+          class="btn btn-sm btn-outline"
+          @click.stop
+        >
+          Open
+        </RouterLink>
+        <button
+          v-else
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click.stop="openRename(toGroup(row))"
+        >
+          Rename
+        </button>
       </template>
-    </AdminDataTable>
+    </AppDataTable>
 
     <GroupDetailModal v-if="detailOpen" v-model="detailOpen" :group="detailGroup" @changed="onDetailChanged" />
 
@@ -231,7 +200,7 @@
         This destroys that content too, not just the group, and cannot be undone.
       </p>
       <div class="admin-groups__delete-type">
-        <label class="admin-groups__delete-confirm-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-groups__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -249,7 +218,7 @@
 
     <FormSheet
       v-model="formOpen"
-      :title="formMode === 'create' ? 'Add group' : 'Rename group'"
+      :title="formMode === 'create' ? 'Add Group' : 'Rename Group'"
       :description="formMode === 'create'
         ? 'Leave the name blank to auto-generate the next group name.'
         : undefined"
@@ -281,7 +250,9 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
-import AdminDataTable, { type AdminColumn, type SortState } from '@/components/admin/AdminDataTable.vue'
+import { useRoute } from 'vue-router'
+import AppDataTable, { type DataTableColumn, type DataTableSort } from '@/components/AppDataTable.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
@@ -306,7 +277,10 @@ import {
   type AdminGroupDetail,
   type GroupListDetailParams
 } from '@/utils/adminAPI'
-import { formatDateAU } from '@/utils/date'
+import { fitPageSize, serverPageLimit } from '@/utils/dataTable'
+import { formatShortDate } from '@/utils/date'
+
+const route = useRoute()
 
 // "Groups" (the list built here), "Student Matching", "Mentor Matching" and
 // "Matched Groups" (confirmed mentor assignments, mentor replace/unassign) are
@@ -315,13 +289,17 @@ import { formatDateAU } from '@/utils/date'
 // The two matching tabs live in their own components so this file stays a shell.
 const activeTab = ref<'groups' | 'student-matching' | 'mentor-matching' | 'matched'>('groups')
 
-const columns: AdminColumn[] = [
-  { key: 'select', label: '', width: '42px' },
+const MENTOR_STATUS_OPTIONS: AppSelectOption[] = [
+  { value: '', label: 'All' },
+  { value: 'matched', label: 'Matched' },
+  { value: 'unmatched', label: 'Unmatched' }
+]
+
+const columns: DataTableColumn[] = [
   { key: 'name', label: 'Name', sortable: true },
   { key: 'members', label: 'Members', sortable: true },
   { key: 'mentor', label: 'Mentor', sortable: true },
-  { key: 'createdAt', label: 'Created', sortable: true },
-  { key: 'actions', label: '', align: 'right' }
+  { key: 'createdAt', label: 'Created', sortable: true }
 ]
 
 const toGroup = (row: Record<string, unknown>) => row as unknown as AdminGroupDetail
@@ -331,12 +309,15 @@ const loading = ref(false)
 const error = ref('')
 
 const page = ref(1)
-const limit = ref(25)
+const limit = ref(fitPageSize())
 const totalCount = ref(0)
 
-const searchInput = ref('')
-const mentorStatus = ref('')
-const sortState = ref<SortState>({ key: 'createdAt', direction: 'desc' })
+const searchInput = ref(typeof route.query.search === 'string' ? route.query.search : '')
+const mentorStatusQuery = route.query.mentorStatus
+const mentorStatus = ref(
+  mentorStatusQuery === 'matched' || mentorStatusQuery === 'unmatched' ? mentorStatusQuery : ''
+)
+const sortState = ref<DataTableSort>({ key: 'createdAt', direction: 'desc' })
 
 let searchDebounce: ReturnType<typeof setTimeout> | undefined
 
@@ -346,7 +327,7 @@ const loadGroups = async () => {
   try {
     const data = await fetchAdminGroupList({
       page: page.value,
-      limit: limit.value,
+      limit: serverPageLimit(limit.value),
       searchGroup: searchInput.value || undefined,
       mentorStatus: mentorStatus.value || undefined,
       sortBy: sortState.value.key,
@@ -378,7 +359,7 @@ watch(mentorStatus, () => {
   loadGroups()
 })
 
-const onSortChange = (next: SortState) => {
+const onSortChange = (next: DataTableSort) => {
   sortState.value = next
   page.value = 1
   clearSelection()
@@ -397,14 +378,9 @@ const onPageSizeChange = (size: number) => {
 }
 
 // --- Selection -------------------------------------------------------------
-// Row selection is owned entirely here, not through AdminDataTable's built-in
-// `selectable`/`:selected` mechanism — that path routes every toggle through
-// a derived Set the child recomputes from its own props snapshot, emits back
-// up, and this page then has to reconcile into its own state. That round trip
-// turned out to be unreliable in practice (state silently stopped tracking
-// unchecks in testing). A single Set mutated directly by our own toggle
-// functions, read directly by our own checkbox bindings, removes that extra
-// hop entirely — one source of truth, no reconciliation step to go stale.
+// Row selection is owned entirely here: the table only shows this page's ticked
+// rows (pageSelectedIds) and reports the page's ticks back (onTableSelected),
+// which this page applies to its own Sets, including "all matching".
 const selectedIds = ref<Set<number>>(new Set())
 const selectAllMatching = ref(false)
 const excludedIds = ref<Set<number>>(new Set())
@@ -422,7 +398,6 @@ const bulkCount = computed(() => (selectAllMatching.value ? effectiveSelectAllCo
 const allOnPageSelected = computed(
   () => pageIds.value.length > 0 && pageIds.value.every((id) => isRowSelected(id))
 )
-const somePageSelected = computed(() => pageIds.value.some((id) => isRowSelected(id)))
 
 const selectionBanner = computed(
   () => selectAllMatching.value || (allOnPageSelected.value && totalCount.value > pageRowCount.value)
@@ -450,11 +425,11 @@ const setRowSelected = (id: number, selected: boolean) => {
   selectedIds.value = next
 }
 
-const toggleRow = (id: number) => setRowSelected(id, !isRowSelected(id))
+const pageSelectedIds = computed(() => pageIds.value.filter((id) => isRowSelected(id)))
 
-const toggleSelectAllPage = () => {
-  const makeSelected = !allOnPageSelected.value
-  pageIds.value.forEach((id) => setRowSelected(id, makeSelected))
+const onTableSelected = (ids: Array<string | number>) => {
+  const ticked = new Set(ids)
+  pageIds.value.forEach((id) => setRowSelected(id, ticked.has(id)))
 }
 
 const selectAllMatchingNow = () => {
@@ -715,7 +690,12 @@ const submitForm = async () => {
   gap: 0.5rem;
 }
 
-/* "Add group" action in toolbar */
+/* The toolbar leaves the 20px below the tabs, beside the buttons. */
+.admin-groups__toolbar .tab-bar {
+  margin-bottom: 0;
+}
+
+/* "Add Group" action in toolbar */
 .admin-groups__actions {
   display: flex;
   flex-wrap: wrap;
@@ -730,11 +710,6 @@ const submitForm = async () => {
   gap: 0.5rem;
 }
 
-.groups-subtitle {
-  color: var(--text-muted);
-  margin: -0.5rem 0 0.5rem;
-}
-
 .admin-groups__selection-banner {
   display: flex;
   align-items: center;
@@ -746,7 +721,7 @@ const submitForm = async () => {
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 8px;
   background-color: rgba(1, 113, 81, 0.06);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -771,7 +746,7 @@ const submitForm = async () => {
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-groups__force-toggle input {
@@ -796,14 +771,6 @@ const submitForm = async () => {
   margin-top: 0.75rem;
 }
 
-.admin-groups__delete-confirm-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .admin-groups__delete-keyword {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
@@ -815,7 +782,7 @@ const submitForm = async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font: inherit;
 }
 
@@ -825,115 +792,13 @@ const submitForm = async () => {
   font-size: 0.8rem;
 }
 
-/* Segmented pill tabs, matching the People page. */
-.admin-groups__tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.admin-groups__tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.admin-groups__tab:hover:not(.admin-groups__tab--active) {
-  color: var(--charcoal);
-  background: var(--light-green);
-}
-
-.admin-groups__tab--active {
-  background: var(--dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
-.admin-groups__tab:focus-visible {
-  outline: 2px solid var(--dark-green);
-  outline-offset: 2px;
-}
-
 /* White filter panel, matching .admin-users__filters on the People page. */
-.admin-groups__filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 1rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-/* Search field — same treatment as the People page's user search. */
-.admin-groups__search-field {
-  flex: 1 1 260px;
-  max-width: 360px;
-}
-
-.admin-groups__search {
-  position: relative;
-  width: 100%;
-}
-
-.admin-groups__search-icon {
-  position: absolute;
-  left: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  pointer-events: none;
-}
-
-.admin-groups__search-input {
-  width: 100%;
-  height: 40px;
-  padding: 0.5rem 0.75rem 0.5rem 2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--charcoal);
-}
-
-.admin-groups__filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-groups__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
+/* Mentor status beside Search in the table's search card, drawn like it. */
 /* Dialog form labels stay sentence-case (like .form-label on the user form). */
 .admin-groups__form-label {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
-}
-
-.admin-groups__filter-field select {
-  height: 40px;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--white);
-  color: var(--charcoal);
 }
 
 .admin-groups__error {
@@ -945,15 +810,9 @@ const submitForm = async () => {
   font-size: 0.9rem;
 }
 
-.admin-groups__row-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-}
-
 .admin-groups__name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-groups__unmatched {

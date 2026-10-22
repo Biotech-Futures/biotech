@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { buildSessionHeaders, ensureCsrfCookie, resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { clearAuthTokens } from '@/utils/authTokens'
 import { ApiError, normalizeApiErrorBody } from '@/utils/apiError'
-import { normalizeTimeZone } from '@/utils/date'
+import { normalizeTimeZone, registerProfileTimeZone } from '@/utils/date'
 import { BRAND_NAME } from '@/constants/brand'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -39,10 +39,14 @@ interface User {
   join_perm_granted_at?: string | null
   pending_guardian?: (GuardianDetails & { requested_at: string }) | null
   interests?: string[]
+  /** As given registering, and changeable on their profile. */
+  pronouns?: string | null
   supervisor_name?: string | null
   supervisor_id?: number | null
   /** The student's own details are their supervisor's to change. */
   details_locked?: boolean
+  /** Their guardian, once permission is given, for a student their supervisor manages. */
+  guardian_locked?: boolean
   guardian_reminder?: {
     last_sent_at: string | null
     next_due_at: string | null
@@ -142,7 +146,8 @@ export const useAuthStore = defineStore('auth', {
 
       const first = state.user.first_name?.[0] || ''
       const last = state.user.last_name?.[0] || ''
-      return (first + last).toUpperCase() || state.user.email[0].toUpperCase()
+      // No name: the email's first letter, and none without an email either.
+      return (first + last).toUpperCase() || state.user.email?.[0]?.toUpperCase() || ''
     },
 
     normalizedRole: (state) => resolveNormalizedRole(state.user),
@@ -425,3 +430,6 @@ export const useAuthStore = defineStore('auth', {
     },
   },
 })
+
+// Dates across the site show in the signed-in user's Profile timezone.
+registerProfileTimeZone(() => useAuthStore().user?.timezone)

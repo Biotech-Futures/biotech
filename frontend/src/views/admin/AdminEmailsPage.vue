@@ -1,9 +1,9 @@
 <template>
   <div class="content-area admin-emails">
-    <div class="admin-emails__header">
+    <div class="admin-emails__header page-header">
       <div>
-        <h1 class="admin-emails__title">System Emails</h1>
-        <p class="admin-emails__subtitle">
+        <h1 class="page-title">System Emails</h1>
+        <p class="page-subtitle">
           Edit the wording of the emails the platform sends, preview them with sample data and
           pause the ones you do not want going out.
         </p>
@@ -53,6 +53,21 @@
       </span>
     </p>
 
+    <!-- Problems the platform has found, kept up to date while the page is open. -->
+    <p v-if="alwaysOn?.state === 'off'" class="admin-emails__alert" role="alert" data-test="emails-always-on">
+      <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+      <span>
+        Always On looks off for the backend{{ alwaysOnLastSeen }}. It falls asleep when no one is using it, so
+        timed emails (reminders, digests, bounce checks) may go out late or not at all. Turn it on in Azure:
+        App Services &gt; biotechBe &gt; Configuration &gt; General settings &gt; Always on.
+      </span>
+    </p>
+
+    <p v-if="mailApiKeyAlert" class="admin-emails__alert" role="alert" data-test="emails-mail-api-key">
+      <i class="fas fa-key" aria-hidden="true"></i>
+      <span>{{ mailApiKeyAlert }}</span>
+    </p>
+
     <p v-if="error" class="admin-emails__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
       <span>{{ error }}</span>
@@ -85,7 +100,13 @@
       </aside>
 
       <div v-if="logOpen" class="admin-emails__main" data-test="emails-log-panel">
-        <EmailLog :emails="log" :selected-key="logKey" :loading="logLoading" :error="logError" />
+        <EmailLog
+          :emails="log"
+          :selected-key="logKey"
+          :loading="logLoading"
+          :error="logError"
+          :mail-api="mailApi"
+        />
       </div>
 
       <div class="admin-emails__main" v-else-if="selected">
@@ -140,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import EmailEditor from '@/components/admin/emails/EmailEditor.vue'
 import EmailLog from '@/components/admin/emails/EmailLog.vue'
@@ -149,11 +170,14 @@ import EmailTypeList from '@/components/admin/emails/EmailTypeList.vue'
 import { useSystemEmails } from '@/composables/admin/useSystemEmails'
 import {
   fetchSystemEmailLog,
+  fetchSystemEmailAlwaysOn,
+  fetchSystemEmailMailApi,
   fetchSystemEmailUnseenFailures,
   markSystemEmailFailuresSeen
 } from '@/utils/adminAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import type { SystemEmailLogEntry } from '@/utils/systemEmail'
+import { formatStatementTime } from '@/utils/date'
+import { mailApiNote, type SystemEmailAlwaysOn, type SystemEmailLogEntry, type SystemEmailMailApi } from '@/utils/systemEmail'
 
 const {
   loading,
@@ -197,6 +221,31 @@ const logKey = ref('')
 const log = ref<SystemEmailLogEntry[]>([])
 const logLoading = ref(false)
 const logError = ref('')
+const mailApi = ref<SystemEmailMailApi | null>(null)
+
+// The alerts at the top: Azure's Always On off, and a Hostinger Mail API key
+// missing or refused (a check Hostinger simply didn't answer stays on the
+// Log, as it's tried again in 10 minutes). Read again every few minutes.
+const ALERTS_EVERY_MS = 3 * 60 * 1000
+const alwaysOn = ref<SystemEmailAlwaysOn | null>(null)
+const alwaysOnLastSeen = computed(() =>
+  alwaysOn.value?.lastSeenAt ? ` (Azure last called it at ${formatStatementTime(alwaysOn.value.lastSeenAt)})` : ''
+)
+const mailApiKeyAlert = computed(() =>
+  mailApi.value?.problem === 'unset' || mailApi.value?.problem === 'rejected'
+    ? mailApiNote(mailApi.value, formatStatementTime)
+    : ''
+)
+
+const refreshAlerts = async () => {
+  const [onState, apiState] = await Promise.allSettled([fetchSystemEmailAlwaysOn(), fetchSystemEmailMailApi()])
+  // Only alerts: what can't be read shows nothing rather than an error.
+  alwaysOn.value = onState.status === 'fulfilled' ? (onState.value ?? null) : null
+  if (apiState.status === 'fulfilled') mailApi.value = apiState.value ?? null
+}
+
+let alertsTimer: ReturnType<typeof setInterval> | undefined
+onBeforeUnmount(() => clearInterval(alertsTimer))
 
 // The red count on its button: who sends couldn't reach since an admin last
 // looked. Opening it, or leaving any of its pages, counts as looking, for
@@ -238,6 +287,10 @@ const toggleLog = async () => {
   // Read afresh each time: emails go out while the page is open.
   logLoading.value = true
   logError.value = ''
+  // Whether bounces can be checked: said at the top, never in the way.
+  void fetchSystemEmailMailApi()
+    .then((state) => (mailApi.value = state))
+    .catch(() => (mailApi.value = null))
   try {
     log.value = await fetchSystemEmailLog()
   } catch (err) {
@@ -284,6 +337,8 @@ const onRestoreConfirmed = async () => {
 
 onMounted(async () => {
   void loadUnseen()
+  void refreshAlerts()
+  alertsTimer = setInterval(() => void refreshAlerts(), ALERTS_EVERY_MS)
   await load()
 })
 </script>
@@ -298,26 +353,22 @@ onMounted(async () => {
 }
 
 .admin-emails__header {
+  /* The title and subtitle, then a row under them: the switch on the left
+     and the Failed Sending Emails button on the right. */
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 1rem;
-}
-
-/* Title and subtitle as on the Grading page. */
-.admin-emails__title {
+  /* With the page's 16px gap, 20px under the subtitle. */
   margin-bottom: 0.25rem;
 }
 
-.admin-emails__subtitle {
-  color: var(--text-muted);
-  margin: 0;
-}
-
+/* One row under the subtitle: the switch on the left, the button on the right. */
 .admin-emails__header-actions {
   display: flex;
+  align-self: stretch;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
 }
 
@@ -351,7 +402,7 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.admin-emails__global input:disabled + .admin-emails__global-track {
+.admin-emails__global input:disabled ~ .admin-emails__global-track {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -366,7 +417,7 @@ onMounted(async () => {
   transition: background-color 0.15s ease;
 }
 
-.admin-emails__global input:checked + .admin-emails__global-track {
+.admin-emails__global input:checked ~ .admin-emails__global-track {
   background: var(--dark-green);
 }
 
@@ -381,7 +432,7 @@ onMounted(async () => {
   transition: transform 0.15s ease;
 }
 
-.admin-emails__global input:checked + .admin-emails__global-track .admin-emails__global-knob {
+.admin-emails__global input:checked ~ .admin-emails__global-track .admin-emails__global-knob {
   transform: translateX(1.25rem);
 }
 
@@ -392,6 +443,7 @@ onMounted(async () => {
 }
 
 .admin-emails__banner,
+.admin-emails__alert,
 .admin-emails__error,
 .admin-emails__notice {
   display: flex;
@@ -408,7 +460,8 @@ onMounted(async () => {
   color: #92400e;
 }
 
-.admin-emails__error {
+.admin-emails__error,
+.admin-emails__alert {
   background: #fef2f2;
   color: #b91c1c;
 }
@@ -466,6 +519,6 @@ onMounted(async () => {
 
 /* Dark theme: the switch's label reads on the dark page. */
 :root[data-theme='dark'] .admin-emails__global-label {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

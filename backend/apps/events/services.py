@@ -17,6 +17,7 @@ to it, and vice-versa.
 
 import logging
 from datetime import timedelta
+from functools import partial
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -27,6 +28,8 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 
 from apps.services.email_branding import brand_context
 from apps.services.email_log import note_send, reason_for
+from apps.services.retry import WAITING, RetryLater
+from apps.services.waiting_email import send_or_wait
 from apps.services.system_email import (
     build_message,
     is_email_enabled,
@@ -441,6 +444,8 @@ REMINDER_KINDS = {
         "field": "reminder_24h_sent_for_start",
         "hours_ahead_setting": "RSVP_REMINDER_24H_HOURS_AHEAD",
         "window_hours_setting": "RSVP_REMINDER_24H_WINDOW_HOURS",
+        # A run this many hours late still sends it (it still reads "tomorrow").
+        "catch_up_hours": 12,
         "audiences": (
             {
                 "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
@@ -471,6 +476,8 @@ REMINDER_KINDS = {
         "field": "reminder_1h_sent_for_start",
         "hours_ahead_setting": "RSVP_REMINDER_1H_HOURS_AHEAD",
         "window_hours_setting": "RSVP_REMINDER_1H_WINDOW_HOURS",
+        # Late, it's sent up to the event's start ("starts in X minutes").
+        "catch_up_hours": 0.5,
         "audiences": (
             {
                 "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
@@ -528,7 +535,9 @@ def _dispatch_reminder_kind(kind, *, dry_run):
     window_hours = float(getattr(settings, cfg["window_hours_setting"]))
 
     now = timezone.now()
-    window_start = now + timedelta(hours=hours_ahead)
+    # From catch_up_hours before the window too, so a run that came late
+    # still reminds anyone it missed (the claim stops anyone getting two).
+    window_start = now + timedelta(hours=max(0.0, hours_ahead - float(cfg.get("catch_up_hours", 0))))
     window_end = now + timedelta(hours=hours_ahead + window_hours)
 
     candidates = (
@@ -670,10 +679,15 @@ def _send_audience_reminders(event, audience):
     sender = sender_for("rsvp_reminder")
     from_email = sender.from_email
     connection = sender_connection(sender)
+    # Those that fail, kept to try once more once everyone has been tried.
+    later = RetryLater(connection)
 
     sent = 0
     failed = 0
+    # Kept to send once the mail server can be reached, before the event starts.
+    waiting = 0
     missed = {}
+    attempted_emails = []
     for rsvp in rsvps:
         user = rsvp.user
         email = (getattr(user, "email", "") or "").strip()
@@ -700,16 +714,25 @@ def _send_audience_reminders(event, audience):
             "EVENT_DESCRIPTION": event.description or "",
         }
 
+        attempted_emails.append(email)
+        resend = partial(
+            _send_one_reminder,
+            subject=subject,
+            recipient=email,
+            from_email=from_email,
+            ctx=ctx,
+            connection=connection,
+            until=event.start_datetime,
+        )
         try:
-            _send_one_reminder(
-                subject=subject,
-                recipient=email,
-                from_email=from_email,
-                ctx=ctx,
-                connection=connection,
-            )
-            sent += 1
+            # The run tries it again at its end, so only then is a failure kept for Resend.
+            if resend(later=True) is WAITING:
+                waiting += 1
+            else:
+                sent += 1
         except Exception as exc:
+            if later.keep(exc, (email, user.id), resend):
+                continue
             failed += 1
             missed[email] = reason_for(exc)
             logger.exception(
@@ -717,12 +740,46 @@ def _send_audience_reminders(event, audience):
                 event.id,
                 user.id,
             )
+    # Once more, a few seconds on, over a fresh connection (see ``retry``).
+    for (email, user_id), exc in later.run():
+        if exc is None:
+            sent += 1
+            continue
+        if exc is WAITING:
+            waiting += 1
+            continue
+        failed += 1
+        missed[email] = reason_for(exc)
+        logger.error(
+            "Failed to send RSVP reminder for event %s to user %s error=%s",
+            event.id, user_id, type(exc).__name__,
+        )
+    try:
+        connection.close()
+    except Exception:  # noqa: BLE001
+        pass
+    if waiting:
+        logger.warning("rsvp_reminder.waiting_for_mail_server event=%s count=%s", event.id, waiting)
     if sent or missed:
-        note_send("rsvp_reminder", missed=missed)
+        note_send(
+            "rsvp_reminder",
+            missed=missed,
+            attempted=sent + failed,
+            delivered=sent,
+            failed=failed,
+            source_mailbox=sender.address,
+            recipients=attempted_emails,
+        )
     return sent, failed
 
 
-def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None):
+def rsvp_reminder_job(actor, options):
+    """The queued run of the RSVP reminders due now (``send_guard.JOBS``)."""
+    _events, sent, failed = send_due_rsvp_reminders()
+    return {"sent": sent, "failed": failed}
+
+
+def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None, until=None, later=False):
     # Extracted so resilience tests can patch a single seam.
     plain_body = _build_plain_reminder_body(ctx)
     # The unedited subject is just {{ reminder_subject }}, i.e. ``subject``.
@@ -732,7 +789,10 @@ def _send_one_reminder(*, subject, recipient, from_email, ctx, connection=None):
         default_text=plain_body,
     )
     msg = build_message(rendered, recipient, from_email=from_email, connection=connection)
-    msg.send(fail_silently=False)
+    # A dropped connection is opened again and the email sent once more; when
+    # the server can't be reached, it's kept to send later, until the event
+    # starts (``WAITING``).
+    return send_or_wait(msg, key="rsvp_reminder", until=until, later=later)
 
 
 def _build_plain_reminder_body(ctx):

@@ -2,7 +2,6 @@
 // releases, Document Setup, the finalist, results and Symposium emails, and
 // the Finalist Presentation tab). Everything here is under /api/v1/management/.
 import { requestBlob, requestJson, triggerBlobDownload, type ComponentBlock } from './gradingAPI'
-import type { SystemEmailMergeTag } from './systemEmail'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -80,6 +79,111 @@ export async function downloadGroupCertificate(
     `/api/v1/management/groups/${groupId}/results/certificate/${certificate.user_id}/`
   )
   triggerBlobDownload(blob, filename ?? certificate.file_name)
+}
+
+// ---------------------------------------------------------------------------
+// Results on a supervisor's portal: their students' groups' marks, as the
+// spreadsheet their results email carries, and the certificates of their
+// students and those groups' mentors, once released.
+
+/** Whether marks or certificates are out: Results shows once either is. */
+export interface SupervisorResultsState {
+  marks_released: boolean
+  certificates_released: boolean
+}
+
+/** A column of the marks spreadsheet, named as the spreadsheet names it. */
+export interface SupervisorResultsColumn {
+  /** The spreadsheet's field name, e.g. "TeamCode", "PM1", "PosterComment1". */
+  key: string
+  /** Its heading, as the spreadsheet's: "Group", "PM1", "Poster Comment 1". */
+  label: string
+  /** A mark's rubric criterion, shown on hover; "" for the rest. */
+  title: string
+  /** A mark (or the total), rather than text. */
+  mark: boolean
+}
+
+/** A student's or mentor's certificate on the page. */
+export interface SupervisorResultsPerson {
+  user_id: number
+  name: string
+  kind: 'student' | 'mentor'
+  group_id: number
+  group_name: string
+  /** A finalist group's, while certificates go out without finalists. */
+  withheld: boolean
+  file_name: string
+}
+
+export interface SupervisorResults extends SupervisorResultsState {
+  year: number
+  /** Once marks are released: every column the spreadsheet has, empty or not. */
+  columns: SupervisorResultsColumn[]
+  /** Once marks are released: a row per group, by column key, highest total first. */
+  groups: Array<Record<string, string | number | null>>
+  sheet_file_name: string
+  /** Once certificates are released: the students', then the mentors'. */
+  people: SupervisorResultsPerson[]
+  zip_file_name: string
+}
+
+// GET /api/v1/management/supervisor-results/state/ — for the menu's Results link.
+export function fetchSupervisorResultsState(): Promise<SupervisorResultsState> {
+  return requestJson<SupervisorResultsState>('/api/v1/management/supervisor-results/state/')
+}
+
+// GET /api/v1/management/supervisor-results/ — what the Results page shows.
+export function fetchSupervisorResults(): Promise<SupervisorResults> {
+  return requestJson<SupervisorResults>('/api/v1/management/supervisor-results/')
+}
+
+// GET /api/v1/management/supervisor-results/marks-sheet/ — the marks spreadsheet.
+export async function downloadSupervisorResultsSheet(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/supervisor-results/marks-sheet/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/supervisor-results/certificates/{groupId}/{userId}/ — one certificate.
+export async function downloadSupervisorResultsCertificate(person: SupervisorResultsPerson): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/supervisor-results/certificates/${person.group_id}/${person.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? person.file_name)
+}
+
+// GET /api/v1/management/supervisor-results/certificates/ — every certificate, zipped.
+export async function downloadSupervisorResultsCertificates(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/supervisor-results/certificates/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// Management's Results tab: the same for every group that made a submission,
+// released or not, with nothing held back.
+
+// GET /api/v1/management/all-results/
+export function fetchAllResults(): Promise<SupervisorResults> {
+  return requestJson<SupervisorResults>('/api/v1/management/all-results/')
+}
+
+// GET /api/v1/management/all-results/marks-sheet/ — every group's marks.
+export async function downloadAllResultsSheet(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/all-results/marks-sheet/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
+// GET /api/v1/management/all-results/certificates/{groupId}/{userId}/ — one certificate.
+export async function downloadAllResultsCertificate(person: SupervisorResultsPerson): Promise<void> {
+  const { blob, filename } = await requestBlob(
+    `/api/v1/management/all-results/certificates/${person.group_id}/${person.user_id}/`
+  )
+  triggerBlobDownload(blob, filename ?? person.file_name)
+}
+
+// GET /api/v1/management/all-results/certificates/ — every group's certificates, zipped.
+export async function downloadAllResultsCertificates(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/all-results/certificates/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +285,195 @@ export interface ReleaseStatus {
   exclude_finalists?: boolean
   /** True while any team can still submit — releasing is refused until closed. */
   submissions_open?: boolean
+}
+
+/** Whether registration is open, by the year's dates (Registration Dates). */
+export interface RegistrationState {
+  /** Whether the public can register now: within the dates (or none set). */
+  open_now: boolean
+  opens_at: string | null
+  closes_at: string | null
+  /** For a supervisor or an admin: whether they can register students now
+   *  (within the dates, or let register after them). */
+  can_register_students?: boolean
+}
+
+// GET /api/v1/management/registration-open/ — whether registration is open.
+// Anyone can read it, signed in or not.
+export function fetchRegistrationOpen(): Promise<RegistrationState> {
+  return requestJson<RegistrationState>('/api/v1/management/registration-open/')
+}
+
+/** Management > Challenge Start: when this year's challenge starts, whose day
+ *  the supervisors' weekly registration status email names. */
+export interface ChallengeStart {
+  year: number
+  /** The instant, as the server keeps it; null while it isn't set. */
+  starts_at: string | null
+  /** Who last set it, and when; "" and none until someone has. */
+  set_by: string
+  updated_at: string | null
+}
+
+// GET /api/v1/management/challenge-start/
+export function fetchChallengeStart(): Promise<ChallengeStart> {
+  return requestJson<ChallengeStart>('/api/v1/management/challenge-start/')
+}
+
+// PUT /api/v1/management/challenge-start/ — an instant, or null to clear it.
+export function saveChallengeStart(startsAt: string | null): Promise<ChallengeStart> {
+  return requestJson<ChallengeStart>('/api/v1/management/challenge-start/', {
+    method: 'PUT',
+    body: JSON.stringify({ starts_at: startsAt }),
+  })
+}
+
+/** The year's registration dates: none set, it's open (as far as they go). */
+export interface RegistrationWindow {
+  year: number
+  opens_at: string | null
+  closes_at: string | null
+  /** Who last saved the dates, and when; "" and none until someone has. */
+  set_by?: string
+  updated_at?: string | null
+}
+
+/** A late link: one student registers on their own with it, once, after
+ *  registration closes. */
+export interface LateLink {
+  id: number
+  /** The student who registered with it; "" until it's used. */
+  email: string
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  used_at: string | null
+  status: 'active' | 'used' | 'expired' | 'revoked' | 'signing_key_changed'
+  /** The link to send; none once the server's signing key changed. */
+  url: string | null
+}
+
+export interface RegistrationManagement {
+  window: RegistrationWindow
+  count: number
+  page: number
+  /** Newest first, 100 a page. */
+  invitations: LateLink[]
+}
+
+const REGISTRATION_MANAGEMENT = '/api/v1/registration-management/'
+
+// GET /api/v1/registration-management/ — the dates and the late links.
+export function fetchRegistrationManagement(page = 1): Promise<RegistrationManagement> {
+  return requestJson<RegistrationManagement>(`${REGISTRATION_MANAGEMENT}?page=${page}`)
+}
+
+const manageRegistration = <T>(body: Record<string, unknown>) =>
+  requestJson<T>(REGISTRATION_MANAGEMENT, { method: 'POST', body: JSON.stringify(body) })
+
+// The year's opening and closing; null clears one.
+export function saveRegistrationWindow(
+  dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>,
+): Promise<{ window: RegistrationWindow }> {
+  return manageRegistration({ action: 'window', ...dates })
+}
+
+export function createLateLink(expiresAt: string): Promise<LateLink> {
+  return manageRegistration({ action: 'invite', expires_at: expiresAt })
+}
+
+export function revokeLateLink(id: number): Promise<LateLink> {
+  return manageRegistration({ action: 'revoke_invite', id })
+}
+
+/** Supervisors After Close: a supervisor, and whether they can still register
+ *  students once registration closes. */
+export interface RegistrationSupervisor {
+  user_id: number
+  name: string
+  email: string
+  school: string
+  /** How many students they supervise. */
+  students: number
+  register_after_close: boolean
+}
+
+// GET /api/v1/management/registration-supervisors/ — every active supervisor.
+export function fetchRegistrationSupervisors(): Promise<RegistrationSupervisor[]> {
+  return requestJson<RegistrationSupervisor[]>('/api/v1/management/registration-supervisors/')
+}
+
+// PUT /api/v1/management/registration-supervisors/{userId}/ — switch one.
+export function saveRegistrationSupervisor(
+  userId: number,
+  registerAfterClose: boolean,
+): Promise<RegistrationSupervisor> {
+  return requestJson<RegistrationSupervisor>(`/api/v1/management/registration-supervisors/${userId}/`, {
+    method: 'PUT',
+    body: JSON.stringify({ register_after_close: registerAfterClose }),
+  })
+}
+
+/** Management > Challenge Start > Pages Visibility: when students, mentors and
+ *  supervisors start seeing Home, Groups, Events, Announcements and Resources
+ *  (``shown_from``; hidden until then, and while it's null). ``shown`` is
+ *  whether they're shown as the server answered. */
+export interface SupervisorPagesState {
+  shown: boolean
+  shown_from: string | null
+  set_by?: string
+  updated_at?: string | null
+}
+
+// GET /api/v1/management/supervisor-pages/ — when the pages are shown from.
+export function fetchSupervisorPages(): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/')
+}
+
+// PUT /api/v1/management/supervisor-pages/ — admins set the date and time, or
+// clear it (null).
+export function saveSupervisorPages(
+  change: { shown_from: string | null }
+): Promise<SupervisorPagesState> {
+  return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/', {
+    method: 'PUT',
+    body: JSON.stringify(change)
+  })
+}
+
+/** Management > Challenge Start > Release Resources: a resource, whether it's
+ *  shown, its release date ("YYYY-MM-DD": hidden, it appears from the start
+ *  of that day, Sydney time), whether students, mentors and supervisors have
+ *  it now, and when it was released last year. */
+export interface ResourceReleaseRow {
+  id: number
+  name: string
+  /** What its icon is drawn from (resourceFileIcon). */
+  kind?: string
+  file_mime_type?: string | null
+  shown: boolean
+  release_on: string | null
+  released: boolean
+  last_released_at: string | null
+}
+
+// GET /api/v1/management/resource-releases/ — every resource, by name.
+export function fetchResourceReleases(): Promise<ResourceReleaseRow[]> {
+  return requestJson<{ resources: ResourceReleaseRow[] }>('/api/v1/management/resource-releases/').then(
+    (body) => body.resources
+  )
+}
+
+// PATCH /api/v1/management/resource-releases/<id>/ — shown or hidden, or its
+// release date (null for none): the row as it is then.
+export function saveResourceRelease(
+  id: number,
+  change: { shown?: boolean; release_on?: string | null }
+): Promise<ResourceReleaseRow> {
+  return requestJson<ResourceReleaseRow>(`/api/v1/management/resource-releases/${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(change)
+  })
 }
 
 // GET /api/v1/management/certificates-release/ — the certificates gate, separate
@@ -371,6 +664,8 @@ export interface EmailRun {
   missed: { who: string; reason: string }[]
   started_at: string
   finished_at: string | null
+  /** Sent over fewer mail server connections, the server having pushed back. */
+  limited?: boolean
 }
 
 export interface EmailRunState {
@@ -424,6 +719,8 @@ export interface FinalistEmailDetails extends FinalistEmailFields, EmailRunState
   dates_in_past: string[]
   /** Why sending waits for submissions (and extensions) to close, or "". */
   submissions_open: string
+  /** Why the email can't go because it's off on System Emails, or "". */
+  switched_off: string
   /** Everyone the finalist email goes to, by role; a notified team's
    *  members count as emailed. */
   counts: Record<'students' | 'mentors' | 'supervisors', PeopleEmailedCount> & { groups: EmailedCount }
@@ -444,71 +741,6 @@ export interface AnnouncementCategories {
 // GET /api/v1/management/announcement-categories/ — each category's groups.
 export function fetchAnnouncementCategories(): Promise<AnnouncementCategories> {
   return requestJson<AnnouncementCategories>('/api/v1/management/announcement-categories/')
-}
-
-/** The email an outcome announcement goes with: the finalist, non-finalist
- *  and non-submission emails, and the results emails to groups and to
- *  supervisors. */
-export type OutcomeAnnouncementKind =
-  | 'finalists'
-  | 'nonfinalists'
-  | 'nonsubmissions'
-  | 'results-groups'
-  | 'results-supervisors'
-
-/** The in-app announcement that goes with one of those emails. */
-export interface OutcomeAnnouncement {
-  /** Its wording, with merge tags such as {{ slides_due }}, for editing. */
-  title: string
-  /** HTML, as announcements keep it. */
-  body: string
-  /** The same filled in with the current dates and links, as it'd post. */
-  preview: { title: string; body: string }
-  /** The tags its wording can use, as System Emails offers them. */
-  merge_tags: SystemEmailMergeTag[]
-  /** Changed from the email's wording. */
-  edited: boolean
-  /** Who saved the edited wording and when; null until edited. */
-  edited_by: string | null
-  edited_at: string | null
-  /** The groups, or supervisors, the email has reached so far: who sees it. */
-  recipients: number
-  /** What they are, e.g. "finalist group". */
-  noun: string
-  /** Why it can't be posted yet, or "": it waits for its email to be sent. */
-  blocked: string
-  posted_at: string | null
-  posted_by: string | null
-}
-
-const outcomeAnnouncementUrl = (kind: OutcomeAnnouncementKind) =>
-  `/api/v1/management/outcome-announcements/${kind}/`
-
-// GET — its wording (the email's until edited) and when it was posted.
-export function fetchOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind))
-}
-
-// PATCH — save an edited title and body.
-export function updateOutcomeAnnouncement(
-  kind: OutcomeAnnouncementKind,
-  fields: { title: string; body: string }
-): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), {
-    method: 'PATCH',
-    body: JSON.stringify(fields)
-  })
-}
-
-// DELETE — back to the email's wording.
-export function restoreOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(outcomeAnnouncementUrl(kind), { method: 'DELETE' })
-}
-
-// POST post/ — post it to whoever the email has reached so far, or update the
-// one already posted.
-export function postOutcomeAnnouncement(kind: OutcomeAnnouncementKind): Promise<OutcomeAnnouncement> {
-  return requestJson<OutcomeAnnouncement>(`${outcomeAnnouncementUrl(kind)}post/`, { method: 'POST' })
 }
 
 // GET /api/v1/management/finalists/email/ — the finalist email's dates and link.

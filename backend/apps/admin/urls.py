@@ -1,9 +1,18 @@
 from django.urls import path
 from . import views
+from . import analytics_views
 
 app_name = 'admin_api'
 
 urlpatterns = [
+    path('analytics/group-activity/', analytics_views.GroupActivityAnalyticsView.as_view(), name='group-activity-analytics'),
+    path('analytics/login-activity/', analytics_views.LoginActivityAnalyticsView.as_view(), name='login-activity-analytics'),
+    path('analytics/resources/', analytics_views.ResourceAnalyticsView.as_view(), name='resource-analytics'),
+    path('analytics/email/', analytics_views.EmailDeliveryAnalyticsView.as_view(), name='email-delivery-analytics'),
+    path('analytics/email/recipients/', analytics_views.EmailRecipientSearchView.as_view(), name='email-recipient-search'),
+    path('analytics/email/sends/<int:send_id>/recipients/', analytics_views.EmailSendRecipientsView.as_view(), name='email-send-recipients'),
+    path('analytics/email/sends/<int:send_id>/recipients/export/', analytics_views.EmailSendRecipientsExportView.as_view(), name='email-send-recipients-export'),
+    path('analytics/reports/export/', analytics_views.ReportExportView.as_view(), name='analytics-report-export'),
     # ========================================================================
     # USER ROUTES
     # ========================================================================
@@ -17,6 +26,8 @@ urlpatterns = [
     path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
+    path('user/<str:user_id>/supervisees/', views.UserSuperviseesView.as_view(), name='user-supervisees'),
+    path('user/<str:user_id>/profile-image/', views.UserProfileImageView.as_view(), name='user-profile-image'),
     path('user/<str:user_id>/guardian-consent-request/', views.UserGuardianConsentRequestView.as_view(), name='user-guardian-consent-request'),
     path('user/<str:user_id>/guardian-consents/', views.UserGuardianConsentsView.as_view(), name='user-guardian-consents'),
     path('user/<str:user_id>/guardian-consents/<int:consent_id>/record/', views.UserGuardianConsentRecordView.as_view(), name='user-guardian-consent-record'),
@@ -77,6 +88,7 @@ urlpatterns = [
     path('announcement/<int:announcement_id>/notify/', views.AnnouncementNotifyView.as_view(), name='announcement-notify'),
     path('announcement/groups/', views.AnnouncementGroupsListView.as_view(), name='announcement-groups-list'),
     path('announcement/roles/', views.AnnouncementRolesListView.as_view(), name='announcement-roles-list'),
+    path('announcement/merge-tags/', views.AnnouncementMergeTagsView.as_view(), name='announcement-merge-tags'),
     
     # ========================================================================
     # MENTOR ROUTES
@@ -88,10 +100,16 @@ urlpatterns = [
     # TASK ROUTES
     # ========================================================================
     path('task/', views.AdminTaskListCreateView.as_view(), name='admin-task-list-create'),
-    # Must precede the <int:task_id> route so the literal segment wins.
-    path('task/role-recipients/', views.AdminTaskRoleRecipientsView.as_view(), name='admin-task-role-recipients'),
     path('task/<int:task_id>/', views.AdminTaskDetailView.as_view(), name='admin-task-detail'),
     path('task/<int:task_id>/toggle/', views.AdminTaskToggleView.as_view(), name='admin-task-toggle'),
+
+    # ========================================================================
+    # ROLE TASK ROUTES
+    # ========================================================================
+    path('role-task/', views.AdminRoleTaskListCreateView.as_view(), name='admin-role-task-list-create'),
+    # Must precede the <int:role_task_id> route so the literal segment wins.
+    path('role-task/role-recipients/', views.AdminRoleTaskRoleRecipientsView.as_view(), name='admin-role-task-role-recipients'),
+    path('role-task/<int:role_task_id>/', views.AdminRoleTaskDetailView.as_view(), name='admin-role-task-detail'),
 
     # ========================================================================
     # ADMIN AUTH ROUTES
@@ -122,8 +140,12 @@ urlpatterns = [
     path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
     path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
+    path('email-settings/always-on/', views.SystemEmailAlwaysOnView.as_view(), name='email-settings-always-on'),
+    path('scheduled-jobs/', views.ScheduledJobsView.as_view(), name='scheduled-jobs'),
     path('email-log/', views.SystemEmailLogView.as_view(), name='email-log'),
     path('email-log/unseen/', views.SystemEmailUnseenFailuresView.as_view(), name='email-log-unseen'),
+    path('email-log/mail-api/', views.SystemEmailMailApiView.as_view(), name='email-log-mail-api'),
+    path('email-log/<str:key>/resend/', views.SystemEmailResendView.as_view(), name='email-log-resend'),
 
     # ========================================================================
     # USER VIEW ROUTES
@@ -133,4 +155,16 @@ urlpatterns = [
     path('view/<int:view_id>/', views.AdminViewDetailView.as_view(), name='view-detail'),
     path('view/<int:view_id>/run/', views.AdminViewRunView.as_view(), name='view-run'),
     path('view/<int:view_id>/export-csv/', views.AdminViewExportCsvView.as_view(), name='view-export-csv'),
+
+    # ========================================================================
+    # EMAIL VERIFICATION ROUTES
+    # ========================================================================
+    path('email-verification/credits/', views.EmailVerificationCreditsView.as_view(), name='email-verification-credits'),
+
+    # ========================================================================
+    # KNOWN UNIVERSITY ROUTES
+    # ========================================================================
+    path('known-university/', views.KnownUniversityListCreateView.as_view(), name='known-university-list-create'),
+    path('known-university/<int:university_id>/', views.KnownUniversityDetailView.as_view(), name='known-university-detail'),
+    path('known-university/upload/', views.KnownUniversityUploadView.as_view(), name='known-university-upload'),
 ]

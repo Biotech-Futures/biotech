@@ -1,9 +1,15 @@
 <template>
   <div class="deadline">
-    <section class="card deadline__status-card">
+    <!-- One card: what times are in, the deadline as it is, then the form to
+         change it. Headed as a Management page's first card is. -->
+    <section class="card deadline__card">
       <div class="card-header">
-        <h3 class="card-title">Current Deadline</h3>
+        <h3 class="card-title">Submission Deadline</h3>
       </div>
+      <p class="deadline__hint">
+        Times are in your local timezone ({{ localTimeZone }}). Students see the closing time; the
+        server quietly keeps accepting for the grace hours after it.
+      </p>
 
       <p v-if="isLoading" class="deadline__hint">Loading…</p>
 
@@ -49,7 +55,7 @@
           </p>
           <p class="deadline__row">
             Closes:
-            <strong>{{ `${new Date(deadline.closes_at).toLocaleDateString('en-GB')} ${new Date(deadline.closes_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}</strong>
+            <strong>{{ formatStatementTime(deadline.closes_at) }}</strong>
             <span v-if="deadline.grace_hours" class="deadline__muted">
               (+ {{ deadline.grace_hours }}h quiet grace)
             </span>
@@ -57,41 +63,45 @@
           <p v-if="deadline.set_by" class="deadline__row deadline__muted">
             Set by {{ deadline.set_by }}
             <template v-if="deadline.created_at">
-              on {{ `${new Date(deadline.created_at).toLocaleDateString('en-GB')} ${new Date(deadline.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}
+              on {{ formatStatementTime(deadline.created_at) }}
             </template>
           </p>
         </template>
       </template>
-    </section>
 
-    <section class="card deadline__form-card">
-      <h3 class="deadline__section-title">{{ deadline ? 'Change Deadline' : 'Set Deadline' }}</h3>
-      <p class="deadline__hint">
-        Times are in your local timezone ({{ localTimeZone }}). Students see the closing
-        time; the server quietly keeps accepting for the grace hours after it.
-      </p>
+      <div class="deadline__change">
+        <form class="deadline__form" @submit.prevent="confirmOpen = true">
+          <label class="deadline__field">
+            <span>Closes at</span>
+            <AppDateTimePicker
+              v-model="closesAtLocal"
+              required
+              class="deadline__input app-input app-input--compact"
+              default-time="23:59"
+              :min="earliest"
+            />
+          </label>
+          <label class="deadline__field">
+            <span>Grace hours</span>
+            <input
+              v-model.number="graceHours"
+              type="number"
+              min="0"
+              max="72"
+              class="deadline__input deadline__input--narrow app-input app-input--compact"
+            />
+          </label>
+          <button
+            type="submit"
+            class="btn btn-primary btn-sm"
+            :disabled="isSaving || !closesAtLocal"
+          >
+            {{ isSaving ? 'Saving…' : 'Save Deadline' }}
+          </button>
+        </form>
 
-      <form class="deadline__form" @submit.prevent="confirmOpen = true">
-        <label class="deadline__field">
-          <span>Closes at</span>
-          <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input" />
-        </label>
-        <label class="deadline__field">
-          <span>Grace hours</span>
-          <input
-            v-model.number="graceHours"
-            type="number"
-            min="0"
-            max="72"
-            class="deadline__input deadline__input--narrow"
-          />
-        </label>
-        <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !closesAtLocal">
-          {{ isSaving ? 'Saving…' : 'Save Deadline' }}
-        </button>
-      </form>
-
-      <p v-if="actionError" class="deadline__banner deadline__banner--error">{{ actionError }}</p>
+        <p v-if="actionError" class="deadline__banner deadline__banner--error">{{ actionError }}</p>
+      </div>
     </section>
 
     <div v-if="confirmOpen" class="deadline__overlay" @click.self="confirmOpen = false">
@@ -102,8 +112,8 @@
         <p class="deadline__dialog-body">
           Submissions will close on
           <strong>{{ pendingLabel }}</strong>
-          <template v-if="graceHours"> (+ {{ graceHours }}h quiet grace)</template>.
-          Students see the new closing time immediately.
+          <template v-if="graceHours"> (+ {{ graceHours }}h quiet grace)</template>. Students see
+          the new closing time immediately.
         </p>
         <div class="deadline__dialog-actions">
           <button type="button" class="btn btn-outline btn-sm" @click="confirmOpen = false">
@@ -120,13 +130,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 import {
   fetchSubmissionDeadline,
   saveSubmissionDeadline,
-  type SubmissionDeadline
+  type SubmissionDeadline,
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { describeBrowserTimeZone } from '@/utils/date'
+import { describeBrowserTimeZone, formatStatementTime, getBrowserTimeZone } from '@/utils/date'
 
 const localTimeZone = describeBrowserTimeZone()
 
@@ -144,13 +156,22 @@ const defaultClosesAtLocal = () => {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
 }
 const closesAtLocal = ref(defaultClosesAtLocal())
+// The challenge start and registration's close: it must be later than both.
+const order = useDateOrder()
+const earliest = computed(() => {
+  const after = [order.challengeStart.value, order.registrationCloses.value].filter(Boolean) as string[]
+  return after.length ? minuteBeside(after.reduce((a, b) => (Date.parse(a) > Date.parse(b) ? a : b)), 1) : ''
+})
 // 24h quiet grace by default; replaced by the saved deadline's value on load.
 const graceHours = ref(24)
 const confirmOpen = ref(false)
 
-// Human-readable version of the picked time, for the confirm dialog.
+// Human-readable version of the picked time, for the confirm dialog. It was
+// typed in the computer's time, so it reads back the same way.
 const pendingLabel = computed(() =>
-  closesAtLocal.value ? `${new Date(closesAtLocal.value).toLocaleDateString('en-GB')} ${new Date(closesAtLocal.value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` : ''
+  closesAtLocal.value
+    ? formatStatementTime(new Date(closesAtLocal.value), getBrowserTimeZone())
+    : '',
 )
 
 // open: before the announced closing time; grace: past it but the server is
@@ -203,15 +224,17 @@ const save = async () => {
   }
 }
 
-onMounted(() => void load())
+onMounted(() => {
+  void order.load({ withDeadline: false })
+  void load()
+})
 </script>
 
 <style scoped>
 /* A section heading, as "Set Details" on Notify Finalists. */
-.deadline__section-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin-bottom: 0.75rem;
+/* The form, a gap below the deadline as it is. */
+.deadline__change {
+  margin-top: 1rem;
 }
 
 .deadline {
@@ -268,17 +291,13 @@ onMounted(() => void load())
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
+/* The shared compact box (app-input), at its own width. */
 .deadline__input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
+  width: auto;
+  max-width: none;
 }
 
 .deadline__input:focus {
@@ -339,7 +358,7 @@ onMounted(() => void load())
 .deadline__dialog-body {
   margin: 0 0 1rem;
   font-size: 0.9rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .deadline__dialog-actions {

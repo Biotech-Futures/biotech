@@ -14,6 +14,13 @@ import {
   type PresentationSlots
 } from '@/utils/managementAPI'
 import { ApiError } from '@/utils/apiError'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { pickerText, setPicker } from '@/__tests__/appPicker'
+
+// The Add row's Start and End, and those in the first row while it's edited.
+const addStart = '.finalist-presentation__add .finalist-presentation__field:nth-of-type(1) .app-picker'
+const addEnd = '.finalist-presentation__add .finalist-presentation__field:nth-of-type(2) .app-picker'
+const rowEnd = 'tbody tr:first-child td:nth-child(2) .app-picker'
 
 vi.mock('@/utils/managementAPI', () => ({
   allocatePresentationSlot: vi.fn(),
@@ -124,10 +131,10 @@ describe('Finalist Presentation', () => {
   it("lists this year's times on the Symposium day", async () => {
     const wrapper = await mountPage()
     expect(rows(wrapper)).toEqual([
-      ['9:30', '10:00'],
+      ['09:30', '10:00'],
       ['13:00', '13:30']
     ])
-    expect(wrapper.text()).toContain("They're for the Symposium day, Friday 23 October 2026")
+    expect(wrapper.text()).toContain("They're for the Symposium day, Friday, 23rd October 2026")
     // Sydney time, worked out for that day: daylight saving by late October.
     expect(wrapper.find('[data-testid="sydney-time"]').text()).toBe(
       'All times are Sydney time, AEDT (daylight saving, UTC+11) on that day. ' +
@@ -168,20 +175,19 @@ describe('Finalist Presentation', () => {
     fetchMock.mockResolvedValue(slots({ symposium_date: null, slots: [] }))
     const wrapper = await mountPage()
     expect(wrapper.text()).toContain("They're for the Symposium day. Set its date on Notify Finalists.")
-    expect(wrapper.find('.finalist-presentation__empty').text()).toBe('No times yet.')
+    expect(wrapper.find('.simple-table-empty').text()).toBe('No times yet.')
   })
 
   it('adds a time, then offers the next one straight after it', async () => {
     addMock.mockResolvedValue(slots())
     const wrapper = await mountPage()
-    const [start, end] = wrapper.findAll('.finalist-presentation__add input')
-    await start!.setValue('10:00')
-    await end!.setValue('10:30')
+    await setPicker(wrapper, addStart, '10:00')
+    await setPicker(wrapper, addEnd, '10:30')
     await buttonNamed(wrapper, 'Add Time').trigger('click')
     await flushPromises()
     expect(addMock).toHaveBeenCalledWith({ starts_at: '10:00', ends_at: '10:30' })
-    expect((start!.element as HTMLInputElement).value).toBe('10:30')
-    expect((end!.element as HTMLInputElement).value).toBe('11:00')
+    expect(pickerText(wrapper, addStart)).toBe('10:30')
+    expect(pickerText(wrapper, addEnd)).toBe('11:00')
   })
 
   it("shows why a time wasn't added", async () => {
@@ -189,9 +195,8 @@ describe('Finalist Presentation', () => {
       new ApiError({ error: 'The end time must be after the start time.', code: 'invalid', request_id: 'x' })
     )
     const wrapper = await mountPage()
-    const [start, end] = wrapper.findAll('.finalist-presentation__add input')
-    await start!.setValue('10:00')
-    await end!.setValue('09:00')
+    await setPicker(wrapper, addStart, '10:00')
+    await setPicker(wrapper, addEnd, '09:00')
     await buttonNamed(wrapper, 'Add Time').trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toBe('The end time must be after the start time.')
@@ -202,25 +207,25 @@ describe('Finalist Presentation', () => {
     deleteMock.mockResolvedValue(slots({ slots: [] }))
     const wrapper = await mountPage()
     await wrapper.findAll('tbody tr')[0]!.findAll('button')[0]!.trigger('click') // Edit
-    const inputs = wrapper.findAll('tbody tr')[0]!.findAll('input')
-    expect(inputs.map((i) => (i.element as HTMLInputElement).value)).toEqual(['09:30', '10:00'])
-    await inputs[1]!.setValue('10:15')
+    const pickers = wrapper.findAll('tbody tr')[0]!.findAll('.app-picker [data-test="app-picker-field"]')
+    expect(pickers.map((picker) => picker.text())).toEqual(['09:30', '10:00'])
+    await setPicker(wrapper, rowEnd, '10:15')
     await buttonNamed(wrapper, 'Save').trigger('click')
     await flushPromises()
     expect(updateMock).toHaveBeenCalledWith(1, { starts_at: '09:30', ends_at: '10:15' })
-    expect(rows(wrapper)).toEqual([['9:30', '10:15']])
+    expect(rows(wrapper)).toEqual([['09:30', '10:15']])
 
     await buttonNamed(wrapper, 'Remove').trigger('click')
     await flushPromises()
     expect(deleteMock).toHaveBeenCalledWith(1)
-    expect(wrapper.find('.finalist-presentation__empty').exists()).toBe(true)
+    expect(wrapper.find('.simple-table-empty').exists()).toBe(true)
   })
 
   it('says when there are no finalist teams yet', async () => {
     responsesMock.mockResolvedValue({ teams: [] })
     const wrapper = await mountPage()
-    expect(allocation(wrapper).find('.finalist-presentation__empty').text()).toBe('No finalist teams yet.')
-    expect(allocation(wrapper).find('.finalist-presentation__empty').attributes('colspan')).toBe('5')
+    expect(allocation(wrapper).find('.data-table-empty').text()).toBe('No finalist teams yet.')
+    expect(allocation(wrapper).find('.data-table-empty').attributes('colspan')).toBe('5')
   })
 
   it("Allocate Slots shows when each team answered and the times it can make", async () => {
@@ -235,21 +240,22 @@ describe('Finalist Presentation', () => {
       'Group',
       'Answered',
       'Allocate',
-      '9:30 – 10:00',
-      '13:00 – 13:30'
+      '09:30 - 10:00 AEDT',
+      '13:00 - 13:30 AEDT'
     ])
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
     // When it answered, as Finalist Submissions writes it; who, on hover.
     expect(cells[1]!.text()).toMatch(/^29\/09\/26 \d{2}:10$/)
-    expect(cells[1]!.attributes('title')).toBe('By Zoe Lee')
-    expect((cells[2]!.find('select').element as HTMLSelectElement).value).toBe('1')
-    expect(cells[2]!.findAll('option').map((o) => o.text())).toEqual([
+    expect(cells[1]!.find('[title]').attributes('title')).toBe('By Zoe Lee')
+    expect(appSelectText(cells[2]!, '.finalist-presentation__allocate-select')).toBe('09:30 - 10:00 AEDT')
+    expect(await appSelectLabels(cells[2]!, '.finalist-presentation__allocate-select')).toEqual([
       'Not allocated',
-      '9:30 – 10:00',
-      '13:00 – 13:30'
+      '09:30 - 10:00 AEDT',
+      '13:00 - 13:30 AEDT'
     ])
+    await cells[2]!.find('.finalist-presentation__allocate-select input').trigger('blur')
     // It can make the morning (the time it has), not the afternoon.
     expect(cells[3]!.find('.fa-check').exists()).toBe(true)
     expect(cells[3]!.classes()).toContain('is-allocated')
@@ -264,14 +270,14 @@ describe('Finalist Presentation', () => {
     allocateMock.mockResolvedValueOnce({ group_id: 2, slot_id: 2 })
     allocateMock.mockResolvedValueOnce({ group_id: 2, slot_id: null })
     const wrapper = await mountPage()
-    const select = wrapper.find('.finalist-presentation__allocate select')
-    await select.setValue('2')
+    const allocateSelect = '.finalist-presentation__allocate .finalist-presentation__allocate-select'
+    await pickAppSelect(wrapper, allocateSelect, '13:00 - 13:30 AEDT')
     await flushPromises()
     expect(allocateMock).toHaveBeenLastCalledWith(2, 2)
     const cells = wrapper.find('.finalist-presentation__allocate tbody tr').findAll('td')
     expect(cells[4]!.classes()).toContain('is-allocated')
 
-    await select.setValue('')
+    await pickAppSelect(wrapper, allocateSelect, 'Not allocated')
     await flushPromises()
     expect(allocateMock).toHaveBeenLastCalledWith(2, null)
     expect(cells[3]!.classes()).not.toContain('is-allocated')
@@ -283,10 +289,11 @@ describe('Finalist Presentation', () => {
       new ApiError({ error: "That time isn't one of this year's.", code: 'x', request_id: 'x' })
     )
     const wrapper = await mountPage()
-    const select = wrapper.find('.finalist-presentation__allocate select')
-    await select.setValue('2')
+    const allocateSelect = '.finalist-presentation__allocate .finalist-presentation__allocate-select'
+    await pickAppSelect(wrapper, allocateSelect, '13:00 - 13:30 AEDT')
     await flushPromises()
-    expect((select.element as HTMLSelectElement).value).toBe('1')
+    // Still the time it has.
+    expect(appSelectText(wrapper, allocateSelect)).toBe('09:30 - 10:00 AEDT')
     expect(wrapper.find('.finalist-presentation__allocate [role="alert"]').text()).toBe(
       "BTF2: That time isn't one of this year's."
     )
@@ -296,19 +303,27 @@ describe('Finalist Presentation', () => {
     const wrapper = await mountPage()
     const table = wrapper.find('.finalist-presentation__submissions')
     expect(table.find('h3').text()).toBe('Finalist Submissions')
-    expect(table.text()).toContain("Each finalist team's presentation slides, due Friday 16 October 2026")
-    expect(table.findAll('thead th').map((h) => h.text())).toEqual(['Group', 'Submitted', 'Type', ''])
+    expect(table.text()).toContain("Each finalist team's presentation slides, due Friday, 16th October 2026")
+    // Open and Download each have a column, both headed Actions for screen readers.
+    expect(table.findAll('thead th').map((h) => h.text())).toEqual([
+      'Group',
+      'Submitted',
+      'Type',
+      'Actions',
+      'Actions'
+    ])
     const [btf2, btf10] = table.findAll('tbody tr')
     const cells = btf2!.findAll('td')
     expect(cells[0]!.text()).toBe('BTF2')
     expect(cells[1]!.text()).toMatch(/^10\/10\/26 \d{2}:05$/)
     expect(cells[2]!.text()).toBe('PPTX')
     // PowerPoint can't show in the browser: only Download, its name on hover.
-    const links = cells[3]!.findAll('a')
+    expect(cells[3]!.find('a').exists()).toBe(false)
+    const links = btf2!.findAll('a')
     expect(links.map((a) => a.text())).toEqual(['Download'])
     expect(links[0]!.attributes('href')).toBe('/slides/2/file/?download=1')
     expect(links[0]!.attributes('title')).toBe('BTF2 slides.pptx')
-    expect(btf10!.text()).toBe('BTF10Not submitted yet')
+    expect(btf10!.findAll('td').slice(0, 3).map((c) => c.text())).toEqual(['BTF10', 'Not submitted yet', '—'])
     expect(btf10!.find('a').exists()).toBe(false)
   })
 
@@ -337,7 +352,7 @@ describe('Finalist Presentation', () => {
     const wrapper = await mountPage()
     const table = wrapper.find('.finalist-presentation__submissions')
     expect(table.text()).toContain("Set the date they're due on Notify Finalists.")
-    expect(table.find('.finalist-presentation__empty').text()).toBe('No finalist teams yet.')
+    expect(table.find('.data-table-empty').text()).toBe('No finalist teams yet.')
   })
 
   it('offers a retry when the times fail to load', async () => {

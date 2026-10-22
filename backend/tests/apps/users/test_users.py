@@ -1,7 +1,8 @@
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from datetime import timedelta
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -520,6 +521,60 @@ class StudentProfileDashboardFieldsTests(TestCase):
         self.assertTrue(response.data["join_perm"])
         self.assertIsNotNone(response.data["joinperm_granted_at"])
 
+    def test_edit_options_offer_only_the_registration_interests_in_its_order(self):
+        from apps.users.models import AreasOfInterest
+        from apps.users.profile_options import AREAS_OF_INTEREST
+
+        client = APIClient()
+        student = User.objects.create_user(email="interest-options@test.com", first_name="Ivy", last_name="Student")
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", pg_email="pat@test.com",
+            school_name="Test High", year_lvl="10",
+        )
+        # As users 0023 loads them, backwards, beside an old or seeded area
+        # registration doesn't offer.
+        for name in reversed(AREAS_OF_INTEREST):
+            AreasOfInterest.objects.get_or_create(interest_desc=name)
+        AreasOfInterest.objects.create(interest_desc="Biochemistry")
+
+        client.force_authenticate(user=student)
+        response = client.get(reverse("student-profile-options"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["interest_desc"] for row in response.data["interests"]], AREAS_OF_INTEREST)
+
+    def _pronoun_student(self, **profile):
+        student = User.objects.create_user(
+            email="pronouns@test.com", first_name="Sam", last_name="Student", pronouns="He/him",
+        )
+        StudentProfile.objects.create(
+            user=student, pg_first_name="Pat", pg_last_name="Parent", pg_email="pat@test.com",
+            school_name="Test High", year_lvl="10", **profile,
+        )
+        client = APIClient()
+        client.force_authenticate(user=student)
+        return student, client
+
+    def test_student_changes_or_clears_their_pronouns(self):
+        student, client = self._pronoun_student()
+
+        response = client.patch(reverse("MeListHTMLView"), {"pronouns": " Xe/xem "}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["pronouns"], "Xe/xem")
+        client.patch(reverse("MeListHTMLView"), {"pronouns": ""}, format="json")
+        student.refresh_from_db()
+        self.assertEqual(student.pronouns, "")
+
+    def test_pronouns_are_the_supervisors_to_change_when_they_manage_the_student(self):
+        student, client = self._pronoun_student(supervisor_edited_at=timezone.now())
+
+        response = client.patch(reverse("MeListHTMLView"), {"pronouns": "They/them"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        student.refresh_from_db()
+        self.assertEqual(student.pronouns, "He/him")
+
 
 class ReceiveJoinPermissionTokenTests(TestCase):
     """The legacy ``AllowAny`` on ``ReceiveJoinPermissionView`` let any anonymous
@@ -648,12 +703,12 @@ class RegistrationGeographyTests(TestCase):
         self.assertEqual(user.state.state_name, "NSW")
         self.assertEqual(user.state.country_id, user.country_id)
 
-    def test_supervisor_inherits_the_students_geography(self):
+    def test_supervisor_nomination_does_not_create_a_privileged_account(self):
         self._register("Australia", region="NSW")
-        sup = User.objects.get(email="sup@example.com")
-        student = User.objects.get(email="kid@example.com")
-        self.assertEqual(sup.country_id, student.country_id)
-        self.assertEqual(sup.state_id, student.state_id)
+        from apps.users.models import RegistrationSubmission
+        self.assertFalse(User.objects.filter(email="sup@example.com").exists())
+        submission = RegistrationSubmission.objects.get(student__email="kid@example.com")
+        self.assertEqual(submission.supervisor_details["email"], "sup@example.com")
 
     def test_country_casing_variant_reuses_the_existing_country(self):
         Countries.objects.create(country_name="Australia")
@@ -721,11 +776,184 @@ class SupervisedStudentsViewTests(TestCase):
         self.assertEqual(row["pg_email"], "")
         self.assertEqual(row["joinperm_response_id"], "")
         self.assertIsNone(row["joinperm_granted_at"])
+        # Signatures are fetched when a consent form is opened, not listed.
+        self.assertNotIn("signature", row)
+        self.assertEqual(row["country_name"], "")
+        self.assertEqual(row["state_name"], "")
+        self.assertEqual(row["account_status"], "Active")
+        self.assertIsNone(row["media_consent"])
+        self.assertIsNone(row["media_consent_at"])
+
+    def test_drawn_consent_signature_is_fetched_on_its_own(self):
+        import io
+
+        from PIL import Image, ImageDraw
+
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent, StudentProfile
+
+        image = Image.new("RGBA", (80, 40), (0, 0, 0, 0))
+        ImageDraw.Draw(image).line([(5, 30), (70, 10)], fill=(0, 0, 0, 255), width=3)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+
+        profile = StudentProfile.objects.get(user=self.student)
+        consent = GuardianConsent.objects.create(
+            student=profile,
+            guardian_full_name="Pat Parent",
+            guardian_email="pat@example.com",
+            media_consent=True,
+            signature_png=buffer.getvalue(),
+            consent_version=CURRENT_VERSION,
+        )
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertNotIn("signature", row)
+        self.assertTrue(row["media_consent"])
+        # Given when the form was signed.
+        self.assertEqual(parse_datetime(row["media_consent_at"]), consent.signed_at)
+
+        url = "/api/v1/users/supervised-students/signatures/"
+        response = self.client.get(url, {"ids": str(self.student.id)})
+        self.assertEqual(response.status_code, 200)
+        signature = response.json()["signatures"][str(self.student.id)]
+        self.assertTrue(signature.startswith("data:image/png;base64,"))
+
+        # Only students on the user's roster.
+        self.assertEqual(self.client.get(url, {"ids": str(self.outsider.id)}).status_code, 403)
+        self.assertEqual(self.client.get(url, {"ids": "nope"}).status_code, 400)
+
+    def test_roster_shows_withdrawn_media_consent_as_no(self):
+        from django.utils import timezone
+
+        from apps.users.consent_form import CURRENT_VERSION
+        from apps.users.models import GuardianConsent, StudentProfile
+
+        withdrawn_at = timezone.now()
+        GuardianConsent.objects.create(
+            student=StudentProfile.objects.get(user=self.student),
+            guardian_full_name="Pat Parent",
+            guardian_email="pat@example.com",
+            media_consent=True,
+            media_withdrawn_at=withdrawn_at,
+            signature_png=b"",
+            consent_version=CURRENT_VERSION,
+        )
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertFalse(row["media_consent"])
+        # Answered no when it was withdrawn.
+        self.assertEqual(parse_datetime(row["media_consent_at"]), withdrawn_at)
+
+    def test_roster_includes_country_and_state(self):
+        from apps.groups.models import Countries, CountryStates
+
+        australia = Countries.objects.create(country_name="Australia")
+        self.student.country = australia
+        self.student.state = CountryStates.objects.create(country=australia, state_name="NSW")
+        self.student.save(update_fields=["country", "state"])
+        self.client.force_login(self.supervisor)
+        row = self.client.get("/api/v1/users/supervised-students/").json()[0]
+        self.assertEqual((row["country_name"], row["state_name"]), ("Australia", "NSW"))
 
     def test_non_supervisor_is_forbidden(self):
         self.client.force_login(self.outsider)
         response = self.client.get("/api/v1/users/supervised-students/")
         self.assertEqual(response.status_code, 403)
+
+    def _admin_and_another_supervisors_student(self):
+        from apps.users.models import AdminScope, StudentProfile, SupervisorProfile
+
+        admin = User.objects.create_user(email="admin-guardians@test.com", password="Testpass123!", is_active=True)
+        AdminScope.objects.create(user=admin)
+        other_supervisor = User.objects.create_user(email="other-sup@test.com", password="Testpass123!")
+        other_profile = SupervisorProfile.objects.create(user=other_supervisor, school_name="Other High")
+        other_student = User.objects.create_user(
+            email="other-student@test.com", first_name="Olly", last_name="Other", password="Testpass123!",
+        )
+        StudentProfile.objects.create(
+            user=other_student, pg_first_name="Olly", pg_last_name="Other",
+            supervisor=other_profile, school_name="Other High", year_lvl="10",
+        )
+        return admin, other_student
+
+    def test_admin_lists_every_supervisors_students(self):
+        admin, other_student = self._admin_and_another_supervisors_student()
+        self.client.force_login(admin)
+        response = self.client.get("/api/v1/users/supervised-students/")
+        self.assertEqual(response.status_code, 200)
+        emails = sorted(row["email"] for row in response.json())
+        self.assertEqual(emails, ["other-student@test.com", "student@test.com"])
+
+    def test_admin_can_record_any_students_guardian(self):
+        from apps.users.models import StudentProfile
+
+        admin, other_student = self._admin_and_another_supervisors_student()
+        self.client.force_login(admin)
+        response = self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {
+                "student_ids": [other_student.id],
+                "pg_first_name": "Pat",
+                "pg_last_name": "Parent",
+                "pg_email": "pat.other@example.com",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(StudentProfile.objects.get(user=other_student).pg_email, "pat.other@example.com")
+
+    def test_supervisor_still_sees_only_their_own_students(self):
+        self._admin_and_another_supervisors_student()
+        self.client.force_login(self.supervisor)
+        emails = [row["email"] for row in self.client.get("/api/v1/users/supervised-students/").json()]
+        self.assertEqual(emails, ["student@test.com"])
+
+    def test_supervisor_can_change_a_students_country_and_region(self):
+        from apps.groups.models import Countries, CountryStates
+
+        australia = Countries.objects.create(country_name="Australia")
+        nsw = CountryStates.objects.create(country=australia, state_name="NSW")
+        nz = Countries.objects.create(country_name="New Zealand")
+        self.client.force_login(self.supervisor)
+        url = f"/api/v1/users/supervised-students/{self.student.id}/"
+        base = {"first_name": "Alex", "last_name": "Student", "school_name": "Test High", "year_lvl": "11"}
+
+        response = self.client.patch(url, {**base, "country_id": australia.id, "state_id": nsw.id}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual((response.json()["country_name"], response.json()["state_name"]), ("Australia", "NSW"))
+
+        mismatch = self.client.patch(url, {**base, "country_id": nz.id, "state_id": nsw.id}, format="json")
+        self.assertEqual(mismatch.status_code, 400)
+
+        options = self.client.get("/api/v1/users/supervised-students/options/").json()
+        self.assertIn({"id": australia.id, "country_name": "Australia"}, options["countries"])
+
+    def test_supervisor_can_change_only_their_own_name(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            "/api/v1/users/me/", {"first_name": " Samantha ", "last_name": "Super"}, format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.supervisor.refresh_from_db()
+        self.assertEqual((self.supervisor.first_name, self.supervisor.last_name), ("Samantha", "Super"))
+
+        blank = self.client.patch("/api/v1/users/me/", {"first_name": ""}, format="json")
+        self.assertEqual(blank.status_code, 400)
+        school = self.client.patch("/api/v1/users/me/", {"school_name": "Elsewhere"}, format="json")
+        self.assertEqual(school.status_code, 400)
+
+    def test_supervisor_changes_or_clears_their_own_pronouns(self):
+        self.client.force_login(self.supervisor)
+
+        response = self.client.patch("/api/v1/users/me/", {"pronouns": " She/her "}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.supervisor.refresh_from_db()
+        self.assertEqual(self.supervisor.pronouns, "She/her")
+        self.client.patch("/api/v1/users/me/", {"pronouns": ""}, format="json")
+        self.supervisor.refresh_from_db()
+        self.assertEqual(self.supervisor.pronouns, "")
 
     def test_supervisor_can_record_guardian_details(self):
         self.client.force_login(self.supervisor)
@@ -759,20 +987,126 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_supervisor_cannot_edit_profile_before_permission(self):
+    def _consented(self):
+        from apps.users.models import StudentProfile
+
+        StudentProfile.objects.filter(user=self.student).update(
+            pg_email="pat@example.com", has_join_permission=True, joinperm_responseID="R_1",
+            joinperm_granted_at=timezone.now(), media_consent=True,
+            guardian_reminder_due_at=timezone.now(),
+        )
+        return StudentProfile.objects.get(user=self.student)
+
+    def _save_guardian(self, first, last, email, **extra):
+        return self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {"student_ids": [self.student.id], "pg_first_name": first, "pg_last_name": last,
+             "pg_email": email, **extra},
+            format="json",
+        )
+
+    def test_supervisor_changing_a_guardian_who_gave_permission_confirms_and_clears_it(self):
+        profile = self._consented()
+        self.client.force_login(self.supervisor)
+
+        # Without the warning confirmed (a page from before they signed): refused.
+        refused = self._save_guardian("Jordan", "Guardian", "jordan@example.com")
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("Alex Student's guardian has given permission", refused.json()["error"])
+        profile.refresh_from_db()
+        self.assertTrue(profile.has_join_permission)
+        self.assertEqual(profile.pg_email, "pat@example.com")
+
+        saved = self._save_guardian("Jordan", "Guardian", "jordan@example.com", clear_permission=True)
+        self.assertEqual(saved.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.pg_email, "jordan@example.com")
+        self.assertFalse(profile.has_join_permission)
+        self.assertIsNone(profile.joinperm_responseID)
+        self.assertIsNone(profile.joinperm_granted_at)
+        self.assertIsNone(profile.media_consent)
+        # Due at once, for the new guardian.
+        self.assertIsNone(profile.guardian_reminder_due_at)
+
+    def test_supervisor_saving_the_same_guardian_keeps_permission(self):
+        profile = self._consented()
+        self.client.force_login(self.supervisor)
+
+        response = self._save_guardian("Pat", "Parent", "pat@example.com")
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertTrue(profile.has_join_permission)
+        self.assertTrue(profile.media_consent)
+
+    def test_supervisor_can_edit_name_and_email_before_permission(self):
         self.client.force_login(self.supervisor)
         response = self.client.patch(
             f"/api/v1/users/supervised-students/{self.student.id}/",
             {
                 "first_name": "Alexa",
                 "last_name": "Student",
+                "email": "alexa.student@test.com",
                 "school_name": "Test High",
                 "year_lvl": "12",
-                "interests": ["Robotics"],
             },
             format="json",
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        row = response.json()
+        self.assertEqual(row["first_name"], "Alexa")
+        self.assertEqual(row["email"], "alexa.student@test.com")
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.email, "alexa.student@test.com")
+
+    def test_supervisor_cannot_reuse_another_account_email(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.student.id}/",
+            {
+                "first_name": "Alex",
+                "last_name": "Student",
+                "email": self.outsider.email,
+                "school_name": "Test High",
+                "year_lvl": "11",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_supervisor_cannot_set_student_email_to_guardian_email(self):
+        from apps.users.models import StudentProfile
+
+        profile = StudentProfile.objects.get(user=self.student)
+        profile.pg_email = "pat.parent@test.com"
+        profile.save(update_fields=["pg_email"])
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            f"/api/v1/users/supervised-students/{self.student.id}/",
+            {
+                "first_name": "Alex",
+                "last_name": "Student",
+                "email": "pat.parent@test.com",
+                "school_name": "Test High",
+                "year_lvl": "11",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_supervisor_cannot_set_guardian_email_to_student_email(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.patch(
+            "/api/v1/users/supervised-students/",
+            {
+                "student_ids": [self.student.id],
+                "pg_first_name": "Pat",
+                "pg_last_name": "Parent",
+                "pg_email": self.student.email,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_supervisor_can_edit_permitted_student_profile(self):
         from apps.users.models import StudentProfile, UserInterest
@@ -821,6 +1155,361 @@ class SupervisedStudentsViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    FRONTEND_BASE_URL="https://connect.example.com",
+)
+class SupervisedStudentEmailViewTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.supervisor = User.objects.create_user(
+            email="supervisor-mail@test.com",
+            first_name="Sam",
+            last_name="Supervisor",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        from apps.users.models import StudentProfile, SupervisorProfile
+
+        self.sup_profile = SupervisorProfile.objects.create(
+            user=self.supervisor, school_name="Test High"
+        )
+        self.pending_details = User.objects.create_user(
+            email="needs-details@test.com",
+            first_name="Alex",
+            last_name="Student",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        StudentProfile.objects.create(
+            user=self.pending_details,
+            pg_first_name="Alex",
+            pg_last_name="Student",
+            parent_guardian_flag=False,
+            supervisor=self.sup_profile,
+            school_name="Test High",
+            year_lvl="11",
+        )
+        self.pending_consent = User.objects.create_user(
+            email="needs-consent@test.com",
+            first_name="Blake",
+            last_name="Student",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        StudentProfile.objects.create(
+            user=self.pending_consent,
+            pg_first_name="Pat",
+            pg_last_name="Parent",
+            pg_email="pat@example.com",
+            parent_guardian_flag=True,
+            supervisor=self.sup_profile,
+            school_name="Test High",
+            year_lvl="10",
+        )
+        self.outsider = User.objects.create_user(
+            email="outsider-mail@test.com",
+            first_name="Out",
+            last_name="Sider",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+
+    def _post(self, student_ids, kind, user=None):
+        self.client.force_login(user or self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/email/",
+            {"student_ids": student_ids, "kind": kind},
+            format="json",
+        )
+
+    def test_supervisor_can_email_student_for_guardian_details(self):
+        from django.core import mail
+
+        response = self._post([self.pending_details.id], "guardian_details")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 1)
+        self.assertEqual(mail.outbox[0].to, ["needs-details@test.com"])
+        self.assertIn("Parent/Guardian Contact", mail.outbox[0].subject)
+        self.assertIn(
+            "https://connect.example.com/#/profile?guardian=edit",
+            mail.outbox[0].alternatives[0][0],
+        )
+
+    def test_supervisor_can_email_guardian_for_consent(self):
+        from django.core import mail
+
+        response = self._post([self.pending_consent.id], "guardian_consent")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 1)
+        self.assertEqual(mail.outbox[0].to, ["pat@example.com"])
+        self.assertIn("permission form", mail.outbox[0].subject.lower())
+
+    def test_email_all_sends_each_selected_student(self):
+        from django.core import mail
+
+        second = User.objects.create_user(
+            email="also-needs-details@test.com",
+            first_name="Casey",
+            last_name="Student",
+            password="Testpass123!",
+            is_active=True,
+            account_status=User.AccountStatus.ACTIVE,
+        )
+        from apps.users.models import StudentProfile
+
+        StudentProfile.objects.create(
+            user=second,
+            pg_first_name="Casey",
+            pg_last_name="Student",
+            parent_guardian_flag=False,
+            supervisor=self.sup_profile,
+            school_name="Test High",
+            year_lvl="9",
+        )
+        response = self._post(
+            [self.pending_details.id, second.id],
+            "guardian_details",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sent"], 2)
+        self.assertEqual(
+            sorted(message.to[0] for message in mail.outbox),
+            ["also-needs-details@test.com", "needs-details@test.com"],
+        )
+
+    def test_skips_details_email_when_guardian_already_on_file(self):
+        response = self._post([self.pending_consent.id], "guardian_details")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["sent"], 0)
+        self.assertIn("already has a guardian email", response.json()["msg"])
+
+    def test_non_supervisor_is_forbidden(self):
+        response = self._post([self.pending_details.id], "guardian_details", user=self.outsider)
+        self.assertEqual(response.status_code, 403)
+
+    def test_cannot_email_unlinked_student(self):
+        response = self._post([self.outsider.id], "guardian_details")
+        self.assertEqual(response.status_code, 403)
+
+    def _links(self, student_ids, user=None):
+        self.client.force_login(user or self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/consent-links/",
+            {"student_ids": student_ids},
+            format="json",
+        )
+
+    def test_consent_link_opens_the_consent_form(self):
+        from apps.users import guardian_consent
+
+        response = self._links([self.pending_consent.id])
+        self.assertEqual(response.status_code, 200)
+        link = response.json()["links"][0]["link"]
+        self.assertTrue(link.startswith("https://connect.example.com/#/consent/"))
+        token = link.rsplit("/", 1)[1]
+        request = guardian_consent.open_request(token)
+        self.assertEqual(request.guardian_email, "pat@example.com")
+
+    def test_consent_link_is_given_again_while_it_works(self):
+        first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertEqual(first, second)
+
+    def test_consent_link_reuses_the_emailed_link(self):
+        from django.core import mail
+
+        self._post([self.pending_consent.id], "guardian_consent")
+        link = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertIn(link, mail.outbox[0].alternatives[0][0])
+
+    def test_copying_a_lapsed_consent_link_resets_its_time(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.users import guardian_consent
+        from apps.users.models import GuardianConsentRequest
+
+        first = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        GuardianConsentRequest.objects.update(valid_until=timezone.now() - timedelta(minutes=1))
+        second = self._links([self.pending_consent.id]).json()["links"][0]["link"]
+        self.assertEqual(first, second)
+        guardian_consent.open_request(second.rsplit("/", 1)[1])
+
+    def test_no_consent_link_without_a_guardian_email(self):
+        response = self._links([self.pending_details.id])
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(response.json()["links"][0]["link"])
+        self.assertIn("no guardian email", response.json()["msg"])
+
+    def test_consent_links_only_for_own_students(self):
+        self.assertEqual(self._links([self.outsider.id]).status_code, 403)
+        self.assertEqual(self._links([self.pending_consent.id], user=self.outsider).status_code, 403)
+
+    def _details_link(self, student_id):
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            "/api/v1/users/supervised-students/details-links/",
+            {"student_ids": [student_id]},
+            format="json",
+        )
+        return response
+
+    def _details_token(self):
+        link = self._details_link(self.pending_details.id).json()["links"][0]["link"]
+        self.assertTrue(link.startswith("https://connect.example.com/#/guardian-details/"))
+        self.client.logout()
+        return link.rsplit("/", 1)[1]
+
+    def test_details_form_shows_the_student(self):
+        token = self._details_token()
+        response = self.client.get(f"/api/v1/guardian-details/{token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["studentName"], "Alex Student")
+
+    def test_details_form_saves_the_guardian_and_sends_the_consent_form(self):
+        from django.core import mail
+
+        from apps.users.models import StudentProfile
+
+        token = self._details_token()
+        response = self.client.post(
+            f"/api/v1/guardian-details/{token}/",
+            {"firstName": "Jamie", "lastName": "Parent", "email": "Jamie@Example.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        profile = StudentProfile.objects.get(user=self.pending_details)
+        self.assertEqual(
+            (profile.pg_first_name, profile.pg_last_name, profile.pg_email),
+            ("Jamie", "Parent", "jamie@example.com"),
+        )
+        self.assertIn(["jamie@example.com"], [message.to for message in mail.outbox])
+        # Once given, the link has done its job.
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 410)
+
+    def test_details_form_names_the_wrong_field(self):
+        token = self._details_token()
+        url = f"/api/v1/guardian-details/{token}/"
+        bad_email = self.client.post(
+            url, {"firstName": "Jamie", "lastName": "Parent", "email": "jamie@example"}, format="json",
+        )
+        self.assertEqual(bad_email.status_code, 400)
+        self.assertEqual(bad_email.json()["badFields"], ["email"])
+        self.assertIn("full email address", bad_email.json()["error"])
+        no_last_name = self.client.post(
+            url, {"firstName": "Jamie", "lastName": "", "email": "jamie@example.com"}, format="json",
+        )
+        self.assertEqual(no_last_name.json()["error"], "Please enter the last name.")
+
+    def test_details_form_refuses_the_students_own_email(self):
+        token = self._details_token()
+        response = self.client.post(
+            f"/api/v1/guardian-details/{token}/",
+            {"firstName": "Alex", "lastName": "Student", "email": "needs-details@test.com"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_details_form_link_expires(self):
+        from datetime import timedelta
+        from unittest import mock
+
+        token = self._details_token()
+        with mock.patch("apps.users.guardian_details.FORM_LINK_LIFETIME", timedelta(seconds=-1)):
+            response = self.client.get(f"/api/v1/guardian-details/{token}/")
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["code"], "details_link_expired")
+
+    def test_copying_the_details_link_again_resets_the_time_for_every_copy(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.users.models import StudentProfile
+
+        token = self._details_token()
+        StudentProfile.objects.filter(user=self.pending_details).update(
+            guardian_details_link_at=timezone.now() - timedelta(days=15),
+        )
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 410)
+
+        self._details_token()
+
+        self.assertEqual(self.client.get(f"/api/v1/guardian-details/{token}/").status_code, 200)
+
+    def test_details_form_rejects_a_made_up_link(self):
+        response = self.client.get("/api/v1/guardian-details/not-a-real-token/")
+        self.assertEqual(response.status_code, 404)
+
+    def _upload(self, text, dry_run=True, name="guardians.csv"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.supervisor)
+        return self.client.post(
+            "/api/v1/users/supervised-students/guardian-upload/",
+            {"file": SimpleUploadedFile(name, text.encode()), "dry_run": "true" if dry_run else "false"},
+            format="multipart",
+        )
+
+    UPLOAD_HEADER = "student_email,guardian_first_name,guardian_last_name,guardian_email\n"
+
+    def test_guardian_upload_previews_then_saves(self):
+        from apps.users.models import StudentProfile
+
+        sheet = self.UPLOAD_HEADER + (
+            "needs-details@test.com,Jamie,Parent,jamie@example.com\n"
+            "needs-consent@test.com,Pat,Parent,pat.new@example.com\n"
+        )
+        preview = self._upload(sheet).json()
+        self.assertEqual(preview["summary"], {"creates": 1, "updates": 1, "unchanged": 0, "errors": 0})
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email or "", "")
+
+        applied = self._upload(sheet, dry_run=False)
+        self.assertEqual(applied.status_code, 200)
+        self.assertEqual(applied.json()["saved"], 2)
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email, "jamie@example.com")
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_consent).pg_email, "pat.new@example.com")
+
+    def test_guardian_upload_reports_each_problem_and_saves_nothing(self):
+        from apps.users.models import StudentProfile
+
+        sheet = self.UPLOAD_HEADER + (
+            "needs-details@test.com,Jamie,,jamie@example\n"
+            "outsider-mail@test.com,Out,Sider,out@example.com\n"
+        )
+        checks = self._upload(sheet).json()["checks"]
+        self.assertEqual(checks["bad_rows"], [{"row": 2, "reason": "guardian_last_name, guardian_email not an email"}])
+        self.assertEqual(checks["unknown_students"], [{"row": 3, "email": "outsider-mail@test.com"}])
+        self.assertEqual(self._upload(sheet, dry_run=False).status_code, 400)
+        self.assertEqual(StudentProfile.objects.get(user=self.pending_details).pg_email or "", "")
+
+    def test_guardian_upload_checks_the_headers(self):
+        checks = self._upload("student_email,guardian_email\nx@test.com,y@test.com\n").json()["checks"]
+        self.assertEqual(checks["missing_headers"], ["guardian_first_name", "guardian_last_name"])
+
+    def test_guardian_upload_is_for_supervisors(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.outsider)
+        response = self.client.post(
+            "/api/v1/users/supervised-students/guardian-upload/",
+            {"file": SimpleUploadedFile("g.csv", self.UPLOAD_HEADER.encode())},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_no_details_link_once_a_guardian_email_is_on_file(self):
+        response = self._details_link(self.pending_consent.id)
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(response.json()["links"][0]["link"])
 
 
 class MeGuardianDetailsTests(TestCase):
@@ -888,8 +1577,8 @@ class MeGuardianDetailsTests(TestCase):
 
 
 class MeGuardianUpdateTests(TestCase):
-    """Students update their guardian; one consenting guardian stays on file
-    until a new guardian consents."""
+    """Students update their guardian: a new guardian replaces the old one at
+    once, and clears permission they'd already given until the new one signs."""
 
     def setUp(self):
         from apps.resources.models import RoleAssignmentHistory
@@ -954,20 +1643,63 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
         self.assertIsNone(response.json()["pending_guardian"])
 
-    def test_after_consent_the_consenting_guardian_stays_on_file(self):
+    def test_changing_the_guardian_after_consent_clears_permission(self):
         self._grant_consent()
 
         response = self.client.put(self.url, self.new_guardian, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+        self.assertEqual(self.profile.pg_email, "robin.carer@test.com")
+        self.assertFalse(self.profile.has_join_permission)
+        self.assertIsNone(self.profile.joinperm_granted_at)
+        self.assertIsNone(self.profile.media_consent)
+        self.assertFalse(self.profile.has_pending_guardian)
+        self.assertIsNone(response.json()["pending_guardian"])
+
+    def _managed_by_supervisor(self):
+        from apps.users.models import StudentProfile
+
+        self.profile.registered_by = StudentProfile.RegisteredBy.SUPERVISOR
+        self.profile.save()
+
+    def test_a_supervisors_student_cant_change_a_guardian_who_gave_permission(self):
+        self._managed_by_supervisor()
+        self._grant_consent()
+
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Contact BIOTech Support", str(response.data))
+        self.profile.refresh_from_db()
         self.assertEqual(self.profile.pg_first_name, "Pat")
-        self.assertEqual(self.profile.pg_email, "pat.parent@test.com")
+        self.assertTrue(self.profile.has_join_permission)
+        self.assertTrue(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+
+    def test_while_permission_is_pending_a_supervisors_student_still_can(self):
+        self._managed_by_supervisor()
+
+        self.assertFalse(self.client.get(reverse("MeListHTMLView")).json()["guardian_locked"])
+        response = self.client.put(self.url, self.new_guardian, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.pg_first_name, "Robin")
+
+    def test_saving_the_same_guardian_keeps_permission(self):
+        self._grant_consent()
+        self.profile.refresh_from_db()
+        same = {
+            "first_name": self.profile.pg_first_name, "last_name": self.profile.pg_last_name,
+            "email": self.profile.pg_email,
+        }
+
+        self.client.put(self.url, same, format="json")
+
+        self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertEqual(self.profile.joinperm_granted_at, self.granted_at)
-        pending = response.json()["pending_guardian"]
-        self.assertEqual(pending["first_name"], "Robin")
-        self.assertEqual(pending["email"], "robin.carer@test.com")
 
     def test_new_guardians_consent_replaces_the_old_guardian(self):
         self._grant_consent()
@@ -998,8 +1730,14 @@ class MeGuardianUpdateTests(TestCase):
         self.assertFalse(self.profile.has_pending_guardian)
 
     def test_withdrawing_a_pending_change(self):
+        # A change still held as pending from before changes cleared permission.
         self._grant_consent()
-        self.client.put(self.url, self.new_guardian, format="json")
+        self.profile.refresh_from_db()
+        self.profile.pending_pg_first_name = "Robin"
+        self.profile.pending_pg_last_name = "Carer"
+        self.profile.pending_pg_email = "robin.carer@test.com"
+        self.profile.pending_pg_requested_at = timezone.now()
+        self.profile.save()
 
         response = self.client.delete(self.url)
 
@@ -1110,3 +1848,161 @@ class RegistrationThenConsentTests(TestCase):
         self.profile.refresh_from_db()
         self.assertTrue(self.profile.has_join_permission)
         self.assertTrue(self.profile.parent_guardian_flag)
+
+
+class MentorOwnProfileTests(TestCase):
+    """A mentor's own profile: their details as their admin panel shows
+    them, without their application's answers."""
+
+    def test_the_profile_gives_their_details_weekly_times_and_groups_not_their_answers(self):
+        from datetime import time
+
+        from apps.groups.models import GroupMembership
+        from apps.users.models import MentorProfile
+        from apps.users.models.mentor_availability import MentorAvailability
+
+        mentor = User.objects.create_user(email="mia@uni.example", first_name="Mia", last_name="Ng")
+        RoleAssignmentHistory.objects.create(
+            user=mentor, role=Roles.objects.get_or_create(role_name="mentor")[0],
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        MentorProfile.objects.create(
+            user=mentor, background="postgraduate", institution="Uni", university_year="2",
+            field_of_study="Biology", mentor_reason="To help", max_group_count=3, weekly_hours=4,
+            relevant_background="Lab work", mentoring_approach="Weekly calls",
+        )
+        MentorAvailability.objects.create(mentor_user=mentor, weekday=0, start_time=time(18), end_time=time(19))
+        group = Groups.objects.create(group_name="BTF7")
+        GroupMembership.objects.create(group=group, user=mentor, membership_role="mentor")
+        client = APIClient()
+        client.force_authenticate(mentor)
+
+        details = client.get(reverse("MeListHTMLView")).json()["mentor_details"]
+
+        self.assertEqual(
+            (details["mentorBackground"], details["mentorUniversityYear"], details["mentorFieldOfStudy"],
+             details["mentorMaxGroupCount"]),
+            ("postgraduate", "2", "Biology", 3),
+        )
+        self.assertEqual(details["mentorAvailability"], [{"weekday": 0, "start": "18:00", "end": "19:00"}])
+        self.assertEqual([g["name"] for g in details["mentorGroups"]], ["BTF7"])
+        # No longer shown, though earlier mentors' answers are kept.
+        for gone in ("mentorReason", "mentorWeeklyHours", "mentorRelevantBackground", "mentorMentoringApproach"):
+            self.assertNotIn(gone, details)
+
+
+class MentorSelfEditTests(TestCase):
+    """A mentor changes their own details on their profile, checked as their
+    admin panel's edit is; their answers and groups stay an admin's."""
+
+    def setUp(self):
+        from apps.users.models import MentorProfile
+
+        self.au, _ = Countries.objects.get_or_create(country_name="Australia")
+        self.nsw, _ = CountryStates.objects.get_or_create(country=self.au, state_name="NSW")
+        Countries.objects.get_or_create(country_name="New Zealand")
+        self.mentor = User.objects.create_user(email="mia@uni.example", first_name="Mia", last_name="Ng")
+        RoleAssignmentHistory.objects.create(
+            user=self.mentor, role=Roles.objects.get_or_create(role_name="mentor")[0],
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        MentorProfile.objects.create(
+            user=self.mentor, background="postgraduate", institution="Uni", university_year="2",
+            field_of_study="Biology", mentor_reason="To help", max_group_count=3,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.mentor)
+        self.url = reverse("me-mentor-details")
+
+    def test_a_mentor_changes_their_details_weekly_times_and_place(self):
+        from apps.users.models import MentorProfile
+
+        response = self.client.patch(self.url, {
+            "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
+            "mentorUniversityYear": "", "mentorFieldOfStudy": "", "mentorMaxGroupCount": 2,
+            "mentorAvailability": [{"weekday": 1, "start": "17:00", "end": "18:00"}],
+            "pronouns": "They/them", "country": "New Zealand", "state": "Auckland",
+        }, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        profile = MentorProfile.objects.get(user=self.mentor)
+        self.assertEqual((profile.background, profile.company, profile.max_group_count), ("industry", "Acme Bio", 2))
+        # Hours a week are no longer theirs to give.
+        refused = self.client.patch(self.url, {"mentorWeeklyHours": 5}, format="json")
+        self.assertEqual(refused.status_code, 400)
+        details = response.json()["mentor_details"]
+        self.assertEqual(details["mentorAvailability"], [{"weekday": 1, "start": "17:00", "end": "18:00"}])
+        self.mentor.refresh_from_db()
+        self.assertEqual(
+            (self.mentor.pronouns, self.mentor.country.country_name, self.mentor.state.state_name),
+            ("They/them", "New Zealand", "Auckland"),
+        )
+
+    def test_their_answers_and_a_non_mentor_are_refused(self):
+        self.assertEqual(self.client.patch(self.url, {"mentorReason": "Other"}, format="json").status_code, 400)
+        student = User.objects.create_user(email="kid@example.com", first_name="Kid", last_name="Lee")
+        self.client.force_authenticate(student)
+        self.assertEqual(self.client.patch(self.url, {"pronouns": "He/him"}, format="json").status_code, 403)
+
+
+class AdminSelfEditTests(TestCase):
+    """An admin changes their own name, pronouns and place on their profile,
+    but not their email or status."""
+
+    def setUp(self):
+        Countries.objects.get_or_create(country_name="New Zealand")
+        self.admin = User.objects.create_user(email="ada@biotech.example", first_name="Ada", last_name="Admin")
+        AdminScope.objects.create(user=self.admin)
+        RoleAssignmentHistory.objects.create(
+            user=self.admin, role=Roles.objects.get_or_create(role_name="admin")[0],
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        self.admin.activate()
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+        self.url = reverse("me-admin-details")
+
+    def test_an_admin_changes_their_name_pronouns_and_place(self):
+        response = self.client.patch(self.url, {
+            "firstName": "Adah", "lastName": "Lovelace", "pronouns": "She/her",
+            "country": "New Zealand", "state": "Otago",
+        }, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.admin.refresh_from_db()
+        self.assertEqual(
+            (self.admin.first_name, self.admin.last_name, self.admin.pronouns,
+             self.admin.country.country_name, self.admin.state.state_name),
+            ("Adah", "Lovelace", "She/her", "New Zealand", "Otago"),
+        )
+
+    def test_an_admin_changes_their_own_email_but_never_to_one_taken(self):
+        User.objects.create_user(email="taken@biotech.example", first_name="Tai", last_name="Ken")
+
+        response = self.client.patch(self.url, {"email": " New@Biotech.example "}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.email, "new@biotech.example")
+        taken = self.client.patch(self.url, {"email": "taken@biotech.example"}, format="json")
+        self.assertEqual(taken.status_code, 400)
+
+    def test_an_admin_stays_an_admin_and_changes_their_own_status(self):
+        self.client.patch(self.url, {"firstName": "Adah"}, format="json")
+        self.assertTrue(AdminScope.objects.filter(user=self.admin).exists())
+        self.assertFalse(StudentProfile.objects.filter(user=self.admin).exists())
+
+        response = self.client.patch(self.url, {"isActive": False}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_active)
+
+    def test_not_a_non_admin_nor_an_admin_without_their_admin_role(self):
+        bare = User.objects.create_user(email="bare@biotech.example", first_name="Bare", last_name="Admin")
+        AdminScope.objects.create(user=bare)
+        self.client.force_authenticate(bare)
+        self.assertEqual(self.client.patch(self.url, {"firstName": "B"}, format="json").status_code, 403)
+        student = User.objects.create_user(email="kid@example.com", first_name="Kid", last_name="Lee")
+        self.client.force_authenticate(student)
+        self.assertEqual(self.client.patch(self.url, {"pronouns": "He/him"}, format="json").status_code, 403)

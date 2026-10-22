@@ -3,6 +3,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import ProfilePage from '@/views/ProfilePage.vue'
 import { useAuthStore } from '@/stores/auth'
+import { formatDayMonthTime } from '@/utils/date'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { setPicker } from '@/__tests__/appPicker'
 
 vi.mock('@/utils/csrf', () => ({
   buildSessionHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -46,15 +49,95 @@ describe('Student profile', () => {
     wrapper.unmount()
   })
 
-  it('loads edit choices for geography and interests', async () => {
+  it('needs a state in Australia, with no Not set to pick', async () => {
+    Object.assign(useAuthStore().user!, { country: { id: 1, countryName: 'Australia' }, state: null })
     const wrapper = mount(ProfilePage)
     await flushPromises()
-    await wrapper.get('.profile-edit-button').trigger('click')
+    // Country and region are edited under Personal Information.
+    await wrapper.get('[data-test="place-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(await appSelectLabels(wrapper, '[data-test="student-region"]')).toEqual(['NSW'])
+    await wrapper.get('[data-test="place-edit-form"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Choose your state or territory.')
+    wrapper.unmount()
+  })
+
+  it('loads edit choices: geography under Personal Information, interests under Student Details', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="place-edit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="place-edit-form"]').text()).toContain('Australia')
+    await wrapper.get('[data-test="place-edit-form"]').findAll('button').find((b) => b.text() === 'Cancel')!.trigger('click')
+
+    const details = wrapper.find('[data-test="student-details-edit"]')
+    await details.trigger('click')
     await flushPromises()
     const form = wrapper.get('.student-edit-form')
-    expect(form.text()).toContain('Australia')
     expect(form.text()).toContain('Biology')
+    expect(form.text()).not.toContain('Country')
     expect(form.findAll('input[type="checkbox"]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('lists interests as text with pronouns after, and the supervisor in a section of its own', async () => {
+    Object.assign(useAuthStore().user!, {
+      interests: ['Genomics', 'Molecular Biology'], pronouns: 'She/her',
+      supervisor_name: 'Grace Green', supervisor_email: 'grace@school.edu',
+    })
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="student-interests"]').text()).toContain('Genomics, Molecular Biology')
+    expect(wrapper.find('.profile-interest').exists()).toBe(false)
+    expect(wrapper.get('[data-test="student-pronouns"]').text()).toContain('She/her')
+    const fields = wrapper.findAll('.profile-field-label').map((label) => label.text())
+    expect(fields.indexOf('Pronouns:')).toBe(fields.indexOf('Area(s) of Interest:') + 1)
+
+    const supervisor = wrapper.get('[data-test="student-supervisor"]')
+    expect(supervisor.get('.profile-section-title').text()).toBe('Supervisor Details')
+    expect(supervisor.text()).toContain('Grace Green')
+    expect(supervisor.get('a').attributes('href')).toBe('mailto:grace@school.edu')
+    // No longer among the student's own details.
+    expect(wrapper.get('[data-test="student-interests"]').element.parentElement!.textContent).not.toContain('Supervisor Email:')
+    wrapper.unmount()
+  })
+
+  it('edits pronouns as registering offers them, bringing their own back under Other', async () => {
+    Object.assign(useAuthStore().user!, { pronouns: 'Xe/xem' })
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="student-details-edit"]').trigger('click')
+    await flushPromises()
+
+    expect(appSelectText(wrapper, '[data-test="student-pronouns-select"]')).toBe('Other')
+    expect((wrapper.get('[data-test="student-pronouns-other"]').element as HTMLInputElement).value).toBe('Xe/xem')
+    expect(await appSelectLabels(wrapper, '[data-test="student-pronouns-select"]')).toEqual([
+      'She/her', 'He/him', 'They/them', 'Other',
+    ])
+
+    await pickAppSelect(wrapper, '[data-test="student-pronouns-select"]', 'They/them')
+    expect(wrapper.find('[data-test="student-pronouns-other"]').exists()).toBe(false)
+    await wrapper.get('.student-edit-form').trigger('submit')
+    await flushPromises()
+    const patch = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'PATCH')!
+    expect(JSON.parse(String(patch[1]!.body)).pronouns).toBe('They/them')
+    wrapper.unmount()
+  })
+
+  it('asks for their pronouns when Other is left empty', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="student-details-edit"]').trigger('click')
+    await flushPromises()
+
+    await pickAppSelect(wrapper, '[data-test="student-pronouns-select"]', 'Other')
+    await wrapper.get('.student-edit-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Enter your pronouns.')
+    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
     wrapper.unmount()
   })
 
@@ -64,7 +147,9 @@ describe('Student profile', () => {
     })
     const wrapper = mount(ProfilePage)
     await flushPromises()
-    expect(wrapper.find('.profile-edit-button').exists()).toBe(false)
+    // Their details and their country and region are their supervisor's to change.
+    expect(wrapper.find('[data-test="student-details-edit"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="place-edit"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="details-lock"]').attributes('data-tooltip')).toBe(
       'Your supervisor, Grace Green (grace@school.edu), manages these details. Contact them to make changes.'
     )
@@ -154,9 +239,199 @@ describe('Student profile', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="guardian-reminders"]').text()).toBe(
-      "Last emailed 14 Sep 2026 03:00. They'll be emailed again tomorrow."
+      `Last emailed ${formatDayMonthTime('2026-09-14T03:00:00Z')}. They'll be emailed again tomorrow.`
     )
     expect(wrapper.text()).not.toContain('Last reminder email sent')
+    wrapper.unmount()
+  })
+})
+
+describe('Supervisor profile', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = {
+      id: 9, email: 'grace@school.edu', first_name: 'Grace', last_name: 'Green',
+      current_role_name: 'supervisor', supervisor_school_name: 'Test High', pronouns: 'She/her',
+    }
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn(async (_input: string, init?: RequestInit) =>
+      new Response(JSON.stringify(init?.method === 'PATCH' ? { ...auth.user, ...JSON.parse(String(init.body)) } : [])),
+    ))
+  })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('shows their pronouns after their school, and edits them with their name', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    expect(wrapper.get('[data-test="supervisor-pronouns"]').text()).toContain('She/her')
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Edit')!.trigger('click')
+    await pickAppSelect(wrapper, '[data-test="supervisor-pronouns-select"]', 'They/them')
+    await wrapper.get('.student-edit-form').trigger('submit')
+    await flushPromises()
+
+    const patch = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'PATCH')!
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ first_name: 'Grace', last_name: 'Green', pronouns: 'They/them' })
+    wrapper.unmount()
+  })
+})
+
+describe('Mentor profile', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = {
+      id: 5, email: 'mia@uni.example', first_name: 'Mia', last_name: 'Ng', current_role_name: 'mentor',
+      pronouns: 'She/her', interests: ['Biomedical Innovations'],
+      mentor_details: {
+        mentorBackground: 'Undergraduate Student', mentorInstitution: 'University of Sydney', mentorCompany: '',
+        mentorUniversityYear: '2', mentorFieldOfStudy: 'Biology', mentorMaxGroupCount: 2,
+        mentorAvailability: [{ weekday: 0, start: '18:00', end: '19:30' }],
+        mentorGroups: [{ id: 1, name: 'BTF1' }, { id: 3, name: 'BTF3' }],
+      },
+    } as never
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') return new Response(JSON.stringify(auth.user))
+      if (String(input).includes('/registration/countries/')) return new Response(JSON.stringify({ countries: ['Australia', 'New Zealand'] }))
+      if (String(input).includes('/registration/states/')) return new Response(JSON.stringify({ states: ['NSW', 'VIC'] }))
+      if (String(input).includes('/registration/universities/')) {
+        return new Response(JSON.stringify({ universities: ['Monash University', 'University of Sydney'] }))
+      }
+      return new Response(JSON.stringify([]))
+    }))
+  })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  const patchBody = () => {
+    const call = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'PATCH')!
+    expect(String(call[0])).toContain('/api/v1/users/me/mentor/')
+    return JSON.parse(String(call[1]!.body))
+  }
+
+  it('edits their Mentor Details, clearing what their background no longer asks for', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="mentor-details-edit"]').trigger('click')
+    // An old typed background picks the list's choice it means.
+    expect(appSelectText(wrapper, '[data-test="mentor-background"]')).toBe('University Student – Undergraduate')
+
+    // Their name first, edited here too.
+    expect((wrapper.get('[data-test="mentor-first-name"]').element as HTMLInputElement).value).toBe('Mia')
+    // Their institution offers Management's universities as it's typed.
+    await wrapper.get('[data-test="mentor-institution"]').setValue('syd')
+    expect(wrapper.findAll('.app-suggest__option').map((option) => option.text())).toEqual(['University of Sydney'])
+
+    await pickAppSelect(wrapper, '[data-test="mentor-background"]', 'Industry')
+    await wrapper.get('[data-test="mentor-company"]').setValue('Acme Bio')
+    await wrapper.get('[data-test="mentor-details-form"]').trigger('submit')
+    await flushPromises()
+    expect(patchBody()).toMatchObject({
+      firstName: 'Mia', lastName: 'Ng',
+      mentorBackground: 'industry', mentorCompany: 'Acme Bio', mentorInstitution: '', mentorUniversityYear: '',
+      mentorFieldOfStudy: '', mentorMaxGroupCount: 2, pronouns: 'She/her',
+    })
+    expect(patchBody()).not.toHaveProperty('mentorWeeklyHours')
+    wrapper.unmount()
+  })
+
+  it('edits their weekly times and their country and state', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await wrapper.get('[data-test="mentor-availability-edit"]').trigger('click')
+    await wrapper.get('[data-test="mentor-add-slot"]').trigger('click')
+    const slot = wrapper.find('[data-test="mentor-slot-1"]')
+    await pickAppSelect(slot, '[aria-label="Day 2"]', 'Friday')
+    await setPicker(wrapper, '[data-test="mentor-slot-1"] [aria-label="From, time 2"]', '09:00')
+    await setPicker(wrapper, '[data-test="mentor-slot-1"] [aria-label="To, time 2"]', '10:00')
+    await wrapper.get('[data-test="mentor-availability-form"]').trigger('submit')
+    await flushPromises()
+    expect(patchBody().mentorAvailability).toEqual([
+      { weekday: 0, start: '18:00', end: '19:30' },
+      { weekday: 4, start: '09:00', end: '10:00' },
+    ])
+
+    vi.mocked(fetch).mockClear()
+    await wrapper.get('[data-test="mentor-place-edit"]').trigger('click')
+    await flushPromises()
+    // Country and State shown once: in the form, not also below it.
+    expect(wrapper.text()).not.toContain('Country:')
+    await pickAppSelect(wrapper, '[data-test="mentor-country"]', 'Australia')
+    await flushPromises()
+    await wrapper.get('[data-test="mentor-place-form"]').trigger('submit')
+    expect(wrapper.text()).toContain('Choose your state or territory.')
+    await pickAppSelect(wrapper, '[data-test="mentor-state"]', 'NSW')
+    await wrapper.get('[data-test="mentor-place-form"]').trigger('submit')
+    await flushPromises()
+    expect(patchBody()).toEqual({ country: 'Australia', state: 'NSW' })
+    wrapper.unmount()
+  })
+
+  it('shows their groups, details and weekly times as the admin panel does, without their answers', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="mentor-groups"]').text()).toContain('BTF1, BTF3')
+    const details = wrapper.get('[data-test="mentor-details"]').text()
+    expect(wrapper.get('[data-test="mentor-name"]').text()).toContain('Mia Ng')
+    // An old typed background, read as the list's choice: so its year shows.
+    expect(details).toContain('University Student – Undergraduate')
+    expect(details).toContain('Year 2')
+    expect(details).toContain('2 groups')
+    expect(details).not.toContain('Hours per week')
+    expect(details).toContain('She/her')
+    expect(wrapper.get('[data-test="mentor-availability"]').text()).toContain('Monday:18:00 to 19:30')
+    expect(wrapper.text()).not.toContain('Mentor Reason')
+    wrapper.unmount()
+  })
+})
+
+describe('Admin profile', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = {
+      id: 3, email: 'ada@biotech.example', first_name: 'Ada', last_name: 'Admin', current_role_name: 'admin',
+      pronouns: '', country: { id: 2, countryName: 'New Zealand' }, state: null, account_status: 'active',
+    } as never
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+    vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') return new Response(JSON.stringify(auth.user))
+      if (String(input).includes('/registration/countries/')) return new Response(JSON.stringify({ countries: ['Australia', 'New Zealand'] }))
+      return new Response(JSON.stringify([]))
+    }))
+  })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  const patched = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'PATCH')
+
+  it('shows and edits their Admin Details and their country and state', async () => {
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    expect(wrapper.get('[data-test="admin-name"]').text()).toContain('Ada Admin')
+
+    await wrapper.get('[data-test="admin-details-edit"]').trigger('click')
+    await pickAppSelect(wrapper, '[data-test="admin-pronouns"]', 'She/her')
+    await wrapper.get('[data-test="admin-details-form"]').trigger('submit')
+    await flushPromises()
+    const [url, init] = patched()[0]!
+    expect(String(url)).toContain('/api/v1/users/me/admin/')
+    expect(JSON.parse(String(init!.body))).toEqual({ firstName: 'Ada', lastName: 'Admin', pronouns: 'She/her' })
+
+    await wrapper.get('[data-test="mentor-place-edit"]').trigger('click')
+    await flushPromises()
+    // Their email and status here too, the rows they edit hidden meanwhile.
+    expect(wrapper.text()).not.toContain('Account Status:')
+    await wrapper.get('[data-test="admin-email"]').setValue('Adah@Biotech.example')
+    await wrapper.get('[data-test="mentor-state-name"]').setValue('Otago')
+    await pickAppSelect(wrapper, '[data-test="admin-status"]', 'Inactive')
+    expect(wrapper.text()).toContain("you won't be able to sign in until another admin makes you Active again")
+    await wrapper.get('[data-test="mentor-place-form"]').trigger('submit')
+    await flushPromises()
+    expect(JSON.parse(String(patched()[1]![1]!.body))).toEqual({
+      email: 'adah@biotech.example', isActive: false, country: 'New Zealand', state: 'Otago',
+    })
     wrapper.unmount()
   })
 })

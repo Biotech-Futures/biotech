@@ -4,7 +4,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ProfilePage from '../ProfilePage.vue'
+import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import { formatDayMonthTime } from '@/utils/date'
 
 const baseUser = {
   id: 81,
@@ -80,8 +82,10 @@ describe('ProfilePage guardian consent', () => {
       join_perm_granted_at: '2026-09-14T03:00:00Z',
     })
 
-    // DD MMM YYYY HH:mm, in the student's timezone (UTC when none is set).
-    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe('Received 14 Sep 2026 03:00')
+    // "14 Sep, 1:00 pm", in the set time.
+    expect(wrapper.find('[data-test="guardian-consent"]').text()).toBe(
+      `Received ${formatDayMonthTime('2026-09-14T03:00:00Z')}`,
+    )
     expect(wrapper.find('[data-test="guardian-reminders"]').exists()).toBe(false)
   })
 
@@ -105,12 +109,60 @@ describe('ProfilePage guardian consent', () => {
     expect(wrapper.find('[data-test="guardian-details"]').exists()).toBe(false)
   })
 
+  // Edit guardian, then Continue on its warning.
+  const openGuardianForm = async (wrapper: Awaited<ReturnType<typeof mountAs>>) => {
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    wrapper.findComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+  }
+
+  it('warns before editing a guardian that changing them clears permission given', async () => {
+    const wrapper = await mountAs({
+      ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: true,
+    })
+    const warning = wrapper.findComponent(ConfirmDialog)
+    expect(warning.props('modelValue')).toBe(false)
+
+    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    expect(warning.props('modelValue')).toBe(true)
+    expect(warning.props('title')).toBe("Change your guardian's details?")
+    expect(warning.props('message')).toContain("clears the permission Pat Fischer gave")
+    // Not editing until they continue.
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(false)
+
+    warning.vm.$emit('confirm')
+    await flushPromises()
+    expect(wrapper.find('[data-test="guardian-form"]').exists()).toBe(true)
+  })
+
+  it("locks a supervisor's student's guardian once permission is given, pointing to support", async () => {
+    const wrapper = await mountAs({
+      ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com',
+      join_perm: true, details_locked: true, guardian_locked: true,
+    })
+    expect(wrapper.find('[data-test="guardian-edit"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="guardian-lock"]').exists()).toBe(true)
+    const note = wrapper.get('[data-test="guardian-locked"]')
+    expect(note.text()).toContain("Your guardian has given permission, so their details can't be changed here.")
+    expect(note.get('a').attributes('href')).toBe('mailto:support@biotechfutures.org')
+  })
+
+  it('lets them edit their guardian while permission is pending', async () => {
+    const wrapper = await mountAs({
+      ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com',
+      join_perm: false, details_locked: true, guardian_locked: false,
+    })
+    expect(wrapper.find('[data-test="guardian-edit"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="guardian-lock"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="guardian-locked"]').exists()).toBe(false)
+  })
+
   it('saves edited guardian details', async () => {
     const wrapper = await mountAs({ ...baseUser, pg_firstname: 'Pat', pg_lastname: 'Fischer', pg_email: 'pat@example.com', join_perm: false })
     const auth = useAuthStore()
     const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
 
-    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await openGuardianForm(wrapper)
     await wrapper.find('#guardian-first-name').setValue('Robin')
     await wrapper.find('#guardian-email').setValue('robin@example.com')
     await wrapper.find('[data-test="guardian-form"]').trigger('submit')
@@ -125,7 +177,7 @@ describe('ProfilePage guardian consent', () => {
     const auth = useAuthStore()
     const update = vi.spyOn(auth, 'updateGuardian').mockResolvedValue(undefined as never)
 
-    await wrapper.find('[data-test="guardian-edit"]').trigger('click')
+    await openGuardianForm(wrapper)
     await wrapper.find('#guardian-first-name').setValue('Robin')
     await wrapper.find('#guardian-last-name').setValue('Carer')
     await wrapper.find('#guardian-email').setValue('Student@example.com')

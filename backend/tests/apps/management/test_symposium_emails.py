@@ -2,6 +2,7 @@
 submitted but weren't picked and to teams that didn't submit: who gets them,
 the client's wording with the Symposium details from Notify Finalists,
 preview, and sending in batches."""
+import smtplib
 from datetime import timedelta
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -141,13 +142,13 @@ class NonFinalistEmailTests(_GradingFixture):
         # An earlier send reached everyone but ben; this one doesn't go at all.
         for address in ("amy@example.com", "mo@example.com", "sue@example.com"):
             EmailDelivery.objects.create(email="nonfinalist_invitation", group=self.group, address=address)
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
             results = self._send_all()
         self.assertEqual(sum(r["failed"] for r in results), 1)
         # The page lists who it couldn't reach, and why.
         self.assertEqual(
-            results[-1]["run"]["missed"], [{"who": f"ben@example.com ({self.group.group_name}, Mem ben)", "reason": "lost the mail server connection"}],
+            results[-1]["run"]["missed"], [{"who": f"ben@example.com ({self.group.group_name}, Mem ben)", "reason": "mail server refused it"}],
         )
         # The student it reached counts as emailed; ben doesn't.
         self.assertEqual(results[-1]["students"], {"total": 2, "emailed": 1, "times": {"total": 2, "emailed": 1}})
@@ -166,7 +167,7 @@ class NonFinalistEmailTests(_GradingFixture):
         # An earlier send reached everyone but ben; this one doesn't go at all.
         for address in ("amy@example.com", "mo@example.com", "sue@example.com"):
             EmailDelivery.objects.create(email="nonfinalist_invitation", group=self.group, address=address)
-        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("rejected")), \
+        with mock.patch("django.core.mail.EmailMultiAlternatives.send", side_effect=smtplib.SMTPDataError(554, b"rejected")), \
                 self.assertLogs("apps.management.services.delivery", level="ERROR"):
             result = self._send_all()[-1]
         self.assertEqual(result["waiting"]["missed"], {"teams": 1, "people": 1})

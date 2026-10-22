@@ -102,6 +102,7 @@ import {
   type ReleaseStatus
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatStatementTime } from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 // Release Results rechecks whether the results emails may be sent.
@@ -137,9 +138,7 @@ const onExclusionChange = async (event: Event) => {
 }
 
 const releasedAtLabel = computed(() =>
-  status.value?.released_at
-    ? `${new Date(status.value.released_at).toLocaleDateString('en-GB')} ${new Date(status.value.released_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    : ''
+  status.value?.released_at ? formatStatementTime(status.value.released_at) : ''
 )
 
 const load = async () => {
@@ -318,7 +317,7 @@ const confirmRelease = async () => {
 
 .release__dialog {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-radius: 10px;
   box-shadow: 0 10px 40px var(--shadow);
   width: 100%;

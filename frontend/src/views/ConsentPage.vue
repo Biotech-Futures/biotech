@@ -1,11 +1,7 @@
 <template>
   <main class="consent-page">
+    <!-- Under the site's top bar, which shows the logo. -->
     <div class="consent-shell">
-      <header class="consent-brand">
-        <img :src="logo" :alt="BRAND_NAME" class="consent-brand__logo" />
-        <span class="consent-brand__name">{{ BRAND_NAME }}</span>
-      </header>
-
       <section class="consent-card">
         <div v-if="loading" class="consent-state" role="status" aria-live="polite">
           <span class="consent-spinner" aria-hidden="true"></span>
@@ -92,7 +88,7 @@
           </p>
           <p v-if="submitError" class="consent-error" role="alert" data-test="consent-submit-error">{{ submitError }}</p>
 
-          <button type="submit" class="consent-submit" :disabled="submitting" data-test="consent-submit">
+          <button type="submit" class="btn btn-primary consent-submit" :disabled="submitting" data-test="consent-submit">
             <span v-if="submitting" class="consent-spinner consent-spinner--light" aria-hidden="true"></span>
             {{ submitting ? 'Signing…' : 'Sign consent form' }}
           </button>
@@ -110,12 +106,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import logo from '@/assets/btf-logo.png'
 import SignaturePad from '@/components/consent/SignaturePad.vue'
-import { BRAND_NAME } from '@/constants/brand'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { fetchConsentForm, signConsentForm } from '@/utils/consentAPI'
 import type { ConsentFormData, ConsentSigned } from '@/utils/consentAPI'
+import { formatDayMonthTime } from '@/utils/date'
 
 const DEFAULT_SUPPORT_EMAIL = 'support@biotechfutures.org'
 
@@ -146,11 +141,8 @@ const linkErrorTitle = computed(() =>
   linkErrorCode.value === 'used' ? 'Already signed' : "This link can't be used"
 )
 
-const expiresLabel = computed(() =>
-  data.value
-    ? new Date(data.value.expiresAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
-    : ''
-)
+// "22 Oct, 11:00 am", in the set time.
+const expiresLabel = computed(() => (data.value ? formatDayMonthTime(data.value.expiresAt) : ''))
 
 const missing = computed(() => {
   const items: string[] = []
@@ -195,6 +187,8 @@ async function submit() {
 onMounted(async () => {
   try {
     data.value = await fetchConsentForm(token.value)
+    // Just signed (a refresh): its thank-you, not the form again.
+    if (data.value.completed) signed.value = data.value.completed
     fullName.value = [data.value.guardianFirstName, data.value.guardianLastName].filter(Boolean).join(' ')
   } catch (error) {
     showLinkError(error)
@@ -205,19 +199,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* The platform's card, fields, button and colours, on the site's background
+   under its top bar (64px), as the Guardian Details form. */
 .consent-page {
-  --emerald-700: #1f5d4f;
-  --emerald-500: #2fa486;
-  --stone-900: #10211d;
-  --stone-700: #36514a;
-  --stone-500: #648178;
-  --border-soft: rgba(16, 33, 29, 0.12);
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: calc(100vh - 64px);
+  min-height: calc(100dvh - 64px);
   padding: 32px 16px 48px;
-  font-family: Arial, Helvetica, sans-serif;
-  color: var(--stone-900);
-  background: linear-gradient(180deg, #eef7f2 0%, #e7f3ec 40%, #dcece2 100%);
+  color: var(--teal);
+  background: var(--bg-light);
 }
 
 .consent-page,
@@ -226,33 +215,16 @@ onMounted(async () => {
 }
 
 .consent-shell {
-  max-width: 760px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
-.consent-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.consent-brand__logo {
-  width: 40px;
-  height: 40px;
-  object-fit: contain;
-}
-
-.consent-brand__name {
-  font-weight: 700;
-  font-size: 1.15rem;
-}
-
+/* As .card. */
 .consent-card {
-  padding: 32px;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 20px 60px rgba(12, 41, 34, 0.12);
+  padding: 1.5rem;
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 2px 4px var(--shadow);
 }
 
 h1 {
@@ -263,7 +235,7 @@ h1 {
 
 .consent-kicker {
   margin: 0 0 6px;
-  color: var(--emerald-700);
+  color: var(--dark-green);
   font-size: 0.78rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -271,7 +243,6 @@ h1 {
 }
 
 .consent-body {
-  color: var(--stone-700);
   line-height: 1.65;
 }
 
@@ -280,7 +251,7 @@ h1 {
 .consent-section legend {
   margin: 24px 0 8px;
   padding: 0;
-  color: var(--stone-900);
+  color: var(--teal);
   font-size: 1.1rem;
   font-weight: 700;
 }
@@ -301,7 +272,7 @@ h1 {
 
 .consent-body :deep(a),
 .consent-card a {
-  color: var(--emerald-700);
+  color: var(--dark-green);
   font-weight: 700;
 }
 
@@ -312,29 +283,29 @@ h1 {
 }
 
 .consent-section p {
-  color: var(--stone-700);
   line-height: 1.6;
 }
 
 .consent-section--invalid .consent-option {
-  border-color: rgba(210, 75, 75, 0.5);
+  border-color: var(--danger);
 }
 
+/* A media consent choice: the site's border, dark green when picked. */
 .consent-option {
   display: flex;
   gap: 12px;
   align-items: flex-start;
   margin-top: 10px;
   padding: 14px 16px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
   line-height: 1.55;
   cursor: pointer;
 }
 
 .consent-option--selected {
-  border-color: var(--emerald-500);
-  background: rgba(47, 164, 134, 0.07);
+  border-color: var(--dark-green);
+  background: rgba(1, 113, 81, 0.06);
 }
 
 .consent-option input,
@@ -342,8 +313,18 @@ h1 {
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
-  margin-top: 2px;
-  accent-color: var(--emerald-700);
+  /* Centred on the first line of the text beside it, 1.55 lines tall; the
+     text's own size, so em measures that line. */
+  margin: calc((1.55em - 18px) / 2) 0 0;
+  font-size: inherit;
+  accent-color: var(--dark-green);
+}
+
+/* The agree box, bigger. */
+.consent-agree input {
+  width: 22px;
+  height: 22px;
+  margin-top: calc((1.55em - 22px) / 2);
 }
 
 .consent-field {
@@ -354,17 +335,28 @@ h1 {
   font-size: 0.95rem;
 }
 
+/* As .form-control. */
 .consent-field input {
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  width: 100%;
+  padding: 0.625rem;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  background: var(--white);
+  color: var(--teal);
   font: inherit;
+  font-size: 1rem;
   font-weight: 400;
+  transition: border-color 0.3s ease;
+}
+
+.consent-field input:focus {
+  outline: none;
+  border-color: var(--dark-green);
+  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.1);
 }
 
 .consent-field input.is-invalid {
-  border-color: rgba(210, 75, 75, 0.6);
+  border-color: var(--danger);
 }
 
 .consent-agree {
@@ -379,27 +371,16 @@ h1 {
 .consent-error {
   margin: 18px 0 0;
   padding: 12px 14px;
-  border: 1px solid rgba(210, 75, 75, 0.2);
-  border-radius: 8px;
-  background: rgba(255, 245, 245, 0.95);
-  color: #9f3030;
+  border: 1px solid rgba(220, 53, 69, 0.25);
+  border-radius: 4px;
+  background: rgba(220, 53, 69, 0.06);
+  color: var(--danger);
 }
 
+/* .btn .btn-primary does the rest. */
 .consent-submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
   width: 100%;
-  min-height: 52px;
   margin-top: 22px;
-  border: 0;
-  border-radius: 12px;
-  color: #ffffff;
-  background: linear-gradient(135deg, var(--emerald-700), var(--emerald-500));
-  font-size: 1rem;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .consent-submit:disabled {
@@ -408,7 +389,7 @@ h1 {
 }
 
 .consent-muted {
-  color: var(--stone-500);
+  color: var(--text-muted);
   font-size: 0.9rem;
   line-height: 1.6;
 }
@@ -429,7 +410,6 @@ h1 {
 .consent-state p {
   margin: 0;
   max-width: 520px;
-  color: var(--stone-700);
   line-height: 1.6;
 }
 
@@ -439,8 +419,8 @@ h1 {
   width: 58px;
   height: 58px;
   border-radius: 50%;
-  background: rgba(39, 132, 109, 0.12);
-  color: var(--emerald-700);
+  background: var(--light-green);
+  color: var(--dark-green);
 }
 
 .consent-success-icon svg {
@@ -456,8 +436,8 @@ h1 {
 .consent-spinner {
   width: 22px;
   height: 22px;
-  border: 2px solid rgba(31, 93, 79, 0.2);
-  border-top-color: var(--emerald-700);
+  border: 2px solid rgba(1, 113, 81, 0.2);
+  border-top-color: var(--dark-green);
   border-radius: 50%;
   animation: consent-spin 0.8s linear infinite;
 }
@@ -481,7 +461,7 @@ h1 {
   }
 
   .consent-card {
-    padding: 22px 18px;
+    padding: 1.25rem 1rem;
   }
 
   h1 {

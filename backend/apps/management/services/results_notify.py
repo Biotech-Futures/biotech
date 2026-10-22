@@ -24,6 +24,7 @@ Who gets them, for the challenge year (``current_cohort``):
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -136,6 +137,21 @@ MARKS_SHEET_COLUMNS = [
     *(name for i in range(1, 5) for name in (f"SM{i}", f"ShortAnswerQuestionComment{i}")),
     "MTotal",
 ]
+
+
+
+def _spaced(name: str) -> str:
+    """"TeamCode" as "Team Code", "PosterComment1" as "Poster Comment 1"."""
+    return re.sub(r"([A-Za-z])(\d)", r"\1 \2", re.sub(r"([a-z])([A-Z])", r"\1 \2", name))
+
+
+# The spreadsheet's headings, on every copy (the supervisor email's, the
+# Release Results downloads, the supervisor's Results page): its field names
+# spaced out, but the marks as they are (PM1, SM1, MTotal), and TeamCode as Group.
+MARKS_SHEET_HEADINGS = {
+    name: "Group" if name == "TeamCode" else name if name in MARKS_SHEET_MARKS else _spaced(name)
+    for name in MARKS_SHEET_COLUMNS
+}
 
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -406,14 +422,14 @@ class Documents:
         )
 
     def marks_summary(self, team) -> bytes:
-        context = marks_summary_context(team, self.year, grades_payload(team, self.year))
+        context = marks_summary_context(team, self.year, grades_payload(team))
         return render_marks_summary_data(self._template("marks_summary_template"), context, self._signatures())
 
     def marks_sheet(self, teams) -> bytes:
         """One row per group, filled exactly as its marks summary is."""
         return _marks_sheet([
             _sheet_row(marks_release_fields(
-                marks_summary_context(team, self.year, grades_payload(team, self.year))
+                marks_summary_context(team, self.year, grades_payload(team))
             ))
             for team in teams
         ])
@@ -450,10 +466,12 @@ def _marks_sheet(rows: list[dict]) -> bytes:
         total = row.get("MTotal")
         return (total in (None, ""), -Decimal(total or 0), natural_key(row.get("TeamCode", "")))
 
-    return build_team_marks_xlsx(sorted(rows, key=order), MARKS_SHEET_COLUMNS, set(MARKS_SHEET_MARKS))
+    return build_team_marks_xlsx(
+        sorted(rows, key=order), MARKS_SHEET_COLUMNS, set(MARKS_SHEET_MARKS), MARKS_SHEET_HEADINGS,
+    )
 
 
-def sample_marks_sheet(year: int) -> bytes:
+def sample_marks_sheet() -> bytes:
     """The supervisor's marks spreadsheet as it will look: made-up groups,
     marked against the real rubric's criteria and maximums, as Document
     Setup's test render fills the marks summary."""
@@ -466,7 +484,7 @@ def sample_marks_sheet(year: int) -> bytes:
             project_title=title,
             students=students,
             mentors=mentors,
-            components=sample_components(year, shift=n - 1),
+            components=sample_components(shift=n - 1),
         )
         rows.append(_sheet_row(marks_release_fields(context)))
     return _marks_sheet(rows)
@@ -615,6 +633,29 @@ def _record(model, **fields) -> None:
         pass
 
 
+def waiting_supervisor_due(details: dict, addresses: list[str]) -> list[str]:
+    """A supervisor's kept results email is due nobody once they've had it
+    since (pressing Send again, say)."""
+    emailed = ResultsSupervisorEmail.objects.filter(
+        supervisor_id=details.get("supervisor_id"), year=details.get("year"),
+    ).exists()
+    return [] if emailed else addresses
+
+
+def waiting_supervisor_sent(details: dict, addresses: list[str]) -> None:
+    """A supervisor's results email kept until the mail server could be
+    reached went (``services.waiting_email``): recorded as emailed, as one
+    that goes at once is, so pressing Send again doesn't email them twice."""
+    from .delivery import waiting_sent
+
+    waiting_sent(details, addresses)
+    User = get_user_model()
+    supervisor = User.objects.filter(pk=details.get("supervisor_id")).first()
+    if supervisor is not None:
+        sent_by = User.objects.filter(pk=details.get("sent_by")).first() if details.get("sent_by") else None
+        _record(ResultsSupervisorEmail, supervisor=supervisor, year=details.get("year"), sent_by=sent_by)
+
+
 def _send_item(
     audience: str, item, people: dict[str, str], result: ResultsAudience, details: ResultsEmailSettings, actor,
     connection, cache: dict,
@@ -649,7 +690,16 @@ def _send_item(
             cc_staff=False,
         )
     else:
-        failed = send_each(rendered, recipients, connection, email=EMAIL_KEYS[SUPERVISORS], files=files, log_as=who)
+        # A copy kept until the mail server can be reached records the
+        # supervisor as emailed once it goes.
+        failed = send_each(
+            rendered, recipients, connection, email=EMAIL_KEYS[SUPERVISORS], files=files, log_as=who,
+            on_sent={
+                "due": "apps.management.services.results_notify.waiting_supervisor_due",
+                "sent": "apps.management.services.results_notify.waiting_supervisor_sent",
+                "supervisor_id": item.id, "year": result.year, "sent_by": getattr(actor, "pk", None),
+            },
+        )
     if failed:
         return missed_people(people, failed)
     if audience == GROUPS:
@@ -737,7 +787,7 @@ def _work(audience: str, actor, options: dict) -> list[Work]:
             # Anyone a run already reached isn't emailed again.
             due = set(still_due(EMAIL_KEYS[GROUPS], item, list(people)))
             people = {address: label for address, label in people.items() if address in due}
-        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor)))
+        work.append(Work(list(people.values()), partial(_send_item, audience, item, people, result, details, actor), list(people)))
     return work
 
 

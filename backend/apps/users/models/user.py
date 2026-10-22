@@ -71,10 +71,15 @@ class User(AbstractUser):
     invited_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
     timezone = models.CharField(max_length=64, default="UTC", blank=False)
+    pronouns = models.CharField(max_length=100, blank=True)
     # This is a private object key, never a public Azure URL.  URLs are signed
     # only when serializing the authenticated user's profile.
     profile_image_key = models.CharField(max_length=512, blank=True, default="")
     profile_image_content_type = models.CharField(max_length=64, blank=True, default="")
+    # When they agreed to the BIOTech Futures policies, ticking them as they
+    # registered (themselves, or the students they registered). None for
+    # anyone who hasn't: added by someone else, or before the box was there.
+    policies_agreed_at = models.DateTimeField(null=True, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]

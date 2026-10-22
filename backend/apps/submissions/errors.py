@@ -31,7 +31,7 @@ class NotSubmittedYet(APIException):
 
 class PosterRequired(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = "A poster must be uploaded before the entry can be submitted."
+    default_detail = "Please upload your poster before submitting."
     default_code = "poster_required"
 
 
@@ -75,9 +75,19 @@ class RequiredAnswersMissing(APIException):
         self.extra = {"missing": list(prompts)}
 
 
+class AnswersOverLimit(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Some answers are over their word limit."
+    default_code = "answers_over_limit"
+
+    def __init__(self, prompts):
+        super().__init__()
+        self.extra = {"over_limit": list(prompts)}
+
+
 class PosterFormatRejected(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = "This poster is not in the required format."
+    default_detail = "Your poster doesn't match the required format. Please check it against the template and try again."
     default_code = "poster_format_rejected"
 
     def __init__(self, problems):
@@ -95,3 +105,15 @@ class FileNotUploadedYet(APIException):
     status_code = status.HTTP_404_NOT_FOUND
     default_detail = "No file has been uploaded for this slot."
     default_code = "file_not_uploaded_yet"
+
+
+class CoeditingActive(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This page is out of date. Please refresh it to keep editing."
+    default_code = "coediting_active"
+
+
+class PosterChecklistIncomplete(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "Please tick every item in the poster checklist before submitting."
+    default_code = "poster_checklist_incomplete"

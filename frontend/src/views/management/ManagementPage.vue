@@ -1,25 +1,47 @@
 <template>
   <div class="content-area management">
-    <header class="management__hero">
-      <div>
-        <h1 class="management__title">Management</h1>
-        <p class="management__subtitle">
-          Set deadlines, grant extensions, manage documents, releases and the new year.
-        </p>
-      </div>
+    <header class="page-header">
+      <h1 class="page-title">Management</h1>
+      <p class="page-subtitle">
+        Set deadlines, grant extensions, manage documents, releases and the new year.
+      </p>
     </header>
 
-    <nav class="management__switcher" role="tablist" aria-label="Management sections">
+    <!-- Its sections, as Grading's tabs (each with its icon), the open one
+         highlighted on any of its pages. -->
+    <nav class="tab-bar tab-bar--main" aria-label="Management sections">
       <RouterLink
-        v-for="tab in tabs"
-        :key="tab.to"
-        :to="tab.to"
-        role="tab"
-        :aria-selected="route.path.startsWith(tab.to)"
-        class="management__switch"
-        :class="{ active: route.path.startsWith(tab.to) }"
+        v-for="section in sections"
+        :key="section.label"
+        :to="section.pages[0]!.to"
+        class="tab-pill"
+        :class="{ active: section === openSection }"
+        :aria-current="section === openSection ? 'true' : undefined"
+        data-test="management-section"
       >
-        {{ tab.label }}
+        <i :class="['fas', section.icon]" aria-hidden="true"></i>
+        <span>{{ section.label }}</span>
+      </RouterLink>
+    </nav>
+
+    <!-- The open section's own pages, as Grading's components under its tabs:
+         only for a section with more than one. -->
+    <nav
+      v-if="openSection && openSection.pages.length > 1"
+      class="tab-bar"
+      role="tablist"
+      :aria-label="`${openSection.label} pages`"
+    >
+      <RouterLink
+        v-for="page in openSection.pages"
+        :key="page.to"
+        :to="page.to"
+        role="tab"
+        :aria-selected="isOpen(page.to)"
+        class="tab-pill"
+        :class="{ active: isOpen(page.to) }"
+      >
+        {{ page.label }}
       </RouterLink>
     </nav>
 
@@ -28,76 +50,73 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
 
-const tabs = [
-  { label: 'Submission Deadline', to: '/management/submission-deadline' },
-  { label: 'Extend Deadline', to: '/management/extend-deadline' },
-  { label: 'Notify Finalists', to: '/management/notify-finalists' },
-  { label: 'Notify Nonfinalist', to: '/management/email-nonfinalist' },
-  { label: 'Finalist Presentation', to: '/management/finalist-presentation' },
-  { label: 'Release Results', to: '/management/release-results' },
-  { label: 'Document Setup', to: '/management/document-setup' },
-  { label: 'New Year', to: '/management/new-year' }
+// A page open: its own path or one under it, not one that only starts the
+// same (Registration isn't open on /management/registration-dates, say).
+const isOpen = (to: string) => route.path === to || route.path.startsWith(`${to}/`)
+
+interface ManagementSection {
+  label: string
+  icon: string
+  /** Its pages, in order: the section opens on the first. */
+  pages: { label: string; to: string }[]
+}
+
+// The year's steps in order, then More.
+const sections: ManagementSection[] = [
+  {
+    label: 'Registration',
+    icon: 'fa-user-plus',
+    pages: [
+      { label: 'Registration', to: '/management/registration' },
+      { label: 'Late Registration', to: '/management/late-registration' }
+    ]
+  },
+  {
+    label: 'Challenge Start',
+    icon: 'fa-flag',
+    pages: [{ label: 'Challenge Start', to: '/management/challenge-start' }]
+  },
+  {
+    label: 'Submission Deadline',
+    icon: 'fa-file-arrow-up',
+    pages: [{ label: 'Submission Deadline', to: '/management/submission-deadline' }]
+  },
+  {
+    label: 'Symposium',
+    icon: 'fa-chalkboard-user',
+    pages: [
+      { label: 'Notify Finalists', to: '/management/notify-finalists' },
+      { label: 'Finalist Presentation', to: '/management/finalist-presentation' }
+    ]
+  },
+  {
+    label: 'Results',
+    icon: 'fa-trophy',
+    pages: [
+      { label: 'Results', to: '/management/results' },
+      { label: 'Release Results', to: '/management/release-results' },
+      { label: 'Document Setup', to: '/management/document-setup' }
+    ]
+  },
+  {
+    label: 'New Year',
+    icon: 'fa-rotate',
+    pages: [{ label: 'New Year', to: '/management/new-year' }]
+  },
+  {
+    label: 'More',
+    icon: 'fa-ellipsis',
+    pages: [
+      { label: 'Email Checks', to: '/management/email-checks' },
+      { label: 'Known Universities', to: '/management/known-universities' }
+    ]
+  }
 ]
+
+const openSection = computed(() => sections.find((section) => section.pages.some((page) => isOpen(page.to))))
 </script>
-
-<style scoped>
-.management__hero {
-  margin-bottom: 1.25rem;
-}
-
-.management__title {
-  margin-bottom: 0.25rem;
-}
-
-.management__subtitle {
-  color: var(--text-muted);
-  margin: 0;
-}
-
-/* Same pill-bar treatment as the component switcher on the marking tables:
-   one white rounded rail, the active option a solid green pill. */
-.management__switcher {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  margin-bottom: 1.75rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  /* Not 999px: with the rail wrapped onto two rows a fully-round radius turns
-     into a giant lozenge. 1.4rem still reads as a pill on a single row. */
-  border-radius: 1.4rem;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.management__switch {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  font-family: inherit;
-  cursor: pointer;
-  text-decoration: none;
-  transition:
-    color 0.18s ease,
-    background-color 0.18s ease;
-}
-
-.management__switch:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--accent-green-soft);
-}
-
-.management__switch.active {
-  background: var(--dark-green);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-</style>

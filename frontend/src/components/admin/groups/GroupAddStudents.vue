@@ -13,7 +13,7 @@
       <input
         v-model="search"
         type="search"
-        class="form-input group-add__search-input"
+        class="form-input app-input group-add__search-input"
         placeholder="Search ungrouped students..."
         aria-label="Search ungrouped students"
         :disabled="busy"
@@ -146,7 +146,8 @@ const confirm = async () => {
   submitError.value = ''
   try {
     await confirmStudentAssignments(
-      picked.map((student) => ({ studentId: student.id, groupId: props.group.id }))
+      picked.map((student) => ({ studentId: student.id, groupId: props.group.id })),
+      { onlyUngrouped: true }
     )
     emit('added', picked)
   } catch (err) {
@@ -177,17 +178,9 @@ const confirm = async () => {
   font-size: 0.875rem;
 }
 
-/* .form-input isn't global — each admin component styles it — so match the
-   other admin form sheets here. */
+/* The shared box (app-input), on the panel's own background. */
 .form-input {
-  width: 100%;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
-  font: inherit;
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -255,7 +248,7 @@ const confirm = async () => {
 
 .group-add__option-name {
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .group-add__option-email {

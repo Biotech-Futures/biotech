@@ -134,7 +134,26 @@ export const systemEmailLogSchema = z.array(
         at: z.string(),
         people: z.array(z.object({ who: z.string(), reason: z.string() }))
       })
-    )
+    ),
+    // Who it bounced back from after the mail server took it, grouped by
+    // when the bounce check found them, newest first.
+    bounced: z
+      .array(
+        z.object({
+          at: z.string(),
+          people: z.array(z.object({ who: z.string(), reason: z.string() }))
+        })
+      )
+      .default([]),
+    // Who it's waiting to reach while the mail server can't be reached: each
+    // is tried again every 10 minutes until `until`, then given up on.
+    waiting: z
+      .array(z.object({ who: z.string(), at: z.string().optional(), until: z.string() }))
+      .default([]),
+    // Whether its Resend has anyone to email again.
+    resendable: z.boolean().default(false),
+    // A login code or reset link: never resent, as they expire within minutes.
+    expires: z.boolean().default(false)
   })
 )
 
@@ -143,6 +162,43 @@ export type SystemEmailLogEntry = z.infer<typeof systemEmailLogSchema>[number]
 // How many people sends couldn't reach since an admin last looked at Failed
 // Sending Emails: the red count on its button.
 export const systemEmailUnseenSchema = z.object({ unseen: z.number() })
+
+// Whether bounced emails can be checked through Hostinger's Mail API: no key
+// ("unset"), a key Hostinger refused ("rejected"), or a check that couldn't
+// get through ("failed"), each at `at`; "" when it can.
+export const systemEmailMailApiSchema = z.object({
+  problem: z.enum(['', 'unset', 'rejected', 'failed']).catch(''),
+  at: z.string().nullable(),
+  status: z.number().nullable()
+})
+
+export type SystemEmailMailApi = z.infer<typeof systemEmailMailApiSchema>
+
+const makeMailApiKey = (which: string) =>
+  `Make ${which} in hPanel under Emails, Agentic Mail, API access, and set it as HOSTINGER_MAIL_API_KEY in Azure.`
+
+/** Why bounced emails aren't being checked, or '' when they are: for the
+ *  top of the page and of Failed Sending Emails. ``when`` formats a time. */
+export const mailApiNote = (state: SystemEmailMailApi | null | undefined, when: (iso: string) => string): string => {
+  if (!state?.problem) return ''
+  const at = state.at ? when(state.at) : ''
+  if (state.problem === 'unset') {
+    return `Bounced emails aren't being checked because the Hostinger Mail API key isn't set. ${makeMailApiKey('one')}`
+  }
+  if (state.problem === 'rejected') {
+    return `Bounced emails aren't being checked because Hostinger rejected the Mail API key at ${at}. ${makeMailApiKey('a new one')}`
+  }
+  const answer = state.status ? `answered ${state.status}` : "didn't answer"
+  return `Bounced emails couldn't be checked at ${at} because Hostinger's Mail API ${answer}. It's tried again every 10 minutes.`
+}
+
+/** Whether Azure's Always On is keeping the backend awake. */
+export const systemEmailAlwaysOnSchema = z.object({
+  state: z.enum(['on', 'off', 'checking', 'not_azure']).catch('not_azure'),
+  lastSeenAt: z.string().nullable()
+})
+
+export type SystemEmailAlwaysOn = z.infer<typeof systemEmailAlwaysOnSchema>
 
 // ---------------------------------------------------------------------------
 // Request payloads

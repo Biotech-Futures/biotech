@@ -13,6 +13,8 @@ from apps.common.rbac import IsStaffOrAdmin
 from apps.grading.models import FinalistFlag
 from apps.grading.services.text import natural_key
 from apps.services.email_branding import LOGO_CID, logo_data_uri
+from apps.services.email_registry import get_email_type
+from apps.services.system_email import is_email_enabled
 from apps.submissions.emails import recipients_for
 
 from ..models import FinalistEmailSettings
@@ -114,6 +116,28 @@ def _waiting() -> dict:
     return waiting
 
 
+def _switched_off() -> str:
+    """Why Notify Finalists can't send because its email is off, or ""."""
+    if is_email_enabled(EMAIL_KEY):
+        return ""
+    return f"{get_email_type(EMAIL_KEY).name} is switched off on System Emails."
+
+
+def send_blocked_reason() -> str:
+    """Why Notify Finalists can't send, or "" when it may go ahead: its email
+    switched off, its details not all set or already past, or submissions
+    still open. Resend on System Emails' Log asks the same."""
+    switched_off = _switched_off()
+    if switched_off:
+        return switched_off
+    details = FinalistEmailSettings.load()
+    if not details.is_complete:
+        return MISSING_DETAILS
+    if details.dates_before(symposium_today()):
+        return PAST_DATES
+    return submissions_open_reason()
+
+
 class FinalistEmailSettingsView(APIView):
     """GET/PATCH /api/v1/management/finalists/email/ — the dates and link the
     finalist email gives teams. Also says whether the email is complete."""
@@ -132,6 +156,8 @@ class FinalistEmailSettingsView(APIView):
             "dates_in_past": details.dates_before(today),
             # Why sending waits for submissions to close, or "".
             "submissions_open": submissions_open_reason(),
+            # Why the email can't go because it's off on System Emails, or "".
+            "switched_off": _switched_off(),
             # Whether a run is sending now, and its progress.
             **run_state(FINALIST_SEND),
             # Everyone due the email and emailed, by role.
@@ -207,14 +233,11 @@ class FinalistNotifyAllView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     def post(self, request):
-        details = FinalistEmailSettings.load()
-        if not details.is_complete:
-            return Response({"detail": MISSING_DETAILS}, status=status.HTTP_400_BAD_REQUEST)
-        if details.dates_before(symposium_today()):
-            return Response({"detail": PAST_DATES}, status=status.HTTP_400_BAD_REQUEST)
-        open_reason = submissions_open_reason()
-        if open_reason:
-            return Response({"detail": open_reason}, status=status.HTTP_400_BAD_REQUEST)
+        # Refused up front, as the other Management emails are: a run would
+        # send nothing and log every member as missed.
+        blocked = send_blocked_reason()
+        if blocked:
+            return Response({"detail": blocked}, status=status.HTTP_400_BAD_REQUEST)
         which = request.data.get("which") or ""
         if which not in ("", *WHICH):
             return Response({"detail": "which must be new or missed"}, status=status.HTTP_400_BAD_REQUEST)
@@ -241,7 +264,7 @@ def _finalist_work(actor, options: dict) -> list[Work]:
     work = []
     for flag, addresses in _due(options.get("which", ""), options.get("group_ids")):
         people = member_labels(flag.group, addresses)
-        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor)))
+        work.append(Work(list(people.values()), partial(_notify, flag, people, details, actor), list(people)))
     return work
 
 

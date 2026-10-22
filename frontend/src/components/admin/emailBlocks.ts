@@ -1,4 +1,5 @@
 import { Node } from '@tiptap/core'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 
 /**
  * Box and button blocks for the System Emails editor.
@@ -19,22 +20,12 @@ declare module '@tiptap/core' {
       unsetEmailBox: () => ReturnType
     }
     emailButton: {
-      /** Turn the current line into a button, or change the button's link or style. */
-      setEmailButton: (attributes: { href?: string; style?: string }) => ReturnType
+      /** Turn the current line into a button, or change the button's link,
+       *  style, or where it sits on its line. */
+      setEmailButton: (attributes: { href?: string; style?: string; align?: 'left' | 'center' }) => ReturnType
     }
   }
 }
-
-// Keep in step with EMAIL_STYLE_PROPERTIES in backend/apps/services/system_email.py.
-// Text (emailTextStyle.ts) and tables (emailTables.ts) use them too: height
-// draws a divider line, border-collapse and width lay out a table.
-const STYLE_PROPERTIES = new Set([
-  'background-color', 'border', 'border-collapse', 'border-radius', 'color', 'display',
-  'font-family', 'font-size', 'font-weight', 'height', 'letter-spacing', 'line-height',
-  'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-  'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
-  'text-align', 'text-decoration', 'text-transform', 'vertical-align', 'width', 'word-break'
-])
 
 export interface EmailLook {
   id: string
@@ -129,31 +120,8 @@ export const swatchOf = (look: EmailLook) =>
     .filter((part) => /^\s*(background-color|border)\s*:/.test(part))
     .join(';')
 
-const PLAIN_COLOUR = /^(#[0-9a-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\))$/i
-
-/**
- * Merge inline styles, later ones winning, keeping only the properties the
- * server allows. Templates write `background:#hex`, kept as `background-color`
- * when it is a plain colour.
- */
-export function cleanEmailStyle(...styles: (string | null | undefined)[]): string {
-  const kept = new Map<string, string>()
-  for (const style of styles) {
-    for (const declaration of (style ?? '').split(';')) {
-      const colon = declaration.indexOf(':')
-      if (colon < 0) continue
-      let property = declaration.slice(0, colon).trim().toLowerCase()
-      const value = declaration.slice(colon + 1).trim()
-      if (!value) continue
-      if (property === 'background') {
-        if (!PLAIN_COLOUR.test(value)) continue
-        property = 'background-color'
-      }
-      if (STYLE_PROPERTIES.has(property)) kept.set(property, value)
-    }
-  }
-  return [...kept].map(([property, value]) => `${property}:${value}`).join('; ')
-}
+// Now in utils/inlineStyle.ts, which pages showing rich text use too.
+export { cleanEmailStyle }
 
 const styleOf = (element: Element | null | undefined) => element?.getAttribute('style') ?? ''
 

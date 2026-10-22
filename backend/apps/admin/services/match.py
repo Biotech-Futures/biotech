@@ -1,8 +1,10 @@
+from collections import Counter, defaultdict
 from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime
 from django.db.models import Q, Count, F, Max, Value, CharField, Exists, OuterRef
 from django.db.models.functions import Concat
 from django.utils import timezone
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
@@ -18,7 +20,7 @@ from apps.admin.algorithms.student import (
     recommend_groups_by_country,
     score_student_for_existing_group,
 )
-from apps.groups.services import sync_supervisor_memberships_for_student
+from apps.groups.services import check_room_for_students, sync_supervisor_memberships_for_student
 
 
 DEFAULT_GROUP_MAX_SIZE = 5
@@ -744,40 +746,64 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     }
 
 
-def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
+def confirm_student_assignments(input_data: Dict[str, Any], created_by=None) -> Dict[str, int]:
     """
     Confirm and finalize student assignments to groups.
-    
+
+    Each group ends up with five students at most, counting everyone in it,
+    or nothing is saved. A student changing group leaves their old one (kept,
+    with left_at set); one already in their group stays as they were. With
+    ``onlyUngrouped`` (Add Students and the matcher, which list students with
+    no group), nothing is saved when one of them has joined a group since.
+
     Args:
         input_data: Dictionary with 'assignments' list containing student-group mappings
-        
+
     Returns:
         Dictionary with 'assigned_count' of successful assignments
     """
     assignments = input_data.get('assignments', [])
-    
+
     if not assignments:
         return {'assigned_count': 0}
-    
+
     assignments = _normalize_confirm_assignments(assignments)
-    
+    only_ungrouped = _read_assignment_value(input_data, 'onlyUngrouped', 'only_ungrouped') is True
+
     # Deduplicate by student
     unique_by_student = {}
     for item in assignments:
         unique_by_student[item['student_id']] = item['group_id']
-    
+
     assignments = [
         {'student_id': sid, 'group_id': gid}
         for sid, gid in unique_by_student.items()
     ]
-    
+
     student_ids = [a['student_id'] for a in assignments]
+    student_role = GroupMembership.MembershipRoleChoices.STUDENT
     now = timezone.now()
-    
+
     with transaction.atomic():
-        # Remove existing memberships
-        GroupMembership.objects.filter(user_id__in=student_ids).delete()
-        
+        current = list(
+            GroupMembership.objects.filter(
+                user_id__in=student_ids, left_at__isnull=True, membership_role=student_role,
+            ).select_related('user', 'group')
+        )
+        # The page listed them with no group: one has joined a group since.
+        if only_ungrouped and current:
+            joined = ' and '.join(
+                f"{_person_name(membership.user)} has joined {membership.group.group_name}"
+                for membership in current
+            )
+            raise ValidationError({'assignments': [f"Since this page loaded, {joined}. Reload and try again."]})
+
+        new_group_sizes = Counter(gid for gid in unique_by_student.values() if isinstance(gid, str))
+        if any(size > DEFAULT_GROUP_MAX_SIZE for size in new_group_sizes.values()):
+            raise ValidationError(
+                {'assignments': [f"A new group can have at most {DEFAULT_GROUP_MAX_SIZE} students."]}
+            )
+
         # Handle synthetic groups (new groups starting with "new-")
         resolved_assignments = assignments
 
@@ -793,10 +819,14 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
             created_group_by_synthetic = {}
             for synthetic_id in synthetic_ids:
                 try:
-                    created_group_by_synthetic[synthetic_id] = Groups.create_auto_named().id
+                    group = Groups.create_auto_named()
+                    # Formed by an admin: the one confirming the matches.
+                    group.mark_formed(Groups.FormedBy.ADMIN, created_by)
+                    created_group_by_synthetic[synthetic_id] = group.id
                 except GroupAutoNameUnavailable as exc:
-                    # Abort the whole confirm (atomic rollback restores the memberships
-                    # deleted above) rather than silently leaving students ungrouped.
+                    # Abort the whole confirm (atomic rollback keeps everyone
+                    # in the group they were in) rather than silently leaving
+                    # students ungrouped.
                     raise ValidationError(str(exc)) from exc
 
             # Resolve assignments
@@ -811,22 +841,55 @@ def confirm_student_assignments(input_data: Dict[str, Any]) -> Dict[str, int]:
                         })
                 else:
                     resolved_assignments.append(item)
-        
+
+        target = {
+            a['student_id']: a['group_id']
+            for a in resolved_assignments
+            if isinstance(a['group_id'], int)
+        }
+        incoming: Dict[int, Set[int]] = defaultdict(set)
+        for student_id, group_id in target.items():
+            incoming[group_id].add(student_id)
+        # Locked in one order, so two confirms at once can't wait on each other.
+        groups = {
+            group.id: group
+            for group in Groups.objects.select_for_update().filter(pk__in=list(incoming)).order_by('pk')
+        }
+        if set(incoming) - set(groups):
+            raise ValidationError({'assignments': ["A group no longer exists. Reload and try again."]})
+
+        # Out of their old group (kept, as left), unless it's the one they're
+        # assigned to; then the room each group has left.
+        staying = {m.user_id for m in current if target.get(m.user_id) == m.group_id}
+        GroupMembership.objects.filter(
+            pk__in=[m.pk for m in current if target.get(m.user_id) != m.group_id]
+        ).update(left_at=now)
+        for group_id in sorted(incoming):
+            try:
+                check_room_for_students(groups[group_id], incoming[group_id], named=True)
+            except DjangoValidationError as exc:
+                raise ValidationError({'assignments': exc.messages}) from exc
+
         # Create memberships
         memberships = [
             GroupMembership(
-                group_id=a['group_id'],
-                user_id=a['student_id'],
+                group_id=group_id,
+                user_id=student_id,
                 joined_at=now,
-                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                membership_role=student_role,
             )
-            for a in resolved_assignments
-            if isinstance(a['group_id'], int)
+            for student_id, group_id in target.items()
+            if student_id not in staying
         ]
-        
+
         if memberships:
             GroupMembership.objects.bulk_create(memberships)
-            for student_id in [m.user_id for m in memberships]:
+        for student_id in student_ids:
+            if student_id not in staying:
                 sync_supervisor_memberships_for_student(student_id)
 
     return {'assigned_count': len(resolved_assignments)}
+
+
+def _person_name(user) -> str:
+    return f"{user.first_name} {user.last_name}".strip() or user.email

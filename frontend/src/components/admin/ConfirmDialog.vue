@@ -19,16 +19,18 @@
           <h2 :id="titleId" class="admin-modal__title">{{ title }}</h2>
         </header>
 
-        <div v-if="message" :id="messageId" class="admin-modal__body">
-          <p class="admin-modal__message">{{ message }}</p>
+        <!-- Its message, and what's put in it (a form's boxes, say). -->
+        <div v-if="message || $slots.default" :id="messageId" class="admin-modal__body">
+          <p v-if="message" class="admin-modal__message">{{ message }}</p>
           <slot />
         </div>
 
         <footer class="admin-modal__footer">
+          <!-- Cancel works while the confirm waits for what it needs. -->
           <button
             type="button"
             class="btn btn-outline"
-            :disabled="busy || disabled"
+            :disabled="busy"
             @click="onCancel"
           >
             {{ cancelLabel }}
@@ -206,7 +208,7 @@ watch(
   margin: 0;
   font-size: 1.15rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.3;
 }
 
@@ -216,7 +218,7 @@ watch(
 
 .admin-modal__message {
   margin: 0;
-  color: var(--charcoal);
+  color: var(--teal);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -253,7 +255,7 @@ watch(
 
 .btn-warning {
   background-color: var(--warning);
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .btn-warning:hover {

@@ -17,12 +17,8 @@
   color: #6b7280;
 }
 
+/* Drawn by the shared box (app-input): only its text colour here. */
 .editor__title {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
   color: #111827;
 }
 
@@ -50,9 +46,7 @@
 }
 
 :root[data-theme='dark'] .editor__title {
-  background: var(--surface-elevated);
-  color: var(--charcoal);
-  border-color: var(--border-light);
+  color: var(--teal);
 }
 
 :root[data-theme='dark'] .editor__actions {

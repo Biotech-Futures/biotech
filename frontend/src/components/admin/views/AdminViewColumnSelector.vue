@@ -34,8 +34,18 @@ const AVAILABLE_COLUMNS: ColumnOption[] = [
   { key: 'name', label: 'Full Name' },
   { key: 'email', label: 'Email' },
   { key: 'role', label: 'Role' },
+  { key: 'pronouns', label: 'Pronouns' },
   { key: 'school', label: 'School / Institution' },
   { key: 'matched_mentor', label: 'Matched Mentor / Group' },
+  { key: 'group_number', label: 'Group Number' },
+  { key: 'group_count', label: 'Number of Groups' },
+  { key: 'mentor_group_capacity', label: 'Group Capacity' },
+  { key: 'mentor_background', label: 'Mentor Background' },
+  { key: 'mentor_year_of_study', label: 'Mentor Year of Study' },
+  { key: 'mentor_field_of_study', label: 'Mentor Field of Study' },
+  { key: 'supervisor_email', label: 'Supervisor Email' },
+  { key: 'guardian_email', label: 'Guardian Email' },
+  { key: 'guardian_permission', label: 'Guardian Permission' },
   { key: 'status', label: 'Status' },
   { key: 'phone', label: 'Phone' },
   { key: 'state', label: 'State' },
@@ -85,7 +95,7 @@ const toggleColumn = (key: string) => {
 .column-selector__label {
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .column-selector__badge {
@@ -111,7 +121,7 @@ const toggleColumn = (key: string) => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
   user-select: none;
 }
@@ -125,6 +135,6 @@ const toggleColumn = (key: string) => {
 
 .column-selector__name {
   font-size: 0.875rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

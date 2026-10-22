@@ -11,25 +11,21 @@
       {{ sending ? 'Sending…' : 'Send Test Email' }}
     </button>
     <span class="test-email__word">of</span>
-    <select
-      v-model="recipient"
-      class="test-email__select"
+    <AppSelect
+      :model-value="recipient"
+      class="test-email__select app-input app-input--compact app-input--small"
       aria-label="Send it as"
+      :options="recipientOptions"
       :disabled="!recipients.length"
-    >
-      <option v-if="!recipients.length" value="">
-        {{ loadError ? "Couldn't load the list" : 'Nobody yet' }}
-      </option>
-      <option v-for="option in recipients" :key="option.value" :value="option.value">
-        {{ option.label }}
-      </option>
-    </select>
+      searchable
+      @update:model-value="(value) => (recipient = String(value ?? ''))"
+    />
     <span class="test-email__word">to</span>
     <!-- Password managers leave this box alone. -->
     <input
       v-model="to"
       type="email"
-      class="test-email__to"
+      class="test-email__to app-input app-input--compact app-input--small"
       placeholder="Email address"
       aria-label="Send the test to"
       autocomplete="off"
@@ -50,7 +46,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import {
   fetchTestEmailRecipients,
   sendTestEmail,
@@ -73,6 +70,13 @@ const loadError = ref(false)
 const to = ref('')
 const sending = ref(false)
 const result = ref<{ ok: boolean; text: string } | null>(null)
+
+// With nobody to pick, the one line saying why.
+const recipientOptions = computed<AppSelectOption[]>(() =>
+  recipients.value.length
+    ? recipients.value
+    : [{ value: '', label: loadError.value ? "Couldn't load the list" : 'Nobody yet' }]
+)
 
 onMounted(async () => {
   try {
@@ -117,15 +121,10 @@ const send = async () => {
   font-size: 0.85rem;
 }
 
+/* The shared compact box (app-input), at its own width. */
 .test-email__select,
 .test-email__to {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
+  width: auto;
 }
 
 .test-email__select {
@@ -139,10 +138,15 @@ const send = async () => {
   max-width: 17rem;
 }
 
-.test-email__select:focus,
+.test-email__select:focus-within,
 .test-email__to:focus {
   outline: none;
   border-color: var(--dark-green);
+}
+
+/* Its border only, as the address box beside it: no outline. */
+.test-email .test-email__select:has(.app-select__input:focus-visible) {
+  outline: none;
 }
 
 .test-email__result {

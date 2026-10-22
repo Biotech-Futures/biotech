@@ -55,20 +55,41 @@ normalizeDirectAuthRedirect()
 
 const router = createRouter({
   history: createWebHashHistory(),
-  routes: routes
+  routes: routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (to.hash) {
+      return { el: to.hash, top: 80, behavior: 'smooth' }
+    }
+
+    if (to.path.startsWith('/analytics') && to.path !== from.path && !to.hash) {
+      return { left: 0, top: 0 }
+    }
+
+    // A resource's own page opens at its top, not as far down as the page
+    // it was opened from (Release Resources sits low on Challenge Start).
+    // The browser's back and forward still return to where they were.
+    if (to.name === 'resource-detail' && to.path !== from.path && !savedPosition) {
+      return { left: 0, top: 0 }
+    }
+
+    return savedPosition ?? undefined
+  },
 })
 
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
+import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
+import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 router.beforeEach((to, from, next) => {
 
-  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password']
+  const publicPaths = ['/login', '/auth/callback', '/auth/reset-password', '/reset-password']
   const passwordSetupPath = '/auth/set-password'
   const auth = useAuthStore()
   const isPublicPath = publicPaths.includes(to.path)
   const isPasswordSetupPath = to.path === passwordSetupPath
   const requiresAdmin = to.meta.requiresAdmin === true
+  const supervisorRegistrationAccess = resolveSupervisorRegistrationRouteAccess(to, auth)
 
   if (to.meta.public === true) {
     // Open to anyone, signed in or not, and never redirected away.
@@ -81,7 +102,7 @@ router.beforeEach((to, from, next) => {
     next(passwordSetupPath)
 
   } else if (isPasswordSetupPath && auth.isAuthenticated && !auth.mustChangePassword) {
-    next('/dashboard')
+    next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
 
   } else if (!isPublicPath && !auth.isAuthenticated) {
     // Signing in brings them back here, e.g. to the page an email linked to.
@@ -92,13 +113,20 @@ router.beforeEach((to, from, next) => {
     // Admin-only routes are off-limits to non-admins; send members home.
     next('/dashboard')
 
+  } else if (supervisorRegistrationAccess !== true) {
+    next(supervisorRegistrationAccess)
+
   } else if (to.path === '/login' && auth.isAuthenticated) {
     if (auth.mustChangePassword) {
       next(passwordSetupPath)
       return
     }
 
-    next(auth.isAdmin ? '/admin' : '/dashboard')
+    next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
+  } else if (auth.isAuthenticated && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from students, mentors and supervisors until Management >
+    // Challenge Start > Pages Visibility's date: their profile instead.
+    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

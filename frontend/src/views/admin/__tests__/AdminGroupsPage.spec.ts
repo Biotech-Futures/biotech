@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminGroupsPage from '@/views/admin/AdminGroupsPage.vue'
+import { pickAppSelect } from '@/__tests__/appSelect'
+
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, string> }))
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
 
 const groupA = {
   id: 1,
@@ -80,9 +84,23 @@ afterEach(() => {
   document.body.innerHTML = ''
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  routeState.query = {}
 })
 
 describe('AdminGroupsPage', () => {
+  it('applies the unmatched mentor filter from a deep link', async () => {
+    routeState.query = { mentorStatus: 'unmatched', search: 'BTF2' }
+    const fetchMock = fetchMockFor([groupB])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminGroupsPage)
+    await flushPromises()
+
+    expect(wrapper.get('[aria-label="Mentor status"]').element).toHaveProperty('value', 'Unmatched')
+    const url = String(listCall(fetchMock)?.[0] ?? '')
+    expect(url).toContain('mentorStatus=unmatched')
+    expect(url).toContain('searchGroup=BTF2')
+  })
+
   it('loads and renders group rows', async () => {
     vi.stubGlobal('fetch', fetchMockFor([groupA, groupB]))
     wrapper = mount(AdminGroupsPage)
@@ -107,30 +125,30 @@ describe('AdminGroupsPage', () => {
 
     expect(wrapper.text()).toContain('No confirmed mentor assignments yet.')
     expect(wrapper.text()).not.toContain('BTF1')
-    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))).toBeUndefined()
   })
 
-  it('shows the Add group button only on the Groups tab and hides it on other tabs', async () => {
+  it('shows the Add Group button only on the Groups tab and hides it on other tabs', async () => {
     vi.stubGlobal('fetch', fetchMockFor([groupA, groupB]))
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeDefined()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))).toBeDefined()
 
     const studentTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Student Matching')
     await studentTab!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))).toBeUndefined()
 
     const mentorTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Mentor Matching')
     await mentorTab!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeUndefined()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))).toBeUndefined()
 
     const groupsTab = wrapper.findAll('button').find((b) => b.text().trim() === 'Groups')
     await groupsTab!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))).toBeDefined()
+    expect(wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))).toBeDefined()
   })
 
   it('searches by group name after the debounce', async () => {
@@ -153,7 +171,7 @@ describe('AdminGroupsPage', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    await wrapper.find('select').setValue('unmatched')
+    await pickAppSelect(wrapper, '[aria-label="Mentor status"]', 'Unmatched')
     await flushPromises()
 
     expect(String(listCall(fetchMock)?.[0])).toContain('mentorStatus=unmatched')
@@ -195,12 +213,12 @@ describe('AdminGroupsPage', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))
     expect(newGroupButton).toBeDefined()
     await newGroupButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('Add group'))
+    const dialog = dialogs().find((d) => d.textContent!.includes('Add Group'))
     expect(dialog).toBeDefined()
 
     const createButton = Array.from(dialog!.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Create')
@@ -212,7 +230,7 @@ describe('AdminGroupsPage', () => {
       ([u, i]) => String(u).includes('/api/v1/admin/group/') && (i as RequestInit | undefined)?.method === 'POST'
     ) as [string, RequestInit]
     expect(JSON.parse(String(init.body)).name).toBeUndefined()
-    expect(dialogs().find((d) => d.textContent!.includes('Add group'))).toBeUndefined()
+    expect(dialogs().find((d) => d.textContent!.includes('Add Group'))).toBeUndefined()
   })
 
   it('shows the duplicate-name error inside the dialog and keeps it open', async () => {
@@ -245,11 +263,11 @@ describe('AdminGroupsPage', () => {
     wrapper = mount(AdminGroupsPage)
     await flushPromises()
 
-    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))
     await newGroupButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('Add group'))!
+    const dialog = dialogs().find((d) => d.textContent!.includes('Add Group'))!
     const nameInput = dialog.querySelector('input[type="text"]') as HTMLInputElement
     nameInput.value = 'BTF1'
     nameInput.dispatchEvent(new Event('input', { bubbles: true }))
@@ -258,7 +276,7 @@ describe('AdminGroupsPage', () => {
     createButton.dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()
 
-    expect(dialogs().find((d) => d.textContent!.includes('Add group'))).toBeDefined()
+    expect(dialogs().find((d) => d.textContent!.includes('Add Group'))).toBeDefined()
     expect(dialog.textContent).toContain('A group named BTF1 already exists in 2026.')
   })
 
@@ -273,7 +291,7 @@ describe('AdminGroupsPage', () => {
     await renameButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('Rename group'))
+    const dialog = dialogs().find((d) => d.textContent!.includes('Rename Group'))
     expect(dialog).toBeDefined()
 
     const nameInput = dialog!.querySelector('input[type="text"]') as HTMLInputElement
@@ -293,7 +311,7 @@ describe('AdminGroupsPage', () => {
       return String(u).includes('/group/1/') && method === 'PUT'
     }) as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toEqual({ name: 'Renamed Group' })
-    expect(dialogs().find((d) => d.textContent!.includes('Rename group'))).toBeUndefined()
+    expect(dialogs().find((d) => d.textContent!.includes('Rename Group'))).toBeUndefined()
   })
 })
 
@@ -772,11 +790,11 @@ describe('AdminGroupsPage integration', () => {
 
     expect(wrapper.text()).not.toContain('BTF41')
 
-    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add group'))
+    const newGroupButton = wrapper.findAll('button').find((b) => b.text().trim().includes('Add Group'))
     await newGroupButton!.trigger('click')
     await flushPromises()
 
-    const dialog = dialogs().find((d) => d.textContent!.includes('Add group'))!
+    const dialog = dialogs().find((d) => d.textContent!.includes('Add Group'))!
     const createButton = Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent!.trim() === 'Create')!
     createButton.dispatchEvent(new Event('click', { bubbles: true }))
     await flushPromises()

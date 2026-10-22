@@ -26,21 +26,22 @@ A_SERIES_MM = {
     "A0": (841, 1189), "A1": (594, 841), "A2": (420, 594), "A3": (297, 420),
     "A4": (210, 297), "A5": (148, 210), "A6": (105, 148),
 }
-# Absorbs rounding when a poster is exported to PDF.
-SIZE_TOLERANCE_MM = 5
+# Absorbs rounding and margins when a poster is exported to PDF.
+SIZE_TOLERANCE_MM = 10
 POINTS_PER_MM = 72 / 25.4
 
 # Stored on the submission, so these codes are a contract.
 SINGLE_PAGE = "single_page"
 PORTRAIT = "portrait"
 A_SERIES_SIZE = "a_series_size"
+A2_SIZE = "a2_size"
 TEAM_CODE = "team_code"
 SUPERVISOR_EMAIL = "supervisor_email"
 SCHOOL_LOGO = "school_logo"
 
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 
-GENERIC_REFUSAL = "This poster is not in the required format."
+GENERIC_REFUSAL = "Your poster doesn't match the required format. Please check it against the template and try again."
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,7 @@ def _structural_checks(reader) -> list[PosterCheck]:
             SINGLE_PAGE,
             pages == 1,
             "" if pages == 1
-            else f"The poster should be a single page. This file has {pages}.",
+            else f"Your poster must be a single page. This file has {pages} pages.",
             explicit=True,
         )
     ]
@@ -127,24 +128,36 @@ def _structural_checks(reader) -> list[PosterCheck]:
         PosterCheck(
             PORTRAIT,
             portrait,
-            "" if portrait else "The poster should be portrait, not landscape.",
+            "" if portrait else "Your poster must be in portrait orientation.",
             explicit=True,
         )
     )
+    checks.append(_size_check(width, height))
 
     return checks
 
 
+def _dimensions(width: float, height: float) -> str:
+    return f"{round(width / POINTS_PER_MM)} × {round(height / POINTS_PER_MM)} mm"
+
+
 def _size_check(width: float, height: float) -> PosterCheck:
+    """Any A-series size is accepted; Letter and unusual sizes are refused."""
     size = _a_series_size(width, height)
     return PosterCheck(
         A_SERIES_SIZE,
         size is not None,
         "" if size else (
-            f"The page is {round(width / POINTS_PER_MM)} × {round(height / POINTS_PER_MM)} mm, "
-            "not an A-series size (A2 expected)."
+            f"Your poster is {_dimensions(width, height)}, which isn't a standard A size. "
+            "Please export it at A2 (420 × 594 mm)."
         ),
+        explicit=True,
     )
+
+
+def _a2_check(width: float, height: float) -> PosterCheck:
+    """A2 is the template's size; another A-series size is accepted silently, its checklist item left unticked."""
+    return PosterCheck(A2_SIZE, _a_series_size(width, height) == "A2")
 
 
 def _a_series_size(width: float, height: float) -> str | None:
@@ -367,7 +380,7 @@ def inspect_poster(uploaded_file, *, team_code: str) -> PosterCheckResult:
     if page is not None:
         try:
             width, height = _page_size(page)
-            content.append(_size_check(width, height))
+            content.append(_a2_check(width, height))
             logo = _logo_check(page, width, height)
         except Exception:
             logger.warning("poster_checks.logo_failed", exc_info=True)

@@ -1,12 +1,30 @@
 from django.urls import path
 
 from .views import (
+    AllResultsCertificatesZipView,
+    AllResultsCertificateView,
+    AllResultsSheetView,
+    AllResultsView,
     AnnouncementCategoriesView,
     CertificatesReleaseView,
     FinalistEmailPreviewView,
     FinalistEmailSettingsView,
     FinalistNotifyAllView,
     GradingSettingsView,
+    BounceCheckTriggerView,
+    SendWaitingEmailsView,
+    ChallengeStartView,
+    ResourceReleasesView,
+    ResourceReleaseView,
+    RegistrationOpenView,
+    RegistrationSupervisorsView,
+    RegistrationSupervisorView,
+    SupervisorPagesView,
+    SupervisorResultsCertificatesZipView,
+    SupervisorResultsCertificateView,
+    SupervisorResultsSheetView,
+    SupervisorResultsStateView,
+    SupervisorResultsView,
     GroupExtensionDetailView,
     GroupExtensionListView,
     GroupResultsCertificateView,
@@ -54,6 +72,23 @@ urlpatterns = [
     path("release/", MarksReleaseView.as_view(), name="release"),
     path("certificates-release/", CertificatesReleaseView.as_view(), name="certificates-release"),
     path("settings/", GradingSettingsView.as_view(), name="settings"),
+    path("supervisor-pages/", SupervisorPagesView.as_view(), name="supervisor-pages"),
+    path("registration-open/", RegistrationOpenView.as_view(), name="registration-open"),
+    # Management > Challenge Start.
+    path("challenge-start/", ChallengeStartView.as_view(), name="challenge-start"),
+    # Challenge Start > Release Resources.
+    path("resource-releases/", ResourceReleasesView.as_view(), name="resource-releases"),
+    path("resource-releases/<int:resource_id>/", ResourceReleaseView.as_view(), name="resource-release"),
+    # Late Registration > Supervisors After Close.
+    path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
+    path(
+        "registration-supervisors/<int:user_id>/",
+        RegistrationSupervisorView.as_view(),
+        name="registration-supervisor",
+    ),
+    path("bounce-check/", BounceCheckTriggerView.as_view(), name="bounce-check"),
+    # Every 10 minutes: the emails kept while the mail server couldn't be reached.
+    path("send-waiting-emails/", SendWaitingEmailsView.as_view(), name="send-waiting-emails"),
     # Which placeholders the active template actually contains.
     path(
         "settings/template-scan/<str:kind>/",
@@ -163,6 +198,32 @@ urlpatterns = [
         "groups/<int:group_id>/results/certificate/<int:user_id>/",
         GroupResultsCertificateView.as_view(),
         name="group-results-certificate",
+    ),
+
+    # Results on a supervisor's portal: their students' marks and certificates,
+    # and their groups' mentors' certificates, once released.
+    path("supervisor-results/", SupervisorResultsView.as_view(), name="supervisor-results"),
+    path("supervisor-results/state/", SupervisorResultsStateView.as_view(), name="supervisor-results-state"),
+    path("supervisor-results/marks-sheet/", SupervisorResultsSheetView.as_view(), name="supervisor-results-sheet"),
+    path(
+        "supervisor-results/certificates/",
+        SupervisorResultsCertificatesZipView.as_view(),
+        name="supervisor-results-certificates",
+    ),
+    path(
+        "supervisor-results/certificates/<int:group_id>/<int:user_id>/",
+        SupervisorResultsCertificateView.as_view(),
+        name="supervisor-results-certificate",
+    ),
+
+    # Management's Results tab: every group's marks and certificates, for admins.
+    path("all-results/", AllResultsView.as_view(), name="all-results"),
+    path("all-results/marks-sheet/", AllResultsSheetView.as_view(), name="all-results-sheet"),
+    path("all-results/certificates/", AllResultsCertificatesZipView.as_view(), name="all-results-certificates"),
+    path(
+        "all-results/certificates/<int:group_id>/<int:user_id>/",
+        AllResultsCertificateView.as_view(),
+        name="all-results-certificate",
     ),
 
     # Results emails to teams and supervisors, from the Release Results tab.

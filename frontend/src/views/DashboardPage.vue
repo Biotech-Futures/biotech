@@ -8,120 +8,113 @@
     <div class="dashboard-page-inner">
       <div class="dashboard-backdrop-grid" aria-hidden="true"></div>
 
-      <section class="dashboard-welcome-header">
-          <h1 class="hero-title">Welcome back, {{ displayName }}</h1>
-        </section>
+      <section class="dashboard-welcome-header dashboard-hero-card">
+        <h1 class="hero-title">Welcome back, {{ welcomeName }}</h1>
+
+        <p class="dashboard-hero-message">
+          Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
+          Connect with your team, collaborate and share ideas, access program-wide
+          resources, register for events, and stay up to date with the latest announcements
+          and opportunities across the program.
+        </p>
+      </section>
+
+        <div
+          v-if="!roleTasksLoading && incompleteRoleTasksCount > 0"
+          class="dashboard-alert dashboard-alert--role-tasks"
+        >
+          <i class="fas fa-circle-exclamation" aria-hidden="true"></i>
+          <span>
+            {{ incompleteRoleTasksCount }} incomplete role task{{ incompleteRoleTasksCount === 1 ? '' : 's' }}.
+          </span>
+          <a href="#role-tasks-section" class="dashboard-alert-link" @click.prevent="scrollToRoleTasks">
+            Click here to view
+          </a>
+        </div>
 
         <section class="dashboard-hero-shell">
-          <div class="dashboard-hero-card interactive-surface">
-            <div class="dashboard-hero-main">
-              <div class="dashboard-hero-copy">
-                <p class="dashboard-hero-message">
-                  Welcome to {{ BRAND_CONNECT }} - your central hub for the {{ BRAND_NAME }} Challenge.
-                  Connect with your team, collaborate and share ideas, access program-wide
-                  resources, register for events, and stay up to date with the latest announcements
-                  and opportunities across the program.
-                </p>
-
-                <div class="hero-highlight-wrap" role="status" aria-live="polite">
-                  <template v-if="highlightsLoading">
-                    <span
-                      v-for="item in 3"
-                      :key="`highlight-skeleton-${item}`"
-                      class="status-pill dashboard-highlight-skeleton"
-                    >
-                      <span class="dashboard-skeleton-chip"></span>
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span v-for="item in headerHighlights" :key="item.key" class="status-pill">
-                      {{ item.label }}
-                    </span>
-                  </template>
+          <div class="dashboard-hero-card interactive-surface dashboard-groups-card">
+            <div v-if="groupsLoading" class="dashboard-groups-loading" role="status" aria-live="polite">
+              <div class="surface-card-header">
+                <p class="surface-kicker">Groups</p>
+                <h3 class="surface-card-title">Loading groups...</h3>
+              </div>
+              <div class="groups-grid dashboard-hero-groups-grid">
+                <div
+                  v-for="item in 3"
+                  :key="`group-skeleton-${item}`"
+                  class="group-skeleton-card"
+                >
+                  <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
+                  <div
+                    class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
+                  ></div>
                 </div>
               </div>
-              <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
             </div>
 
-          <div v-if="groupsLoading" class="dashboard-hero-groups" role="status" aria-live="polite">
-            <div class="surface-card-header">
-              <p class="surface-kicker">Groups</p>
-              <h3 class="surface-card-title">Loading groups...</h3>
-            </div>
-            <div class="groups-grid dashboard-hero-groups-grid">
-              <div
-                v-for="item in 3"
-                :key="`group-skeleton-${item}`"
-                class="group-skeleton-card"
-              >
-                <div class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--tiny"></div>
-                <div
-                  class="dashboard-skeleton-block dashboard-skeleton-line dashboard-skeleton-line--short"
-                ></div>
+            <div v-else class="dashboard-groups-body">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Groups</p>
+                  <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
+                </div>
+                <button
+                  v-if="shouldBlockGroupsNavigation"
+                  type="button"
+                  class="surface-link surface-link-button"
+                  @click="showNoMembershipPopup"
+                >
+                  View all
+                </button>
+                <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
               </div>
-            </div>
-          </div>
 
-          <div v-else class="dashboard-hero-groups">
-            <div class="surface-card-header">
-              <div>
-                <p class="surface-kicker">Groups</p>
-                <h3 class="surface-card-title">{{ groupsSectionTitle }}</h3>
-              </div>
-              <button
-                v-if="shouldBlockGroupsNavigation"
-                type="button"
-                class="surface-link surface-link-button"
-                @click="showNoMembershipPopup"
-              >
-                View all
-              </button>
-              <RouterLink v-else to="/groups" class="surface-link">View all</RouterLink>
-            </div>
+              <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
+                <RouterLink
+                  v-for="group in groupsPreview"
+                  :key="group.id || getGroupName(group)"
+                  :to="group.id ? '/groups/' + group.id : '/groups'"
+                  class="group-card-link"
+                >
+                  <div class="group-card-surface interactive-surface">
+                    <div class="group-card-top">
+                      <div class="group-avatars">
+                        <div class="group-avatar primary-avatar">
+                          {{ getInitials(getGroupName(group)) }}
+                        </div>
 
-            <div v-if="groupsPreview.length" class="groups-grid dashboard-hero-groups-grid">
-              <RouterLink
-                v-for="group in groupsPreview"
-                :key="group.id || getGroupName(group)"
-                :to="group.id ? '/groups/' + group.id : '/groups'"
-                class="group-card-link"
-              >
-                <div class="group-card-surface interactive-surface">
-                  <div class="group-card-top">
-                    <div class="group-avatars">
-                      <div class="group-avatar primary-avatar">
-                        {{ getInitials(getGroupName(group)) }}
+                        <div class="group-avatar secondary-avatar">
+                          {{ getGroupSecondaryLabel(group) }}
+                        </div>
+
+                        <div class="group-avatar tertiary-avatar">
+                          +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
+                        </div>
                       </div>
 
-                      <div class="group-avatar secondary-avatar">
-                        {{ getGroupSecondaryLabel(group) }}
-                      </div>
-
-                      <div class="group-avatar tertiary-avatar">
-                        +{{ Math.max(getGroupMemberCount(group) - 2, 0) }}
-                      </div>
+                      <span class="group-open-indicator">
+                        <i class="fas fa-arrow-up-right-from-square"></i>
+                      </span>
                     </div>
 
-                    <span class="group-open-indicator">
-                      <i class="fas fa-arrow-up-right-from-square"></i>
-                    </span>
+                    <div class="group-name">{{ getGroupName(group) }}</div>
+
+                    <div class="group-meta">
+                      {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
+                    </div>
                   </div>
+                </RouterLink>
+              </div>
 
-                  <div class="group-name">{{ getGroupName(group) }}</div>
-
-                  <div class="group-meta">
-                    {{ getGroupMemberCount(group) }} members · Lead: {{ getGroupLead(group) }}
-                  </div>
-                </div>
-              </RouterLink>
-            </div>
-
-            <div v-else class="empty-state">
-              <i class="fas fa-users-slash"></i>
-              <p>No group is available yet.</p>
+              <div v-else class="empty-state">
+                <i class="fas fa-users-slash"></i>
+                <p>No group is available yet.</p>
+              </div>
             </div>
           </div>
-          </div>
+
+          <MiniCalendar class="dashboard-hero-calendar" placement="hero" />
         </section>
 
         <div v-if="loadError" class="dashboard-alert">
@@ -287,7 +280,7 @@
                       <div class="list-row-title">{{ getAnnouncementTitle(announcement) }}</div>
 
                       <div class="list-row-meta">
-                        {{ formatAnnouncementDateAU(getAnnouncementMeta(announcement)) }}
+                        {{ getAnnouncementDate(announcement) }}
                       </div>
 
                       <div
@@ -379,6 +372,62 @@
             </article>
           </div>
         </section>
+
+        <section id="role-tasks-section" class="dashboard-section">
+          <div class="dashboard-section-grid">
+            <article class="surface-card interactive-surface">
+              <div class="surface-card-header">
+                <div>
+                  <p class="surface-kicker">Role Tasks</p>
+                  <h3 class="surface-card-title">My Role Tasks</h3>
+                </div>
+              </div>
+
+              <div v-if="roleTasksLoading" class="dashboard-section-skeleton" role="status" aria-live="polite">
+                <div class="dashboard-skeleton-list">
+                  <div
+                    v-for="row in 3"
+                    :key="`role-task-skeleton-row-${row}`"
+                    class="dashboard-skeleton-list-row"
+                  >
+                    <div class="dashboard-skeleton-block dashboard-skeleton-icon"></div>
+                    <div class="dashboard-skeleton-list-copy">
+                      <div class="dashboard-skeleton-block dashboard-skeleton-line"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <template v-else>
+                <ul v-if="roleTasks.length" class="role-task-list">
+                  <li v-for="roleTask in roleTasks" :key="roleTask.id" class="role-task-item">
+                    <div class="role-task-main">
+                      <label class="role-task-checkbox">
+                        <input
+                          type="checkbox"
+                          :checked="roleTask.completed"
+                          :disabled="togglingRoleTaskIds.has(roleTask.id)"
+                          @change="onToggleRoleTask(roleTask)"
+                        />
+                        <span :class="{ 'role-task-done': roleTask.completed }">{{ roleTask.name }}</span>
+                      </label>
+                      <span v-if="roleTask.due_date" class="role-task-due">
+                        Due {{ formatDayMonth(roleTask.due_date) }}
+                      </span>
+                    </div>
+                    <p v-if="roleTask.description" class="role-task-description">
+                      {{ roleTask.description }}
+                    </p>
+                  </li>
+                </ul>
+                <div v-else class="empty-state">
+                  <i class="fas fa-circle-check"></i>
+                  <p>No role tasks right now.</p>
+                </div>
+              </template>
+            </article>
+          </div>
+        </section>
     </div>
 
     <div
@@ -423,19 +472,24 @@ import { useAuthStore } from '@/stores/auth'
 import { BRAND_CONNECT, BRAND_NAME, SUPPORT_EMAIL } from '@/constants/brand'
 
 import {
-  formatAnnouncementDateAU,
+  formatDayMonth,
   formatEventDate,
   formatEventTimeRange,
+  getSetTimeZone,
 } from '@/utils/date'
+import { cleanEmailStyle } from '@/utils/inlineStyle'
 import { getResourceIcon } from '@/utils/resource'
 import { getInitials } from '@/utils/string'
 import { buildSessionHeaders } from '@/utils/csrf'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { getAccentClass } from '@/utils/ui'
+import { listMyRoleTasks, toggleRoleTaskCompletion } from '@/utils/roleTasksAPI'
 import MiniCalendar from '@/components/MiniCalendar.vue'
 
 const auth = useAuthStore()
 const { isAdmin, isMentor, isSupervisor, displayName, user, timeZone } = storeToRefs(auth)
+// The welcome: just their first name (their full name, or email, without one).
+const welcomeName = computed(() => user.value?.first_name?.trim() || displayName.value)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const EVENTS_API_BASE = `${API_BASE_URL}/events/v1`
 const DASHBOARD_ENDPOINTS = {
@@ -459,15 +513,22 @@ const announcementsLoading = ref(true)
 const eventsLoading = ref(true)
 const adminLoading = ref(true)
 const progressLoading = ref(true)
+const roleTasksLoading = ref(true)
+
+const roleTasks = ref([])
+const togglingRoleTaskIds = ref(new Set())
+const incompleteRoleTasksCount = computed(
+  () => roleTasks.value.filter((task) => !task.completed).length,
+)
+
+function scrollToRoleTasks() {
+  document.getElementById('role-tasks-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 const loadError = ref('')
 
 // Progressive rendering gates — each dashboard section reveals itself as its
 // own request completes instead of waiting for the slowest endpoint.
-const highlightsLoading = computed(() =>
-  groupsLoading.value || eventsLoading.value || progressLoading.value || adminLoading.value,
-)
-
 const summaryLoading = computed(() =>
   groupsLoading.value ||
   resourcesLoading.value ||
@@ -582,36 +643,11 @@ const dashboardThemeStyle = computed(() => {
   }
 })
 
-const headerHighlights = computed(() => {
-  if (isAdmin.value) {
-    return [
-      { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
-      { key: 'matches', label: `${adminWorkflow.value.pendingMatches} pending matches` },
-      { key: 'approvals', label: `${adminWorkflow.value.pendingApprovals} approvals` },
-    ]
-  }
-
-  if (isMentoringRole.value) {
-    return [
-      { key: 'groups', label: `${dashboardSummary.value.activeGroups} mentoring groups` },
-      { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming sessions` },
-      { key: 'progress', label: `${progressSnapshot.value.completionRate}% progress` },
-    ]
-  }
-
-  return [
-    { key: 'groups', label: `${dashboardSummary.value.activeGroups} active groups` },
-    { key: 'events', label: `${dashboardSummary.value.upcomingEvents} upcoming events` },
-    {
-      key: 'tasks',
-      label: `${progressSnapshot.value.completedTasks}/${progressSnapshot.value.totalTasks} tasks done`,
-    },
-  ]
-})
-
 const announcementsCount = computed(() => announcements.value.length)
 const resourcesCount = computed(() => resources.value.length)
 const groupsCount = computed(() => groups.value.length)
+// How many there are in all (the server's count): only the first 20 are fetched.
+const groupsTotal = ref(0)
 const shouldBlockGroupsNavigation = computed(() => !isAdmin.value && groupsCount.value === 0)
 const hasNoAssignedMembership = computed(() => !isAdmin.value && groupsCount.value === 0)
 
@@ -623,9 +659,12 @@ const announcementsPreview = computed(() => {
   return announcements.value.slice(0, 3)
 })
 
-const resourcesPreview = computed(() => {
-  return resources.value.slice(0, 12)
-})
+// The 3 latest updated.
+const resourcesPreview = computed(() =>
+  [...resources.value]
+    .sort((a, b) => (Date.parse(b.updated) || 0) - (Date.parse(a.updated) || 0))
+    .slice(0, 3),
+)
 
 const groupsPreview = computed(() => {
   return groups.value.slice(0, isAdmin.value ? 4 : 3)
@@ -754,10 +793,10 @@ const summaryWidgets = computed(() => {
 })
 
 const groupsSectionTitle = computed(() => {
-  if (isAdmin.value) return `Active Mentoring Groups (${groupsCount.value})`
-  if (isMentor.value) return `My Mentoring Groups (${groupsCount.value})`
-  if (isSupervisor.value) return `Supervised Groups (${groupsCount.value})`
-  return `My Active Groups (${groupsCount.value})`
+  if (isAdmin.value) return `Active Mentoring Groups (${groupsTotal.value})`
+  if (isMentor.value) return `My Mentoring Groups (${groupsTotal.value})`
+  if (isSupervisor.value) return `Supervised Groups (${groupsTotal.value})`
+  return `My Active Groups (${groupsTotal.value})`
 })
 
 function showNoMembershipPopup() {
@@ -909,9 +948,12 @@ function sanitizeDashboardAnnouncementRichText(value) {
       return
     }
 
+    // The editor's colours, sizes and gaps stay; any other attribute goes.
+    const style = cleanEmailStyle(element.getAttribute('style'))
     for (const attribute of Array.from(element.attributes)) {
       element.removeAttribute(attribute.name)
     }
+    if (style) element.setAttribute('style', style)
 
     Array.from(element.childNodes).forEach(cleanNode)
   }
@@ -929,10 +971,6 @@ function getAnnouncementBody(announcement) {
     announcement?.excerpt ||
     ''
   )
-}
-
-function formatEventTime(startValue, endValue) {
-  return formatEventTimeRange(startValue, endValue, timeZone.value)
 }
 
 function normalizeEventFormat(event) {
@@ -1032,7 +1070,7 @@ function normalizeResource(resource) {
     type: resolveResourceIconType(typeLabel),
     category: typeLabel,
     updated:
-      resource?.upload_datetime || resource?.updated || resource?.date || resource?.created_at,
+      resource?.uploaded_at || resource?.updated || resource?.date || resource?.created_at,
     role: normalizedRoles[0] || 'all',
     roles: normalizedRoles,
   }
@@ -1077,7 +1115,8 @@ function normalizeEvent(event) {
     id: event?.id,
     title: event?.event_name || event?.title || event?.name || 'Untitled event',
     date: start,
-    time: formatEventTimeRange(start, end, eventTimezone) || event?.time || '',
+    // In the set time, labelled with that zone, like the Events page.
+    time: formatEventTimeRange(start, end, getSetTimeZone()) || event?.time || '',
     location: hasPhysicalPlace ? event.location : format === 'virtual' ? 'Online' : 'Location TBC',
     mode: getEventModeLabel(format),
     link: format === 'virtual' || format === 'hybrid' ? event?.location_link || event?.link : '',
@@ -1089,7 +1128,7 @@ function normalizeEvent(event) {
 function deriveDashboardSummary() {
   if (isAdmin.value && adminOperationsSummary.value) {
     dashboardSummary.value = {
-      activeGroups: Number(adminOperationsSummary.value.active_groups || groups.value.length),
+      activeGroups: Number(adminOperationsSummary.value.active_groups || groupsTotal.value),
       upcomingEvents: Number(adminOperationsSummary.value.upcoming_events ?? upcomingEventsCount.value),
       resources: resources.value.length,
       announcements: announcements.value.length,
@@ -1098,7 +1137,8 @@ function deriveDashboardSummary() {
   }
 
   dashboardSummary.value = {
-    activeGroups: groups.value.length,
+    // All of theirs, not only the first 20 fetched.
+    activeGroups: groupsTotal.value,
     upcomingEvents: upcomingEventsCount.value,
     resources: resources.value.length,
     announcements: announcements.value.length,
@@ -1222,6 +1262,7 @@ async function loadDashboardData() {
     loadEvents(),
     loadAdminWorkflow(),
     loadProgress(groupsPromise),
+    loadRoleTasks(),
   ])
   loadSummary()
 }
@@ -1243,6 +1284,7 @@ async function loadGroups() {
       : [DASHBOARD_ENDPOINTS.groupsMine]
     const data = await fetchFirstAvailable([primaryGroupUrl, ...fallbackGroupUrls])
     const groupItems = extractCollectionItems(data)
+    groupsTotal.value = Number.isFinite(Number(data?.count)) ? Number(data.count) : groupItems.length
 
     if (
       Array.isArray(groupItems) &&
@@ -1261,6 +1303,7 @@ async function loadGroups() {
     groups.value = groupItems.map((group) => normalizeGroup(group, []))
   } catch {
     groups.value = []
+    groupsTotal.value = 0
   } finally {
     groupsLoading.value = false
   }
@@ -1275,6 +1318,35 @@ async function loadResources() {
     resources.value = []
   } finally {
     resourcesLoading.value = false
+  }
+}
+
+// TK4: role tasks are defined once per role and picked up live by whoever
+// currently holds it — this list is just "what applies to me right now".
+async function loadRoleTasks() {
+  try {
+    roleTasks.value = await listMyRoleTasks()
+  } catch {
+    roleTasks.value = []
+  } finally {
+    roleTasksLoading.value = false
+  }
+}
+
+async function onToggleRoleTask(roleTask) {
+  if (togglingRoleTaskIds.value.has(roleTask.id)) return
+  const next = new Set(togglingRoleTaskIds.value)
+  next.add(roleTask.id)
+  togglingRoleTaskIds.value = next
+  try {
+    const updated = await toggleRoleTaskCompletion(roleTask.id)
+    roleTasks.value = roleTasks.value.map((task) => (task.id === updated.id ? updated : task))
+  } catch {
+    // Leave the list as-is; the checkbox simply won't have moved.
+  } finally {
+    const after = new Set(togglingRoleTaskIds.value)
+    after.delete(roleTask.id)
+    togglingRoleTaskIds.value = after
   }
 }
 
@@ -1388,8 +1460,9 @@ function getAnnouncementTitle(item) {
   return item?.title || item?.name || item?.subject || 'Untitled announcement'
 }
 
-function getAnnouncementMeta(item) {
-  return item?.updated || item?.date || item?.created_at || 'Recently posted'
+// "9 Oct", in the set time.
+function getAnnouncementDate(item) {
+  return formatDayMonth(item?.updated || item?.date || item?.created_at) || 'Recently posted'
 }
 
 function getAnnouncementSnippet(item) {
@@ -1411,8 +1484,9 @@ function getResourceTitle(item) {
   return item?.title || item?.name || 'Untitled resource'
 }
 
+// "9 Oct", in the set time, after "Updated".
 function getResourceMeta(item) {
-  return item?.updated || item?.date || item?.created_at || 'Recently updated'
+  return formatDayMonth(item?.updated || item?.date || item?.created_at) || 'recently'
 }
 
 function getResourceCategory(item) {
@@ -1550,15 +1624,24 @@ onMounted(async () => {
    § 5  HERO CARD
    ────────────────────────────────────────────────────────────── */
 .dashboard-hero-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.4rem;
+  align-items: stretch;
   margin-bottom: 1.5rem;
 }
 
 .dashboard-welcome-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
 }
 
 .dashboard-welcome-header .hero-title {
   margin: 0;
+}
+
+.dashboard-welcome-header .dashboard-hero-message {
+  max-width: none;
+  margin-bottom: 0;
 }
 
 .dashboard-hero-card {
@@ -1613,33 +1696,9 @@ onMounted(async () => {
 /* ──────────────────────────────────────────────────────────────
    § 7  HERO CONTENT
    ────────────────────────────────────────────────────────────── */
-.dashboard-hero-main {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: 1.4rem;
-  align-items: stretch;
-  padding-top: 2.6rem;
-}
-
-.dashboard-hero-copy,
 .dashboard-hero-calendar {
   min-width: 0;
   display: flex;
-}
-
-.dashboard-hero-copy {
-  position: relative;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 100%;
-  padding: 1.35rem 1.45rem 1.4rem;
-  border-radius: 28px;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  box-shadow: 0 2px 4px var(--shadow);
-  overflow: hidden;
 }
 
 .hero-eyebrow-row {
@@ -1675,11 +1734,11 @@ onMounted(async () => {
 
 .hero-title {
   margin: 0;
-  font-size: clamp(2rem, 3vw, 3.08rem);
+  font-size: 2.25rem;
   line-height: 0.98;
   font-weight: 850;
   letter-spacing: -0.05em;
-  color: var(--charcoal);
+  color: var(--teal);
   text-wrap: balance;
   text-shadow: none;
 }
@@ -1814,53 +1873,6 @@ onMounted(async () => {
   line-height: 1.8;
   font-size: 1rem;
   max-width: 64ch;
-}
-
-.hero-highlight-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 1.18rem;
-}
-
-.status-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
-  padding: 0.42rem 0.94rem;
-  border-radius: 999px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
-  color: var(--text-primary);
-  font-size: 0.82rem;
-  font-weight: 800;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.status-pill::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  margin-right: 0.56rem;
-  border-radius: 999px;
-  background: currentColor;
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, currentColor 18%, transparent),
-    0 0 18px color-mix(in srgb, currentColor 30%, transparent);
-}
-
-.status-pill:nth-child(1) {
-  border: 1px solid rgba(96, 165, 250, 0.24);
-  color: #bfdbfe;
-}
-.status-pill:nth-child(2) {
-  border: 1px solid rgba(45, 212, 191, 0.24);
-  color: #99f6e4;
-}
-.status-pill:nth-child(3) {
-  border: 1px solid rgba(244, 114, 182, 0.24);
-  color: #fbcfe8;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -2607,7 +2619,7 @@ onMounted(async () => {
    ────────────────────────────────────────────────────────────── */
 .resource-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.15rem;
 }
 
@@ -2751,6 +2763,42 @@ onMounted(async () => {
   backdrop-filter: blur(16px);
 }
 
+.dashboard-alert-link {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(252, 211, 77, 0.5);
+  cursor: pointer;
+}
+
+.dashboard-alert-link:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Distinct from the amber load-error alert above — this is a reminder, not
+   a failure, so it gets its own color rather than reading as "something's
+   wrong." Uses the site's actual brand green (--dark-green), not
+   --light-green — that token is a peach/cream color in the live light
+   theme, not green, despite the name.
+   !important + the compound .dashboard-alert.dashboard-alert--role-tasks
+   selector (specificity 0-2-0) are both required to beat the later
+   "flatten everything to white/grey" override further down this same
+   style block (an unconditional `.dashboard-alert { ... !important }` that
+   otherwise wins outright over any non-important rule, regardless of
+   where it sits in the cascade). */
+.dashboard-alert.dashboard-alert--role-tasks {
+  background: rgba(1, 113, 81, 0.1) !important;
+  border: 1px solid rgba(1, 113, 81, 0.32) !important;
+  color: var(--dark-green) !important;
+}
+
+.dashboard-alert.dashboard-alert--role-tasks .dashboard-alert-link {
+  color: var(--dark-green) !important;
+  text-decoration-color: rgba(1, 113, 81, 0.5) !important;
+}
+
 .dashboard-skeleton-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
@@ -2871,12 +2919,6 @@ onMounted(async () => {
   margin-top: 1rem;
 }
 
-.dashboard-skeleton-chip {
-  width: 142px;
-  height: 2.35rem;
-  border-radius: 999px;
-}
-
 .dashboard-skeleton-line {
   width: 100%;
   height: 1rem;
@@ -2968,23 +3010,6 @@ onMounted(async () => {
   padding: 0.5rem 0;
 }
 
-.dashboard-highlight-skeleton {
-  padding: 0.45rem 0.55rem;
-  border: 1px solid var(--border-default);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.dashboard-highlight-skeleton::before {
-  display: none;
-}
-
-.dashboard-highlight-skeleton .dashboard-skeleton-chip {
-  display: block;
-  margin: 0;
-  width: 118px;
-  height: 1.7rem;
-}
-
 .group-skeleton-card {
   min-height: 136px;
   display: flex;
@@ -3021,6 +3046,65 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
+.role-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role-task-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.role-task-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.role-task-description {
+  margin: 0;
+  padding-left: 1.7rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.role-task-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.role-task-checkbox input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--accent-teal);
+}
+
+.role-task-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.role-task-due {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
 .dashboard-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -3041,7 +3125,7 @@ onMounted(async () => {
   border-radius: 8px;
   background: var(--white);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
-  color: var(--charcoal);
+  color: var(--teal);
   text-align: center;
 }
 
@@ -3057,7 +3141,7 @@ onMounted(async () => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: #f8f9fa;
-  color: var(--charcoal);
+  color: var(--teal);
   cursor: pointer;
 }
 
@@ -3076,7 +3160,7 @@ onMounted(async () => {
 
 .dashboard-modal h3 {
   margin: 0 0 0.65rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 1.2rem;
   font-weight: 800;
 }
@@ -3108,12 +3192,8 @@ onMounted(async () => {
 }
 
 @media (max-width: 1180px) {
-  .dashboard-hero-main {
+  .dashboard-hero-shell {
     grid-template-columns: 1fr;
-    padding-top: 3rem;
-  }
-  .dashboard-hero-copy {
-    padding: 1.2rem 1.15rem 1.22rem;
   }
   .two-col-layout {
     grid-template-columns: 1fr;
@@ -3147,10 +3227,6 @@ onMounted(async () => {
     align-items: center;
     gap: 0.72rem;
   }
-  .dashboard-hero-main {
-    padding-top: 0;
-  }
-  .dashboard-hero-copy,
   .dashboard-hero-calendar {
     display: block;
   }
@@ -3177,9 +3253,6 @@ onMounted(async () => {
   .surface-card,
   .summary-card {
     border-radius: 20px;
-  }
-  .hero-title {
-    font-size: 1.75rem;
   }
   .dashboard-subtext,
   .dashboard-hero-message {
@@ -3266,13 +3339,11 @@ onMounted(async () => {
 .dashboard-alert,
 .hero-meta-chip-label,
 .summary-label,
-.status-pill,
 .hero-eyebrow {
   color: var(--text-secondary);
 }
 .hero-eyebrow,
 .hero-meta-chip,
-.status-pill,
 .summary-card,
 .surface-card,
 .group-card-surface,
@@ -3286,7 +3357,6 @@ onMounted(async () => {
 .resource-card-surface,
 .list-row,
 .hero-meta-chip,
-.status-pill,
 .hero-eyebrow {
   background: linear-gradient(
     165deg,
@@ -3297,7 +3367,6 @@ onMounted(async () => {
   -webkit-backdrop-filter: blur(24px);
 }
 .hero-meta-chip:hover,
-.status-pill:hover,
 .summary-card:hover,
 .surface-card:hover,
 .group-card-link:hover .group-card-surface,
@@ -3401,8 +3470,7 @@ onMounted(async () => {
 }
 
 @media (max-width: 680px) {
-  .hero-meta-row,
-  .hero-highlight-wrap {
+  .hero-meta-row {
     gap: 0.55rem;
   }
 
@@ -3412,19 +3480,9 @@ onMounted(async () => {
 }
 
 /* ================================================================
-   Typography and text-color refinement override
+   Typography and text-color refinement override. One font throughout:
+   the site's own (main.css), as on every other page.
    ================================================================ */
-.dashboard-page-shell {
-  --font-display:
-    'Aptos Display', 'Segoe UI Variable Display', 'Inter', 'SF Pro Display', 'Helvetica Neue',
-    Arial, sans-serif;
-  --font-body:
-    'Aptos', 'Segoe UI Variable Text', 'Inter', 'SF Pro Text', system-ui, -apple-system,
-    BlinkMacSystemFont, sans-serif;
-  --font-label: 'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
-  --font-number: 'Bahnschrift', 'Inter', 'Segoe UI', sans-serif;
-  font-family: var(--font-body);
-}
 
 .dashboard-page-shell,
 .dashboard-page-shell * {
@@ -3439,13 +3497,13 @@ onMounted(async () => {
 .progress-value,
 .hero-meta-chip-value,
 .list-row-title {
-  font-family: var(--font-display);
   letter-spacing: -0.03em;
 }
 
 .hero-title {
   color: var(--text-primary);
-  font-size: clamp(2rem, 3.4vw, 2.95rem);
+  /* As every page's title (.page-title), on any window. */
+  font-size: 2.25rem;
   font-weight: 820;
 }
 .surface-card-title,
@@ -3460,7 +3518,6 @@ onMounted(async () => {
 .summary-card-value,
 .progress-value,
 .event-date-day {
-  font-family: var(--font-number);
   color: var(--text-primary);
   letter-spacing: -0.05em;
 }
@@ -3469,10 +3526,7 @@ onMounted(async () => {
 .summary-label,
 .hero-meta-chip-label,
 .progress-label,
-.status-pill,
-.list-row-meta,
 .event-date-rest {
-  font-family: var(--font-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -3492,7 +3546,6 @@ onMounted(async () => {
 .empty-state,
 .dashboard-alert {
   color: var(--text-secondary);
-  font-family: var(--font-body);
   line-height: 1.7;
 }
 
@@ -3503,7 +3556,6 @@ onMounted(async () => {
   color: var(--accent-blue);
 }
 .hero-meta-chip,
-.status-pill,
 .summary-card,
 .surface-card,
 .group-card-surface,
@@ -3526,7 +3578,6 @@ onMounted(async () => {
 .primary-chip,
 .surface-link {
   color: var(--text-link);
-  font-family: var(--font-display);
   font-weight: 720;
 }
 .primary-chip {
@@ -3554,7 +3605,7 @@ onMounted(async () => {
 
 /* Clean white/grey dashboard palette, aligned with Events and Resources pages. */
 .dashboard-page-shell {
-  --text-primary: var(--charcoal) !important;
+  --text-primary: var(--teal) !important;
   --text-secondary: #6c757d !important;
   --text-muted: #8a949e !important;
   --text-link: #4f5f6f !important;
@@ -3579,7 +3630,7 @@ onMounted(async () => {
   --page-glow-one: transparent !important;
   --page-glow-two: transparent !important;
   --page-glow-three: transparent !important;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   background: var(--bg-light) !important;
   padding: 2rem;
 }
@@ -3593,7 +3644,6 @@ onMounted(async () => {
   z-index: 1;
 }
 .dashboard-hero-card,
-.dashboard-hero-copy,
 .surface-card,
 .summary-card,
 .group-card-surface,
@@ -3601,7 +3651,6 @@ onMounted(async () => {
 .list-row,
 .hero-meta-chip,
 .hero-eyebrow,
-.status-pill,
 .event-detail-card,
 .dashboard-alert {
   background: var(--white) !important;
@@ -3624,23 +3673,24 @@ onMounted(async () => {
 .group-card-link:hover .group-card-surface,
 .resource-card-link:hover .resource-card-surface,
 .list-row:hover,
-.hero-meta-chip:hover,
-.status-pill:hover {
+.hero-meta-chip:hover {
   transform: translateY(-2px) !important;
   border-color: var(--border-light) !important;
   box-shadow: 0 4px 12px var(--shadow) !important;
 }
+/* The welcome box is informational — it stays put on hover. */
+.dashboard-welcome-header:hover {
+  transform: none !important;
+  box-shadow: 0 2px 4px var(--shadow) !important;
+}
 .dashboard-hero-card::before,
 .dashboard-hero-card::after,
-.dashboard-hero-copy::before,
 .summary-card::before,
 .summary-card::after,
 .group-card-surface::after,
 .resource-card-surface::before,
 .hero-meta-chip::before,
 .hero-meta-chip::after,
-.status-pill::before,
-.status-pill::after,
 .progress-card::after {
   display: none !important;
   content: none !important;
@@ -3651,15 +3701,11 @@ onMounted(async () => {
   padding: 1.5rem;
 }
 
-.dashboard-hero-shell,
-.dashboard-hero-main {
+.dashboard-hero-shell {
   background: transparent !important;
   box-shadow: none !important;
 }
 
-.dashboard-hero-main {
-  padding-top: 3rem;
-}
 .primary-chip,
 .surface-link {
   color: #4f5f6f !important;
@@ -3669,7 +3715,7 @@ onMounted(async () => {
 }
 .primary-chip:hover,
 .surface-link:hover {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   background: #eef1f3 !important;
   border-color: #cfd6dc !important;
 }
@@ -3682,7 +3728,7 @@ onMounted(async () => {
 .progress-value,
 .hero-meta-chip-value,
 .list-row-title {
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   letter-spacing: 0 !important;
 }
 .dashboard-subtext,
@@ -3695,7 +3741,6 @@ onMounted(async () => {
 .empty-state,
 .hero-meta-chip-label,
 .summary-label,
-.status-pill,
 .list-row-meta,
 .progress-detail-row span,
 .progress-label,
@@ -3737,10 +3782,6 @@ onMounted(async () => {
 @media (max-width: 880px) {
   .dashboard-page-shell {
     padding: 1.25rem;
-  }
-
-  .dashboard-hero-main {
-    padding-top: 0;
   }
 }
 .dashboard-hero-card:hover,
@@ -3802,7 +3843,7 @@ onMounted(async () => {
 .dashboard-announcement-body :deep(h5),
 .dashboard-announcement-body :deep(h6) {
   margin: 0 0 0.28rem;
-  color: var(--charcoal) !important;
+  color: var(--teal) !important;
   font-size: 0.9rem;
   font-weight: 800;
   line-height: 1.35;
@@ -3828,7 +3869,7 @@ onMounted(async () => {
   padding: 0.04rem 0.22rem;
   background: #eef1f3;
   border-radius: 4px;
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.84rem;
 }
 
@@ -3839,36 +3880,29 @@ onMounted(async () => {
   display: none !important;
 }
 
-.dashboard-hero-groups {
-  margin-top: 1.35rem;
-  padding: 1.25rem 0 0.1rem;
-  border-top: 1px solid var(--border-light);
-}
-
-.dashboard-hero-groups .surface-card-header {
+.dashboard-groups-card .surface-card-header {
   margin-bottom: 1rem;
 }
 
-.dashboard-hero-groups .surface-card-title {
+.dashboard-groups-card .surface-card-title {
   font-size: clamp(1.35rem, 2vw, 1.72rem);
 }
 
 .dashboard-hero-groups-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1.15rem;
 }
 
-.dashboard-hero-groups .group-card-surface {
+/* A single group (e.g. a student's own team) spans the full card width. */
+.dashboard-hero-groups-grid .group-card-link:only-child {
+  grid-column: 1 / -1;
+}
+
+.dashboard-groups-card .group-card-surface {
   min-height: 154px;
   padding: 1.18rem;
   border: 1px solid var(--border-light) !important;
   box-shadow: 0 2px 4px var(--shadow) !important;
-}
-
-@media (max-width: 1400px) {
-  .dashboard-hero-groups-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 880px) {

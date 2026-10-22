@@ -7,6 +7,7 @@ from apps.common.rbac import (
     group_participant_qs,
     is_admin,
 )
+from apps.resources.release import is_released, released_q
 
 
 RESOURCE_PUBLIC_SCOPE = "public"
@@ -64,6 +65,9 @@ def can_access_resource_file(user, resource) -> bool:
         return False
     if is_admin(user):
         return True
+    # Hidden until its release date (Release Resources), for everyone else.
+    if not is_released(resource):
+        return False
 
     if resource.visibility_scope == RESOURCE_PUBLIC_SCOPE:
         return True
@@ -92,4 +96,4 @@ def filter_resources_for_user(queryset, user, *, for_management: bool = False):
     if for_management:
         return queryset.none()
 
-    return queryset.filter(_resource_list_access_q(user)).distinct()
+    return queryset.filter(_resource_list_access_q(user)).filter(released_q()).distinct()

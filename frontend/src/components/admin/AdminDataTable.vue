@@ -1,6 +1,10 @@
 <template>
   <div class="admin-table">
-    <div class="admin-table__scroll" :class="{ 'admin-table__scroll--loading': loading }">
+    <div
+      ref="scrollEl"
+      class="admin-table__scroll"
+      :class="{ 'admin-table__scroll--loading': loading }"
+    >
       <table class="admin-table__table">
         <thead>
           <tr>
@@ -103,20 +107,20 @@
 
     <div
       v-if="showPagination"
+      ref="footerEl"
       class="admin-table__footer"
     >
       <div class="admin-table__footer-left">
         <label v-if="pageSizeOptions.length" class="admin-table__page-size">
           <span class="sr-only">Rows per page</span>
-          <select
-            :value="pageSize"
-            :disabled="loading"
+          <AppSelect
+            :model-value="shownPageSize"
+            class="table-page-size"
+            :options="pageSizeChoices"
+            :disabled="pickerDisabled"
+            aria-label="Rows per page"
             @change="onPageSizeChange"
-          >
-            <option v-for="size in pageSizeOptions" :key="size" :value="size">
-              {{ size }} / page
-            </option>
-          </select>
+          />
         </label>
         <span class="admin-table__page-info">
           Page {{ page }} of {{ totalPages }}
@@ -149,7 +153,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
+
+import { usePagerAnchor } from '@/composables/usePagerAnchor'
 
 export interface AdminColumn {
   key: string
@@ -281,11 +288,40 @@ const onColumnSort = (key: string) => {
   emit('update:sort', { key, direction })
 }
 
-const onPageChange = (page: number) => emit('page-change', page)
+// Paging keeps the footer still on screen, its < and > under the mouse,
+// whatever the rows' heights (see usePagerAnchor): settled once the new rows
+// come; a new size, count or sort lets go of any room it held below the rows.
+const scrollEl = ref<HTMLElement | null>(null)
+const footerEl = ref<HTMLElement | null>(null)
+const {
+  turn: turnPage,
+  settle: settlePager,
+  reset: resetPager
+} = usePagerAnchor(footerEl, scrollEl)
+watch(() => props.rows, () => void nextTick(settlePager))
+watch([() => props.pageSize, () => props.totalCount, () => props.sortState], resetPager)
 
-const onPageSizeChange = (event: Event) => {
-  const value = Number((event.target as HTMLSelectElement).value)
-  emit('page-size-change', value)
+const onPageChange = (page: number) => turnPage(() => emit('page-change', page))
+
+// As AppDataTable's: until someone picks a size, with every row on one page
+// the picker is off and reads as the rows there are (8, not 25). A size
+// someone picked stays as picked, and the picker stays on to change it back.
+const picked = ref(false)
+const rowCount = computed(() => props.totalCount ?? props.rows.length)
+const shownPageSize = computed(() =>
+  !picked.value && rowCount.value > 0 && rowCount.value < props.pageSize ? rowCount.value : props.pageSize
+)
+const pickerDisabled = computed(() => props.loading || (!picked.value && totalPages.value <= 1))
+
+const pageSizeChoices = computed<AppSelectOption[]>(() => {
+  const sizes = [...props.pageSizeOptions]
+  if (!sizes.includes(shownPageSize.value)) sizes.push(shownPageSize.value)
+  return sizes.sort((a, b) => a - b).map((size) => ({ value: size, label: String(size) }))
+})
+
+const onPageSizeChange = (value: AppSelectValue) => {
+  picked.value = true
+  emit('page-size-change', Number(value))
 }
 
 const renderCell = (value: unknown) => {
@@ -336,7 +372,7 @@ const renderCell = (value: unknown) => {
   padding: 0.85rem 1rem;
   text-align: center;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
   background-color: var(--light-green);
   border-bottom: 2px solid var(--border-light);
   white-space: nowrap;
@@ -382,7 +418,7 @@ const renderCell = (value: unknown) => {
 
 .admin-table__cell {
   padding: 0.75rem 1rem;
-  color: var(--charcoal);
+  color: var(--teal);
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -446,15 +482,6 @@ const renderCell = (value: unknown) => {
   gap: 0.9rem;
 }
 
-.admin-table__page-size select {
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background-color: var(--white);
-  color: var(--charcoal);
-  font-size: 0.875rem;
-}
-
 .admin-table__page-info {
   font-size: 0.875rem;
   color: var(--text-muted);
@@ -472,7 +499,7 @@ const renderCell = (value: unknown) => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.8rem;
   cursor: pointer;
   display: inline-flex;
@@ -496,7 +523,7 @@ const renderCell = (value: unknown) => {
   text-align: center;
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 @keyframes admin-table-spin {

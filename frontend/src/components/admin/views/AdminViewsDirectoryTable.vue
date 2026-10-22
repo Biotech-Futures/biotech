@@ -1,63 +1,66 @@
 <template>
   <div class="admin-views-table">
-    <AdminDataTable
+    <AppDataTable
       :columns="columns"
       :rows="tableRows"
       row-key="id"
       :loading="loading"
-      selectable
       :selected="selected"
-      :show-pagination="false"
+      :search="search"
+      search-placeholder="Search views by name, description..."
+      two-line-rows
+      :page-size="DATA_TABLE_ALL"
       empty-message="No views found."
-      select-all-label="Select all views"
+      :action-columns="2"
+      clickable-rows
       @update:selected="onSelectedChange"
+      @update:search="emit('update:search', $event)"
       @row-click="onRowClick"
     >
+      <template v-if="$slots.filters" #filters>
+        <slot name="filters" />
+      </template>
+
       <template #cell-name="{ row }">
         <div class="admin-views-table__primary">
-          <strong>{{ toView(row).name }}</strong>
+          <!-- Only the name underlines when its row is hovered. -->
+          <strong class="data-table-primary-text">{{ toView(row).name }}</strong>
           <span v-if="toView(row).description" class="admin-views-table__muted">
             {{ toView(row).description }}
           </span>
         </div>
       </template>
 
-      <template #cell-actions="{ row }">
-        <div class="admin-views-table__actions">
-          <template v-if="toView(row).isDefault">
-            <button type="button" class="btn btn-sm btn-outline" @click.stop="goRun(toView(row))">
-              View
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline"
-              @click.stop="exportCsv(toView(row))"
-            >
-              Export
-            </button>
-          </template>
-          <template v-else>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline"
-              @click.stop="requestEdit(toView(row))"
-            >
-              Edit
-            </button>
-            <button type="button" class="btn btn-sm btn-outline" @click.stop="goRun(toView(row))">
-              View
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline"
-              @click.stop="openDelete(toView(row))"
-            >
-              Delete
-            </button>
-          </template>
-        </div>
+      <!-- Edit | View | Export or Delete, so View lines up on every row.
+           Default views can't be edited or deleted, but can be exported. -->
+      <template #actions="{ row, column }">
+        <button
+          v-if="column === 0 && !toView(row).isDefault"
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click.stop="requestEdit(toView(row))"
+        >
+          Edit
+        </button>
+        <!-- No View: clicking its name opens a view. -->
+        <button
+          v-else-if="column === 1 && toView(row).isDefault"
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click.stop="exportCsv(toView(row))"
+        >
+          Export
+        </button>
+        <button
+          v-else-if="column === 1"
+          type="button"
+          class="btn btn-sm btn-outline"
+          @click.stop="openDelete(toView(row))"
+        >
+          Delete
+        </button>
       </template>
-    </AdminDataTable>
+    </AppDataTable>
 
     <ConfirmDialog
       v-model="deleteConfirmOpen"
@@ -77,16 +80,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import AdminDataTable, { type AdminColumn } from '@/components/admin/AdminDataTable.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { deleteAdminView, getAdminViewExportUrl, type AdminView } from '@/utils/adminAPI'
 import { logApiError } from '@/utils/apiError'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 
 const props = withDefaults(
   defineProps<{
     views: AdminView[]
     loading?: boolean
     selected?: Array<string | number>
+    search?: string
   }>(),
   {
     loading: false,
@@ -96,16 +101,14 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:selected', value: Array<string | number>): void
+  (e: 'update:search', value: string): void
   (e: 'edit', view: AdminView): void
   (e: 'changed'): void
 }>()
 
 const router = useRouter()
 
-const columns: AdminColumn[] = [
-  { key: 'name', label: 'View Name & Description' },
-  { key: 'actions', label: 'Actions', align: 'right' }
-]
+const columns: DataTableColumn[] = [{ key: 'name', label: 'View Name & Description' }]
 
 const tableRows = computed(() => props.views as unknown as Record<string, unknown>[])
 const toView = (row: Record<string, unknown>) => row as unknown as AdminView
@@ -168,10 +171,6 @@ const confirmDelete = async () => {
 </script>
 
 <style scoped>
-:deep(.admin-table__row) {
-  cursor: pointer;
-}
-
 .admin-views-table__primary {
   min-width: 0;
   display: flex;
@@ -181,13 +180,6 @@ const confirmDelete = async () => {
 
 .admin-views-table__muted {
   color: var(--text-muted);
-}
-
-.admin-views-table__actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.4rem;
 }
 
 .admin-views-table__dialog-error {

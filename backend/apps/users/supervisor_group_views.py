@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -8,8 +9,21 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 
 from apps.groups.models import GroupAutoNameUnavailable, GroupInterest, GroupMembership, Groups
-from apps.groups.services import assign_mentor_to_group, sync_supervisor_memberships_for_student
-from apps.users.models import AreasOfInterest, MentorProfile, StudentProfile, SupervisorProfile, User
+from apps.common.rbac import is_admin
+from apps.groups.services import (
+    assign_mentor_to_group,
+    check_room_for_students,
+    sync_supervisor_memberships_for_student,
+)
+from apps.users.models import (
+    AreasOfInterest,
+    MentorProfile,
+    RegistrationStudent,
+    RegistrationSubmission,
+    StudentProfile,
+    SupervisorProfile,
+    User,
+)
 from apps.users.serializers import (
     SupervisedGroupMemberChangeSerializer,
     SupervisedGroupSerializer,
@@ -35,6 +49,16 @@ def _member_payload(membership):
     }
 
 
+def _registered_by(group) -> str:
+    """How a group was formed while registering: "supervisor" (a supervisor
+    registered it) or "members" (its students did); "" for one made later, on
+    My Groups or by an admin. My Groups' Waiting Area keeps the first two, and
+    their students' places in them, even once made BIOTech groups (placed)."""
+    if not RegistrationSubmission.objects.filter(group=group).exists():
+        return ""
+    return "members" if group.formed_by == Groups.FormedBy.MEMBERS else "supervisor"
+
+
 def _group_payload(group):
     members = [
         _member_payload(membership)
@@ -57,6 +81,9 @@ def _group_payload(group):
         "group_name": group.group_name,
         "members": members,
         "interests": interests,
+        "registered_by": _registered_by(group),
+        # Made a BIOTech group from the Waiting Area (Create all groups).
+        "placed": group.placed_at is not None,
     }
 
 
@@ -127,7 +154,11 @@ class SupervisedGroupsView(APIView):
     @extend_schema(responses={200: SupervisedGroupSerializer(many=True)})
     def get(self, request):
         _require_supervisor(request.user)
-        groups = _owned_groups(request.user).order_by("group_name", "id")
+        groups = list(_owned_groups(request.user).order_by("group_name", "id"))
+        # In the supervisor's own order, then any not in it by name.
+        order = SupervisorProfile.objects.filter(user=request.user).values_list("group_order", flat=True).first() or []
+        place = {group_id: index for index, group_id in enumerate(order)}
+        groups.sort(key=lambda group: place.get(group.id, len(place)))
         return Response(SupervisedGroupSerializer([_group_payload(group) for group in groups], many=True).data)
 
     @extend_schema(request=SupervisedGroupWriteSerializer, responses={201: SupervisedGroupSerializer})
@@ -140,10 +171,82 @@ class SupervisedGroupsView(APIView):
             group = Groups.create_auto_named()
         except GroupAutoNameUnavailable as exc:
             raise ValidationError({"group_name": [str(exc)]}) from exc
+        group.mark_formed(
+            Groups.FormedBy.ADMIN if is_admin(request.user) else Groups.FormedBy.SUPERVISOR, request.user,
+        )
         _keep_supervisor_on_group(group, request.user)
         if "interests" in request.data:
             _sync_group_interests(group, serializer.validated_data.get("interests") or [])
         return Response(SupervisedGroupSerializer(_group_payload(group)).data, status=status.HTTP_201_CREATED)
+
+
+class SupervisedGroupsPlaceView(APIView):
+    """POST ``{"registered_by": "supervisor" | "members"}``: Create all groups,
+    in My Groups' Waiting Area. Each line of that kind there becomes a BIOTech
+    group, onto the Groups board: a group still waiting with its students in
+    it, and the students back in the Waiting Area from a group already made
+    one, who rejoin it (while it has room). Answers with those groups."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(exclude=True)
+    @transaction.atomic
+    def post(self, request):
+        from .registration_intake import GROUP_MAX_STUDENTS
+
+        _require_supervisor(request.user)
+        kind = request.data.get("registered_by")
+        if kind not in ("supervisor", "members"):
+            raise ValidationError({"registered_by": ['Choose "supervisor" or "members".']})
+        student_role = GroupMembership.MembershipRoleChoices.STUDENT
+        owned = {group.pk: group for group in _owned_groups(request.user) if _registered_by(group) == kind}
+
+        # Their students with no group now, by the group they registered in.
+        own = StudentProfile.objects.filter(supervisor_id=request.user.id).values("user_id")
+        grouped = GroupMembership.objects.filter(left_at__isnull=True, membership_role=student_role).values("user_id")
+        returned: dict[int, list[int]] = {}
+        for user_id, group_id in RegistrationStudent.objects.filter(
+            student_id__in=own, submission__group_id__in=list(owned),
+        ).exclude(student_id__in=grouped).values_list("student_id", "submission__group_id"):
+            returned.setdefault(group_id, []).append(user_id)
+
+        now = timezone.now()
+        placed = []
+        for group in owned.values():
+            members = GroupMembership.objects.filter(group=group, left_at__isnull=True, membership_role=student_role)
+            room = GROUP_MAX_STUDENTS - members.count()
+            back = returned.get(group.pk, [])[:max(room, 0)]
+            for user_id in back:
+                GroupMembership.objects.create(group=group, user_id=user_id, membership_role=student_role)
+                sync_supervisor_memberships_for_student(user_id)
+            # A line in the Waiting Area: still waiting with students, or students back.
+            if (group.placed_at is None and members.exists()) or back:
+                if group.placed_at is None:
+                    group.placed_at = now
+                    group.save(update_fields=["placed_at"])
+                placed.append(group)
+        _restore_supervisor_on_groups(request.user, [group.pk for group in placed])
+        return Response(SupervisedGroupSerializer([_group_payload(group) for group in placed], many=True).data)
+
+
+class SupervisedGroupOrderView(APIView):
+    """PUT ``{"group_ids": [...]}``: the order the supervisor moved their
+    groups into on My Groups. Ids that aren't their groups are dropped."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(exclude=True)
+    def put(self, request):
+        _require_supervisor(request.user)
+        group_ids = request.data.get("group_ids")
+        if not isinstance(group_ids, list) or not all(isinstance(item, int) for item in group_ids):
+            raise ValidationError({"group_ids": ["A list of group ids is required."]})
+        owned = set(_owned_group_ids(request.user))
+        order = list(dict.fromkeys(group_id for group_id in group_ids if group_id in owned))
+        SupervisorProfile.objects.filter(user=request.user).update(group_order=order)
+        return Response({"group_ids": order})
 
 
 class SupervisedGroupDetailView(APIView):
@@ -209,7 +312,6 @@ class SupervisedGroupMembersView(APIView):
             mentor = User.objects.filter(pk=user_ids[0]).first()
             if mentor is None:
                 raise PermissionDenied("One or more people are not available to assign.")
-            from django.core.exceptions import ValidationError as DjangoValidationError
             try:
                 assign_mentor_to_group(group=group, mentor_user=mentor, replace_existing=True)
             except DjangoValidationError as exc:
@@ -223,6 +325,11 @@ class SupervisedGroupMembersView(APIView):
         found = {profile.user_id for profile in profiles}
         if [user_id for user_id in user_ids if user_id not in found]:
             raise PermissionDenied("One or more students are not on your roster.")
+        # Five at most, counting other supervisors' students in it too.
+        try:
+            check_room_for_students(group, user_ids)
+        except DjangoValidationError as exc:
+            raise ValidationError({"user_ids": exc.messages}) from exc
 
         now = timezone.now()
         vacated_group_ids = set(
@@ -284,7 +391,9 @@ class SupervisedInterestCatalogView(APIView):
 
     @extend_schema(responses={200: SupervisedInterestCatalogSerializer})
     def get(self, request):
-        _require_supervisor(request.user)
+        # Admins edit students' interests too, on Admin > Guardians.
+        if not is_admin(request.user):
+            _require_supervisor(request.user)
         interests = list(
             AreasOfInterest.objects.order_by("interest_desc").values_list("interest_desc", flat=True)
         )

@@ -15,7 +15,7 @@ from apps.submissions.models import Deadline, Submission, SubmissionQuestion
 from apps.submissions.storage import submission_file_service
 from apps.users.models import User
 
-from .seed_data import install_question_set
+from .seed_data import confirm_checklist, install_question_set
 from rest_framework.test import APIClient
 
 
@@ -128,8 +128,18 @@ class SubmissionFileTests(TestCase):
 
     def test_non_pdf_rejected_for_poster(self):
         upload = SimpleUploadedFile("notes.txt", b"just text", content_type="text/plain")
-        self.assertEqual(self._upload("poster", upload).status_code, 400)
+        response = self._upload("poster", upload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Your poster must be a PDF. Please export it as a PDF and try again.", str(response.data))
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
+
+    def test_a_disallowed_name_inside_a_pdf_is_refused_plainly(self):
+        upload = SimpleUploadedFile("poster.exe.pdf", b"%PDF-1.4 tiny", content_type="application/pdf")
+        response = self._upload("poster", upload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("This file can't be accepted. Please upload your poster as a PDF.", str(response.data))
 
     def test_file_renamed_to_pdf_is_rejected(self):
         upload = SimpleUploadedFile(
@@ -138,6 +148,7 @@ class SubmissionFileTests(TestCase):
         response = self._upload("poster", upload)
 
         self.assertEqual(response.status_code, 400)
+        self.assertIn("This file is named as a PDF but isn't one.", str(response.data))
         self.assertFalse(Submission.objects.filter(group=self.group).exists())
 
     def test_executable_rejected_for_prototype(self):
@@ -280,6 +291,7 @@ class SubmissionFileTests(TestCase):
             for question in SubmissionQuestion.active().filter(is_required=True)
         }
         submission.save(update_fields=["project_title", "answers"])
+        confirm_checklist(self.group)
 
     def test_can_submit_once_a_poster_is_attached(self):
         self._upload("poster", _pdf_upload())

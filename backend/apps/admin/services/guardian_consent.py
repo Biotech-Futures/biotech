@@ -17,7 +17,7 @@ from django.utils import timezone
 from apps.admin.services.user import fetch_user_by_id
 from apps.audit.services import log_audit_event
 from apps.services.email_log import NOT_SENT, note_send
-from apps.services.system_email import FAILED, SKIPPED, send_system_email
+from apps.services.system_email import FAILED, SKIPPED, send_system_email, sender_for
 from apps.users import guardian_consent as consent
 from apps.users.consent_pdf import render_consent_pdf
 from apps.users.models import GuardianConsent, GuardianConsentRequest, StudentProfile
@@ -45,10 +45,31 @@ def _result(outcome: str, msg: str, data=None) -> Dict[str, Any]:
     return {"status": outcome, "msg": msg, "data": data}
 
 
-def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_saved: bool = False) -> Dict[str, Any]:
+def _guardian_or_problem(profile):
+    """The guardian whose consent is still needed, or why there's nobody to
+    ask: ``(guardian, None)`` or ``(None, result)``."""
+    guardian = consent.guardian_to_ask(profile)
+    if guardian is None:
+        return None, _result(INVALID, "Consent is already recorded for this student.")
+    if not guardian.email:
+        return None, _result(INVALID, "This student has no guardian email to send to.")
+    if guardian.email == (profile.user.email or "").strip().lower():
+        return None, _result(
+            INVALID,
+            "The guardian email is the student's own address. Update it to the guardian's before sending.",
+        )
+    return guardian, None
+
+
+def send_guardian_consent_request(
+    user_id: int, initiated_by=None, *, details_saved: bool = False, background: bool = False,
+) -> Dict[str, Any]:
     """Email the consent form to the guardian of student ``user_id``.
     ``details_saved`` when the student has just named them on their profile:
-    the student is thanked for the details instead of asked to remind them."""
+    the student is thanked for the details instead of asked to remind them.
+    ``background`` hands the emails to the mail pool rather than waiting on
+    the mail server (a registration naming many guardians); one the server
+    then refuses is noted in the Log, and the daily run sends it again."""
     with transaction.atomic():
         profile = (
             StudentProfile.objects.select_for_update()
@@ -59,23 +80,12 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
         if profile is None:
             return _result(NOT_FOUND, "Student not found.")
 
-        guardian = consent.guardian_to_ask(profile)
-        if guardian is None:
-            return _result(INVALID, "Consent is already recorded for this student.")
-        if not guardian.email:
-            return _result(INVALID, "This student has no guardian email to send to.")
-        if guardian.email == (profile.user.email or "").strip().lower():
-            return _result(
-                INVALID,
-                "The guardian email is the student's own address. Update it to the guardian's before sending.",
-            )
+        guardian, problem = _guardian_or_problem(profile)
+        if problem:
+            return problem
 
-        last_sent = (
-            GuardianConsentRequest.objects.filter(student=profile)
-            .order_by("-created_at")
-            .values_list("created_at", flat=True)
-            .first()
-        )
+        # The last email, as each one now reuses the same link.
+        last_sent = profile.guardian_reminder_sent_at
         now = timezone.now()
         if last_sent and now - last_sent < RESEND_COOLDOWN:
             wait = int((RESEND_COOLDOWN - (now - last_sent)).total_seconds() // 60) + 1
@@ -104,6 +114,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
                 "EXPIRY_DAYS": consent.LINK_LIFETIME.days,
             },
             sent_by=initiated_by,
+            background=background,
         )
         if outcome in (SKIPPED, FAILED):
             # Nobody got the link, so it must not count as sent or replace the
@@ -127,7 +138,17 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
 
     if outcome == FAILED:
         # The Log's note of it went with the rollback, so it's made again here.
-        note_send(EMAIL_KEY, missed={guardian.email: NOT_SENT}, by=initiated_by)
+        sender = sender_for(EMAIL_KEY)
+        note_send(
+            EMAIL_KEY,
+            missed={guardian.email: NOT_SENT},
+            by=initiated_by,
+            attempted=1,
+            delivered=0,
+            failed=1,
+            source_mailbox=sender.address,
+            recipients=[guardian.email],
+        )
         return _result(SEND_FAILED, "The mail server didn't accept the email. Try again shortly.")
 
     # The student's copy is an FYI: if it's switched off or doesn't go, the
@@ -138,9 +159,42 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
             [student.email],
             {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
             sent_by=initiated_by,
+            background=background,
         )
 
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
+
+
+def guardian_consent_link(user_id: int, shared_by=None) -> Dict[str, Any]:
+    """The consent link for student ``user_id``'s guardian, to share by hand:
+    the one already out to them (an emailed link keeps working), its time
+    reset as an email resets it, else a new one."""
+    with transaction.atomic():
+        profile = (
+            StudentProfile.objects.select_for_update()
+            .select_related("user")
+            .filter(user_id=user_id)
+            .first()
+        )
+        if profile is None:
+            return _result(NOT_FOUND, "Student not found.")
+
+        guardian, problem = _guardian_or_problem(profile)
+        if problem:
+            return problem
+
+        had_one = consent.token_still_out(profile, guardian) is not None
+        request, token = consent.issue_request(profile, guardian, sent_by=shared_by)
+        if not had_one:
+            log_audit_event(
+                actor=shared_by,
+                entity_type="user",
+                entity_id=user_id,
+                action="guardian_consent_link",
+                after_state={"guardianEmail": guardian.email, "requestId": request.pk},
+            )
+
+    return _result(OK, "Consent link ready.", {"link": consent.consent_link(token)})
 
 
 def list_guardian_consents(user_id: int) -> Dict[str, Any]:

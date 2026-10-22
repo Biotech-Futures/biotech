@@ -25,6 +25,21 @@ describe('redirectAfterLogin for admins', () => {
     expect(router.replace).toHaveBeenCalledWith('/admin')
   })
 
+  it('routes supervisors to /profile', async () => {
+    const router = makeRouter()
+    const auth = {
+      isAdmin: false,
+      isSupervisor: true,
+      mustChangePassword: false,
+      timeZone: 'UTC',
+      user: { id: 3, timezone: 'UTC' }
+    }
+
+    await redirectAfterLogin(auth, router)
+
+    expect(router.replace).toHaveBeenCalledWith('/profile')
+  })
+
   it('routes non-admins to /dashboard', async () => {
     const router = makeRouter()
     // jsdom does not implement window.confirm; prevent the timezone-mismatch

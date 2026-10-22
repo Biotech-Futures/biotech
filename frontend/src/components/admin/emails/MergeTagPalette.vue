@@ -3,6 +3,7 @@
     <ul class="merge-tags__list">
       <li v-for="tag in tags" :key="tag.name">
         <button
+          v-if="insertable"
           type="button"
           class="merge-tags__tag"
           :title="tagTitle(tag)"
@@ -10,6 +11,10 @@
         >
           <code>{{ tokenFor(tag.name) }}</code>
         </button>
+        <!-- Only a list to read from: clicking puts nothing in the editor. -->
+        <span v-else class="merge-tags__tag merge-tags__tag--static" :title="tagTitle(tag)">
+          <code>{{ tokenFor(tag.name) }}</code>
+        </span>
       </li>
     </ul>
   </div>
@@ -18,9 +23,14 @@
 <script setup lang="ts">
 import { mergeTagToken, type SystemEmailMergeTag } from '@/utils/systemEmail'
 
-defineProps<{
-  tags: SystemEmailMergeTag[]
-}>()
+withDefaults(
+  defineProps<{
+    tags: SystemEmailMergeTag[]
+    /** Whether clicking a tag inserts it into the editor. */
+    insertable?: boolean
+  }>(),
+  { insertable: true }
+)
 
 const emit = defineEmits<{
   (e: 'insert', tag: SystemEmailMergeTag): void
@@ -52,9 +62,18 @@ const tagTitle = (tag: SystemEmailMergeTag) =>
   transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.merge-tags__tag:hover {
+button.merge-tags__tag:hover {
   background: rgba(1, 113, 81, 0.18);
   border-color: var(--dark-green);
+}
+
+/* The same size as the button: a button's own text size and line height,
+   rather than the page's taller ones. */
+.merge-tags__tag--static {
+  display: inline-block;
+  font-size: 0.8333rem;
+  line-height: normal;
+  cursor: default;
 }
 
 .merge-tags__tag code {

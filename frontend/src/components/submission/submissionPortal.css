@@ -7,13 +7,12 @@
   --field-bg: var(--white);
   --field-border: var(--border-light);
   --field-disabled-bg: var(--bg-light);
-  --notice-bg: var(--bg-light);
   --muted: var(--text-muted);
-  --body-text: var(--charcoal);
+  --body-text: var(--teal);
   --accent: var(--dark-green);
   /* Muted so an over-limit warning is not signal red. */
-  --error: color-mix(in srgb, var(--danger) 70%, var(--charcoal));
-  --ok-text: color-mix(in srgb, var(--dark-green) 78%, var(--charcoal));
+  --error: color-mix(in srgb, var(--danger) 70%, var(--teal));
+  --ok-text: color-mix(in srgb, var(--dark-green) 78%, var(--teal));
 
   /* Tints mixed from platform colours, so they follow the dark theme. */
   --accent-soft: color-mix(in srgb, var(--dark-green) 12%, transparent);
@@ -116,20 +115,6 @@
   color: var(--error);
 }
 
-.poster-notice {
-  margin-top: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-left: 4px solid var(--accent);
-  border-radius: 8px;
-  background: var(--notice-bg);
-  color: var(--body-text);
-  font-size: 0.875rem;
-}
-
-.poster-notice__body {
-  margin: 0;
-}
-
 .submission-message {
   display: flex;
   align-items: center;
@@ -183,7 +168,7 @@
 
 .submission-dialog__body {
   margin: 0;
-  color: var(--muted);
+  color: var(--body-text);
   font-size: 0.95rem;
   line-height: 1.5;
 }
@@ -210,6 +195,12 @@
   opacity: 1;
 }
 
+.submission-field-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
 .submission-count {
   font-size: 0.875rem;
   font-weight: 600;
@@ -221,6 +212,12 @@
 .submission-count.is-over-limit {
   color: var(--error);
   font-weight: 600;
+}
+
+.submission-field-note {
+  font-size: 0.875rem;
+  color: var(--error);
+  margin: 0.3rem 0 0;
 }
 
 /* Step strip */
@@ -280,9 +277,11 @@
   margin: 0.2rem 0;
 }
 
-/* Set explicitly, as .form-control stays white in the dark theme. */
+/* Set explicitly, as .form-control stays white in the dark theme. The
+   project title and prototype link are the shared box (app-input) instead,
+   in these colours below. */
 .submission-textarea,
-.content-area .form-control {
+.content-area .form-control:not(.app-input) {
   width: 100%;
   padding: 0.7rem 0.85rem;
   background: var(--field-bg);
@@ -294,8 +293,24 @@
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.content-area .form-control.app-input {
+  background: var(--field-bg);
+  color: var(--body-text);
+  border-color: var(--field-border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Stretched from the bottom border instead (StretchHandle). */
 .submission-textarea {
-  resize: vertical;
+  resize: none;
+}
+
+.submission-stretch {
+  position: relative;
+}
+
+.submission-stretch > .submission-textarea {
+  display: block;
 }
 
 .content-area .form-control::placeholder,
@@ -336,6 +351,11 @@
 .submission-slot--plain {
   border-bottom: none;
   padding-top: 0;
+}
+
+.submission-slot--divided {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--panel-border);
 }
 
 

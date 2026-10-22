@@ -1,6 +1,6 @@
 <template>
   <div class="email-type-list">
-    <div class="email-type-list__search">
+    <div class="email-type-list__search app-input app-input--wide">
       <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
       <input
         v-model="query"
@@ -34,10 +34,20 @@
 
     <ul v-else class="email-type-list__items">
       <template v-for="(template, index) in filtered" :key="template.key">
+        <!-- Registration's heading, above the first of its groups shown. -->
+        <li
+          v-if="startsSection(index)"
+          class="email-type-list__heading email-type-list__heading--section"
+          role="presentation"
+          data-test="email-section"
+        >
+          {{ sectionOf(groupOf(template.key)) }}
+        </li>
         <!-- The group's heading, above the first of its emails shown. -->
         <li
-          v-if="index === 0 || groupOf(template.key) !== groupOf(filtered[index - 1]!.key)"
+          v-if="startsGroup(index)"
           class="email-type-list__heading"
+          :class="{ 'email-type-list__heading--sub': sectionOf(groupOf(template.key)) }"
           role="presentation"
           data-test="email-group"
         >
@@ -101,6 +111,17 @@ const query = ref('')
 // Each email's group, with a heading above it, in the order the list shows them.
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
+  // Someone registering themselves, then a supervisor registering students.
+  ['Self registration', ['registration_student', 'registration_group', 'registration_mentor']],
+  [
+    'Supervisor registration',
+    [
+      'registration_by_supervisor',
+      'registration_by_admin',
+      'registration_supervisor',
+      'supervisor_registration_status'
+    ]
+  ],
   [
     'Guardians',
     [
@@ -113,12 +134,28 @@ const GROUPS: [string, string[]][] = [
   ],
   ['Messages and events', ['unread_messages', 'rsvp_reminder', 'event_promotion', 'announcement']],
   ['Submissions', ['submission_reminder', 'submission_confirmation']],
-  ['Symposium', ['finalist_notification', 'nonfinalist_invitation', 'nonsubmission_notice']],
+  ['Symposium', ['finalist_notification', 'finalist_submission_reminder', 'finalist_submission_confirmation', 'nonfinalist_invitation', 'nonsubmission_notice']],
   ['Results', ['results_team', 'results_supervisor']]
 ]
 const GROUP_OF = new Map(GROUPS.flatMap(([heading, keys]) => keys.map((key) => [key, heading] as const)))
 // An email not placed in a group yet still gets a heading.
 const groupOf = (key: string) => GROUP_OF.get(key) ?? 'Other'
+
+// Registration's three groups, under a heading of their own.
+const SECTION_OF: Record<string, string> = {
+  'Self registration': 'Registration',
+  'Supervisor registration': 'Registration',
+  Guardians: 'Registration'
+}
+const sectionOf = (group: string) => SECTION_OF[group] ?? ''
+
+// The first email shown of its group, or of its section.
+const startsGroup = (index: number) =>
+  index === 0 || groupOf(filtered.value[index]!.key) !== groupOf(filtered.value[index - 1]!.key)
+const startsSection = (index: number) => {
+  const section = sectionOf(groupOf(filtered.value[index]!.key))
+  return Boolean(section) && (index === 0 || sectionOf(groupOf(filtered.value[index - 1]!.key)) !== section)
+}
 
 
 const filtered = computed(() => {
@@ -140,23 +177,22 @@ const filtered = computed(() => {
   min-width: 0;
 }
 
+/* The shared box (app-input) across the column, with its magnifier. */
 .email-type-list__search {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  background: #ffffff;
   color: #9ca3af;
 }
 
+/* The box's own text, with no box of its own. */
 .email-type-list__search-input {
   flex: 1;
   min-width: 0;
+  padding: 0;
   border: none;
   outline: none;
-  font-size: 0.875rem;
+  font: inherit;
   color: #111827;
   background: transparent;
 }
@@ -189,6 +225,19 @@ const filtered = computed(() => {
 
 .email-type-list__heading:first-child {
   margin-top: 0;
+}
+
+/* Registration, over its three groups: a size up, and darker. */
+.email-type-list__heading--section {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+/* A group under it, set in a little. */
+.email-type-list__heading--sub {
+  padding-left: 0.75rem;
 }
 
 .email-type-list__item {
@@ -272,6 +321,6 @@ const filtered = computed(() => {
 
 :root[data-theme='dark'] .email-type-list__search-input,
 :root[data-theme='dark'] .email-type-list__name {
-  color: var(--charcoal);
+  color: var(--teal);
 }
 </style>

@@ -3,6 +3,9 @@ import type { AdminGroupDetail } from '@/utils/adminAPI'
 /** Max students per group (until the backend exposes a per-group cap). */
 export const DEFAULT_GROUP_MAX_SIZE = 5
 
+/** Same notice the supervisor board shows when a drop would exceed the cap. */
+export const GROUP_FULL_MESSAGE = `This group already has ${DEFAULT_GROUP_MAX_SIZE} students.`
+
 export interface GroupWithCapacity {
   id: number
   name: string

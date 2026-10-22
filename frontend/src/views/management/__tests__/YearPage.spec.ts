@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import YearPage from '@/views/management/YearPage.vue'
+import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists } from '@/utils/gradingAPI'
 import {
   fetchCertificatesRelease,
+  fetchChallengeStart,
+  fetchFinalistEmailDetails,
   fetchGroupExtensions,
+  fetchRegistrationOpen,
   fetchRelease,
   fetchSubmissionDeadline
 } from '@/utils/managementAPI'
@@ -16,7 +20,10 @@ vi.mock('@/utils/managementAPI', async (importOriginal) => ({
   // The real rule the page shares with the upload dialog.
   challengeYear: (await importOriginal<typeof import('@/utils/managementAPI')>()).challengeYear,
   fetchCertificatesRelease: vi.fn(),
+  fetchChallengeStart: vi.fn(),
+  fetchFinalistEmailDetails: vi.fn(),
   fetchGroupExtensions: vi.fn(),
+  fetchRegistrationOpen: vi.fn(),
   fetchRelease: vi.fn(),
   fetchSubmissionDeadline: vi.fn()
 }))
@@ -25,6 +32,9 @@ const finalistsMock = vi.mocked(fetchFinalists)
 const extensionsMock = vi.mocked(fetchGroupExtensions)
 const marksMock = vi.mocked(fetchRelease)
 const deadlineMock = vi.mocked(fetchSubmissionDeadline)
+const registrationMock = vi.mocked(fetchRegistrationOpen)
+const challengeStartMock = vi.mocked(fetchChallengeStart)
+const symposiumMock = vi.mocked(fetchFinalistEmailDetails)
 
 const finalist = (notified: boolean) => ({
   group_id: 1,
@@ -55,6 +65,14 @@ const fact = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
     .find((li) => li.text().includes(label))!
 
 beforeEach(() => {
+  registrationMock.mockReset().mockResolvedValue({
+    open_now: false, opens_at: '2026-03-01T00:00:00Z', closes_at: '2026-06-30T13:59:00Z'
+  })
+  challengeStartMock.mockReset().mockResolvedValue({
+    year: 2026, starts_at: new Date(2026, 6, 27, 23, 59).toISOString(), set_by: 'Ada Admin', updated_at: null
+  })
+  // Only the Symposium's date is read from the finalist email's details.
+  symposiumMock.mockReset().mockResolvedValue({ symposium_date: '2026-11-20' } as never)
   certsMock.mockReset().mockResolvedValue({ released_at: null, released_by: null })
   marksMock.mockReset().mockResolvedValue({ released_at: '2026-09-20T00:00:00Z', released_by: 'Ada' })
   finalistsMock.mockReset().mockResolvedValue({ finalists: [finalist(true), finalist(false)] })
@@ -82,11 +100,37 @@ describe('the year dashboard', () => {
     expect(fact(wrapper, 'Submission deadline').text()).toContain('not set')
   })
 
+  it('lists the year in order, registration to certificates', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.findAll('.year__fact-label').map((label) => label.text())).toEqual([
+      'Registration start',
+      'Registration close',
+      'Challenge start',
+      'Submission deadline',
+      'Last extension',
+      'Marks',
+      'Notify finalists',
+      'Symposium date',
+      'Certificates',
+    ])
+    expect(fact(wrapper, 'Registration start').text()).toContain(formatStatementTime('2026-03-01T00:00:00Z'))
+    expect(fact(wrapper, 'Registration close').text()).toContain(formatStatementTime('2026-06-30T13:59:00Z'))
+    expect(fact(wrapper, 'Challenge start').text()).toContain('27/07/2026')
+    expect(fact(wrapper, 'Symposium date').text()).toContain('20/11/2026')
+  })
+
+  it('says a date is not set until it is', async () => {
+    registrationMock.mockResolvedValue({ open_now: true, opens_at: null, closes_at: null })
+    challengeStartMock.mockResolvedValue({ year: 2026, starts_at: null, set_by: '', updated_at: null })
+    symposiumMock.mockRejectedValue(new Error('down'))
+    const wrapper = await mountPage()
+    for (const label of ['Registration start', 'Registration close', 'Challenge start', 'Symposium date'])
+      expect(fact(wrapper, label).text()).toContain('not set')
+  })
+
   it('reports the furthest extension as the real end of the window', async () => {
     const wrapper = await mountPage()
-    expect(fact(wrapper, 'Last extension').text()).toContain(
-      `${new Date('2026-11-08T00:00:00Z').toLocaleDateString('en-GB')} ${new Date('2026-11-08T00:00:00Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-    )
+    expect(fact(wrapper, 'Last extension').text()).toContain(formatStatementTime('2026-11-08T00:00:00Z'))
   })
 
   it('shows each release gate in its own state', async () => {
@@ -120,6 +164,6 @@ describe('the year dashboard', () => {
     const wrapper = await mountPage()
     const start = wrapper.findAll('button').find((b) => /Start new year/.test(b.text()))!
     expect(start.attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('still being built')
+    expect(wrapper.text()).not.toContain('still being built')
   })
 })

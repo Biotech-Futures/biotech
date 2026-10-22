@@ -31,29 +31,29 @@ class SubmissionComponent(models.Model):
 
 
 class Rubric(models.Model):
+    """A component's marking key: one per component, the same every year."""
+
     component = models.ForeignKey(
         SubmissionComponent,
         on_delete=models.PROTECT,
         related_name="rubrics",
     )
-    year = models.PositiveIntegerField()
     active = models.BooleanField(default=True)
 
     class Meta:
         db_table = "rubric"
         constraints = [
             models.UniqueConstraint(
-                fields=["component", "year"],
-                name="unique_rubric_per_component_year",
+                fields=["component"],
+                name="unique_rubric_per_component",
             ),
         ]
         indexes = [
-            models.Index(fields=["component", "year"]),
             models.Index(fields=["active"]),
         ]
 
     def __str__(self):
-        return f"{self.component.code} {self.year}"
+        return self.component.code
 
 
 class RubricCriterion(models.Model):

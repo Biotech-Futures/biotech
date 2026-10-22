@@ -72,8 +72,8 @@ class Reminder24hWindowTests(TestCase):
         self.assertEqual(event.reminder_24h_sent_for_start, event.start_datetime)
         self.assertIsNone(event.reminder_1h_sent_for_start)
 
-    def test_event_under_24h_not_sent(self):
-        # 23h away — past the 24h window, not yet inside the 1h window.
+    def test_a_late_run_still_sends_the_24h_reminder(self):
+        # 23h away: the hourly run that should have caught it at 24h came late.
         event = _make_event(
             start_datetime=timezone.now() + timedelta(hours=23),
             ends_datetime=timezone.now() + timedelta(hours=25),
@@ -82,10 +82,33 @@ class Reminder24hWindowTests(TestCase):
 
         events, sent, _ = send_due_rsvp_reminders()
 
+        self.assertEqual((events, sent), (1, 1))
+        event.refresh_from_db()
+        self.assertEqual(event.reminder_24h_sent_for_start, event.start_datetime)
+
+    def test_event_under_12h_not_sent_the_24h_reminder(self):
+        # Too close for "tomorrow": only the 1h reminder will reach it.
+        event = _make_event(
+            start_datetime=timezone.now() + timedelta(hours=11),
+            ends_datetime=timezone.now() + timedelta(hours=13),
+        )
+        _rsvp(event, self.attendee)
+
+        events, sent, _ = send_due_rsvp_reminders(kind="24h")
+
         self.assertEqual((events, sent), (0, 0))
         self.assertEqual(mail.outbox, [])
         event.refresh_from_db()
         self.assertIsNone(event.reminder_24h_sent_for_start)
+
+    def test_a_late_run_still_sends_the_1h_reminder_before_the_start(self):
+        event = _make_event(
+            start_datetime=timezone.now() + timedelta(minutes=10),
+            ends_datetime=timezone.now() + timedelta(hours=1),
+        )
+        _rsvp(event, self.attendee)
+
+        self.assertEqual(send_due_rsvp_reminders(kind="1h")[:2], (1, 1))
 
     def test_event_over_25h_not_sent(self):
         # 26h away — past the 24h window. Will be caught one hour later.
@@ -500,23 +523,53 @@ class ResilienceTests(TestCase):
             _rsvp(event, u)
 
         real_send = mail.EmailMultiAlternatives.send
-        call_count = {"n": 0}
 
-        def flaky_send(self_msg, *args, **kwargs):
-            call_count["n"] += 1
-            if call_count["n"] == 2:
+        def broken_for_one(self_msg, *args, **kwargs):
+            # Every try, the retry too.
+            if self_msg.to == ["u1@example.com"]:
                 raise RuntimeError("simulated SMTP blowup")
             return real_send(self_msg, *args, **kwargs)
 
         with patch(
             "apps.services.system_email.EmailMultiAlternatives.send",
-            new=flaky_send,
+            new=broken_for_one,
         ):
             events, sent, failed = send_due_rsvp_reminders()
 
         self.assertEqual((events, sent, failed), (1, 2, 1))
         # The two successful sends still hit the outbox.
         self.assertEqual(len(mail.outbox), 2)
+
+    def test_a_send_that_fails_once_goes_when_tried_again_after_the_rest(self):
+        event = _make_event()
+        users = [
+            User.objects.create_user(email=f"u{i}@example.com", password="pw")
+            for i in range(3)
+        ]
+        for u in users:
+            _rsvp(event, u)
+
+        real_send = mail.EmailMultiAlternatives.send
+        order = []
+
+        def drops_once(self_msg, *args, **kwargs):
+            order.append(self_msg.to[0])
+            if order.count("u1@example.com") == 1 and self_msg.to == ["u1@example.com"]:
+                raise RuntimeError("connection dropped")
+            return real_send(self_msg, *args, **kwargs)
+
+        with patch(
+            "apps.services.system_email.EmailMultiAlternatives.send",
+            new=drops_once,
+        ), patch("apps.services.retry.time.sleep") as sleep:
+            events, sent, failed = send_due_rsvp_reminders()
+
+        self.assertEqual((events, sent, failed), (1, 3, 0))
+        self.assertEqual(len(mail.outbox), 3)
+        # Tried again once everyone else had been, a few seconds on.
+        self.assertEqual(order[-1], "u1@example.com")
+        self.assertEqual(order.count("u1@example.com"), 2)
+        sleep.assert_called_once()
 
     def test_event_stays_stamped_even_when_every_send_fails(self):
         # Once we claim the row we must NOT unstamp it on per-recipient
@@ -598,17 +651,21 @@ class RsvpReminderTriggerEndpointTests(TestCase):
         response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="nope")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_accepts_correct_token_and_dispatches(self):
+    def test_accepts_correct_token_and_queues_the_run(self):
+        from apps.management.models import EmailSendRun
+
         event = _make_event()
         user = User.objects.create_user(email="api@example.com", password="pw")
         _rsvp(event, user)
 
         response = self.client.post(self.url, HTTP_X_EMAIL_JOBS_TOKEN="s3cret-token")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["events_processed"], 1)
-        self.assertEqual(response.data["emails_sent"], 1)
+        # Queued, and sent in its turn: at once under test settings.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data, {"status": "queued"})
         self.assertEqual(len(mail.outbox), 1)
+        run = EmailSendRun.objects.get(key="rsvp_reminder")
+        self.assertEqual((run.emailed, run.failed, run.held_until), (1, 0, None))
 
 
 @override_settings(EMAIL_JOBS_TOKEN="")

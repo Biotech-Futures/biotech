@@ -7,6 +7,7 @@ platform's consent page, that a failed send leaves no working link, and that
 the student is told their guardian was sent the form.
 """
 import re
+import smtplib
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -159,16 +160,20 @@ class GuardianConsentRequestTests(TestCase):
         self.assertEqual([m.to for m in mail.outbox], [["pat@example.com"]])
         self.assertEqual(GuardianConsentRequest.objects.count(), 1)
 
-    def test_resending_replaces_the_earlier_link(self):
+    def test_resending_sends_the_same_link_with_its_time_reset(self):
         self._post()
         first = self._link_token(self._to("pat@example.com")[0])
-        GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
+        StudentProfile.objects.update(guardian_reminder_sent_at=timezone.now() - timedelta(minutes=11))
+        before = GuardianConsentRequest.objects.get().good_until
 
         self._post()
         second = self._link_token(self._to("pat@example.com")[1])
 
-        self.assertEqual(self.client.get(f"/api/v1/consent/{first}/").status_code, status.HTTP_410_GONE)
-        self.assertEqual(self.client.get(f"/api/v1/consent/{second}/").status_code, status.HTTP_200_OK)
+        # The earlier email's link is the same one, and it still works.
+        self.assertEqual(second, first)
+        self.assertEqual(self.client.get(f"/api/v1/consent/{first}/").status_code, status.HTTP_200_OK)
+        self.assertEqual(GuardianConsentRequest.objects.count(), 1)
+        self.assertGreaterEqual(GuardianConsentRequest.objects.get().good_until, before)
 
     def test_refuses_when_consent_already_recorded(self):
         self.profile.has_join_permission = True
@@ -213,16 +218,18 @@ class GuardianConsentRequestTests(TestCase):
         self.assertEqual(self._post().status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(len(self._to("pat@example.com")), 1)
 
-        GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
+        StudentProfile.objects.update(guardian_reminder_sent_at=timezone.now() - timedelta(minutes=11))
         self.assertEqual(self._post().status_code, status.HTTP_200_OK)
         self.assertEqual(len(self._to("pat@example.com")), 2)
 
     def test_failed_send_leaves_the_previous_link_working(self):
         self._post()
         first = self._link_token(mail.outbox[0])
-        GuardianConsentRequest.objects.update(created_at=timezone.now() - timedelta(minutes=11))
+        StudentProfile.objects.update(guardian_reminder_sent_at=timezone.now() - timedelta(minutes=11))
 
-        with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=OSError("down")):
+        # Turned away by the mail server (one it can't reach is kept to send later).
+        rejected = smtplib.SMTPDataError(554, b"Message rejected")
+        with patch("django.core.mail.EmailMultiAlternatives.send", side_effect=rejected):
             response = self._post()
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)

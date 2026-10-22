@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import AdminViewsDirectoryPage from '@/views/admin/AdminViewsDirectoryPage.vue'
 import * as adminAPI from '@/utils/adminAPI'
+import { pickAppSelect } from '@/__tests__/appSelect'
 
 const mockPush = vi.fn()
 
@@ -125,7 +126,7 @@ const lastButtonByText = (wrapper: VueWrapper, text: string) =>
 
 const rowButtonByText = (wrapper: VueWrapper, rowIndex: number, text: string) =>
   wrapper
-    .findAll('.admin-table__row')[rowIndex]
+    .findAll('.data-table-row')[rowIndex]
     .findAll('button')
     .find((button) => button.text().trim() === text)
 
@@ -186,7 +187,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#view-type-filter').setValue('custom')
+    await pickAppSelect(wrapper, '#view-type-filter', 'Custom')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('All Mentors')
@@ -200,7 +201,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find('#view-search').setValue('mentor')
+    await wrapper.find('.data-table-search-input').setValue('mentor')
     vi.advanceTimersByTime(300)
     await flushPromises()
 
@@ -213,7 +214,7 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find<HTMLSelectElement>('#view-role-filter').setValue('mentor')
+    await pickAppSelect(wrapper, '#view-role-filter', 'Mentor')
     await flushPromises()
 
     expect(adminAPI.fetchAdminViews).toHaveBeenLastCalledWith(
@@ -277,22 +278,23 @@ describe('AdminViewsDirectoryPage', () => {
     expect(rowButtonByText(wrapper, 0, 'Export')).toBeDefined()
   })
 
-  it('navigates to the executed view when View is clicked', async () => {
+  it('offers no View button, as clicking a row opens the view', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await rowButtonByText(wrapper, 1, 'View')!.trigger('click')
-
-    expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
+    expect(rowButtonByText(wrapper, 0, 'View')).toBeUndefined()
+    expect(rowButtonByText(wrapper, 1, 'View')).toBeUndefined()
   })
 
-  it('navigates to the executed view when clicking anywhere on the view row', async () => {
+  it('navigates to the executed view when clicking its name, not elsewhere on the row', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    const rows = wrapper.findAll('.admin-table__row')
+    const rows = wrapper.findAll('.data-table-row')
     await rows[1].trigger('click')
+    expect(mockPush).not.toHaveBeenCalled()
 
+    await rows[1].find('.data-table-cell--primary').trigger('click')
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 2 } })
   })
 
@@ -512,7 +514,7 @@ describe('AdminViewsDirectoryPage', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('1 view selected')
 
-    await wrapper.find<HTMLSelectElement>('#view-role-filter').setValue('mentor')
+    await pickAppSelect(wrapper, '#view-role-filter', 'Mentor')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('view selected')
@@ -523,17 +525,17 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    const headers = wrapper.findAll('.admin-table__head').map((th) => th.text().trim())
+    const headers = wrapper.findAll('.data-table-head').map((th) => th.text().trim())
     expect(headers).toContain('View Name & Description')
     expect(headers).toContain('Actions')
     expect(headers).not.toContain('Filter Summary / Roles')
   })
 
-  it('navigates to the executed view when View is clicked on a default view', async () => {
+  it('navigates to the executed view when a default view name is clicked', async () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await rowButtonByText(wrapper, 0, 'View')!.trigger('click')
+    await wrapper.findAll('.data-table-row')[0]!.find('.data-table-cell--primary').trigger('click')
 
     expect(mockPush).toHaveBeenCalledWith({ name: 'admin-view-detail', params: { id: 1 } })
   })
@@ -559,7 +561,7 @@ describe('AdminViewsDirectoryPage', () => {
     await flushPromises()
 
     const callsBeforeTyping = vi.mocked(adminAPI.fetchAdminViews).mock.calls.length
-    const searchInput = wrapper.find('#view-search')
+    const searchInput = wrapper.find('.data-table-search-input')
     await searchInput.setValue('m')
     vi.advanceTimersByTime(100)
     await searchInput.setValue('me')
@@ -577,12 +579,12 @@ describe('AdminViewsDirectoryPage', () => {
     wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.find('#view-search').setValue('mentor')
+    await wrapper.find('.data-table-search-input').setValue('mentor')
     vi.advanceTimersByTime(300)
     await flushPromises()
     expect(adminAPI.fetchAdminViews).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'mentor' }))
 
-    await wrapper.find('#view-search').setValue('')
+    await wrapper.find('.data-table-search-input').setValue('')
     vi.advanceTimersByTime(300)
     await flushPromises()
 

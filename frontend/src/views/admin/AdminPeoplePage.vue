@@ -1,21 +1,19 @@
 <template>
   <div class="content-area admin-people">
-    <div class="page-head">
-        <h1>People</h1>
-        <p class="people-subtitle">
-          Manage accounts for every class of user.
-        </p>
-    </div>
+    <header class="page-header">
+      <h1 class="page-title">People</h1>
+      <p class="page-subtitle">Manage accounts for every class of user.</p>
+    </header>
 
     <div class="people-toolbar">
-      <div class="people-tabs" role="tablist" aria-label="People">
+      <div class="tab-bar" role="tablist" aria-label="People">
         <button
           v-for="tab in tabs"
           :key="tab.key"
           type="button"
           role="tab"
           :aria-selected="activeTab === tab.key"
-          class="people-tab"
+          class="tab-pill"
           :class="{ active: activeTab === tab.key }"
           @click="activeTab = tab.key"
         >
@@ -59,13 +57,19 @@
 
     <AdminUsersView v-if="activeTab === 'users'" ref="usersView" title="Users" noun="user" />
     <AdminStudentsView v-else-if="activeTab === 'students'" ref="studentsView" />
-    <AdminMentorsView v-else-if="activeTab === 'mentors'" ref="mentorsView" />
+    <AdminMentorsView
+      v-else-if="activeTab === 'mentors'"
+      ref="mentorsView"
+      :initial-search="mentorSearch"
+      :initial-capacity-filter="mentorCapacityFilter"
+    />
     <AdminSupervisorsView v-else ref="supervisorsView" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import AdminUsersView from '@/views/admin/AdminUsersView.vue'
 import AdminStudentsView from '@/views/admin/AdminStudentsView.vue'
 import AdminMentorsView from '@/views/admin/AdminMentorsView.vue'
@@ -78,7 +82,30 @@ const tabs = [
   { key: 'supervisors', label: 'Supervisors' }
 ] as const
 
-const activeTab = ref<(typeof tabs)[number]['key']>('users')
+type PeopleTab = (typeof tabs)[number]['key']
+
+const route = useRoute()
+const peopleTabFromQuery = (value: unknown): PeopleTab =>
+  typeof value === 'string' && tabs.some((tab) => tab.key === value)
+    ? value as PeopleTab
+    : 'users'
+
+const activeTab = ref<PeopleTab>(peopleTabFromQuery(route.query.tab))
+
+const mentorSearch = computed(() =>
+  typeof route.query.search === 'string' ? route.query.search : ''
+)
+const mentorCapacityFilter = computed(() => {
+  const value = route.query.capacity
+  return value === 'available' || value === 'full' || value === 'over' ? value : ''
+})
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = peopleTabFromQuery(tab)
+  }
+)
 
 const usersView = ref<InstanceType<typeof AdminUsersView> | null>(null)
 const studentsView = ref<InstanceType<typeof AdminStudentsView> | null>(null)
@@ -147,11 +174,6 @@ const openActiveImport = () => {
   gap: 0.5rem;
 }
 
-.people-subtitle {
-  color: var(--text-muted);
-  margin: -0.5rem 0 0.5rem;
-}
-
 .people-toolbar__actions {
   display: flex;
   flex-wrap: wrap;
@@ -160,42 +182,8 @@ const openActiveImport = () => {
   gap: 0.75rem;
 }
 
-.people-tabs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  padding: 0.3rem;
-  background: var(--white);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: 0 1px 2px var(--shadow);
-}
-
-.people-tab {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 0.5rem 1.1rem;
-  font-weight: 600;
-  font-size: 0.92rem;
-  cursor: pointer;
-  transition: color 0.18s ease, background-color 0.18s ease;
-}
-
-.people-tab:hover:not(.active) {
-  color: var(--charcoal);
-  background: var(--light-green);
-}
-
-.people-tab.active {
-  background: var(--dark-green);
-  color: var(--white);
-  box-shadow: 0 1px 3px rgba(1, 113, 81, 0.3);
-}
-
-.people-tab:focus-visible {
-  outline: 2px solid var(--dark-green);
-  outline-offset: 2px;
+/* The toolbar leaves the 20px below the tabs, beside the buttons. */
+.people-toolbar .tab-bar {
+  margin-bottom: 0;
 }
 </style>

@@ -55,6 +55,20 @@ describe('guardian consent page', () => {
     expect((wrapper.find('[data-test="consent-name"]').element as HTMLInputElement).value).toBe('Pat Parent')
   })
 
+  it('shows the thank-you again for a link just signed', async () => {
+    vi.mocked(fetchConsentForm).mockResolvedValue({
+      studentName: 'Wren Ward',
+      supportEmail: 'support@biotechfutures.org',
+      completed: { reference: 'BTF-9', mediaConsent: true },
+    } as ConsentFormData)
+    const wrapper = await open()
+
+    expect(wrapper.find('form').exists()).toBe(false)
+    const done = wrapper.find('[data-test="consent-signed"]').text()
+    expect(done).toContain('BTF-9')
+    expect(done).toContain('with media consent')
+  })
+
   it('explains a link that can no longer be used', async () => {
     vi.mocked(fetchConsentForm).mockRejectedValue(linkError('expired', 'This consent link has expired.'))
     const wrapper = await open()

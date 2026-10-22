@@ -1,24 +1,5 @@
 <template>
-  <div class="admin-users">
-    <!-- Top actions: supervisor search only (add / CSV import move to the People tabs line) -->
-    <AdminUsersToolbar
-      v-if="isSupervisorMode"
-      :is-supervisor-mode="isSupervisorMode"
-      v-model:search="searchInput"
-    />
-
-    <!-- Users tab filters: search / role / country / state / in-group / status -->
-    <AdminUsersFilters
-      v-if="!isSupervisorMode"
-      :filters="filters"
-      v-model:search="searchInput"
-      :is-student-mode="isStudentMode"
-      :is-role-fixed="isRoleFixed"
-      :filter-countries="filterCountries"
-      :states="states"
-      @patch="applyFilterPatch"
-    />
-
+  <div id="admin-users-table" class="admin-users">
     <p v-if="error" class="admin-users__error" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
       <span>{{ error }}</span>
@@ -85,9 +66,8 @@
       :total-count="totalCount"
       :empty-message="emptyMessage"
       :is-student-mode="isStudentMode"
-      :page-size-options="PAGE_SIZE_OPTIONS"
-      pager-label="Users pagination"
-      :select-all-label="`Select all ${pluralNoun} on this page`"
+      v-model:search="searchInput"
+      :search-placeholder="isSupervisorMode ? 'Search supervisors...' : 'Name or email'"
       @view="openView"
       @edit="openEdit"
       @group-action="onGroupAction"
@@ -97,7 +77,19 @@
       @page-change="onPageChange"
       @page-size-change="onPageSizeChange"
       @row-click="onRowClick"
-    />
+    >
+      <!-- Role / country / state / in-group / status, beside Search. Supervisors have Search only. -->
+      <template v-if="!isSupervisorMode" #filters>
+        <AdminUsersFilters
+          :filters="filters"
+          :is-student-mode="isStudentMode"
+          :is-role-fixed="isRoleFixed"
+          :filter-countries="filterCountries"
+          :states="states"
+          @patch="applyFilterPatch"
+        />
+      </template>
+    </AdminUsersTable>
 
     <!-- Bulk status confirm -->
     <ConfirmDialog
@@ -132,13 +124,13 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div class="admin-users__delete-type">
-        <label class="admin-users__filter-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
         </label>
         <input
           id="bulk-delete-confirm"
           v-model="deleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -167,13 +159,13 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="singleDelete.force" class="admin-users__delete-type">
-        <label class="admin-users__filter-label" for="single-delete-confirm">
+        <label class="table-filter-label" for="single-delete-confirm">
           Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
         </label>
         <input
           id="single-delete-confirm"
           v-model="singleDeleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -240,7 +232,6 @@
       :open="viewOpen"
       :user="detailUser"
       @close="onViewClose"
-      @edit="openEditFromView"
       @updated="onDetailUpdated"
     />
 
@@ -254,10 +245,10 @@
 
 <script setup lang="ts">
 import { onMounted, ref, toRef } from 'vue'
+import { useRoute } from 'vue-router'
 import BulkActionsBar from '@/components/admin/BulkActionsBar.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import StudentAssignDialog from '@/components/admin/StudentAssignDialog.vue'
-import AdminUsersToolbar from '@/components/admin/users/AdminUsersToolbar.vue'
 import AdminUsersFilters from '@/components/admin/users/AdminUsersFilters.vue'
 import AdminUsersTable from '@/components/admin/users/AdminUsersTable.vue'
 import AdminUsersBulkBar from '@/components/admin/users/AdminUsersBulkBar.vue'
@@ -265,7 +256,6 @@ import AdminUserFormSheet from '@/components/admin/users/AdminUserFormSheet.vue'
 import AdminUserDetailSheet from '@/components/admin/users/AdminUserDetailSheet.vue'
 import AdminStudentImportSheet from '@/components/admin/users/AdminStudentImportSheet.vue'
 import type { AdminUser } from '@/utils/adminAPI'
-import { PAGE_SIZE_OPTIONS } from '@/utils/userOptions'
 import { useAdminUsersView } from '@/composables/admin/useAdminUsersView'
 
 const props = withDefaults(
@@ -279,6 +269,8 @@ const props = withDefaults(
     roleFilter: ''
   }
 )
+
+const route = useRoute()
 
 const {
   loading,
@@ -294,6 +286,7 @@ const {
   states,
   supervisors,
   searchInput,
+  setSearchImmediately,
   filters,
   columns,
   emptyMessage,
@@ -385,12 +378,6 @@ const openEdit = (user: AdminUser) => {
   formOpen.value = true
 }
 
-const openEditFromView = () => {
-  const user = detailUser.value
-  if (!user) return
-  onViewClose()
-  openEdit(user)
-}
 
 const onFormSaved = () => {
   void load()
@@ -421,6 +408,21 @@ const onSingleDeleteConfirmed = () => {
 }
 
 onMounted(() => {
+  const search = route.query.search
+  if (typeof search === 'string') {
+    setSearchImmediately(search)
+  }
+
+  const status = route.query.status
+  if (status === 'active' || status === 'inactive') {
+    filters.value.status = status
+  }
+
+  const inGroup = route.query.inGroup
+  if (isStudentMode.value && (inGroup === 'yes' || inGroup === 'no')) {
+    filters.value.inGroup = inGroup
+  }
+
   void init()
 })
 
@@ -458,7 +460,7 @@ defineExpose({
   border: 1px solid rgba(1, 113, 81, 0.25);
   border-radius: 8px;
   background-color: rgba(1, 113, 81, 0.06);
-  color: var(--charcoal);
+  color: var(--teal);
   font-size: 0.875rem;
 }
 
@@ -483,7 +485,7 @@ defineExpose({
   align-items: flex-start;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--charcoal);
+  color: var(--teal);
 }
 
 .admin-users__force-toggle input {
@@ -508,26 +510,14 @@ defineExpose({
   margin-top: 0.75rem;
 }
 
-.admin-users__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .admin-users__delete-keyword {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
   color: var(--danger);
 }
 
+/* The shared box (app-input), on the dialog's own background. */
 .admin-users__delete-type input {
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--charcoal);
-  font: inherit;
 }
 </style>

@@ -1,12 +1,4 @@
 <template>
-  <p
-    v-if="UNDER_CONSTRUCTION"
-    style="background: #fff8e1; border: 1px solid #f5d97e; border-radius: 8px; color: #8a6d1a; font-size: 0.85rem; padding: 0.6rem 0.85rem; margin: 0 0 0.75rem"
-  >
-    <i class="fas fa-hammer" aria-hidden="true"></i>
-    The backend for this page is still being built.
-  </p>
-
   <div class="year">
     <section class="card">
       <div class="card-header">
@@ -20,17 +12,28 @@
 
       <ul class="year__facts">
         <li>
+          <span class="year__fact-label">Registration start</span>
+          <span v-if="registration?.opens_at">{{ formatStatementTime(registration.opens_at) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Registration close</span>
+          <span v-if="registration?.closes_at">{{ formatStatementTime(registration.closes_at) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Challenge start</span>
+          <span v-if="challengeStart">{{ formatStatementTime(challengeStart) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
           <span class="year__fact-label">Submission deadline</span>
-          <span v-if="deadline">{{
-            `${new Date(deadline.closes_at).toLocaleDateString('en-GB')} ${new Date(deadline.closes_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-          }}</span>
+          <span v-if="deadline">{{ formatStatementTime(deadline.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
           <span class="year__fact-label">Last extension</span>
-          <span v-if="lastExtension">{{
-            `${new Date(lastExtension).toLocaleDateString('en-GB')} ${new Date(lastExtension).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`
-          }}</span>
+          <span v-if="lastExtension">{{ formatStatementTime(lastExtension) }}</span>
           <span v-else class="year__muted">none granted</span>
         </li>
         <li>
@@ -40,17 +43,22 @@
           </span>
         </li>
         <li>
-          <span class="year__fact-label">Certificates</span>
-          <span :class="certsReleased ? 'year__ok' : 'year__muted'">
-            {{ certsReleased ? 'released' : 'not released' }}
-          </span>
-        </li>
-        <li>
           <span class="year__fact-label">Notify finalists</span>
           <span v-if="finalists.length" :class="allNotified ? 'year__ok' : 'year__muted'">
             {{ notifiedCount }} of {{ finalists.length }} notified
           </span>
           <span v-else class="year__muted">no finalists</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Symposium date</span>
+          <span v-if="symposiumDate">{{ dayText(symposiumDate) }}</span>
+          <span v-else class="year__muted">not set</span>
+        </li>
+        <li>
+          <span class="year__fact-label">Certificates</span>
+          <span :class="certsReleased ? 'year__ok' : 'year__muted'">
+            {{ certsReleased ? 'released' : 'not released' }}
+          </span>
         </li>
       </ul>
     </section>
@@ -59,21 +67,12 @@
       <div class="card-header">
         <h3 class="card-title">Prepare New Year</h3>
       </div>
-      <ol class="year__steps">
-        <li>
-          Grading shows only the new year's submissions and finalists - previous years
-          stay on record.
-        </li>
-        <li>Sets the last year's deadline on the Submission Deadline tab.</li>
-        <li>Resets marks and certificates from their tabs.</li>
-        <li>Clears all per-group deadline extensions.</li>
-        <li>Ends all group memberships - students, mentors and supervisors.</li>
-        <li>
-          Deactivates student accounts and signs them out; mentor and supervisor accounts
-          stay active.
-        </li>
-        <li>Unpublishes last year's announcements so the new cohort starts clean.</li>
-      </ol>
+      <div v-for="group in steps" :key="group.title" class="year__group">
+        <h4 class="year__group-title">{{ group.title }}</h4>
+        <ul class="year__steps">
+          <li v-for="step in group.steps" :key="step">{{ step }}</li>
+        </ul>
+      </div>
       <p class="year__hint">
         These steps are instructions for the backend - the Start new year button will
         run them automatically once it's built.
@@ -87,26 +86,67 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { formatStatementTime } from '@/utils/date'
 import { fetchFinalists, type FinalistRow } from '@/utils/gradingAPI'
 import {
   fetchCertificatesRelease,
+  fetchChallengeStart,
+  fetchFinalistEmailDetails,
   fetchGroupExtensions,
   challengeYear,
+  fetchRegistrationOpen,
   fetchRelease,
   fetchSubmissionDeadline,
   type GroupExtension,
+  type RegistrationState,
   type ReleaseStatus,
   type SubmissionDeadline
 } from '@/utils/managementAPI'
-
-// Flip to false once the backend flow is signed off.
-const UNDER_CONSTRUCTION = true
 
 const deadline = ref<SubmissionDeadline | null>(null)
 const marks = ref<ReleaseStatus | null>(null)
 const certs = ref<ReleaseStatus | null>(null)
 const extensions = ref<GroupExtension[]>([])
 const finalists = ref<FinalistRow[]>([])
+const registration = ref<RegistrationState | null>(null)
+// Days alone, as "2026-07-27": Challenge Start's, and Notify Finalists' Symposium.
+const challengeStart = ref<string | null>(null)
+const symposiumDate = ref<string | null>(null)
+
+// What Start new year does, by area, and what it leaves as it is.
+const steps: { title: string; steps: string[] }[] = [
+  {
+    title: 'People and Groups',
+    steps: [
+      'Deactivates all student, mentor and supervisor accounts and signs them out. Admins stay active. Accounts are reactivated only by registering again.',
+      'Archives all groups. Groups start with the new year and new groups start again from BTF01.',
+      'The 3 Guardian tables show only students registered or reactivated in the new challenge year.'
+    ]
+  },
+  {
+    title: 'Group Work and Content',
+    steps: [
+      'Archives all group tasks, chats and submissions.',
+      'Archives all events and announcements, and hides all resources.'
+    ]
+  },
+  {
+    title: 'Management',
+    steps: [
+      'Resets the sent progress of every email.',
+      'Clears these dates: Registration Start and End, Challenge Start, Pages Visibility, Submission Deadline, Symposium (with Confirm Attendance and Slides Due) and Results (Survey Closes).',
+      "Archives late registration links, extensions, slot allocations, marks and certificates. Resets each supervisor's late registration permission and resource visibility.",
+      'Clears the Symposium registration link and the feedback survey link.'
+    ]
+  },
+  {
+    title: 'Stays',
+    steps: ['Presentation Times, marking rubrics, Document Setup and the Known Universities list.']
+  }
+]
+
+/** "27/07/2026", as the deadlines read without their time. */
+const dayText = (value: string) => value.split('-').reverse().join('/')
 
 const marksReleased = computed(() => marks.value?.released_at != null)
 const certsReleased = computed(() => certs.value?.released_at != null)
@@ -131,6 +171,21 @@ const currentYear = computed(() => challengeYear(deadline.value))
 
 onMounted(async () => {
   // Best-effort: each block independent so one failure doesn't blank the page.
+  try {
+    registration.value = await fetchRegistrationOpen()
+  } catch {
+    registration.value = null
+  }
+  try {
+    challengeStart.value = (await fetchChallengeStart()).starts_at
+  } catch {
+    challengeStart.value = null
+  }
+  try {
+    symposiumDate.value = (await fetchFinalistEmailDetails()).symposium_date
+  } catch {
+    symposiumDate.value = null
+  }
   try {
     deadline.value = (await fetchSubmissionDeadline()).deadline
   } catch {
@@ -192,7 +247,7 @@ onMounted(async () => {
 .year__fact-label {
   display: inline-block;
   min-width: 11rem;
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -205,11 +260,18 @@ onMounted(async () => {
   color: var(--text-muted);
 }
 
+.year__group-title {
+  margin: 0 0 0.4rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .year__steps {
   margin: 0 0 1rem;
   padding-left: 1.2rem;
   font-size: 0.92rem;
-  color: var(--charcoal);
+  color: var(--teal);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;

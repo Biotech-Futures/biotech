@@ -6,7 +6,7 @@
       </div>
       <h3 class="notify-finalists__section-title">Set Details</h3>
       <p class="notify-finalists__hint">
-        These go into the finalist email and announcement. Set them before sending.
+        These go into the finalist email. Set them before sending.
       </p>
       <p v-if="detailsError" class="notify-finalists__load-error">
         Failed to load the email details. {{ detailsError }}
@@ -15,16 +15,17 @@
         <div class="notify-finalists__fields">
           <label v-for="field in DATE_FIELDS" :key="field.key" class="notify-finalists__field">
             <span>{{ field.label }}</span>
-            <input
+            <AppDatePicker
               v-model="form[field.key]"
-              type="date"
+              class="app-input app-input--compact"
+              :data-test="`email-date-${field.key}`"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && isPast(field.key) }"
             />
           </label>
           <label class="notify-finalists__field notify-finalists__field--wide">
-            <span>Registration Link</span>
-            <input v-model="form.registration_url" type="url" placeholder="https://…" />
+            <span>Symposium Registration Link</span>
+            <input v-model="form.registration_url" class="app-input app-input--compact" type="url" placeholder="https://…" />
           </label>
         </div>
         <p v-if="pastDatesMessage" class="notify-finalists__field-error" role="alert">
@@ -136,19 +137,12 @@
       <p v-if="details?.sent_from" class="notify-finalists__delivery-note">{{ deliveryNote(details.sent_from) }}</p>
       <p v-if="lastEmailed" class="notify-finalists__last-emailed">
         Last Emailed at
-        {{ `${new Date(lastEmailed.notified_at!).toLocaleDateString('en-GB')} ${new Date(lastEmailed.notified_at!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}` }}<template
+        {{ formatStatementTime(lastEmailed.notified_at) }}<template
           v-if="lastEmailed.notified_by"
         >
           by {{ lastEmailed.notified_by }}</template
         >.
       </p>
-      <!-- The same news in the app, for the finalist groups emailed so far. -->
-      <OutcomeAnnouncement
-        ref="announcement"
-        kind="finalists"
-        @flash="flashAction"
-        @error="(text) => (actionError = text)"
-      />
     </section>
 
     <p v-if="actionError" class="notify-finalists__banner notify-finalists__banner--error">
@@ -223,6 +217,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import {
   deliveryNote,
@@ -246,9 +241,9 @@ import {
   type FinalistSendWhich
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatStatementTime } from '@/utils/date'
 import { plural } from '@/utils/string'
 import MissedPerson from '@/views/management/MissedPerson.vue'
-import OutcomeAnnouncement from '@/views/management/OutcomeAnnouncement.vue'
 import TestEmailSender from '@/views/management/TestEmailSender.vue'
 
 // The finalist groups, for the status line and Last Emailed.
@@ -354,8 +349,6 @@ const saveDetails = async () => {
     showDetails(await updateFinalistEmailDetails(formFields()))
     saveTried.value = false
     flashAction('Email details saved.')
-    // Its wording has the dates and link in it.
-    void announcement.value?.reload()
   } catch (err) {
     actionError.value = apiErrorFromUnknown(err).message
   } finally {
@@ -368,6 +361,7 @@ const sendBlockedReason = computed(() => {
   if (detailsError.value) return 'The email details could not be loaded.'
   const d = details.value
   if (!d) return ''
+  if (d.switched_off) return d.switched_off
   if (detailsChanged.value) return 'Save the email details before sending.'
   if (!d.complete) return 'Fill in and save every email detail above before sending.'
   if (d.dates_in_past.length) {
@@ -388,9 +382,6 @@ const { preview, loadingPreview, openPreview, fitPreview } = useEmailPreview(
   () => previewFinalistEmail(formFields(), testRecipient.value),
   actionError
 )
-
-// The same news in the app, reloaded once a send finishes.
-const announcement = ref<InstanceType<typeof OutcomeAnnouncement> | null>(null)
 
 onMounted(() => {
   void load()
@@ -465,8 +456,6 @@ const reportRun = (run: EmailRun) => {
   if (isError) actionError.value = text
   else flashAction(text, RUN_MESSAGE_MS)
   void load()
-  // More groups emailed: more who'd see the announcement.
-  void announcement.value?.reload()
 }
 useEmailRun(() => details.value, loadDetails, reportRun)
 </script>
@@ -503,7 +492,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--text-muted);
 }
 
-.notify-finalists__field input.is-invalid {
+.notify-finalists__field .is-invalid {
   border-color: var(--danger);
 }
 
@@ -514,15 +503,10 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   margin: 0 0 0.75rem;
 }
 
-/* Same boxes as Document Setup's text fields. */
-.notify-finalists__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--charcoal);
+/* The shared compact box (app-input), filling its column. */
+.notify-finalists__field .app-input {
+  width: auto;
+  max-width: none;
 }
 
 .notify-finalists__field input:focus {
@@ -648,7 +632,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 }
 
 .notify-finalists__newly-added {
-  color: var(--charcoal);
+  color: var(--teal);
   font-weight: 600;
 }
 
@@ -703,7 +687,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
 
 .notify-finalists__dialog {
   background: var(--surface-elevated);
-  color: var(--charcoal);
+  color: var(--teal);
   border-radius: 10px;
   box-shadow: 0 10px 40px var(--shadow);
   width: 100%;

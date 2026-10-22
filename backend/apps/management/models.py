@@ -81,6 +81,52 @@ def template_upload_to(instance, filename):
     return f"grading/templates/{uuid.uuid4().hex[:12]}/{filename}"
 
 
+class ChallengeStart(models.Model):
+    """When a year's challenge starts, its date and time (Management >
+    Challenge Start): the supervisors' weekly registration status email asks
+    for permission forms to be signed by that day. Who last set it, and when."""
+
+    year = models.PositiveSmallIntegerField(unique=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "challenge_start"
+
+    def __str__(self):
+        return f"Challenge {self.year} starts {self.starts_at or 'unset'}"
+
+    @classmethod
+    def for_year(cls, year: int) -> "ChallengeStart":
+        return cls.objects.get_or_create(year=year)[0]
+
+
+class SupervisorPagesSetting(SingletonModel):
+    """When students, mentors and supervisors start seeing Home, Groups,
+    Events, Announcements and Resources (Management > Challenge Start > Pages
+    Visibility): hidden until ``shown_from``, and while it isn't set. Admins
+    always see them."""
+
+    shown_from = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+
+    class Meta:
+        db_table = "supervisor_pages_setting"
+
+    def __str__(self):
+        return "SupervisorPagesSetting"
+
+    def shown_at(self, now) -> bool:
+        """Whether the pages are shown at ``now``."""
+        return self.shown_from is not None and now >= self.shown_from
+
+
 class GradingSettings(SingletonModel):
     director_1_name = models.CharField(max_length=255, blank=True)
     # The title printed under the name, e.g. "Chair" or "Co-Chair".
@@ -331,6 +377,45 @@ class EmailDelivery(models.Model):
         return f"{self.email}: {self.group_id} {self.address}"
 
 
+class BounceNotice(models.Model):
+    """A bounce notice ``check_bounced_emails`` has read from a sending
+    mailbox, so it's never counted twice (the mailbox itself is never
+    changed). Only our mailbox and the notice's Message-ID are kept, not who
+    it was about."""
+
+    mailbox = models.EmailField()
+    # The notice's Message-ID, or "uid:<n>" without one.
+    message_key = models.CharField(max_length=255)
+    read_at = models.DateTimeField(auto_now_add=True)
+    # How many of the bounces it reported matched one of our emails.
+    matched = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "bounce_notice"
+        constraints = [
+            models.UniqueConstraint(fields=["mailbox", "message_key"], name="uniq_bounce_notice"),
+        ]
+
+    def __str__(self):
+        return f"BounceNotice({self.mailbox})"
+
+
+class BounceCheckpoint(models.Model):
+    """How far ``check_bounced_emails`` has read a sending mailbox: the
+    newest message it has seen (its UID), so the next run reads only newer
+    ones."""
+
+    mailbox = models.EmailField(unique=True)
+    last_uid = models.PositiveBigIntegerField(default=0)
+    checked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "bounce_checkpoint"
+
+    def __str__(self):
+        return f"BounceCheckpoint({self.mailbox})"
+
+
 class EmailSendRun(models.Model):
     """One bulk email's send (Notify Finalists, Notify Nonfinalist, Release
     Results): the run going now, or the last one. Pressing Send queues a run on
@@ -361,6 +446,11 @@ class EmailSendRun(models.Model):
     # Who it couldn't reach and why, as the page lists them:
     # {"who": "(BTF07) Amy Chen", "reason": "address refused"}.
     missed = models.JSONField(default=list, blank=True)
+    # A run's: how many mail server connections it ended up sending over
+    # (fewer than BULK_EMAIL_WORKERS once the server pushed back); none for
+    # a job. A mailbox queue's: until when its runs use fewer connections.
+    connections = models.PositiveSmallIntegerField(null=True, blank=True)
+    fewer_connections_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "email_send_run"
@@ -500,3 +590,22 @@ class NonSubmissionEmail(models.Model):
 
     def __str__(self):
         return f"Non-submission emailed: {self.group}"
+
+
+class ScheduledJobRun(models.Model):
+    """One timed job the backend runs itself (apps.management.scheduler): the
+    slot it last ran for, so only one process runs each slot, and how its
+    last run went, for Management > Email Checks."""
+
+    name = models.CharField(max_length=64, unique=True)
+    last_slot = models.DateTimeField(null=True, blank=True)
+    last_started_at = models.DateTimeField(null=True, blank=True)
+    last_finished_at = models.DateTimeField(null=True, blank=True)
+    last_ok = models.BooleanField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        db_table = "scheduled_job_run"
+
+    def __str__(self):
+        return f"Scheduled job {self.name}"
