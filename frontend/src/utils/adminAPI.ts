@@ -653,6 +653,38 @@ export const renameKnownUniversity = (id: number, university: { name: string; ac
 export const deleteKnownUniversity = (id: number) =>
   adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
 
+/** A row of an uploaded sheet: its number as the spreadsheet shows it (the
+ *  header is row 1), and its name. */
+export type KnownUniversityUploadRow = { row: number; name: string }
+
+/** Upload Universities' check of a sheet (or, applied, what it did), as My
+ *  Students' Upload guardian details has its own: its headers, then those it
+ *  adds, row by row those it fills in (a blank acronym or country), those
+ *  listed already, each name given more than once (every row it's on, the
+ *  first one used), and the rows blank or too long. */
+export type KnownUniversityUpload = {
+  checks: { missing_headers: string[]; header_order: string; conflicts: string[] }
+  summary: { added: number; filled: number; skipped: number; errors: number }
+  filled_rows: KnownUniversityUploadRow[]
+  listed_rows: KnownUniversityUploadRow[]
+  repeated_rows: { rows: number[]; name: string }[]
+  invalid_rows: number[]
+  applied?: boolean
+}
+
+/** Upload Universities: a .csv or .xlsx with columns name, acronym and
+ *  country, in order. ``dryRun`` previews it; otherwise it's loaded. */
+export const uploadKnownUniversities = (file: File, dryRun: boolean) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('dry_run', dryRun ? 'true' : 'false')
+  return adminRequest<AdminEnvelope<KnownUniversityUpload>>('/known-university/upload/', {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
 // ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------

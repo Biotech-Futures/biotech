@@ -166,4 +166,5 @@ urlpatterns = [
     # ========================================================================
     path('known-university/', views.KnownUniversityListCreateView.as_view(), name='known-university-list-create'),
     path('known-university/<int:university_id>/', views.KnownUniversityDetailView.as_view(), name='known-university-detail'),
+    path('known-university/upload/', views.KnownUniversityUploadView.as_view(), name='known-university-upload'),
 ]

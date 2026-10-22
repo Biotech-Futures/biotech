@@ -39,6 +39,7 @@
           <span class="admin-mentors__filter-label">Capacity</span>
           <AppSelect
             v-model="capacityFilter"
+            class="table-filter"
             aria-label="Mentor capacity"
             :options="CAPACITY_OPTIONS"
           />

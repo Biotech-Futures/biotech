@@ -78,6 +78,10 @@ describe('Email Checks', () => {
     const paid = wrapper.get('[data-test="email-checks-paid"]').text()
     expect(paid).toContain('9,800')
     expect(paid).toContain('500 (sent)')
+    // Lowest first.
+    expect(
+      wrapper.findAll('[data-test="email-checks-paid"] .email-checks__alert').map((alert) => alert.text()),
+    ).toEqual(['100', '500 (sent)'])
     expect(paid).toContain('100')
     expect(wrapper.get('[data-test="email-checks-today"]').text()).toContain('37 of 1,000')
     expect(wrapper.find('[data-test="email-checks-sandbox"]').exists()).toBe(false)

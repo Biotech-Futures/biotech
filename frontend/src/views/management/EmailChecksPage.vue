@@ -138,7 +138,7 @@ const describe = (name: string, role: string, key: EmailCheckKey) => ({
   reported: key.updatedAt ? formatShortDateTime(key.updatedAt) : '—'
 })
 
-// The free key, then the paid one with its alert levels, highest first.
+// The free key, then the paid one with its alert levels, lowest first.
 const keys = computed(() => {
   const data = credits.value
   if (!data) return []
@@ -146,7 +146,7 @@ const keys = computed(() => {
     { ...describe('Free', 'Tried first.', data.free), alerts: null },
     {
       ...describe('Paid', 'Used once the free key runs out. The low-credit alerts follow it.', data.paid),
-      alerts: data.thresholds.map((level) => ({ level, sent: data.paid.alertedThresholds.includes(level) }))
+      alerts: [...data.thresholds].sort((a, b) => a - b).map((level) => ({ level, sent: data.paid.alertedThresholds.includes(level) }))
     }
   ]
 })
