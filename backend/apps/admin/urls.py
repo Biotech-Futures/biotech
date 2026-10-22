@@ -157,4 +157,13 @@ urlpatterns = [
     # ========================================================================
     path('known-university/', views.KnownUniversityListCreateView.as_view(), name='known-university-list-create'),
     path('known-university/<int:university_id>/', views.KnownUniversityDetailView.as_view(), name='known-university-detail'),
+
+    # ========================================================================
+    # GROUP PLAN ROUTES (GP2 admin builder; GP5's plan-task/progress/ must be
+    # registered before the <int:task_id> pattern below)
+    # ========================================================================
+    path('plan-stage/', views.AdminPlanStageListCreateView.as_view(), name='admin-plan-stage-list-create'),
+    path('plan-stage/<int:stage_id>/', views.AdminPlanStageDetailView.as_view(), name='admin-plan-stage-detail'),
+    path('plan-task/', views.AdminPlanTaskListCreateView.as_view(), name='admin-plan-task-list-create'),
+    path('plan-task/<int:task_id>/', views.AdminPlanTaskDetailView.as_view(), name='admin-plan-task-detail'),
 ]

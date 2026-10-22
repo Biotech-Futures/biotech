@@ -355,6 +355,10 @@ const props = withDefaults(
     totalCount?: number
     page?: number
     pageSize?: number
+    // The server's page-size ceiling. Given, sizes are capped to it and the
+    // "All" choice is dropped, since All asks the server for more than it
+    // allows (the plan API rejects limits above 100).
+    maxPageSize?: number
     // Given, the page searches the rows itself, in either mode.
     search?: string
     // Given, the page sorts the rows itself, in either mode.
@@ -382,6 +386,7 @@ const props = withDefaults(
     totalCount: undefined,
     page: undefined,
     pageSize: undefined,
+    maxPageSize: undefined,
     search: undefined,
     sort: undefined,
     defaultSort: undefined,
@@ -424,6 +429,12 @@ const ownSelection = ref<Set<RowKey>>(new Set())
 watch(() => props.search, (value) => { if (value !== undefined) search.value = value })
 watch(() => props.page, (value) => { if (value !== undefined) page.value = value })
 watch(() => props.pageSize, (value) => { if (value !== undefined) pageSize.value = value })
+// Never ask the server for more rows than it allows.
+watch(pageSize, (value) => {
+  if (props.maxPageSize !== undefined && value > props.maxPageSize) {
+    pageSize.value = props.maxPageSize
+  }
+})
 watch(() => props.sort, (value) => {
   if (!value) return
   sortKey.value = value.key
@@ -721,11 +732,17 @@ onMounted(() => {
 })
 onBeforeUnmount(() => window.removeEventListener('resize', refitToWindow))
 
-// 7, 15 and 30, the fitted size among them, then All.
+// 7, 15 and 30, the fitted size among them, then All. With a server ceiling,
+// sizes stop at it and the All choice is dropped.
 const sizeOptions = computed(() => {
-  const sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
-  if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) sizes.push(fittedSize.value)
-  return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
+  const ceiling = props.maxPageSize
+  let sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
+  if (ceiling !== undefined) sizes = sizes.filter((size) => size <= ceiling)
+  if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) {
+    if (ceiling === undefined || fittedSize.value <= ceiling) sizes.push(fittedSize.value)
+  }
+  sizes = sizes.sort((a, b) => a - b)
+  return ceiling === undefined ? [...sizes, DATA_TABLE_ALL] : sizes
 })
 
 // Search is 252px wide, or wide enough for every word of its placeholder:

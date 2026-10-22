@@ -37,7 +37,11 @@ import {
   testSendSystemEmailTemplate,
   fetchSystemEmailTestRecipients,
   fetchSystemEmailSettings,
-  updateSystemEmailSettings
+  updateSystemEmailSettings,
+  deleteAdminPlanStage,
+  deleteAdminPlanTask,
+  fetchAdminPlanStages,
+  fetchAdminPlanTasks
 } from '@/utils/adminAPI'
 
 describe('buildAdminQuery', () => {
@@ -510,6 +514,50 @@ describe('admin task actions', () => {
     const [, init] = fetchMock.mock.calls.find(([url]) => String(url).includes('/task/7/')) as [string, RequestInit]
     expect(init.method).toBe('DELETE')
     expect(result).toBeUndefined()
+  })
+
+  it('deleteAdminPlanStage sends DELETE and resolves void on a 204 with an empty body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminPlanStage(5)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(String(url)).toContain('/api/v1/admin/plan-stage/5/')
+    expect(init.method).toBe('DELETE')
+    expect(result).toBeUndefined()
+  })
+
+  it('deleteAdminPlanTask sends DELETE and resolves void on a 204 with an empty body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await deleteAdminPlanTask(10)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(String(url)).toContain('/api/v1/admin/plan-task/10/')
+    expect(init.method).toBe('DELETE')
+    expect(result).toBeUndefined()
+  })
+
+  it('fetchAdminPlanTasks forwards stage_id and returns the list data', async () => {
+    const payload = {
+      msg: 'Tasks retrieved successfully',
+      data: {
+        items: [],
+        total: 0,
+        page: 1,
+        limit: 100,
+        has_more: false
+      }
+    }
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await fetchAdminPlanTasks({ page: 1, limit: 100, stage_id: 3 })
+
+    const calledUrl = String(fetchMock.mock.calls[0][0])
+    expect(calledUrl).toContain('/api/v1/admin/plan-task/')
+    expect(calledUrl).toContain('stage_id=3')
+    expect(result.total).toBe(0)
   })
 
   it('fetchTaskRoleRecipients passes the role query and returns the response envelope', async () => {

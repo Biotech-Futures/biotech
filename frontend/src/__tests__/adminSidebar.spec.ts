@@ -27,6 +27,7 @@ const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
   '/admin/tasks',
+  '/admin/plan',
 ]
 
 const analyticsSubLinks = [

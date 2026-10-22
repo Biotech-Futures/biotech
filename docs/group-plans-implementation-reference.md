@@ -73,6 +73,17 @@ Use the same completion-record check for backend validation and the admin form's
 
 **Returning-group operating rule:** before restoring a group or changing the deadline back to an earlier cohort, an admin checks task audit history for changes to audience/mode while the group was excluded. If settings changed, or compatibility cannot be established, soft-delete the affected task and create a new task before the group returns. The new task has a new ID and no inherited ticks for any group. If settings are unchanged, existing ticks may reappear. Include audience and mode in task mutation audit snapshots to support this check. Person 1 owns the admin checklist; this version does not automatically detect or block incompatible group restoration/deadline changes, and does not introduce yearly templates.
 
+**Returning-group checklist (admin, manual).** Walk through this before restoring a previously excluded group or moving the active deadline back to an earlier cohort. The GP2 builder supports it but does not enforce it:
+
+1. Identify every task the returning group previously had a completion record for. Records are kept when a task is soft-deleted, so this includes deleted tasks.
+2. For each, read its audit history (`apps.audit.models.AuditLog`, `entity_type="plan_task"`, `entity_id=<task id>`) for `update` entries whose before/after snapshots differ in `audience_role` or `completion_mode`.
+3. If neither field changed while the group was excluded, leave the task as it is; the group's existing ticks may reappear as the task is visible again.
+4. If either field changed, or you cannot establish that it did not, soft-delete the current task and create a replacement before the group returns. The replacement gets a new ID and starts unticked for every group; the old records stay attached to the old, hidden task.
+5. Do not edit audience or mode after a completion record exists — the API refuses this (400) while any non-deleted current-year group holds a record for the task, and the builder disables both fields with an explanation. Create a replacement instead.
+6. When in doubt, treat compatibility as unproven and replace the task: an extra task is safer than restoring ticks under a changed audience or mode.
+
+The builder records every create, update and delete with before/after snapshots (including `audience_role` and `completion_mode`) so this audit trail is available; the same snapshots back the field-lock explanation shown on the edit form.
+
 ### Dates and progress
 
 Send due dates as `YYYY-MM-DD` or `null`; reject datetime strings. Use stage/task position as the default order on the member page and progress matrix; due dates label tasks rather than determine the journey. The admin task table may still offer due-date sorting, with undated tasks last. Format dates with `formatShortDate(value, 'UTC')`; compare with `toTimeZoneDateKey(new Date(), getSetTimeZone())` from `utils/date.ts`. Show Overdue only for `completed === false` with a due date before today, not for null personal completion viewed by an admin.
