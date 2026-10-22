@@ -60,13 +60,13 @@
       >
         <!-- Type and target role, beside Search. -->
         <template #filters>
-          <div class="admin-views__filter">
-            <label class="admin-views__filter-label" for="view-type-filter">Type</label>
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="view-type-filter">Type</label>
             <AppSelect id="view-type-filter" v-model="activeTab" class="table-filter" :options="TYPE_OPTIONS" />
           </div>
 
-          <div class="admin-views__filter">
-            <label class="admin-views__filter-label" for="view-role-filter">Target role</label>
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="view-role-filter">Target role</label>
             <AppSelect id="view-role-filter" v-model="roleFilter" class="table-filter" :options="ROLE_OPTIONS" />
           </div>
         </template>
@@ -274,20 +274,6 @@ onMounted(load)
 }
 
 /* Beside Search in the table's search card, and drawn like it. */
-.admin-views__filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-views__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .admin-views__error {
   display: inline-flex;
   align-items: center;

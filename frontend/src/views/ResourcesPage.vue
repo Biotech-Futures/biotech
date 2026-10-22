@@ -71,14 +71,14 @@
       @row-click="openResourceDetail(toResource($event).id)"
     >
       <template #filters>
-        <label class="resource-filter">
-          <span class="resource-filter-label">Label</span>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Label</span>
           <AppSelect v-model="selectedLabelId" class="table-filter" aria-label="Filter by label" :options="labelFilterOptions" />
           <span v-if="getFieldError('label_id')" class="field-error">{{ getFieldError('label_id') }}</span>
         </label>
 
-        <label class="resource-filter">
-          <span class="resource-filter-label">Type</span>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Type</span>
           <AppSelect v-model="selectedType" class="table-filter" aria-label="Filter by type" :options="typeFilterOptions" />
         </label>
 
@@ -555,21 +555,6 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   border-left: 4px solid var(--danger);
   flex-direction: column;
-}
-
-/* Label and the other filters, in the table's search card, drawn like Search. */
-.resource-filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.resource-filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .field-error {

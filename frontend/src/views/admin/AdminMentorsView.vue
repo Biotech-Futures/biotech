@@ -35,8 +35,8 @@
       @update:sort="setSort($event.key as MentorSortKey)"
     >
       <template #filters>
-        <label class="admin-mentors__filter-field">
-          <span class="admin-mentors__filter-label">Capacity</span>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Capacity</span>
           <AppSelect
             v-model="capacityFilter"
             class="table-filter"
@@ -308,17 +308,6 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 1rem;
-}
-
-.admin-mentors__filter-field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.admin-mentors__filter-label {
-  color: var(--text-muted, #60726f);
-  font-size: 0.75rem;
-  font-weight: 700;
 }
 
 .admin-mentors__inactive-days {

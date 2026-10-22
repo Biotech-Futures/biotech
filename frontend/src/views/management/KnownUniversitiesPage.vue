@@ -28,8 +28,8 @@
       :empty-message="search.trim() || countryFilter ? 'No university matches.' : 'No universities listed yet.'"
     >
       <template #filters>
-        <label class="known-universities__filter-field">
-          <span class="known-universities__filter-label">Country</span>
+        <label class="table-filter-field">
+          <span class="table-filter-label">Country</span>
           <AppSelect
             v-model="countryFilter"
             class="table-filter"
@@ -525,22 +525,6 @@ onMounted(load)
   margin: 0;
   color: var(--text-muted);
   font-size: 0.9rem;
-}
-
-/* Country, beside Search: the shared filter box (table-filter), under a label
-   like SEARCH's, as Admin > Groups' Mentor status. */
-.known-universities__filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.known-universities__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 /* The Add popup's three boxes, one under another. */

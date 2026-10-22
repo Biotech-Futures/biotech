@@ -583,6 +583,22 @@ textarea.app-input:not(.app-input--compact) {
   line-height: normal;
 }
 
+/* A table's filter or search with its label above it, as SEARCH is on every
+   table: a table-filter-field holding a table-filter-label and its box. */
+.table-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.table-filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 /* A table's search, with room on the left for its magnifier. */
 .table-search {
   width: 100%;

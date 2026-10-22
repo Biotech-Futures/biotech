@@ -13,10 +13,10 @@
     <!-- Search sits on top of the table, as on Group Marks. -->
     <div class="data-table-search-card">
       <label
-        class="data-table-search-field"
+        class="table-filter-field data-table-search-field"
         :style="searchFieldWidth ? { flexBasis: `${searchFieldWidth}px`, maxWidth: `${searchFieldWidth}px` } : undefined"
       >
-        <span class="data-table-search-label">Search</span>
+        <span class="table-filter-label">Search</span>
         <span class="data-table-search-box">
           <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
           <input
@@ -924,20 +924,10 @@ const togglePageSelection = () => {
   margin-left: auto;
 }
 
+/* SEARCH and its box (table-filter-field, in main.css), 252px wide. */
 .data-table-search-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
   flex: 0 1 252px;
   max-width: 252px;
-}
-
-.data-table-search-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .data-table-search-box {

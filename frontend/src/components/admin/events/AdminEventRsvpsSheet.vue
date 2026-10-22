@@ -29,33 +29,40 @@
       </div>
 
       <!-- Search & Filters -->
+      <!-- Each with its label above it, as the tables' SEARCH is. -->
       <div v-if="rsvps.length > 0 || searchFilter" class="admin-event-rsvps__toolbar">
-        <div class="admin-event-rsvps__search-wrap">
-          <i class="fas fa-search admin-event-rsvps__search-icon" aria-hidden="true"></i>
-          <input
-            v-model.trim="searchFilter"
-            type="search"
-            class="admin-event-rsvps__search-input table-search"
-            placeholder="Search attendees by name or email..."
-            aria-label="Search attendees"
-          />
-          <button
-            v-if="searchFilter"
-            type="button"
-            class="admin-event-rsvps__search-clear"
-            aria-label="Clear attendee search"
-            @click="searchFilter = ''"
-          >
-            &times;
-          </button>
+        <div class="table-filter-field admin-event-rsvps__search-field">
+          <label class="table-filter-label" for="rsvp-search">Search</label>
+          <div class="admin-event-rsvps__search-wrap">
+            <i class="fas fa-search admin-event-rsvps__search-icon" aria-hidden="true"></i>
+            <input
+              id="rsvp-search"
+              v-model.trim="searchFilter"
+              type="search"
+              class="admin-event-rsvps__search-input table-search"
+              placeholder="Search attendees by name or email..."
+            />
+            <button
+              v-if="searchFilter"
+              type="button"
+              class="admin-event-rsvps__search-clear"
+              aria-label="Clear attendee search"
+              @click="searchFilter = ''"
+            >
+              &times;
+            </button>
+          </div>
         </div>
 
-        <AppSelect
-          v-model="statusFilter"
-          class="admin-event-rsvps__status-select table-filter"
-          aria-label="Filter by RSVP status"
-          :options="STATUS_OPTIONS"
-        />
+        <div class="table-filter-field">
+          <label class="table-filter-label" for="rsvp-status-filter">Status</label>
+          <AppSelect
+            id="rsvp-status-filter"
+            v-model="statusFilter"
+            class="admin-event-rsvps__status-select table-filter"
+            :options="STATUS_OPTIONS"
+          />
+        </div>
       </div>
 
       <!-- Error alert -->
@@ -430,17 +437,21 @@ const rsvpRows = computed(() =>
   color: #ff5050;
 }
 
+/* Lined up along the bottom, so the boxes stay level under their labels. */
 .admin-event-rsvps__toolbar {
   display: flex;
   gap: 0.75rem;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
+}
+
+.admin-event-rsvps__search-field {
+  flex: 1;
+  min-width: 220px;
 }
 
 .admin-event-rsvps__search-wrap {
   position: relative;
-  flex: 1;
-  min-width: 220px;
   display: flex;
   align-items: center;
 }

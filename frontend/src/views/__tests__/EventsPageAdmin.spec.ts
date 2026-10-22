@@ -301,6 +301,10 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(rsvpsSheet?.textContent).toContain('student@example.com')
       expect(rsvpsSheet?.textContent).toContain('Student')
       expect(rsvpsSheet?.textContent).toContain('Going')
+      // Its search and status filter, each labelled above its box as the tables' are.
+      const labels = [...rsvpsSheet!.querySelectorAll<HTMLLabelElement>('.admin-event-rsvps__toolbar .table-filter-label')]
+      expect(labels.map((label) => label.textContent?.trim())).toEqual(['Search', 'Status'])
+      expect(labels.map((label) => document.getElementById(label.htmlFor)?.tagName)).toEqual(['INPUT', 'INPUT'])
     })
 
     it('opens Edit Event form sheet when clicking Edit in dropdown', async () => {
