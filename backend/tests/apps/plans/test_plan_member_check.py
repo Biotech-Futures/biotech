@@ -247,6 +247,73 @@ class GroupPlanCheckTests(TestCase):
             self.assert_ok(self.check(self.student, self.s_shared, {"completed": True}), True)
         lock.assert_called_once_with()
 
+    # -- Access that ends while the request waits for the task lock -----------
+    # The change is made as the lock is taken: after the first access check
+    # passed, before the request reads access again. It runs inside the
+    # request's transaction (SQLite tests share one connection), so a refused
+    # request rolls it back and each case starts from setUp's state. SQLite
+    # can't make a request wait for a row lock or see another transaction's
+    # commit; test_plan_member_check_postgres.py does that on PostgreSQL.
+
+    def tick_while_waiting(self, change, user, task):
+        lock = PlanTask.objects.select_for_update
+
+        def change_then_lock():
+            change()
+            return lock()
+
+        with patch.object(PlanTask.objects, "select_for_update", side_effect=change_then_lock) as spy:
+            response = self.check(user, task, {"completed": True})
+        spy.assert_called_once_with()
+        return response
+
+    def assert_refused(self, response, task):
+        self.assertEqual(response.status_code, 404, response.data)
+        self.assertFalse(PlanTaskCompletion.objects.exists())
+        self.assertEqual(self.audits(task), [])
+
+    def end_membership(self, user):
+        GroupMembership.objects.filter(user=user, group=self.group).update(left_at=timezone.now())
+
+    def test_a_membership_ended_while_waiting_is_refused(self):
+        for user, task in (
+            (self.student, self.s_indiv),
+            (self.student, self.s_shared),  # Will's rule: theirs only while a member.
+            (self.mentor, self.m_shared),
+            (self.supervisor_member, self.sup_indiv),
+        ):
+            with self.subTest(user=user.email, task=task.name):
+                self.assert_refused(self.tick_while_waiting(lambda: self.end_membership(user), user, task), task)
+
+    def test_a_supervisor_link_removed_while_waiting_is_refused(self):
+        def unlink():
+            StudentProfile.objects.filter(user=self.other_student).update(supervisor=None)
+
+        self.assert_refused(self.tick_while_waiting(unlink, self.supervisor_profile_only, self.s_shared), self.s_shared)
+
+    def test_admin_access_removed_while_waiting_is_refused(self):
+        def revoke():
+            AdminScope.objects.filter(user=self.admin).delete()
+
+        self.assert_refused(self.tick_while_waiting(revoke, self.admin, self.m_shared), self.m_shared)
+
+    def test_a_group_deleted_while_waiting_is_refused(self):
+        def delete():
+            Groups.objects.filter(pk=self.group.pk).update(deleted_at=timezone.now())
+
+        self.assert_refused(self.tick_while_waiting(delete, self.mentor, self.s_shared), self.s_shared)
+
+    def test_a_group_out_of_the_cohort_while_waiting_is_refused(self):
+        def move():
+            Groups.objects.filter(pk=self.group.pk).update(year=self.group.year - 1)
+
+        self.assert_refused(self.tick_while_waiting(move, self.student, self.s_indiv), self.s_indiv)
+
+    def test_access_unchanged_while_waiting_still_ticks(self):
+        response = self.tick_while_waiting(lambda: None, self.student, self.s_shared)
+        self.assert_ok(response, True)
+        self.assertEqual(len(self.audits(self.s_shared)), 1)
+
     def test_response_matches_the_list_item(self):
         response = self.check(self.student, self.s_indiv, {"completed": True})
         listed = APIClient()

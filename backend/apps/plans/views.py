@@ -106,20 +106,32 @@ class GroupPlanTaskCheckView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, group_id, task_id):
+    @staticmethod
+    def _plan_access(user, group_id):
+        """The live group and the viewer's facts for it, or 404."""
         group = Groups.objects.active().filter(pk=group_id).first()
         if group is None:
             raise NotFound("Group not found.")
-        facts = viewer_facts(request.user, group)
+        facts = viewer_facts(user, group)
         if not can_view_group_plan(facts) or not group_sees_plan(group, current_cohort()):
             raise NotFound("Group not found.")
+        return group, facts
+
+    def post(self, request, group_id, task_id):
+        # A first check before locking anything, so a viewer with no access
+        # never holds a task row lock.
+        self._plan_access(request.user, group_id)
 
         with transaction.atomic():
             # Lock the task row first: the same lock task edits and soft
             # deletion take, so a tick can't race a change of audience, mode
             # or deletion, and first ticks for the same task are serialised.
-            # Visibility is then read after the lock, from committed state.
             task = PlanTask.objects.select_for_update().filter(pk=task_id).first()
+            # The lock says nothing about the viewer's access, and waiting for
+            # it can take a while. Read the group, cohort, membership and
+            # tick right again now, so a membership ended, a group deleted or
+            # a cohort moved on while this request waited is refused.
+            group, facts = self._plan_access(request.user, group_id)
             if task is None or not visible_plan_tasks(facts).filter(pk=task.pk).exists():
                 raise NotFound("Task not found.")
             if not can_tick_plan_task(task, facts):

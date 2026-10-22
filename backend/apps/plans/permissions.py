@@ -1,7 +1,8 @@
 """Who may see a group's plan, which tasks they see, and what they may tick (GP3).
 
-The viewer facts are worked out once per request (``viewer_facts``); every
-other decision here is made from those facts. ``can_tick_plan_task`` makes no
+The viewer facts are worked out once per decision (``viewer_facts``); every
+other decision here is made from those facts. A tick works them out again
+after taking the task row lock, as access can end while it waits. ``can_tick_plan_task`` makes no
 queries, so the member list can return ``can_toggle`` for every item at no
 extra cost.
 
@@ -61,7 +62,7 @@ class ViewerFacts:
 
 
 def viewer_facts(user, group) -> ViewerFacts:
-    """Work out the viewer's facts for ``group``, once per request."""
+    """Work out the viewer's facts for ``group``, as they stand now."""
     if not user or not user.is_authenticated:
         return ViewerFacts(is_admin=False, membership_role=None, holds_tick_right=False)
 

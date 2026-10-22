@@ -628,6 +628,8 @@ describe('the Plan tab', () => {
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/groups/1/submission')
     expect(wrapper.find('[data-testid="portal-stub"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="section-body-plan"]').exists()).toBe(false)
+    // Hidden, not destroyed, so a tick still saving can land.
+    expect(wrapper.find('[data-testid="section-body-plan"]').isVisible()).toBe(false)
+    expect(wrapper.find('[data-testid="plan-stub"]').exists()).toBe(true)
   })
 })

@@ -96,8 +96,15 @@
     <FinalistPage v-if="hasOpenedFinalist" />
   </section>
 
-  <!-- Keyed by group, so one group's ticks never show for another. -->
-  <section v-if="section === 'plan'" class="group-section-body" data-testid="section-body-plan">
+  <!-- Once opened with a plan, hidden rather than destroyed while another
+       section shows, so a tick still saving lands when it answers. Keyed by
+       group, so one group's ticks never show for another. -->
+  <section
+    v-if="section === 'plan' || (hasOpenedPlan && plan)"
+    v-show="section === 'plan'"
+    class="group-section-body"
+    data-testid="section-body-plan"
+  >
     <p v-if="planStatus === 'loading'" class="group-plan-state" role="status">Loading the plan…</p>
     <p v-else-if="planStatus === 'error'" class="group-plan-state" role="alert">
       The plan couldn't be loaded.
@@ -279,11 +286,13 @@ const section = computed(() => {
 
 const hasOpenedSubmission = ref(false)
 const hasOpenedFinalist = ref(false)
+const hasOpenedPlan = ref(false)
 watch(
   section,
   (value) => {
     if (value === 'submission') hasOpenedSubmission.value = true
     if (value === 'finalist') hasOpenedFinalist.value = true
+    if (value === 'plan') hasOpenedPlan.value = true
   },
   { immediate: true },
 )
