@@ -643,6 +643,30 @@
             </div>
           </template>
         </div>
+
+        <!-- Every group the supervisor is in: the same list as the sidebar's,
+             so the server decides which count. Each opens its group page while
+             Management > Supervisor Pages Visibility lets supervisors in (the
+             router sends them back here otherwise), so until then they are
+             names, not links. -->
+        <div v-if="auth.isSupervisor" class="profile-section" data-test="supervisor-groups">
+          <h3 class="profile-section-title">Groups</h3>
+          <p v-if="groupsStore.error" class="profile-note">Your groups could not be loaded.</p>
+          <p v-else-if="!groupsStore.loaded" class="profile-note">Loading your groups…</p>
+          <ul v-else-if="groupsStore.sorted.length" class="profile-group-list">
+            <li v-for="group in groupsStore.sorted" :key="group.id">
+              <RouterLink
+                v-if="groupPagesShown"
+                class="profile-link"
+                :to="{ name: 'group-detail', params: { id: group.id } }"
+              >
+                {{ group.name }}
+              </RouterLink>
+              <template v-else>{{ group.name }}</template>
+            </li>
+          </ul>
+          <p v-else class="profile-note">You are not in any groups yet.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -654,6 +678,8 @@ import { routeLocationKey } from 'vue-router'
 
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import { useAuthStore } from '@/stores/auth'
+import { useGroupsStore } from '@/stores/groups'
+import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
@@ -692,6 +718,23 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 const auth = useAuthStore()
+
+// A supervisor's groups: the shared store the sidebar and /groups read, so
+// the list is the server's (active memberships, live groups), naturally
+// ordered. Loaded once the viewer is known to be a supervisor, reusing a
+// list already loaded this session. Whether their group pages are open to
+// supervisors is the switch the menu and router guard read.
+const groupsStore = useGroupsStore()
+const { shown: groupPagesShown } = useSupervisorPages()
+watch(
+  () => auth.isSupervisor,
+  (isSupervisor) => {
+    if (!isSupervisor) return
+    void groupsStore.ensureLoaded()
+    void loadSupervisorPages()
+  },
+  { immediate: true },
+)
 
 const loading = ref(true)
 const error = ref('')
@@ -1926,6 +1969,14 @@ onMounted(async () => {
 .profile-link {
   color: var(--dark-green);
   overflow-wrap: anywhere;
+}
+
+.profile-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.1rem;
 }
 
 .profile-avatar-wrap { position: relative; display:flex; flex-direction:column; align-items:center; }
