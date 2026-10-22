@@ -97,26 +97,26 @@ describe('the year dashboard', () => {
     deadlineMock.mockResolvedValue({ deadline: null })
     const wrapper = await mountPage()
     expect(wrapper.find('.year__value').text()).toBe(String(new Date().getFullYear()))
-    expect(fact(wrapper, 'Submission deadline').text()).toContain('not set')
+    expect(fact(wrapper, 'Submission Deadline').text()).toContain('not set')
   })
 
   it('lists the year in order, registration to certificates', async () => {
     const wrapper = await mountPage()
     expect(wrapper.findAll('.year__fact-label').map((label) => label.text())).toEqual([
-      'Registration start',
-      'Registration close',
-      'Challenge start',
-      'Submission deadline',
-      'Last extension',
+      'Registration Start',
+      'Registration Close',
+      'Challenge Start',
+      'Submission Deadline',
+      'Last Extension',
       'Marks',
-      'Notify finalists',
-      'Symposium date',
+      'Notify Finalists',
+      'Symposium Date',
       'Certificates',
     ])
-    expect(fact(wrapper, 'Registration start').text()).toContain(formatStatementTime('2026-03-01T00:00:00Z'))
-    expect(fact(wrapper, 'Registration close').text()).toContain(formatStatementTime('2026-06-30T13:59:00Z'))
-    expect(fact(wrapper, 'Challenge start').text()).toContain('27/07/2026')
-    expect(fact(wrapper, 'Symposium date').text()).toContain('20/11/2026')
+    expect(fact(wrapper, 'Registration Start').text()).toContain(formatStatementTime('2026-03-01T00:00:00Z'))
+    expect(fact(wrapper, 'Registration Close').text()).toContain(formatStatementTime('2026-06-30T13:59:00Z'))
+    expect(fact(wrapper, 'Challenge Start').text()).toContain('27/07/2026')
+    expect(fact(wrapper, 'Symposium Date').text()).toContain('20/11/2026')
   })
 
   it('says a date is not set until it is', async () => {
@@ -124,13 +124,13 @@ describe('the year dashboard', () => {
     challengeStartMock.mockResolvedValue({ year: 2026, starts_at: null, set_by: '', updated_at: null })
     symposiumMock.mockRejectedValue(new Error('down'))
     const wrapper = await mountPage()
-    for (const label of ['Registration start', 'Registration close', 'Challenge start', 'Symposium date'])
+    for (const label of ['Registration Start', 'Registration Close', 'Challenge Start', 'Symposium Date'])
       expect(fact(wrapper, label).text()).toContain('not set')
   })
 
   it('reports the furthest extension as the real end of the window', async () => {
     const wrapper = await mountPage()
-    expect(fact(wrapper, 'Last extension').text()).toContain(formatStatementTime('2026-11-08T00:00:00Z'))
+    expect(fact(wrapper, 'Last Extension').text()).toContain(formatStatementTime('2026-11-08T00:00:00Z'))
   })
 
   it('shows each release gate in its own state', async () => {
@@ -141,11 +141,11 @@ describe('the year dashboard', () => {
 
   it('counts notified finalists, and says so when there are none', async () => {
     const wrapper = await mountPage()
-    expect(fact(wrapper, 'Notify finalists').text()).toContain('1 of 2 notified')
+    expect(fact(wrapper, 'Notify Finalists').text()).toContain('1 of 2 notified')
 
     finalistsMock.mockResolvedValue({ finalists: [] })
     const empty = await mountPage()
-    expect(fact(empty, 'Notify finalists').text()).toContain('no finalists')
+    expect(fact(empty, 'Notify Finalists').text()).toContain('no finalists')
   })
 
   it('keeps rendering when every lookup fails — best effort, never blank', async () => {
@@ -155,8 +155,8 @@ describe('the year dashboard', () => {
     extensionsMock.mockRejectedValue(new Error('down'))
     finalistsMock.mockRejectedValue(new Error('down'))
     const wrapper = await mountPage()
-    expect(fact(wrapper, 'Submission deadline').text()).toContain('not set')
-    expect(fact(wrapper, 'Last extension').text()).toContain('none granted')
+    expect(fact(wrapper, 'Submission Deadline').text()).toContain('not set')
+    expect(fact(wrapper, 'Last Extension').text()).toContain('none granted')
     expect(fact(wrapper, 'Marks').text()).toContain('not released')
   })
 

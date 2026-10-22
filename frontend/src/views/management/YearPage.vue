@@ -12,27 +12,27 @@
 
       <ul class="year__facts">
         <li>
-          <span class="year__fact-label">Registration start</span>
+          <span class="year__fact-label">Registration Start</span>
           <span v-if="registration?.opens_at">{{ formatStatementTime(registration.opens_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Registration close</span>
+          <span class="year__fact-label">Registration Close</span>
           <span v-if="registration?.closes_at">{{ formatStatementTime(registration.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Challenge start</span>
+          <span class="year__fact-label">Challenge Start</span>
           <span v-if="challengeStart">{{ formatStatementTime(challengeStart) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Submission deadline</span>
+          <span class="year__fact-label">Submission Deadline</span>
           <span v-if="deadline">{{ formatStatementTime(deadline.closes_at) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
         <li>
-          <span class="year__fact-label">Last extension</span>
+          <span class="year__fact-label">Last Extension</span>
           <span v-if="lastExtension">{{ formatStatementTime(lastExtension) }}</span>
           <span v-else class="year__muted">none granted</span>
         </li>
@@ -43,14 +43,14 @@
           </span>
         </li>
         <li>
-          <span class="year__fact-label">Notify finalists</span>
+          <span class="year__fact-label">Notify Finalists</span>
           <span v-if="finalists.length" :class="allNotified ? 'year__ok' : 'year__muted'">
             {{ notifiedCount }} of {{ finalists.length }} notified
           </span>
           <span v-else class="year__muted">no finalists</span>
         </li>
         <li>
-          <span class="year__fact-label">Symposium date</span>
+          <span class="year__fact-label">Symposium Date</span>
           <span v-if="symposiumDate">{{ dayText(symposiumDate) }}</span>
           <span v-else class="year__muted">not set</span>
         </li>
