@@ -84,9 +84,13 @@ import { formatShortDate, getSetTimeZone, toTimeZoneDateKey } from '@/utils/date
 import { toggleGroupPlanTask, type GroupPlanTask, type PlanStage } from '@/utils/plansAPI'
 
 const props = defineProps<{ groupId: string; stages: PlanStage[]; items: GroupPlanTask[] }>()
+// A saved tick, with the group it was saved for, so the parent's copy of the
+// plan keeps it. Only after the server agrees; never for a failed tick.
+const emit = defineEmits<{ taskUpdated: [groupId: string, task: GroupPlanTask] }>()
 
 // The shown tasks. A tick replaces its task with the server's answer; a new
-// list from the parent (e.g. a reload) replaces them all.
+// list from the parent (e.g. a reload, or the parent taking in a tick)
+// replaces them all.
 const tasks = ref<GroupPlanTask[]>([...props.items])
 watch(
   () => props.items,
@@ -142,6 +146,7 @@ async function onToggle(task: GroupPlanTask, event: Event) {
   try {
     const updated = await toggleGroupPlanTask(props.groupId, task.id, task.completed !== true)
     tasks.value = tasks.value.map((item) => (item.id === updated.id ? updated : item))
+    emit('taskUpdated', props.groupId, updated)
   } catch (err) {
     errors.value = {
       ...errors.value,

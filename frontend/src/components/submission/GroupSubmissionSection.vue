@@ -109,6 +109,7 @@
       :group-id="groupId"
       :stages="plan.stages"
       :items="plan.items"
+      @task-updated="onPlanTaskUpdated"
     />
   </section>
 
@@ -130,7 +131,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { fetchGroupResults, type GroupResults as GroupResultsData } from '@/utils/managementAPI'
 import { fetchFinalist } from '@/utils/finalistAPI'
-import { listGroupPlanTasks, type GroupPlanList } from '@/utils/plansAPI'
+import { listGroupPlanTasks, type GroupPlanList, type GroupPlanTask } from '@/utils/plansAPI'
 import { ApiError } from '@/utils/apiError'
 
 // vue-router silently replaces a route that reuses this name, so keep it unique.
@@ -232,6 +233,19 @@ async function loadPlan({ quiet = false } = {}) {
     plan.value = null
     const status = err instanceof ApiError ? err.status : undefined
     planStatus.value = status === 404 || status === 403 ? 'unavailable' : 'error'
+  }
+}
+
+// A tick the server saved, taken into this copy of the plan so coming back
+// to Plan shows it. A load still in flight is dropped: it may have read the
+// plan before the tick landed and would put the old value back. A tick for a
+// group no longer shown is ignored, as task ids are shared across groups.
+function onPlanTaskUpdated(id: string, updated: GroupPlanTask) {
+  if (id !== groupId.value || !plan.value || planStatus.value !== 'ready') return
+  planRequest++
+  plan.value = {
+    ...plan.value,
+    items: plan.value.items.map((item) => (item.id === updated.id ? updated : item)),
   }
 }
 

@@ -4,7 +4,7 @@
 
 Build the **Group Plans** feature, inspired by Chronus connection plans, into the mentoring platform. Administrators create one shared journey of stages and tasks for current-year groups. Members follow the guidance and record completion; administrators monitor progress across groups.
 
-**Client Q&A alignment:** Will's reply to item 2 says “Students can tick”, whereas this plan's previously agreed permission rule forbids student ticks on shared tasks. That conflict must be reconciled before implementing GP3/GP4 permissions; the existing denial rule below is not client-approved. The quoted Q&A approves feature behaviour, not the order of TK4 PR merges.
+**Client Q&A alignment:** Will's reply to item 2 says “Students can tick”: students may tick student-audience shared tasks, as the rule below states. The quoted Q&A approves feature behaviour, not the order of TK4 PR merges.
 
 The feature comprises three primary interfaces:
 
@@ -17,7 +17,7 @@ The feature comprises three primary interfaces:
 - Eligible groups are non-deleted groups with `Groups.year == current_cohort()` (the active deadline's year, otherwise the current Django-local year). Waiting Area groups are included.
 - Audiences are students, mentors or supervisors, matched to active **group membership roles**, rather than platform roles. Members see their audience's tasks; admins see all tasks. Anyone allowed to complete shared tasks also sees all shared tasks.
 - **Individual tasks:** each audience member ticks their own checkbox. Nobody, including an admin, completes another person's individual task.
-- **Shared tasks:** one tick completes the task for the group. Only an admin, the active group mentor or a supervisor linked to a student in the group may tick it. Students can read student-audience shared tasks but cannot tick them.
+- **Shared tasks:** one tick completes the task for the group. An admin, the active group mentor or a supervisor linked to a student in the group may tick it. Students may also tick student-audience shared tasks, but not mentor- or supervisor-audience ones.
 - Individual progress belongs to the person and group: leavers stop counting, late joiners see existing tasks, replacement mentors start unticked and returners recover their ticks. Shared ticks remain when membership changes.
 - Suspended and deactivated accounts still count in individual progress totals while their group membership remains active.
 - All groups share one template. Changes appear on reload. Audience/mode lock while a non-deleted current-year group has a completion record, even if unticked; other fields stay editable. Previous-year and soft-deleted-group records do not lock settings; the returning-group checklist below protects their reuse.
@@ -213,7 +213,7 @@ Run focused tests while developing. Before review, run backend tests with `confi
 1. Open `/admin/plan`; create Getting Started and Developing Your Project stages, with numeric order and introductions.
 2. Add an individual student task with instructions, a guide link and due date, plus a shared student-audience task.
 3. Open a current-year group's Plan section; verify stage/task order, guidance, dates and links. Verify later stages remain accessible.
-4. As a student, tick the individual task. Verify other students remain incomplete and the shared checkbox is disabled.
+4. As a student, tick the individual task and the shared student-audience task. Verify other students' individual ticks remain incomplete and the shared tick shows for the whole group.
 5. As the group's mentor/supervisor, tick the shared task. Verify the group sees it complete and stage summaries update appropriately.
 6. Open admin progress; verify individual completed/total counts, shared `0/1`/`1/1` cells and group filtering. Verify suspended accounts with active memberships still count.
 7. Edit a ticked task; verify audience/mode are locked but names, guidance and dates remain editable. Move it to another stage and confirm ticks remain. Reject deletion of a stage with live tasks.

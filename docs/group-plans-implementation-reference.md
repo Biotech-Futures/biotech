@@ -2,7 +2,7 @@
 
 This supports the [three-person working plan](group-plans-technical-plan-final-3-people.md). It contains the proposed model/API contract and checks needed for implementation. Read the working plan first for scope, ownership, dependencies and decided defaults. TK4 remains separate.
 
-**Client Q&A conflict:** Will's response to item 2 permits student ticks; this reference still describes the earlier no-student-shared-ticks default. Reconcile that difference before implementing permission checks, checkbox states or their tests. Do not treat the current denial rule as client-approved.
+**Client Q&A:** Will's response to item 2 confirms that students may tick shared tasks whose audience is students. Mentor- and supervisor-audience shared tasks stay with the group mentor, linked supervisors and admins; student visibility is unchanged.
 
 **Ownership:** Person 1 owns GP2 (8 points); Person 2 owns GP1 + GP5 (10); Person 3 owns GP3 + GP4 (10). Person 2 shares models/helpers first, enabling Persons 1 and 3's backends. Person 2 can build reporting with test data after GP1; the full create/tick/report check waits for GP2–GP4. Person 1 integrates shared admin API/navigation changes and coordinates release; Person 2 verifies migrations/seeds, and Person 3 verifies member-role scenarios.
 
@@ -61,7 +61,7 @@ In `permissions.py`, compute the viewer's `is_admin`, active group membership ro
 
 An admin, active group member, or supervisor with per-group completion permission may access the group plan. Return 404 for other viewers. Per-person completion is available only when the viewer's active group role matches the audience, even for an admin. Prefetch only this group's viewer/shared completion records, and join stages when reading tasks, to avoid a query per task or stage. Never accept another user's ID in a completion request.
 
-For task visibility, admins receive all active tasks. Other viewers receive tasks matching their active group membership role, plus every per-group task if they hold shared-task completion permission. A supervisor linked only through a student's profile can see/tick shared tasks, but needs an active supervisor membership to receive supervisor per-person tasks. Students cannot tick shared tasks. Apply this same visibility filter to list and completion endpoints.
+For task visibility, admins receive all active tasks. Other viewers receive tasks matching their active group membership role, plus every per-group task if they hold shared-task completion permission. A supervisor linked only through a student's profile can see/tick shared tasks, but needs an active supervisor membership to receive supervisor per-person tasks. Students may also tick student-audience shared tasks; they never see or tick mentor- or supervisor-audience shared tasks. Apply this same visibility filter to list and completion endpoints.
 
 ### Completion, locks and audit
 
@@ -131,7 +131,7 @@ Person 1 owns admin API types in `adminAPI.ts`; Person 3 owns member types in `p
 
 **Completion body:** `{completed: true|false}` sets the value; `{}` flips it. Accept actual JSON booleans only; reject null, strings, numbers, user IDs and unknown fields with 400. Return the updated member item as plain JSON. For authenticated requests, check group access/year and task visibility first (404), then completion permission (403), then body validation (400). An authorised list request for a previous-year group returns 200 with empty `stages` and `items`.
 
-Use consistent admin errors `{msg, data: null}` and member validation errors `{detail}`. Explicitly map validation failures to 400: existing `AdminTaskDetailView.patch` can return 200 for service errors, so do not copy that behaviour. Authentication failures follow existing DRF authentication configuration.
+Use consistent admin errors `{msg, data: null}` and member errors in the project's `{error, code, request_id}` shape. Explicitly map validation failures to 400: existing `AdminTaskDetailView.patch` can return 200 for service errors, so do not copy that behaviour. Authentication failures follow existing DRF authentication configuration.
 
 ## 3. Checks before completion
 

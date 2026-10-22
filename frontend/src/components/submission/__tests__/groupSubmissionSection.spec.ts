@@ -482,6 +482,88 @@ describe('the Plan tab', () => {
     expect(wrapper.find('[data-testid="plan-stub"]').text()).toBe('1:Introduce yourself,New task from admin')
   })
 
+  describe('a saved tick', () => {
+    type Mounted = Awaited<ReturnType<typeof mountAt>>['wrapper']
+    const stub = (wrapper: Mounted) => wrapper.findComponent({ name: 'GroupPlanSectionStub' })
+    const ticked = () => ({ ...planWith('Introduce yourself', 'Agree a time').items[0], completed: true })
+    const completions = (wrapper: Mounted) =>
+      (stub(wrapper).props('items') as { completed: boolean }[]).map((item) => item.completed)
+
+    it('is not undone by a reload that started before it and answers after', async () => {
+      planApi.list.mockResolvedValue(planWith('Introduce yourself', 'Agree a time'))
+      const { wrapper } = await mountAt('/groups/1/plan', 'student')
+      await wrapper.find('[data-testid="section-tab-tasks"]').trigger('click')
+      await flushPromises()
+
+      // 1. Coming back to Plan starts a reload, which the test holds.
+      const pending = controlled()
+      await wrapper.find('[data-testid="section-tab-plan"]').trigger('click')
+      await flushPromises()
+      expect(planApi.list).toHaveBeenCalledTimes(2)
+
+      // 2. The viewer ticks a task and the server saves it.
+      stub(wrapper).vm.$emit('taskUpdated', '1', ticked())
+      await flushPromises()
+      expect(completions(wrapper)).toEqual([true, false])
+
+      // 3. The reload answers with what it read before the tick.
+      pending['1'].resolve(planWith('Introduce yourself', 'Agree a time'))
+      await flushPromises()
+
+      // 4. The saved tick still shows, and nothing was asked again.
+      expect(completions(wrapper)).toEqual([true, false])
+      expect(planApi.list).toHaveBeenCalledTimes(2)
+      expect(wrapper.find('[data-testid="section-tab-plan"]').classes()).toContain('active')
+    })
+
+    it('is kept by the page, so coming back to Plan shows it before the reload answers', async () => {
+      planApi.list.mockResolvedValue(planWith('Introduce yourself', 'Agree a time'))
+      const { wrapper } = await mountAt('/groups/1/plan', 'student')
+      stub(wrapper).vm.$emit('taskUpdated', '1', ticked())
+      await flushPromises()
+
+      await wrapper.find('[data-testid="section-tab-tasks"]').trigger('click')
+      await flushPromises()
+      const pending = controlled()
+      await wrapper.find('[data-testid="section-tab-plan"]').trigger('click')
+      await flushPromises()
+
+      // The reload hasn't answered: the tick shows, not the first load's value.
+      expect(completions(wrapper)).toEqual([true, false])
+
+      pending['1'].resolve({
+        ...planWith('Introduce yourself', 'Agree a time'),
+        items: [ticked(), planWith('Introduce yourself', 'Agree a time').items[1]],
+      })
+      await flushPromises()
+      expect(completions(wrapper)).toEqual([true, false])
+    })
+
+    it('is ignored when it was saved for another group', async () => {
+      planApi.list.mockResolvedValue(planWith('Introduce yourself', 'Agree a time'))
+      const { wrapper } = await mountAt('/groups/1/plan', 'student')
+      // Task ids are shared by every group's plan; only group 1's tick counts here.
+      stub(wrapper).vm.$emit('taskUpdated', '2', ticked())
+      await flushPromises()
+      expect(completions(wrapper)).toEqual([false, false])
+    })
+
+    it('still lets a reload that starts after it land', async () => {
+      planApi.list.mockResolvedValue(planWith('Introduce yourself', 'Agree a time'))
+      const { wrapper } = await mountAt('/groups/1/plan', 'student')
+      stub(wrapper).vm.$emit('taskUpdated', '1', ticked())
+      await flushPromises()
+
+      await wrapper.find('[data-testid="section-tab-tasks"]').trigger('click')
+      await flushPromises()
+      // The server's newer answer (here, the tick since undone elsewhere) wins.
+      planApi.list.mockResolvedValue(planWith('Introduce yourself', 'Agree a time', 'New task from admin'))
+      await wrapper.find('[data-testid="section-tab-plan"]').trigger('click')
+      await flushPromises()
+      expect(completions(wrapper)).toEqual([false, false, false])
+    })
+  })
+
   it('keeps the other tabs working alongside it', async () => {
     planApi.list.mockResolvedValue(planWith('Introduce yourself'))
     const { wrapper, router } = await mountAt('/groups/1/plan', 'student')

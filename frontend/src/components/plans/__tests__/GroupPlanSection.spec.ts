@@ -271,6 +271,20 @@ describe('GroupPlanSection', () => {
       await flushPromises()
     })
 
+    it('tells the parent about a saved tick, with its group, and nothing for a failed one', async () => {
+      mountSection()
+      const saved = task(12, { completion_mode: 'per_group', completed: true })
+      toggleMock.mockResolvedValueOnce(saved)
+      await box(12).setValue(true)
+      await flushPromises()
+      expect(wrapper!.emitted('taskUpdated')).toEqual([['7', saved]])
+
+      toggleMock.mockRejectedValueOnce(new Error('Network down'))
+      await box(11).setValue(false)
+      await flushPromises()
+      expect(wrapper!.emitted('taskUpdated')).toHaveLength(1)
+    })
+
     it('resets to a new list from the parent', async () => {
       mountSection()
       await wrapper!.setProps({ items: [task(11, { name: 'Introduce yourself', completed: false })] })
