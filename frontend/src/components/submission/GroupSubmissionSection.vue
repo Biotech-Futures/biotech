@@ -10,6 +10,29 @@
     >
       Tasks and Chat
     </button>
+    <!-- Only when the group's plan has tasks this viewer can see. -->
+    <button
+      v-if="hasPlan"
+      type="button"
+      class="tab-pill"
+      :class="{ active: section === 'plan' }"
+      :aria-current="section === 'plan' ? 'page' : undefined"
+      data-testid="section-tab-plan"
+      @click="goToSection('plan')"
+    >
+      Plan
+    </button>
+    <!-- A plan that failed to load (not one that's empty or not ours to see)
+         is offered again rather than silently dropped. -->
+    <button
+      v-if="planStatus === 'error'"
+      type="button"
+      class="tab-pill"
+      data-testid="section-plan-retry"
+      @click="loadPlan()"
+    >
+      Plan didn't load · Retry
+    </button>
     <button
       type="button"
       class="tab-pill"
@@ -73,6 +96,22 @@
     <FinalistPage v-if="hasOpenedFinalist" />
   </section>
 
+  <!-- Keyed by group, so one group's ticks never show for another. -->
+  <section v-if="section === 'plan'" class="group-section-body" data-testid="section-body-plan">
+    <p v-if="planStatus === 'loading'" class="group-plan-state" role="status">Loading the plan…</p>
+    <p v-else-if="planStatus === 'error'" class="group-plan-state" role="alert">
+      The plan couldn't be loaded.
+      <button type="button" class="btn btn-outline btn-sm" @click="loadPlan()">Retry</button>
+    </p>
+    <GroupPlanSection
+      v-else-if="plan"
+      :key="groupId"
+      :group-id="groupId"
+      :stages="plan.stages"
+      :items="plan.items"
+    />
+  </section>
+
   <section
     v-if="section === 'results' && results"
     class="group-section-body"
@@ -83,25 +122,31 @@
 </template>
 
 <script setup lang="ts">
-/** The group page's section switcher: Tasks and Chat (the slot), Submission,
- *  Finalist for a finalist team, and Results once marks or certificates are
- *  released. */
+/** The group page's section switcher: Tasks and Chat (the slot), Plan when
+ *  the group's plan has tasks for this viewer, Submission, Finalist for a
+ *  finalist team, and Results once marks or certificates are released. */
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { fetchGroupResults, type GroupResults as GroupResultsData } from '@/utils/managementAPI'
 import { fetchFinalist } from '@/utils/finalistAPI'
+import { listGroupPlanTasks, type GroupPlanList } from '@/utils/plansAPI'
+import { ApiError } from '@/utils/apiError'
 
 // vue-router silently replaces a route that reuses this name, so keep it unique.
 const SUBMISSION_ROUTE = 'group-submission'
 const FINALIST_ROUTE = 'group-finalist'
 const RESULTS_ROUTE = 'group-results'
+const PLAN_ROUTE = 'group-plan'
 
 const GroupSubmissionPage = defineAsyncComponent(
   () => import('@/views/GroupSubmissionPage.vue'),
 )
 const GroupResults = defineAsyncComponent(() => import('./GroupResults.vue'))
 const FinalistPage = defineAsyncComponent(() => import('@/views/FinalistPage.vue'))
+const GroupPlanSection = defineAsyncComponent(
+  () => import('@/components/plans/GroupPlanSection.vue'),
+)
 
 const route = useRoute()
 const router = useRouter()
@@ -155,8 +200,59 @@ watch(
   { immediate: true },
 )
 
+// The group's plan, as the server shows it to this viewer. "unavailable" is
+// an empty plan or one the viewer can't see (404/403): no Plan tab and no
+// error. "error" is anything else, offered again with a retry.
+type PlanStatus = 'idle' | 'loading' | 'ready' | 'unavailable' | 'error'
+const plan = ref<GroupPlanList | null>(null)
+const planStatus = ref<PlanStatus>('idle')
+const hasPlan = computed(() => planStatus.value === 'ready' && Boolean(plan.value?.items.length))
+
+// Each load is numbered so only the newest answer lands: a late reply for
+// the previous group, or for a load a retry has overtaken, is dropped.
+let planRequest = 0
+
+async function loadPlan({ quiet = false } = {}) {
+  const id = groupId.value
+  const request = ++planRequest
+  if (!id || !canSeeSubmission.value) {
+    plan.value = null
+    planStatus.value = 'idle'
+    return
+  }
+  // A quiet reload keeps the current plan on screen until the answer.
+  if (!quiet) planStatus.value = 'loading'
+  try {
+    const loaded = await listGroupPlanTasks(id)
+    if (request !== planRequest) return
+    plan.value = loaded.items.length ? loaded : null
+    planStatus.value = loaded.items.length ? 'ready' : 'unavailable'
+  } catch (err) {
+    if (request !== planRequest) return
+    plan.value = null
+    const status = err instanceof ApiError ? err.status : undefined
+    planStatus.value = status === 404 || status === 403 ? 'unavailable' : 'error'
+  }
+}
+
+// Cleared at once, so another group's Plan tab or tasks never show.
+watch(
+  groupId,
+  () => {
+    plan.value = null
+    planStatus.value = 'idle'
+    void loadPlan()
+  },
+  { immediate: true },
+)
+
 const section = computed(() => {
   if (!canSeeSubmission.value) return 'tasks'
+  // Open while the plan loads or can be retried, so a Plan link doesn't
+  // flash Tasks and Chat first; never for an empty or hidden plan.
+  if (route.name === PLAN_ROUTE && (hasPlan.value || ['idle', 'loading', 'error'].includes(planStatus.value))) {
+    return 'plan'
+  }
   if (route.name === SUBMISSION_ROUTE) return 'submission'
   if (route.name === FINALIST_ROUTE && isFinalist.value) return 'finalist'
   if (route.name === RESULTS_ROUTE && resultsReleased.value) return 'results'
@@ -174,9 +270,10 @@ watch(
   { immediate: true },
 )
 
-function goToSection(next: 'tasks' | 'submission' | 'finalist' | 'results') {
+function goToSection(next: 'tasks' | 'plan' | 'submission' | 'finalist' | 'results') {
   const name = {
     tasks: 'group-detail',
+    plan: PLAN_ROUTE,
     submission: SUBMISSION_ROUTE,
     finalist: FINALIST_ROUTE,
     results: RESULTS_ROUTE,
@@ -184,6 +281,28 @@ function goToSection(next: 'tasks' | 'submission' | 'finalist' | 'results') {
   if (route.name === name) return
   router.push({ name, params: { id: groupId.value } })
 }
+
+// Coming back to Plan from another section reloads it, so an admin's edits
+// show. Landing on the Plan URL needs no second load: the group watch made one.
+watch(
+  () => route.name,
+  (name, previous) => {
+    if (name === PLAN_ROUTE && previous !== PLAN_ROUTE && planStatus.value === 'ready') {
+      void loadPlan({ quiet: true })
+    }
+  },
+)
+
+// No plan to show here (empty, or not the viewer's to see): leave the Plan
+// URL for the group page rather than sit on a section that can't open.
+watch(
+  [planStatus, () => route.name],
+  ([status, name]) => {
+    if (name === PLAN_ROUTE && status === 'unavailable') {
+      void router.replace({ name: 'group-detail', params: { id: groupId.value } })
+    }
+  },
+)
 </script>
 
 <style scoped>
@@ -205,5 +324,13 @@ function goToSection(next: 'tasks' | 'submission' | 'finalist' | 'results') {
    with the page rather than within itself. */
 .group-section-body {
   flex: 1 1 auto;
+}
+
+.group-plan-state {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  color: var(--text-muted);
 }
 </style>
