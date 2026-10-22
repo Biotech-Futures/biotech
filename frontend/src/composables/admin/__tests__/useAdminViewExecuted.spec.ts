@@ -77,6 +77,15 @@ describe('canonicalColumnKey / columnLabel', () => {
   it('falls back to a title-cased label for an unrecognized key', () => {
     expect(columnLabel('custom_field')).toBe('Custom Field')
   })
+
+  it('keeps "Group Number" and "Number of Groups" as separate columns', () => {
+    expect(canonicalColumnKey('group_number')).toBe('group_number')
+    expect(columnLabel('group_number')).toBe('Group Number')
+    expect(columnLabel('Group Number')).toBe('Group Number')
+
+    expect(canonicalColumnKey('group_count')).toBe('group_count')
+    expect(columnLabel('group_count')).toBe('Number of Groups')
+  })
 })
 
 describe('useAdminViewExecuted: columns', () => {
@@ -93,6 +102,28 @@ describe('useAdminViewExecuted: columns', () => {
     view.value = buildView({ visibleColumns: ['name', 'school', 'status'] })
 
     expect(columns.value.map((c) => c.key)).toEqual(['name', 'school', 'status', 'actions'])
+  })
+
+  it('offers "Group Number" as its own sortable column', () => {
+    const { view, columns } = useAdminViewExecuted(ref(5))
+    view.value = buildView({ visibleColumns: ['name', 'group_number', 'group_count'] })
+
+    expect(columns.value.map((c) => c.key)).toEqual([
+      'name',
+      'group_number',
+      'group_count',
+      'actions'
+    ])
+    expect(columns.value[1]).toMatchObject({
+      key: 'group_number',
+      label: 'Group Number',
+      sortable: true
+    })
+    expect(columns.value[2]).toMatchObject({
+      key: 'group_count',
+      label: 'Number of Groups',
+      sortable: true
+    })
   })
 })
 

@@ -28,6 +28,8 @@ export type ViewResultRow = AdminUser & {
   matchedPartner?: string
   phone?: string
   groupCount?: number
+  /** Names of the groups the user is in, comma separated ("BTF1, BTF6"). */
+  groupNumbers?: string
 }
 
 interface ColumnConfig {
@@ -48,7 +50,8 @@ const COLUMN_ALIASES: Record<string, string> = {
   year_level: 'yearlevel',
   year_lvl: 'yearlevel',
   groupcount: 'group_count',
-  number_of_groups: 'group_count'
+  number_of_groups: 'group_count',
+  groupnumber: 'group_number'
 }
 
 const COLUMN_CONFIG: Record<string, ColumnConfig> = {
@@ -57,6 +60,7 @@ const COLUMN_CONFIG: Record<string, ColumnConfig> = {
   role: { label: 'Role', sortBy: 'role' },
   school: { label: 'School / Institution', sortBy: 'school' },
   matched_mentor: { label: 'Matched Mentor / Group' },
+  group_number: { label: 'Group Number', sortBy: 'groupNumber' },
   group_count: { label: 'Number of Groups', sortBy: 'groupCount' },
   status: { label: 'Status', sortBy: 'status' },
   phone: { label: 'Phone' },

@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 from apps.admin.models import AdminView
 from apps.groups.models import Countries, CountryStates, Groups, GroupMembership
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import MentorProfile, StudentProfile, User
+from apps.users.models import MentorProfile, StudentProfile, SupervisorProfile, User
 from apps.users.models.admin_scope import AdminScope
 
 
@@ -33,7 +33,7 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'all',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_number', 'status'],
             },
             {
                 'name': 'All Students',
@@ -43,7 +43,7 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'status'],
+                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_number', 'status'],
             },
             {
                 'name': 'All Mentors',
@@ -53,7 +53,10 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'institution', 'state', 'group_count', 'status'],
+                'visible_columns': [
+                    'name', 'email', 'role', 'institution', 'state',
+                    'group_number', 'group_count', 'status',
+                ],
             },
             {
                 'name': 'All Supervisors',
@@ -63,7 +66,10 @@ class AdminViewApiTests(TestCase):
                 'account_status': 'active',
                 'engagement_status': 'all',
                 'advanced_conditions': [],
-                'visible_columns': ['name', 'email', 'role', 'school', 'state', 'group_count', 'status'],
+                'visible_columns': [
+                    'name', 'email', 'role', 'school', 'state',
+                    'group_number', 'group_count', 'status',
+                ],
             },
             {
                 'name': 'All Admins',
@@ -462,4 +468,117 @@ class AdminViewApiTests(TestCase):
         mary_line = next((line for line in lines[1:] if "mentor1@example.com" in line), None)
         self.assertIsNotNone(mary_line)
         self.assertIn(",2,Active", mary_line)
+
+    def test_group_number_column_and_sorting(self):
+        # "Group Number" is the name of the group(s) a user is in; "Number of
+        # Groups" is how many. They are separate columns.
+        self.assertIn("group_number", AdminView.objects.get(name="All Mentors").visible_columns)
+        self.assertIn("group_count", AdminView.objects.get(name="All Mentors").visible_columns)
+
+        # The mentor joins a second group, so their groups are "BTF1" and "BTF10".
+        second_group = Groups.objects.create(group_name="BTF10")
+        GroupMembership.objects.create(
+            group=second_group,
+            user=self.mentor_user,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+
+        # A mentor in a later group, and one in no group at all.
+        role_supervisor, _ = Roles.objects.get_or_create(role_name="supervisor")
+        later_mentor = User.objects.create_user(
+            email="mentor2@example.com",
+            first_name="Alan",
+            last_name="Turing",
+            password="password",
+        )
+        MentorProfile.objects.create(user=later_mentor, institution="Cambridge")
+        RoleAssignmentHistory.objects.create(
+            user=later_mentor,
+            role=self.role_mentor,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+        GroupMembership.objects.create(
+            group=Groups.objects.create(group_name="BTF2"),
+            user=later_mentor,
+            membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
+        )
+        ungrouped_mentor = User.objects.create_user(
+            email="mentor3@example.com",
+            first_name="Grace",
+            last_name="Hopper",
+            password="password",
+        )
+        MentorProfile.objects.create(user=ungrouped_mentor, institution="Cambridge")
+        RoleAssignmentHistory.objects.create(
+            user=ungrouped_mentor,
+            role=self.role_mentor,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+
+        # A supervisor in a group gets the group name too.
+        supervisor = User.objects.create_user(
+            email="supervisor1@example.com",
+            first_name="Karen",
+            last_name="Sparck",
+            password="password",
+        )
+        SupervisorProfile.objects.create(user=supervisor, school_name="USyd")
+        RoleAssignmentHistory.objects.create(
+            user=supervisor,
+            role=role_supervisor,
+            valid_from=timezone.now(),
+            valid_to=None,
+        )
+        GroupMembership.objects.create(
+            group=Groups.objects.create(group_name="BTF6"),
+            user=supervisor,
+            membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR,
+        )
+
+        # Mentors: the two groups of one mentor are listed, comma separated.
+        mentors_view = AdminView.objects.get(name="All Mentors")
+        res = self.client.get(
+            f"/api/v1/admin/view/{mentors_view.id}/run/?sortBy=groupNumber&sortOrder=asc"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = res.data["data"]["items"]
+        by_email = {u["email"]: u for u in items}
+
+        self.assertEqual(by_email["mentor1@example.com"]["groupNumbers"], "BTF1, BTF10")
+        self.assertEqual(by_email["mentor1@example.com"]["groupCount"], 2)
+        self.assertEqual(by_email["mentor2@example.com"]["groupNumbers"], "BTF2")
+        self.assertEqual(by_email["mentor3@example.com"]["groupNumbers"], "")
+
+        # Sorted by group number, and listed once each even though the first
+        # mentor is in two groups.
+        self.assertEqual(len(items), len(by_email))
+        grouped = [u["email"] for u in items if u["groupNumbers"]]
+        self.assertEqual(grouped, ["mentor1@example.com", "mentor2@example.com"])
+
+        # A student is in one group, so it reads as a single group number.
+        students_view = AdminView.objects.get(name="All Students")
+        students_res = self.client.get(f"/api/v1/admin/view/{students_view.id}/run/")
+        student_items = {
+            u["email"]: u for u in students_res.data["data"]["items"]
+        }
+        self.assertEqual(student_items["student1@example.com"]["groupNumbers"], "BTF1")
+
+        # A supervisor in a group is listed with it too.
+        supervisors_view = AdminView.objects.get(name="All Supervisors")
+        supervisors_res = self.client.get(f"/api/v1/admin/view/{supervisors_view.id}/run/")
+        supervisor_items = {
+            u["email"]: u for u in supervisors_res.data["data"]["items"]
+        }
+        self.assertEqual(supervisor_items["supervisor1@example.com"]["groupNumbers"], "BTF6")
+
+        # CSV export carries the column and its comma separated value.
+        csv_res = self.client.get(f"/api/v1/admin/view/{mentors_view.id}/export-csv/")
+        csv_content = csv_res.content.decode("utf-8")
+        lines = csv_content.strip().split("\r\n")
+        self.assertIn("Group Number", lines[0])
+        mary_line = next((line for line in lines[1:] if "mentor1@example.com" in line), None)
+        self.assertIsNotNone(mary_line)
+        self.assertIn('"BTF1, BTF10"', mary_line)
 

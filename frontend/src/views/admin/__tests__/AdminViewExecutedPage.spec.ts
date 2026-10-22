@@ -155,6 +155,32 @@ describe('AdminViewExecutedPage', () => {
     expect(headers).toEqual(['Full Name', 'Email', 'Role', 'Actions', 'Actions'])
   })
 
+  it('shows the group numbers of a user, comma separated, next to the group count', async () => {
+    const view = buildView({ visibleColumns: ['name', 'group_number', 'group_count'] })
+    const result = await mountPage(
+      [
+        buildUser({ id: 1, groupNumbers: 'BTF182' }),
+        buildUser({
+          id: 2,
+          firstName: 'Mary',
+          lastName: 'Somerville',
+          role: 'mentor',
+          groupNumbers: 'BTF1, BTF6',
+          groupCount: 2
+        })
+      ],
+      view
+    )
+    wrapper = result.wrapper
+
+    const headers = wrapper.findAll('.data-table-head').map((h) => h.text().replace(/[^\w ]/g, '').trim())
+    expect(headers).toEqual(['Full Name', 'Group Number', 'Number of Groups', 'Actions', 'Actions'])
+
+    const cells = wrapper.findAll('.data-table-cell').map((c) => c.text().trim())
+    expect(cells).toContain('BTF182')
+    expect(cells).toContain('BTF1, BTF6')
+  })
+
   it('opens the user detail sheet from a name click, then the edit form from within it', async () => {
     const result = await mountPage([buildUser()], buildView())
     wrapper = result.wrapper
