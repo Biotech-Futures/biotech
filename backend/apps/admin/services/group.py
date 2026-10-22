@@ -232,10 +232,30 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     return result
 
 
+def _member_match(term: str) -> Exists:
+    """Groups with a current member whose name or email contains ``term``.
+
+    "Member" is any current ``GroupMembership`` - student, mentor or
+    supervisor - because each of them is attached to the group, which is what
+    an admin searching for a person means.
+    """
+    return Exists(
+        GroupMembership.objects.filter(
+            group_id=OuterRef("id"),
+            left_at__isnull=True,
+        ).filter(
+            Q(user__first_name__icontains=term)
+            | Q(user__last_name__icontains=term)
+            | Q(user__email__icontains=term)
+        )
+    )
+
+
 def _build_group_where(
     search_name: Optional[str] = None,
     search_group: Optional[str] = None,
     mentor_status: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> Q:
     """
     Build query conditions for filtering groups.
@@ -244,6 +264,12 @@ def _build_group_where(
         search_name: Search by member name
         search_group: Search by group name
         mentor_status: Filter by mentor status ("matched" or "unmatched")
+        search: Search by group name *or* member name (AM11)
+
+    Conditions are ANDed, so the search terms narrow each other. ``search`` is
+    the one the groups page sends: its single box matches either side, while
+    the two narrower terms stay available to a caller that wants to say which
+    it means.
 
     Returns:
         Q object with combined conditions
@@ -270,18 +296,12 @@ def _build_group_where(
     
     # Filter by member name
     if search_name:
-        search_pattern = f"%{search_name}%"
-        matching_member_exists = Exists(
-            GroupMembership.objects.filter(
-                group_id=OuterRef("id"),
-                left_at__isnull=True,
-            ).select_related("user").filter(
-                Q(user__first_name__icontains=search_name) |
-                Q(user__last_name__icontains=search_name) |
-                Q(user__email__icontains=search_name)
-            )
-        )
-        conditions.append(matching_member_exists)
+        conditions.append(_member_match(search_name))
+
+    # AM11: the groups page's one box. A group matches on its own name or on
+    # any of its current members', so searching a student finds their group.
+    if search:
+        conditions.append(Q(group_name__icontains=search) | _member_match(search))
     
     return Q(*conditions)
 
@@ -324,6 +344,7 @@ def query_groups(
     requesting_user=None,
     sort_by: str = "createdAt",
     sort_order: str = "desc",
+    search: Optional[str] = None,
 ) -> dict:
     """
     Query groups with pagination and filtering.
@@ -334,12 +355,13 @@ def query_groups(
         search_name: Search by member name
         search_group: Search by group name
         mentor_status: Filter by mentor status
+        search: Search by group name or member name
 
     Returns:
         Dictionary with groups, pagination, and metadata
     """
     offset = (page - 1) * limit
-    where = _build_group_where(search_name, search_group, mentor_status)
+    where = _build_group_where(search_name, search_group, mentor_status, search)
 
     # Get total count
     total = Groups.objects.filter(where).count()
@@ -1018,6 +1040,9 @@ def bulk_delete_groups_by_filter(filters, exclude_ids=None, expected_count=None,
         search_name=filters.get("searchName"),
         search_group=filters.get("searchGroup"),
         mentor_status=filters.get("mentorStatus"),
+        # Without this a "select all matching" delete would sweep groups the
+        # admin never saw: the list is filtered by `search`, so this must be.
+        search=filters.get("search"),
     )
     ids = list(Groups.objects.filter(where).values_list("id", flat=True).distinct())
 

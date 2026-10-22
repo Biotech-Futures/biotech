@@ -393,6 +393,7 @@ class GroupListView(APIView):
             limit=int(request.query_params.get("limit", 10)),
             search_name=request.query_params.get("searchName"),
             search_group=request.query_params.get("searchGroup"),
+            search=request.query_params.get("search"),
             mentor_status=request.query_params.get("mentorStatus"),
             requesting_user=request.user,
             sort_by=request.query_params.get("sortBy", "createdAt"),

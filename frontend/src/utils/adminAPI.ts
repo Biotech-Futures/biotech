@@ -625,6 +625,8 @@ export interface GroupListDetailParams {
   limit?: number
   searchName?: string
   searchGroup?: string
+  /** Group name or member name, as the groups page's one box sends it (AM11). */
+  search?: string
   mentorStatus?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
