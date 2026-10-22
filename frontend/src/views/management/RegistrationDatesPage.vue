@@ -84,7 +84,12 @@ import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
 
 import { loadRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { describeBrowserTimeZone, formatStatementTime } from '@/utils/date'
+import {
+  describeBrowserTimeZone,
+  formatStatementTime,
+  fromLocalDateTimeInput,
+  toLocalDateTimeInput,
+} from '@/utils/date'
 import {
   fetchRegistrationManagement,
   saveRegistrationWindow,
@@ -101,19 +106,6 @@ const saved = ref<SavedDates>({ opens_at: null, closes_at: null })
 const opensLocal = ref('')
 const closesLocal = ref('')
 
-const pad = (value: number) => String(value).padStart(2, '0')
-
-/** "2026-11-30T23:59": an instant as a datetime-local input shows it here. */
-const toLocalInput = (value: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-// datetime-local is timezone-less: Date() reads it as local time, and
-// toISOString() gives the instant the server keeps.
-const fromLocalInput = (value: string) => (value ? new Date(value).toISOString() : null)
-
 const show = (window: SavedDates) => {
   saved.value = {
     opens_at: window.opens_at,
@@ -121,8 +113,8 @@ const show = (window: SavedDates) => {
     set_by: window.set_by,
     updated_at: window.updated_at,
   }
-  opensLocal.value = toLocalInput(window.opens_at)
-  closesLocal.value = toLocalInput(window.closes_at)
+  opensLocal.value = toLocalDateTimeInput(window.opens_at)
+  closesLocal.value = toLocalDateTimeInput(window.closes_at)
 }
 
 // Where the dates leave registration now.
@@ -151,7 +143,7 @@ const write = async (dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>) 
 }
 
 const save = () =>
-  write({ opens_at: fromLocalInput(opensLocal.value), closes_at: fromLocalInput(closesLocal.value) })
+  write({ opens_at: fromLocalDateTimeInput(opensLocal.value), closes_at: fromLocalDateTimeInput(closesLocal.value) })
 
 const clearDates = () => write({ opens_at: null, closes_at: null })
 

@@ -1,49 +1,53 @@
 <template>
-  <!-- Management > Challenge Start: the day this year's challenge starts. -->
-  <section class="card challenge-start">
-    <!-- Headed as a Management page's first card is. -->
-    <div class="card-header">
-      <h3 class="card-title">Challenge Start</h3>
-    </div>
-    <p class="challenge-start__hint">
-      The day this year's challenge starts. The supervisors' weekly Registration status email asks
-      for their students' permission forms to be signed by then.
-    </p>
-
-    <p v-if="isLoading" class="challenge-start__hint">Loading…</p>
-    <template v-else>
-      <!-- As Registration Dates: the date, then who last set it. -->
-      <div class="challenge-start__state" data-test="challenge-start-state">
-        <p>
-          Starts: <strong>{{ saved.starts_on ? dayText(saved.starts_on) : 'Not set' }}</strong>
-        </p>
-        <p v-if="saved.set_by" class="challenge-start__muted" data-test="challenge-start-set-by">
-          Set by {{ saved.set_by }}
-          <template v-if="saved.updated_at">on {{ formatStatementTime(saved.updated_at) }}</template>
-        </p>
+  <!-- Management > Challenge Start: the day this year's challenge starts, then what
+       supervisors see (Supervisor Pages Visibility), set as the challenge begins. -->
+  <div class="challenge-start-page">
+    <section class="card challenge-start">
+      <!-- Headed as a Management page's first card is. -->
+      <div class="card-header">
+        <h3 class="card-title">Challenge Start</h3>
       </div>
-
-      <form class="challenge-start__form" @submit.prevent="save(startsOn || null)">
-        <label class="challenge-start__field">
-          <span>Starts on</span>
-          <input v-model="startsOn" type="date" class="app-input app-input--compact" data-test="challenge-start-date" />
-        </label>
-        <div class="challenge-start__actions">
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="isSaving || !saved.starts_on"
-            @click="save(null)"
-          >
-            Clear Date
-          </button>
+      <p class="challenge-start__hint">
+        The day this year's challenge starts. The supervisors' weekly Registration status email asks
+        for their students' permission forms to be signed by then.
+      </p>
+  
+      <p v-if="isLoading" class="challenge-start__hint">Loading…</p>
+      <template v-else>
+        <!-- As Registration Dates: the date, then who last set it. -->
+        <div class="challenge-start__state" data-test="challenge-start-state">
+          <p>
+            Starts: <strong>{{ saved.starts_on ? dayText(saved.starts_on) : 'Not set' }}</strong>
+          </p>
+          <p v-if="saved.set_by" class="challenge-start__muted" data-test="challenge-start-set-by">
+            Set by {{ saved.set_by }}
+            <template v-if="saved.updated_at">on {{ formatStatementTime(saved.updated_at) }}</template>
+          </p>
         </div>
-      </form>
-
-      <p v-if="error" class="challenge-start__error" role="alert">{{ error }}</p>
-    </template>
-  </section>
+  
+        <form class="challenge-start__form" @submit.prevent="save(startsOn || null)">
+          <label class="challenge-start__field">
+            <span>Starts on</span>
+            <input v-model="startsOn" type="date" class="app-input app-input--compact" data-test="challenge-start-date" />
+          </label>
+          <div class="challenge-start__actions">
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="isSaving || !saved.starts_on"
+              @click="save(null)"
+            >
+              Clear Date
+            </button>
+          </div>
+        </form>
+  
+        <p v-if="error" class="challenge-start__error" role="alert">{{ error }}</p>
+      </template>
+    </section>
+    <SupervisorPagesPage />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -52,6 +56,7 @@ import { onMounted, ref } from 'vue'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatStatementTime } from '@/utils/date'
 import { fetchChallengeStart, saveChallengeStart, type ChallengeStart } from '@/utils/managementAPI'
+import SupervisorPagesPage from './SupervisorPagesPage.vue'
 
 const isLoading = ref(true)
 const isSaving = ref(false)
@@ -99,6 +104,13 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* Its cards one under the other, as Late Registration's are. */
+.challenge-start-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
 /* Laid out as Registration Dates. */
 .challenge-start {
   display: flex;

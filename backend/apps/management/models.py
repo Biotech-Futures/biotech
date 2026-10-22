@@ -105,11 +105,12 @@ class ChallengeStart(models.Model):
 
 
 class SupervisorPagesSetting(SingletonModel):
-    """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Late
-    Registration > Supervisor Pages Visibility)."""
+    """When students, mentors and supervisors start seeing Home, Groups,
+    Events, Announcements and Resources (Management > Challenge Start > Pages
+    Visibility): hidden until ``shown_from``, and while it isn't set. Admins
+    always see them."""
 
-    shown = models.BooleanField(default=False)
+    shown_from = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -120,6 +121,10 @@ class SupervisorPagesSetting(SingletonModel):
 
     def __str__(self):
         return "SupervisorPagesSetting"
+
+    def shown_at(self, now) -> bool:
+        """Whether the pages are shown at ``now``."""
+        return self.shown_from is not None and now >= self.shown_from
 
 
 class GradingSettings(SingletonModel):

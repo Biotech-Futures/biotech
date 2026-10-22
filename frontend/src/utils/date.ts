@@ -339,3 +339,19 @@ export function formatSydneySlot(start: string, end: string, isoDate: string | n
   const range = `${pad(start)} - ${pad(end)}`
   return isoDate ? `${range} ${sydneyClockOn(isoDate).name}` : range
 }
+
+const twoDigit = (value: number) => String(value).padStart(2, '0')
+
+/** "2026-11-30T23:59": an instant as a date-time picker (AppDateTimePicker)
+ *  or datetime-local input shows it here; '' for none. */
+export function toLocalDateTimeInput(value: string | null | undefined): string {
+  if (!value) return ''
+  const date = new Date(value)
+  return `${date.getFullYear()}-${twoDigit(date.getMonth() + 1)}-${twoDigit(date.getDate())}T${twoDigit(date.getHours())}:${twoDigit(date.getMinutes())}`
+}
+
+/** The instant the server keeps for a picker's "2026-11-30T23:59": it has no
+ *  time zone, so Date() reads it as local time; null for none. */
+export function fromLocalDateTimeInput(value: string): string | null {
+  return value ? new Date(value).toISOString() : null
+}

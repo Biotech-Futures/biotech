@@ -414,20 +414,26 @@ export function saveRegistrationSupervisor(
   })
 }
 
-/** Management > Supervisor Pages Visibility: whether supervisors see Home,
- *  Groups, Events, Announcements and Resources (``shown``, off by default). */
+/** Management > Challenge Start > Pages Visibility: when students, mentors and
+ *  supervisors start seeing Home, Groups, Events, Announcements and Resources
+ *  (``shown_from``; hidden until then, and while it's null). ``shown`` is
+ *  whether they're shown as the server answered. */
 export interface SupervisorPagesState {
   shown: boolean
+  shown_from: string | null
+  set_by?: string
+  updated_at?: string | null
 }
 
-// GET /api/v1/management/supervisor-pages/ — the switch.
+// GET /api/v1/management/supervisor-pages/ — when the pages are shown from.
 export function fetchSupervisorPages(): Promise<SupervisorPagesState> {
   return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/')
 }
 
-// PUT /api/v1/management/supervisor-pages/ — admins turn it on or off.
+// PUT /api/v1/management/supervisor-pages/ — admins set the date and time, or
+// clear it (null).
 export function saveSupervisorPages(
-  change: Partial<SupervisorPagesState>
+  change: { shown_from: string | null }
 ): Promise<SupervisorPagesState> {
   return requestJson<SupervisorPagesState>('/api/v1/management/supervisor-pages/', {
     method: 'PUT',

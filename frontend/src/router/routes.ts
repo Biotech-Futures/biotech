@@ -176,7 +176,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/management/ManagementPage.vue'),
     meta: { adminOnly: true },
     children: [
-      { path: '', redirect: '/management/submission-deadline' },
+      { path: '', redirect: '/management/registration' },
       { path: 'new-year', name: 'management-new-year', component: () => import('@/views/management/YearPage.vue') },
       // The deadline, then extending it for some groups (Extend Deadline's
       // old path still leads here).
@@ -193,8 +193,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
       // The registration dates, then registering students as a supervisor does.
       { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
-      // Late Registration: late links, Supervisor Pages Visibility and
-      // supervisors after close. Its old paths still lead to it.
+      // Late Registration: late links and supervisors after close. Its old
+      // path still leads to it (Supervisor Pages Visibility's is on Challenge Start).
       { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
       { path: 'registration-visibility', redirect: '/management/late-registration' },
       // The names registration treats as a university, not a school.
@@ -203,7 +203,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'email-checks', name: 'management-email-checks', component: () => import('@/views/management/EmailChecksPage.vue') },
       // The day this year's challenge starts, for the supervisors' weekly email.
       { path: 'challenge-start', name: 'management-challenge-start', component: () => import('@/views/management/ChallengeStartPage.vue') },
-      { path: 'supervisor-visibility', redirect: '/management/late-registration' }
+      { path: 'supervisor-visibility', redirect: '/management/challenge-start' }
     ]
   },
   { path: '/:pathMatch(.*)*', redirect: '/login' }

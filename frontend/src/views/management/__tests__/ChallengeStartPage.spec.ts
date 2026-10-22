@@ -7,6 +7,9 @@ import { fetchChallengeStart, saveChallengeStart } from '@/utils/managementAPI'
 vi.mock('@/utils/managementAPI', () => ({
   fetchChallengeStart: vi.fn(),
   saveChallengeStart: vi.fn(),
+  // Pages Visibility, the page's second card.
+  fetchSupervisorPages: vi.fn().mockResolvedValue({ shown: true, shown_from: '2026-07-27T00:00:00Z' }),
+  saveSupervisorPages: vi.fn(),
 }))
 
 beforeEach(() => {
@@ -28,6 +31,8 @@ describe('Challenge Start', () => {
     await flushPromises()
 
     expect(wrapper.get('.card-title').text()).toBe('Challenge Start')
+    // Then what supervisors see, moved here from Late Registration.
+    expect(wrapper.get('.supervisor-pages__title').text()).toBe('Pages Visibility')
     expect(wrapper.get('[data-test="challenge-start-state"]').text()).toContain('27 July 2026')
     expect(wrapper.get('[data-test="challenge-start-set-by"]').text()).toMatch(/^Set by Test Admin on /)
     expect((wrapper.get('[data-test="challenge-start-date"]').element as HTMLInputElement).value).toBe('2026-07-27')
