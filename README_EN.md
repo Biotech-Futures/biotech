@@ -1,5 +1,7 @@
 # BIOTech Connect
 
+![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+
 The mentoring platform for **BIOTech Futures** — connecting student teams with mentors, and supporting the full programme lifecycle: groups, chat, tasks, events, resources, announcements, competition submissions, and grading.
 
 ## Repository layout
