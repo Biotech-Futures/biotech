@@ -21,7 +21,10 @@ is reconciled with current main and the newer intake contract.
 
 Supervisor identity is resolved from the session and its existing profile.
 An admin without a supervisor profile must select an existing supervisor using
-`payload.supervisorEmail`; omitting the selection is rejected. A current
+`payload.supervisorEmail`; omitting the email is rejected. The supervisor list is
+an autocomplete aid, not an exhaustive list of accepted profiles. A valid email
+can be entered manually if the list is unavailable or omits the supervisor;
+the backend checks that a `SupervisorProfile` exists for that email. A current
 supervisor role (or staff/admin authority) is required. Anonymous, suspended/deactivated
 or unauthorized users cannot use supervisor journeys.
 A student's registration never grants the person sending it the supervisor
@@ -489,7 +492,12 @@ QuickEmailVerification's free sandbox, which answers by the test address used
 ## Compatibility and deployment
 
 Existing `{body: ...}` student callers keep the same endpoint and HTTP 200
-body echo on first success. They now receive real validation and the same
+body echo on first success. **SP2 introduces a required-field change:** legacy
+callers must now send non-blank `SupervisorEmail`, `SupervisorFirstName` and
+`SupervisorSurname`, with a valid supervisor email. Bodies omitting these details
+are rejected with HTTP 400 field errors before any student is saved. Update
+legacy integrations before deploying SP2; the HTTP 200 body echo remains for
+valid first submissions. They now receive real validation and the same
 registration-window/invitation gate. Anonymous legacy submissions retain
 their historical CSRF behavior; authenticated legacy writes still require
 session CSRF. Optional idempotency keys return a receipt on unchanged retry.

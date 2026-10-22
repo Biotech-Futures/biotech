@@ -475,6 +475,20 @@ class AdminRegistrationTests(MultiStudentSetup, TestCase):
         group = Groups.objects.get()
         self.assertEqual((group.formed_by, group.created_by), (Groups.FormedBy.ADMIN, self.staff))
 
+    def test_an_admin_can_choose_an_existing_profile_omitted_from_the_active_list(self):
+        self.supervisor.is_active = False
+        self.supervisor.save(update_fields=["is_active"])
+        response = self.staff_client.get("/api/v1/management/registration-supervisors/")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertNotIn(self.supervisor.pk, [row["user_id"] for row in response.data])
+        body = batch("supervisor_individual")
+        body["payload"]["supervisorEmail"] = "MANAGER@example.test"
+        response = self.submit(body=body, client=self.staff_client)
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(StudentProfile.objects.get().supervisor_id, self.profile.pk)
+        self.supervisor.refresh_from_db()
+        self.assertFalse(self.supervisor.is_active)
+
     def test_an_admin_chooses_their_students_supervisor_and_a_supervisor_cant(self):
         body = batch("supervisor_individual")
         body["payload"]["supervisorEmail"] = "MANAGER@example.test"

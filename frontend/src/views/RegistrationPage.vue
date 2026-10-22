@@ -432,7 +432,7 @@
             <div v-if="adminChoosesSupervisor && currentStep === 0" class="step-stack admin-supervisor">
               <div class="section-divider section-divider--first">
                 <h3>Supervisor</h3>
-                <p>Select the students' supervisor by email. A supervisor is required.</p>
+                <p>Enter an existing supervisor's email or select a suggestion. A supervisor is required.</p>
               </div>
               <SupervisorSearchField
                 id="admin-supervisor-email"
@@ -2542,13 +2542,10 @@ const validateCurrentStep = () => {
   clearErrors()
   if (!journey.value) return false
   const step = currentStep.value
-  // An admin must select their students' supervisor on the first step.
-  if (
-    adminChoosesSupervisor.value &&
-    step === 0 &&
-    !chosenSupervisor.value
-  )
-    clientErrors.supervisorEmail = 'Choose a supervisor from the list.'
+  // The list is autocomplete only: it can fail to load or omit a profile.
+  // Require a valid email here; the server checks that the supervisor exists.
+  if (adminChoosesSupervisor.value && step === 0)
+    validateEmail('supervisorEmail', forms.adminSupervisorEmail, 'Supervisor email')
 
   if (journey.value === 'student_individual') {
     if (step === 0)
