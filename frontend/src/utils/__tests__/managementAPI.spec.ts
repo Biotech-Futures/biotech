@@ -153,10 +153,9 @@ describe('blob downloads', () => {
 
   beforeEach(() => {
     clicks = []
-    vi.stubGlobal('URL', {
-      ...URL,
-      createObjectURL: vi.fn(() => 'blob:fake'),
-      revokeObjectURL: vi.fn()
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = vi.fn(() => 'blob:fake')
+      static revokeObjectURL = vi.fn()
     })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       clicks.push(this.download)

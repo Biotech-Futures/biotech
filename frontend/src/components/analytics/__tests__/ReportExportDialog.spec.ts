@@ -35,9 +35,9 @@ describe('ReportExportDialog', () => {
       }
     })
     vi.stubGlobal('fetch', fetchMock)
-    vi.stubGlobal('URL', {
-      createObjectURL: vi.fn().mockReturnValue('blob:report'),
-      revokeObjectURL: vi.fn(),
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = vi.fn().mockReturnValue('blob:report')
+      static revokeObjectURL = vi.fn()
     })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
 
