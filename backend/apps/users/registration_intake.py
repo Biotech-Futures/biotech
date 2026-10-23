@@ -517,6 +517,25 @@ def save_student(student, supervisor, now, *, registered_by):
     return user
 
 
+def create_nominated_supervisor(supervisor, student) -> None:
+    """The supervisor a student names, when their email has no account: an
+    active account with the supervisor role and a profile at the student's
+    school, in the student's country and state, as an admin's student import
+    creates one. They sign in with their email the first time, and set a
+    password then. An existing supervisor is only linked (``save_student``),
+    unchanged; any other account's email was refused before this."""
+    from apps.admin.services.user import _resolve_supervisor_id
+
+    email = (supervisor.get("email") or "").strip()
+    if not email or User.objects.filter(email__iexact=email).exists():
+        return
+    country, state = resolve_location(student) if student["country"] else (None, None)
+    _resolve_supervisor_id(
+        email, supervisor.get("firstName"), supervisor.get("lastName"), school_name=student["school"],
+        country_id=getattr(country, "pk", None), state_id=getattr(state, "pk", None),
+    )
+
+
 def registering_as_admin(user) -> bool:
     """An admin registering students (Management > Registration) who isn't a
     supervisor: their students have no supervisor, registered by an admin."""
@@ -815,6 +834,10 @@ def register(request):
             from .views import _registered_by
             if legacy:
                 provenance[0] = _registered_by(raw["body"].get("RegisteredBy"))
+            # A supervisor a student names who has no account yet is created
+            # now, so the students are theirs straight away.
+            if named_supervisor:
+                create_nominated_supervisor(supervisor, students[0])
             users = [
                 save_student(item, supervisor, now, registered_by=registered_by)
                 for item, registered_by in zip(students, provenance)

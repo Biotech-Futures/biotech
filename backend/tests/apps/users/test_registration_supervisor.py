@@ -186,15 +186,17 @@ class SupervisorRegistrationTests(RegistrationSetup, TestCase):
         )
 
     def test_students_who_named_them_before_they_registered_become_theirs(self):
-        # A student registers, naming the teacher before they have an account.
-        self.assertEqual(self.submit().status_code, 201)
-        named = StudentProfile.objects.get(user__email="jordan.lee@example.com")
-        self.assertIsNone(named.supervisor)
-        # One who named them but has a supervisor already keeps theirs.
-        other = User.objects.create_user(email="other@example.com", first_name="O", last_name="T")
-        other_profile = SupervisorProfile.objects.create(user=other)
-        self.body["payload"]["students"][0]["email"] = "kept@example.com"
-        self.assertEqual(self.submit().status_code, 201)
+        # A student registered, naming the teacher, before a named supervisor
+        # with no account was created for them (registration_intake).
+        with patch("apps.users.registration_intake.create_nominated_supervisor"):
+            self.assertEqual(self.submit().status_code, 201)
+            named = StudentProfile.objects.get(user__email="jordan.lee@example.com")
+            self.assertIsNone(named.supervisor)
+            # One who named them but has a supervisor already keeps theirs.
+            other = User.objects.create_user(email="other@example.com", first_name="O", last_name="T")
+            other_profile = SupervisorProfile.objects.create(user=other)
+            self.body["payload"]["students"][0]["email"] = "kept@example.com"
+            self.assertEqual(self.submit().status_code, 201)
         StudentProfile.objects.filter(user__email="kept@example.com").update(supervisor=other_profile)
 
         response, _ = self.register(supervisor_body(relationship="parent"))

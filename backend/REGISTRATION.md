@@ -23,9 +23,11 @@ Supervisor identity is resolved from the session and its existing profile,
 never from a payload claim. A current supervisor role (or staff/admin authority)
 and an existing supervisor profile are required. Anonymous, suspended/deactivated
 or unauthorized users cannot use supervisor journeys.
-Student registration never creates a supervisor or grants a public caller
-that role: a supervisor gets it by registering themselves (see
-[Supervisor registration](#supervisor-registration)).
+A student's registration never grants the person sending it the supervisor
+role. The supervisor a student names gets it only when their email has no
+account yet: they're created then (see
+[Compatibility and deployment](#compatibility-and-deployment)). A supervisor can
+also register themselves (see [Supervisor registration](#supervisor-registration)).
 
 Group creators provide guardian contact. Represented students may defer it.
 Identity-only teammates retain blank school/year and null geography until the
@@ -496,14 +498,19 @@ authorization mechanism and do not change validation or grant any role.
 
 Registration creates only a **pending student** with an unusable password,
 the target's existing six-week student assignment, and **no guardian consent**.
-It never activates an account or creates a supervisor/admin role. Supervisor
-contacts are retained on the receipt; an existing supervisor profile may be
-linked without modifying that person's name, school, geography or role. Unlike
-the unsafe legacy side effect, an unknown supervisor nomination does not create
-an account. The nominated supervisor registers themselves (or staff provision
-them), and the students who named them are linked when they do (see
-[Supervisor registration](#supervisor-registration)). Guardian permission
-remains the real existing consent process.
+It never creates an admin role. Supervisor contacts are retained on the
+receipt; an existing supervisor profile is linked without modifying that
+person's name, school, geography or role. A supervisor a student names whose
+email has no account is **created on the spot**, as an admin's student import
+creates one (`_resolve_supervisor_id`): an active account with no password, the
+supervisor role with no end date, and a profile at the student's school, in the
+student's country and state. The students (all of a group's) are linked to them
+at once, and the supervisor joins the group. They sign in with their email the
+first time, and set a password then. An email belonging to any other account (a
+student, mentor or admin) is still refused. Students who named a supervisor
+before this, with no account then, are linked when that supervisor registers
+themselves (see [Supervisor registration](#supervisor-registration)). Guardian
+permission remains the real existing consent process.
 
 Before deployment:
 

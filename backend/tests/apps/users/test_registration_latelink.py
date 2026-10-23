@@ -281,10 +281,12 @@ class IntakeTests(RegistrationSetup, TestCase):
         self.assertEqual(row.guardian_phone, "+61 400 000 000")
         self.assertEqual(row.guardian_relationship, "Parent")
         self.assertEqual(row.source, {"method": "student_individual"})
-        self.assertEqual(RoleAssignmentHistory.objects.count(), 1)
-        self.assertEqual(RoleAssignmentHistory.objects.get().role.role_name, "student")
-        self.assertEqual(SupervisorProfile.objects.count(), 0)
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The student's role, and the role of the supervisor they named, who
+        # had no account: created for them (apps.users.registration_intake).
+        self.assertEqual(
+            sorted(RoleAssignmentHistory.objects.values_list("role__role_name", flat=True)), ["student", "supervisor"],
+        )
+        self.assertEqual(profile.supervisor, SupervisorProfile.objects.get(user__email="teacher@example.com"))
         self.assertEqual(row.supervisor_details["email"], "teacher@example.com")
 
     def test_areas_of_interest_are_optional(self):
@@ -816,7 +818,8 @@ class LegacyTests(RegistrationSetup, TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data, body["body"])
         self.assertEqual(StudentProfile.objects.count(), 1)
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The supervisor they named, who had no account, is created for them.
+        self.assertTrue(SupervisorProfile.objects.filter(user__email="teacher@example.com").exists())
 
     def test_legacy_cannot_bypass_window_or_self_guardian_validation(self):
         self.close_window()
