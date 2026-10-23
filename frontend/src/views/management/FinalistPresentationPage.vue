@@ -1,6 +1,6 @@
 <template>
   <!-- The finalists' presentations at the Symposium: the times they can
-       present, which change year to year. -->
+       present, which carry on from year to year until changed. -->
   <div class="finalist-presentation">
     <section class="card finalist-presentation__setup">
       <div class="card-header">
@@ -8,8 +8,8 @@
       </div>
       <h3 class="finalist-presentation__section-title">Presentation Times</h3>
       <p class="finalist-presentation__hint">
-        Each finalist team will tick every time it can make. The times change each year, so
-        add, change or remove them until they're final.
+        Each finalist team will tick every time it can make. The times carry on from last
+        year, so add, change or remove them until they're final.
       </p>
       <p class="finalist-presentation__hint">
         <template v-if="symposiumDay">

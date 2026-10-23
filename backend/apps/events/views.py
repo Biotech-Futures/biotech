@@ -101,6 +101,7 @@ class EventInvitePagination(PageNumberPagination):
 
 
 class EventViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     queryset = Events.objects.all()
     serializer_class = EventSerializer
     permission_classes = [EventManagePermission]
@@ -233,6 +234,11 @@ class EventViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.deleted_at is None:
             return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+        if instance.archived_at is not None:
+            return Response(
+                {"detail": "This event was archived by Start new year, so it can't be restored."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Target groups must be restored before their events can be restored.
         if EventTargetGroup.objects.filter(
@@ -266,6 +272,7 @@ class EventRsvpSetView(APIView):
     user choice. The legacy /events/v1/{id}/rsvp/ route still resolves.
     """
 
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
@@ -333,6 +340,7 @@ class IsNotStudent(permissions.BasePermission):
 
 
 class EventInviteCreateView(APIView):
+    hidden_with_pages = True
     permission_classes = [IsNotStudent]
 
     @extend_schema(
@@ -362,6 +370,7 @@ class EventInviteCreateView(APIView):
 
 
 class EventInviteListHTMLView(generics.ListAPIView):
+    hidden_with_pages = True
     serializer_class = EventRsvpSerializer
     permission_classes = [IsNotStudent]
     pagination_class = EventInvitePagination
@@ -376,6 +385,7 @@ class EventInviteListHTMLView(generics.ListAPIView):
 
 
 class EventInviteListMeHTMLView(generics.ListAPIView):
+    hidden_with_pages = True
     serializer_class = EventRsvpSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = EventInvitePagination
@@ -402,6 +412,7 @@ class EventBulkInviteView(APIView):
     `waitlisted` lists users an accept placed on the waitlist of a full event.
     """
 
+    hidden_with_pages = True
     permission_classes = [IsNotStudent]
     throttle_classes = [throttling.ScopedRateThrottle]
     throttle_scope = "event_bulk_invite"
@@ -558,6 +569,7 @@ class EventIcalExportView(APIView):
     only gets events they could already see in the regular list view.
     """
 
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(

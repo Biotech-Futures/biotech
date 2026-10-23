@@ -14,6 +14,7 @@ from .views import (
     BounceCheckTriggerView,
     SendWaitingEmailsView,
     ChallengeStartView,
+    NewYearView,
     ResourceReleasesView,
     ResourceReleaseView,
     RegistrationOpenView,
@@ -81,6 +82,8 @@ urlpatterns = [
     # Challenge Start > Release Resources.
     path("resource-releases/", ResourceReleasesView.as_view(), name="resource-releases"),
     path("resource-releases/<int:resource_id>/", ResourceReleaseView.as_view(), name="resource-release"),
+    # Management > New Year: the year in progress, and Start new year.
+    path("new-year/", NewYearView.as_view(), name="new-year"),
     # Late Registration > Supervisors After Close.
     path("registration-supervisors/", RegistrationSupervisorsView.as_view(), name="registration-supervisors"),
     path(
@@ -145,7 +148,7 @@ urlpatterns = [
     path("nonsubmissions/preview/", NonSubmissionEmailPreviewView.as_view(), name="nonsubmission-email-preview"),
     path("nonsubmissions/send/", NonSubmissionEmailSendView.as_view(), name="nonsubmission-email-send"),
 
-    # The Finalist Presentation tab: this year's times finalists can present.
+    # The Finalist Presentation tab: the times finalists can present.
     path(
         "finalists/presentation-slots/",
         PresentationSlotListView.as_view(),

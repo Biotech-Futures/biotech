@@ -346,6 +346,7 @@ def mark_delivered_cursor(user, group_id: int, up_to_id: int) -> int:
 
 
 class MessageViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     serializer_class = MessageSerializer
     permission_classes = [IsGroupMemberOrAdmin]
     parser_classes = [JSONParser]
@@ -1082,6 +1083,7 @@ class MentionViewSet(viewsets.GenericViewSet):
     is already restricted by ownership of the mention row.
     """
 
+    hidden_with_pages = True
     serializer_class = MentionSerializer
     permission_classes = [IsAuthenticated]
 
