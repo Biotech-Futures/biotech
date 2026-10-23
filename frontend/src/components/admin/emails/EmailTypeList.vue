@@ -37,7 +37,7 @@
         <!-- Registration's heading, above the first of its groups shown. -->
         <li
           v-if="startsSection(index)"
-          class="email-type-list__heading email-type-list__heading--section"
+          class="email-type-list__heading"
           role="presentation"
           data-test="email-section"
         >
@@ -47,7 +47,7 @@
         <li
           v-if="startsGroup(index)"
           class="email-type-list__heading"
-          :class="{ 'email-type-list__heading--sub': sectionOf(groupOf(template.key)) }"
+          :class="{ 'email-type-list__heading--sub': SUBHEADINGS.has(groupOf(template.key)) }"
           role="presentation"
           data-test="email-group"
         >
@@ -148,6 +148,8 @@ const SECTION_OF: Record<string, string> = {
   Guardians: 'Registration'
 }
 const sectionOf = (group: string) => SECTION_OF[group] ?? ''
+// The groups set as subheadings under Registration.
+const SUBHEADINGS = new Set(['Self registration', 'Supervisor registration'])
 
 // The first email shown of its group, or of its section.
 const startsGroup = (index: number) =>
@@ -227,17 +229,12 @@ const filtered = computed(() => {
   margin-top: 0;
 }
 
-/* Registration, over its three groups: a size up, and darker. */
-.email-type-list__heading--section {
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--teal);
-}
-
-/* A group under it, set in a little. */
+/* A subheading under Registration: set in, in sentence case. */
 .email-type-list__heading--sub {
   padding-left: 0.75rem;
+  font-size: 0.7rem;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .email-type-list__item {
