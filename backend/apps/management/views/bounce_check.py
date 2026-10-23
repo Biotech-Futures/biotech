@@ -1,5 +1,6 @@
-"""The trigger GitHub's schedule calls about every 10 minutes
-(``.github/workflows/bounce-check.yml``) to check the sending mailboxes for
+"""The trigger for the check, by hand from
+``.github/workflows/bounce-check.yml`` (the backend's timer runs the same
+code every 10 minutes, ``apps.management.scheduler``), to check the sending mailboxes for
 bounce notices (``services.bounce_check``)."""
 from drf_spectacular.utils import extend_schema
 from rest_framework import status

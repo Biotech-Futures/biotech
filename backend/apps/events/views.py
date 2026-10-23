@@ -486,8 +486,8 @@ class EventBulkInviteView(APIView):
 class RsvpReminderTriggerView(APIView):
     """Cron-trigger endpoint for the 24h RSVP reminder dispatcher.
 
-    Called hourly by ``.github/workflows/rsvp-reminders.yml`` (no
-    in-process scheduler / Celery worker). Auth is a shared secret
+    By hand from ``.github/workflows/rsvp-reminders.yml``; the backend's
+    timer (``apps.management.scheduler``) queues the same run hourly. Auth is a shared secret
     header rather than a user session — there is no human caller. To
     keep the surface small:
 

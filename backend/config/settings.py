@@ -704,9 +704,8 @@ MAIL_SERVER_DOWN_SECONDS = config("MAIL_SERVER_DOWN_SECONDS", default=60, cast=i
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# The unread messages digest, run every 15 minutes by
-# .github/workflows/unread-digest.yml (with EMAIL_JOBS_TOKEN) so the first
-# notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
+# The unread messages digest, run every 15 minutes by the backend's timer
+# (apps.management.scheduler) so the first notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
 # user per day; QUIET hours (evaluated in QUIET_TZ; start == end disables)
 # hold all sends overnight and re-anchor them to daytime. The quiet block is
 # what makes a sub-24h interval safe — without it, delivery times walk
