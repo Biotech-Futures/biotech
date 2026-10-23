@@ -9,7 +9,8 @@ group by its code (``registration_group``); a supervisor registering
 students, to each student (``registration_by_supervisor``) and once to the
 supervisor for each registration (``registration_supervisor``); an admin
 registering students, to each student, naming the supervisor the admin chose
-(``registration_by_admin``); and a mentor registering (``registration_mentor``).
+(``registration_by_admin``); a mentor registering (``registration_mentor``);
+and a supervisor registering themselves (``registration_new_supervisor``).
 """
 from __future__ import annotations
 
@@ -24,9 +25,13 @@ SUPERVISOR_KEY = "registration_supervisor"
 SUPERVISED_KEY = "registration_by_supervisor"
 ADMIN_KEY = "registration_by_admin"
 MENTOR_KEY = "registration_mentor"
+NEW_SUPERVISOR_KEY = "registration_new_supervisor"
 
 # Each journey's email, to each person it registered.
-STUDENT_EMAILS = {"student_individual": STUDENT_KEY, "student_team": GROUP_KEY, "mentor": MENTOR_KEY}
+STUDENT_EMAILS = {
+    "student_individual": STUDENT_KEY, "student_team": GROUP_KEY, "mentor": MENTOR_KEY,
+    "supervisor": NEW_SUPERVISOR_KEY,
+}
 
 
 def registration_context(user) -> dict:

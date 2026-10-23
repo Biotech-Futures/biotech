@@ -6,6 +6,7 @@ import {
   payloadForRegistrationJourney,
   sanitizeRegistrationPayload,
   type MentorForm,
+  type SupervisorForm,
   type RegistrationForms,
   type RegistrationIntakeJourney,
   type StudentIndividualForm,
@@ -56,6 +57,11 @@ export interface MentorRegistrationRequest {
   payload: { mentor: MentorForm }
 }
 
+export interface SupervisorRegistrationRequest {
+  journey: 'supervisor'
+  payload: { supervisor: SupervisorForm }
+}
+
 export type RegistrationRequest =
   | StudentIndividualRegistrationRequest
   | StudentTeamRegistrationRequest
@@ -63,6 +69,7 @@ export type RegistrationRequest =
   | SupervisorGroupRegistrationRequest
   | SupervisorCsvRegistrationRequest
   | MentorRegistrationRequest
+  | SupervisorRegistrationRequest
 
 export interface RegistrationReceipt {
   referenceCode: string

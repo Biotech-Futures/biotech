@@ -112,7 +112,10 @@ const query = ref('')
 const GROUPS: [string, string[]][] = [
   ['Sign-in', ['login_code', 'password_reset', 'password_changed']],
   // Someone registering themselves, then a supervisor registering students.
-  ['Self registration', ['registration_student', 'registration_group', 'registration_mentor']],
+  [
+    'Self registration',
+    ['registration_student', 'registration_group', 'registration_mentor', 'registration_new_supervisor']
+  ],
   [
     'Supervisor registration',
     [

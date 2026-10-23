@@ -22,6 +22,7 @@ EXPECTED_KEYS = {
     "registration_student",
     "registration_group",
     "registration_mentor",
+    "registration_new_supervisor",
     "registration_by_supervisor",
     "registration_by_admin",
     "registration_supervisor",

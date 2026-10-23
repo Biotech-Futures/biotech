@@ -176,6 +176,18 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="registration_new_supervisor",
+        name="Registration confirmation (to new supervisor)",
+        description="Sent to a supervisor once they register on the registration page.",
+        default_subject="{{ brand_name }}: Registration",
+        default_template="emails/registration_new_supervisor.html",
+        merge_tags=(
+            _FIRST_NAME,
+            MergeTag("year", "Competition year", "2026", "YEAR"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="registration_by_supervisor",
         name="Registered by supervisor (to student)",
         description=(

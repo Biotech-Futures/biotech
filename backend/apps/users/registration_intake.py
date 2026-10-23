@@ -660,6 +660,11 @@ def register(request):
         from .mentor_registration import register_mentor
 
         return register_mentor(request, raw)
+    # A supervisor registering themselves, likewise (apps.users.supervisor_registration).
+    if not legacy and raw.get("journey") == "supervisor":
+        from .supervisor_registration import register_supervisor
+
+        return register_supervisor(request, raw)
     envelope = legacy_request(raw["body"]) if legacy else raw
     parser = IntakeInput(data=envelope, context={"legacy": legacy})
     if not parser.is_valid():

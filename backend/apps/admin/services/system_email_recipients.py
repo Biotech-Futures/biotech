@@ -510,6 +510,7 @@ RECIPIENTS: dict[str, Recipients] = {
     "registration_by_admin": Recipients(_students, _registered_by_supervisor_context),
     "registration_supervisor": Recipients(_supervisors_only, _registration_supervisor_context),
     "registration_mentor": Recipients(_mentors, _registration_context),
+    "registration_new_supervisor": Recipients(_supervisors_only, _registration_context),
     "supervisor_registration_status": Recipients(_supervisors_only, _registration_status_context),
     "unread_messages": Recipients(_students_and_mentors, _first_name),
     "rsvp_reminder": _EVERYONE,
