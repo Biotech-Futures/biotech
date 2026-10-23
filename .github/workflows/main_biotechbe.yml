@@ -172,14 +172,13 @@ jobs:
         run: python manage.py migrate --noinput --settings=config.settings_migrations
 
   # The backend tests again on Postgres, the database production runs on.
-  # They don't all pass yet, so neither deploy waits for this: a failure
-  # shows red and holds nothing up. Once it passes, add it to the deploys'
-  # needs so it gates them like the other checks.
+  # SQLite lets through things Postgres refuses, such as a test closing the
+  # connection its own transaction is on.
   backend_tests_postgres:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    name: Backend tests on Postgres (not blocking)
+    name: Backend tests on Postgres
     permissions:
       contents: read
 
@@ -348,7 +347,7 @@ jobs:
   # Both deploys wait for every check that ran, on either side; a side the
   # change didn't touch is skipped, which doesn't hold the other one up.
   deploy_backend:
-    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build]
+    needs: [changes, backend_tests, backend_tests_postgres, migrations, backend_build, frontend_tests, frontend_build]
     if: >-
       always()
       && needs.changes.outputs.backend == 'true'
@@ -377,7 +376,7 @@ jobs:
 
   # A push to main goes live; a pull request gets its own preview site.
   deploy_frontend:
-    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build]
+    needs: [changes, backend_tests, backend_tests_postgres, migrations, backend_build, frontend_tests, frontend_build]
     if: >-
       always()
       && needs.changes.outputs.frontend == 'true'

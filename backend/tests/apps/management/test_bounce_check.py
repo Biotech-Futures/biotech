@@ -308,8 +308,10 @@ class TriggerTests(TestCase):
         self.assertEqual(self.post().json(), {"status": SWITCHED_OFF})
         self.thread.assert_not_called()
 
+    # The thread closes its own connection, and run here that is the test's.
+    @patch("apps.management.services.bounce_check.close_old_connections")
     @patch("apps.management.services.bounce_check.check_bounces", side_effect=MailApiError("The Mail API answered 401."))
-    def test_a_failed_check_lets_the_next_one_run(self, check):
+    def test_a_failed_check_lets_the_next_one_run(self, check, close_connections):
         cache.add(RUNNING, True)
         with self.assertLogs("apps.management.services.bounce_check", level="ERROR"):
             _run_check()

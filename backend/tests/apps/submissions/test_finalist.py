@@ -542,8 +542,8 @@ class FinalistTests(TestCase):
             reverse("management:presentation-slides-file", kwargs={"group_id": self.group.id})
         )
         self.assertEqual(opened.status_code, 200)
+        # Read to the end, the test client has closed it.
         self.assertEqual(b"".join(opened.streaming_content), b"%PDF-1.7\nslides\n%%EOF\n")
-        opened.close()
 
     def test_a_submitted_entry_cannot_be_edited_until_reopened(self):
         client = self._ready()

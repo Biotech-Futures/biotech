@@ -17,6 +17,7 @@ from apps.management.models import FinalistSlides
 from apps.management.views.presentation import MISSING_NOTE, SLIDES_FILES
 from apps.submissions.services import current_cohort
 
+from tests.apps._helpers import close_response
 from tests.apps.grading.fixtures import _GradingFixture
 
 ZIP = "management:presentation-slides-zip"
@@ -65,7 +66,7 @@ class FinalistSlidesZipTests(_GradingFixture):
     def _fetch(self):
         response = self.client.get(reverse(ZIP_FILE))
         # Lets go of the file, so the temporary folder can be removed.
-        self.addCleanup(response.close)
+        self.addCleanup(close_response, response)
         return response
 
     def _archive(self):
