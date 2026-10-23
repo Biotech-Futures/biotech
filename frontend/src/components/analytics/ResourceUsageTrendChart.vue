@@ -363,9 +363,9 @@ function formatDay(day: string, withYear = true) {
 .resource-trend-metric {
   display: inline-flex;
   padding: 3px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 
 .resource-trend-metric button {
@@ -373,7 +373,7 @@ function formatDay(day: string, withYear = true) {
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #39687b;
+  color: var(--analytics-ui-secondary, #39687b);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -387,10 +387,10 @@ function formatDay(day: string, withYear = true) {
 .resource-trend-controls select {
   height: 36px;
   padding: 0 12px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background-color: #fff;
-  color: #017151;
+  background-color: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 13px;
   font-weight: 700;
 }
@@ -418,10 +418,10 @@ function formatDay(day: string, withYear = true) {
   gap: 6px;
   max-width: 220px;
   padding: 5px 10px;
-  border: 1px solid #dbe6e3;
+  border: 1px solid var(--analytics-ui-border, #dbe6e3);
   border-radius: 999px;
-  background: #f6f8f8;
-  color: #7a8c88;
+  background: var(--analytics-ui-surface, #f6f8f8);
+  color: var(--analytics-ui-muted, #7a8c88);
   font-size: 12px;
   cursor: pointer;
 }
@@ -445,9 +445,9 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-chip.active {
-  border-color: #bad7b8;
-  background: #fff;
-  color: #174243;
+  border-color: var(--analytics-ui-border, #bad7b8);
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174243);
   font-weight: 700;
 }
 
@@ -464,7 +464,7 @@ function formatDay(day: string, withYear = true) {
   padding: 4px 8px;
   border: 0;
   background: transparent;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   text-decoration: underline;
@@ -484,11 +484,11 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-grid {
-  stroke: #edf1f0;
+  stroke: var(--analytics-ui-border, #edf1f0);
 }
 
 .resource-trend-axis {
-  fill: #748683;
+  fill: var(--analytics-ui-muted, #748683);
   font-size: 11px;
   dominant-baseline: middle;
 }
@@ -501,7 +501,7 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-hover-line {
-  stroke: #9fbfb9;
+  stroke: var(--analytics-ui-control-border, #9fbfb9);
   stroke-dasharray: 3 3;
 }
 
@@ -511,11 +511,11 @@ function formatDay(day: string, withYear = true) {
   width: 380px;
   max-width: calc(100% - 24px);
   overflow: hidden;
-  border: 1px solid #bad7bb;
+  border: 1px solid var(--analytics-ui-border, #bad7bb);
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 12px 30px rgba(23, 66, 67, 0.18);
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   pointer-events: none;
 }
@@ -526,17 +526,17 @@ function formatDay(day: string, withYear = true) {
   justify-content: space-between;
   gap: 16px;
   padding: 10px 14px;
-  border-bottom: 1px solid #dbe6e3;
-  background: #eef4f1;
+  border-bottom: 1px solid var(--analytics-ui-border, #dbe6e3);
+  background: var(--analytics-ui-soft, #eef4f1);
 }
 
 .resource-trend-readout-header strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 14px;
 }
 
 .resource-trend-readout-header small {
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -558,12 +558,12 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-readout-row + .resource-trend-readout-row {
-  border-top: 1px solid #edf1f0;
+  border-top: 1px solid var(--analytics-ui-border, #edf1f0);
 }
 
 .resource-trend-readout-name {
   overflow: hidden;
-  color: #314f4d;
+  color: var(--analytics-ui-text, #314f4d);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -576,7 +576,7 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-readout-value b {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   text-align: center;
 }
@@ -589,7 +589,7 @@ function formatDay(day: string, withYear = true) {
 .resource-trend-note,
 .resource-trend-empty {
   margin: 0;
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 12px;
   line-height: 1.5;
 }
