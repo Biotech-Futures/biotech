@@ -5,6 +5,10 @@
 #
 # Not named .coveragerc on purpose: coverage reads that by itself, and these
 # settings would break the SQLite job, which runs in one process.
+#
+# `thread` keeps counting code the app runs in background threads (the
+# mailer, the bounce check, grading zips): naming only `multiprocessing`
+# replaces coverage's default, which is `thread`, and those lines go uncounted.
 [run]
-concurrency = multiprocessing
+concurrency = multiprocessing, thread
 parallel = true
