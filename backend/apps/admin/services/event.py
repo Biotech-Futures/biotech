@@ -589,6 +589,12 @@ def query_event_rsvps(id_str: str) -> EventResponseDict:
     return {"msg": "Event RSVPs retrieved successfully", "data": rsvps}
 
 
+def _rsvp_saved_msg(action: str, requested: str, effective: str) -> str:
+    if requested == EventRsvp.RsvpStatus.ACCEPTED and effective == EventRsvp.RsvpStatus.WAITLISTED:
+        return f"Event RSVP {action}; the event is full, so the user was waitlisted"
+    return f"Event RSVP {action} successfully"
+
+
 @transaction.atomic
 def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     """
@@ -628,7 +634,7 @@ def create_event_rsvp(id_str: str, data: Dict[str, Any]) -> EventResponseDict:
     role_name = current_role.role.role_name if current_role else ("admin" if (user and (user.is_staff or user.is_superuser)) else "student")
 
     return {
-        "msg": "Event RSVP created successfully",
+        "msg": _rsvp_saved_msg("created", rsvp_status, rsvp.rsvp_status),
         "data": {
             "id": rsvp.id,
             "eventId": rsvp.event_id,
@@ -683,7 +689,7 @@ def update_event_rsvp(rsvp_id_str: str, data: Dict[str, Any]) -> EventResponseDi
         role_name = current_role.role.role_name if current_role else ("admin" if (user and (user.is_staff or user.is_superuser)) else "student")
 
         return {
-            "msg": "Event RSVP updated successfully",
+            "msg": _rsvp_saved_msg("updated", rsvp_status, rsvp.rsvp_status),
             "data": {
                 "id": rsvp.id,
                 "eventId": rsvp.event_id,

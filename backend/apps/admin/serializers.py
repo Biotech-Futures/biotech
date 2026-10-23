@@ -12,7 +12,8 @@ from apps.services.system_email import clean_email_body, senders
 
 class AdminTaskListQuerySerializer(serializers.Serializer):
     page = serializers.IntegerField(min_value=1, max_value=2_147_483_647, default=1)
-    limit = serializers.IntegerField(min_value=1, max_value=500, default=10)
+    # Covers the 10000 the frontend sends for an "All entries" page size.
+    limit = serializers.IntegerField(min_value=1, max_value=10_000, default=10)
 
 
 class AdminTaskToggleSerializer(serializers.Serializer):

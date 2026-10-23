@@ -20,7 +20,7 @@ class AdminTaskPaginationTests(APITestCase):
         self.client.raise_request_exception = False
         for field, values in {
             "page": ("abc", "", "1.5", "0", "-1", "2147483648"),
-            "limit": ("abc", "", "1.5", "0", "-1", "501"),
+            "limit": ("abc", "", "1.5", "0", "-1", "10001"),
         }.items():
             for value in values:
                 with self.subTest(field=field, value=value):
@@ -41,7 +41,7 @@ class AdminTaskPaginationTests(APITestCase):
         self.assertTrue(response.data["data"]["has_more"])
 
     def test_upper_bounds_and_empty_pages_are_valid(self):
-        response = self.client.get(self.url, {"page": 2147483647, "limit": 500})
+        response = self.client.get(self.url, {"page": 2147483647, "limit": 10000})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["data"]["items"], [])
         self.assertFalse(response.data["data"]["has_more"])
@@ -57,3 +57,11 @@ class AdminTaskPaginationTests(APITestCase):
         self.assertEqual(response.data["data"]["total"], 1)
         self.assertEqual([row["id"] for row in response.data["data"]["items"]], [self.tasks[1].pk])
         self.assertFalse(response.data["data"]["has_more"])
+
+    def test_role_task_list_validates_page_and_limit(self):
+        self.client.raise_request_exception = False
+        url = "/api/v1/admin/role-task/"
+        for params in ({"page": "abc"}, {"page": "0"}, {"limit": "abc"}, {"limit": "10001"}):
+            with self.subTest(params=params):
+                self.assertEqual(self.client.get(url, params).status_code, 400)
+        self.assertEqual(self.client.get(url, {"page": 1, "limit": 10000}).status_code, 200)

@@ -9,6 +9,7 @@ import logging
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
+from django.utils import timezone
 
 from apps.services.system_email import FAILED, send_system_email
 from apps.users.models import User
@@ -30,7 +31,7 @@ def notify_waitlist_promoted(*, event_id, user_id):
         return
     event = Events.objects.filter(pk=event_id, deleted_at__isnull=True).first()
     user = User.objects.filter(pk=user_id).first()
-    if event is None or user is None:
+    if event is None or user is None or event.ends_datetime < timezone.now():
         return
 
     email = (getattr(user, "email", "") or "").strip()

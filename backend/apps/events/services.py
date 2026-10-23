@@ -325,8 +325,15 @@ def set_user_rsvp(user, event_id, rsvp_status):
     return set_event_rsvp(user.id, event.id, rsvp_status)
 
 
-def set_event_rsvp(user_id, event_id, rsvp_status, *, exclude_from_promotion=()):
-    """Apply a validated RSVP with shared capacity, timestamp and promotion rules."""
+def set_event_rsvp(
+    user_id, event_id, rsvp_status, *, exclude_from_promotion=(), keep_response=False,
+):
+    """Apply a validated RSVP with shared capacity, timestamp and promotion rules.
+
+    With ``keep_response``, a pending invite leaves an existing non-pending
+    answer untouched and returns that row unchanged. Released slots are not
+    re-filled once the event has ended.
+    """
     promoted_user_id = None
     with transaction.atomic():
         # Lock the event row so concurrent RSVPs against the same cap
@@ -344,26 +351,37 @@ def set_event_rsvp(user_id, event_id, rsvp_status, *, exclude_from_promotion=())
         )
         prior_status = prior.rsvp_status if prior else None
 
+        if (
+            keep_response
+            and rsvp_status == EventRsvp.RsvpStatus.PENDING
+            and prior_status not in (None, EventRsvp.RsvpStatus.PENDING)
+        ):
+            return event, prior, False
+
         effective_status = _apply_capacity(
             event,
             requested_status=rsvp_status,
             prior_status=prior_status,
         )
 
+        if effective_status == prior_status:
+            # Unchanged status keeps its timestamp, and with it the waitlist position.
+            responded_at = prior.responded_at
+        elif effective_status == EventRsvp.RsvpStatus.PENDING:
+            responded_at = None
+        else:
+            responded_at = timezone.now()
+
         rsvp, created = EventRsvp.objects.update_or_create(
             event=event,
             user_id=user_id,
-            defaults={
-                "rsvp_status": effective_status,
-                "responded_at": (
-                    None if effective_status == EventRsvp.RsvpStatus.PENDING else timezone.now()
-                ),
-            },
+            defaults={"rsvp_status": effective_status, "responded_at": responded_at},
         )
 
         # A released slot goes to the oldest other waitlisted participant.
         if (
-            prior_status == EventRsvp.RsvpStatus.ACCEPTED
+            event.ends_datetime >= timezone.now()
+            and prior_status == EventRsvp.RsvpStatus.ACCEPTED
             and effective_status != EventRsvp.RsvpStatus.ACCEPTED
         ):
             promoted_user_id = _promote_oldest_waitlisted(

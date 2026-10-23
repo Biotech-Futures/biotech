@@ -44,6 +44,10 @@ class WaitlistPromotionEmailTests(TestCase):
         self.user = User.objects.create_user(
             email="promoted@example.com", password="x", first_name="Ada", timezone="Australia/Sydney",
         )
+        # Promotion emails stop once an event ends, and START is a fixed date.
+        clock = mock.patch("django.utils.timezone.now", return_value=START - timedelta(days=1))
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def _send(self, event):
         EventRsvp.objects.create(

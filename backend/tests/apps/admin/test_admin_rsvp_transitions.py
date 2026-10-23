@@ -5,7 +5,10 @@ from django.core import mail
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from apps.events.models import EventRsvp, Events
+from apps.events.models import EventRsvp, EventTargetGroup, Events
+from apps.events.promotion_email import notify_waitlist_promoted
+from apps.groups.models import Groups
+from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope
 
 
@@ -84,6 +87,7 @@ class AdminRsvpTransitionTests(APITestCase):
         }, format="json")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["data"]["rsvpStatus"], "waitlisted")
+        self.assertIn("waitlisted", response.data["msg"])
 
     def test_all_admin_routes_keep_existing_accepted_slot(self):
         for route in ("admin", "invite", "bulk"):
@@ -180,3 +184,83 @@ class AdminRsvpTransitionTests(APITestCase):
         self.assertEqual(EventRsvp.objects.filter(event=self.event, user_id__in=targets, rsvp_status="waitlisted").count(), 4)
         self.assertEqual(EventRsvp.objects.get(event=self.event, user=outside).rsvp_status, "accepted")
         self.assertEqual([message.to for message in mail.outbox], [[outside.email]])
+
+    def _bulk(self, user_ids, new_status):
+        return self.client.post(f"/api/v1/events/{self.event.pk}/rsvp/bulk/", {
+            "user_ids": user_ids, "rsvp_status": new_status,
+        }, format="json")
+
+    def _end_event(self):
+        now = timezone.now()
+        Events.objects.filter(pk=self.event.pk).update(
+            start_datetime=now - timezone.timedelta(hours=2),
+            ends_datetime=now - timezone.timedelta(hours=1),
+        )
+
+    def test_release_after_event_ends_does_not_promote(self):
+        self._end_event()
+        for route in ("admin", "invite", "bulk"):
+            with self.subTest(route=route):
+                EventRsvp.objects.filter(pk=self.accepted.pk).update(rsvp_status="accepted")
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self._change(route, "declined")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(EventRsvp.objects.get(event=self.event, user=self.oldest).rsvp_status, "waitlisted")
+        self.assertEqual(mail.outbox, [])
+
+    def test_promotion_email_is_skipped_after_event_ends(self):
+        notify_waitlist_promoted(event_id=self.event.pk, user_id=self.attendee.pk)
+        self.assertEqual(len(mail.outbox), 1)
+        self._end_event()
+        notify_waitlist_promoted(event_id=self.event.pk, user_id=self.attendee.pk)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_pending_invites_keep_existing_answers(self):
+        User = get_user_model()
+        EventRsvp.objects.create(
+            event=self.event, user=self.extra, rsvp_status="tentative", responded_at=timezone.now(),
+        )
+        declined = User.objects.create_user(email="rsvp-declined@example.com", password="pw")
+        EventRsvp.objects.create(
+            event=self.event, user=declined, rsvp_status="declined", responded_at=timezone.now(),
+        )
+        invitee = User.objects.create_user(email="rsvp-invitee@example.com", password="pw")
+        before = list(EventRsvp.objects.filter(event=self.event).values("user_id", "rsvp_status", "responded_at"))
+        answered = [self.attendee.pk, self.oldest.pk, self.extra.pk, declined.pk]
+        with self.captureOnCommitCallbacks(execute=True):
+            single = self._change("invite", "pending")
+            bulk = self._bulk([*answered, invitee.pk], "pending")
+        self.assertEqual(single.status_code, 200)
+        self.assertEqual(single.data["rsvp_status"], "accepted")
+        self.assertEqual(bulk.status_code, 200)
+        self.assertEqual(bulk.data["created"], [invitee.pk])
+        self.assertEqual(bulk.data["unchanged"], answered)
+        self.assertEqual(bulk.data["updated"], [])
+        after = EventRsvp.objects.filter(event=self.event)
+        self.assertEqual(list(after.exclude(user=invitee).values("user_id", "rsvp_status", "responded_at")), before)
+        self.assertEqual(after.get(user=invitee).rsvp_status, "pending")
+        self.assertEqual(mail.outbox, [])
+
+    def test_rewriting_waitlisted_rsvp_keeps_queue_position(self):
+        queued_at = EventRsvp.objects.get(event=self.event, user=self.oldest).responded_at
+        accepted = self._bulk([self.oldest.pk], "accepted")
+        self.assertEqual(accepted.status_code, 200)
+        self.assertEqual(accepted.data["waitlisted"], [self.oldest.pk])
+        self.assertEqual(self._bulk([self.oldest.pk], "waitlisted").status_code, 200)
+        self.assertEqual(EventRsvp.objects.get(event=self.event, user=self.oldest).responded_at, queued_at)
+        self._change("admin", "declined")
+        self.assertEqual(EventRsvp.objects.get(event=self.event, user=self.oldest).rsvp_status, "accepted")
+
+    def test_invite_routes_hide_events_outside_callers_scope(self):
+        mentor = get_user_model().objects.create_user(email="rsvp-mentor@example.com", password="pw")
+        RoleAssignmentHistory.objects.create(
+            user=mentor, role=Roles.objects.get_or_create(role_name="mentor")[0],
+            valid_from=timezone.now() - timezone.timedelta(days=1),
+        )
+        EventTargetGroup.objects.create(event=self.event, group=Groups.objects.create(group_name="Other group"))
+        self.client.force_authenticate(mentor)
+        for route in ("invite", "bulk"):
+            with self.subTest(route=route):
+                self.assertEqual(self._change(route, "declined").status_code, 404)
+        self.accepted.refresh_from_db()
+        self.assertEqual(self.accepted.rsvp_status, "accepted")
