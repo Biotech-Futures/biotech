@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, Signer
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Lower
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, serializers
@@ -802,6 +803,12 @@ def register(request):
                 *((supervisor.get("email"),) if named_supervisor else ()),
             ])
             known_schools = KnownUniversity.matching(student.get("school", "") for student in students)
+            guardian_accounts = set(
+                User.objects.annotate(lowered=Lower("email")).filter(lowered__in={
+                    (student["guardian"].get("email") or "").strip().lower() for student in students
+                } - {""}).values_list("lowered", flat=True)
+            )
+            invalid_is_error = journey != "supervisor_csv"
             for index, student in enumerate(students):
                 registered_by = (
                     (
@@ -819,6 +826,8 @@ def register(request):
                     context={
                         "defer_warnings": True, "canonical_registration_fields": True,
                         "allow_partial_student": registered_by == StudentProfile.RegisteredBy.PEER,
+                        "email_answers": email_answers, "invalid_is_error": invalid_is_error,
+                        "check_supervisor": named_supervisor,
                     },
                 )
                 if not validator.is_valid():
@@ -832,7 +841,8 @@ def register(request):
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
                 } for warning in registration_warnings(
                     validator.validated_data, email_answers, known_schools,
-                    check_supervisor=named_supervisor and index == 0,
+                    check_supervisor=named_supervisor and index == 0, invalid_is_error=invalid_is_error,
+                    guardian_accounts=guardian_accounts,
                 )])
             if errors:
                 raise serializers.ValidationError(errors)

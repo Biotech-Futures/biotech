@@ -42,7 +42,14 @@ def _refuse_placeholder(value):
 REGISTRATION_OVERRIDES = {
     "ConfirmSchoolOverride", "ConfirmNameEmailOverride",
     "ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride",
-    "ConfirmSupervisorEmailInvalidOverride",
+    "ConfirmSupervisorEmailInvalidOverride", "ConfirmGuardianEmailHasAccountOverride",
+}
+GUARDIAN_IS_STUDENT = "This email address belongs to a student account, so it can't be used as a guardian's email."
+GUARDIAN_HAS_ACCOUNT = "This email address already has an account. Please confirm it is the guardian's own address."
+MAILBOX_WHOSE = {
+    "Title": "This email address",
+    "GuardianEmail": "The guardian's email address",
+    "SupervisorEmail": "The supervisor's email address",
 }
 
 
@@ -84,13 +91,14 @@ def stored_email_answers(addresses) -> dict:
         return {}
 
 
-def _invalid_email_warning(answers, address, *, code, field, override, whose):
+def _invalid_email_warning(answers, address, *, code, field, override, whose, invalid_is_error=False):
     """A warning when ``address``'s answer on file says it doesn't exist, or
-    that it couldn't be told (unknown)."""
+    that it couldn't be told (unknown). With ``invalid_is_error`` a doesn't-exist
+    answer is a hard error instead (UserRegisterBodySerializer), so no warning."""
     answer = answers.get((address or "").strip().lower())
     if answer is None:
         return None
-    if answer.status == EmailVerification.Status.INVALID:
+    if answer.status == EmailVerification.Status.INVALID and not invalid_is_error:
         suggestion = f" Did you mean {answer.did_you_mean}?" if answer.did_you_mean else ""
         message = f"{whose} doesn't appear to exist.{suggestion} Please correct it, or confirm if this is correct."
     elif answer.status == EmailVerification.Status.UNKNOWN:
@@ -100,7 +108,10 @@ def _invalid_email_warning(answers, address, *, code, field, override, whose):
     return {"code": code, "field": field, "override_field": override, "message": message}
 
 
-def registration_warnings(data, email_answers=None, known_schools=None, *, check_supervisor=False):
+def registration_warnings(
+    data, email_answers=None, known_schools=None, *, check_supervisor=False, invalid_is_error=False,
+    guardian_accounts=None,
+):
     """The soft warnings for one student's registration details, each with
     the override that confirms past it. ``email_answers`` is
     ``stored_email_answers`` for the submission: an address answered invalid
@@ -108,7 +119,10 @@ def registration_warnings(data, email_answers=None, known_schools=None, *, check
     ``check_supervisor`` adds the supervisor the student named (once, on the
     first student; never a supervisor registering their own students).
     ``known_schools`` is ``KnownUniversity.matching`` for the submission's
-    school names; without it, this student's is looked up on its own."""
+    school names; without it, this student's is looked up on its own.
+    ``invalid_is_error``: a doesn't-exist answer is a hard error, so only
+    unknown warns. ``guardian_accounts``: the submission's guardian addresses
+    that have an account; without it, this student's is looked up on its own."""
     warnings = []
     school = data.get("SchoolName", "").strip().lower()
     known = (
@@ -131,20 +145,35 @@ def registration_warnings(data, email_answers=None, known_schools=None, *, check
             "override_field": "ConfirmNameEmailOverride",
             "message": "This email looks like it might have a typo compared to the student's name. Please confirm.",
         })
+    guardian_email = data.get("GuardianEmail", "").strip().lower()
+    if guardian_email and not data.get("ConfirmGuardianEmailHasAccountOverride"):
+        # A current student's address is refused before this (validate_GuardianEmail).
+        has_account = (
+            guardian_email in guardian_accounts if guardian_accounts is not None
+            else User.objects.filter(email__iexact=guardian_email).exists()
+        )
+        if has_account:
+            warnings.append({
+                "code": "guardian_email_has_account",
+                "field": "GuardianEmail",
+                "override_field": "ConfirmGuardianEmailHasAccountOverride",
+                "message": GUARDIAN_HAS_ACCOUNT,
+            })
     if email_answers and email_precheck_enabled():
         for warning, confirmed in (
             (_invalid_email_warning(
                 email_answers, data.get("Title"), code="email_invalid", field="Title",
-                override="ConfirmEmailInvalidOverride", whose="This email address",
+                override="ConfirmEmailInvalidOverride", whose="This email address", invalid_is_error=invalid_is_error,
             ), data.get("ConfirmEmailInvalidOverride")),
             (_invalid_email_warning(
                 email_answers, data.get("GuardianEmail"), code="guardian_email_invalid", field="GuardianEmail",
                 override="ConfirmGuardianEmailInvalidOverride", whose="The guardian's email address",
+                invalid_is_error=invalid_is_error,
             ), data.get("ConfirmGuardianEmailInvalidOverride")),
             (check_supervisor and _invalid_email_warning(
                 email_answers, data.get("SupervisorEmail"), code="supervisor_email_invalid",
                 field="SupervisorEmail", override="ConfirmSupervisorEmailInvalidOverride",
-                whose="The supervisor's email address",
+                whose="The supervisor's email address", invalid_is_error=invalid_is_error,
             ), data.get("ConfirmSupervisorEmailInvalidOverride")),
         ):
             if warning and not confirmed:
@@ -195,6 +224,21 @@ class UserRegisterBodySerializer(serializers.Serializer):
     ConfirmEmailInvalidOverride = StrictBooleanField(required=False, default=False)
     ConfirmGuardianEmailInvalidOverride = StrictBooleanField(required=False, default=False)
     ConfirmSupervisorEmailInvalidOverride = StrictBooleanField(required=False, default=False)
+    # Confirm a guardian address that already has a (non-student) account.
+    ConfirmGuardianEmailHasAccountOverride = StrictBooleanField(required=False, default=False)
+
+    def _refuse_invalid_mailbox(self, value, field):
+        answers = self.context.get("email_answers")
+        if not (answers and self.context.get("invalid_is_error") and email_precheck_enabled()):
+            return
+        answer = answers.get((value or "").strip().lower())
+        if answer is None or answer.status != EmailVerification.Status.INVALID:
+            return
+        suggestion = f" Did you mean {answer.did_you_mean}?" if answer.did_you_mean else ""
+        raise serializers.ValidationError(
+            f"{MAILBOX_WHOSE[field]} doesn't appear to exist.{suggestion} Please correct it.",
+            code="email_invalid_address",
+        )
 
     def validate_Title(self, value):
         # `Title` is the student's own email (mislabeled field name; confirmed
@@ -205,23 +249,34 @@ class UserRegisterBodySerializer(serializers.Serializer):
         from .returning import returning_student
 
         existing = User.objects.filter(email__iexact=value).first()
-        if existing is None:
-            return value
-        if _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
-            raise serializers.ValidationError(
-                "This email address already belongs to a supervisor, so it "
-                "cannot be used to register a student.",
-                code="student_email_is_supervisor",
-            )
-        if returning_student(value) is not None:
-            return value
-        raise serializers.ValidationError(
-            "An account with this email address already exists.",
-            code="email_taken",
-        )
+        if existing is not None:
+            if _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+                raise serializers.ValidationError(
+                    "This email address already belongs to a supervisor, so it "
+                    "cannot be used to register a student.",
+                    code="student_email_is_supervisor",
+                )
+            if returning_student(value) is None:
+                raise serializers.ValidationError(
+                    "An account with this email address already exists.",
+                    code="email_taken",
+                )
+        self._refuse_invalid_mailbox(value, "Title")
+        return value
 
     def validate_GuardianEmail(self, value):
         _refuse_placeholder(value)
+        if not value:
+            return value
+        from .returning import returning_student
+
+        existing = User.objects.filter(email__iexact=value).first()
+        if (
+            existing is not None and _has_role(existing, StudentProfile, ROLE_STUDENT)
+            and returning_student(value) is None
+        ):
+            raise serializers.ValidationError(GUARDIAN_IS_STUDENT, code="guardian_email_is_student")
+        self._refuse_invalid_mailbox(value, "GuardianEmail")
         return value
 
     def validate_SupervisorEmail(self, value):
@@ -232,20 +287,22 @@ class UserRegisterBodySerializer(serializers.Serializer):
         if not value:
             return value
         existing = User.objects.filter(email__iexact=value).first()
-        if existing is None:
-            return value
-        if _has_role(existing, StudentProfile, ROLE_STUDENT):
-            raise serializers.ValidationError(
-                "This email address belongs to a student, so they cannot be "
-                "nominated as a supervisor.",
-                code="supervisor_email_is_student",
-            )
-        if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
-            raise serializers.ValidationError(
-                "This email address belongs to an existing account that is "
-                "not a supervisor.",
-                code="supervisor_email_in_use",
-            )
+        if existing is not None:
+            if _has_role(existing, StudentProfile, ROLE_STUDENT):
+                raise serializers.ValidationError(
+                    "This email address belongs to a student, so they cannot be "
+                    "nominated as a supervisor.",
+                    code="supervisor_email_is_student",
+                )
+            if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+                raise serializers.ValidationError(
+                    "This email address belongs to an existing account that is "
+                    "not a supervisor.",
+                    code="supervisor_email_in_use",
+                )
+        # Only a supervisor the student typed, never a signed-in one.
+        if self.context.get("check_supervisor"):
+            self._refuse_invalid_mailbox(value, "SupervisorEmail")
         return value
 
     def validate(self, data):
