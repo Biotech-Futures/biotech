@@ -97,6 +97,21 @@ class FinalistSlidesZipTests(_GradingFixture):
         self.assertEqual(archive.namelist(), [f"{self.year}_BTF3_Slides.pdf", f"{self.year}_BTF10_Slides_MISSING.txt"])
         self.assertEqual(archive.read(f"{self.year}_BTF10_Slides_MISSING.txt").decode(), MISSING_NOTE)
 
+    def test_many_teams_stay_in_order_while_read_a_few_at_once(self):
+        for number in range(20, 29):
+            team = self._finalist(f"BTF{number}")
+            self._hand_in(team, "s.pdf", f"%PDF {number}".encode(), "application/pdf")
+        FinalistSlides.objects.filter(group__group_name="BTF24").update(file={"storage_key": "gone.pdf", "name": "s.pdf"})
+
+        _, archive = self._archive()
+
+        names = [f"{self.year}_BTF3_Slides.pdf", f"{self.year}_BTF10_Slides.pptx"]
+        names += [f"{self.year}_BTF{n}_Slides.pdf" for n in (20, 21, 22, 23)]
+        names += [f"{self.year}_BTF24_Slides_MISSING.txt"]
+        names += [f"{self.year}_BTF{n}_Slides.pdf" for n in (25, 26, 27, 28)]
+        self.assertEqual(archive.namelist(), names)
+        self.assertEqual(archive.read(f"{self.year}_BTF27_Slides.pdf"), b"%PDF 27")
+
     def test_nothing_to_download_until_slides_are_in(self):
         FinalistSlides.objects.all().delete()
         self.assertEqual(self._download().status_code, status.HTTP_404_NOT_FOUND)

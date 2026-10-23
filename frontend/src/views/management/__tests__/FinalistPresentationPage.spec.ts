@@ -5,6 +5,7 @@ import {
   addPresentationSlot,
   allocatePresentationSlot,
   deletePresentationSlot,
+  downloadPresentationSlidesZip,
   fetchPresentationResponses,
   fetchPresentationSlides,
   fetchPresentationSlots,
@@ -34,7 +35,7 @@ vi.mock('@/utils/managementAPI', () => ({
   setPresentationTimesShown: vi.fn(),
   presentationSlidesUrl: (groupId: number) => `/slides/${groupId}/file/`,
   presentationSlidesDownloadUrl: (groupId: number) => `/slides/${groupId}/file/?download=1`,
-  presentationSlidesZipUrl: () => '/slides/zip/'
+  downloadPresentationSlidesZip: vi.fn()
 }))
 // The CSV as it's built; only saving it is stopped.
 vi.mock('@/utils/analyticsExport', async (importOriginal) => ({
@@ -42,6 +43,7 @@ vi.mock('@/utils/analyticsExport', async (importOriginal) => ({
   downloadCsv: vi.fn()
 }))
 const csvMock = vi.mocked(downloadCsv)
+const zipMock = vi.mocked(downloadPresentationSlidesZip)
 const fetchMock = vi.mocked(fetchPresentationSlots)
 const addMock = vi.mocked(addPresentationSlot)
 const updateMock = vi.mocked(updatePresentationSlot)
@@ -113,6 +115,7 @@ beforeEach(() => {
   responsesMock.mockReset().mockImplementation(async () => ({ teams: structuredClone(TEAMS) }))
   allocateMock.mockReset()
   csvMock.mockReset()
+  zipMock.mockReset().mockResolvedValue()
   slidesMock.mockReset().mockResolvedValue({
     slides_due: '2026-10-16',
     teams: [
@@ -395,17 +398,34 @@ describe('Finalist Presentation', () => {
     expect(buttonNamed(wrapper, 'Download CSV').attributes('disabled')).toBeDefined()
   })
 
-  it("Download All saves every team's slides in one zip, once any are in", async () => {
+  it("Download All saves every team's slides in one zip, Preparing until it's saved", async () => {
+    let finish!: () => void
+    zipMock.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)))
     const wrapper = await mountPage()
-    const all = wrapper.find('.finalist-presentation__submissions .data-table-search-side a')
-    expect(all.text()).toBe('Download All')
-    expect(all.attributes('href')).toBe('/slides/zip/')
+    await buttonNamed(wrapper, 'Download All').trigger('click')
 
+    expect(zipMock).toHaveBeenCalledWith('2026_Finalist_Slides.zip')
+    const preparing = buttonNamed(wrapper, 'Preparing…')
+    expect(preparing.attributes('disabled')).toBeDefined()
+    finish()
+    await flushPromises()
+    expect(buttonNamed(wrapper, 'Download All').attributes('disabled')).toBeUndefined()
+  })
+
+  it("says why the slides weren't saved", async () => {
+    zipMock.mockRejectedValueOnce(new Error('Server down'))
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, 'Download All').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.find('.finalist-presentation__submissions')
+    expect(section.find('[role="alert"]').text()).toBe('Failed to download the slides. Server down')
+  })
+
+  it('Download All waits for slides to be in', async () => {
     slidesMock.mockResolvedValue({ slides_due: null, teams: [] })
-    const empty = await mountPage()
-    const side = empty.find('.finalist-presentation__submissions .data-table-search-side')
-    expect(side.find('a').exists()).toBe(false)
-    expect(side.find('button').attributes('disabled')).toBeDefined()
+    const wrapper = await mountPage()
+    expect(buttonNamed(wrapper, 'Download All').attributes('disabled')).toBeDefined()
   })
 
   it('asks for the slides due date while it is not set', async () => {

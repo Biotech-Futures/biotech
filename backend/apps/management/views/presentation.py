@@ -7,6 +7,8 @@ import logging
 import os
 import tempfile
 import zipfile
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
@@ -278,6 +280,33 @@ MISSING_NOTE = (
     "Finalist Submissions, or ask the team to upload them again.\n"
 )
 
+# Files read at once: reads wait on storage, so a few overlap well, and at
+# most this many (up to 25 MB each) are held in memory.
+_READERS = 4
+
+
+def _read_one(storage_key: str) -> bytes | None:
+    """The whole file, so a failed read leaves no half-written file; None if it can't be read."""
+    try:
+        with SLIDES_FILES.open(storage_key) as source:
+            return source.read()
+    except Exception:  # noqa: BLE001 - one unreadable file shouldn't stop the rest
+        return None
+
+
+def _read_slides(handed_in: list):
+    """Each (team, stored file) with its bytes, in order, a few read ahead at once."""
+    with ThreadPoolExecutor(max_workers=_READERS) as pool:
+        pending = deque()
+        for item in handed_in:
+            pending.append((item, pool.submit(_read_one, item[1]["storage_key"])))
+            if len(pending) == _READERS:
+                item, read = pending.popleft()
+                yield item, read.result()
+        while pending:
+            item, read = pending.popleft()
+            yield item, read.result()
+
 
 class PresentationSlidesZipView(APIView):
     """GET /api/v1/management/finalists/presentation-slides/zip/ — every
@@ -302,17 +331,13 @@ class PresentationSlidesZipView(APIView):
         # On disk, not in memory: each team's slides can be up to 25 MB.
         output = tempfile.TemporaryFile()
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-            for team, stored in handed_in:
+            for (team, stored), payload in _read_slides(handed_in):
                 name = f"{year}_{safe_name(team.group_name)}_Slides"
-                extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
-                # Read whole, so a failed read leaves no half-written file.
-                try:
-                    with SLIDES_FILES.open(stored["storage_key"]) as source:
-                        payload = source.read()
-                except Exception:  # noqa: BLE001 - one unreadable file shouldn't stop the rest
+                if payload is None:
                     logger.warning("presentation_slides_zip.missing group=%s key=%s", team.id, stored["storage_key"])
                     archive.writestr(f"{name}_MISSING.txt", MISSING_NOTE)
                     continue
+                extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
                 compress = zipfile.ZIP_STORED if extension in _STORED_TYPES else zipfile.ZIP_DEFLATED
                 archive.writestr(name + extension, payload, compress_type=compress)
         output.seek(0)

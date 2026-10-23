@@ -246,11 +246,14 @@
         :action-columns="2"
       >
         <template #search-side>
-          <a v-if="anySlides" :href="presentationSlidesZipUrl()" class="btn btn-outline btn-sm">
-            <i class="fas fa-download" aria-hidden="true"></i> Download All
-          </a>
-          <button v-else type="button" class="btn btn-outline btn-sm" disabled>
-            <i class="fas fa-download" aria-hidden="true"></i> Download All
+          <button
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="!anySlides || isDownloadingZip"
+            @click="downloadSlides"
+          >
+            <i class="fas fa-download" aria-hidden="true"></i>
+            {{ isDownloadingZip ? 'Preparing…' : 'Download All' }}
           </button>
         </template>
         <template #cell-group="{ row }">
@@ -285,6 +288,7 @@
           </template>
         </template>
       </AppDataTable>
+      <p v-if="zipError" class="finalist-presentation__error" role="alert">{{ zipError }}</p>
     </section>
   </div>
 </template>
@@ -299,12 +303,12 @@ import {
   addPresentationSlot,
   allocatePresentationSlot,
   deletePresentationSlot,
+  downloadPresentationSlidesZip,
   fetchPresentationResponses,
   fetchPresentationSlides,
   fetchPresentationSlots,
   presentationSlidesDownloadUrl,
   presentationSlidesUrl,
-  presentationSlidesZipUrl,
   setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
@@ -502,6 +506,21 @@ const submissionRows = computed(() =>
 const slidesOf = (row: Record<string, unknown>) => row.team as PresentationSlidesTeam
 
 const anySlides = computed(() => slidesTeams.value.some((team) => team.submitted))
+
+const isDownloadingZip = ref(false)
+const zipError = ref('')
+
+const downloadSlides = async () => {
+  isDownloadingZip.value = true
+  zipError.value = ''
+  try {
+    await downloadPresentationSlidesZip(`${data.value?.year ?? ''}_Finalist_Slides.zip`)
+  } catch (err) {
+    zipError.value = `Failed to download the slides. ${apiErrorFromUnknown(err).message}`
+  } finally {
+    isDownloadingZip.value = false
+  }
+}
 
 onMounted(() => {
   void load()
