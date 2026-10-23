@@ -239,24 +239,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # --parallel auto runs one test process per CPU core (4 on GitHub's
+      # runners), each with its own copy of the database. Tried here first,
+      # where nothing waits on it, before the SQLite job takes it up.
       - name: Run tests with coverage
         if: matrix.coverage
         working-directory: ./backend
-        run: coverage run manage.py test tests --settings=config.settings_test_postgres --noinput
+        env:
+          COVERAGE_RCFILE: .coveragerc-parallel
+        run: coverage run manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto
 
       - name: Enforce coverage threshold (>= 60%)
         if: matrix.coverage
         working-directory: ./backend
-        run: coverage report --fail-under=60
+        env:
+          COVERAGE_RCFILE: .coveragerc-parallel
+        run: |
+          coverage combine
+          coverage report --fail-under=60
 
-      # See backend/tests/clock.py, as for the SQLite job.
+      # See backend/tests/clock.py, as for the SQLite job. The test processes
+      # are forked from the one that moved the clock, so they keep it moved.
       - name: Run tests on the moved clock
         if: ${{ !matrix.coverage }}
         working-directory: ./backend
         env:
           TEST_CLOCK_SHIFT_DAYS: ${{ matrix.clock_shift_days }}
           TEST_CLOCK_AT: ${{ matrix.clock_at }}
-        run: python manage.py test tests --settings=config.settings_test_postgres --noinput --testrunner=tests.clock.ShiftedClockRunner
+        run: python manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto --testrunner=tests.clock.ShiftedClockRunner
 
   # Runs alongside the checks rather than after them: the deploys still wait
   # for every check, so nothing ships unless each one passes.

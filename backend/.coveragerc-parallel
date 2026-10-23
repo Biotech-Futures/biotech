@@ -1,0 +1,10 @@
+# Coverage settings for a test run split across processes
+# (`manage.py test --parallel`), used by CI's Postgres coverage job through
+# COVERAGE_RCFILE. Each process records its own data file, and
+# `coverage combine` merges them before the report.
+#
+# Not named .coveragerc on purpose: coverage reads that by itself, and these
+# settings would break the SQLite job, which runs in one process.
+[run]
+concurrency = multiprocessing
+parallel = true
