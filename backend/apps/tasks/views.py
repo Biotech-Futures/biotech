@@ -145,6 +145,11 @@ class TaskRestoreView(generics.GenericAPIView):
             return Response({"detail": "You do not have permission to restore this task."}, status=status.HTTP_403_FORBIDDEN)
         if task.deleted_at is None:
             return Response(TaskSerializer(task).data, status=status.HTTP_200_OK)
+        if task.archived_at is not None:
+            return Response(
+                {"detail": "This task was archived by Start new year, so it can't be restored."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # Parent scopes must be restored first so this task never becomes orphaned.
         if task.group_id and task.group.deleted_at is not None:
             return Response(

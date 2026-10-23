@@ -255,10 +255,37 @@ export function fetchSubmissionDeadline(): Promise<{ deadline: SubmissionDeadlin
   return requestJson<{ deadline: SubmissionDeadline | null }>('/api/v1/management/deadline/')
 }
 
-/** The current challenge year, as the backend's current_cohort works it out:
- *  the deadline's year, or the calendar year while no deadline exists. */
-export const challengeYear = (deadline: SubmissionDeadline | null) =>
-  deadline ? new Date(deadline.closes_at).getFullYear() : new Date().getFullYear()
+/** Management > New Year: the year in progress and the one Start new year
+ *  would begin. ``blockers`` stop it starting now; ``warnings`` don't. */
+export interface NewYearState {
+  year: number
+  next_year: number
+  blockers: string[]
+  warnings: string[]
+  /** An email is sending: the page checks again until it has finished. */
+  sending: boolean
+  /** When Start new year began the year in progress, by whom, and what it
+   *  changed (e.g. ``{accounts: 412}``); none for a year it didn't begin. */
+  started: {
+    year: number
+    started_at: string
+    started_by: string
+    counts: Record<string, number>
+  } | null
+}
+
+// GET /api/v1/management/new-year/
+export function fetchNewYear(): Promise<NewYearState> {
+  return requestJson<NewYearState>('/api/v1/management/new-year/')
+}
+
+// POST /api/v1/management/new-year/ — the next year, typed to confirm.
+export function startNewYear(year: string): Promise<NewYearState> {
+  return requestJson<NewYearState>('/api/v1/management/new-year/', {
+    method: 'POST',
+    body: JSON.stringify({ year }),
+  })
+}
 
 // POST /api/v1/management/deadline/ — set a new deadline (newest active row wins).
 export function saveSubmissionDeadline(
@@ -328,11 +355,14 @@ export function saveChallengeStart(startsAt: string | null): Promise<ChallengeSt
   })
 }
 
-/** The year's registration dates: none set, it's open (as far as they go). */
+/** The year's registration dates: none set, it's open (as far as they go),
+ *  unless Start new year began the year (``closed_until_set``): then it's
+ *  closed until its opening date is set. */
 export interface RegistrationWindow {
   year: number
   opens_at: string | null
   closes_at: string | null
+  closed_until_set?: boolean
   /** Who last saved the dates, and when; "" and none until someone has. */
   set_by?: string
   updated_at?: string | null
@@ -758,7 +788,7 @@ export type PresentationSlotFields = Pick<PresentationSlot, 'starts_at' | 'ends_
 
 const PRESENTATION_SLOTS = '/api/v1/management/finalists/presentation-slots/'
 
-// GET — this year's times. Every change below answers with the whole list.
+// GET — the times. Every change below answers with the whole list.
 export function fetchPresentationSlots(): Promise<PresentationSlots> {
   return requestJson<PresentationSlots>(PRESENTATION_SLOTS)
 }

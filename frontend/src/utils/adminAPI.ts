@@ -258,6 +258,9 @@ export interface AdminUser {
   /** Every group a supervisor is in (their students' groups), by name. */
   supervisorGroups?: { id: number; name: string; studentCount: number }[]
   yearLevel: number | null
+  /** The challenge year a student is from, when it's an earlier one: set
+   *  back to Active, they're this year's (see ``earlierYearMessage``). */
+  earlierChallengeYear?: number | null
   guardianFirstName: string | null
   guardianLastName: string | null
   guardianEmail: string | null
@@ -504,6 +507,24 @@ export const downloadGuardianConsentRecord = async (
   document.body.removeChild(a)
   window.URL.revokeObjectURL(blobUrl)
 }
+
+/** Said before a student from an earlier challenge year is set back to
+ *  Active: that makes them this year's, as registering again would. "" for
+ *  anyone else. */
+export const earlierYearMessage = (
+  user: Pick<AdminUser, 'firstName' | 'lastName' | 'earlierChallengeYear'> | null | undefined
+): string => {
+  if (!user?.earlierChallengeYear) return ''
+  const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || 'This student'
+  return (
+    `${name} is from the ${user.earlierChallengeYear} challenge. Activating them makes them one of ` +
+    "this year's students, and their guardian is emailed to give permission again."
+  )
+}
+
+/** Said with a bulk activate: any of them could be from an earlier year. */
+export const EARLIER_YEAR_BULK_NOTE =
+  "Any student from an earlier challenge year becomes one of this year's, and their guardian is emailed to give permission again."
 
 export const setAdminUserActive = (userId: string | number, isActive: boolean) =>
   adminPatch<AdminEnvelope<AdminUser>>(`/user/${userId}/status/`, { isActive }).then((env) => ({

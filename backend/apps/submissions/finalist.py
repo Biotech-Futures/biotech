@@ -11,7 +11,6 @@ from rest_framework import serializers
 
 from .models import FinalistEntry
 from .serializers import submitter_name
-from .services import current_cohort
 
 
 def is_finalist_group(group_id: int) -> bool:
@@ -41,9 +40,9 @@ def times_shown() -> bool:
 
 
 def presentation_times():
-    """This year's presentation times, earliest first."""
+    """The presentation times, earliest first."""
     PresentationSlot = apps.get_model("management", "PresentationSlot")
-    return PresentationSlot.objects.filter(year=current_cohort())
+    return PresentationSlot.objects.all()
 
 
 def _clock(value) -> str:
@@ -71,10 +70,10 @@ def team_answer(group_id: int):
 
 
 def team_time_ids(answer) -> list[int]:
-    """The times the team can make, of this year's."""
+    """The times the team can make."""
     if answer is None:
         return []
-    return sorted(answer.slots.filter(year=current_cohort()).values_list("id", flat=True))
+    return sorted(answer.slots.values_list("id", flat=True))
 
 
 def submit_team_times(user, group, slot_ids: list[int]) -> None:
@@ -89,10 +88,10 @@ def submit_team_times(user, group, slot_ids: list[int]) -> None:
 
 
 def team_has_availability(group_id: int) -> bool:
-    """The team has submitted at least one of this year's times."""
+    """The team has submitted at least one of the times."""
     PresentationAvailability = apps.get_model("management", "PresentationAvailability")
     return PresentationAvailability.objects.filter(
-        group_id=group_id, submitted_at__isnull=False, slots__year=current_cohort()
+        group_id=group_id, submitted_at__isnull=False, slots__isnull=False
     ).exists()
 
 

@@ -409,7 +409,9 @@ Before deployment:
    with the normal `manage.py migrate` deployment step.
 2. Configure the **registration** year's opening/closing timestamps via the
    management endpoint. Unconfigured/null boundaries deliberately retain the
-   legacy open default; task/challenge deadlines do not close registration.
+   legacy open default, except in a year Start new year began (Management >
+   New Year), which stays closed until its opening date is set;
+   task/challenge deadlines do not close registration.
 3. Keep a stable production `SECRET_KEY`, correctly configured session/CSRF
    origins, frontend base URL and shared throttle cache. The gateway's two
    custom headers are included in the CORS allowlist.

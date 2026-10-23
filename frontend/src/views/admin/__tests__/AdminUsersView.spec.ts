@@ -292,6 +292,32 @@ describe('AdminUsersView', () => {
     expect(JSON.parse(String(call![1]!.body))).toEqual({ isActive: true })
   })
 
+  it('says first when activating a student from an earlier year makes them this year\'s', async () => {
+    const fetchMock = fetchMockFor([buildUser({ isActive: false, earlierChallengeYear: 2026 })])
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mount(AdminUsersView, { props: { title: 'Users', noun: 'user' } })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((b) => b.text().trim() === 'Activate')!.trigger('click')
+    await flushPromises()
+
+    const patchCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[1]?.method).toUpperCase() === 'PATCH')
+    expect(patchCalls()).toHaveLength(0)
+    const confirm = dialogs().find((d) => d.textContent!.includes('Activate user'))
+    expect(confirm!.textContent).toContain(
+      "Ada Lovelace is from the 2026 challenge. Activating them makes them one of this year's students"
+    )
+
+    const confirmButton = Array.from(confirm!.querySelectorAll('button')).find(
+      (b) => b.textContent!.trim() === 'Activate'
+    )
+    await confirmButton!.click()
+    await flushPromises()
+    expect(patchCalls()).toHaveLength(1)
+    expect(JSON.parse(String(patchCalls()[0]![1]!.body))).toEqual({ isActive: true })
+  })
+
   it('shows the in-group filter for students and passes it to the query', async () => {
     const fetchMock = fetchMockFor([buildUser({ groupId: null, groupName: null })])
     vi.stubGlobal('fetch', fetchMock)

@@ -1,5 +1,5 @@
 """The Finalist Presentation tab: the times finalists can present at the
-Symposium. They change year to year, so each year has its own; the date is
+Symposium. They carry on from year to year until changed here; the date is
 the Symposium date set on Notify Finalists."""
 from __future__ import annotations
 
@@ -35,14 +35,15 @@ class PresentationSlotSerializer(serializers.ModelSerializer):
     class Meta:
         model = PresentationSlot
         fields = ["id", "starts_at", "ends_at"]
+        # A time listed twice is refused in validate(), in the tab's words.
+        validators = []
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at", getattr(self.instance, "starts_at", None))
         ends_at = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
         if ends_at <= starts_at:
             raise serializers.ValidationError({"ends_at": "The end time must be after the start time."})
-        year = self.instance.year if self.instance else self.context["year"]
-        same = PresentationSlot.objects.filter(year=year, starts_at=starts_at, ends_at=ends_at)
+        same = PresentationSlot.objects.filter(starts_at=starts_at, ends_at=ends_at)
         if self.instance is not None:
             same = same.exclude(pk=self.instance.pk)
         if same.exists():
@@ -51,12 +52,11 @@ class PresentationSlotSerializer(serializers.ModelSerializer):
 
 
 def _payload() -> dict:
-    year = current_cohort()
     return {
-        "year": year,
+        "year": current_cohort(),
         # The day they're on; None until it's set on Notify Finalists.
         "symposium_date": FinalistEmailSettings.load().symposium_date,
-        "slots": PresentationSlotSerializer(PresentationSlot.objects.filter(year=year), many=True).data,
+        "slots": PresentationSlotSerializer(PresentationSlot.objects.all(), many=True).data,
         # Whether finalists see them yet.
         "times_shown": PresentationSettings.load().times_shown,
         # While any team can still submit (extensions and grace hours
@@ -66,7 +66,7 @@ def _payload() -> dict:
 
 
 class PresentationSlotListView(APIView):
-    """GET/POST /api/v1/management/finalists/presentation-slots/ — this year's
+    """GET/POST /api/v1/management/finalists/presentation-slots/ — the
     times, earliest first, and adding one (``starts_at``, ``ends_at`` as
     "HH:MM"). Both answer with the whole list."""
 
@@ -76,23 +76,22 @@ class PresentationSlotListView(APIView):
         return Response(_payload())
 
     def post(self, request):
-        year = current_cohort()
-        serializer = PresentationSlotSerializer(data=request.data, context={"year": year})
+        serializer = PresentationSlotSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(year=year)
+        serializer.save()
         return Response(_payload(), status=status.HTTP_201_CREATED)
 
 
 class PresentationSlotDetailView(APIView):
     """PATCH/DELETE /api/v1/management/finalists/presentation-slots/<id>/ —
-    change or remove one of this year's times. Both answer with the whole
+    change or remove one of the times. Both answer with the whole
     list."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
     @staticmethod
     def _slot(slot_id: int) -> PresentationSlot:
-        return get_object_or_404(PresentationSlot, pk=slot_id, year=current_cohort())
+        return get_object_or_404(PresentationSlot, pk=slot_id)
 
     def patch(self, request, slot_id: int):
         serializer = PresentationSlotSerializer(self._slot(slot_id), data=request.data, partial=True)
@@ -113,7 +112,7 @@ TIMES_WAIT = (
 
 class PresentationTimesShownView(APIView):
     """PATCH /api/v1/management/finalists/presentation-times-shown/ —
-    ``{"times_shown": true}`` shows finalists this year's times to give their
+    ``{"times_shown": true}`` shows finalists the times to give their
     availability; false hides them again. Answers with the whole list.
     Showing them is refused while submissions are still open (baseline
     window or any extension, grace hours included); hiding is always allowed."""
@@ -263,7 +262,7 @@ class PresentationSlidesFileView(APIView):
 
 class PresentationAllocationView(APIView):
     """PUT /api/v1/management/finalists/presentation-allocation/<group_id>/ —
-    give a finalist team one of this year's times, ``{"slot_id": id}``, or
+    give a finalist team one of the times, ``{"slot_id": id}``, or
     take it away, ``{"slot_id": null}``. Several teams may share a time."""
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -281,10 +280,10 @@ class PresentationAllocationView(APIView):
             return Response({"group_id": group_id, "slot_id": None})
         # A number only: JSON's true would otherwise pass as 1.
         is_id = isinstance(slot_id, int) and not isinstance(slot_id, bool)
-        slot = PresentationSlot.objects.filter(pk=slot_id if is_id else None, year=current_cohort()).first()
+        slot = PresentationSlot.objects.filter(pk=slot_id if is_id else None).first()
         if slot is None:
             return Response(
-                {"detail": "That time isn't one of this year's."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "That time isn't one of the presentation times."}, status=status.HTTP_400_BAD_REQUEST
             )
         PresentationAllocation.objects.update_or_create(flag=flag, defaults={"slot": slot})
         return Response({"group_id": group_id, "slot_id": slot.id})

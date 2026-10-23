@@ -128,7 +128,7 @@ beforeEach(() => {
 })
 
 describe('Finalist Presentation', () => {
-  it("lists this year's times on the Symposium day", async () => {
+  it('lists the times on the Symposium day', async () => {
     const wrapper = await mountPage()
     expect(rows(wrapper)).toEqual([
       ['09:30', '10:00'],

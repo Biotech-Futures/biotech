@@ -40,6 +40,7 @@ from .views import (
 )
 from .email_precheck import EmailCheckStartView, EmailCheckStatusView
 from .registration_sheet import RegistrationSheetView
+from .returning_views import ReturningSupervisorCodeView, ReturningSupervisorConfirmView
 from .registration_intake import (
     RegistrationCountriesView,
     RegistrationGroupCodeView,
@@ -110,6 +111,16 @@ urlpatterns = [
     path(
         "registration/email-check/<uuid:job_id>/", EmailCheckStatusView.as_view(),
         name="registration-email-check-status",
+    ),
+    # A supervisor back for a new year: a code to their email brings their
+    # account back and signs them in (apps.users.returning_views).
+    path(
+        "registration/returning-supervisor/", ReturningSupervisorCodeView.as_view(),
+        name="registration-returning-supervisor",
+    ),
+    path(
+        "registration/returning-supervisor/confirm/", ReturningSupervisorConfirmView.as_view(),
+        name="registration-returning-supervisor-confirm",
     ),
     path("registration-management/", RegistrationManagementView.as_view(), name="registration-management"),
     path('updjoinperms', ReceiveJoinPermissionView.as_view(), name = "join_perm"),

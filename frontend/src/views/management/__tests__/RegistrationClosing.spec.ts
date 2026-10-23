@@ -77,6 +77,17 @@ describe('Registration Dates', () => {
     expect(saveRegistrationWindow).toHaveBeenCalledWith({ opens_at: null, closes_at: null })
     expect(wrapper.get('[data-test="registration-dates-state"]').text()).toContain('No dates set')
   })
+
+  it('says a year Start new year began is closed until its start is set', async () => {
+    vi.mocked(fetchRegistrationManagement).mockResolvedValue(
+      management({ window: { year: 2027, opens_at: null, closes_at: null, closed_until_set: true } }),
+    )
+    const wrapper = mount(RegistrationDatesPage)
+    await flushPromises()
+    expect(wrapper.get('[data-test="registration-dates-state"]').text()).toContain(
+      'No start date set: registration is closed',
+    )
+  })
 })
 
 describe('Late Links', () => {

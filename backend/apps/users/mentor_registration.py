@@ -6,9 +6,11 @@ Saved as the admin's Import Mentors saves a mentor: an account with the
 mentor role, a mentor profile and their interests, with their weekly
 availability. The account starts pending: it can't sign in until an admin
 activates it on Admin > Mentors. As for students, the registration dates
-apply (late links stay student only), an email with an account is refused,
-the same request sent again gets the same receipt (its Idempotency-Key), and
-a registration email is sent once it's saved (``registration_mentor``).
+apply (late links stay student only), an email with an account is refused
+(but a mentor's back for a later year, which comes back pending: see
+``apps.users.returning``), the same request sent again gets the same receipt
+(its Idempotency-Key), and a registration email is sent once it's saved
+(``registration_mentor``).
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ from datetime import datetime
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import Throttled
@@ -33,6 +36,7 @@ from .registration_intake import (
     token_hash,
     valid_invitation,
 )
+from .returning import returning_mentor
 
 JOURNEY = "mentor"
 AFFILIATIONS = ("undergraduate", "postgraduate", "hdr", "academic", "industry")
@@ -131,26 +135,44 @@ class MentorIntakeInput(StrictInput):
     policiesAgreed = serializers.BooleanField(required=False, default=False)
 
 
-def save_mentor(mentor: dict, now) -> User:
+def save_mentor(mentor: dict, now, *, returning: User | None = None) -> User:
     """The mentor's account, pending until an admin activates it, with the
-    mentor role, profile, interests and weekly availability."""
+    mentor role, profile, interests and weekly availability. A mentor back
+    for a later year (``returning``, apps.users.returning) gets their account
+    back, pending again, with this form's details in place of last year's."""
     country, state = resolve_location(mentor)
-    user = User.objects.create_user(
-        email=mentor["email"], first_name=mentor["firstName"], last_name=mentor["lastName"],
-        country=country, state=state,
-    )
-    RoleAssignmentHistory.objects.create(user=user, role=get_role_by_name(ROLE_MENTOR), valid_from=now, valid_to=None)
     industry = mentor["affiliation"] == "industry"
-    MentorProfile.objects.create(
-        user=user,
-        background=mentor["affiliation"],
-        institution="" if industry else mentor["institution"],
-        company=mentor["company"] if industry else "",
-        university_year=mentor["universityYear"] if mentor["affiliation"] in STUDYING else "",
-        field_of_study="" if industry else mentor["fieldOfStudy"],
-        mentor_reason=mentor["motivation"],
-        max_group_count=int(mentor["capacity"]),
-    )
+    details = {
+        "background": mentor["affiliation"],
+        "institution": "" if industry else mentor["institution"],
+        "company": mentor["company"] if industry else "",
+        "university_year": mentor["universityYear"] if mentor["affiliation"] in STUDYING else "",
+        "field_of_study": "" if industry else mentor["fieldOfStudy"],
+        "mentor_reason": mentor["motivation"],
+        "max_group_count": int(mentor["capacity"]),
+    }
+    mentor_role = get_role_by_name(ROLE_MENTOR)
+    if returning is None:
+        user = User.objects.create_user(
+            email=mentor["email"], first_name=mentor["firstName"], last_name=mentor["lastName"],
+            country=country, state=state,
+        )
+        RoleAssignmentHistory.objects.create(user=user, role=mentor_role, valid_from=now, valid_to=None)
+        MentorProfile.objects.create(user=user, **details)
+    else:
+        user = returning
+        user.first_name, user.last_name = mentor["firstName"], mentor["lastName"]
+        user.country, user.state = country, state
+        user.mark_pending(save=False)
+        user.save()
+        # Their mentor role, unless they still hold it.
+        if not RoleAssignmentHistory.objects.filter(
+            Q(valid_to__isnull=True) | Q(valid_to__gte=now), user=user, role=mentor_role,
+        ).exists():
+            RoleAssignmentHistory.objects.create(user=user, role=mentor_role, valid_from=now, valid_to=None)
+        MentorProfile.objects.filter(user=user).update(**details)
+        UserInterest.objects.filter(user=user).delete()
+        MentorAvailability.objects.filter(mentor_user=user).delete()
     for description in dict.fromkeys(mentor["interests"]):
         interest, _ = AreasOfInterest.objects.get_or_create(
             interest_desc__iexact=description, defaults={"interest_desc": description},
@@ -210,9 +232,10 @@ def register_mentor(request, raw: dict) -> Response:
             valid_invitation(raw_token, window, now, journey=JOURNEY)
             if not window.is_open(now):
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator."})
-            if User.objects.filter(email__iexact=mentor["email"]).exists():
+            returning = returning_mentor(mentor["email"], window)
+            if returning is None and User.objects.filter(email__iexact=mentor["email"]).exists():
                 raise _taken()
-            user = save_mentor(mentor, now)
+            user = save_mentor(mentor, now, returning=returning)
             User.objects.filter(pk=user.pk).update(policies_agreed_at=now)
             submission = RegistrationSubmission.objects.create(
                 idempotency_key=key, request_digest=digest, window=window, student=user,

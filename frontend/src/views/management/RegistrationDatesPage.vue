@@ -104,7 +104,7 @@ const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
 // As the server has them, and as the form has them (local, timezone-less).
-type SavedDates = Pick<RegistrationWindow, 'opens_at' | 'closes_at' | 'set_by' | 'updated_at'>
+type SavedDates = Pick<RegistrationWindow, 'opens_at' | 'closes_at' | 'set_by' | 'updated_at' | 'closed_until_set'>
 const saved = ref<SavedDates>({ opens_at: null, closes_at: null })
 const opensLocal = ref('')
 const closesLocal = ref('')
@@ -115,6 +115,7 @@ const show = (window: SavedDates) => {
     closes_at: window.closes_at,
     set_by: window.set_by,
     updated_at: window.updated_at,
+    closed_until_set: window.closed_until_set,
   }
   opensLocal.value = toLocalDateTimeInput(window.opens_at)
   closesLocal.value = toLocalDateTimeInput(window.closes_at)
@@ -124,6 +125,10 @@ const show = (window: SavedDates) => {
 const state = computed(() => {
   const now = Date.now()
   const { opens_at: opens, closes_at: closes } = saved.value
+  // A year Start new year began stays closed until its start is set.
+  if (!opens && saved.value.closed_until_set) {
+    return { open: false, text: 'No start date set: registration is closed' }
+  }
   if (opens && now < Date.parse(opens)) return { open: false, text: "Registration hasn't opened yet" }
   if (closes && now >= Date.parse(closes)) return { open: false, text: 'Registration has closed' }
   if (opens || closes) return { open: true, text: 'Registration is open' }

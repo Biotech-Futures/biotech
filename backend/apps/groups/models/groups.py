@@ -52,8 +52,11 @@ def generate_group_name(number: int) -> str:
 
 
 def default_group_year() -> int:
-    """Default ``year`` for a new group: the year it is created in."""
-    return timezone.now().year
+    """Default ``year`` for a new group: the challenge year it's made in,
+    which Start new year moves on, maybe months before the calendar does."""
+    from apps.submissions.services import current_cohort  # its models import this module
+
+    return current_cohort()
 
 
 def _highest_active_plus_one() -> int:
@@ -182,6 +185,10 @@ class Groups(models.Model):
     year = models.PositiveSmallIntegerField(default=default_group_year)
     created_at = models.DateTimeField(default=timezone.now)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    # When Start new year archived it (Management > New Year). ``deleted_at``
+    # is set with it, so it's out of sight wherever a deleted group is, while
+    # this tells it apart from one deleted by hand. It's never restored.
+    archived_at = models.DateTimeField(null=True, blank=True)
     # A student group's code to share with its teammates: numbers only, apart
     # from its name, held while registering (GroupCodeReservation). None for
     # other groups.

@@ -232,6 +232,11 @@ class EventViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.deleted_at is None:
             return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+        if instance.archived_at is not None:
+            return Response(
+                {"detail": "This event was archived by Start new year, so it can't be restored."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Target groups must be restored before their events can be restored.
         if EventTargetGroup.objects.filter(

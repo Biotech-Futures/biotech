@@ -112,7 +112,7 @@ def guardians_due(now=None):
         .filter(
             waiting,
             user__account_status__in=_CAN_SIGN_IN,
-            user__date_joined__year=current_cohort(),
+            challenge_year=current_cohort(),
         )
         .filter(Q(guardian_reminder_sent_at__isnull=True) | Q(guardian_reminder_sent_at__lt=start))
         .filter(Q(guardian_reminder_due_at__isnull=True) | Q(guardian_reminder_due_at__lt=end))
