@@ -164,6 +164,17 @@
           search-placeholder="Group name"
           empty-message="No finalist teams yet."
         >
+          <template #search-side>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              :disabled="!teams.length || isDownloadingCsv"
+              @click="downloadAllocations"
+            >
+              <i class="fas fa-download" aria-hidden="true"></i>
+              {{ isDownloadingCsv ? 'Preparing…' : 'Download CSV' }}
+            </button>
+          </template>
           <template #cell-group="{ row }">
             <span class="finalist-presentation__cell--strong">{{ teamOf(row).group_name }}</span>
           </template>
@@ -234,6 +245,14 @@
         empty-message="No finalist teams yet."
         :action-columns="2"
       >
+        <template #search-side>
+          <a v-if="anySlides" :href="presentationSlidesZipUrl()" class="btn btn-outline btn-sm">
+            <i class="fas fa-download" aria-hidden="true"></i> Download All
+          </a>
+          <button v-else type="button" class="btn btn-outline btn-sm" disabled>
+            <i class="fas fa-download" aria-hidden="true"></i> Download All
+          </button>
+        </template>
         <template #cell-group="{ row }">
           <span class="finalist-presentation__cell--strong">{{ slidesOf(row).group_name }}</span>
         </template>
@@ -285,6 +304,7 @@ import {
   fetchPresentationSlots,
   presentationSlidesDownloadUrl,
   presentationSlidesUrl,
+  presentationSlidesZipUrl,
   setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
@@ -292,9 +312,16 @@ import {
   type PresentationSlot,
   type PresentationSlots
 } from '@/utils/managementAPI'
+import { downloadCsv, toCsv } from '@/utils/analyticsExport'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
-import { formatEventCalendarDay, formatShortDateTime, formatSydneySlot, sydneyClockOn } from '@/utils/date'
+import {
+  formatEventCalendarDay,
+  formatShortDateTime,
+  formatStatementTime,
+  formatSydneySlot,
+  sydneyClockOn
+} from '@/utils/date'
 import HideShowSwitch from '@/views/management/HideShowSwitch.vue'
 
 const data = ref<PresentationSlots | null>(null)
@@ -381,6 +408,35 @@ const allocateColumns = computed<DataTableColumn[]>(() => [
   }))
 ])
 
+const isDownloadingCsv = ref(false)
+
+// The table as it now stands, fetched afresh so changes made elsewhere are
+// in it; every team whatever the search, "Yes" under each time the team can
+// make. "23/10/2026 at 12:56", as Excel shows "23/10/26 12:56" as ### until
+// its column is widened.
+const downloadAllocations = async () => {
+  isDownloadingCsv.value = true
+  allocateError.value = ''
+  try {
+    const [slots, responses] = await Promise.all([fetchPresentationSlots(), fetchPresentationResponses()])
+    data.value = slots
+    teams.value = responses.teams
+  } catch (err) {
+    allocateError.value = `Failed to download the CSV. ${apiErrorFromUnknown(err).message}`
+    return
+  } finally {
+    isDownloadingCsv.value = false
+  }
+  const header = allocateColumns.value.map((column) => column.label)
+  const rows = teamRows.value.map((row) => [
+    row.group,
+    row.team.answered_at ? formatStatementTime(row.team.answered_at) : 'No response',
+    row.allocate,
+    ...columns.value.map((slot) => row.team.slot_ids.includes(slot.id))
+  ])
+  downloadCsv(`${data.value?.year ?? ''}_Finalist_Allocations.csv`, toCsv([header, ...rows]))
+}
+
 // Giving a team its time.
 const allocating = ref<number | null>(null)
 const allocateError = ref('')
@@ -444,6 +500,8 @@ const submissionRows = computed(() =>
 )
 
 const slidesOf = (row: Record<string, unknown>) => row.team as PresentationSlidesTeam
+
+const anySlides = computed(() => slidesTeams.value.some((team) => team.submitted))
 
 onMounted(() => {
   void load()

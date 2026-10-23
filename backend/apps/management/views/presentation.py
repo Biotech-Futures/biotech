@@ -3,11 +3,18 @@ Symposium. They change year to year, so each year has its own; the date is
 the Symposium date set on Notify Finalists."""
 from __future__ import annotations
 
+import logging
+import os
+import tempfile
+import zipfile
+
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.filenames import safe_name
 from apps.common.rbac import IsStaffOrAdmin
 from apps.common.storage import serve_managed_file
 from apps.grading.models import FinalistFlag
@@ -26,6 +33,8 @@ from ..models import (
 )
 from ..services.deadline import submissions_still_open
 from ..services.send_guard import person_name
+
+logger = logging.getLogger(__name__)
 
 
 class PresentationSlotSerializer(serializers.ModelSerializer):
@@ -258,6 +267,57 @@ class PresentationSlidesFileView(APIView):
             mime_type=mime,
             size=stored.get("size"),
             as_attachment=mime != "application/pdf" or request.query_params.get("download") == "1",
+        )
+
+
+# Already compressed by the program that made them, so stored as they are.
+_STORED_TYPES = frozenset({".pdf", ".pptx"})
+
+MISSING_NOTE = (
+    "These slides could not be read from storage. Try the team's own Download on "
+    "Finalist Submissions, or ask the team to upload them again.\n"
+)
+
+
+class PresentationSlidesZipView(APIView):
+    """GET /api/v1/management/finalists/presentation-slides/zip/ — every
+    finalist team's slides in one zip, named as Grading names its files
+    ("2026_BTF01_Slides.pptx"). Slides that can't be read leave a
+    "_MISSING.txt" note in their place. 404 until any team's are in."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        teams = _finalist_teams()
+        decks = {deck.group_id: deck for deck in FinalistSlides.objects.filter(group__in=teams)}
+        handed_in = [
+            (team, decks[team.id].file)
+            for team in teams
+            if team.id in decks and (decks[team.id].file or {}).get("storage_key")
+        ]
+        if not handed_in:
+            return Response({"detail": "No slides handed in yet."}, status=status.HTTP_404_NOT_FOUND)
+
+        year = current_cohort()
+        # On disk, not in memory: each team's slides can be up to 25 MB.
+        output = tempfile.TemporaryFile()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            for team, stored in handed_in:
+                name = f"{year}_{safe_name(team.group_name)}_Slides"
+                extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
+                # Read whole, so a failed read leaves no half-written file.
+                try:
+                    with SLIDES_FILES.open(stored["storage_key"]) as source:
+                        payload = source.read()
+                except Exception:  # noqa: BLE001 - one unreadable file shouldn't stop the rest
+                    logger.warning("presentation_slides_zip.missing group=%s key=%s", team.id, stored["storage_key"])
+                    archive.writestr(f"{name}_MISSING.txt", MISSING_NOTE)
+                    continue
+                compress = zipfile.ZIP_STORED if extension in _STORED_TYPES else zipfile.ZIP_DEFLATED
+                archive.writestr(name + extension, payload, compress_type=compress)
+        output.seek(0)
+        return FileResponse(
+            output, as_attachment=True, filename=f"{year}_Finalist_Slides.zip", content_type="application/zip"
         )
 
 

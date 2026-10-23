@@ -856,6 +856,11 @@ export function presentationSlidesDownloadUrl(groupId: number): string {
   return `${presentationSlidesUrl(groupId)}?download=1`
 }
 
+// Every finalist team's slides in one zip.
+export function presentationSlidesZipUrl(): string {
+  return `${API_BASE_URL}/api/v1/management/finalists/presentation-slides/zip/`
+}
+
 // GET /api/v1/management/finalists/presentation-responses/ — this year's
 // finalist teams by number, each student in them, and what they answered.
 export function fetchPresentationResponses(): Promise<{ teams: PresentationResponseTeam[] }> {
