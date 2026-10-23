@@ -67,13 +67,47 @@ jobs:
               - 'frontend/**'
               - '.github/workflows/main_biotechbe.yml'
 
+  # The backend tests on Postgres, the database production runs on, as three
+  # jobs side by side: with coverage, a year and a month ahead, and just after
+  # the next New Year. Both deploys wait for all three. SQLite in memory lets
+  # through things Postgres refuses, so it's only for quick local runs
+  # (config.settings_test); CI no longer runs it.
   backend_tests:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    name: "SQLite: backend tests"
+    name: "Backend tests (Postgres): ${{ matrix.label }}"
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: with coverage
+            coverage: true
+            clock_shift_days: '0'
+            clock_at: ''
+          - label: a year and a month ahead
+            coverage: false
+            clock_shift_days: '400'
+            clock_at: ''
+          - label: just after the next New Year
+            coverage: false
+            clock_shift_days: '0'
+            clock_at: new-year
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
@@ -85,45 +119,63 @@ jobs:
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
+      # tblib lets a test process hand a failing test's traceback back to the
+      # main one. Without it, Django stops the whole --parallel run at the
+      # first error instead of reporting it and carrying on. CI only, so it
+      # stays out of requirements.txt and production.
       - name: Install dependencies
         working-directory: ./backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt tblib
 
+      # All test suites live under backend/tests/ (mirror layout per app), so the
+      # single `tests` label discovers everything. Keep new tests in that tree —
+      # an in-app tests.py would need its own label here or CI silently skips it.
+      # --parallel auto runs one test process per CPU core (4 on GitHub's
+      # runners), each with its own copy of the database.
       - name: Run tests with coverage
+        if: matrix.coverage
         working-directory: ./backend
-        # All test suites live under backend/tests/ (mirror layout per app), so the
-        # single `tests` label discovers everything. Keep new tests in that tree —
-        # an in-app tests.py would need its own label here or CI silently skips it.
-        run: coverage run manage.py test tests --settings=config.settings_test --noinput
+        env:
+          COVERAGE_RCFILE: .coveragerc-parallel
+        run: coverage run manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto
+
+      - name: Combine the test processes' coverage
+        if: always() && matrix.coverage
+        working-directory: ./backend
+        env:
+          COVERAGE_RCFILE: .coveragerc-parallel
+        run: coverage combine
 
       - name: Enforce coverage threshold (>= 60%)
+        if: matrix.coverage
         working-directory: ./backend
+        env:
+          COVERAGE_RCFILE: .coveragerc-parallel
         run: coverage report --fail-under=60
 
       # The same tests with the calendar moved on, so a test tied to today's
       # date or year fails in the change that adds it, not on the day it
-      # would start blocking deploys (see backend/tests/clock.py).
-      - name: Run tests a year and a month ahead
+      # would start blocking deploys (see backend/tests/clock.py). The test
+      # processes are forked from the one that moved the clock, so they keep it.
+      - name: Run tests on the moved clock
+        if: ${{ !matrix.coverage }}
         working-directory: ./backend
         env:
-          TEST_CLOCK_SHIFT_DAYS: '400'
-        run: python manage.py test tests --settings=config.settings_test --noinput --testrunner=tests.clock.ShiftedClockRunner
-
-      - name: Run tests just after the next New Year
-        working-directory: ./backend
-        env:
-          TEST_CLOCK_AT: new-year
-        run: python manage.py test tests --settings=config.settings_test --noinput --testrunner=tests.clock.ShiftedClockRunner
+          TEST_CLOCK_SHIFT_DAYS: ${{ matrix.clock_shift_days }}
+          TEST_CLOCK_AT: ${{ matrix.clock_at }}
+        run: python manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto --testrunner=tests.clock.ShiftedClockRunner
 
       - name: Generate coverage XML
-        if: always()
+        if: always() && matrix.coverage
         working-directory: ./backend
+        env:
+          COVERAGE_RCFILE: .coveragerc-parallel
         run: coverage xml
 
       - name: Upload coverage report
-        if: always()
+        if: always() && matrix.coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -179,98 +231,6 @@ jobs:
       - name: Apply every migration to an empty database
         working-directory: ./backend
         run: python manage.py migrate --noinput --settings=config.settings_migrations
-
-  # Everything the SQLite job above does, on Postgres, the database production
-  # runs on: the tests with coverage, a year and a month ahead, and just after
-  # the next New Year, each as its own job alongside the rest. SQLite lets
-  # through things Postgres refuses, such as a test closing the connection its
-  # own transaction is on. For now these don't hold up a deploy (SQLite still
-  # does): they run beside SQLite to compare, before SQLite leaves CI.
-  backend_tests_postgres:
-    needs: changes
-    if: needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    name: "Postgres (not blocking): ${{ matrix.label }}"
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: tests with coverage
-            coverage: true
-            clock_shift_days: '0'
-            clock_at: ''
-          - label: tests a year and a month ahead
-            coverage: false
-            clock_shift_days: '400'
-            clock_at: ''
-          - label: tests just after the next New Year
-            coverage: false
-            clock_shift_days: '0'
-            clock_at: new-year
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: backend/requirements.txt
-
-      # tblib lets a test process hand a failing test's traceback back to the
-      # main one. Without it, Django stops the whole --parallel run at the
-      # first error instead of reporting it and carrying on. CI only, so it
-      # stays out of requirements.txt and production.
-      - name: Install dependencies
-        working-directory: ./backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt tblib
-
-      # --parallel auto runs one test process per CPU core (4 on GitHub's
-      # runners), each with its own copy of the database. Tried here first,
-      # where nothing waits on it, before the SQLite job takes it up.
-      - name: Run tests with coverage
-        if: matrix.coverage
-        working-directory: ./backend
-        env:
-          COVERAGE_RCFILE: .coveragerc-parallel
-        run: coverage run manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto
-
-      - name: Enforce coverage threshold (>= 60%)
-        if: matrix.coverage
-        working-directory: ./backend
-        env:
-          COVERAGE_RCFILE: .coveragerc-parallel
-        run: |
-          coverage combine
-          coverage report --fail-under=60
-
-      # See backend/tests/clock.py, as for the SQLite job. The test processes
-      # are forked from the one that moved the clock, so they keep it moved.
-      - name: Run tests on the moved clock
-        if: ${{ !matrix.coverage }}
-        working-directory: ./backend
-        env:
-          TEST_CLOCK_SHIFT_DAYS: ${{ matrix.clock_shift_days }}
-          TEST_CLOCK_AT: ${{ matrix.clock_at }}
-        run: python manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto --testrunner=tests.clock.ShiftedClockRunner
 
   # Runs alongside the checks rather than after them: the deploys still wait
   # for every check, so nothing ships unless each one passes.
@@ -496,10 +456,10 @@ jobs:
 
   # One table on the run's summary page: when each job started, how long it
   # took and when it finished, from the start of the run, then how long the
-  # installs and test suites inside them took, to compare SQLite and Postgres
-  # side by side. It runs last and never fails the run.
+  # installs and test suites inside them took, to see where a run's time
+  # goes. It runs last and never fails the run.
   timings:
-    needs: [changes, backend_tests, migrations, backend_tests_postgres, backend_build, frontend_tests, frontend_build, deploy_backend, deploy_frontend, close_pull_request_job]
+    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build, deploy_backend, deploy_frontend, close_pull_request_job]
     if: always()
     runs-on: ubuntu-latest
     name: Timings

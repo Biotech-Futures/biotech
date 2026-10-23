@@ -1,6 +1,6 @@
 """
 The test settings on Postgres instead of in-memory SQLite, for CI's
-``backend_tests_postgres`` job (``.github/workflows/main_biotechbe.yml``).
+``backend_tests`` jobs (``.github/workflows/main_biotechbe.yml``).
 
 Production runs on Postgres, and SQLite lets through things Postgres refuses:
 it ignores ``select_for_update``, doesn't enforce ``max_length``, and carries
