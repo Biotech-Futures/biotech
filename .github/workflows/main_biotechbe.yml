@@ -26,6 +26,15 @@ on:
       - '.github/workflows/main_biotechbe.yml'
   workflow_dispatch:
 
+# A new push to a pull request cancels the run for the one before it, which
+# the new run covers, since it checks the whole pull request. Runs on main are
+# never cancelled: each one compares only with the push before it, so
+# cancelling one could leave its changes undeployed. Their deploys queue
+# instead (see the deploy jobs).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Which sides this change touches, so only those are checked and deployed.
   # Running it by hand redeploys the backend, as it did before the frontend
@@ -62,7 +71,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    name: Backend tests
+    name: "SQLite: backend tests"
     permissions:
       contents: read
 
@@ -171,16 +180,35 @@ jobs:
         working-directory: ./backend
         run: python manage.py migrate --noinput --settings=config.settings_migrations
 
-  # The backend tests again on Postgres, the database production runs on.
-  # SQLite lets through things Postgres refuses, such as a test closing the
-  # connection its own transaction is on.
+  # Everything the SQLite job above does, on Postgres, the database production
+  # runs on: the tests with coverage, a year and a month ahead, and just after
+  # the next New Year, each as its own job alongside the rest. SQLite lets
+  # through things Postgres refuses, such as a test closing the connection its
+  # own transaction is on. For now these don't hold up a deploy (SQLite still
+  # does): they run beside SQLite to compare, before SQLite leaves CI.
   backend_tests_postgres:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    name: Backend tests on Postgres
+    name: "Postgres (not blocking): ${{ matrix.label }}"
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: tests with coverage
+            coverage: true
+            clock_shift_days: '0'
+            clock_at: ''
+          - label: tests a year and a month ahead
+            coverage: false
+            clock_shift_days: '400'
+            clock_at: ''
+          - label: tests just after the next New Year
+            coverage: false
+            clock_shift_days: '0'
+            clock_at: new-year
 
     services:
       postgres:
@@ -211,9 +239,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests on Postgres
+      - name: Run tests with coverage
+        if: matrix.coverage
         working-directory: ./backend
-        run: python manage.py test tests --settings=config.settings_test_postgres --noinput
+        run: coverage run manage.py test tests --settings=config.settings_test_postgres --noinput
+
+      - name: Enforce coverage threshold (>= 60%)
+        if: matrix.coverage
+        working-directory: ./backend
+        run: coverage report --fail-under=60
+
+      # See backend/tests/clock.py, as for the SQLite job.
+      - name: Run tests on the moved clock
+        if: ${{ !matrix.coverage }}
+        working-directory: ./backend
+        env:
+          TEST_CLOCK_SHIFT_DAYS: ${{ matrix.clock_shift_days }}
+          TEST_CLOCK_AT: ${{ matrix.clock_at }}
+        run: python manage.py test tests --settings=config.settings_test_postgres --noinput --testrunner=tests.clock.ShiftedClockRunner
 
   # Runs alongside the checks rather than after them: the deploys still wait
   # for every check, so nothing ships unless each one passes.
@@ -346,8 +389,14 @@ jobs:
 
   # Both deploys wait for every check that ran, on either side; a side the
   # change didn't touch is skipped, which doesn't hold the other one up.
+  # Each deploys one run at a time: a second waits for the first rather than
+  # overlapping it, which made Azure cancel the first. A deploy still waiting
+  # when a newer one queues is dropped, as the newer one has its changes too.
   deploy_backend:
-    needs: [changes, backend_tests, backend_tests_postgres, migrations, backend_build, frontend_tests, frontend_build]
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
+    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build]
     if: >-
       always()
       && needs.changes.outputs.backend == 'true'
@@ -374,15 +423,21 @@ jobs:
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E877ED0DA3F94A06807A257E92B3A1B1 }}
           package: .
 
-  # A push to main goes live; a pull request gets its own preview site.
+  # A push to main goes live; a pull request gets its own preview site. A pull
+  # request from a fork gets none: GitHub gives forks no secrets, so the
+  # Azure token is missing and the upload could only fail.
   deploy_frontend:
-    needs: [changes, backend_tests, backend_tests_postgres, migrations, backend_build, frontend_tests, frontend_build]
+    concurrency:
+      group: deploy-frontend-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'live' }}
+      cancel-in-progress: false
+    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build]
     if: >-
       always()
       && needs.changes.outputs.frontend == 'true'
       && !contains(needs.*.result, 'failure')
       && !contains(needs.*.result, 'cancelled')
-      && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'pull_request')
+      && ((github.event_name == 'push' && github.ref == 'refs/heads/main')
+        || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     name: Deploy frontend
 
@@ -406,10 +461,15 @@ jobs:
           skip_app_build: true
           skip_api_build: true
 
-  # Takes the pull request's preview site down once it's merged or closed.
+  # Takes the pull request's preview site down once it's merged or closed. A
+  # fork's pull request never had one (see deploy_frontend).
   close_pull_request_job:
     needs: changes
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && needs.changes.outputs.frontend_preview == 'true'
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.action == 'closed'
+      && needs.changes.outputs.frontend_preview == 'true'
+      && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     name: Close Pull Request Job
     steps:
@@ -419,3 +479,54 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_FRONTEND }}
           action: "close"
+
+  # One table on the run's summary page: when each job started, how long it
+  # took and when it finished, from the start of the run, then how long the
+  # installs and test suites inside them took, to compare SQLite and Postgres
+  # side by side. It runs last and never fails the run.
+  timings:
+    needs: [changes, backend_tests, migrations, backend_tests_postgres, backend_build, frontend_tests, frontend_build, deploy_backend, deploy_frontend, close_pull_request_job]
+    if: always()
+    runs-on: ubuntu-latest
+    name: Timings
+    permissions:
+      actions: read
+
+    steps:
+      - name: Write the timings to the run's summary
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: repos/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          cat > timings.jq <<'JQ'
+          def t: fromdateiso8601;
+          def mmss: floor as $s | "\($s / 60 | floor):\($s % 60 | tostring | if length < 2 then "0" + . else . end)";
+          ("START_TIME" | t) as $t0
+          | [.jobs[] | select(.name != "Timings")] as $jobs
+          | ($jobs | map(select(.conclusion != "skipped" and .completed_at != null))) as $ran
+          | ($jobs | map(select(.conclusion == "skipped") | .name)) as $skipped
+          | "## Timings",
+            "",
+            "Minutes:seconds, measured from the start of the run.",
+            "",
+            "| Job | Result | Starts | Takes | Done |",
+            "|---|---|---|---|---|",
+            ($ran | sort_by(.completed_at)[]
+              | "| \(.name) | \(.conclusion) | \((.started_at | t) - $t0 | mmss) | \((.completed_at | t) - (.started_at | t) | mmss) | \((.completed_at | t) - $t0 | mmss) |"),
+            "",
+            "**Whole run:** \(($ran | map(.completed_at | t) | max) - $t0 | mmss)",
+            (if ($skipped | length) > 0 then "", "Skipped: \($skipped | join(", "))" else empty end),
+            "",
+            "### Inside the jobs",
+            "",
+            "| Job | Step | Takes |",
+            "|---|---|---|",
+            ($ran[] | .name as $job | .steps[]?
+              | select(.conclusion != "skipped" and .completed_at != null)
+              | select(.name | test("^(Install dependencies|Run (unit )?tests|Type check and build)"))
+              | "| \($job) | \(.name) | \((.completed_at | t) - (.started_at | t) | mmss) |")
+          JQ
+          start=$(gh api "$RUN" --jq .run_started_at)
+          gh api "$RUN/attempts/$ATTEMPT/jobs?per_page=100" --jq "$(sed "s/START_TIME/$start/" timings.jq)" | tee -a "$GITHUB_STEP_SUMMARY"
