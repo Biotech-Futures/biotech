@@ -278,6 +278,9 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "apps.user_sessions.middleware.SessionTrackingMiddleware",
+    # Home, Groups, Events, Announcements and Resources kept back from all but
+    # admins until Pages Visibility's date (Management > Challenge Start).
+    "apps.management.pages_visibility.PagesVisibilityMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]

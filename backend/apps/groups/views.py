@@ -55,6 +55,7 @@ class CountryViewSet(viewsets.ModelViewSet):
 
 
 class GroupMemberViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     serializer_class = GroupMembershipSerializer
 
     def get_queryset(self):
@@ -120,6 +121,7 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
 
 
 class GroupViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     serializer_class = GroupSerializer
 
     def get_queryset(self):

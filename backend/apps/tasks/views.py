@@ -32,6 +32,7 @@ class TaskPagePagination(PageNumberPagination):
 
 
 class TaskListCreateView(generics.ListCreateAPIView):
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated, IsTaskManager]
     pagination_class = TaskPagePagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -80,6 +81,7 @@ class TaskListCreateView(generics.ListCreateAPIView):
 
 
 class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated, IsTaskManager]
 
     def get_queryset(self):
@@ -132,6 +134,7 @@ class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class TaskRestoreView(generics.GenericAPIView):
+    hidden_with_pages = True
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -177,6 +180,7 @@ class TaskRestoreView(generics.GenericAPIView):
 
 
 class TaskToggleView(generics.GenericAPIView):
+    hidden_with_pages = True
     queryset = Task.objects.filter(deleted_at__isnull=True)
     serializer_class = TaskToggleSerializer
     permission_classes = [permissions.IsAuthenticated, CanToggleTask]
@@ -209,6 +213,7 @@ class TaskBulkToggleView(generics.GenericAPIView):
     rather than failing the whole call.
     """
 
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
@@ -276,6 +281,7 @@ class TaskStatusUpdateView(generics.GenericAPIView):
     Setting status to "done" also flips `completed=True`; any other status
     flips `completed=False`."""
 
+    hidden_with_pages = True
     queryset = Task.objects.filter(deleted_at__isnull=True)
     serializer_class = TaskStatusUpdateSerializer
     permission_classes = [permissions.IsAuthenticated, CanToggleTask]
