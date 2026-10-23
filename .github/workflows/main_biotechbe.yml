@@ -2,7 +2,11 @@
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
 
-name: Build and deploy Python app to Azure Web App - biotechBe
+# The backend and the frontend in one workflow, so neither deploys unless
+# every check for the change passes: a change to both ships both or neither.
+# Only the sides a change touches are checked and deployed, and the two
+# deploys run side by side.
+name: Build, test and deploy
 
 on:
   push:
@@ -10,18 +14,55 @@ on:
       - main
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/main_biotechbe.yml'
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     branches:
       - main
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/main_biotechbe.yml'
   workflow_dispatch:
 
 jobs:
-  test:
+  # Which sides this change touches, so only those are checked and deployed.
+  # Running it by hand redeploys the backend, as it did before the frontend
+  # moved in here. A closed pull request checks nothing; it only takes its
+  # preview site down, if it had one.
+  changes:
     runs-on: ubuntu-latest
+    name: What changed
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ github.event.action != 'closed' && (github.event_name == 'workflow_dispatch' || steps.filter.outputs.backend == 'true') }}
+      frontend: ${{ github.event.action != 'closed' && steps.filter.outputs.frontend == 'true' }}
+      frontend_preview: ${{ steps.filter.outputs.frontend == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare with the last commit
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/main_biotechbe.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/main_biotechbe.yml'
+
+  backend_tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    name: Backend tests
     permissions:
       contents: read
 
@@ -83,7 +124,10 @@ jobs:
   # migration, and production migrates on deploy. So this checks the
   # migrations themselves, on the same Postgres version as docker-compose.dev.yml.
   migrations:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    name: Migrations
     permissions:
       contents: read
 
@@ -127,10 +171,13 @@ jobs:
         working-directory: ./backend
         run: python manage.py migrate --noinput --settings=config.settings_migrations
 
-  build:
+  # Runs alongside the checks rather than after them: the deploys still wait
+  # for every check, so nothing ships unless each one passes.
+  backend_build:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name != 'pull_request'
+    name: Backend build
     permissions:
       contents: read
 
@@ -183,11 +230,88 @@ jobs:
       # 1. Remove the SCM_DO_BUILD_DURING_DEPLOYMENT app setting from your Azure App Service Environment variables.
       # 2. Refer to sample workflows for alternative deployment strategies: https://github.com/Azure/actions-workflow-samples/tree/master/AppService
 
-
-  deploy:
+  frontend_tests:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    needs: [test, migrations, build]
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    name: Frontend tests
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The newest Node that "engines" in frontend/package.json allows. Moving
+      # to a new major means raising the cap there.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run unit tests
+        working-directory: frontend
+        # --run forces a single pass; the bare `vitest` script would start
+        # watch mode and hang the job on a TTY-less runner.
+        run: npm run test:unit -- --run
+
+  # Our build rather than Azure's, on the same Node and lockfile as the tests;
+  # `npm run build` runs the type check too. Azure only uploads what it made.
+  frontend_build:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    name: Frontend type check and build
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          lfs: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/package.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type check and build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: https://api.biotechfutures.org
+        run: npm run build
+
+      - name: Keep the build for the deploy
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  # Both deploys wait for every check that ran, on either side; a side the
+  # change didn't touch is skipped, which doesn't hold the other one up.
+  deploy_backend:
+    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build]
+    if: >-
+      always()
+      && needs.changes.outputs.backend == 'true'
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    name: Deploy backend
     permissions:
       contents: read
 
@@ -206,3 +330,48 @@ jobs:
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E877ED0DA3F94A06807A257E92B3A1B1 }}
           package: .
 
+  # A push to main goes live; a pull request gets its own preview site.
+  deploy_frontend:
+    needs: [changes, backend_tests, migrations, backend_build, frontend_tests, frontend_build]
+    if: >-
+      always()
+      && needs.changes.outputs.frontend == 'true'
+      && !contains(needs.*.result, 'failure')
+      && !contains(needs.*.result, 'cancelled')
+      && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'pull_request')
+    runs-on: ubuntu-latest
+    name: Deploy frontend
+
+    steps:
+      - name: Fetch the build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Deploy
+        id: builddeploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_FRONTEND }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "dist"
+          api_location: ""
+          output_location: ""
+          skip_app_build: true
+          skip_api_build: true
+
+  # Takes the pull request's preview site down once it's merged or closed.
+  close_pull_request_job:
+    needs: changes
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && needs.changes.outputs.frontend_preview == 'true'
+    runs-on: ubuntu-latest
+    name: Close Pull Request Job
+    steps:
+      - name: Close Pull Request
+        id: closepullrequest
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_FRONTEND }}
+          action: "close"
