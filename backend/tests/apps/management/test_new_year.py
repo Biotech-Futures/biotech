@@ -26,6 +26,7 @@ from apps.management.models import (
     PresentationSlot,
     QueuedEmailSend,
     ResultsEmailSettings,
+    SupervisorPagesSetting,
 )
 from apps.management.services.finalist_notify import SYMPOSIUM_TZ
 from apps.management.services.new_year import new_year_state
@@ -206,6 +207,7 @@ class NewYearChangesTests(TestCase):
             pk=1, defaults={"survey_url": "https://example.com/survey", "survey_closes": date.today()},
         )
         PresentationSettings.objects.update_or_create(pk=1, defaults={"times_shown": True})
+        SupervisorPagesSetting.objects.update_or_create(pk=1, defaults={"shown_from": now - timedelta(days=90)})
         PresentationSlot.objects.create(starts_at=time(9), ends_at=time(9, 30))
         EmailSendRun.objects.create(
             key="finalist_notification", started_at=now, finished_at=now, due=3, emailed=2, failed=1,
@@ -301,6 +303,8 @@ class NewYearChangesTests(TestCase):
         survey = ResultsEmailSettings.load()
         self.assertEqual((survey.survey_url, survey.survey_closes), ("", None))
         self.assertFalse(PresentationSettings.load().times_shown)
+        # The pages are hidden again until Pages Visibility has a new date.
+        self.assertIsNone(SupervisorPagesSetting.load().shown_from)
         # The presentation times stay, for the new year to use or change.
         self.assertEqual(PresentationSlot.objects.count(), 1)
         self.supervisor_profile.refresh_from_db()

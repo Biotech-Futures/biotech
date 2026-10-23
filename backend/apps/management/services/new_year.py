@@ -41,6 +41,7 @@ from ..models import (
     PresentationSettings,
     QueuedEmailSend,
     ResultsEmailSettings,
+    SupervisorPagesSetting,
 )
 from .deadline import submissions_still_open
 from .finalist_notify import SYMPOSIUM_TZ
@@ -198,6 +199,12 @@ def _management(actor, next_year: int, now) -> dict:
     window.closed_until_set = True
     window.save(update_fields=["opens_at", "closes_at", "closed_until_set"])
     ChallengeStart.objects.filter(year=next_year).update(starts_at=None)
+    # Home, Groups, Events, Announcements and Resources stay hidden from
+    # students, mentors and supervisors until Pages Visibility has a new date.
+    pages = SupervisorPagesSetting.load()
+    pages.shown_from = None
+    pages.updated_by = actor if getattr(actor, "pk", None) else None
+    pages.save()
     symposium = FinalistEmailSettings.load()
     symposium.symposium_date = symposium.confirm_by = symposium.slides_due = None
     symposium.registration_url = ""

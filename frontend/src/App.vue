@@ -326,6 +326,7 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
+import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { clearLiveAnalyticsCache, prefetchAnalytics } from '@/utils/liveAnalyticsData'
@@ -463,8 +464,16 @@ type MainNavEntry =
       collapsed: boolean
     }
 
+const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
+watch(
+  () => auth.isAuthenticated && !auth.isAdmin,
+  (followsVisibility) => {
+    if (followsVisibility) void loadSupervisorPages()
+  },
+  { immediate: true },
+)
 watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
@@ -473,8 +482,15 @@ watch(
   { immediate: true },
 )
 
-// The top-level links every role sees, at all times.
+// The top-level links every role sees, once Management > Challenge Start >
+// Pages Visibility's date comes (admins always). Until then a supervisor has
+// their own pages below, and a student or mentor their profile.
 const mainNavLinks = computed(() => {
+  if (!auth.isAdmin && !supervisorPagesShown.value) {
+    return auth.isSupervisor
+      ? []
+      : [{ to: '/profile', label: 'My Profile', icon: 'fa-user', active: route.path === '/profile' }]
+  }
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]
