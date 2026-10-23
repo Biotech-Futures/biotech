@@ -479,8 +479,43 @@ def resolve_location(student):
     return country, state
 
 
-def save_student(student, supervisor, now, *, registered_by):
-    country, state = resolve_location(student) if student["country"] else (None, None)
+class SubmissionLookups:
+    """What every student in one submission shares, read once for it rather
+    than once a student, so a thousand-row CSV doesn't repeat each read a
+    thousand times: the student role, the challenge year, the supervisor named,
+    and each place and area of interest by its spelling."""
+
+    def __init__(self):
+        self.role = get_role_by_name(ROLE_STUDENT)
+        self.challenge_year = current_cohort()
+        self._supervisors, self._places, self._interests = {}, {}, {}
+
+    def supervisor(self, email):
+        # Nomination is not a supervisor invitation or a role grant. Only link an
+        # already-provisioned profile; preserve all existing account details.
+        if email not in self._supervisors:
+            self._supervisors[email] = (
+                SupervisorProfile.objects.filter(user__email__iexact=email).first() if email else None
+            )
+        return self._supervisors[email]
+
+    def place(self, student):
+        key = (student["country"], student["state"])
+        if key not in self._places:
+            self._places[key] = resolve_location(student) if student["country"] else (None, None)
+        return self._places[key]
+
+    def interest(self, description):
+        if description not in self._interests:
+            self._interests[description], _ = AreasOfInterest.objects.get_or_create(
+                interest_desc__iexact=description, defaults={"interest_desc": description},
+            )
+        return self._interests[description]
+
+
+def save_student(student, supervisor, now, *, registered_by, lookups=None):
+    lookups = lookups or SubmissionLookups()
+    country, state = lookups.place(student)
     pronouns = student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"]
     # A student back for a later year gets their account back, with this
     # form's details (apps.users.returning); anyone else gets a new one.
@@ -499,15 +534,10 @@ def save_student(student, supervisor, now, *, registered_by):
             account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
         )
     RoleAssignmentHistory.objects.create(
-        user=user, role=get_role_by_name(ROLE_STUDENT), valid_from=now,
+        user=user, role=lookups.role, valid_from=now,
         valid_to=now + timedelta(weeks=6),
     )
-    # Nomination is not a supervisor invitation or a role grant. Only link an
-    # already-provisioned profile; preserve all existing account details.
-    sup = (
-        SupervisorProfile.objects.filter(user__email__iexact=supervisor["email"]).first()
-        if supervisor["email"] else None
-    )
+    sup = lookups.supervisor(supervisor["email"])
     guardian = student["guardian"]
     has_guardian = all(guardian.get(field) for field in ("firstName", "lastName", "email"))
     details = {
@@ -522,25 +552,30 @@ def save_student(student, supervisor, now, *, registered_by):
         profile = StudentProfile.objects.get(user=user)
         for field, value in details.items():
             setattr(profile, field, value)
-        profile.challenge_year = current_cohort()
+        profile.challenge_year = lookups.challenge_year
         profile.supervisor_edited_at = None
         restart_guardian_permission(profile, now)
         profile.save()
         # This form's interests replace last year's.
         UserInterest.objects.filter(user=user).delete()
     else:
-        profile = StudentProfile.objects.create(user=user, **details)
+        profile = StudentProfile.objects.create(user=user, challenge_year=lookups.challenge_year, **details)
     if sup:
-        # A nominated supervisor is the student's teacher or school supervisor.
-        StudentSupervisor.objects.get_or_create(
-            student_user=profile, supervisor_user=sup,
-            defaults={"relationship_type": StudentSupervisor.RelationshipTypeChoices.TEACHER},
-        )
+        # A nominated supervisor is the student's teacher or school supervisor:
+        # maybe already from last year for a returning student, never for a new one.
+        relationship = {"relationship_type": StudentSupervisor.RelationshipTypeChoices.TEACHER}
+        if returning:
+            StudentSupervisor.objects.get_or_create(student_user=profile, supervisor_user=sup, defaults=relationship)
+        else:
+            StudentSupervisor.objects.create(student_user=profile, supervisor_user=sup, **relationship)
+    # Each interest once, though two spellings may name the same one. The
+    # student has none yet (a returning student's were just cleared), so all
+    # are added together.
+    interests = {}
     for description in dict.fromkeys(student["interests"]):
-        interest, _ = AreasOfInterest.objects.get_or_create(
-            interest_desc__iexact=description, defaults={"interest_desc": description},
-        )
-        UserInterest.objects.get_or_create(user=user, interest=interest)
+        interest = lookups.interest(description)
+        interests.setdefault(interest.pk, interest)
+    UserInterest.objects.bulk_create([UserInterest(user=user, interest=interest) for interest in interests.values()])
     return user
 
 
@@ -837,8 +872,9 @@ def register(request):
             from .views import _registered_by
             if legacy:
                 provenance[0] = _registered_by(raw["body"].get("RegisteredBy"))
+            lookups = SubmissionLookups()
             users = [
-                save_student(item, supervisor, now, registered_by=registered_by)
+                save_student(item, supervisor, now, registered_by=registered_by, lookups=lookups)
                 for item, registered_by in zip(students, provenance)
             ]
             actor_user = request.user if actor else None

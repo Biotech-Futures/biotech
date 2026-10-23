@@ -105,7 +105,7 @@ npm run type-check
 
 - Work on feature branches; merge to `main` via Pull Request.
 - Pre-commit hooks type-check `frontend/` and `adminweb/` when files in those trees are staged.
-- Backend deploys are gated on the test suite in `.github/workflows/main_biotechbe.yml`.
+- Deploys are gated on the checks in `.github/workflows/main_biotechbe.yml`: a change deploys only the sides it touches, and only once every check for it passes, so a change to both the backend and the frontend ships both or neither.
 
 ## License
 

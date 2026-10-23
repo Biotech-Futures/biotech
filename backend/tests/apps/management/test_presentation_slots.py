@@ -24,6 +24,7 @@ from apps.submissions.models import Deadline, GroupExtension
 from apps.submissions.services import current_cohort
 from apps.users.models import User
 
+from tests.apps._helpers import close_response
 from tests.apps.grading.fixtures import _GradingFixture
 
 LIST = "management:presentation-slots"
@@ -345,7 +346,7 @@ class FinalistSlidesOpenTests(_GradingFixture):
     def _open(self, group_id, query=""):
         response = self.client.get(reverse("management:presentation-slides-file", args=[group_id]) + query)
         # Lets go of the file, so the temporary folder can be removed.
-        self.addCleanup(response.close)
+        self.addCleanup(close_response, response)
         return response
 
     def test_a_teams_pdf_opens_in_the_browser(self):

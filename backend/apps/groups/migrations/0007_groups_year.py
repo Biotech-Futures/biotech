@@ -17,10 +17,23 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='groups',
-            name='year',
-            field=models.PositiveSmallIntegerField(default=apps.groups.models.groups.default_group_year),
+        # The database gets a plain value: the default works out the challenge
+        # year, which reads tables another app may not have made yet.
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.AddField(
+                    model_name='groups',
+                    name='year',
+                    field=models.PositiveSmallIntegerField(default=CURRENT_YEAR),
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='groups',
+                    name='year',
+                    field=models.PositiveSmallIntegerField(default=apps.groups.models.groups.default_group_year),
+                ),
+            ],
         ),
         migrations.RunPython(
             set_existing_year,
