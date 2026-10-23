@@ -1,13 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
-
-// Management > Supervisor Pages Visibility, as it starts: the pages hidden.
-vi.mock('@/utils/managementAPI', async (original) => ({
-  ...(await original<typeof import('@/utils/managementAPI')>()),
-  fetchSupervisorPages: vi.fn(async () => ({ shown: false })),
-}))
 
 describe('registration in the current application router', () => {
   beforeEach(async () => {
@@ -59,4 +53,21 @@ describe('registration in the current application router', () => {
     await router.push('/register')
     expect(router.currentRoute.value.name).toBe('register')
   })
+
+  it.each(['student', 'mentor', 'supervisor', 'admin'])(
+    'lets %s accounts reach Home, Groups, Events, Announcements and Resources at all times',
+    async (role) => {
+      useAuthStore().loginWithUser({
+        id: 1, email: `${role}@example.test`, first_name: 'Member',
+        last_name: 'User', current_role_name: role,
+      })
+      for (const path of ['/dashboard', '/events', '/announcements', '/resources']) {
+        await router.push(path)
+        expect(router.currentRoute.value.path).toBe(path)
+      }
+      // Groups opens each role's own groups page (resolveGroupsLanding), never their profile.
+      await router.push('/groups')
+      expect(router.currentRoute.value.path).not.toBe('/profile')
+    },
+  )
 })

@@ -2,7 +2,6 @@
   <section class="email-preview" aria-label="Email preview">
     <header class="email-preview__header">
       <div class="email-preview__heading">
-        <i class="fas fa-eye" aria-hidden="true"></i>
         <h3>Preview</h3>
         <span v-if="loading" class="email-preview__updating">
           <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>

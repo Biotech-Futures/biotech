@@ -19,6 +19,8 @@ import {
   systemEmailUnseenSchema,
   systemEmailMailApiSchema,
   type SystemEmailMailApi,
+  systemEmailAlwaysOnSchema,
+  type SystemEmailAlwaysOn,
   systemEmailPreviewSchema,
   systemEmailSettingsSchema,
   systemEmailTemplateListSchema,
@@ -251,11 +253,6 @@ export interface AdminUser {
   mentorCompany?: string | null
   mentorUniversityYear?: string | null
   mentorFieldOfStudy?: string | null
-  /** Their application's answers, beside mentorReason. */
-  mentorRelevantBackground?: string | null
-  mentorMentoringApproach?: string | null
-  /** How many hours a week they can give (1 to 40), as registering asks. */
-  mentorWeeklyHours?: number | null
   /** When they're free each week (Monday is 0, times "HH:MM"): kept from
    *  when registering asked, but no longer shown here. */
   mentorAvailability?: { weekday: number; start: string; end: string }[]
@@ -637,6 +634,38 @@ export const renameKnownUniversity = (id: number, university: { name: string; ac
 export const deleteKnownUniversity = (id: number) =>
   adminDelete<AdminEnvelope<boolean>>(`/known-university/${id}/`).then((env) => env.msg)
 
+/** A row of an uploaded sheet: its number as the spreadsheet shows it (the
+ *  header is row 1), and its name. */
+export type KnownUniversityUploadRow = { row: number; name: string }
+
+/** Upload Universities' check of a sheet (or, applied, what it did), as My
+ *  Students' Upload guardian details has its own: its headers, then those it
+ *  adds, row by row those it fills in (a blank acronym or country), those
+ *  listed already, each name given more than once (every row it's on, the
+ *  first one used), and the rows blank or too long. */
+export type KnownUniversityUpload = {
+  checks: { missing_headers: string[]; header_order: string; conflicts: string[] }
+  summary: { added: number; filled: number; skipped: number; errors: number }
+  filled_rows: KnownUniversityUploadRow[]
+  listed_rows: KnownUniversityUploadRow[]
+  repeated_rows: { rows: number[]; name: string }[]
+  invalid_rows: number[]
+  applied?: boolean
+}
+
+/** Upload Universities: a .csv or .xlsx with columns name, acronym and
+ *  country, in order. ``dryRun`` previews it; otherwise it's loaded. */
+export const uploadKnownUniversities = (file: File, dryRun: boolean) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('dry_run', dryRun ? 'true' : 'false')
+  return adminRequest<AdminEnvelope<KnownUniversityUpload>>('/known-university/upload/', {
+    method: 'POST',
+    body: formData,
+    isFormData: true
+  }).then((env) => env.data)
+}
+
 // ---------------------------------------------------------------------------
 // Groups
 // ---------------------------------------------------------------------------
@@ -726,11 +755,19 @@ export interface StudentAssignment {
   groupId: number | string
 }
 
-/** Assign students to groups (POST /match/confirm/). Returns the count confirmed. */
-export const confirmStudentAssignments = (assignments: StudentAssignment[]) =>
-  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', { assignments }).then(
-    (env) => ({ msg: env.msg, assignedCount: env.data.assigned_count })
-  )
+/**
+ * Assign students to groups (POST /match/confirm/). Returns the count confirmed.
+ * `onlyUngrouped`: the page listed them with no group, so nothing is saved if
+ * one has joined a group since (Add Students, the matcher).
+ */
+export const confirmStudentAssignments = (
+  assignments: StudentAssignment[],
+  { onlyUngrouped = false }: { onlyUngrouped?: boolean } = {}
+) =>
+  adminPost<AdminEnvelope<{ assigned_count: number }>>('/match/confirm/', {
+    assignments,
+    ...(onlyUngrouped ? { onlyUngrouped: true } : {})
+  }).then((env) => ({ msg: env.msg, assignedCount: env.data.assigned_count }))
 
 /** Remove a student from their group (DELETE /group/{id}/members/{userId}/). */
 export const removeGroupMember = (groupId: string | number, userId: string | number) =>
@@ -1746,6 +1783,12 @@ export const fetchSystemEmailUnseenFailures = (): Promise<number> =>
 /** Seen by every admin from now on; returns the count left, normally 0. */
 export const markSystemEmailFailuresSeen = (): Promise<number> =>
   adminPost<AdminEnvelope<unknown>>('/email-log/unseen/').then((env) => systemEmailUnseenSchema.parse(env.data).unseen)
+
+/** Whether Azure's Always On is keeping the backend awake, for the top of System Emails. */
+export const fetchSystemEmailAlwaysOn = (): Promise<SystemEmailAlwaysOn> =>
+  adminGet<AdminEnvelope<unknown>>('/email-settings/always-on/').then((env) =>
+    systemEmailAlwaysOnSchema.parse(env.data)
+  )
 
 /** Whether bounced emails can be checked, for the top of the Log. */
 export const fetchSystemEmailMailApi = (): Promise<SystemEmailMailApi> =>

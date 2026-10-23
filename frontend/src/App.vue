@@ -343,11 +343,6 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
-import {
-  isSupervisorHiddenPath,
-  loadSupervisorPages,
-  useSupervisorPages,
-} from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { landingPath } from '@/utils/landing'
@@ -499,26 +494,21 @@ type MainNavEntry =
       collapsed: boolean
     }
 
-const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
-    if (!isSupervisor) return
-    void loadSupervisorPages()
-    void loadSupervisorResults()
+    if (isSupervisor) void loadSupervisorResults()
   },
   { immediate: true },
 )
 
-// The top-level links every role sees. A support agent who is not an admin
-// gets the queue and none of these: the guard sends them back from these
-// anyway, so offering the links would only be a detour. A supervisor goes
-// without the pages Management > Supervisor Pages Visibility hides until it
-// shows them, and keeps the rest: Support is not one of them, so a supervisor
-// can always find it. The list is the router guard's own, so the menu never
-// offers a page the guard refuses or hides one it allows.
+// The top-level links every role sees, at all times. A support agent who is
+// not an admin gets the queue and none of these: the guard sends them back
+// from these anyway, so offering the links would only be a detour. The list
+// is the router guard's own, so the menu never offers a page the guard
+// refuses or hides one it allows.
 const mainNavLinks = computed(() => {
   if (auth.isSupportOnly) return []
   const links: MainNavEntry[] = [
@@ -531,9 +521,6 @@ const mainNavLinks = computed(() => {
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
     { to: '/support', label: 'Support', icon: 'fa-life-ring', active: route.path.startsWith('/support') },
   )
-  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) {
-    return links.filter((link) => !isSupervisorHiddenPath(link.to))
-  }
   return links
 })
 

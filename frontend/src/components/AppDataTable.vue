@@ -13,10 +13,10 @@
     <!-- Search sits on top of the table, as on Group Marks. -->
     <div class="data-table-search-card">
       <label
-        class="data-table-search-field"
+        class="table-filter-field data-table-search-field"
         :style="searchFieldWidth ? { flexBasis: `${searchFieldWidth}px`, maxWidth: `${searchFieldWidth}px` } : undefined"
       >
-        <span class="data-table-search-label">Search</span>
+        <span class="table-filter-label">Search</span>
         <span class="data-table-search-box">
           <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
           <input
@@ -114,8 +114,10 @@
             <template v-for="row in pagedRows" :key="String(row[rowKey])">
               <tr
                 class="data-table-row"
+                :data-row-key="String(row[rowKey])"
                 :class="[
                   {
+                    'data-table-row--focused': focusedRowKey === String(row[rowKey]),
                     'data-table-row--clickable': hasDetail() && !allDetailsShown,
                     'data-table-row--opens': opensRow(row),
                     'data-table-row--two-line': twoLineRows,
@@ -221,9 +223,10 @@
       <label class="data-table-page-size">
         <span class="sr-only">Rows per page</span>
         <AppSelect
-          :model-value="pageSize"
+          :model-value="shownPageSize"
           class="table-page-size"
           :options="sizeChoices"
+          :disabled="pickerDisabled"
           aria-label="Rows per page"
           @change="onPageSizeChange"
         />
@@ -364,6 +367,9 @@ const props = withDefaults(
     defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
+    // A row to bring into view (its rowKey's value), as a page asks on
+    // coming back to it: Release Resources, back from a resource's page.
+    focusRow?: RowKey
   }>(),
   {
     rowKey: 'id',
@@ -387,6 +393,7 @@ const props = withDefaults(
     sort: undefined,
     defaultSort: undefined,
     selected: undefined,
+    focusRow: undefined,
   },
 )
 
@@ -430,7 +437,10 @@ watch(() => props.sort, (value) => {
   sortKey.value = value.key
   sortDir.value = value.direction
 })
-watch(search, (value) => { if (value !== props.search) emit('update:search', value) })
+watch(search, (value) => {
+  letGoOfFocus()
+  if (value !== props.search) emit('update:search', value)
+})
 watch(page, (value) => { if (value !== props.page) emit('update:page', value) })
 watch(pageSize, (value) => { if (value !== props.pageSize) emit('update:pageSize', value) })
 
@@ -642,6 +652,7 @@ const ariaSort = (key: string) =>
   sortKey.value !== key ? 'none' : sortDir.value === 'asc' ? 'ascending' : 'descending'
 
 const toggleSort = (key: string) => {
+  letGoOfFocus()
   const direction = sortKey.value === key && sortDir.value === 'asc' ? 'desc' : 'asc'
   sortKey.value = key
   sortDir.value = direction
@@ -658,12 +669,12 @@ const fitting = ref(pageSize.value !== DATA_TABLE_ALL)
 const fittedSize = ref(pageSize.value)
 let measurePending = fitting.value
 
-const countRowsThatFit = () => {
-  if (!fitting.value || !measurePending || !wrapEl.value) return
-  const rows = [...wrapEl.value.querySelectorAll<HTMLElement>('tbody tr.data-table-row')]
-  if (!rows.length) return
-  measurePending = false
-  const box = wrapEl.value
+const shownRows = () => [...(wrapEl.value?.querySelectorAll<HTMLElement>('tbody tr.data-table-row') ?? [])]
+
+// How many of the rows shown fit on screen from the top, with the table's
+// headings and bottom bar under the site's top bar, by their real heights.
+const rowsOnScreen = (rows: HTMLElement[]) => {
+  const box = wrapEl.value!
   const room = tableRowRoom(
     headEl.value?.offsetHeight || undefined,
     bottomEl.value?.offsetHeight || undefined,
@@ -679,6 +690,15 @@ const countRowsThatFit = () => {
     if (used > room) break
     fits += 1
   }
+  return fits
+}
+
+const countRowsThatFit = () => {
+  if (!fitting.value || !measurePending || !wrapEl.value) return
+  const rows = shownRows()
+  if (!rows.length) return
+  measurePending = false
+  const fits = rowsOnScreen(rows)
   // Every row shown fits: the page stays as it is, ready for more rows.
   if (fits === rows.length) return
   const next = Math.max(1, fits)
@@ -705,27 +725,97 @@ const {
   reset: resetPager,
 } = usePagerAnchor(bottomEl, wrapEl)
 const prevPage = () => turnPage(() => {
+  letGoOfFocus()
   page.value -= 1
 })
 const nextPage = () => turnPage(() => {
+  letGoOfFocus()
   page.value += 1
 })
 watch([search, sortKey, sortDir, pageSize, total], resetPager)
 
-watch(pagedRows, () => void nextTick(() => {
-  countRowsThatFit()
-  settlePager()
-}))
-onMounted(() => {
-  void nextTick(countRowsThatFit)
-  window.addEventListener('resize', refitToWindow)
-})
-onBeforeUnmount(() => window.removeEventListener('resize', refitToWindow))
+// Every row shown, and every one of them on screen at once: only then is the
+// picker off (below). A table on All whose rows run past the screen keeps it.
+const allRowsOnScreen = ref(true)
+const checkAllRowsOnScreen = () => {
+  if (!wrapEl.value) return
+  const rows = shownRows()
+  allRowsOnScreen.value = rows.length >= total.value && rowsOnScreen(rows) === rows.length
+}
 
-// 7, 15 and 30, the fitted size among them, then All.
+// focusRow: the table turns to the page that has it, in its order, and
+// scrolls it to the middle of the screen, lit up a moment. It holds there
+// while the table counts how many rows fit (which can change the page), then
+// lets go, and lets go at once if someone sorts, searches, pages or picks a
+// size, so nothing pulls them back to it.
+const focusing = ref(false)
+const focusedRowKey = ref<string | null>(null)
+let focusLight: ReturnType<typeof setTimeout> | undefined
+watch(() => props.focusRow, (value) => { focusing.value = value != null }, { immediate: true })
+const letGoOfFocus = () => { focusing.value = false }
+
+const bringFocusRowIntoView = () => {
+  if (!focusing.value || props.focusRow == null || isServer.value) return
+  const key = String(props.focusRow)
+  const index = filteredRows.value.findIndex((row) => String(row[props.rowKey]) === key)
+  if (index < 0) return
+  const onPage = showsAll.value ? 1 : Math.floor(index / pageSize.value) + 1
+  // Its page first; this runs again once that page's rows are drawn.
+  if (page.value !== onPage) {
+    page.value = onPage
+    return
+  }
+  const row = shownRows().find((tr) => tr.dataset.rowKey === key)
+  if (!row) return
+  row.scrollIntoView?.({ block: 'center' })
+  focusedRowKey.value = key
+  clearTimeout(focusLight)
+  focusLight = setTimeout(() => { focusedRowKey.value = null }, 2500)
+  // Counted, the page won't change under it again.
+  if (!fitting.value || !measurePending) focusing.value = false
+}
+
+watch([pagedRows, total], () => void nextTick(() => {
+  countRowsThatFit()
+  checkAllRowsOnScreen()
+  settlePager()
+  bringFocusRowIntoView()
+}))
+watch(() => props.focusRow, () => void nextTick(bringFocusRowIntoView))
+onBeforeUnmount(() => clearTimeout(focusLight))
+const onResize = () => {
+  refitToWindow()
+  void nextTick(checkAllRowsOnScreen)
+}
+onMounted(() => {
+  void nextTick(() => {
+    countRowsThatFit()
+    checkAllRowsOnScreen()
+    bringFocusRowIntoView()
+  })
+  window.addEventListener('resize', onResize)
+})
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+
+// Until someone picks a size: with every row on one page and on screen at
+// once, there's nothing to pick, so the picker is off, and a size reads as the
+// rows there are ("8 Entries" over "1 - 8 out of 8", not the 10 that would
+// fit). A size someone picked stays as picked, and the picker stays on to
+// change it back.
+const picked = ref(false)
+const shownPageSize = computed(() =>
+  !picked.value && !showsAll.value && total.value > 0 && total.value < pageSize.value
+    ? total.value
+    : pageSize.value,
+)
+const pickerDisabled = computed(() => !picked.value && totalPages.value <= 1 && allRowsOnScreen.value)
+
+// 7, 15 and 30, the table's own size among them (the rows there are, while
+// that's what it shows), then All.
 const sizeOptions = computed(() => {
   const sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
-  if (fittedSize.value !== DATA_TABLE_ALL && !sizes.includes(fittedSize.value)) sizes.push(fittedSize.value)
+  const own = shownPageSize.value !== pageSize.value ? shownPageSize.value : fittedSize.value
+  if (own !== DATA_TABLE_ALL && !sizes.includes(own)) sizes.push(own)
   return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
 })
 
@@ -755,7 +845,9 @@ const sizeChoices = computed<AppSelectOption[]>(() =>
 )
 
 const onPageSizeChange = (value: AppSelectValue) => {
+  letGoOfFocus()
   fitting.value = false
+  picked.value = true
   pageSize.value = Number(value)
 }
 
@@ -764,6 +856,7 @@ const onPageDraftInput = (event: Event) => {
 }
 
 const jumpToPage = () => {
+  letGoOfFocus()
   const next = Math.min(totalPages.value, Math.max(1, Math.floor(Number(pageDraft.value) || 1)))
   if (next !== page.value) turnPage(() => {
     page.value = next
@@ -908,20 +1001,10 @@ const togglePageSelection = () => {
   margin-left: auto;
 }
 
+/* SEARCH and its box (table-filter-field, in main.css), 252px wide. */
 .data-table-search-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
   flex: 0 1 252px;
   max-width: 252px;
-}
-
-.data-table-search-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .data-table-search-box {
@@ -1164,20 +1247,38 @@ tbody tr:last-child td {
   text-align: center;
 }
 
+/* focusRow, brought into view: lit up Light Green a moment, then as it was. */
+.data-table-row--focused > td {
+  animation: data-table-focus 2.5s ease-out;
+}
+
+@keyframes data-table-focus {
+  from {
+    background-color: var(--light-green);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
 .data-table-empty {
   color: var(--text-muted);
   text-align: center;
   padding: 1.5rem 0.75rem;
 }
 
+/* A cell's link (a column's linkTo): a name, as every table draws its names
+   (People, Groups, Resources, My Students...): semi-bold in the table's text
+   colour, underlined only while the mouse is on its row. */
 .data-table-link {
-  color: var(--dark-green);
+  color: inherit;
   font-weight: 600;
-  text-decoration: underline;
+  text-decoration: none;
 }
 
-.data-table-link:hover {
-  color: #015940;
+.data-table-row:hover .data-table-link,
+.data-table-link:focus-visible {
+  text-decoration: underline;
 }
 
 .data-table-summary {

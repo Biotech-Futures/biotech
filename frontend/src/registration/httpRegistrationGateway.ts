@@ -10,7 +10,7 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { readEmailCheckJobId, readEmailCheckStatus, runEmailCheck } from './emailPrecheck'
 import { buildSessionHeaders, ensureCsrfCookie } from '@/utils/csrf'
 import {
-  REGISTRATION_OVERRIDE_FIELDS,
+  registrationOverrideField,
   buildProductionRegistrationRequest,
   parseOverridePath,
   registrationFormPath,
@@ -106,7 +106,7 @@ const normalizeWarnings = (
       !override ||
       overrideFields.has(item.override_field) ||
       !studentRequestPrefixes(request)[override.index] ||
-      item.field !== `students.${override.index}.${REGISTRATION_OVERRIDE_FIELDS[override.name]}`
+      item.field !== registrationOverrideField(override.index, override.name)
     )
       return null
     overrideFields.add(item.override_field)

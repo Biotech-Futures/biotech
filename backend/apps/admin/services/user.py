@@ -20,11 +20,10 @@ from apps.users.models import (
 from apps.tickets.models import SupportScope
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
-from apps.users.profile_images import profile_image_url
+from apps.users.profile_images import delete_profile_image_file, profile_image_url
 from apps.users.email_verification import check_one_address, invalid_address_message
 from apps.users.mentor_registration import (
-    MAX_WEEKLY_HOURS as MENTOR_MAX_WEEKLY_HOURS, MAX_WORDS as MENTOR_MAX_WORDS,
-    STUDY_YEARS as MENTOR_STUDY_YEARS,
+    MAX_WORDS as MENTOR_MAX_WORDS, STUDY_YEARS as MENTOR_STUDY_YEARS,
 )
 from apps.resources.models import Roles, RoleAssignmentHistory
 from apps.groups.models import (
@@ -509,7 +508,11 @@ def _guardian_dict(student_profile: Optional[StudentProfile]) -> Dict[str, Any]:
         "mediaConsent": sp.media_consent if sp else None,
         # Only on profiles loaded with_consent_request_sent_at().
         "mediaConsentAt": _media_consent_at(sp),
-        "consentRequestSentAt": _iso(getattr(sp, "last_consent_request_at", None)),
+        # The last email, or the newest link if it was only copied.
+        "consentRequestSentAt": _iso(max(
+            (when for when in (getattr(sp, "last_consent_request_at", None), getattr(sp, "guardian_reminder_sent_at", None)) if when),
+            default=None,
+        )),
     }
 
 
@@ -651,15 +654,11 @@ MENTOR_FIELDS = {
     "mentorUniversityYear": "university_year",
     "mentorFieldOfStudy": "field_of_study",
     "mentorReason": "mentor_reason",
-    "mentorRelevantBackground": "relevant_background",
-    "mentorMentoringApproach": "mentoring_approach",
     "mentorMaxGroupCount": "max_group_count",
-    "mentorWeeklyHours": "weekly_hours",
 }
 # What only Add user's full mentor form sends, not a mentor import.
 FULL_MENTOR_KEYS = (
-    "mentorCompany", "mentorFieldOfStudy", "mentorUniversityYear", "mentorWeeklyHours",
-    "mentorRelevantBackground", "mentorMentoringApproach", "mentorAvailability",
+    "mentorCompany", "mentorFieldOfStudy", "mentorUniversityYear", "mentorAvailability",
 )
 
 
@@ -1694,11 +1693,9 @@ def _next_mentor_values(user_id: int, input_data: Dict[str, Any]) -> tuple:
         else:
             values[field] = (
                 getattr(existing, field) if existing
-                else None if field == "weekly_hours"
                 else DEFAULT_MENTOR_PROFILE.get(field, "")
             )
-    for field in ("institution", "company", "university_year", "field_of_study", "mentor_reason",
-                  "relevant_background", "mentoring_approach"):
+    for field in ("institution", "company", "university_year", "field_of_study", "mentor_reason"):
         values[field] = values[field] or ""
     # One of registering's backgrounds, or free text from before (and the
     # full Edit form, which still types it).
@@ -1709,24 +1706,8 @@ def _next_mentor_values(user_id: int, input_data: Dict[str, Any]) -> tuple:
     if values["university_year"] and values["university_year"] not in MENTOR_STUDY_YEARS:
         return "Year of study is not valid", {}
 
-    for key in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
-        if key in input_data and len(values[MENTOR_FIELDS[key]].split()) > MENTOR_MAX_WORDS:
-            return f"Keep each answer to {MENTOR_MAX_WORDS} words or fewer", {}
-
-    # Hours a week: a whole number from 1 to 40, or none given.
-    hours = values["weekly_hours"]
-    if hours == "":
-        hours = None
-    if hours is not None:
-        if isinstance(hours, bool):
-            return "Hours per week is not valid", {}
-        try:
-            hours = int(hours)
-        except (TypeError, ValueError):
-            return "Hours per week is not valid", {}
-        if not 1 <= hours <= MENTOR_MAX_WEEKLY_HOURS:
-            return f"Hours per week must be from 1 to {MENTOR_MAX_WEEKLY_HOURS}", {}
-    values["weekly_hours"] = hours
+    if "mentorReason" in input_data and len(values["mentor_reason"].split()) > MENTOR_MAX_WORDS:
+        return f"Keep the answer to {MENTOR_MAX_WORDS} words or fewer", {}
 
     max_count = values["max_group_count"]
     if max_count is None or isinstance(max_count, bool):
@@ -2378,6 +2359,7 @@ def delete_user(user_id: int, initiated_by=None, force: bool = False) -> Dict[st
         return {"msg": "User not found", "data": None}
 
     before_user = fetch_user_by_id(user_id)
+    photo_key = user.profile_image_key
     try:
         with transaction.atomic():
             log_audit_event(
@@ -2395,6 +2377,10 @@ def delete_user(user_id: int, initiated_by=None, force: bool = False) -> Dict[st
             if force:
                 _purge_protecting_records(user_id)
             User.objects.filter(id=user_id).delete()
+            # Their photo's file goes too, once the delete is saved: never for
+            # a delete that's refused or rolled back.
+            if photo_key:
+                transaction.on_commit(lambda: delete_profile_image_file(photo_key))
     except ProtectedError:
         # Chat messages, uploaded resources, match runs, etc. reference the user
         # with on_delete=PROTECT. Fail cleanly (the atomic block rolls back) instead

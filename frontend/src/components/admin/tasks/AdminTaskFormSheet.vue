@@ -79,7 +79,7 @@
 
         <div class="form-field">
           <label class="form-label" for="task-due-date">Due date</label>
-          <input id="task-due-date" v-model="form.due_date" type="date" class="form-input app-input" :disabled="busy" />
+          <AppDatePicker id="task-due-date" v-model="form.due_date" class="form-input app-input" :disabled="busy" />
         </div>
 
         <div class="form-field">
@@ -111,6 +111,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import type {
   AdminGroup,
   AdminTask,
@@ -344,14 +345,16 @@ const submitForm = () => {
 }
 
 .form-input:disabled,
-.app-select.form-input.is-disabled {
+.app-select.form-input.is-disabled,
+.app-picker.form-input.is-disabled {
   background-color: var(--bg-light);
   color: var(--text-muted);
   cursor: not-allowed;
 }
 
-/* Drawn as the disabled inputs, without the dropdown's own fading. */
-.app-select.form-input.is-disabled {
+/* Drawn as the disabled inputs, without the dropdown's or picker's own fading. */
+.app-select.form-input.is-disabled,
+.app-picker.form-input.is-disabled {
   opacity: 1;
 }
 

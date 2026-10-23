@@ -444,6 +444,8 @@ REMINDER_KINDS = {
         "field": "reminder_24h_sent_for_start",
         "hours_ahead_setting": "RSVP_REMINDER_24H_HOURS_AHEAD",
         "window_hours_setting": "RSVP_REMINDER_24H_WINDOW_HOURS",
+        # A run this many hours late still sends it (it still reads "tomorrow").
+        "catch_up_hours": 12,
         "audiences": (
             {
                 "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
@@ -474,6 +476,8 @@ REMINDER_KINDS = {
         "field": "reminder_1h_sent_for_start",
         "hours_ahead_setting": "RSVP_REMINDER_1H_HOURS_AHEAD",
         "window_hours_setting": "RSVP_REMINDER_1H_WINDOW_HOURS",
+        # Late, it's sent up to the event's start ("starts in X minutes").
+        "catch_up_hours": 0.5,
         "audiences": (
             {
                 "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
@@ -531,7 +535,9 @@ def _dispatch_reminder_kind(kind, *, dry_run):
     window_hours = float(getattr(settings, cfg["window_hours_setting"]))
 
     now = timezone.now()
-    window_start = now + timedelta(hours=hours_ahead)
+    # From catch_up_hours before the window too, so a run that came late
+    # still reminds anyone it missed (the claim stops anyone getting two).
+    window_start = now + timedelta(hours=max(0.0, hours_ahead - float(cfg.get("catch_up_hours", 0))))
     window_end = now + timedelta(hours=hours_ahead + window_hours)
 
     candidates = (

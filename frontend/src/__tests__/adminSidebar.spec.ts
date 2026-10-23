@@ -4,7 +4,6 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import App from '@/App.vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
-import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import {
   mentorWithAccess,
   pureAgent,
@@ -303,7 +302,10 @@ describe('App sidebar support entries', () => {
     }
   })
 
-  describe('a supervisor, by Management > Supervisor Pages Visibility', () => {
+  // Management's Pages Visibility kept these from a supervisor until an admin
+  // showed them (Support was never one of them); main took that switch out
+  // on 2026-10-23, so every member item is theirs.
+  describe('a supervisor', () => {
     const supervisor = {
       id: 31,
       email: 'supervisor@example.com',
@@ -315,31 +317,8 @@ describe('App sidebar support entries', () => {
       isAdmin: false,
       isSupport: false
     }
-    // The pages the switch hides from a supervisor until an admin shows them.
-    const switchedPages = ['/dashboard', '/groups', '/events', '/announcements', '/resources']
 
-    afterEach(() => setSupervisorPages({ shown: false }))
-
-    it('off, as it starts: keeps Support, which the switch does not hide, and drops the rest', async () => {
-      // Support used to sit in the same run of links as the switched pages
-      // and went with them, so a supervisor had no way to it in the menu
-      // while /support itself stayed open to them.
-      setSupervisorPages({ shown: false })
-      useAuthStore().loginWithUser(supervisor as never)
-      // Started on Support, which the guard lets them open. /dashboard would
-      // send them on to /profile, whose loads outlive the test and sign the
-      // next one out.
-      await mountApp({ viewport: 'desktop', start: '/support' })
-
-      expect(router.currentRoute.value.path).toBe('/support')
-      expect(sidebarHas('/support'), 'Support').toBe(true)
-      for (const path of switchedPages) {
-        expect(sidebarHas(path), `switched page ${path}`).toBe(false)
-      }
-    })
-
-    it('on: every member item, Support among them', async () => {
-      setSupervisorPages({ shown: true })
+    it('gets every member item, Support among them', async () => {
       useAuthStore().loginWithUser(supervisor as never)
       await mountApp({ viewport: 'desktop' })
 

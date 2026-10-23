@@ -11,8 +11,9 @@ const KEY = 'biotech.registration.draft'
 // Bump when the forms' shape changes, so an older draft isn't restored into it.
 // 2: group codes are numbers (held until a time). 3: a group's Support step.
 // 4: a group's Support step gone (its guardian on Your profile, its
-// supervisor on Group).
-const VERSION = 5
+// supervisor on Group). 6: a mentor's hours a week, relevant background and
+// how they'd mentor gone (the server refuses them).
+const VERSION = 6
 
 export type RegistrationDraft = {
   version: number

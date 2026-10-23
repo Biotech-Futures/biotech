@@ -114,6 +114,8 @@ export async function saveGuardianDetails(payload: {
   pg_first_name: string
   pg_last_name: string
   pg_email?: string
+  /** Confirmed: a new guardian clears the permission the old one gave. */
+  clear_permission?: boolean
 }): Promise<SupervisedStudent[]> {
   await ensureCsrfCookie(API_BASE_URL)
   const response = await fetch(`${API_BASE_URL}/api/v1/users/supervised-students/`, {

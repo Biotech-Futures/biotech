@@ -315,6 +315,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -598,6 +600,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-mentor-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -659,22 +663,6 @@
             :options="mentorCapacityOptions"
           />
         </div>
-        <label class="admin-users-detail__item">
-          <span class="admin-users-detail__label">Hours per week</span>
-          <input
-            :value="form.mentorWeeklyHours"
-            type="number"
-            inputmode="numeric"
-            min="1"
-            :max="MAX_WEEKLY_HOURS"
-            step="1"
-            class="admin-users-detail__input app-input"
-            data-test="admin-mentor-hours-input"
-            @input="onHoursInput"
-            @keydown="refuseNonDigitKey"
-            @paste="refuseNonDigitPaste"
-          />
-        </label>
         <p v-if="saveError" class="admin-users-detail__save-error" role="alert">{{ saveError }}</p>
         <div class="admin-users-detail__actions">
           <button type="button" class="btn btn-outline btn-sm" :disabled="saving" @click="cancelEdit">Cancel</button>
@@ -718,10 +706,6 @@
           <dt>Capacity</dt>
           <dd>{{ capacityLabel(user.mentorMaxGroupCount) }}</dd>
         </div>
-        <div class="admin-users-detail__item">
-          <dt>Hours per week</dt>
-          <dd data-test="admin-mentor-hours">{{ hoursLabel(user.mentorWeeklyHours) }}</dd>
-        </div>
       </dl>
     </section>
 
@@ -754,57 +738,21 @@
             :options="WEEKDAY_OPTIONS"
             placeholder="Day"
           />
-          <!-- Each time as its hour and its minutes, in 5-minute steps (a time
-               box's own picker lists every minute). -->
-          <span class="admin-users-detail__time" :data-test="`admin-mentor-slot-${index}-start`">
-            <AppSelect
-              :model-value="slot.startHour"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-start-hour`"
-              :aria-label="`From, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'start', value)"
-            />
-            <span class="admin-users-detail__time-colon">:</span>
-            <AppSelect
-              v-model="slot.startMinute"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-start-minute`"
-              :aria-label="`From, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.startMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.start"
+            size="large"
+            class="admin-users-detail__input admin-users-detail__time"
+            :data-test="`admin-mentor-slot-${index}-start`"
+            :aria-label="`From, time ${index + 1}`"
+          />
           <span class="admin-users-detail__slot-to">to</span>
-          <span class="admin-users-detail__time" :data-test="`admin-mentor-slot-${index}-end`">
-            <AppSelect
-              :model-value="slot.endHour"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-end-hour`"
-              :aria-label="`To, hour, time ${index + 1}`"
-              :options="HOUR_OPTIONS"
-              :searchable="false"
-              placeholder="--"
-              @update:model-value="(value) => pickHour(slot, 'end', value)"
-            />
-            <span class="admin-users-detail__time-colon">:</span>
-            <AppSelect
-              v-model="slot.endMinute"
-              size="large"
-              class="admin-users-detail__input admin-users-detail__time-part"
-              :data-test="`admin-mentor-slot-${index}-end-minute`"
-              :aria-label="`To, minutes, time ${index + 1}`"
-              :options="minuteOptions(slot.endMinute)"
-              :searchable="false"
-              placeholder="--"
-            />
-          </span>
+          <AppTimePicker
+            v-model="slot.end"
+            size="large"
+            class="admin-users-detail__input admin-users-detail__time"
+            :data-test="`admin-mentor-slot-${index}-end`"
+            :aria-label="`To, time ${index + 1}`"
+          />
           <button
             type="button"
             class="admin-users-detail__slot-remove"
@@ -857,7 +805,7 @@
           Edit
         </button>
       </div>
-      <!-- The three questions registering asks, 150 words each at most. -->
+      <!-- The question registering asks, 150 words at most. -->
       <form v-if="editing === 'application'" data-test="admin-application-form" @submit.prevent="save">
         <label
           v-for="question in APPLICATION_QUESTIONS"
@@ -988,6 +936,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-supervisor-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -1117,6 +1067,8 @@
             class="admin-users-detail__input app-input"
             data-test="admin-admin-pronouns-select"
             :options="PRONOUN_SELECT_OPTIONS"
+            :placeholder="PRONOUN_PLACEHOLDER"
+            clearable
             :searchable="false"
           />
         </div>
@@ -1162,6 +1114,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import AppTimePicker from '@/components/AppTimePicker.vue'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import {
   changeSupervisees,
@@ -1194,7 +1147,6 @@ import type {
 import { DEFAULT_GROUP_MAX_SIZE, studentCount } from '@/utils/groupCapacity'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatShortDateTime } from '@/utils/date'
-import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import {
   formatFullDate,
@@ -1208,10 +1160,8 @@ import {
 import { INTEREST_OPTIONS } from '@/utils/userOptions'
 import {
   APPLICATION_QUESTIONS,
-  HOUR_OPTIONS,
   MAX_ANSWER_WORDS,
   MAX_SLOTS,
-  MAX_WEEKLY_HOURS,
   MENTOR_BACKGROUNDS,
   STUDY_YEAR_OPTIONS,
   WEEKDAYS,
@@ -1221,14 +1171,12 @@ import {
   capacityLabel,
   isStudyingBackground,
   mentorBackgroundCode,
-  minuteOptions,
-  pickHour,
-  splitSlot,
+  draftSlot,
   vAutoGrow,
   wordCount,
   type MentorSlot
 } from '@/utils/mentorForm'
-import { PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import { PROFILE_PHOTO_ACCEPT, PROFILE_PHOTO_PROBLEM, isProfilePhoto } from '@/utils/profilePhoto'
 
 const props = withDefaults(
@@ -1345,14 +1293,11 @@ const blankForm = () => ({
   mentorUniversityYear: null as AppSelectOption['value'],
   mentorFieldOfStudy: '',
   mentorCapacity: null as AppSelectOption['value'],
-  mentorWeeklyHours: '' as string | number,
   mentorAvailability: [] as MentorSlot[],
-  mentorRelevantBackground: '',
   supervisorSchoolName: '',
   supervisorGroupIds: [] as number[],
   superviseeRows: [] as { id: number; name: string; email: string }[],
-  mentorReason: '',
-  mentorMentoringApproach: ''
+  mentorReason: ''
 })
 const form = reactive(blankForm())
 
@@ -1394,16 +1339,13 @@ const startEdit = (part: Part) => {
     mentorUniversityYear: user.mentorUniversityYear || null,
     mentorFieldOfStudy: user.mentorFieldOfStudy || '',
     mentorCapacity: user.mentorMaxGroupCount ?? null,
-    mentorWeeklyHours: user.mentorWeeklyHours ?? '',
-    mentorAvailability: (user.mentorAvailability || []).map(splitSlot),
-    mentorRelevantBackground: user.mentorRelevantBackground || '',
+    mentorAvailability: (user.mentorAvailability || []).map(draftSlot),
     supervisorSchoolName: user.role === 'supervisor' ? user.schoolName || '' : '',
     supervisorGroupIds: (user.supervisorGroups || []).map((group) => group.id),
     superviseeRows: (user.supervisees || []).flatMap((student) =>
       student.id ? [{ id: student.id, name: student.name, email: student.email }] : []
     ),
-    mentorReason: user.mentorReason || '',
-    mentorMentoringApproach: user.mentorMentoringApproach || ''
+    mentorReason: user.mentorReason || ''
   })
   saveError.value = ''
   editing.value = part
@@ -1861,14 +1803,6 @@ const mentorInterestOptions = computed(() => [
   ...(props.user?.interests || []).filter((interest) => !INTEREST_OPTIONS.includes(interest))
 ])
 
-// Hours per week: a number box taking two digits at most.
-const onHoursInput = (event: Event) => {
-  form.mentorWeeklyHours = keptDigits(event.target as HTMLInputElement, 2)
-}
-
-const hoursLabel = (hours: number | null | undefined) =>
-  hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : '—'
-
 
 // Any of it may be left blank, as when an admin adds a mentor; only what's
 // given wrong is refused.
@@ -1877,11 +1811,6 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
   const industry = background === 'industry'
   const pronouns = pronounsToSave({ choice: String(form.pronounsChoice ?? ''), other: form.pronounsOther })
   if (pronouns === null) return 'Enter their pronouns.'
-  // Hours a week: a whole number from 1 to 40, or left empty.
-  const hours = String(form.mentorWeeklyHours ?? '').trim()
-  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
-    return `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
-  }
   // What the background doesn't ask for is cleared, as registering does.
   return {
     firstName: form.firstName,
@@ -1894,21 +1823,18 @@ const mentorDetailsPayload = (): Record<string, unknown> | string => {
     mentorFieldOfStudy: industry ? '' : form.mentorFieldOfStudy,
     interests: form.interests,
     // Left unpicked, their capacity stays as it is.
-    ...(form.mentorCapacity === null ? {} : { mentorMaxGroupCount: form.mentorCapacity }),
-    mentorWeeklyHours: hours ? Number(hours) : null
+    ...(form.mentorCapacity === null ? {} : { mentorMaxGroupCount: form.mentorCapacity })
   }
 }
 
 const applicationPayload = (): Record<string, unknown> | string => {
   for (const question of APPLICATION_QUESTIONS) {
     if (wordCount(form[question.key]) > MAX_ANSWER_WORDS) {
-      return `Keep each answer to ${MAX_ANSWER_WORDS} words or fewer.`
+      return `Keep the answer to ${MAX_ANSWER_WORDS} words or fewer.`
     }
   }
   return {
-    mentorRelevantBackground: form.mentorRelevantBackground.trim(),
-    mentorReason: form.mentorReason.trim(),
-    mentorMentoringApproach: form.mentorMentoringApproach.trim()
+    mentorReason: form.mentorReason.trim()
   }
 }
 
@@ -2482,24 +2408,10 @@ const sendConsentRequest = async () => {
   max-width: none;
 }
 
-/* A time: its hour and its minutes, together. */
-.admin-users-detail__time {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-
-/* Just wide enough for two digits and the arrow. */
-.admin-users-detail__input.admin-users-detail__time-part {
+/* A time (AppTimePicker): as wide as it needs. */
+.admin-users-detail__slot > .admin-users-detail__input.admin-users-detail__time {
   flex: none;
-  width: 3.5rem;
   min-width: 0;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-}
-
-.admin-users-detail__time-colon {
-  color: var(--text-muted);
 }
 
 .admin-users-detail__slot-to {

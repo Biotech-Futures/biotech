@@ -60,8 +60,8 @@
       >
         <!-- Type, beside Search. -->
         <template #filters>
-          <div class="admin-tasks__filter">
-            <label class="admin-tasks__filter-label" for="task-type-filter">Type</label>
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="task-type-filter">Type</label>
             <AppSelect
               id="task-type-filter"
               class="table-filter"
@@ -582,20 +582,6 @@ onMounted(() => {
 }
 
 /* Type, in the table's search card, drawn like Search. */
-.admin-tasks__filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-tasks__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 /* Its text centred in the 2rem box, as a select's is. */
 .admin-tasks__bulk-status .app-select {
   display: flex;

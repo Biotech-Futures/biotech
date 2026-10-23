@@ -226,7 +226,7 @@ def _mark_rows(scope: _Scope) -> list[dict]:
     a group not marked at all last, and groups on the same total by team code."""
     rows = []
     for group in scope.groups:
-        fields = marks_release_fields(marks_summary_context(group, scope.year, grades_payload(group, scope.year)))
+        fields = marks_release_fields(marks_summary_context(group, scope.year, grades_payload(group)))
         rows.append({**results_notify._sheet_row(fields), "group_id": group.id})
     rows.sort(key=lambda row: (
         row.get("MTotal") in (None, ""),

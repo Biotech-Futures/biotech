@@ -36,7 +36,9 @@ from apps.admin.services.user import (
 )
 from apps.admin.services import guardian_consent
 from apps.admin.services.email_verification import get_credit_balance
+from apps.audit.models import AuditLog
 from apps.audit.services import log_audit_event
+from apps.users.known_university_load import load_universities, parse_university_upload
 from apps.users.profile_images import remove_profile_image, save_profile_image
 from apps.admin.services.known_university import (
     MISSING as KNOWN_UNIVERSITY_MISSING,
@@ -1887,6 +1889,30 @@ class SystemEmailMailApiView(APIView):
         return Response(get_mail_api_state())
 
 
+class ScheduledJobsView(APIView):
+    """GET /api/v1/admin/scheduled-jobs/ — the timed jobs the backend runs
+    itself, and each one's last run (see ``management.scheduler``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.services.system_email import get_scheduled_jobs
+
+        return Response(get_scheduled_jobs())
+
+
+class SystemEmailAlwaysOnView(APIView):
+    """GET /api/v1/admin/email-settings/always-on/ — whether Azure's Always On
+    is keeping the backend awake (see ``services.always_on``)."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        from apps.admin.services.system_email import get_always_on_state
+
+        return Response(get_always_on_state())
+
+
 class SystemEmailResendView(APIView):
     """POST /api/v1/admin/email-log/<key>/resend/ — Resend on the Log: the
     email again to the people it missed, queued to send in its turn (202),
@@ -1996,3 +2022,45 @@ class KnownUniversityDetailView(APIView):
     def delete(self, request, university_id):
         result, code = delete_known_university(university_id, actor=request.user)
         return Response(result, status=code)
+
+
+# An uploaded list of universities, at most this big.
+UNIVERSITY_UPLOAD_MAX_BYTES = 2 * 1024 * 1024
+
+
+class KnownUniversityUploadView(APIView):
+    """POST multipart ``file`` (a .csv or .xlsx) to
+    /api/v1/admin/known-university/upload/: Management > Known Universities'
+    Upload Universities, as My Students' Upload guardian details: its
+    columns name, acronym and country exactly, in order. ``dry_run`` ("true",
+    the default) previews what it would do; "false" loads it, if nothing is
+    wrong, as the load_known_universities command loads a file: new ones
+    added, a listed one's blank acronym or country filled in, nothing
+    overwritten or removed."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"msg": "Choose a file to upload.", "data": None}, status=400)
+        if upload.size > UNIVERSITY_UPLOAD_MAX_BYTES:
+            return Response({"msg": "Choose a file no larger than 2 MB.", "data": None}, status=400)
+        try:
+            result = parse_university_upload(upload, upload.name)
+        except Exception:  # noqa: BLE001 - an unreadable file, whatever the reason
+            return Response({"msg": "That file couldn't be read. Upload a .csv or .xlsx.", "data": None}, status=400)
+        rows = result.pop("rows")
+        if str(request.data.get("dry_run", "true")).lower() != "false":
+            return Response({"msg": "ok", "data": result})
+        if result["summary"]["errors"]:
+            return Response({"msg": "The sheet has problems; fix them before applying.", "data": result}, status=400)
+        loaded = load_universities(rows)
+        log_audit_event(
+            actor=request.user, entity_type="known_university", entity_id=0,
+            action=AuditLog.ActionChoices.IMPORT,
+            after_state={"file": upload.name, **{key: loaded[key] for key in ("added", "filled", "skipped")}},
+        )
+        result["summary"].update(added=loaded["added"], filled=loaded["filled"], skipped=loaded["skipped"])
+        return Response({"msg": "Universities uploaded", "data": {**result, "applied": True}})

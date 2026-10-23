@@ -272,6 +272,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    # First, so Azure's Always On calls are noted before anything redirects them.
+    "apps.services.always_on.AlwaysOnPingMiddleware",
+    # Starts this process's timer for the timed jobs, when SCHEDULER_ENABLED.
+    "apps.management.scheduler.SchedulerStartMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # GZip must sit above middleware that touches response content.
     "django.middleware.gzip.GZipMiddleware",
@@ -720,10 +724,15 @@ GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", defa
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
 # The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
-# on the server once started, over this many mail server connections at once.
-# Raise it only as far as the mailbox's sending limits allow. Tests set the
-# sync flag to send inline, one at a time.
-BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+# on the server once started, over this many mail server connections at once,
+# each taking the next email as it's free. When the mail server pushes back
+# (won't take a connection, or emails start failing for anything but an
+# address refused) one is dropped at once, down to BULK_EMAIL_MIN_WORKERS, and that mailbox's runs use that many
+# for BULK_EMAIL_FEWER_MINUTES before trying again. Tests set the sync flag
+# to send inline, the connections taking turns.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=3, cast=int)
+BULK_EMAIL_MIN_WORKERS = config("BULK_EMAIL_MIN_WORKERS", default=2, cast=int)
+BULK_EMAIL_FEWER_MINUTES = config("BULK_EMAIL_FEWER_MINUTES", default=60, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
 # Once a run has tried every email, it waits this many seconds, then tries
 # once more the ones that failed: Management's bulk emails, announcements, the
@@ -872,6 +881,10 @@ QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, 
 # QuickEmailVerification answered as not existing (the user can confirm past
 # it). Off unless set.
 EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
+
+# The backend runs its timed jobs itself (apps.management.scheduler) instead
+# of waiting for GitHub's schedules. Off unless set; needs Always On.
+SCHEDULER_ENABLED = config("SCHEDULER_ENABLED", default="false", cast=env_bool)
 
 # Limits on checking addresses before a registration is submitted: addresses
 # in one request (fewer for anyone not signed in), new lookups one IP address

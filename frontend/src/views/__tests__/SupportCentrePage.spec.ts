@@ -2,7 +2,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SupportCentrePage from '../SupportCentrePage.vue'
-import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import { useAuthStore } from '@/stores/auth'
 
 vi.mock('vue-router', () => ({
@@ -233,10 +232,10 @@ describe('the page header', () => {
 })
 
 /**
- * The help panel links each topic to its shelf in Resources. Resources is one
- * of the pages Management > Supervisor Pages Visibility keeps from a
- * supervisor until it shows them (the router guard sends them to their
- * profile), so while it is off a supervisor gets the topics as text.
+ * The help panel links each topic to its shelf in Resources, for every role.
+ * A supervisor used to get the topics as text while Management's Pages
+ * Visibility kept Resources from them; main took that switch out on
+ * 2026-10-23, so Resources is open to them as to everyone else.
  */
 describe('SupportCentrePage help panel', () => {
   const supervisor = {
@@ -259,35 +258,26 @@ describe('SupportCentrePage help panel', () => {
   })
 
   afterEach(() => {
-    setSupervisorPages({ shown: false })
     labelsMock.mockResolvedValue([])
   })
 
-  async function panelFor(user: object, pagesShown: boolean) {
-    setSupervisorPages({ shown: pagesShown })
+  async function panelFor(user: object) {
     useAuthStore().loginWithUser(user as never)
     const wrapper = mount(SupportCentrePage)
     await flushPromises()
     return wrapper.get('.support__selfserve').text()
   }
 
-  it('names the topics without linking a supervisor to Resources while it is hidden', async () => {
-    const panel = await panelFor(supervisor, false)
+  it('links a supervisor to the guides and the library', async () => {
+    const panel = await panelFor(supervisor)
 
     expect(panel).toContain('Registration')
-    expect(panel).not.toContain('Read the guides')
-    expect(panel).not.toContain('View all help articles in Resources')
-  })
-
-  it('links them for a supervisor once the pages are shown', async () => {
-    const panel = await panelFor(supervisor, true)
-
     expect(panel).toContain('Read the guides')
     expect(panel).toContain('View all help articles in Resources')
   })
 
-  it('links them for a student whatever the switch says', async () => {
-    const panel = await panelFor({ ...supervisor, id: 32, current_role_name: 'student' }, false)
+  it('links a student the same way', async () => {
+    const panel = await panelFor({ ...supervisor, id: 32, current_role_name: 'student' })
 
     expect(panel).toContain('Read the guides')
     expect(panel).toContain('View all help articles in Resources')

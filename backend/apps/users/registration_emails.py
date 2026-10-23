@@ -45,15 +45,19 @@ def supervised_context(user, supervisor) -> dict:
     return {**registration_context(user), "SUPERVISOR_NAME": supervisor.get_full_name() or supervisor.email}
 
 
-def send_registration_emails(journey: str, users, *, supervisor=None, admin_for=None) -> None:
+def send_registration_emails(journey: str, users, *, supervisor=None, admin_for=None, group=None) -> None:
     """Each registration email ``journey`` sends, to the people it saved
     (``users``, in their order on the form), and to the ``supervisor`` who
     registered them, if one did. ``admin_for``: an admin registered them,
-    for the supervisor of that name."""
+    for the supervisor of that name. ``group``: the group they made or
+    joined, whose code a student group's email carries."""
     key = STUDENT_EMAILS.get(journey)
     if key:
         for user in users:
-            send_system_email(key, user.email, registration_context(user), background=True)
+            context = registration_context(user)
+            if key == GROUP_KEY and group is not None and group.code:
+                context["GROUP_CODE"] = group.code
+            send_system_email(key, user.email, context, background=True)
     if supervisor is not None:
         # Each student they registered, then the supervisor.
         for user in users:

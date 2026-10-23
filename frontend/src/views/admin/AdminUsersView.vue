@@ -124,7 +124,7 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div class="admin-users__delete-type">
-        <label class="admin-users__filter-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -157,7 +157,7 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="singleDelete.force" class="admin-users__delete-type">
-        <label class="admin-users__filter-label" for="single-delete-confirm">
+        <label class="table-filter-label" for="single-delete-confirm">
           Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -526,14 +526,6 @@ defineExpose({
   flex-direction: column;
   gap: 0.3rem;
   margin-top: 0.75rem;
-}
-
-.admin-users__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .admin-users__delete-keyword {

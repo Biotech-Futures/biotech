@@ -27,6 +27,7 @@ from .release import CertificatesReleaseView, MarksReleaseView
 from .bounce_check import BounceCheckTriggerView
 from .waiting_emails import SendWaitingEmailsView
 from .challenge_start import ChallengeStartView
+from .resource_releases import ResourceReleasesView, ResourceReleaseView
 from .registration_open import RegistrationOpenView
 from .registration_supervisors import RegistrationSupervisorsView, RegistrationSupervisorView
 from .supervisor_pages import SupervisorPagesView
@@ -67,6 +68,8 @@ __all__ = [
     "BounceCheckTriggerView",
     "SendWaitingEmailsView",
     "ChallengeStartView",
+    "ResourceReleasesView",
+    "ResourceReleaseView",
     "RegistrationOpenView",
     "RegistrationSupervisorsView",
     "RegistrationSupervisorView",

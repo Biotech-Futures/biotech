@@ -138,10 +138,7 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     company: 'Bio Labs',
     interests: ['Biomedical Innovations'],
     capacity: '2',
-    weeklyHours: '3',
-    background: 'Biotechnology product development.',
     motivation: 'Support the next generation of researchers.',
-    mentoringApproach: 'Weekly check-ins and feedback on each milestone.',
   })
   await wrapper.vm.$nextTick()
 }
@@ -805,7 +802,7 @@ describe('registration gateway UI integration', () => {
         return {
           ok: false,
           message: 'Review the highlighted information.',
-          fieldErrors: { 'mentor.background': 'Add more detail about your experience.' },
+          fieldErrors: { 'mentor.motivation': 'Add more detail about why you would like to mentor.' },
         }
       },
     }
@@ -814,10 +811,10 @@ describe('registration gateway UI integration', () => {
     await submit(wrapper)
 
     await vi.waitFor(() => expect(setupOf(wrapper).currentStep).toBe(2))
-    const background = wrapper.get('#mentor-background')
-    expect(background.attributes('aria-invalid')).toBe('true')
-    expect(document.activeElement).toBe(background.element)
-    expect(wrapper.text()).toContain('Add more detail about your experience.')
+    const motivation = wrapper.get('#mentor-motivation')
+    expect(motivation.attributes('aria-invalid')).toBe('true')
+    expect(document.activeElement).toBe(motivation.element)
+    expect(wrapper.text()).toContain('Add more detail about why you would like to mentor.')
   })
 
   it('returns supervisor server errors to the visible reindexed student step', async () => {

@@ -3,8 +3,8 @@
 
     <!-- The white dropdowns the user panel has: Country's to search, as
          its list is long; the others just to pick from. -->
-    <div v-if="!isRoleFixed" class="admin-users__filter">
-      <label class="admin-users__filter-label" for="role-filter">Role</label>
+    <div v-if="!isRoleFixed" class="table-filter-field">
+      <label class="table-filter-label" for="role-filter">Role</label>
       <AppSelect
         class="table-filter"
         id="role-filter"
@@ -15,8 +15,8 @@
       />
     </div>
 
-    <div class="admin-users__filter">
-      <label class="admin-users__filter-label" for="country-filter">Country</label>
+    <div class="table-filter-field">
+      <label class="table-filter-label" for="country-filter">Country</label>
       <AppSelect
         class="table-filter"
         id="country-filter"
@@ -28,8 +28,8 @@
       />
     </div>
 
-    <div class="admin-users__filter">
-      <label class="admin-users__filter-label" for="state-filter">State</label>
+    <div class="table-filter-field">
+      <label class="table-filter-label" for="state-filter">State</label>
       <AppSelect
         class="table-filter"
         id="state-filter"
@@ -40,8 +40,8 @@
       />
     </div>
 
-    <div v-if="isStudentMode" class="admin-users__filter">
-      <label class="admin-users__filter-label" for="in-group-filter">In group</label>
+    <div v-if="isStudentMode" class="table-filter-field">
+      <label class="table-filter-label" for="in-group-filter">In group</label>
       <AppSelect
         class="table-filter"
         id="in-group-filter"
@@ -52,8 +52,8 @@
       />
     </div>
 
-    <div class="admin-users__filter">
-      <label class="admin-users__filter-label" for="status-filter">Status</label>
+    <div class="table-filter-field">
+      <label class="table-filter-label" for="status-filter">Status</label>
       <AppSelect
         class="table-filter"
         id="status-filter"
@@ -144,17 +144,4 @@ const emitPatch = (field: FilterField, value: AppSelectValue) => {
   gap: 0.75rem 1rem;
 }
 
-.admin-users__filter {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-users__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
 </style>

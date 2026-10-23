@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import SetDeadlinePage from '@/views/management/SetDeadlinePage.vue'
 import { fetchSubmissionDeadline, saveSubmissionDeadline } from '@/utils/managementAPI'
 import { formatStatementTime, getBrowserTimeZone } from '@/utils/date'
+import { pickerValue, setPicker } from '@/__tests__/appPicker'
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchSubmissionDeadline: vi.fn(),
@@ -55,8 +56,7 @@ describe('the current-deadline card', () => {
     expect(wrapper.text()).toContain('(+ 6h quiet grace)')
     expect(wrapper.text()).toContain('Set by Ada Admin')
     // The picker is pre-filled with the stored closing time.
-    const input = wrapper.find('input[type="datetime-local"]')
-    expect((input.element as HTMLInputElement).value).not.toBe('')
+    expect(pickerValue(wrapper, '.app-picker')).not.toBe('')
   })
 
   it('reports the quiet grace period once the announced time has passed', async () => {
@@ -89,7 +89,7 @@ describe('the current-deadline card', () => {
 
 describe('setting a deadline', () => {
   const fillAndSubmit = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
-    await wrapper.find('input[type="datetime-local"]').setValue('2026-11-01T09:00')
+    await setPicker(wrapper, '.app-picker', '2026-11-01T09:00')
     await wrapper.find('form').trigger('submit')
   }
 
@@ -142,11 +142,10 @@ describe('setting a deadline', () => {
   it('defaults the closing time to today at 23:59, and clearing it blocks submit', async () => {
     fetchMock.mockResolvedValueOnce({ deadline: null })
     const wrapper = await mountPage()
-    const input = wrapper.find('input[type="datetime-local"]')
-    expect((input.element as HTMLInputElement).value).toMatch(/T23:59$/)
+    expect(pickerValue(wrapper, '.app-picker')).toMatch(/T23:59$/)
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
 
-    await input.setValue('')
+    await setPicker(wrapper, '.app-picker', '')
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
   })
 })

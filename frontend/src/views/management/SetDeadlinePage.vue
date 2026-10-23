@@ -73,7 +73,13 @@
         <form class="deadline__form" @submit.prevent="confirmOpen = true">
           <label class="deadline__field">
             <span>Closes at</span>
-            <input v-model="closesAtLocal" type="datetime-local" required class="deadline__input app-input app-input--compact" />
+            <AppDateTimePicker
+              v-model="closesAtLocal"
+              required
+              class="deadline__input app-input app-input--compact"
+              default-time="23:59"
+              :min="earliest"
+            />
           </label>
           <label class="deadline__field">
             <span>Grace hours</span>
@@ -124,6 +130,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 import {
   fetchSubmissionDeadline,
   saveSubmissionDeadline,
@@ -148,6 +156,12 @@ const defaultClosesAtLocal = () => {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
 }
 const closesAtLocal = ref(defaultClosesAtLocal())
+// The challenge start and registration's close: it must be later than both.
+const order = useDateOrder()
+const earliest = computed(() => {
+  const after = [order.challengeStart.value, order.registrationCloses.value].filter(Boolean) as string[]
+  return after.length ? minuteBeside(after.reduce((a, b) => (Date.parse(a) > Date.parse(b) ? a : b)), 1) : ''
+})
 // 24h quiet grace by default; replaced by the saved deadline's value on load.
 const graceHours = ref(24)
 const confirmOpen = ref(false)
@@ -210,7 +224,10 @@ const save = async () => {
   }
 }
 
-onMounted(() => void load())
+onMounted(() => {
+  void order.load({ withDeadline: false })
+  void load()
+})
 </script>
 
 <style scoped>

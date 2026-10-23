@@ -32,7 +32,7 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
   mentor: [
     [/^mentor\.(firstName|lastName|email|country|state)$/, 0],
     [/^mentor\.(affiliation|institution|company|universityYear|fieldOfStudy)$/, 1],
-    [/^mentor\.(interests|capacity|weeklyHours|background|motivation|mentoringApproach)$/, 2],
+    [/^mentor\.(interests|capacity|motivation)$/, 2],
   ],
 }
 

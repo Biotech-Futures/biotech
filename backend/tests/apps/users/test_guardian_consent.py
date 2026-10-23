@@ -116,6 +116,51 @@ class ConsentPageTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_410_GONE)
         self.assertEqual(response.data["code"], "consent_link_out_of_date")
 
+    # -- links kept until signed -------------------------------------------------
+
+    def test_an_earlier_emails_link_keeps_working_after_another_is_sent(self):
+        again = issue(self.profile)
+
+        self.assertEqual(again, self.token)
+        self.assertEqual(self.client.get(self.url()).status_code, status.HTTP_200_OK)
+
+    def test_each_send_resets_the_links_time(self):
+        from django.utils.dateparse import parse_datetime
+
+        self.profile.consent_requests.update(valid_until=timezone.now() - timedelta(minutes=1))
+        self.assertEqual(self.client.get(self.url()).status_code, status.HTTP_410_GONE)
+
+        issue(self.profile)
+
+        response = self.client.get(self.url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreater(parse_datetime(response.data["expiresAt"]), timezone.now() + timedelta(days=13))
+
+    def test_an_earlier_guardians_link_stops_once_another_guardians_is_sent(self):
+        self.profile.pg_email = "someone.else@example.com"
+        self.profile.save()
+
+        new = issue(self.profile)
+
+        self.assertNotEqual(new, self.token)
+        self.assertEqual(self.client.get(self.url()).status_code, status.HTTP_410_GONE)
+        self.assertEqual(self.client.get(self.url(new)).status_code, status.HTTP_200_OK)
+
+    def test_for_a_minute_after_signing_the_link_thanks_them_then_only_says_its_done(self):
+        self.sign()
+        consent = GuardianConsent.objects.get()
+
+        response = self.client.get(self.url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["completed"], {"reference": consent.reference, "mediaConsent": True})
+        self.profile.consent_requests.update(used_at=timezone.now() - timedelta(minutes=2))
+        response = self.client.get(self.url())
+        self.assertEqual(response.status_code, status.HTTP_410_GONE)
+        self.assertEqual(
+            response.data, {"code": "consent_link_used", "error": "This form has already been completed."},
+        )
+
     # -- signing ---------------------------------------------------------------
 
     def test_signing_records_consent_and_thanks_the_guardian(self):

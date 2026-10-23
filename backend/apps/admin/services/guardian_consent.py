@@ -61,10 +61,15 @@ def _guardian_or_problem(profile):
     return guardian, None
 
 
-def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_saved: bool = False) -> Dict[str, Any]:
+def send_guardian_consent_request(
+    user_id: int, initiated_by=None, *, details_saved: bool = False, background: bool = False,
+) -> Dict[str, Any]:
     """Email the consent form to the guardian of student ``user_id``.
     ``details_saved`` when the student has just named them on their profile:
-    the student is thanked for the details instead of asked to remind them."""
+    the student is thanked for the details instead of asked to remind them.
+    ``background`` hands the emails to the mail pool rather than waiting on
+    the mail server (a registration naming many guardians); one the server
+    then refuses is noted in the Log, and the daily run sends it again."""
     with transaction.atomic():
         profile = (
             StudentProfile.objects.select_for_update()
@@ -79,12 +84,8 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
         if problem:
             return problem
 
-        last_sent = (
-            GuardianConsentRequest.objects.filter(student=profile)
-            .order_by("-created_at")
-            .values_list("created_at", flat=True)
-            .first()
-        )
+        # The last email, as each one now reuses the same link.
+        last_sent = profile.guardian_reminder_sent_at
         now = timezone.now()
         if last_sent and now - last_sent < RESEND_COOLDOWN:
             wait = int((RESEND_COOLDOWN - (now - last_sent)).total_seconds() // 60) + 1
@@ -113,6 +114,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
                 "EXPIRY_DAYS": consent.LINK_LIFETIME.days,
             },
             sent_by=initiated_by,
+            background=background,
         )
         if outcome in (SKIPPED, FAILED):
             # Nobody got the link, so it must not count as sent or replace the
@@ -157,6 +159,7 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
             [student.email],
             {"STUDENT_FIRST_NAME": student.first_name or "", "GUARDIAN_EMAIL": guardian.email},
             sent_by=initiated_by,
+            background=background,
         )
 
     return _result(SENT, f"Consent request sent to {guardian.email}.", fetch_user_by_id(user_id))
@@ -164,8 +167,8 @@ def send_guardian_consent_request(user_id: int, initiated_by=None, *, details_sa
 
 def guardian_consent_link(user_id: int, shared_by=None) -> Dict[str, Any]:
     """The consent link for student ``user_id``'s guardian, to share by hand:
-    the one already out if it still works, so an emailed link keeps working,
-    else a new one, which replaces it."""
+    the one already out to them (an emailed link keeps working), its time
+    reset as an email resets it, else a new one."""
     with transaction.atomic():
         profile = (
             StudentProfile.objects.select_for_update()
@@ -180,9 +183,9 @@ def guardian_consent_link(user_id: int, shared_by=None) -> Dict[str, Any]:
         if problem:
             return problem
 
-        token = consent.token_still_out(profile, guardian)
-        if token is None:
-            request, token = consent.issue_request(profile, guardian, sent_by=shared_by)
+        had_one = consent.token_still_out(profile, guardian) is not None
+        request, token = consent.issue_request(profile, guardian, sent_by=shared_by)
+        if not had_one:
             log_audit_event(
                 actor=shared_by,
                 entity_type="user",

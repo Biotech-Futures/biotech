@@ -35,15 +35,15 @@ class RubricCriterionInline(admin.TabularInline):
 
 @admin.register(Rubric)
 class RubricAdmin(admin.ModelAdmin):
-    list_display = ("id", "component", "year", "active")
-    list_filter = ("year", "active", "component")
+    list_display = ("id", "component", "active")
+    list_filter = ("active", "component")
     inlines = [RubricCriterionInline]
 
 
 @admin.register(RubricCriterion)
 class RubricCriterionAdmin(admin.ModelAdmin):
     list_display = ("id", "rubric", "name", "max_mark", "order")
-    list_filter = ("rubric__component", "rubric__year")
+    list_filter = ("rubric__component",)
     search_fields = ("name",)
 
 

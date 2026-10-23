@@ -11,13 +11,12 @@ name: Daily submission reminders
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# 07:17 UTC is late afternoon in Sydney, where most teams are: a reminder that
-# lands during the day is acted on, one that lands overnight is buried by
-# morning. The odd minute avoids GitHub's top-of-hour cron congestion, which
-# can otherwise drift a run by ten minutes or more.
+# 21:00 UTC (8am in Sydney under daylight saving, 7am in winter), last of
+# the daily emails. The backend runs these itself once SCHEDULER_ENABLED is
+# set (apps.management.scheduler), at the same time.
 on:
   schedule:
-    - cron: "17 7 * * *"
+    - cron: "0 21 * * *"
   workflow_dispatch:
 
 jobs:

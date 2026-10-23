@@ -65,6 +65,13 @@ const router = createRouter({
       return { left: 0, top: 0 }
     }
 
+    // A resource's own page opens at its top, not as far down as the page
+    // it was opened from (Release Resources sits low on Challenge Start).
+    // The browser's back and forward still return to where they were.
+    if (to.name === 'resource-detail' && to.path !== from.path && !savedPosition) {
+      return { left: 0, top: 0 }
+    }
+
     return savedPosition ?? undefined
   },
 })
@@ -72,7 +79,6 @@ const router = createRouter({
 import { useAuthStore } from '../stores/auth'
 import { landingPath, SUPPORT_ACCESS_PATH } from '@/utils/landing'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
-import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
 import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 // Pages a support-only account may open besides the ticket routes: its own
@@ -143,9 +149,6 @@ router.beforeEach((to, from, next) => {
   } else if (to.path === '/login' && auth.isAuthenticated) {
     // landingPath() answers the set-password case first, as this branch did.
     next(landingPath(auth))
-  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
-    // Hidden from supervisors until Management > Supervisor Pages Visibility shows them.
-    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

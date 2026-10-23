@@ -382,8 +382,7 @@ class MeMentorDetailsView(_OwnDetailsView):
 
     FIELDS = (
         "firstName", "lastName", "pronouns", "interests", "mentorBackground", "mentorCompany", "mentorInstitution",
-        "mentorUniversityYear", "mentorFieldOfStudy", "mentorMaxGroupCount", "mentorWeeklyHours",
-        "mentorAvailability",
+        "mentorUniversityYear", "mentorFieldOfStudy", "mentorMaxGroupCount", "mentorAvailability",
     )
     ROLE = "mentor"
 
@@ -559,7 +558,8 @@ class MeRetrieveView(generics.RetrieveAPIView):
 
 
 class ProfileImageUploadView(APIView):
-    """Replace the authenticated user's private profile image."""
+    """Replace (POST) or remove (DELETE) the authenticated user's own private
+    profile image."""
 
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -570,6 +570,12 @@ class ProfileImageUploadView(APIView):
         if image is None:
             raise serializers.ValidationError({"image": "Select an image to upload."})
         save_profile_image(user=request.user, uploaded_file=image)
+        return Response(UserSerializer(request.user).data)
+
+    @extend_schema(request=None, responses={200: UserSerializer})
+    def delete(self, request):
+        """Take their photo off: their initials show again."""
+        remove_profile_image(user=request.user)
         return Response(UserSerializer(request.user).data)
 
 
@@ -663,7 +669,14 @@ class SupervisedStudentsView(APIView):
     )
     @transaction.atomic
     def patch(self, request):
-        """Record parent/guardian details for one or more supervised students."""
+        """Record parent/guardian details for one or more supervised students.
+
+        A new guardian clears the permission the old one gave (media consent
+        too), as the student's own change does: the new one has to sign. The
+        page warns first and sends ``clear_permission``; without it, a student
+        whose guardian has given permission is refused (a page from before
+        they signed). Saving the same details clears nothing.
+        """
         scope = _student_scope(request.user)
 
         serializer = SupervisedStudentGuardianSerializer(data=request.data)
@@ -672,8 +685,10 @@ class SupervisedStudentsView(APIView):
         pg_first_name = serializer.validated_data["pg_first_name"].strip()
         pg_last_name = serializer.validated_data["pg_last_name"].strip()
         pg_email = (serializer.validated_data.get("pg_email") or "").strip().lower() or None
+        clear_permission = serializer.validated_data["clear_permission"]
 
-        profiles = _supervised_profiles(scope, student_ids)
+        # Locked, so a guardian signing meanwhile is seen, not written over.
+        profiles = _supervised_profiles(scope.select_for_update(of=("self",)), student_ids)
         if pg_email and any(
             pg_email == (profile.user.email or "").strip().lower() for profile in profiles
         ):
@@ -681,23 +696,52 @@ class SupervisedStudentsView(APIView):
                 {"pg_email": "Guardian email cannot be the student's own email."}
             )
 
+        changing = {
+            profile.pk for profile in profiles
+            if (profile.pg_first_name, profile.pg_last_name, (profile.pg_email or "").strip().lower() or None)
+            != (pg_first_name, pg_last_name, pg_email)
+        }
+        consented = [profile for profile in profiles if profile.pk in changing and profile.has_join_permission]
+        if consented and not clear_permission:
+            names = [
+                f"{profile.user.first_name} {profile.user.last_name}".strip() or profile.user.email
+                for profile in consented
+            ]
+            whose = (
+                f"{names[0]}'s guardian has" if len(names) == 1
+                else f"{', '.join(names[:-1])} and {names[-1]}'s guardians have"
+            )
+            raise serializers.ValidationError({"student_ids": [
+                f"{whose} given permission since this page loaded. Reload to change it: "
+                "you'll be asked to confirm that it clears their permission."
+            ]})
+
         for profile in profiles:
+            cleared = profile.pk in changing and profile.has_join_permission
             profile.pg_first_name = pg_first_name
             profile.pg_last_name = pg_last_name
             profile.pg_email = pg_email
             profile.parent_guardian_flag = True
             # A supervisor's edit makes the student's details theirs to change.
             profile.supervisor_edited_at = timezone.now()
-            profile.save(
-                update_fields=[
-                    "pg_first_name",
-                    "pg_last_name",
-                    "pg_email",
-                    "parent_guardian_flag",
-                    "supervisor_edited_at",
+            fields = ["pg_first_name", "pg_last_name", "pg_email", "parent_guardian_flag", "supervisor_edited_at"]
+            if profile.pk in changing:
+                # The new guardian has to sign; reminders start over, for them.
+                profile.has_join_permission = False
+                profile.joinperm_responseID = None
+                profile.joinperm_granted_at = None
+                profile.media_consent = None
+                profile.guardian_reminder_sent_at = None
+                profile.guardian_reminder_due_at = None
+                fields += [
+                    "has_join_permission", "joinperm_responseID", "joinperm_granted_at", "media_consent",
+                    "guardian_reminder_sent_at", "guardian_reminder_due_at",
                 ]
+            profile.save(update_fields=fields)
+            _log_edit(
+                request.user, profile.user_id, "guardian_update",
+                {"guardianEmail": pg_email, "permissionCleared": cleared},
             )
-            _log_edit(request.user, profile.user_id, "guardian_update", {"guardianEmail": pg_email})
 
         return self.get(request)
 

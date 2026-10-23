@@ -101,10 +101,9 @@
         <!-- Start Date & Time -->
         <div class="form-field">
           <label class="form-label" for="ev-start">Start Date &amp; Time *</label>
-          <input
+          <AppDateTimePicker
             id="ev-start"
             v-model="form.startAt"
-            type="datetime-local"
             class="form-input app-input"
             required
           />
@@ -113,10 +112,9 @@
         <!-- End Date & Time -->
         <div class="form-field">
           <label class="form-label" for="ev-end">End Date &amp; Time *</label>
-          <input
+          <AppDateTimePicker
             id="ev-end"
             v-model="form.endsAt"
-            type="datetime-local"
             class="form-input app-input"
             required
           />
@@ -248,6 +246,7 @@
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
+import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
 
 const RichEditor = defineAsyncComponent(
   () => import('@/components/admin/RichEditor.vue')

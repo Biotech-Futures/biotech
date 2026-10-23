@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import DeadlineExtensionPage from '@/views/management/DeadlineExtensionPage.vue'
+import { pickerMin, setPicker } from '@/__tests__/appPicker'
 import {
   fetchGroupExtensions,
   fetchSubmissionDeadline,
@@ -63,7 +64,7 @@ const mountPage = async () => {
 
 const fillForm = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
   await wrapper.find('.picker').setValue('BTF-1')
-  await wrapper.find('input[type="datetime-local"]').setValue('2026-11-08T09:00')
+  await setPicker(wrapper, '.app-picker', '2026-11-08T09:00')
 }
 
 const grantButton = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
@@ -154,7 +155,7 @@ describe('the extensions table', () => {
     const d = new Date('2026-10-30T13:00:00Z')
     const pad = (n: number) => String(n).padStart(2, '0')
     const localFloor = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    expect(wrapper.find('input[type="datetime-local"]').attributes('min')).toBe(localFloor)
+    expect(pickerMin(wrapper, '.app-picker')).toBe(localFloor)
   })
 })
 

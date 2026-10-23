@@ -15,6 +15,12 @@ import {
 } from '@/utils/managementAPI'
 import { ApiError } from '@/utils/apiError'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { pickerText, setPicker } from '@/__tests__/appPicker'
+
+// The Add row's Start and End, and those in the first row while it's edited.
+const addStart = '.finalist-presentation__add .finalist-presentation__field:nth-of-type(1) .app-picker'
+const addEnd = '.finalist-presentation__add .finalist-presentation__field:nth-of-type(2) .app-picker'
+const rowEnd = 'tbody tr:first-child td:nth-child(2) .app-picker'
 
 vi.mock('@/utils/managementAPI', () => ({
   allocatePresentationSlot: vi.fn(),
@@ -175,14 +181,13 @@ describe('Finalist Presentation', () => {
   it('adds a time, then offers the next one straight after it', async () => {
     addMock.mockResolvedValue(slots())
     const wrapper = await mountPage()
-    const [start, end] = wrapper.findAll('.finalist-presentation__add input')
-    await start!.setValue('10:00')
-    await end!.setValue('10:30')
+    await setPicker(wrapper, addStart, '10:00')
+    await setPicker(wrapper, addEnd, '10:30')
     await buttonNamed(wrapper, 'Add Time').trigger('click')
     await flushPromises()
     expect(addMock).toHaveBeenCalledWith({ starts_at: '10:00', ends_at: '10:30' })
-    expect((start!.element as HTMLInputElement).value).toBe('10:30')
-    expect((end!.element as HTMLInputElement).value).toBe('11:00')
+    expect(pickerText(wrapper, addStart)).toBe('10:30')
+    expect(pickerText(wrapper, addEnd)).toBe('11:00')
   })
 
   it("shows why a time wasn't added", async () => {
@@ -190,9 +195,8 @@ describe('Finalist Presentation', () => {
       new ApiError({ error: 'The end time must be after the start time.', code: 'invalid', request_id: 'x' })
     )
     const wrapper = await mountPage()
-    const [start, end] = wrapper.findAll('.finalist-presentation__add input')
-    await start!.setValue('10:00')
-    await end!.setValue('09:00')
+    await setPicker(wrapper, addStart, '10:00')
+    await setPicker(wrapper, addEnd, '09:00')
     await buttonNamed(wrapper, 'Add Time').trigger('click')
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toBe('The end time must be after the start time.')
@@ -203,9 +207,9 @@ describe('Finalist Presentation', () => {
     deleteMock.mockResolvedValue(slots({ slots: [] }))
     const wrapper = await mountPage()
     await wrapper.findAll('tbody tr')[0]!.findAll('button')[0]!.trigger('click') // Edit
-    const inputs = wrapper.findAll('tbody tr')[0]!.findAll('input')
-    expect(inputs.map((i) => (i.element as HTMLInputElement).value)).toEqual(['09:30', '10:00'])
-    await inputs[1]!.setValue('10:15')
+    const pickers = wrapper.findAll('tbody tr')[0]!.findAll('.app-picker [data-test="app-picker-field"]')
+    expect(pickers.map((picker) => picker.text())).toEqual(['09:30', '10:00'])
+    await setPicker(wrapper, rowEnd, '10:15')
     await buttonNamed(wrapper, 'Save').trigger('click')
     await flushPromises()
     expect(updateMock).toHaveBeenCalledWith(1, { starts_at: '09:30', ends_at: '10:15' })
