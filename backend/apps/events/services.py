@@ -322,18 +322,41 @@ def set_user_rsvp(user, event_id, rsvp_status):
         # here would be theatre.
         raise PermissionDenied("You are not a target of this event.")
 
+    return set_event_rsvp(user.id, event.id, rsvp_status)
+
+
+def set_event_rsvp(
+    user_id, event_id, rsvp_status, *, exclude_from_promotion=(), keep_response=False,
+):
+    """Apply a validated RSVP with shared capacity, timestamp and promotion rules.
+
+    With ``keep_response``, a pending invite leaves an existing non-pending
+    answer untouched and returns that row unchanged. Released slots are not
+    re-filled once the event has ended.
+    """
     promoted_user_id = None
     with transaction.atomic():
         # Lock the event row so concurrent RSVPs against the same cap
         # serialize cleanly — no risk of overselling.
-        Events.objects.select_for_update().get(pk=event.pk)
+        event = Events.objects.select_for_update().filter(
+            pk=event_id, deleted_at__isnull=True
+        ).first()
+        if event is None:
+            raise NotFound("Event not found.")
 
         prior = (
             EventRsvp.objects.select_for_update()
-            .filter(event=event, user=user)
+            .filter(event=event, user_id=user_id)
             .first()
         )
         prior_status = prior.rsvp_status if prior else None
+
+        if (
+            keep_response
+            and rsvp_status == EventRsvp.RsvpStatus.PENDING
+            and prior_status not in (None, EventRsvp.RsvpStatus.PENDING)
+        ):
+            return event, prior, False
 
         effective_status = _apply_capacity(
             event,
@@ -341,30 +364,36 @@ def set_user_rsvp(user, event_id, rsvp_status):
             prior_status=prior_status,
         )
 
+        if effective_status == prior_status:
+            # Unchanged status keeps its timestamp, and with it the waitlist position.
+            responded_at = prior.responded_at
+        elif effective_status == EventRsvp.RsvpStatus.PENDING:
+            responded_at = None
+        else:
+            responded_at = timezone.now()
+
         rsvp, created = EventRsvp.objects.update_or_create(
             event=event,
-            user=user,
-            defaults={
-                "rsvp_status": effective_status,
-                "responded_at": timezone.now(),
-            },
+            user_id=user_id,
+            defaults={"rsvp_status": effective_status, "responded_at": responded_at},
         )
 
-        # If the caller was previously ACCEPTED and is now leaving the
-        # accepted bucket, a slot opened — promote the oldest waitlisted
-        # user. Skip promotion if the caller's new effective state is
-        # ACCEPTED (no slot really freed) or WAITLISTED (still full).
+        # A released slot goes to the oldest other waitlisted participant.
         if (
-            prior_status == EventRsvp.RsvpStatus.ACCEPTED
+            event.ends_datetime >= timezone.now()
+            and prior_status == EventRsvp.RsvpStatus.ACCEPTED
             and effective_status != EventRsvp.RsvpStatus.ACCEPTED
         ):
-            promoted_user_id = _promote_oldest_waitlisted(event)
+            promoted_user_id = _promote_oldest_waitlisted(
+                event, exclude_user_ids=(user_id, *exclude_from_promotion),
+            )
 
-    if promoted_user_id is not None:
-        # Email outside the txn so a slow SMTP doesn't hold the lock.
-        from .promotion_email import notify_waitlist_promoted
+        if promoted_user_id is not None:
+            from .promotion_email import notify_waitlist_promoted
 
-        notify_waitlist_promoted(event_id=event.id, user_id=promoted_user_id)
+            transaction.on_commit(partial(
+                notify_waitlist_promoted, event_id=event.id, user_id=promoted_user_id
+            ))
 
     return event, rsvp, created
 
@@ -396,7 +425,7 @@ def _apply_capacity(event, *, requested_status, prior_status):
     return EventRsvp.RsvpStatus.ACCEPTED
 
 
-def _promote_oldest_waitlisted(event):
+def _promote_oldest_waitlisted(event, *, exclude_user_ids):
     """Promote the oldest WAITLISTED row to ACCEPTED. Returns user id or None.
 
     Caller must hold ``select_for_update`` on the event row so the
@@ -415,6 +444,7 @@ def _promote_oldest_waitlisted(event):
     promoted = (
         EventRsvp.objects.select_for_update()
         .filter(event=event, rsvp_status=EventRsvp.RsvpStatus.WAITLISTED)
+        .exclude(user_id__in=exclude_user_ids)
         .order_by("responded_at", "id")
         .first()
     )

@@ -78,6 +78,7 @@ const router = createRouter({
 
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
+import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
 import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 router.beforeEach((to, from, next) => {
@@ -122,6 +123,10 @@ router.beforeEach((to, from, next) => {
     }
 
     next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
+  } else if (auth.isAuthenticated && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from students, mentors and supervisors until Management >
+    // Challenge Start > Pages Visibility's date: their profile instead.
+    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

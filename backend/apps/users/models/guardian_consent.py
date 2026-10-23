@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import F, OuterRef, Q, Subquery
 
 
 class GuardianConsentRequest(models.Model):
@@ -44,10 +45,27 @@ class GuardianConsentRequest(models.Model):
         return self.valid_until or self.expires_at
 
 
+class GuardianConsentQuerySet(models.QuerySet):
+    def standing(self):
+        """The forms in force: not withdrawn, and signed for the student's
+        challenge year. One signed before Start new year began that year was
+        for an earlier one: a student back for it needs a new form."""
+        from apps.management.models import ChallengeYear  # management's models load after these
+
+        began = ChallengeYear.objects.filter(year=OuterRef("student__challenge_year")).values("started_at")[:1]
+        return (
+            self.filter(withdrawn_at__isnull=True)
+            .annotate(year_began_at=Subquery(began))
+            .filter(Q(year_began_at__isnull=True) | Q(signed_at__gte=F("year_began_at")))
+        )
+
+
 class GuardianConsent(models.Model):
     """A consent form a guardian signed on the platform: what they agreed to,
     their media-consent answer and their drawn signature. Rows are kept after a
     withdrawal so the history stays complete."""
+
+    objects = GuardianConsentQuerySet.as_manager()
 
     student = models.ForeignKey(
         "StudentProfile", on_delete=models.CASCADE, related_name="consents",

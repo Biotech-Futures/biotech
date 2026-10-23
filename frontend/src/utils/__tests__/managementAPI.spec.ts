@@ -181,3 +181,34 @@ describe('blob downloads', () => {
     expect(clicks).toEqual(['render.docx', 'test-certificate.docx'])
   })
 })
+
+describe('the finalist slides zip', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('is made first, then handed to the browser to download itself', async () => {
+    const hrefs: string[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      hrefs.push(this.href)
+    })
+    fetchMock.mockResolvedValueOnce(jsonResponse({ file_name: '2026_Finalist_Slides.zip' }))
+
+    await api.downloadPresentationSlidesZip()
+
+    expect(lastCall().url).toMatch(/\/api\/v1\/management\/finalists\/presentation-slides\/zip\/$/)
+    expect(lastCall().init.method).toBe('POST')
+    // Followed by the browser, not fetched into the page.
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(hrefs).toHaveLength(1)
+    expect(hrefs[0]).toMatch(/\/api\/v1\/management\/finalists\/presentation-slides\/zip\/file\/$/)
+  })
+
+  it('is not downloaded when it could not be made', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'No slides handed in yet.' }, 404))
+
+    await expect(api.downloadPresentationSlidesZip()).rejects.toThrow()
+    expect(click).not.toHaveBeenCalled()
+  })
+})

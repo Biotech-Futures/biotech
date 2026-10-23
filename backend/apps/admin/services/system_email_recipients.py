@@ -120,8 +120,8 @@ def _without_group(role: str):
     ).values("user_id")
     users = users_with_role(role).exclude(email="").exclude(account_status__in=_GONE).exclude(id__in=in_groups)
     if role == _ROLES.STUDENT:
-        # Last year's students aren't this year's.
-        users = users.filter(date_joined__year=_this_year())
+        # Last year's students aren't this year's, unless they're back for it.
+        users = users.filter(studentprofile__challenge_year=_this_year())
     return users
 
 

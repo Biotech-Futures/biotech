@@ -81,10 +81,9 @@ class FinalistTests(TestCase):
         )
 
         FinalistFlag.objects.create(group=self.group, notified=True)
-        # This year's times, as set on Management > Finalist Presentation.
-        year = current_cohort()
-        self.morning = PresentationSlot.objects.create(year=year, starts_at=time(10), ends_at=time(11))
-        self.noon = PresentationSlot.objects.create(year=year, starts_at=time(11, 40), ends_at=time(12, 30))
+        # The times, as set on Management > Finalist Presentation.
+        self.morning = PresentationSlot.objects.create(starts_at=time(10), ends_at=time(11))
+        self.noon = PresentationSlot.objects.create(starts_at=time(11, 40), ends_at=time(12, 30))
         # Shown to finalists, as Management turns them on once they're final.
         PresentationSettings.objects.create(times_shown=True)
 
@@ -378,10 +377,8 @@ class FinalistTests(TestCase):
         self.assertEqual((entry["available_session_ids"], entry["availability_submitted_at"]), ([self.morning.id], None))
         self.assertEqual(client.post(self.submit_url, {}, format="json").data["code"], "availability_required")
 
-    def test_a_time_from_another_year_cannot_be_chosen(self):
-        old = PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
-
-        response = self._client(self.student).put(self.url, {"session_ids": [old.id]}, format="json")
+    def test_a_time_that_isnt_listed_cannot_be_chosen(self):
+        response = self._client(self.student).put(self.url, {"session_ids": [99999]}, format="json")
 
         self.assertEqual(response.status_code, 400)
 
@@ -405,8 +402,10 @@ class FinalistTests(TestCase):
 
         self.assertEqual(response.data["code"], "availability_required")
 
-    def test_only_this_years_times_are_offered(self):
-        PresentationSlot.objects.create(year=current_cohort() - 1, starts_at=time(9), ends_at=time(10))
+    def test_the_times_carry_on_into_a_new_year(self):
+        from apps.management.models import ChallengeYear
+
+        ChallengeYear.objects.create(year=current_cohort() + 1)
 
         labels = [s["label"] for s in self._client(self.student).get(self.url).data["sessions"]]
         self.assertEqual(labels, ["10:00 – 11:00", "11:40 – 12:30"])

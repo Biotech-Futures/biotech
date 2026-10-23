@@ -82,9 +82,9 @@ defineEmits<{ retry: [] }>()
   justify-content: center;
   gap: 18px;
   text-align: left;
-  color: var(--btf-teal, #174243);
-  background: var(--btf-white, #fff);
-  border: 1px solid var(--btf-border, #d7e2de);
+  color: var(--analytics-ui-text, var(--btf-teal, #174243));
+  background: var(--analytics-ui-surface, var(--btf-white, #fff));
+  border: 1px solid var(--analytics-ui-border, var(--btf-border, #d7e2de));
   border-radius: 16px;
 }
 
@@ -95,14 +95,14 @@ defineEmits<{ retry: [] }>()
   display: grid;
   place-items: center;
   border-radius: 50%;
-  color: var(--btf-dark-green, #017151);
-  background: color-mix(in srgb, var(--btf-light-green, #bad7b8) 55%, white);
+  color: var(--analytics-ui-accent, var(--btf-dark-green, #017151));
+  background: color-mix(in srgb, var(--analytics-ui-selected, var(--btf-light-green, #bad7b8)) 55%, var(--analytics-ui-surface, white));
   font-size: 20px;
 }
 
 .analytics-data-state-error .analytics-state-icon {
-  color: #a7372a;
-  background: #fff0ed;
+  color: var(--analytics-ui-danger, #a7372a);
+  background: var(--analytics-ui-danger-bg, #fff0ed);
 }
 
 .analytics-state-spinner i {
@@ -117,7 +117,7 @@ defineEmits<{ retry: [] }>()
 .analytics-data-state p {
   max-width: 620px;
   margin: 0;
-  color: var(--btf-muted, #667873);
+  color: var(--analytics-ui-muted, var(--btf-muted, #667873));
   line-height: 1.5;
 }
 

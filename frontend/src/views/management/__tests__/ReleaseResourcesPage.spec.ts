@@ -55,7 +55,7 @@ beforeEach(() => {
 describe('Release Resources (Challenge Start)', () => {
   it('lists each resource by when it was released last year, those never released last', async () => {
     const wrapper = await mountPage()
-    // A plain title.
+    // Headed as Pages Visibility is: a plain title.
     expect(wrapper.get('.release-resources__title').text()).toBe('Release Resources')
     expect(wrapper.text()).toContain('from the start of that day, Sydney time')
     expect(wrapper.findAll('thead th').map((th) => th.text())).toEqual(

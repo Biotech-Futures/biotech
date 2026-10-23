@@ -5,6 +5,7 @@ import {
   addPresentationSlot,
   allocatePresentationSlot,
   deletePresentationSlot,
+  downloadPresentationSlidesZip,
   fetchPresentationResponses,
   fetchPresentationSlides,
   fetchPresentationSlots,
@@ -13,6 +14,7 @@ import {
   type PresentationResponseTeam,
   type PresentationSlots
 } from '@/utils/managementAPI'
+import { downloadCsv } from '@/utils/analyticsExport'
 import { ApiError } from '@/utils/apiError'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import { pickerText, setPicker } from '@/__tests__/appPicker'
@@ -32,8 +34,16 @@ vi.mock('@/utils/managementAPI', () => ({
   deletePresentationSlot: vi.fn(),
   setPresentationTimesShown: vi.fn(),
   presentationSlidesUrl: (groupId: number) => `/slides/${groupId}/file/`,
-  presentationSlidesDownloadUrl: (groupId: number) => `/slides/${groupId}/file/?download=1`
+  presentationSlidesDownloadUrl: (groupId: number) => `/slides/${groupId}/file/?download=1`,
+  downloadPresentationSlidesZip: vi.fn()
 }))
+// The CSV as it's built; only saving it is stopped.
+vi.mock('@/utils/analyticsExport', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/analyticsExport')>()),
+  downloadCsv: vi.fn()
+}))
+const csvMock = vi.mocked(downloadCsv)
+const zipMock = vi.mocked(downloadPresentationSlidesZip)
 const fetchMock = vi.mocked(fetchPresentationSlots)
 const addMock = vi.mocked(addPresentationSlot)
 const updateMock = vi.mocked(updatePresentationSlot)
@@ -104,6 +114,8 @@ beforeEach(() => {
   // A fresh copy each time: the page updates a team it allocates.
   responsesMock.mockReset().mockImplementation(async () => ({ teams: structuredClone(TEAMS) }))
   allocateMock.mockReset()
+  csvMock.mockReset()
+  zipMock.mockReset().mockResolvedValue()
   slidesMock.mockReset().mockResolvedValue({
     slides_due: '2026-10-16',
     teams: [
@@ -128,7 +140,7 @@ beforeEach(() => {
 })
 
 describe('Finalist Presentation', () => {
-  it("lists this year's times on the Symposium day", async () => {
+  it('lists the times on the Symposium day', async () => {
     const wrapper = await mountPage()
     expect(rows(wrapper)).toEqual([
       ['09:30', '10:00'],
@@ -345,6 +357,75 @@ describe('Finalist Presentation', () => {
     expect(open!.attributes('href')).toBe('/slides/2/file/')
     expect(open!.attributes('target')).toBe('_blank')
     expect(download!.attributes('href')).toBe('/slides/2/file/?download=1')
+  })
+
+  it('Download CSV saves Allocate Slots as it now stands, every team whatever the search', async () => {
+    const wrapper = await mountPage()
+    await allocation(wrapper).find('input[type="search"]').setValue('BTF10')
+    // Since the page loaded, another admin gave BTF10 the afternoon.
+    responsesMock.mockImplementation(async () => ({
+      teams: structuredClone(TEAMS).map((team) => (team.group_id === 10 ? { ...team, allocated_slot_id: 2 } : team))
+    }))
+    await buttonNamed(wrapper, 'Download CSV').trigger('click')
+    await flushPromises()
+
+    const [fileName, csv] = csvMock.mock.calls[0]!
+    expect(fileName).toBe('2026_Finalist_Allocations.csv')
+    const [header, btf2, btf10] = csv.replace(/^﻿/, '').trim().split('\r\n')
+    expect(header).toBe('Group,Answered,Allocate,09:30 - 10:00 AEDT,13:00 - 13:30 AEDT')
+    // Written so Excel keeps it as text, not a date it shows as ###.
+    expect(btf2).toMatch(/^BTF2,29\/09\/2026 at \d{2}:10,09:30 - 10:00 AEDT,Yes,No$/)
+    expect(btf10).toBe('BTF10,No response,13:00 - 13:30 AEDT,No,No')
+    // The table shows the same.
+    const btf10Row = allocation(wrapper).findAll('tbody tr').find((r) => r.text().includes('BTF10'))!
+    expect(appSelectText(btf10Row, '.finalist-presentation__allocate-select')).toBe('13:00 - 13:30 AEDT')
+  })
+
+  it("says why the CSV wasn't saved when the teams fail to load", async () => {
+    const wrapper = await mountPage()
+    responsesMock.mockRejectedValueOnce(new Error('Server down'))
+    await buttonNamed(wrapper, 'Download CSV').trigger('click')
+    await flushPromises()
+
+    expect(csvMock).not.toHaveBeenCalled()
+    expect(allocation(wrapper).find('[role="alert"]').text()).toBe('Failed to download the CSV. Server down')
+    expect(buttonNamed(wrapper, 'Download CSV').attributes('disabled')).toBeUndefined()
+  })
+
+  it('Download CSV waits for finalist teams', async () => {
+    responsesMock.mockResolvedValue({ teams: [] })
+    const wrapper = await mountPage()
+    expect(buttonNamed(wrapper, 'Download CSV').attributes('disabled')).toBeDefined()
+  })
+
+  it("Download saves every team's slides in one zip, Preparing until it's ready", async () => {
+    let finish!: () => void
+    zipMock.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)))
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, 'Download').trigger('click')
+
+    expect(zipMock).toHaveBeenCalledOnce()
+    const preparing = buttonNamed(wrapper, 'Preparing…')
+    expect(preparing.attributes('disabled')).toBeDefined()
+    finish()
+    await flushPromises()
+    expect(buttonNamed(wrapper, 'Download').attributes('disabled')).toBeUndefined()
+  })
+
+  it("says why the slides weren't saved", async () => {
+    zipMock.mockRejectedValueOnce(new Error('Server down'))
+    const wrapper = await mountPage()
+    await buttonNamed(wrapper, 'Download').trigger('click')
+    await flushPromises()
+
+    const section = wrapper.find('.finalist-presentation__submissions')
+    expect(section.find('[role="alert"]').text()).toBe('Failed to download the slides. Server down')
+  })
+
+  it('the slides Download waits for slides to be in', async () => {
+    slidesMock.mockResolvedValue({ slides_due: null, teams: [] })
+    const wrapper = await mountPage()
+    expect(buttonNamed(wrapper, 'Download').attributes('disabled')).toBeDefined()
   })
 
   it('asks for the slides due date while it is not set', async () => {

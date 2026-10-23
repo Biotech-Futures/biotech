@@ -50,13 +50,13 @@ const accessibleLabel = computed(() => difference.value === 0
 }
 .analytics-year-change--increase .analytics-year-change__indicator,
 .analytics-year-change--increase .analytics-year-change__percent {
-  color: var(--btf-dark-green, #007b5b);
+  color: var(--analytics-ui-accent, var(--btf-dark-green, #007b5b));
 }
 .analytics-year-change--decrease .analytics-year-change__indicator,
 .analytics-year-change--decrease .analytics-year-change__percent {
-  color: #b43a3a;
+  color: var(--analytics-ui-danger, #b43a3a);
 }
 .analytics-year-change--unchanged {
-  color: var(--btf-muted, #687a76);
+  color: var(--analytics-ui-muted, var(--btf-muted, #687a76));
 }
 </style>
