@@ -171,6 +171,51 @@ jobs:
         working-directory: ./backend
         run: python manage.py migrate --noinput --settings=config.settings_migrations
 
+  # The backend tests again on Postgres, the database production runs on.
+  # They don't all pass yet, so neither deploy waits for this: a failure
+  # shows red and holds nothing up. Once it passes, add it to the deploys'
+  # needs so it gates them like the other checks.
+  backend_tests_postgres:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    name: Backend tests on Postgres (not blocking)
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests on Postgres
+        working-directory: ./backend
+        run: python manage.py test tests --settings=config.settings_test_postgres --noinput
+
   # Runs alongside the checks rather than after them: the deploys still wait
   # for every check, so nothing ships unless each one passes.
   backend_build:
