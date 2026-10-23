@@ -1266,7 +1266,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { RouterLink } from 'vue-router'
+import { RouterLink, routerKey } from 'vue-router'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
@@ -1328,6 +1328,7 @@ import {
   type SupervisorGroupForm,
 } from '@/registration/registration'
 import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
+import { holdRegistrationPassword, REGISTRATION_PASSWORD_PATH } from '@/registration/registrationPassword'
 
 /** Whose photo: a student's, or a supervisor's registering themselves. */
 type PhotoHolder = Pick<StudentDetails, 'profilePhoto'>
@@ -1796,6 +1797,8 @@ const teamOthers = (index: number) => {
 // their school and state as theirs is typed. None for an admin registering
 // (Management > Registration): theirs aren't their students'.
 const auth = useAuthStore()
+// To the Set password page, once someone registers themselves.
+const router = inject(routerKey, null)
 const supervisorSelf = computed(() => {
   const user = auth.user
   if (!isSupervisorMode.value || !user || !auth.isSupervisor) return { school: '', country: '', state: '' }
@@ -3170,6 +3173,14 @@ const submitRegistration = async () => {
       const who = `${studentName(student)} (${student.email.trim()})`
       startAnotherRegistration()
       registeredNote.value = `Registration successful: ${who} is registered.`
+      return
+    }
+    // Someone registering themselves sets their password next, instead of
+    // seeing the registration complete.
+    if (result.receipt.passwordToken && !isSupervisorMode.value && router) {
+      holdRegistrationPassword(result.receipt.passwordToken, journey.value === 'mentor')
+      clearDraft()
+      await router.push(REGISTRATION_PASSWORD_PATH)
       return
     }
     success.value = result.receipt

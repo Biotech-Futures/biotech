@@ -284,6 +284,31 @@ Supervisors aren't covered by the
 [email check before submission](#email-check-before-submission), as mentors
 aren't.
 
+## Setting a password after registering
+
+Someone registering themselves (`student_individual`, `student_team`'s person
+sending the form, `mentor` or `supervisor`) isn't shown Registration Complete:
+the page takes them to **Set password** (`/#/register/password`). Their receipt
+carries a `passwordToken` for their account, also on an unchanged retry, while
+it has no password. It's never given for students a supervisor or admin
+registers.
+
+`POST /api/v1/registration/password/` takes `{token, password}` (no session or
+CSRF: the token is the authority). The token is signed for that one account,
+lasts an hour, and works only while the account has no password; after that,
+the reset link changes it. The password needs 8 characters, as on the
+first-sign-in page. A student or supervisor is then signed in
+(`{signedIn: true, user, csrfToken}`) and taken to their profile. A mentor's
+account waits for an admin to activate it, so they aren't signed in
+(`{signedIn: false}`) and are told they can sign in once it's activated.
+
+Anyone else without a password (students a supervisor, teammate or admin
+registered) sets one the first time they sign in, as before. On that page a
+student without all of their guardian's details (first name, last name and
+email) gives those too: they're saved as the student's profile saves a
+guardian (`PUT /api/v1/users/me/guardian/`, which emails the guardian the
+permission form), then the password is set.
+
 ## Email check before submission
 
 Before a registration is submitted, the page can check that its students' and

@@ -39,6 +39,7 @@ from .views import (
     SupervisedStudentsView,
 )
 from .email_precheck import EmailCheckStartView, EmailCheckStatusView
+from .registration_password import RegistrationPasswordView
 from .registration_sheet import RegistrationSheetView
 from .registration_intake import (
     RegistrationCountriesView,
@@ -103,6 +104,8 @@ urlpatterns = [
     path("registration/group-code/<str:code>/", RegistrationGroupJoinView.as_view(), name="registration-group-join"),
     path("registration/states/", RegistrationStatesView.as_view(), name="registration-states"),
     path("registration/universities/", RegistrationUniversitiesView.as_view(), name="registration-universities"),
+    # A new registration's first password, set straight after registering.
+    path("registration/password/", RegistrationPasswordView.as_view(), name="registration-password"),
     # Upload student details, from an .xlsx: its first sheet as CSV text.
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
     # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).

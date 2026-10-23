@@ -73,12 +73,14 @@ const normalizeReceipt = (
   }
 
   const groupCode = source.group_code ?? source.groupCode
+  const passwordToken = source.passwordToken
   return {
     referenceCode,
     journey: journey as RegistrationIntakeJourney,
     studentCount,
     submittedAt,
     ...(typeof groupCode === 'string' && groupCode ? { groupCode } : {}),
+    ...(typeof passwordToken === 'string' && passwordToken ? { passwordToken } : {}),
   }
 }
 

@@ -911,7 +911,12 @@ class RegistrationIntakeView(APIView):
         return Response(WindowInput(current_window()).data)
 
     def post(self, request):
-        return register(request)
+        from .registration_password import with_password_token
+
+        response = register(request)
+        # Someone registering themselves sets their password next.
+        response.data = with_password_token(response.data)
+        return response
 
 
 class GroupCodeThrottle(AnonRateThrottle):

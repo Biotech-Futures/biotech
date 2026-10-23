@@ -78,6 +78,8 @@ export interface RegistrationReceipt {
   submittedAt: string
   /** A student group's code (6 digits), when one was registered. */
   groupCode?: string
+  /** Someone registering themselves: sets their first password next. */
+  passwordToken?: string
 }
 
 export interface RegistrationWarning {

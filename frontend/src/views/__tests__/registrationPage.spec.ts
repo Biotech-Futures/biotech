@@ -1,12 +1,14 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { routerKey } from 'vue-router'
 
 import RegistrationPage from '@/views/RegistrationPage.vue'
 import pageSource from '@/views/RegistrationPage.vue?raw'
 import globalCss from '@/assets/main.css?raw'
 import { createStudent } from '@/registration/registration'
 import { REGISTRATION_GATEWAY_KEY, type RegistrationGateway } from '@/registration/registrationGateway'
+import { heldRegistrationPassword } from '@/registration/registrationPassword'
 import { setRegistrationState } from '@/composables/useRegistrationOpen'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 
@@ -1239,6 +1241,63 @@ describe('canonical registration intake', () => {
     } finally {
       wrapper.unmount()
       Object.assign(URL, blobUrls)
+    }
+  })
+
+  it('takes someone registering themselves to set their password, not the Complete page', async () => {
+    const push = vi.fn()
+    const submit = vi.fn<RegistrationGateway['submit']>(async () => ({
+      ok: true,
+      receipt: {
+        referenceCode: 'ref',
+        journey: 'mentor',
+        studentCount: 0,
+        submittedAt: '2026-10-24T00:00:00Z',
+        passwordToken: 'signed-token',
+      },
+    }))
+    const wrapper = mount(RegistrationPage, {
+      props: { mode: 'canonical' },
+      global: {
+        plugins: [createPinia()],
+        provide: {
+          [REGISTRATION_GATEWAY_KEY as symbol]: { submit },
+          [routerKey as symbol]: { push },
+        },
+        stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } },
+      },
+    })
+    try {
+      await clickButton(wrapper, 'Mentor')
+      const setup = wrapper.vm as unknown as {
+        currentStep: number
+        maxReachedStep: number
+        forms: { mentor: Record<string, unknown> }
+      }
+      Object.assign(setup.forms.mentor, {
+        firstName: 'Jordan',
+        lastName: 'Ng',
+        email: 'jordan.ng@example.com',
+        country: 'New Zealand',
+        affiliation: 'academic',
+        institution: 'University of Auckland',
+        fieldOfStudy: 'Biology',
+        interests: ['Biomedical Innovations'],
+        capacity: '2',
+        motivation: 'To help.',
+      })
+      setup.currentStep = setup.maxReachedStep = 3
+      await wrapper.vm.$nextTick()
+      await wrapper.get('[data-test="policies-agree"]').setValue(true)
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(submit).toHaveBeenCalledOnce()
+      expect(push).toHaveBeenCalledWith('/register/password')
+      expect(heldRegistrationPassword()).toEqual({ token: 'signed-token', mentor: true })
+      expect(wrapper.find('.success-body').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+      sessionStorage.clear()
     }
   })
 

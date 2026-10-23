@@ -256,7 +256,10 @@ class IntakeTests(RegistrationSetup, TestCase):
     def test_open_registration_saves_an_active_student_and_real_receipt(self):
         response = self.submit()
         self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(set(response.data), {"reference_code", "journey", "student_count", "created_at"})
+        # With the token to set their password next (apps.users.registration_password).
+        self.assertEqual(
+            set(response.data), {"reference_code", "journey", "student_count", "created_at", "passwordToken"},
+        )
         self.assertEqual(response.data["student_count"], 1)
         self.assertEqual(response.data["journey"], "student_individual")
         row = RegistrationSubmission.objects.get(reference=response.data["reference_code"])
