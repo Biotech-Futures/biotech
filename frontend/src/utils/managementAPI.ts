@@ -856,6 +856,13 @@ export function presentationSlidesDownloadUrl(groupId: number): string {
   return `${presentationSlidesUrl(groupId)}?download=1`
 }
 
+// GET /api/v1/management/finalists/presentation-slides/zip/ — every finalist
+// team's slides in one zip.
+export async function downloadPresentationSlidesZip(fallbackName: string): Promise<void> {
+  const { blob, filename } = await requestBlob('/api/v1/management/finalists/presentation-slides/zip/')
+  triggerBlobDownload(blob, filename ?? fallbackName)
+}
+
 // GET /api/v1/management/finalists/presentation-responses/ — this year's
 // finalist teams by number, each student in them, and what they answered.
 export function fetchPresentationResponses(): Promise<{ teams: PresentationResponseTeam[] }> {
