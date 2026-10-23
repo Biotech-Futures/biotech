@@ -44,6 +44,8 @@ from .views import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
+    PresentationSlidesZipFileView,
+    PresentationSlidesZipView,
     PresentationSlotDetailView,
     PresentationTimesShownView,
     PresentationSlotListView,
@@ -185,6 +187,16 @@ urlpatterns = [
         "finalists/presentation-slides/<int:group_id>/file/",
         PresentationSlidesFileView.as_view(),
         name="presentation-slides-file",
+    ),
+    path(
+        "finalists/presentation-slides/zip/",
+        PresentationSlidesZipView.as_view(),
+        name="presentation-slides-zip",
+    ),
+    path(
+        "finalists/presentation-slides/zip/file/",
+        PresentationSlidesZipFileView.as_view(),
+        name="presentation-slides-zip-file",
     ),
 
     # Send Test Email beside each email tab's preview.

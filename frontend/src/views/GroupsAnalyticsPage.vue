@@ -147,7 +147,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
               <circle
@@ -221,7 +221,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
               <circle
@@ -295,7 +295,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
               <circle
@@ -1007,8 +1007,8 @@ function exportCsv(kind: ExportKind) {
 .groups-analytics-page {
   padding: 28px 32px 40px;
   min-height: 100%;
-  background: #f7faf9;
-  color: #153f3c;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #153f3c);
 }
 
 .page-heading {
@@ -1024,22 +1024,22 @@ function exportCsv(kind: ExportKind) {
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
 .breadcrumb a {
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   text-decoration: none;
 }
 
 .breadcrumb a:hover {
-  color: #08765d;
+  color: var(--analytics-ui-accent, #08765d);
   text-decoration: underline;
 }
 
 .breadcrumb-separator {
-  color: #9aaaa7;
+  color: var(--analytics-ui-muted, #9aaaa7);
 }
 
 .title-line {
@@ -1051,7 +1051,7 @@ function exportCsv(kind: ExportKind) {
 
 .title-line h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1059,7 +1059,7 @@ function exportCsv(kind: ExportKind) {
 
 .page-heading p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -1068,10 +1068,10 @@ function exportCsv(kind: ExportKind) {
   align-items: center;
   min-height: 30px;
   padding: 0 10px;
-  border: 1px solid #f0d487;
+  border: 1px solid var(--analytics-ui-control-border, #f0d487);
   border-radius: 999px;
-  background: #fff7df;
-  color: #916700;
+  background: var(--analytics-ui-soft, #fff7df);
+  color: var(--analytics-ui-warning, #916700);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1087,7 +1087,7 @@ function exportCsv(kind: ExportKind) {
 .export-button {
   height: 46px;
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1098,8 +1098,8 @@ function exportCsv(kind: ExportKind) {
   gap: 9px;
   width: 120px;
   padding: 0 13px;
-  border: 1px solid #d7e3e0;
-  color: #174844;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
+  color: var(--analytics-ui-text, #174844);
 }
 
 .year-control select {
@@ -1120,13 +1120,13 @@ function exportCsv(kind: ExportKind) {
   gap: 8px;
   width: 142px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
-  color: #017151;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
 }
 
 .export-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .kpi-grid {
@@ -1138,9 +1138,9 @@ function exportCsv(kind: ExportKind) {
 
 .kpi-card,
 .analytics-card {
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 14px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
 }
 
@@ -1162,16 +1162,16 @@ function exportCsv(kind: ExportKind) {
   font-size: 22px;
 }
 
-.kpi-icon.purple { color: #5EA99E; background: color-mix(in srgb, #5EA99E 14%, white); }
-.kpi-icon.teal { color: #017151; background: color-mix(in srgb, #BAD7B8 55%, white); }
-.kpi-icon.blue { color: #39687B; background: color-mix(in srgb, #39687B 14%, white); }
-.kpi-icon.red { color: #174243; background: color-mix(in srgb, #BAD7B8 45%, white); }
-.kpi-icon.orange { color: #017151; background: color-mix(in srgb, #F1E5A6 50%, white); }
+.kpi-icon.purple { color: var(--analytics-ui-muted, #5EA99E); background: color-mix(in srgb, #5EA99E 14%, var(--analytics-ui-surface, white)); }
+.kpi-icon.teal { color: var(--analytics-ui-accent, #017151); background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 55%, var(--analytics-ui-surface, white)); }
+.kpi-icon.blue { color: var(--analytics-ui-secondary, #39687B); background: color-mix(in srgb, #39687B 14%, var(--analytics-ui-surface, white)); }
+.kpi-icon.red { color: var(--analytics-ui-text, #174243); background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 45%, var(--analytics-ui-surface, white)); }
+.kpi-icon.orange { color: var(--analytics-ui-accent, #017151); background: color-mix(in srgb, var(--analytics-ui-warning-bg, #F1E5A6) 50%, var(--analytics-ui-surface, white)); }
 
 .kpi-label {
   display: block;
   margin-bottom: 5px;
-  color: #4e6662;
+  color: var(--analytics-ui-muted, #4e6662);
   font-size: 12px;
 }
 
@@ -1184,7 +1184,7 @@ function exportCsv(kind: ExportKind) {
 .kpi-value-row strong,
 .kpi-value {
   display: block;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 27px;
   line-height: 1.05;
 }
@@ -1194,14 +1194,14 @@ function exportCsv(kind: ExportKind) {
   white-space: nowrap;
 }
 
-.trend-up { color: #017151; font-weight: 700; }
+.trend-up { color: var(--analytics-ui-accent, #017151); font-weight: 700; }
 
-.trend-down { color: #39687B; font-weight: 700; }
+.trend-down { color: var(--analytics-ui-secondary, #39687B); font-weight: 700; }
 
 .kpi-card small {
   display: block;
   margin-top: 4px;
-  color: #7c8d89;
+  color: var(--analytics-ui-muted, #7c8d89);
   font-size: 10px;
 }
 
@@ -1220,7 +1220,7 @@ function exportCsv(kind: ExportKind) {
 
 .analytics-card h2 {
   margin: 0 0 12px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 16px;
   line-height: 1.2;
 }
@@ -1228,7 +1228,7 @@ function exportCsv(kind: ExportKind) {
 .analytics-card h2 small {
   font-size: 10px;
   font-weight: 500;
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
 }
 
 .vertical-chart {
@@ -1247,7 +1247,7 @@ function exportCsv(kind: ExportKind) {
 }
 
 .bar-value {
-  color: #355953;
+  color: var(--analytics-ui-text, #355953);
   font-size: 10px;
   font-weight: 700;
 }
@@ -1257,7 +1257,7 @@ function exportCsv(kind: ExportKind) {
   align-items: flex-end;
   width: 35px;
   height: 138px;
-  border-bottom: 1px solid #dce5e2;
+  border-bottom: 1px solid var(--analytics-ui-border, #dce5e2);
 }
 
 .vertical-fill {
@@ -1272,14 +1272,14 @@ function exportCsv(kind: ExportKind) {
 
 .bar-label {
   margin-top: 5px;
-  color: #647875;
+  color: var(--analytics-ui-muted, #647875);
   font-size: 9px;
   text-align: center;
 }
 
 .axis-caption {
   margin-top: -2px;
-  color: #5f7470;
+  color: var(--analytics-ui-muted, #5f7470);
   font-size: 9px;
   text-align: center;
 }
@@ -1308,18 +1308,18 @@ function exportCsv(kind: ExportKind) {
   place-items: center;
   align-content: center;
   border-radius: 50%;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   text-align: center;
 }
 
 .donut-centre strong {
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 25px;
 }
 
 .donut-centre span {
   margin-top: 2px;
-  color: #687b77;
+  color: var(--analytics-ui-muted, #687b77);
   font-size: 10px;
 }
 
@@ -1332,7 +1332,7 @@ function exportCsv(kind: ExportKind) {
   justify-content: space-between;
   gap: 12px;
   margin: 16px 0;
-  color: #3f5b57;
+  color: var(--analytics-ui-muted, #3f5b57);
   font-size: 11px;
 }
 
@@ -1350,9 +1350,9 @@ function exportCsv(kind: ExportKind) {
 }
 
 .blue-dot { background: #017151; }
-.grey-dot { background: #BAD7B8; }
+.grey-dot { background: var(--analytics-ui-soft, #BAD7B8); }
 .active-dot { background: #017151; }
-.inactive-dot { background: #BAD7B8; }
+.inactive-dot { background: var(--analytics-ui-selected, #BAD7B8); }
 
 .horizontal-bars {
   display: grid;
@@ -1365,7 +1365,7 @@ function exportCsv(kind: ExportKind) {
   grid-template-columns: 62px minmax(80px, 1fr) 36px;
   align-items: center;
   gap: 8px;
-  color: #3d5b57;
+  color: var(--analytics-ui-text, #3d5b57);
   font-size: 10px;
 }
 
@@ -1380,7 +1380,7 @@ function exportCsv(kind: ExportKind) {
   overflow: hidden;
   height: 11px;
   border-radius: 4px;
-  background: #edf1f0;
+  background: var(--analytics-ui-soft, #edf1f0);
 }
 
 .horizontal-fill,
@@ -1399,7 +1399,7 @@ function exportCsv(kind: ExportKind) {
 }
 
 .grid-line {
-  stroke: #edf1f0;
+  stroke: var(--analytics-ui-border, #edf1f0);
   stroke-width: 1;
 }
 
@@ -1409,7 +1409,7 @@ function exportCsv(kind: ExportKind) {
 
 .message-line {
   fill: none;
-  stroke: #7f5af0;
+  stroke: var(--analytics-ui-control-border, #7f5af0);
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1424,7 +1424,7 @@ function exportCsv(kind: ExportKind) {
   grid-template-columns: repeat(12, 1fr);
   margin-top: -10px;
   padding: 0 7px 0 22px;
-  color: #6f807d;
+  color: var(--analytics-ui-muted, #6f807d);
   font-size: 8px;
   text-align: center;
 }
@@ -1434,7 +1434,7 @@ function exportCsv(kind: ExportKind) {
   justify-content: center;
   gap: 20px;
   margin-bottom: 6px;
-  color: #617571;
+  color: var(--analytics-ui-muted, #617571);
   font-size: 10px;
 }
 
@@ -1490,11 +1490,11 @@ function exportCsv(kind: ExportKind) {
 }
 
 .stacked-value-labels .active-value {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .stacked-value-labels .inactive-value {
-  color: #7aa777;
+  color: var(--analytics-ui-muted, #7aa777);
 }
 
 .stacked-track {
@@ -1502,14 +1502,14 @@ function exportCsv(kind: ExportKind) {
   align-items: flex-end;
   width: 16px;
   height: 144px;
-  border-bottom: 1px solid #dce5e2;
+  border-bottom: 1px solid var(--analytics-ui-border, #dce5e2);
 }
 
 .stacked-inactive {
   position: relative;
   width: 100%;
   border-radius: 3px 3px 0 0;
-  background: #BAD7B8;
+  background: var(--analytics-ui-selected, #BAD7B8);
 }
 
 .stacked-active {
@@ -1523,7 +1523,7 @@ function exportCsv(kind: ExportKind) {
 
 .stacked-item span {
   margin-top: 4px;
-  color: #697c78;
+  color: var(--analytics-ui-muted, #697c78);
   font-size: 8px;
 }
 
@@ -1548,14 +1548,14 @@ function exportCsv(kind: ExportKind) {
   height: 24px;
   place-items: center;
   border-radius: 7px;
-  background: #f2f5f8;
-  color: #445f5b;
+  background: var(--analytics-ui-soft, #f2f5f8);
+  color: var(--analytics-ui-muted, #445f5b);
   font-size: 10px;
   font-weight: 800;
 }
 
 .rank-name {
-  color: #415d59;
+  color: var(--analytics-ui-muted, #415d59);
   font-size: 10px;
 }
 
@@ -1564,14 +1564,14 @@ function exportCsv(kind: ExportKind) {
 }
 
 .ranking-list strong {
-  color: #2e534d;
+  color: var(--analytics-ui-text, #2e534d);
   font-size: 10px;
   text-align: right;
 }
 
 .insights-card h2 i {
   margin-right: 7px;
-  color: #5279a5;
+  color: var(--analytics-ui-secondary, #5279a5);
 }
 
 .insights-list {
@@ -1599,13 +1599,13 @@ function exportCsv(kind: ExportKind) {
   font-size: 12px;
 }
 
-.insight-red strong { background: #BAD7B8; color: #174243; }
-.insight-orange strong { background: #F1E5A6; color: #174243; }
+.insight-red strong { background: var(--analytics-ui-soft, #BAD7B8); color: var(--analytics-ui-text, #174243); }
+.insight-orange strong { background: var(--analytics-ui-warning-bg, #F1E5A6); color: var(--analytics-ui-text, #174243); }
 .insight-purple strong { background: #5EA99E; color: #FFFFFF; }
 .insight-blue strong { background: #39687B; color: #FFFFFF; }
 
 .insight-row span {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
 }
 
 
@@ -1724,7 +1724,7 @@ function exportCsv(kind: ExportKind) {
 .donut-selection-label {
   max-width: 88px;
   margin-bottom: 2px;
-  color: #506965 !important;
+  color: var(--analytics-ui-muted, #506965) !important;
   font-size: 10px !important;
   font-weight: 700;
   text-align: center;
@@ -1741,7 +1741,7 @@ function exportCsv(kind: ExportKind) {
 
 .donut-legend-row:hover,
 .donut-legend-row.selected {
-  background: #f2f7f5;
+  background: var(--analytics-ui-selected, #f2f7f5);
 }
 
 
@@ -1757,21 +1757,21 @@ function exportCsv(kind: ExportKind) {
   flex-direction: column;
   justify-content: space-between;
   padding: 2px 0 24px;
-  color: #7a8984;
+  color: var(--analytics-ui-muted, #7a8984);
   font-size: 10px;
   line-height: 1;
   text-align: right;
 }
 
 .y-axis-line {
-  border-left: 1px solid #d9e2df;
+  border-left: 1px solid var(--analytics-ui-border, #d9e2df);
   padding-left: 8px;
 }
 
 .y-axis-title {
   margin-top: 6px;
   padding-bottom: 2px;
-  color: #52615c;
+  color: var(--analytics-ui-muted, #52615c);
   font-size: 10px;
   line-height: 14px;
   font-weight: 700;
@@ -1783,9 +1783,9 @@ function exportCsv(kind: ExportKind) {
 .purple-bar { background: #5EA99E !important; }
 .blue-bar { background: #39687B !important; }
 .active-dot { background: #017151 !important; }
-.inactive-dot { background: #BAD7B8 !important; }
+.inactive-dot { background: var(--analytics-ui-selected, #BAD7B8) !important; }
 .stacked-active { background: #017151 !important; }
-.stacked-inactive { background: #BAD7B8 !important; }
+.stacked-inactive { background: var(--analytics-ui-selected, #BAD7B8) !important; }
 
 /* Group Activity spacing refinement */
 .analytics-card:has(> h2:first-child) {
@@ -1849,7 +1849,7 @@ function exportCsv(kind: ExportKind) {
   height: calc(100% - 30px);
   margin: 0;
   place-items: center;
-  color: #687a76;
+  color: var(--analytics-ui-muted, #687a76);
   font-size: 12px;
   text-align: center;
 }
@@ -1934,8 +1934,8 @@ function exportCsv(kind: ExportKind) {
   }
 }
 
-.activity-definition { margin:5px 0 10px; color:#687a76; font-size:11px; line-height:1.4; }
-.activity-definition strong { color:#174243; }
+.activity-definition { margin:5px 0 10px; color:var(--analytics-ui-muted, #687a76); font-size:11px; line-height:1.4; }
+.activity-definition strong { color:var(--analytics-ui-text, #174243); }
 
 /* Restore the original donut-card proportions: Group Status is wide, Mentor Coverage keeps its own card width. */
 @media (min-width: 1280px) {
@@ -2091,9 +2091,9 @@ function exportCsv(kind: ExportKind) {
 /* Active / inactive group directory */
 .group-directory-card {
   margin-top: 14px;
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 14px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
   padding: 18px;
 }
@@ -2108,13 +2108,13 @@ function exportCsv(kind: ExportKind) {
 
 .group-directory-header h2 {
   margin: 0 0 5px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 18px;
 }
 
 .group-directory-header p {
   margin: 0;
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 12px;
 }
 
@@ -2130,10 +2130,10 @@ function exportCsv(kind: ExportKind) {
 .group-status-control,
 .group-clear-button {
   height: 40px;
-  border: 1px solid #cfe0dc;
+  border: 1px solid var(--analytics-ui-border, #cfe0dc);
   border-radius: 10px;
-  background: #fff;
-  color: #174844;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174844);
 }
 
 .group-search-control {
@@ -2145,7 +2145,7 @@ function exportCsv(kind: ExportKind) {
 }
 
 .group-search-control i {
-  color: #6d827e;
+  color: var(--analytics-ui-muted, #6d827e);
 }
 
 .group-search-control input {
@@ -2154,7 +2154,7 @@ function exportCsv(kind: ExportKind) {
   border: 0;
   outline: 0;
   background: transparent;
-  color: #174844;
+  color: var(--analytics-ui-text, #174844);
   font: inherit;
   font-size: 12px;
 }
@@ -2183,31 +2183,31 @@ function exportCsv(kind: ExportKind) {
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .group-clear-button:hover {
-  background: #eef8f5;
+  background: var(--analytics-ui-selected, #eef8f5);
 }
 
 .group-directory-summary {
   margin: 0 0 9px;
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 11px;
 }
 
 .group-directory-summary strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .group-table-wrap {
   max-height: 430px;
   overflow-y: auto;
   overflow-x: hidden;
-  border: 1px solid #e4ecea;
+  border: 1px solid var(--analytics-ui-border, #e4ecea);
   border-radius: 11px;
 }
 
@@ -2215,7 +2215,7 @@ function exportCsv(kind: ExportKind) {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
 }
 
@@ -2230,16 +2230,16 @@ function exportCsv(kind: ExportKind) {
   z-index: 2;
   height: 46px;
   padding: 0 14px;
-  border-bottom: 1px solid #dce6e3;
-  background: #f1f6f4;
-  color: #174243;
+  border-bottom: 1px solid var(--analytics-ui-border, #dce6e3);
+  background: var(--analytics-ui-soft, #f1f6f4);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
 }
 
 .group-activity-table tbody td {
   height: 46px;
   padding: 0 14px;
-  border-bottom: 1px solid #edf2f0;
+  border-bottom: 1px solid var(--analytics-ui-border, #edf2f0);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2270,12 +2270,12 @@ function exportCsv(kind: ExportKind) {
 }
 
 .table-sort-button i {
-  color: #5EA99E;
+  color: var(--analytics-ui-muted, #5EA99E);
   font-size: 10px;
 }
 
 .group-name-cell {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-weight: 700;
 }
 
@@ -2293,25 +2293,25 @@ function exportCsv(kind: ExportKind) {
 
 .group-status-chip.active {
   background: rgba(186, 215, 184, 0.55);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .group-status-chip.inactive {
   background: rgba(241, 229, 166, 0.7);
-  color: #6b5b12;
+  color: var(--analytics-ui-text, #6b5b12);
 }
 
 .days-since-value {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .days-since-unit {
-  color: #71837f;
+  color: var(--analytics-ui-muted, #71837f);
 }
 
 .group-empty-state {
   height: 76px !important;
-  color: #71837f;
+  color: var(--analytics-ui-muted, #71837f);
   text-align: center;
 }
 
@@ -2345,9 +2345,9 @@ function exportCsv(kind: ExportKind) {
 .group-issue-detail-card {
   min-width: 0;
   padding: 16px;
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 14px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
   scroll-margin-top: 120px;
 }
@@ -2362,13 +2362,13 @@ function exportCsv(kind: ExportKind) {
 
 .group-issue-detail-heading h2 {
   margin: 0 0 4px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 17px;
 }
 
 .group-issue-detail-heading p {
   margin: 0;
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 11px;
 }
 
@@ -2379,21 +2379,21 @@ function exportCsv(kind: ExportKind) {
   place-items: center;
   border-radius: 9px;
   background: rgba(186, 215, 184, 0.55);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 17px;
 }
 
 .group-issue-table-wrap {
   max-height: 265px;
   overflow-y: auto;
-  border: 1px solid #e4ecea;
+  border: 1px solid var(--analytics-ui-border, #e4ecea);
   border-radius: 10px;
 }
 
 .group-issue-table {
   width: 100%;
   border-collapse: collapse;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 11px;
 }
 
@@ -2402,14 +2402,14 @@ function exportCsv(kind: ExportKind) {
   top: 0;
   z-index: 1;
   padding: 10px 12px;
-  background: #f1f6f4;
-  color: #174243;
+  background: var(--analytics-ui-soft, #f1f6f4);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
 }
 
 .group-issue-table td {
   padding: 10px 12px;
-  border-top: 1px solid #edf2f0;
+  border-top: 1px solid var(--analytics-ui-border, #edf2f0);
 }
 
 .group-issue-table-row--clickable {
@@ -2419,7 +2419,7 @@ function exportCsv(kind: ExportKind) {
 
 .group-issue-table-row--clickable:hover,
 .group-issue-table-row--clickable:focus-visible {
-  background: #f1f8f5;
+  background: var(--analytics-ui-selected, #f1f8f5);
 }
 
 .group-issue-table-row--clickable:focus-visible {
@@ -2439,12 +2439,12 @@ function exportCsv(kind: ExportKind) {
 
 .issue-status-chip.unassigned {
   background: rgba(241, 229, 166, 0.65);
-  color: #6b5b12;
+  color: var(--analytics-ui-text, #6b5b12);
 }
 
 .issue-status-chip.no-mentor {
   background: rgba(186, 215, 184, 0.55);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 @media (max-width: 900px) {

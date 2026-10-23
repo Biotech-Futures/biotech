@@ -10,8 +10,6 @@ import tailwindcss from '@tailwindcss/vite'
 const config = defineConfig({
   optimizeDeps: {
     include: [
-      "better-auth/react",
-      "better-auth/client/plugins",
       "@tiptap/react",
       "@tiptap/starter-kit",
       "@tiptap/extension-placeholder",
