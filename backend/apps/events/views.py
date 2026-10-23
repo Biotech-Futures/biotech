@@ -39,6 +39,7 @@ from .serializers import (
 )
 from .services import (
     get_request_accepted_event_ids,
+    set_event_rsvp,
     set_user_rsvp,
     visible_events_queryset,
 )
@@ -343,20 +344,13 @@ class EventInviteCreateView(APIView):
     )
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Events, pk=kwargs.get("id"))
+        event = _get_event_for_user_or_404(request.user, kwargs.get("id"))
         user = get_object_or_404(User, pk=kwargs.get("uid"))
 
-        rsvp_status = request.data.get("rsvp_status", EventRsvp.RsvpStatus.PENDING)
-        responded_at = timezone.now() if rsvp_status != EventRsvp.RsvpStatus.PENDING else None
-
-        rsvp, _ = EventRsvp.objects.update_or_create(
-            event=event,
-            user=user,
-            defaults={
-                "rsvp_status": rsvp_status,
-                "responded_at": responded_at,
-            },
-        )
+        payload = EventRsvpRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        rsvp_status = payload.validated_data["rsvp_status"]
+        _, rsvp, _ = set_event_rsvp(user.id, event.id, rsvp_status, keep_response=True)
         log_audit_event(
             actor=request.user,
             entity_type="event_rsvp",
@@ -404,6 +398,8 @@ class EventBulkInviteView(APIView):
 
     Returns `created` / `updated` / `not_found` so the FE can show a
     partial-success summary instead of failing the whole call on one bad id.
+    `unchanged` lists users whose existing answer a pending invite kept, and
+    `waitlisted` lists users an accept placed on the waitlist of a full event.
     """
 
     permission_classes = [IsNotStudent]
@@ -415,16 +411,13 @@ class EventBulkInviteView(APIView):
         responses={200: None},
     )
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Events, pk=kwargs.get("id"), deleted_at__isnull=True)
+        event = _get_event_for_user_or_404(request.user, kwargs.get("id"))
 
         payload = EventBulkInviteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         # De-dup but keep first-seen order so partial-success output is stable.
         user_ids = list(dict.fromkeys(payload.validated_data["user_ids"]))
         rsvp_status = payload.validated_data["rsvp_status"]
-        responded_at = (
-            timezone.now() if rsvp_status != EventRsvp.RsvpStatus.PENDING else None
-        )
 
         existing_user_ids = set(
             User.objects.filter(id__in=user_ids).values_list("id", flat=True)
@@ -434,29 +427,23 @@ class EventBulkInviteView(APIView):
 
         created_ids = []
         updated_ids = []
+        unchanged_ids = []
+        waitlisted_ids = []
 
         with transaction.atomic():
-            existing_rsvps = {
-                row.user_id: row
-                for row in EventRsvp.objects.select_for_update().filter(
-                    event=event, user_id__in=valid_user_ids
-                )
-            }
             for uid in valid_user_ids:
-                row = existing_rsvps.get(uid)
-                if row is None:
-                    EventRsvp.objects.create(
-                        event=event,
-                        user_id=uid,
-                        rsvp_status=rsvp_status,
-                        responded_at=responded_at,
-                    )
+                _, rsvp, created = set_event_rsvp(
+                    uid, event.id, rsvp_status,
+                    exclude_from_promotion=valid_user_ids, keep_response=True,
+                )
+                if created:
                     created_ids.append(uid)
+                elif rsvp_status == EventRsvp.RsvpStatus.PENDING and rsvp.rsvp_status != EventRsvp.RsvpStatus.PENDING:
+                    unchanged_ids.append(uid)
                 else:
-                    row.rsvp_status = rsvp_status
-                    row.responded_at = responded_at
-                    row.save(update_fields=["rsvp_status", "responded_at"])
                     updated_ids.append(uid)
+                if rsvp_status == EventRsvp.RsvpStatus.ACCEPTED and rsvp.rsvp_status == EventRsvp.RsvpStatus.WAITLISTED:
+                    waitlisted_ids.append(uid)
 
             log_audit_event(
                 actor=request.user,
@@ -468,6 +455,8 @@ class EventBulkInviteView(APIView):
                     "rsvp_status": rsvp_status,
                     "created_user_ids": created_ids,
                     "updated_user_ids": updated_ids,
+                    "unchanged_user_ids": unchanged_ids,
+                    "waitlisted_user_ids": waitlisted_ids,
                 },
             )
 
@@ -477,6 +466,8 @@ class EventBulkInviteView(APIView):
                 "rsvp_status": rsvp_status,
                 "created": created_ids,
                 "updated": updated_ids,
+                "unchanged": unchanged_ids,
+                "waitlisted": waitlisted_ids,
                 "not_found": not_found,
             },
             status=status.HTTP_200_OK,
