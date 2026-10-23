@@ -27,6 +27,18 @@ from zoneinfo import available_timezones
 _GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher", "admin"}
 GUARDIAN_FIELDS = ("GuardianName", "GuardianSurname", "GuardianEmail")
 GUARDIAN_TOGETHER = "Enter the guardian's first name, surname and email together."
+PLACEHOLDER_EMAIL = "This is a placeholder address from the template: replace it or exclude the row."
+
+
+def is_placeholder_email(address) -> bool:
+    """An address on the reserved .invalid domain, as the CSV template's example row uses."""
+    domain = str(address or "").strip().lower().rpartition("@")[2].rstrip(".")
+    return domain == "invalid" or domain.endswith(".invalid")
+
+
+def _refuse_placeholder(value):
+    if is_placeholder_email(value):
+        raise serializers.ValidationError(PLACEHOLDER_EMAIL, code="placeholder_email")
 REGISTRATION_OVERRIDES = {
     "ConfirmSchoolOverride", "ConfirmNameEmailOverride",
     "ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride",
@@ -188,6 +200,7 @@ class UserRegisterBodySerializer(serializers.Serializer):
         # `Title` is the student's own email (mislabeled field name; confirmed
         # against the real Qualtrics form). Block registration if this email
         # is already in use.
+        _refuse_placeholder(value)
         existing = User.objects.filter(email__iexact=value).first()
         if existing is None:
             return value
@@ -202,10 +215,15 @@ class UserRegisterBodySerializer(serializers.Serializer):
             code="email_taken",
         )
 
+    def validate_GuardianEmail(self, value):
+        _refuse_placeholder(value)
+        return value
+
     def validate_SupervisorEmail(self, value):
         # A nominated supervisor is either new or already a supervisor. Any
         # other existing account is refused, so the form can't hand someone
         # else's account the supervisor role.
+        _refuse_placeholder(value)
         if not value:
             return value
         existing = User.objects.filter(email__iexact=value).first()
