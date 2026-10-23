@@ -856,11 +856,19 @@ export function presentationSlidesDownloadUrl(groupId: number): string {
   return `${presentationSlidesUrl(groupId)}?download=1`
 }
 
-// GET /api/v1/management/finalists/presentation-slides/zip/ — every finalist
-// team's slides in one zip.
-export async function downloadPresentationSlidesZip(fallbackName: string): Promise<void> {
-  const { blob, filename } = await requestBlob('/api/v1/management/finalists/presentation-slides/zip/')
-  triggerBlobDownload(blob, filename ?? fallbackName)
+// POST /api/v1/management/finalists/presentation-slides/zip/ — puts every
+// finalist team's slides in one zip. Then the browser downloads it with its own
+// progress bar, as Grading's exports are; on Azure, straight from storage.
+export async function downloadPresentationSlidesZip(): Promise<void> {
+  await requestJson<{ file_name: string }>('/api/v1/management/finalists/presentation-slides/zip/', {
+    method: 'POST'
+  })
+  const link = document.createElement('a')
+  link.href = `${API_BASE_URL}/api/v1/management/finalists/presentation-slides/zip/file/`
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 // GET /api/v1/management/finalists/presentation-responses/ — this year's

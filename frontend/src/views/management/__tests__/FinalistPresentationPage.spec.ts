@@ -398,34 +398,34 @@ describe('Finalist Presentation', () => {
     expect(buttonNamed(wrapper, 'Download CSV').attributes('disabled')).toBeDefined()
   })
 
-  it("Download All saves every team's slides in one zip, Preparing until it's saved", async () => {
+  it("Download saves every team's slides in one zip, Preparing until it's ready", async () => {
     let finish!: () => void
     zipMock.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)))
     const wrapper = await mountPage()
-    await buttonNamed(wrapper, 'Download All').trigger('click')
+    await buttonNamed(wrapper, 'Download').trigger('click')
 
-    expect(zipMock).toHaveBeenCalledWith('2026_Finalist_Slides.zip')
+    expect(zipMock).toHaveBeenCalledOnce()
     const preparing = buttonNamed(wrapper, 'Preparing…')
     expect(preparing.attributes('disabled')).toBeDefined()
     finish()
     await flushPromises()
-    expect(buttonNamed(wrapper, 'Download All').attributes('disabled')).toBeUndefined()
+    expect(buttonNamed(wrapper, 'Download').attributes('disabled')).toBeUndefined()
   })
 
   it("says why the slides weren't saved", async () => {
     zipMock.mockRejectedValueOnce(new Error('Server down'))
     const wrapper = await mountPage()
-    await buttonNamed(wrapper, 'Download All').trigger('click')
+    await buttonNamed(wrapper, 'Download').trigger('click')
     await flushPromises()
 
     const section = wrapper.find('.finalist-presentation__submissions')
     expect(section.find('[role="alert"]').text()).toBe('Failed to download the slides. Server down')
   })
 
-  it('Download All waits for slides to be in', async () => {
+  it('the slides Download waits for slides to be in', async () => {
     slidesMock.mockResolvedValue({ slides_due: null, teams: [] })
     const wrapper = await mountPage()
-    expect(buttonNamed(wrapper, 'Download All').attributes('disabled')).toBeDefined()
+    expect(buttonNamed(wrapper, 'Download').attributes('disabled')).toBeDefined()
   })
 
   it('asks for the slides due date while it is not set', async () => {

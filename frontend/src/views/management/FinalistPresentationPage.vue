@@ -253,7 +253,7 @@
             @click="downloadSlides"
           >
             <i class="fas fa-download" aria-hidden="true"></i>
-            {{ isDownloadingZip ? 'Preparing…' : 'Download All' }}
+            {{ isDownloadingZip ? 'Preparing…' : 'Download' }}
           </button>
         </template>
         <template #cell-group="{ row }">
@@ -514,7 +514,7 @@ const downloadSlides = async () => {
   isDownloadingZip.value = true
   zipError.value = ''
   try {
-    await downloadPresentationSlidesZip(`${data.value?.year ?? ''}_Finalist_Slides.zip`)
+    await downloadPresentationSlidesZip()
   } catch (err) {
     zipError.value = `Failed to download the slides. ${apiErrorFromUnknown(err).message}`
   } finally {

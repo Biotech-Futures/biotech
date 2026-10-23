@@ -20,6 +20,7 @@ from apps.submissions.services import current_cohort
 from tests.apps.grading.fixtures import _GradingFixture
 
 ZIP = "management:presentation-slides-zip"
+ZIP_FILE = "management:presentation-slides-zip-file"
 
 
 @override_settings(USE_AZURE_BLOB_STORAGE=False)
@@ -58,14 +59,20 @@ class FinalistSlidesZipTests(_GradingFixture):
             submitted_at=timezone.now(),
         )
 
-    def _download(self):
-        response = self.client.get(reverse(ZIP))
+    def _make(self):
+        return self.client.post(reverse(ZIP))
+
+    def _fetch(self):
+        response = self.client.get(reverse(ZIP_FILE))
         # Lets go of the file, so the temporary folder can be removed.
         self.addCleanup(response.close)
         return response
 
     def _archive(self):
-        response = self._download()
+        made = self._make()
+        self.assertEqual(made.status_code, status.HTTP_200_OK, made.content)
+        self.assertEqual(made.json(), {"file_name": f"{self.year}_Finalist_Slides.zip"})
+        response = self._fetch()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response, zipfile.ZipFile(io.BytesIO(b"".join(response.streaming_content)))
 
@@ -112,10 +119,40 @@ class FinalistSlidesZipTests(_GradingFixture):
         self.assertEqual(archive.namelist(), names)
         self.assertEqual(archive.read(f"{self.year}_BTF27_Slides.pdf"), b"%PDF 27")
 
+    def test_each_zip_made_replaces_the_last(self):
+        self._archive()
+        FinalistSlides.objects.filter(group=self.btf10).delete()
+
+        _, archive = self._archive()
+
+        self.assertEqual(archive.namelist(), [f"{self.year}_BTF3_Slides.pdf"])
+
+    def test_on_azure_the_download_comes_straight_from_storage(self):
+        from unittest import mock
+
+        signed = "https://store.blob.core.windows.net/slides/zips/z.zip?sig=x"
+        azure = mock.Mock(is_remote=True)
+        azure.exists.return_value = True
+        azure.backend.url.return_value = signed
+        with mock.patch("apps.management.views.presentation.get_slides_storage", return_value=azure):
+            response = self._fetch()
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], signed)
+        key, = azure.backend.url.call_args.args
+        self.assertEqual(key, f"zips/{self.year}_Finalist_Slides.zip")
+        self.assertEqual(azure.backend.url.call_args.kwargs["parameters"], {
+            "content_disposition": f'attachment; filename="{self.year}_Finalist_Slides.zip"',
+            "content_type": "application/zip",
+        })
+
     def test_nothing_to_download_until_slides_are_in(self):
         FinalistSlides.objects.all().delete()
-        self.assertEqual(self._download().status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self._make().status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self._fetch().status_code, status.HTTP_404_NOT_FOUND)
 
     def test_graders_only(self):
+        self._make()
         self.client.force_authenticate(self.non_staff)
-        self.assertEqual(self._download().status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._make().status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._fetch().status_code, status.HTTP_403_FORBIDDEN)

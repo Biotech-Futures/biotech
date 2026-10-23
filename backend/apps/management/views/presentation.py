@@ -10,7 +10,8 @@ import zipfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
-from django.http import FileResponse
+from django.core.files import File
+from django.http import FileResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from rest_framework import permissions, serializers, status
 from rest_framework.response import Response
@@ -18,7 +19,7 @@ from rest_framework.views import APIView
 
 from apps.common.filenames import safe_name
 from apps.common.rbac import IsStaffOrAdmin
-from apps.common.storage import serve_managed_file
+from apps.common.storage import get_slides_storage, serve_managed_file
 from apps.grading.models import FinalistFlag
 from apps.grading.services.text import natural_key
 from apps.groups.models.groups import Groups
@@ -308,15 +309,28 @@ def _read_slides(handed_in: list):
             yield item, read.result()
 
 
+def _zip_name() -> str:
+    return f"{current_cohort()}_Finalist_Slides.zip"
+
+
+def _zip_key() -> str:
+    """Where the year's zip is kept: each build replaces the last."""
+    return f"zips/{_zip_name()}"
+
+
 class PresentationSlidesZipView(APIView):
-    """GET /api/v1/management/finalists/presentation-slides/zip/ — every
-    finalist team's slides in one zip, named as Grading names its files
-    ("2026_BTF01_Slides.pptx"). Slides that can't be read leave a
-    "_MISSING.txt" note in their place. 404 until any team's are in."""
+    """POST /api/v1/management/finalists/presentation-slides/zip/ — puts
+    every finalist team's slides in one zip, named as Grading names its files
+    ("2026_BTF01_Slides.pptx"), and keeps it for the GET below to download.
+    Slides that can't be read leave a "_MISSING.txt" note in their place.
+    404 until any team's are in.
+
+    Shape: {"file_name": "2026_Finalist_Slides.zip"}
+    """
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
 
-    def get(self, request):
+    def post(self, request):
         teams = _finalist_teams()
         decks = {deck.group_id: deck for deck in FinalistSlides.objects.filter(group__in=teams)}
         handed_in = [
@@ -329,20 +343,50 @@ class PresentationSlidesZipView(APIView):
 
         year = current_cohort()
         # On disk, not in memory: each team's slides can be up to 25 MB.
-        output = tempfile.TemporaryFile()
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-            for (team, stored), payload in _read_slides(handed_in):
-                name = f"{year}_{safe_name(team.group_name)}_Slides"
-                if payload is None:
-                    logger.warning("presentation_slides_zip.missing group=%s key=%s", team.id, stored["storage_key"])
-                    archive.writestr(f"{name}_MISSING.txt", MISSING_NOTE)
-                    continue
-                extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
-                compress = zipfile.ZIP_STORED if extension in _STORED_TYPES else zipfile.ZIP_DEFLATED
-                archive.writestr(name + extension, payload, compress_type=compress)
-        output.seek(0)
+        with tempfile.TemporaryFile() as output:
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+                for (team, stored), payload in _read_slides(handed_in):
+                    name = f"{year}_{safe_name(team.group_name)}_Slides"
+                    if payload is None:
+                        logger.warning(
+                            "presentation_slides_zip.missing group=%s key=%s", team.id, stored["storage_key"]
+                        )
+                        archive.writestr(f"{name}_MISSING.txt", MISSING_NOTE)
+                        continue
+                    extension = os.path.splitext(stored.get("name") or stored["storage_key"])[1].lower()
+                    compress = zipfile.ZIP_STORED if extension in _STORED_TYPES else zipfile.ZIP_DEFLATED
+                    archive.writestr(name + extension, payload, compress_type=compress)
+            output.seek(0)
+            SLIDES_FILES.delete(_zip_key())
+            SLIDES_FILES.save_uploaded_file(
+                File(output, name=_zip_name()),
+                content_type_field="mime",
+                size_field="size",
+                storage_name=_zip_key(),
+            )
+        return Response({"file_name": _zip_name()})
+
+
+class PresentationSlidesZipFileView(APIView):
+    """GET /api/v1/management/finalists/presentation-slides/zip/file/ — the
+    zip the POST above last made, as a download. On Azure it redirects to a
+    short-lived signed link, so the browser downloads it straight from Azure
+    with its own progress bar. 404 until one is made."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        storage = get_slides_storage()
+        if not storage.exists(_zip_key()):
+            return Response({"detail": "The slides zip hasn't been made yet."}, status=status.HTTP_404_NOT_FOUND)
+        # Named here, as Grading's are: the shared helpers would lower-case it.
+        if storage.is_remote:
+            return HttpResponseRedirect(storage.backend.url(_zip_key(), parameters={
+                "content_disposition": f'attachment; filename="{_zip_name()}"',
+                "content_type": "application/zip",
+            }))
         return FileResponse(
-            output, as_attachment=True, filename=f"{year}_Finalist_Slides.zip", content_type="application/zip"
+            storage.open(_zip_key()), as_attachment=True, filename=_zip_name(), content_type="application/zip"
         )
 
 
