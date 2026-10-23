@@ -408,7 +408,7 @@ Before deployment:
 1. Install `backend/requirements.txt` and apply through `users.0025_registration_multi_student`
    with the normal `manage.py migrate` deployment step.
 2. Configure the **registration** year's opening/closing timestamps via the
-   management endpoint. Unconfigured/null boundaries deliberately retain the
+   Management endpoint. Unconfigured/null boundaries deliberately retain the
    legacy open default, except in a year Start new year began (Management >
    New Year), which stays closed until its opening date is set;
    task/challenge deadlines do not close registration.
