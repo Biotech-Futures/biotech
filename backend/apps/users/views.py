@@ -56,6 +56,7 @@ from apps.audit.services import log_audit_event
 from .email_verification import check_one_address, invalid_address_message
 from .guardian_consent import latest_signature_data_url
 from .guardian_reminders import email_new_guardian
+from .returning import bring_back_for_this_year
 from .profile_images import profile_image_url, remove_profile_image, save_profile_image
 from apps.common.rbac import is_admin, user_has_role
 from apps.common.pii import email_log_tag
@@ -257,6 +258,8 @@ class UsersRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         data = request.data
         if "account_status" in data:
             user.apply_account_status(data["account_status"])
+            if user.account_status == User.AccountStatus.ACTIVE:
+                bring_back_for_this_year(user)
 
         if "role_id" in data:
             role = get_object_or_404(Roles, pk=data["role_id"])
@@ -618,10 +621,8 @@ class SupervisedStudentsView(APIView):
         latest_consent_by_student = {}
         if profiles:
             for consent in (
-                GuardianConsent.objects.filter(
-                    student_id__in=[profile.pk for profile in profiles],
-                    withdrawn_at__isnull=True,
-                )
+                GuardianConsent.objects.standing()
+                .filter(student_id__in=[profile.pk for profile in profiles])
                 .order_by("student_id", "-signed_at")
                 .only("student_id", "signed_at", "media_consent", "media_withdrawn_at")
             ):
@@ -742,11 +743,15 @@ class SupervisedStudentsView(APIView):
 
 def _student_scope(user):
     """The students ``user`` may see and manage: every student for an admin
-    (Admin > Guardians), else a supervisor's own (My Students)."""
+    (Admin > Guardians), else a supervisor's own (My Students). Only this
+    challenge year's: registered for it, or back for it by registering again."""
+    from apps.submissions.services import current_cohort
+
+    this_year = StudentProfile.objects.filter(challenge_year=current_cohort())
     if is_admin(user):
-        return StudentProfile.objects.all()
+        return this_year
     if SupervisorProfile.objects.filter(user=user).exists():
-        return StudentProfile.objects.filter(supervisor_id=user.id)
+        return this_year.filter(supervisor_id=user.id)
     raise PermissionDenied("Supervisor access is required.")
 
 
@@ -779,9 +784,8 @@ class SupervisedStudentSignaturesView(APIView):
         profiles = _supervised_profiles(_student_scope(request.user), student_ids)
         latest = {}
         for consent in (
-            GuardianConsent.objects.filter(
-                student_id__in=[profile.pk for profile in profiles], withdrawn_at__isnull=True,
-            )
+            GuardianConsent.objects.standing()
+            .filter(student_id__in=[profile.pk for profile in profiles])
             .order_by("student_id", "-signed_at")
             .only("student_id", "signature_png", "signed_at")
         ):
@@ -1022,7 +1026,7 @@ def _supervised_student_row(profile):
         .first()
     )
     group = membership.group if membership else None
-    consent = profile.consents.filter(withdrawn_at__isnull=True).order_by("-signed_at").first()
+    consent = profile.consents.standing().order_by("-signed_at").first()
     return {
         "id": profile.user_id,
         "first_name": profile.user.first_name,
@@ -1438,5 +1442,7 @@ class BulkUserStatusView(APIView):
         target_status = serializer.validated_data["account_status"]
         for user in users:
             user.apply_account_status(target_status)
+            if user.account_status == User.AccountStatus.ACTIVE:
+                bring_back_for_this_year(user)
 
         return Response(UserSerializer(users, many=True).data, status=status.HTTP_200_OK)

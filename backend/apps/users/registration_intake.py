@@ -30,11 +30,13 @@ from apps.groups.models import (
 )
 from apps.groups.services import sync_supervisor_memberships_for_student
 from apps.resources.models import RoleAssignmentHistory
+from apps.submissions.services import current_cohort
 from .models import (
     AreasOfInterest, KnownUniversity, RegistrationInvitation, RegistrationStudent, RegistrationSubmission, RegistrationWindow,
     StudentProfile, StudentSupervisor, SupervisorProfile, User, UserInterest,
 )
 from .profile_images import save_profile_image, validate_profile_image
+from .returning import restart_guardian_permission, returning_student
 from .serializers import (
     GUARDIAN_TOGETHER, REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings, stored_email_answers,
@@ -285,8 +287,9 @@ class WindowInput(serializers.ModelSerializer):
 
     class Meta:
         model = RegistrationWindow
-        fields = ["year", "opens_at", "closes_at", "updated_at", "set_by"]
-        read_only_fields = ["updated_at"]
+        # ``closed_until_set``: a year Start new year began, closed until its start is set.
+        fields = ["year", "opens_at", "closes_at", "updated_at", "set_by", "closed_until_set"]
+        read_only_fields = ["updated_at", "closed_until_set"]
 
     def get_set_by(self, window):
         from apps.management.services.send_guard import person_name
@@ -422,7 +425,8 @@ def check_previous(key, digest):
 
 
 def current_window(*, lock=False):
-    window, _ = RegistrationWindow.objects.get_or_create(year=timezone.now().year)
+    """The challenge year's registration window, made the first time it's needed."""
+    window, _ = RegistrationWindow.objects.get_or_create(year=current_cohort())
     if lock:
         window = RegistrationWindow.objects.select_for_update().get(pk=window.pk)
     return window
@@ -481,13 +485,23 @@ def resolve_location(student):
 
 def save_student(student, supervisor, now, *, registered_by):
     country, state = resolve_location(student) if student["country"] else (None, None)
-    # Active as soon as they're registered: a student is never Pending.
-    user = User.objects.create_user(
-        email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
-        country=country, state=state,
-        pronouns=student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"],
-        account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
-    )
+    pronouns = student["pronounsOther"] if student["pronouns"] == "Other" else student["pronouns"]
+    # A student back for a later year gets their account back, with this
+    # form's details (apps.users.returning); anyone else gets a new one.
+    user = returning_student(student["email"])
+    returning = user is not None
+    if returning:
+        user.first_name, user.last_name = student["firstName"], student["lastName"]
+        user.country, user.state, user.pronouns = country, state, pronouns
+        user.activate(save=False)
+        user.save()
+    else:
+        # Active as soon as they're registered: a student is never Pending.
+        user = User.objects.create_user(
+            email=student["email"], first_name=student["firstName"], last_name=student["lastName"],
+            country=country, state=state, pronouns=pronouns,
+            account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
+        )
     RoleAssignmentHistory.objects.create(
         user=user, role=get_role_by_name(ROLE_STUDENT), valid_from=now,
         valid_to=now + timedelta(weeks=6),
@@ -500,18 +514,31 @@ def save_student(student, supervisor, now, *, registered_by):
     )
     guardian = student["guardian"]
     has_guardian = all(guardian.get(field) for field in ("firstName", "lastName", "email"))
-    profile = StudentProfile.objects.create(
-        user=user, supervisor=sup, school_name=student["school"], year_lvl=student["yearLevel"],
-        pg_first_name=guardian.get("firstName", ""), pg_last_name=guardian.get("lastName", ""),
-        pg_email=guardian.get("email", "").lower() or None, parent_guardian_flag=has_guardian,
-        has_join_permission=False, joinperm_responseID=None,
-        registered_by=registered_by,
-    )
+    details = {
+        "supervisor": sup, "school_name": student["school"], "year_lvl": student["yearLevel"],
+        "pg_first_name": guardian.get("firstName", ""), "pg_last_name": guardian.get("lastName", ""),
+        "pg_email": guardian.get("email", "").lower() or None, "parent_guardian_flag": has_guardian,
+        "has_join_permission": False, "joinperm_responseID": None,
+        "registered_by": registered_by,
+    }
+    if returning:
+        # This year's details, and their guardian gives permission again.
+        profile = StudentProfile.objects.get(user=user)
+        for field, value in details.items():
+            setattr(profile, field, value)
+        profile.challenge_year = current_cohort()
+        profile.supervisor_edited_at = None
+        restart_guardian_permission(profile, now)
+        profile.save()
+        # This form's interests replace last year's.
+        UserInterest.objects.filter(user=user).delete()
+    else:
+        profile = StudentProfile.objects.create(user=user, **details)
     if sup:
         # A nominated supervisor is the student's teacher or school supervisor.
-        StudentSupervisor.objects.create(
+        StudentSupervisor.objects.get_or_create(
             student_user=profile, supervisor_user=sup,
-            relationship_type=StudentSupervisor.RelationshipTypeChoices.TEACHER,
+            defaults={"relationship_type": StudentSupervisor.RelationshipTypeChoices.TEACHER},
         )
     for description in dict.fromkeys(student["interests"]):
         interest, _ = AreasOfInterest.objects.get_or_create(

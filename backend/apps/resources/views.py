@@ -301,6 +301,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
                        mixins.UpdateModelMixin,
                        mixins.DestroyModelMixin,
                        viewsets.GenericViewSet):
+    hidden_with_pages = True
     permission_classes = [IsAuthenticated]
     pagination_class = ResourcesPagination
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -796,6 +797,7 @@ class ResourcesViewSet(mixins.ListModelMixin,
 class ResourceTypeViewSet(mixins.ListModelMixin,
                           mixins.RetrieveModelMixin,
                           viewsets.GenericViewSet):
+    hidden_with_pages = True
     queryset = ResourceType.objects.all().order_by("type_name")
     serializer_class = ResourceTypeSerializer
     permission_classes = [IsAuthenticated]
@@ -810,6 +812,7 @@ class ResourceLabelViewSet(mixins.ListModelMixin,
     The count is the number of live resources visible to *this* user that carry
     the label, so the UI sidebar shows the same numbers Chronus does.
     """
+    hidden_with_pages = True
     serializer_class = ResourceLabelSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "head", "options"]

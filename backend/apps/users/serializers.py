@@ -199,8 +199,11 @@ class UserRegisterBodySerializer(serializers.Serializer):
     def validate_Title(self, value):
         # `Title` is the student's own email (mislabeled field name; confirmed
         # against the real Qualtrics form). Block registration if this email
-        # is already in use.
+        # is already in use, but by a student back for a later year, whose
+        # account registering brings back (apps.users.returning).
         _refuse_placeholder(value)
+        from .returning import returning_student
+
         existing = User.objects.filter(email__iexact=value).first()
         if existing is None:
             return value
@@ -210,6 +213,8 @@ class UserRegisterBodySerializer(serializers.Serializer):
                 "cannot be used to register a student.",
                 code="student_email_is_supervisor",
             )
+        if returning_student(value) is not None:
+            return value
         raise serializers.ValidationError(
             "An account with this email address already exists.",
             code="email_taken",

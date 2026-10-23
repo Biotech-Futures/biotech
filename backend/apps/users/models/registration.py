@@ -14,6 +14,9 @@ class RegistrationWindow(models.Model):
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
     )
+    # A year Start new year began (Management > New Year): closed until its
+    # opening date is set. Years before it stay open while no date is set.
+    closed_until_set = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -25,6 +28,8 @@ class RegistrationWindow(models.Model):
         ]
 
     def is_open(self, now):
+        if self.opens_at is None and self.closed_until_set:
+            return False
         return (self.opens_at is None or self.opens_at <= now) and (
             self.closes_at is None or now < self.closes_at
         )
@@ -55,7 +60,9 @@ class RegistrationSubmission(models.Model):
     request_digest = models.CharField(max_length=64)
     window = models.ForeignKey(RegistrationWindow, on_delete=models.PROTECT)
     journey = models.CharField(max_length=32, default="student_individual")
-    student = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    # Who registered (the first student, or the mentor): once a year, as
+    # someone back for a later year registers again (apps.users.returning).
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     student_count = models.PositiveSmallIntegerField(default=1)
     group = models.ForeignKey("groups.Groups", null=True, blank=True, on_delete=models.PROTECT)
     invitation = models.OneToOneField(
@@ -73,12 +80,19 @@ class RegistrationSubmission(models.Model):
     grouping_preference = models.CharField(max_length=32, blank=True)
     source = models.JSONField(default=dict)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["window", "student"], name="registration_once_per_window"),
+        ]
+
 
 class RegistrationStudent(models.Model):
     submission = models.ForeignKey(
         RegistrationSubmission, related_name="participants", on_delete=models.CASCADE,
     )
-    student = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    # One registration's students; a student back for a later year is in
+    # that year's too.
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     position = models.PositiveSmallIntegerField()
     guardian_phone = models.CharField(max_length=50, blank=True)
     guardian_relationship = models.CharField(max_length=255, blank=True)

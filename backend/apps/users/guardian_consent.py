@@ -224,7 +224,7 @@ def latest_signature_data_url(
     """The newest unwithdrawn drawn signature for ``profile``, as a PNG data URL."""
     if consent is None:
         consent = (
-            profile.consents.filter(withdrawn_at__isnull=True)
+            profile.consents.standing()
             .order_by("-signed_at")
             .only("signature_png")
             .first()
@@ -350,7 +350,7 @@ def withdraw(profile: StudentProfile, *, media_only: bool, initiated_by=None) ->
         profile = StudentProfile.objects.select_for_update().get(pk=profile.pk)
         now = timezone.now()
         before = {"joinPermissionReceived": profile.has_join_permission, "mediaConsent": profile.media_consent}
-        latest = profile.consents.filter(withdrawn_at__isnull=True).order_by("-signed_at").first()
+        latest = profile.consents.standing().order_by("-signed_at").first()
 
         if media_only:
             profile.media_consent = False

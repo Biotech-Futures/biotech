@@ -10,6 +10,8 @@ import {
   fetchAdminUsers,
   getAdminViewExportUrl,
   runAdminView,
+  EARLIER_YEAR_BULK_NOTE,
+  earlierYearMessage,
   setAdminUserActive,
   type AdminUser,
   type AdminUserCountry,
@@ -285,7 +287,8 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   }
 
   // -- Single activate/deactivate -------------------------------------------------
-  const singleToggle = ref({ open: false, userId: 0, message: '' })
+  // Deactivating, or activating a student from an earlier year: confirmed first.
+  const singleToggle = ref({ open: false, userId: 0, active: false, message: '' })
 
   const runActiveChange = async (userId: number, isActive: boolean): Promise<boolean> => {
     busy.value = true
@@ -307,8 +310,14 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
       singleToggle.value = {
         open: true,
         userId: user.id,
+        active: false,
         message: `${userName(user)} will no longer be able to sign in. You can reactivate them at any time.`
       }
+      return
+    }
+    const earlier = earlierYearMessage(user)
+    if (earlier) {
+      singleToggle.value = { open: true, userId: user.id, active: true, message: earlier }
       return
     }
     void runActiveChange(user.id, true)
@@ -316,8 +325,8 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
 
   const runSingleToggle = async (): Promise<void> => {
     if (!singleToggle.value.userId) return
-    const ok = await runActiveChange(singleToggle.value.userId, false)
-    if (ok) singleToggle.value = { open: false, userId: 0, message: '' }
+    const ok = await runActiveChange(singleToggle.value.userId, singleToggle.value.active)
+    if (ok) singleToggle.value = { open: false, userId: 0, active: false, message: '' }
   }
 
   // -- Single delete (reachable from the edit sheet's Delete button) --------------
@@ -368,7 +377,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
       confirmLabel: isActive ? 'Activate' : 'Deactivate',
       title: `${isActive ? 'Activate' : 'Deactivate'} ${bulkCount.value} ${bulkCount.value === 1 ? 'user' : 'users'}?`,
       message: isActive
-        ? 'The selected users will be able to sign in again.'
+        ? `The selected users will be able to sign in again. ${EARLIER_YEAR_BULK_NOTE}`
         : 'The selected users will no longer be able to sign in. You can reactivate them at any time.'
     }
   }

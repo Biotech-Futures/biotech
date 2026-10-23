@@ -354,7 +354,7 @@ describe('submitting', () => {
 })
 
 describe('times', () => {
-  it("lists this year's times and the Symposium day", async () => {
+  it('lists the times and the Symposium day', async () => {
     await mountPage(buildDetail(null, true, { symposium_date: '2026-10-23' }))
 
     const labels = wrapper!.findAll('.finalist-session').map((l) => l.text())

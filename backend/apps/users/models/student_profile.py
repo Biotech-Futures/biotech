@@ -2,6 +2,14 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
+
+def default_challenge_year() -> int:
+    """The challenge year a student is added in."""
+    from apps.submissions.services import current_cohort  # its models import this app
+
+    return current_cohort()
+
+
 class StudentProfile(models.Model):
     class RegisteredBy(models.TextChoices):
         SELF = "self", "The student"
@@ -44,6 +52,11 @@ class StudentProfile(models.Model):
     # can't change their own details: they ask their supervisor (``details_locked``).
     registered_by = models.CharField(max_length=16, choices=RegisteredBy.choices, blank=True, default="")
     supervisor_edited_at = models.DateTimeField(blank=True, null=True)
+    # The challenge year they're taking part in: the one they registered in,
+    # or came back for by registering again once Start new year deactivated
+    # them (apps.users.returning). Guardian Permission's tables and the
+    # guardian and supervisor emails count this year's students by it.
+    challenge_year = models.PositiveSmallIntegerField(default=default_challenge_year)
 
     class Meta:
         db_table = 'student_profile'
@@ -51,6 +64,7 @@ class StudentProfile(models.Model):
         verbose_name_plural = "Student Profiles"
         indexes = [
             models.Index(fields=['supervisor']),
+            models.Index(fields=['challenge_year']),
         ]
         constraints = [
         # A guardian may be left for later when someone else registered the

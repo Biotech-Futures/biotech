@@ -25,6 +25,8 @@ from apps.admin.services.user import (
 from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.grading.services.text import natural_key
 from apps.resources.models import RoleAssignmentHistory
+from apps.submissions.services import current_cohort
+from apps.users.returning import earlier_challenge_year
 from apps.users.models import (
     MentorProfile,
     StudentProfile,
@@ -509,6 +511,7 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
         interests_map.setdefault(ui.user_id, []).append(ui.interest.interest_desc)
 
     users_list = []
+    this_year = current_cohort()
     for uid in user_ids:
         user = users_by_id.get(uid)
         if not user:
@@ -567,6 +570,7 @@ def _hydrate_users_by_ids(user_ids: List[int]) -> List[Dict[str, Any]]:
             "guardianEmail": guardian_email,
             "guardianPermission": guardian_permission,
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
+            "earlierChallengeYear": earlier_challenge_year(sp, this_year),
             "interests": interests_map.get(uid, []),
             "isAdmin": uid in admin_user_ids,
             "isActive": user.is_active,
