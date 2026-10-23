@@ -4,7 +4,7 @@
     <template v-else>
       <div v-if="kind === 'donut'" class="ring">
         <svg viewBox="0 0 160 160" role="group" :aria-label="summary">
-          <circle cx="80" cy="80" r="62" fill="none" stroke="var(--btf-track)" stroke-width="22" />
+          <circle cx="80" cy="80" r="62" fill="none" stroke="var(--analytics-ui-soft, var(--btf-track))" stroke-width="22" />
           <circle
             v-for="(item, index) in segments"
             :key="item.label"
@@ -182,16 +182,16 @@ onBeforeUnmount(() => {
   width: 104px;
   height: 104px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 .ring-center strong {
   font-size: 26px;
-  color: var(--btf-teal);
+  color: var(--analytics-ui-text, var(--btf-teal));
 }
 .ring-center span,
 .caption {
   font-size: 11px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
 }
 .marks {
   display: grid;
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
   border: 0;
   padding: 5px 2px;
   background: transparent;
-  color: var(--btf-teal);
+  color: var(--analytics-ui-text, var(--btf-teal));
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
   outline-offset: 3px;
 }
 .mark:hover {
-  background: var(--btf-surface);
+  background: var(--analytics-ui-page, var(--btf-surface));
 }
 .label {
   display: flex;
@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
 }
 .mark small {
   font-size: 10px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   font-weight: normal;
 }
 .horizontal .mark {
@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
 }
 .track {
   height: 12px;
-  background: var(--btf-track);
+  background: var(--analytics-ui-soft, var(--btf-track));
   border-radius: 3px;
   overflow: hidden;
 }
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  border-bottom: 1px solid var(--btf-border);
+  border-bottom: 1px solid var(--analytics-ui-border, var(--btf-border));
 }
 .column-track span {
   width: 65%;
@@ -293,7 +293,7 @@ onBeforeUnmount(() => {
 }
 .empty {
   padding: 48px 8px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   text-align: center;
 }
 </style>
