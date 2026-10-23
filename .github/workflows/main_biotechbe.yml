@@ -133,12 +133,15 @@ jobs:
       # single `tests` label discovers everything. Keep new tests in that tree —
       # an in-app tests.py would need its own label here or CI silently skips it.
       # --parallel auto runs one test process per CPU core (4 on GitHub's
-      # runners), each with its own copy of the database.
+      # runners), each with its own copy of the database. COVERAGE_CORE=sysmon
+      # measures through Python 3.12's sys.monitoring rather than the older
+      # tracer: about a quarter faster, for the same coverage.
       - name: Run tests with coverage
         if: matrix.coverage
         working-directory: ./backend
         env:
           COVERAGE_RCFILE: .coveragerc-parallel
+          COVERAGE_CORE: sysmon
         run: coverage run manage.py test tests --settings=config.settings_test_postgres --noinput --parallel auto
 
       - name: Combine the test processes' coverage
