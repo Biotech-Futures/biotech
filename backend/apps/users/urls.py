@@ -39,6 +39,7 @@ from .views import (
     SupervisedStudentsView,
 )
 from .email_precheck import EmailCheckStartView, EmailCheckStatusView
+from .email_field_check import EmailFieldCheckView
 from .registration_sheet import RegistrationSheetView
 from .returning_views import ReturningSupervisorCodeView, ReturningSupervisorConfirmView
 from .registration_intake import (
@@ -108,6 +109,8 @@ urlpatterns = [
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
     # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).
     path("registration/email-check/", EmailCheckStartView.as_view(), name="registration-email-check"),
+    # Always on: unlike the pre-check, no switch, window gate or rate limit.
+    path("registration/email-check/field/", EmailFieldCheckView.as_view(), name="registration-email-field-check"),
     path(
         "registration/email-check/<uuid:job_id>/", EmailCheckStatusView.as_view(),
         name="registration-email-check-status",

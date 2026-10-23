@@ -148,14 +148,15 @@ class WarningTests(TestCase):
         self.assertEqual(registration_warnings(details()), [])
 
     @override_settings(EMAIL_PRECHECK_ENABLED=False)
-    def test_with_the_switch_off_there_are_none_even_with_answers_on_file(self):
+    def test_with_the_switch_off_answers_on_file_are_still_read(self):
         answer(STUDENT)
         answer(GUARDIAN, "unknown")
-        on_file = {row.email: row for row in EmailVerification.objects.all()}
 
-        self.assertEqual(registration_warnings(details(), on_file), [])
-        with self.assertNumQueries(0):
-            self.assertEqual(stored_email_answers([STUDENT]), {})
+        with self.assertNumQueries(1):
+            on_file = stored_email_answers([STUDENT, GUARDIAN])
+        self.assertEqual(
+            [w["code"] for w in registration_warnings(details(), on_file)], ["email_invalid", "guardian_email_invalid"],
+        )
 
     def test_the_lookup_is_one_query_and_none_for_nothing(self):
         answer(STUDENT)
@@ -265,10 +266,13 @@ class RegistrationTests(MultiStudentSetup, TestCase):
         self.assertEqual(self.post_batch(self.body).status_code, 201)
 
     @override_settings(EMAIL_PRECHECK_ENABLED=False)
-    def test_with_the_switch_off_an_invalid_answer_doesnt_hold_it(self):
-        answer(STUDENT)
+    def test_with_the_switch_off_an_answer_on_file_still_holds_it(self):
+        answer(STUDENT, "unknown")
 
-        self.assertEqual(self.post_batch(self.body).status_code, 201)
+        response = self.post_batch(self.body)
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual([w["code"] for w in response.data["warnings"]], ["email_invalid"])
 
     def test_a_lookup_that_fails_lets_it_through(self):
         answer(STUDENT)

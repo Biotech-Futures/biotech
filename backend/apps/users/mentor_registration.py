@@ -37,6 +37,7 @@ from .registration_intake import (
     valid_invitation,
 )
 from .returning import returning_mentor
+from .serializers import refuse_placeholder
 
 JOURNEY = "mentor"
 AFFILIATIONS = ("undergraduate", "postgraduate", "hdr", "academic", "industry")
@@ -76,6 +77,10 @@ class MentorInput(StrictInput):
     # Weekly times: the form no longer asks for them, but they're still taken
     # and kept when given.
     availability = serializers.ListField(child=AvailabilityInput(), max_length=21, default=list)
+
+    def validate_email(self, value):
+        refuse_placeholder(value)
+        return value
 
     def validate(self, data):
         errors = {}
@@ -185,8 +190,16 @@ def save_mentor(mentor: dict, now, *, returning: User | None = None) -> User:
     return user
 
 
+MENTOR_EMAIL_TAKEN = "An account with this email already exists."
+
+
+def mentor_email_taken(email, window) -> bool:
+    """Whether ``email`` has an account, other than a mentor's back for a later year."""
+    return returning_mentor(email, window) is None and User.objects.filter(email__iexact=email).exists()
+
+
 def _taken() -> serializers.ValidationError:
-    return serializers.ValidationError({"mentor.email": ["An account with this email already exists."]})
+    return serializers.ValidationError({"mentor.email": [MENTOR_EMAIL_TAKEN]})
 
 
 def register_mentor(request, raw: dict) -> Response:
@@ -232,9 +245,9 @@ def register_mentor(request, raw: dict) -> Response:
             valid_invitation(raw_token, window, now, journey=JOURNEY)
             if not window.is_open(now):
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator."})
-            returning = returning_mentor(mentor["email"], window)
-            if returning is None and User.objects.filter(email__iexact=mentor["email"]).exists():
+            if mentor_email_taken(mentor["email"], window):
                 raise _taken()
+            returning = returning_mentor(mentor["email"], window)
             user = save_mentor(mentor, now, returning=returning)
             User.objects.filter(pk=user.pk).update(policies_agreed_at=now)
             submission = RegistrationSubmission.objects.create(

@@ -123,13 +123,22 @@ class MailboxTests(Journeys, TestCase):
                     self.assertEqual(self.submit(body=body, client=client).status_code, 201)
 
     @override_settings(EMAIL_PRECHECK_ENABLED=False)
-    def test_with_the_switch_off_an_invalid_answer_does_nothing(self):
+    def test_with_the_switch_off_answers_on_file_still_count(self):
         for offset, name in enumerate(NOT_CSV):
             with self.subTest(journey=name):
                 body, client, student, parent = self.journey(name, offset * 10)
                 answer(student)
-                answer(parent)
-                self.assertEqual(self.submit(body=body, client=client).status_code, 201)
+                answer(parent, "unknown")
+
+                response = self.submit(body=body, client=client)
+
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertNotIn("warnings", response.data)
+                self.assertEqual(response.data["fields"]["students.0.email"], [STUDENT_INVALID])
+        csv = batch("supervisor_csv", 1, offset=900)
+        answer(csv["payload"]["students"][0]["email"])
+        response = self.submit(body=csv, client=self.supervisor_client)
+        self.assertEqual([w["code"] for w in response.data["warnings"]], ["email_invalid"])
 
     def test_the_csv_journey_warns_for_invalid_and_unknown(self):
         body = batch("supervisor_csv", 2)
