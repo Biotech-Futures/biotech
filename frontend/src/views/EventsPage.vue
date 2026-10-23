@@ -37,8 +37,8 @@
 
     <section class="event-filterbar" aria-label="Event filters">
       <form class="filter-form" @submit.prevent="submitSearch">
-        <label class="filter-field filter-field-search">
-          <span class="filter-label">Search</span>
+        <label class="table-filter-field filter-field filter-field-search">
+          <span class="table-filter-label filter-label">Search</span>
           <span class="filter-search-input-wrap">
             <i class="fas fa-search filter-search-icon" aria-hidden="true"></i>
             <input
@@ -60,8 +60,8 @@
           </span>
         </label>
 
-        <label class="filter-field">
-          <span class="filter-label">Category</span>
+        <label class="table-filter-field filter-field">
+          <span class="table-filter-label filter-label">Category</span>
           <AppSelect
             v-model="filters.category"
             class="filter-input filter-select app-input"
@@ -70,8 +70,8 @@
           />
         </label>
 
-        <label class="filter-field">
-          <span class="filter-label">RSVP</span>
+        <label class="table-filter-field filter-field">
+          <span class="table-filter-label filter-label">RSVP</span>
           <AppSelect
             v-model="filters.rsvpStatus"
             class="filter-input filter-select app-input"
@@ -1612,18 +1612,15 @@ const onFormEditorDelete = () => {
   align-items: end;
 }
 
+/* Each filter with its label above it (table-filter-field and
+   table-filter-label, in main.css), shrinking to fit its grid column. */
 .filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
   min-width: 0;
 }
 
+/* The shared label, a touch larger and more spaced out on this bar. */
 .filter-label {
   font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 

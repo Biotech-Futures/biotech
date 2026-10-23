@@ -28,6 +28,7 @@ _GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher", "admin"}
 REGISTRATION_OVERRIDES = {
     "ConfirmSchoolOverride", "ConfirmNameEmailOverride",
     "ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride",
+    "ConfirmSupervisorEmailInvalidOverride",
 }
 
 
@@ -83,11 +84,13 @@ def _invalid_email_warning(answers, address, *, code, field, override, whose):
     }
 
 
-def registration_warnings(data, email_answers=None, known_schools=None):
+def registration_warnings(data, email_answers=None, known_schools=None, *, check_supervisor=False):
     """The soft warnings for one student's registration details, each with
     the override that confirms past it. ``email_answers`` is
     ``stored_email_answers`` for the submission: an address answered invalid
     gets a warning, and one with no answer gets none (it isn't blocked).
+    ``check_supervisor`` adds the supervisor the student named (once, on the
+    first student; never a supervisor registering their own students).
     ``known_schools`` is ``KnownUniversity.matching`` for the submission's
     school names; without it, this student's is looked up on its own."""
     warnings = []
@@ -122,6 +125,11 @@ def registration_warnings(data, email_answers=None, known_schools=None):
                 email_answers, data.get("GuardianEmail"), code="guardian_email_invalid", field="GuardianEmail",
                 override="ConfirmGuardianEmailInvalidOverride", whose="The guardian's email address",
             ), data.get("ConfirmGuardianEmailInvalidOverride")),
+            (check_supervisor and _invalid_email_warning(
+                email_answers, data.get("SupervisorEmail"), code="supervisor_email_invalid",
+                field="SupervisorEmail", override="ConfirmSupervisorEmailInvalidOverride",
+                whose="The supervisor's email address",
+            ), data.get("ConfirmSupervisorEmailInvalidOverride")),
         ):
             if warning and not confirmed:
                 warnings.append(warning)
@@ -170,6 +178,7 @@ class UserRegisterBodySerializer(serializers.Serializer):
     # Confirm an address QuickEmailVerification answered as not existing.
     ConfirmEmailInvalidOverride = StrictBooleanField(required=False, default=False)
     ConfirmGuardianEmailInvalidOverride = StrictBooleanField(required=False, default=False)
+    ConfirmSupervisorEmailInvalidOverride = StrictBooleanField(required=False, default=False)
 
     def validate_Title(self, value):
         # `Title` is the student's own email (mislabeled field name; confirmed
@@ -613,16 +622,15 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_mentor_details(self, obj):
         """A mentor's details as their admin panel has them (their background,
-        where they work or study, capacity, hours, weekly times and groups),
-        but not their application's answers; None for anyone else."""
+        where they work or study, capacity, weekly times and groups), but not
+        their application's answer; None for anyone else."""
         mp = self._mentor_profile(obj)
         if mp is None:
             return None
         from apps.admin.services.user import _mentor_dict, member_extras
 
         details = _mentor_dict(mp, member_extras([obj.pk])[obj.pk])
-        for answer in ("mentorReason", "mentorRelevantBackground", "mentorMentoringApproach"):
-            details.pop(answer, None)
+        details.pop("mentorReason", None)
         return details
 
     def get_ment_reason(self, obj):
@@ -855,6 +863,9 @@ class SupervisedStudentGuardianSerializer(serializers.Serializer):
     pg_first_name = serializers.CharField(max_length=255)
     pg_last_name = serializers.CharField(max_length=255)
     pg_email = serializers.EmailField(required=False, allow_blank=True)
+    # The supervisor confirmed the warning: a new guardian clears the
+    # permission the old one gave.
+    clear_permission = serializers.BooleanField(required=False, default=False)
 
 
 class BulkUserStatusSerializer(serializers.Serializer):

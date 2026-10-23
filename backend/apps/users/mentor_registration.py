@@ -1,6 +1,6 @@
 """A mentor registering on the public registration page (``journey:
-"mentor"``): their contact details, affiliation, what they'd mentor and how,
-and when they're free each week.
+"mentor"``): their contact details, affiliation, what they'd mentor, how many
+groups and why, and when they're free each week.
 
 Saved as the admin's Import Mentors saves a mentor: an account with the
 mentor role, a mentor profile and their interests, with their weekly
@@ -40,11 +40,9 @@ AFFILIATIONS = ("undergraduate", "postgraduate", "hdr", "academic", "industry")
 STUDYING = ("undergraduate", "postgraduate")
 STUDY_YEARS = ("1", "2", "3", "4", "5+")
 CAPACITIES = ("1", "2", "3", "4", "5")
-# Hours a week they can give, as a whole number.
-MAX_WEEKLY_HOURS = 40
-# Each written answer, as the form counts it.
+# Their written answer (why they'd mentor), as the form counts it.
 MAX_WORDS = 150
-WRITTEN = ("background", "motivation", "mentoringApproach")
+WRITTEN = ("motivation",)
 SLOT_NOT_FULL = "Choose a day and both times."
 
 
@@ -70,10 +68,7 @@ class MentorInput(StrictInput):
     fieldOfStudy = serializers.CharField(max_length=255, allow_blank=True, default="")
     interests = serializers.ListField(child=serializers.CharField(max_length=255), max_length=100, default=list)
     capacity = serializers.ChoiceField(choices=CAPACITIES)
-    weeklyHours = serializers.IntegerField(min_value=1, max_value=MAX_WEEKLY_HOURS)
-    background = serializers.CharField(max_length=5000)
     motivation = serializers.CharField(max_length=5000)
-    mentoringApproach = serializers.CharField(max_length=5000)
     # Weekly times: the form no longer asks for them, but they're still taken
     # and kept when given.
     availability = serializers.ListField(child=AvailabilityInput(), max_length=21, default=list)
@@ -155,9 +150,6 @@ def save_mentor(mentor: dict, now) -> User:
         field_of_study="" if industry else mentor["fieldOfStudy"],
         mentor_reason=mentor["motivation"],
         max_group_count=int(mentor["capacity"]),
-        weekly_hours=mentor["weeklyHours"],
-        relevant_background=mentor["background"],
-        mentoring_approach=mentor["mentoringApproach"],
     )
     for description in dict.fromkeys(mentor["interests"]):
         interest, _ = AreasOfInterest.objects.get_or_create(

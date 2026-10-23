@@ -277,10 +277,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', closeOutside))
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  border: 1px solid #79bdb4;
+  border: 1px solid var(--analytics-ui-control-border, #79bdb4);
   border-radius: 10px;
-  background: #fff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
@@ -292,9 +292,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', closeOutside))
   z-index: 500;
   width: 286px;
   padding: 14px;
-  border: 1px solid #d7e3df;
+  border: 1px solid var(--analytics-ui-border, #d7e3df);
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 12px 30px rgba(23, 66, 67, .18);
 }
 .analytics-date-picker-heading {
@@ -307,10 +307,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', closeOutside))
   width: 100%;
   height: 36px;
   padding: 0 9px;
-  border: 1px solid #79bdb4;
+  border: 1px solid var(--analytics-ui-control-border, #79bdb4);
   border-radius: 8px;
-  background: #fff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174243);
   font: inherit;
 }
 .analytics-date-picker-weekdays,
@@ -332,7 +332,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', closeOutside))
 }
 .analytics-date-picker-weekdays {
   margin-bottom: 5px;
-  color: #748783;
+  color: var(--analytics-ui-muted, #748783);
   font-size: 11px;
   text-align: center;
 }
@@ -342,11 +342,11 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', closeOutside))
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   cursor: pointer;
 }
 .analytics-date-picker-days button:hover:not(:disabled) {
-  background: #e4f2ed;
+  background: var(--analytics-ui-selected, #e4f2ed);
 }
 .analytics-date-picker-days button.selected {
   background: #017151;
@@ -354,7 +354,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', closeOutside))
   font-weight: 700;
 }
 .analytics-date-picker-days button:disabled {
-  color: #c1cdca;
+  color: var(--analytics-ui-muted, #c1cdca);
   cursor: not-allowed;
 }
 </style>

@@ -82,12 +82,12 @@ def template_upload_to(instance, filename):
 
 
 class ChallengeStart(models.Model):
-    """The day a year's challenge starts (Management > Challenge Start): the
-    supervisors' daily registration status email asks for permission forms to
-    be signed by then. Who last set it, and when."""
+    """When a year's challenge starts, its date and time (Management >
+    Challenge Start): the supervisors' weekly registration status email asks
+    for permission forms to be signed by that day. Who last set it, and when."""
 
     year = models.PositiveSmallIntegerField(unique=True)
-    starts_on = models.DateField(null=True, blank=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -97,7 +97,7 @@ class ChallengeStart(models.Model):
         db_table = "challenge_start"
 
     def __str__(self):
-        return f"Challenge {self.year} starts {self.starts_on or 'unset'}"
+        return f"Challenge {self.year} starts {self.starts_at or 'unset'}"
 
     @classmethod
     def for_year(cls, year: int) -> "ChallengeStart":
@@ -105,11 +105,12 @@ class ChallengeStart(models.Model):
 
 
 class SupervisorPagesSetting(SingletonModel):
-    """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Late
-    Registration > Supervisor Pages Visibility)."""
+    """When students, mentors and supervisors start seeing Home, Groups,
+    Events, Announcements and Resources (Management > Challenge Start > Pages
+    Visibility): hidden until ``shown_from``, and while it isn't set. Admins
+    always see them."""
 
-    shown = models.BooleanField(default=False)
+    shown_from = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -120,6 +121,10 @@ class SupervisorPagesSetting(SingletonModel):
 
     def __str__(self):
         return "SupervisorPagesSetting"
+
+    def shown_at(self, now) -> bool:
+        """Whether the pages are shown at ``now``."""
+        return self.shown_from is not None and now >= self.shown_from
 
 
 class GradingSettings(SingletonModel):
@@ -441,6 +446,11 @@ class EmailSendRun(models.Model):
     # Who it couldn't reach and why, as the page lists them:
     # {"who": "(BTF07) Amy Chen", "reason": "address refused"}.
     missed = models.JSONField(default=list, blank=True)
+    # A run's: how many mail server connections it ended up sending over
+    # (fewer than BULK_EMAIL_WORKERS once the server pushed back); none for
+    # a job. A mailbox queue's: until when its runs use fewer connections.
+    connections = models.PositiveSmallIntegerField(null=True, blank=True)
+    fewer_connections_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "email_send_run"
@@ -580,3 +590,22 @@ class NonSubmissionEmail(models.Model):
 
     def __str__(self):
         return f"Non-submission emailed: {self.group}"
+
+
+class ScheduledJobRun(models.Model):
+    """One timed job the backend runs itself (apps.management.scheduler): the
+    slot it last ran for, so only one process runs each slot, and how its
+    last run went, for Management > Email Checks."""
+
+    name = models.CharField(max_length=64, unique=True)
+    last_slot = models.DateTimeField(null=True, blank=True)
+    last_started_at = models.DateTimeField(null=True, blank=True)
+    last_finished_at = models.DateTimeField(null=True, blank=True)
+    last_ok = models.BooleanField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        db_table = "scheduled_job_run"
+
+    def __str__(self):
+        return f"Scheduled job {self.name}"

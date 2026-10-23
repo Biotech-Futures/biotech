@@ -37,11 +37,42 @@
 
     <div v-else-if="auth.user" class="card" style="overflow:hidden;padding:0;">
       <div class="profile-header">
+        <!-- Their photo's options, behind the three dots at the top right. -->
+        <div class="profile-menu" @click.stop @keydown.esc="photoMenuOpen = false">
+          <button
+            type="button"
+            class="profile-menu__button"
+            :class="{ active: photoMenuOpen }"
+            aria-label="Profile options"
+            aria-haspopup="true"
+            :aria-expanded="photoMenuOpen"
+            data-test="profile-menu"
+            @click="photoMenuOpen = !photoMenuOpen"
+          >
+            <i class="fas fa-ellipsis-vertical" aria-hidden="true"></i>
+          </button>
+          <div v-if="photoMenuOpen" class="profile-menu__list" role="menu">
+            <button type="button" class="profile-menu__item" role="menuitem" data-test="profile-photo-change" @click="choosePhoto">
+              <i class="fas fa-camera" aria-hidden="true"></i>
+              <span>Change photo</span>
+            </button>
+            <button
+              v-if="hasOwnPhoto"
+              type="button"
+              class="profile-menu__item profile-menu__item--danger"
+              role="menuitem"
+              data-test="profile-photo-remove"
+              @click="removePhoto"
+            >
+              <i class="fas fa-trash" aria-hidden="true"></i>
+              <span>Remove photo</span>
+            </button>
+          </div>
+        </div>
         <div class="profile-avatar-wrap">
           <img v-if="avatarUrl" class="profile-avatar-large" :src="avatarUrl" :alt="`${user.name}'s profile picture`" @error="avatarUrl = ''" />
           <div v-else class="profile-avatar-large profile-avatar-initials" :aria-label="user.name">{{ getInitials(user.name) }}</div>
-          <label class="avatar-change" for="profile-avatar">Change photo</label>
-          <input id="profile-avatar" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
+          <input id="profile-avatar" ref="avatarInput" class="sr-only" type="file" accept="image/png,image/jpeg,image/webp" @change="selectAvatar" />
         </div>
         <h2 class="profile-name">{{ user.name }}</h2>
         <p class="profile-role">{{ capitalise(user.role) }} | {{ user.country }}</p>
@@ -108,7 +139,7 @@
           <form v-if="nameEditing" class="student-edit-form" @submit.prevent="saveName">
             <label>First name<input v-model.trim="nameDraft.first_name" class="app-input" required maxlength="255" /></label>
             <label>Last name<input v-model.trim="nameDraft.last_name" class="app-input" required maxlength="255" /></label>
-            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="supervisor-pronouns-select" /></label>
+            <label>Pronouns<AppSelect v-model="supervisorPronouns.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="supervisor-pronouns-select" /></label>
             <label v-if="supervisorPronouns.choice === 'Other'">Your pronouns<input v-model="supervisorPronouns.other" class="app-input" maxlength="100" data-test="supervisor-pronouns-other" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="nameSaving" @click="nameEditing = false">Cancel</button>
@@ -190,11 +221,11 @@
             <label>Last name<input v-model.trim="studentDraft.last_name" class="app-input" required maxlength="255" /></label>
             <label>School<input v-model.trim="studentDraft.school_name" class="app-input" required maxlength="255" /></label>
             <label>Year level<AppSelect v-model="studentDraft.year_lvl" class="app-input" :options="YEAR_LEVEL_OPTIONS" required /></label>
-            <fieldset class="interest-options"><legend>Areas of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
-            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" data-test="student-pronouns-select" /></label>
+            <fieldset class="interest-options"><legend>Area(s) of Interest</legend><label v-for="interest in profileOptions.interests" :key="interest.id"><input v-model="studentDraft.interest_ids" type="checkbox" :value="interest.id" /><span>{{ interest.interest_desc }}</span></label><p v-if="!profileOptions.interests.length">No interests are available yet.</p></fieldset>
+            <label>Pronouns<AppSelect v-model="pronounsDraft.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="student-pronouns-select" /></label>
             <label v-if="pronounsDraft.choice === 'Other'">Your pronouns<input v-model="pronounsDraft.other" class="app-input" maxlength="100" data-test="student-pronouns-other" /></label>
             <p class="profile-note">Use the Guardian Details section below to update your guardian.</p>
-            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save Details' }}</button></div>
+            <div class="student-edit-actions"><button class="btn btn-outline" type="button" :disabled="studentSaving" @click="cancelStudentEdit">Cancel</button><button class="btn btn-primary" type="submit" :disabled="studentSaving">{{ studentSaving ? 'Saving…' : 'Save' }}</button></div>
           </form>
           <template v-else>
           <div class="profile-field"><span class="profile-field-label">Name:</span><span class="profile-field-value">{{ user.name }}</span></div>
@@ -207,7 +238,7 @@
             <span class="profile-field-value">{{ user.student.yearLevel }}</span>
           </div>
           <div class="profile-field" data-test="student-interests">
-            <span class="profile-field-label">Areas of Interest:</span>
+            <span class="profile-field-label">Area(s) of Interest:</span>
             <span class="profile-field-value">
               {{ user.student.interests.length ? user.student.interests.join(', ') : unsetLabel }}
             </span>
@@ -341,7 +372,7 @@
                 Cancel
               </button>
               <button class="btn btn-primary" type="submit" :disabled="guardianSaving" data-test="guardian-save">
-                {{ guardianSaving ? 'Saving...' : 'Save guardian' }}
+                {{ guardianSaving ? 'Saving…' : 'Save' }}
               </button>
             </div>
           </form>
@@ -456,7 +487,7 @@
             <form v-if="mentorDetailsEditing" class="student-edit-form" data-test="mentor-details-form" @submit.prevent="saveMentorDetails">
               <label>First name<input v-model.trim="mentorDraft.firstName" class="app-input" maxlength="150" data-test="mentor-first-name" /></label>
               <label>Last name<input v-model.trim="mentorDraft.lastName" class="app-input" maxlength="150" data-test="mentor-last-name" /></label>
-              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="mentor-pronouns" /></label>
+              <label>Pronouns<AppSelect v-model="mentorPronouns.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="mentor-pronouns" /></label>
               <label v-if="mentorPronouns.choice === 'Other'">Your pronouns<input v-model="mentorPronouns.other" class="app-input" maxlength="100" /></label>
               <label>Background<AppSelect v-model="mentorDraft.background" class="app-input" :options="mentorBackgroundOptions" :searchable="false" placeholder="Choose a background" data-test="mentor-background" /></label>
               <label v-if="mentorDraft.background === 'industry'">Company<input v-model.trim="mentorDraft.company" class="app-input" maxlength="255" data-test="mentor-company" /></label>
@@ -464,8 +495,11 @@
               <label v-if="mentorDraftStudying">Year of study<AppSelect v-model="mentorDraft.universityYear" class="app-input" :options="STUDY_YEAR_OPTIONS" :searchable="false" placeholder="Choose a year" /></label>
               <label v-if="mentorDraft.background !== 'industry'">Field of study<input v-model.trim="mentorDraft.fieldOfStudy" class="app-input" maxlength="255" /></label>
               <fieldset class="interest-options"><legend>Expertise</legend><label v-for="interest in mentorInterestChoices" :key="interest"><input v-model="mentorDraft.interests" type="checkbox" :value="interest" /><span>{{ interest }}</span></label></fieldset>
-              <label>Capacity<AppSelect v-model="mentorDraft.capacity" class="app-input" :options="mentorCapacityOptions" :searchable="false" placeholder="Choose a capacity" /></label>
-              <label>Hours per week<input class="app-input" :value="mentorDraft.weeklyHours" type="number" inputmode="numeric" min="1" :max="MAX_WEEKLY_HOURS" data-test="mentor-hours" @input="onMentorHoursInput" @keydown="refuseNonDigitKey" @paste="refuseNonDigitPaste" /></label>
+              <!-- As registering has it: the pages' tabs, the one chosen open. -->
+              <div class="capacity-field" role="group" aria-labelledby="mentor-capacity-label" data-test="mentor-capacity">
+                <span id="mentor-capacity-label">Capacity</span>
+                <MentorCapacityPills id="mentor-capacity" v-model="mentorDraft.capacity" name="mentor-capacity" :options="mentorCapacityOptions" />
+              </div>
               <div class="student-edit-actions">
                 <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="mentorDetailsEditing = false">Cancel</button>
                 <button class="btn btn-primary" type="submit" :disabled="mentorSaving">{{ mentorSaving ? 'Saving…' : 'Save' }}</button>
@@ -508,10 +542,6 @@
               <span class="profile-field-label">Capacity:</span>
               <span class="profile-field-value">{{ user.mentor.capacity }}</span>
             </div>
-            <div class="profile-field">
-              <span class="profile-field-label">Hours per week:</span>
-              <span class="profile-field-value">{{ user.mentor.weeklyHours }}</span>
-            </div>
             </template>
           </div>
 
@@ -532,17 +562,9 @@
             <form v-if="availabilityEditing" class="mentor-slots" data-test="mentor-availability-form" @submit.prevent="saveAvailability">
               <div v-for="(slot, index) in availabilityDraft" :key="index" class="mentor-slot" :data-test="`mentor-slot-${index}`">
                 <AppSelect v-model="slot.weekday" class="mentor-slot__day" :aria-label="`Day ${index + 1}`" :options="WEEKDAY_OPTIONS" placeholder="Day" />
-                <span class="mentor-slot__time">
-                  <AppSelect :model-value="slot.startHour" class="mentor-slot__part" :aria-label="`From, hour, time ${index + 1}`" :options="HOUR_OPTIONS" :searchable="false" placeholder="--" @update:model-value="(value) => pickHour(slot, 'start', value)" />
-                  <span class="mentor-slot__muted">:</span>
-                  <AppSelect v-model="slot.startMinute" class="mentor-slot__part" :aria-label="`From, minutes, time ${index + 1}`" :options="minuteOptions(slot.startMinute)" :searchable="false" placeholder="--" />
-                </span>
+                <AppTimePicker v-model="slot.start" :aria-label="`From, time ${index + 1}`" />
                 <span class="mentor-slot__muted">to</span>
-                <span class="mentor-slot__time">
-                  <AppSelect :model-value="slot.endHour" class="mentor-slot__part" :aria-label="`To, hour, time ${index + 1}`" :options="HOUR_OPTIONS" :searchable="false" placeholder="--" @update:model-value="(value) => pickHour(slot, 'end', value)" />
-                  <span class="mentor-slot__muted">:</span>
-                  <AppSelect v-model="slot.endMinute" class="mentor-slot__part" :aria-label="`To, minutes, time ${index + 1}`" :options="minuteOptions(slot.endMinute)" :searchable="false" placeholder="--" />
-                </span>
+                <AppTimePicker v-model="slot.end" :aria-label="`To, time ${index + 1}`" />
                 <button type="button" class="mentor-slot__remove" :aria-label="`Remove time ${index + 1}`" @click="availabilityDraft.splice(index, 1)">
                   <i class="fas fa-xmark" aria-hidden="true"></i>
                 </button>
@@ -603,7 +625,7 @@
           <form v-if="adminDetailsEditing" class="student-edit-form" data-test="admin-details-form" @submit.prevent="saveAdminDetails">
             <label>First name<input v-model.trim="adminDraft.firstName" class="app-input" required maxlength="150" data-test="admin-first-name" /></label>
             <label>Last name<input v-model.trim="adminDraft.lastName" class="app-input" required maxlength="150" data-test="admin-last-name" /></label>
-            <label>Pronouns<AppSelect v-model="adminPronouns.choice" class="app-input" :options="pronounSelectOptions" data-test="admin-pronouns" /></label>
+            <label>Pronouns<AppSelect v-model="adminPronouns.choice" class="app-input" :options="pronounSelectOptions" :placeholder="PRONOUN_PLACEHOLDER" clearable data-test="admin-pronouns" /></label>
             <label v-if="adminPronouns.choice === 'Other'">Your pronouns<input v-model="adminPronouns.other" class="app-input" maxlength="100" /></label>
             <div class="student-edit-actions">
               <button class="btn btn-outline" type="button" :disabled="mentorSaving" @click="adminDetailsEditing = false">Cancel</button>
@@ -636,11 +658,11 @@ import { apiErrorFromResponse } from '@/utils/apiError'
 import { isPlaceholderGuardian } from '@/utils/guardian'
 import AppSimpleTable from '@/components/AppSimpleTable.vue'
 import AppSelect from '@/components/AppSelect.vue'
-import { PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
+import AppTimePicker from '@/components/AppTimePicker.vue'
+import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
+import { PRONOUN_PLACEHOLDER, PRONOUN_SELECT_OPTIONS as pronounSelectOptions, pronounDraft, pronounsToSave } from '@/utils/pronouns'
 import {
-  HOUR_OPTIONS,
   MAX_SLOTS,
-  MAX_WEEKLY_HOURS,
   MENTOR_BACKGROUNDS,
   STUDY_YEAR_OPTIONS,
   WEEKDAYS,
@@ -650,14 +672,11 @@ import {
   capacityLabel,
   isStudyingBackground,
   mentorBackgroundCode,
-  minuteOptions,
-  pickHour,
-  splitSlot,
+  draftSlot,
 } from '@/utils/mentorForm'
 import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
 import AppSuggestInput from '@/components/AppSuggestInput.vue'
 import { INTEREST_CATEGORIES, isAustralia } from '@/registration/registration'
-import { keptDigits, refuseNonDigitKey, refuseNonDigitPaste } from '@/utils/digitsOnly'
 import ConfirmDialog from '@/components/admin/ConfirmDialog.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import {
@@ -979,7 +998,7 @@ const saveMentorPlace = () => {
 const mentorDetailsEditing = ref(false)
 const mentorDraft = ref({
   firstName: '', lastName: '', background: null, company: '', institution: '', universityYear: null, fieldOfStudy: '',
-  interests: [], capacity: null, weeklyHours: '',
+  interests: [], capacity: null,
 })
 const mentorPronouns = ref({ choice: '', other: '' })
 const mentorDraftStudying = computed(() => isStudyingBackground(mentorDraft.value.background))
@@ -1014,16 +1033,10 @@ const startMentorDetailsEdit = () => {
     fieldOfStudy: details.mentorFieldOfStudy || '',
     interests: [...(auth.user?.interests || [])],
     capacity: details.mentorMaxGroupCount ?? null,
-    weeklyHours: details.mentorWeeklyHours ? String(details.mentorWeeklyHours) : '',
   }
   mentorPronouns.value = pronounDraft(auth.user?.pronouns)
   error.value = ''
   mentorDetailsEditing.value = true
-}
-
-// Hours per week: a number box taking two digits at most.
-const onMentorHoursInput = (event) => {
-  mentorDraft.value.weeklyHours = String(keptDigits(event.target, 2))
 }
 
 const saveMentorDetails = () => {
@@ -1031,11 +1044,6 @@ const saveMentorDetails = () => {
   const pronouns = pronounsToSave(mentorPronouns.value)
   if (pronouns === null) {
     error.value = 'Enter your pronouns.'
-    return
-  }
-  const hours = draft.weeklyHours.trim()
-  if (hours && (!/^\d+$/.test(hours) || Number(hours) < 1 || Number(hours) > MAX_WEEKLY_HOURS)) {
-    error.value = `Hours per week must be a whole number from 1 to ${MAX_WEEKLY_HOURS}.`
     return
   }
   // What their background doesn't ask for is cleared, as registering does.
@@ -1051,7 +1059,6 @@ const saveMentorDetails = () => {
     mentorFieldOfStudy: industry ? '' : draft.fieldOfStudy,
     interests: draft.interests,
     ...(draft.capacity === null ? {} : { mentorMaxGroupCount: draft.capacity }),
-    mentorWeeklyHours: hours ? Number(hours) : null,
   }, () => (mentorDetailsEditing.value = false))
 }
 
@@ -1060,7 +1067,7 @@ const availabilityEditing = ref(false)
 const availabilityDraft = ref([])
 
 const startAvailabilityEdit = () => {
-  availabilityDraft.value = (auth.user?.mentor_details?.mentorAvailability || []).map(splitSlot)
+  availabilityDraft.value = (auth.user?.mentor_details?.mentorAvailability || []).map(draftSlot)
   error.value = ''
   availabilityEditing.value = true
 }
@@ -1249,6 +1256,45 @@ const saveStudentDetails = async () => {
   }
 }
 
+// The three dots' menu: change their photo, or take it off.
+const photoMenuOpen = ref(false)
+const avatarInput = ref(null)
+const hasOwnPhoto = computed(() => Boolean(auth.user?.profile_image_url))
+const closePhotoMenu = () => (photoMenuOpen.value = false)
+onMounted(() => document.addEventListener('click', closePhotoMenu))
+onUnmounted(() => document.removeEventListener('click', closePhotoMenu))
+
+const choosePhoto = () => {
+  photoMenuOpen.value = false
+  avatarInput.value?.click()
+}
+
+const removePhoto = async () => {
+  photoMenuOpen.value = false
+  error.value = ''
+  statusMessage.value = 'Removing profile picture…'
+  try {
+    if (!await ensureCsrfCookie(API_BASE_URL)) {
+      throw new Error('Could not initialize a secure session. Please refresh and try again.')
+    }
+    const response = await fetch(`${API_BASE_URL}/api/v1/users/me/profile-image/`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: buildSessionHeaders({ includeCSRF: true }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) throw new Error(data?.detail || 'Your profile picture could not be removed.')
+    auth.loginWithUser(data)
+    avatarUrl.value = data.profile_image_url || DEFAULT_PROFILE_AVATAR
+    localStorage.removeItem('btf-local-profile-avatar')
+    window.dispatchEvent(new Event('btf-profile-avatar-changed'))
+    statusMessage.value = 'Profile picture removed.'
+  } catch (removeError) {
+    error.value = removeError instanceof Error ? removeError.message : 'Your profile picture could not be removed.'
+    statusMessage.value = ''
+  }
+}
+
 const selectAvatar = async (event) => {
   const file = event.target.files?.[0]
   if (!file) return
@@ -1349,7 +1395,6 @@ const user = computed(() => {
   // As their admin panel shows them: an old typed background as the list's choice it means.
   const mentorDetails = source?.mentor_details || {}
   const mentorBackground = mentorBackgroundCode(mentorDetails.mentorBackground)
-  const hours = mentorDetails.mentorWeeklyHours
   const hasSupervisorDetails = roleKey === 'supervisor' && ([source?.supervisor_school_name].some(Boolean) || supervisedCount > 0)
 
 
@@ -1411,7 +1456,6 @@ const user = computed(() => {
       fieldOfStudy: valueOrFallback(mentorDetails.mentorFieldOfStudy),
       interests: interests.length ? interests.join(', ') : unsetLabel,
       capacity: mentorDetails.mentorMaxGroupCount == null ? unsetLabel : capacityLabel(mentorDetails.mentorMaxGroupCount),
-      weeklyHours: hours ? `${hours} ${hours === 1 ? 'hour' : 'hours'}` : unsetLabel,
       availability: mentorDetails.mentorAvailability || [],
       groups: (mentorDetails.mentorGroups || []).map(group => group.name).join(', ') || unsetLabel
     },
@@ -1889,7 +1933,16 @@ onMounted(async () => {
 .profile-section-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.25rem; }
 .profile-section-heading .profile-section-title { margin:0; }
 .profile-avatar-large { width: 104px; height: 104px; flex-shrink:0; border: 4px solid rgba(255,255,255,.82); object-fit: cover; object-position:center; }
-.avatar-change { display: block; margin-top: .45rem; cursor: pointer; color: white; font-size: .85rem; text-decoration: underline; }
+/* The three dots at the top right of the green header, and their menu. */
+.profile-header { position: relative; }
+.profile-menu { position: absolute; top: 1rem; right: 1rem; z-index: 5; text-align: left; }
+.profile-menu__button { display: inline-flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--white); cursor: pointer; }
+.profile-menu__button:hover, .profile-menu__button.active { background: rgba(255, 255, 255, .18); border-color: rgba(255, 255, 255, .35); }
+.profile-menu__list { position: absolute; top: calc(100% + .25rem); right: 0; display: flex; flex-direction: column; min-width: 11rem; padding: .375rem; border: 1px solid var(--border-light); border-radius: 8px; background: var(--surface-elevated); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1), 0 4px 6px -2px rgba(0, 0, 0, .05); }
+.profile-menu__item { display: flex; align-items: center; gap: .625rem; width: 100%; padding: .5rem .75rem; border: none; border-radius: 6px; background: transparent; color: var(--teal); font: inherit; font-size: .9rem; text-align: left; cursor: pointer; }
+.profile-menu__item:hover { background: var(--bg-light); }
+.profile-menu__item i { width: 1rem; color: var(--text-muted); text-align: center; }
+.profile-menu__item--danger, .profile-menu__item--danger i { color: var(--danger); }
 .permission-status { font-weight: 600; color: #9c401a; }
 .permission-status.received { color: var(--dark-green); }
 .profile-note { margin: 1rem 0 0; color: #5c6670; font-size: .92rem; }
@@ -1903,11 +1956,9 @@ onMounted(async () => {
 .student-edit-form__wide { grid-column:1 / -1; }
 .mentor-slots { display:grid; gap:.6rem; margin-top:1rem; }
 .mentor-slot { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
-.mentor-slots .app-select { padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); }
+.mentor-slots .app-select, .mentor-slots .app-picker { padding:.65rem .75rem; border:1px solid var(--border-light); border-radius:6px; color:var(--teal); background:var(--white); }
 .mentor-slots .mentor-slot__day { flex:1 1 7rem; min-width:7rem; }
-.mentor-slot__time { display:inline-flex; align-items:center; gap:.2rem; }
 /* Just wide enough for two digits and the arrow. */
-.mentor-slots .mentor-slot__part { width:3.5rem; padding-left:.5rem; padding-right:.5rem; }
 .mentor-slot__muted { color:var(--text-muted); font-size:.85rem; }
 .mentor-slot__remove { padding:.25rem .4rem; border:none; background:transparent; color:var(--text-muted); cursor:pointer; }
 .mentor-slots > .profile-edit-button { justify-self:start; }
@@ -1920,6 +1971,8 @@ onMounted(async () => {
 .student-edit-form .interest-options label { display:flex; align-items:flex-start; gap:10px; padding:0 12px 0 2px; color:var(--charcoal); font-weight:400; line-height:1.35; cursor:pointer; }
 /* Centred on the first line of its text, at any text size. */
 .student-edit-form .interest-options input { flex:0 0 auto; width:1.0625rem; height:1.0625rem; margin:calc((.85rem * 1.35 - 1.0625rem) / 2) 0 0; padding:0; accent-color:var(--dark-green); cursor:pointer; }
+/* Capacity's pills on a line of their own, under a label as the others'. */
+.capacity-field { grid-column:1 / -1; display:grid; justify-items:start; gap:.35rem; color:#4c5750; font-size:.85rem; font-weight:600; }
 .student-edit-form .profile-note, .student-edit-actions { grid-column:1 / -1; }
 .student-edit-actions { display:flex; justify-content:flex-end; gap:.75rem; }
 .student-edit-actions .btn { margin:0; }

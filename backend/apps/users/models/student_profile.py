@@ -36,6 +36,9 @@ class StudentProfile(models.Model):
     # The last day the student was emailed to add their parent/guardian's
     # details (apps.users.guardian_details), so a rerun never emails twice.
     guardian_details_reminded_on = models.DateField(blank=True, null=True)
+    # When a supervisor last copied the guardian-details form link: every copy
+    # out works until FORM_LINK_LIFETIME after the latest.
+    guardian_details_link_at = models.DateTimeField(blank=True, null=True)
     # Who registered the student; blank for those registered before it was
     # recorded. Registered by a supervisor, or edited by one since, the student
     # can't change their own details: they ask their supervisor (``details_locked``).

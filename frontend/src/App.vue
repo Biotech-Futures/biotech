@@ -326,7 +326,6 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
-import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { clearLiveAnalyticsCache, prefetchAnalytics } from '@/utils/liveAnalyticsData'
@@ -464,23 +463,18 @@ type MainNavEntry =
       collapsed: boolean
     }
 
-const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
-    if (!isSupervisor) return
-    void loadSupervisorPages()
-    void loadSupervisorResults()
+    if (isSupervisor) void loadSupervisorResults()
   },
   { immediate: true },
 )
 
-// The top-level links every role sees; supervisors only once Management >
-// Supervisor Pages Visibility shows them.
+// The top-level links every role sees, at all times.
 const mainNavLinks = computed(() => {
-  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]

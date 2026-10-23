@@ -1,7 +1,7 @@
 <template>
   <div class="content-area">
-    <button type="button" class="btn btn-outline back-button" @click="router.push({ name: 'resources' })">
-      <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to resources
+    <button type="button" class="btn btn-outline back-button" @click="router.push(back.to)">
+      <i class="fas fa-arrow-left" aria-hidden="true"></i> {{ back.label }}
     </button>
 
     <div v-if="loading" class="card detail-state">
@@ -196,6 +196,22 @@ type ResourceAccessMode =
 
 const route = useRoute()
 const router = useRouter()
+
+// Back to where it was opened from: Management > Challenge Start's Release
+// Resources (from=release-resources), at this resource's row there, on
+// whichever page of its table has it; otherwise the library.
+const back = computed(() =>
+  route.query.from === 'release-resources'
+    ? {
+        to: {
+          name: 'management-challenge-start',
+          query: { resource: String(route.params.id) },
+          hash: '#release-resources',
+        },
+        label: 'Back to Release Resources',
+      }
+    : { to: { name: 'resources' }, label: 'Back to resources' }
+)
 
 const resource = ref<Resource | null>(null)
 const access = ref<ResourceAccess | null>(null)

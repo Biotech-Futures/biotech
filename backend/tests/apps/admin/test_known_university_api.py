@@ -355,3 +355,117 @@ class FullNameAcronymCountryTests(KnownUniversityApiTestCase):
         for school, warned in (("rmit", True), ("Royal Melbourne Institute of Technology", True), ("Australia", False)):
             with self.subTest(school=school):
                 self.assertEqual(SchoolWarningTests.registration(school).is_valid(), not warned)
+
+
+class UploadTests(KnownUniversityApiTestCase):
+    """Upload Universities, as My Students' Upload guardian details: its
+    columns name, acronym and country exactly, in order; a preview first,
+    then Apply loads it as load_known_universities loads a file."""
+
+    URL = f"{LIST_URL}upload/"
+    SHEET = (
+        "name,acronym,country\n"
+        "Monash University,MONASH,Australia\n"
+        "University of Sydney,SYD,Australia\n"
+        "Deakin University,,Australia\n"
+        "deakin university,,\n"
+    ).encode()
+
+    def upload(self, name, content, **fields):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        return self.client.post(
+            self.URL, {"file": SimpleUploadedFile(name, content), **fields}, format="multipart",
+        )
+
+    def setUp(self):
+        super().setUp()
+        KnownUniversity.objects.create(full_name="Monash University")
+        KnownUniversity.objects.create(full_name="University of Sydney", acronym="USYD")
+
+    def test_a_preview_says_what_it_would_do_and_changes_nothing(self):
+        response = self.upload("universities.csv", self.SHEET)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()["data"]
+        self.assertEqual(data["checks"]["missing_headers"], [])
+        # Monash's blank acronym and country, and Sydney's blank country, are
+        # filled in; Sydney's own acronym is kept, the file's reported.
+        self.assertEqual(data["summary"], {"added": 1, "filled": 2, "skipped": 1, "errors": 0})
+        # Row by row, as the spreadsheet numbers them (the header is row 1).
+        self.assertEqual(
+            data["filled_rows"],
+            [{"row": 2, "name": "Monash University"}, {"row": 3, "name": "University of Sydney"}],
+        )
+        self.assertEqual(data["listed_rows"], [])
+        self.assertEqual(data["repeated_rows"], [{"rows": [4, 5], "name": "Deakin University"}])
+        self.assertEqual(data["invalid_rows"], [])
+        self.assertEqual(len(data["checks"]["conflicts"]), 1)
+        self.assertNotIn("rows", data)
+        self.assertEqual(KnownUniversity.objects.count(), 2)
+        self.assertEqual(KnownUniversity.objects.get(full_name="Monash University").acronym, "")
+
+    def test_apply_adds_new_ones_and_fills_in_blanks_without_overwriting(self):
+        response = self.upload("universities.csv", self.SHEET, dry_run="false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response.json()["data"]["applied"])
+        self.assertEqual(KnownUniversity.objects.get(full_name="Monash University").acronym, "MONASH")
+        # An admin's acronym is never overwritten.
+        self.assertEqual(KnownUniversity.objects.get(full_name="University of Sydney").acronym, "USYD")
+        self.assertIn("Deakin University", self.names())
+        self.assertTrue(AuditLog.objects.filter(entity_type="known_university", action="import").exists())
+
+    def test_a_preview_lists_rows_already_listed_and_blank_or_too_long(self):
+        sheet = (
+            "name,acronym,country\n"
+            "Monash University,,\n"
+            ",ANU,Australia\n"
+            f"{'x' * 300},,\n"
+            "University of Sydney,USYD,\n"
+        ).encode()
+        data = self.upload("universities.csv", sheet).json()["data"]
+        self.assertEqual(
+            data["listed_rows"],
+            [{"row": 2, "name": "Monash University"}, {"row": 5, "name": "University of Sydney"}],
+        )
+        self.assertEqual(data["invalid_rows"], [3, 4])
+        self.assertEqual(data["summary"]["skipped"], 4)
+
+    def test_an_xlsx_is_read(self):
+        import io
+
+        from openpyxl import Workbook
+
+        book = Workbook()
+        book.active.append(["name", "acronym", "country"])
+        book.active.append(["RMIT University", "RMIT", "Australia"])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        response = self.upload("universities.xlsx", buffer.getvalue(), dry_run="false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(KnownUniversity.objects.get(full_name="RMIT University").country, "Australia")
+
+    def test_headers_must_match_exactly_and_be_in_order(self):
+        for sheet, missing, order in (
+            (b"name,acronym\nDeakin University,\n", ["country"], ""),
+            (b"Name,Acronym,Country\nDeakin University,,\n", ["name", "acronym", "country"], ""),
+            (b"acronym,name,country\n,Deakin University,\n", [], "Out of order (should be name, acronym, country)"),
+        ):
+            with self.subTest(sheet=sheet):
+                data = self.upload("list.csv", sheet).json()["data"]
+                self.assertEqual(data["checks"]["missing_headers"], missing)
+                self.assertEqual(data["checks"]["header_order"], order)
+                self.assertGreater(data["summary"]["errors"], 0)
+                response = self.upload("list.csv", sheet, dry_run="false")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("has problems", response.json()["msg"])
+        self.assertNotIn("Deakin University", self.names())
+
+    def test_an_unreadable_file_or_none_is_refused(self):
+        self.assertRefused(self.upload("list.xlsx", b"not a workbook"), 400, "couldn't be read")
+        self.assertRefused(self.client.post(self.URL, {}, format="multipart"), 400, "Choose a file")
+
+    def test_only_an_admin_can_upload(self):
+        self.client.force_authenticate(User.objects.create_user(email="not.admin@example.com"))
+        response = self.upload("universities.csv", self.SHEET, dry_run="false")
+        self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+        self.assertNotIn("Deakin University", self.names())

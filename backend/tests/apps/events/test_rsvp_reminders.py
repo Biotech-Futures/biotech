@@ -72,8 +72,8 @@ class Reminder24hWindowTests(TestCase):
         self.assertEqual(event.reminder_24h_sent_for_start, event.start_datetime)
         self.assertIsNone(event.reminder_1h_sent_for_start)
 
-    def test_event_under_24h_not_sent(self):
-        # 23h away — past the 24h window, not yet inside the 1h window.
+    def test_a_late_run_still_sends_the_24h_reminder(self):
+        # 23h away: the hourly run that should have caught it at 24h came late.
         event = _make_event(
             start_datetime=timezone.now() + timedelta(hours=23),
             ends_datetime=timezone.now() + timedelta(hours=25),
@@ -82,10 +82,33 @@ class Reminder24hWindowTests(TestCase):
 
         events, sent, _ = send_due_rsvp_reminders()
 
+        self.assertEqual((events, sent), (1, 1))
+        event.refresh_from_db()
+        self.assertEqual(event.reminder_24h_sent_for_start, event.start_datetime)
+
+    def test_event_under_12h_not_sent_the_24h_reminder(self):
+        # Too close for "tomorrow": only the 1h reminder will reach it.
+        event = _make_event(
+            start_datetime=timezone.now() + timedelta(hours=11),
+            ends_datetime=timezone.now() + timedelta(hours=13),
+        )
+        _rsvp(event, self.attendee)
+
+        events, sent, _ = send_due_rsvp_reminders(kind="24h")
+
         self.assertEqual((events, sent), (0, 0))
         self.assertEqual(mail.outbox, [])
         event.refresh_from_db()
         self.assertIsNone(event.reminder_24h_sent_for_start)
+
+    def test_a_late_run_still_sends_the_1h_reminder_before_the_start(self):
+        event = _make_event(
+            start_datetime=timezone.now() + timedelta(minutes=10),
+            ends_datetime=timezone.now() + timedelta(hours=1),
+        )
+        _rsvp(event, self.attendee)
+
+        self.assertEqual(send_due_rsvp_reminders(kind="1h")[:2], (1, 1))
 
     def test_event_over_25h_not_sent(self):
         # 26h away — past the 24h window. Will be caught one hour later.

@@ -114,10 +114,10 @@
         <label v-if="pageSizeOptions.length" class="admin-table__page-size">
           <span class="sr-only">Rows per page</span>
           <AppSelect
-            :model-value="pageSize"
+            :model-value="shownPageSize"
             class="table-page-size"
             :options="pageSizeChoices"
-            :disabled="loading"
+            :disabled="pickerDisabled"
             aria-label="Rows per page"
             @change="onPageSizeChange"
           />
@@ -303,11 +303,24 @@ watch([() => props.pageSize, () => props.totalCount, () => props.sortState], res
 
 const onPageChange = (page: number) => turnPage(() => emit('page-change', page))
 
-const pageSizeChoices = computed<AppSelectOption[]>(() =>
-  props.pageSizeOptions.map((size) => ({ value: size, label: String(size) }))
+// As AppDataTable's: until someone picks a size, with every row on one page
+// the picker is off and reads as the rows there are (8, not 25). A size
+// someone picked stays as picked, and the picker stays on to change it back.
+const picked = ref(false)
+const rowCount = computed(() => props.totalCount ?? props.rows.length)
+const shownPageSize = computed(() =>
+  !picked.value && rowCount.value > 0 && rowCount.value < props.pageSize ? rowCount.value : props.pageSize
 )
+const pickerDisabled = computed(() => props.loading || (!picked.value && totalPages.value <= 1))
+
+const pageSizeChoices = computed<AppSelectOption[]>(() => {
+  const sizes = [...props.pageSizeOptions]
+  if (!sizes.includes(shownPageSize.value)) sizes.push(shownPageSize.value)
+  return sizes.sort((a, b) => a - b).map((size) => ({ value: size, label: String(size) }))
+})
 
 const onPageSizeChange = (value: AppSelectValue) => {
+  picked.value = true
   emit('page-size-change', Number(value))
 }
 

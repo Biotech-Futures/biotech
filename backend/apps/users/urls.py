@@ -127,7 +127,7 @@ urlpatterns = [
         SendGuardianConsentRemindersView.as_view(),
         name="guardian-consent-reminders",
     ),
-    # The supervisors' daily registration status email.
+    # The supervisors' weekly registration status email.
     path(
         "admin/send-supervisor-registration-status/",
         SendSupervisorRegistrationStatusView.as_view(),

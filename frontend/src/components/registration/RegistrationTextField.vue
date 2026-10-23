@@ -5,6 +5,9 @@
       <small v-if="optional">(Optional)</small>
       <span v-else-if="required" class="required-mark" aria-hidden="true">*</span>
     </span>
+    <span v-if="description" :id="`${id}-description`" class="registration-field__description">
+      {{ description }}
+    </span>
     <textarea
       v-if="multiline"
       :id="id"
@@ -111,6 +114,9 @@ const props = withDefaults(
     type?: string
     autocomplete?: string
     placeholder?: string
+    /** Under the question, before the box. */
+    description?: string
+    /** Under the box. */
     hint?: string
     error?: string
     required?: boolean
@@ -136,6 +142,7 @@ const props = withDefaults(
     type: 'text',
     autocomplete: undefined,
     placeholder: undefined,
+    description: undefined,
     hint: undefined,
     error: undefined,
     required: false,
@@ -209,6 +216,7 @@ const onInput = (event: Event) => {
 const describedBy = computed(
   () =>
     [
+      props.description ? `${props.id}-description` : '',
       props.hint ? `${props.id}-hint` : '',
       props.maxWords ? `${props.id}-count` : '',
       props.error ? `${props.id}-error` : '',
@@ -283,6 +291,15 @@ const wordCount = computed(() => countWords(props.modelValue))
   color: var(--registration-ink);
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+/* Under the question: as Capacity's description and Expertise's are, with
+   16px under it (the field's 7px gap and this). */
+.registration-field__description {
+  margin-bottom: 9px;
+  color: var(--registration-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .registration-field__label small {

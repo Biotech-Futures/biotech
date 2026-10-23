@@ -3,7 +3,7 @@ registering can correct any that don't exist while they wait.
 
 - ``POST /api/v1/registration/email-check/`` takes the registration as
   ``register()`` would (``{journey, payload}``), finds every student's and
-  guardian's address, and starts a check of those without a recent answer on
+  guardian's address (and the supervisor's a student named), and starts a check of those without a recent answer on
   file. ``202 {"status": "started" | "done", "jobId", "total", "done"}``.
 - ``GET /api/v1/registration/email-check/<jobId>/`` reports its progress:
   ``{"status", "total", "done", "invalid", "errors", "skipped",
@@ -96,13 +96,14 @@ def _setting(name: str, default: int) -> int:
     return int(getattr(settings, name, default))
 
 
-def registration_addresses(students) -> list[str]:
-    """Every student's and guardian's address in a registration, lower case,
-    each once, in the form's order."""
+def registration_addresses(students, supervisor_email="") -> list[str]:
+    """Every student's and guardian's address in a registration, and the
+    supervisor's a student named, lower case, each once, in the form's order."""
     addresses = []
     for student in students:
         addresses.append(student["email"])
         addresses.append(student["guardian"].get("email", ""))
+    addresses.append(supervisor_email or "")
     return list(dict.fromkeys(
         address.strip().lower() for address in addresses if address and address.strip()
     ))
@@ -169,7 +170,11 @@ def start_check(request) -> tuple[dict, int]:
     if not _registration_open(request, journey):
         return {"status": CLOSED}, status.HTTP_200_OK
 
-    addresses = registration_addresses(students)
+    # A supervisor registering their own students is signed in: theirs isn't checked.
+    named = "" if journey in SUPERVISOR_JOURNEYS else (
+        (parser.validated_data["payload"].get("supervisor") or {}).get("email", "")
+    )
+    addresses = registration_addresses(students, named)
     signed_in = request.user.is_authenticated
     most = _setting("EMAIL_PRECHECK_MAX_ADDRESSES", 2000) if signed_in else _setting(
         "EMAIL_PRECHECK_ANONYMOUS_MAX_ADDRESSES", 20,

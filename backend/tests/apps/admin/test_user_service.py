@@ -1963,8 +1963,9 @@ class AdminMentorDetailsTests(TestCase):
                 self.assertEqual(data["mentorBackground"], "postgraduate")
                 self.assertEqual(data["mentorUniversityYear"], "2")
                 self.assertEqual(data["mentorFieldOfStudy"], "Biology")
-                self.assertEqual(data["mentorRelevantBackground"], "Lab work")
-                self.assertEqual(data["mentorMentoringApproach"], "Weekly calls")
+                # No longer shown, though earlier mentors' answers are kept.
+                for gone in ("mentorWeeklyHours", "mentorRelevantBackground", "mentorMentoringApproach"):
+                    self.assertNotIn(gone, data)
                 self.assertEqual(data["mentorAvailability"], [
                     {"weekday": 0, "start": "18:00", "end": "20:00"},
                     {"weekday": 2, "start": "17:00", "end": "19:00"},
@@ -2003,15 +2004,13 @@ class AdminMentorDetailsTests(TestCase):
         result = update_user(self.mentor.id, {"mentorUniversityYear": "7"})
         self.assertEqual(result["msg"], "Year of study is not valid")
 
-    def test_answers_are_kept_to_150_words(self):
-        result = update_user(self.mentor.id, {"mentorMentoringApproach": "word " * 151})
-        self.assertEqual(result["msg"], "Keep each answer to 150 words or fewer")
+    def test_why_they_would_mentor_is_kept_to_150_words(self):
+        result = update_user(self.mentor.id, {"mentorReason": "word " * 151})
+        self.assertEqual(result["msg"], "Keep the answer to 150 words or fewer")
 
-        result = update_user(self.mentor.id, {
-            "mentorReason": "To share what I know", "mentorRelevantBackground": "Ten years in labs",
-            "mentorMentoringApproach": "word " * 150,
-        })
+        result = update_user(self.mentor.id, {"mentorReason": "word " * 150})
         self.assertIsNotNone(result["data"], result["msg"])
+        result = update_user(self.mentor.id, {"mentorReason": "To share what I know"})
         self.assertEqual(self._profile().mentor_reason, "To share what I know")
 
     def test_weekly_times_are_replaced_and_checked(self):
@@ -2034,20 +2033,19 @@ class AdminMentorDetailsTests(TestCase):
         update_user(self.mentor.id, {"mentorAvailability": []})
         self.assertFalse(MentorAvailability.objects.filter(mentor_user=self.mentor).exists())
 
-    def test_hours_per_week_are_given_and_changed(self):
+    def test_hours_and_the_two_dropped_answers_are_no_longer_changed(self):
         self.profile.weekly_hours = 4
         self.profile.save()
-        self.assertEqual(fetch_user_by_id(self.mentor.id)["mentorWeeklyHours"], 4)
 
-        result = update_user(self.mentor.id, {"mentorWeeklyHours": 41})
-        self.assertEqual(result["msg"], "Hours per week must be from 1 to 40")
-        result = update_user(self.mentor.id, {"mentorWeeklyHours": 6})
+        result = update_user(self.mentor.id, {
+            "mentorWeeklyHours": 6, "mentorRelevantBackground": "New", "mentorMentoringApproach": "New",
+        })
+
         self.assertIsNotNone(result["data"], result["msg"])
-        self.assertEqual(self._profile().weekly_hours, 6)
-        # A mentor from before it was asked can be left without.
-        result = update_user(self.mentor.id, {"mentorWeeklyHours": None})
-        self.assertIsNotNone(result["data"], result["msg"])
-        self.assertIsNone(self._profile().weekly_hours)
+        profile = self._profile()
+        self.assertEqual(
+            (profile.weekly_hours, profile.relevant_background, profile.mentoring_approach), (4, "Lab work", "Weekly calls"),
+        )
 
     def test_capacity_can_be_zero(self):
         result = update_user(self.mentor.id, {"mentorMaxGroupCount": 0})
@@ -2202,8 +2200,7 @@ class AdminAddMentorTests(TestCase):
             "email": "new.mentor@example.com", "firstName": "Mia", "lastName": "Ng", "role": "mentor",
             "country": "Australia", "mentorBackground": "postgraduate", "mentorInstitution": "Uni",
             "mentorUniversityYear": "2", "mentorFieldOfStudy": "Biology", "mentorMaxGroupCount": 2,
-            "mentorWeeklyHours": 4, "mentorRelevantBackground": "Lab work", "mentorReason": "To help",
-            "mentorMentoringApproach": "Weekly calls",
+            "mentorReason": "To help",
             "mentorAvailability": [{"weekday": 0, "start": "18:00", "end": "19:30"}],
         }
 
@@ -2215,9 +2212,9 @@ class AdminAddMentorTests(TestCase):
         self.assertIsNotNone(result["data"], result["msg"])
         profile = MentorProfile.objects.get(user_id=result["data"]["id"])
         self.assertEqual(
-            (profile.background, profile.university_year, profile.field_of_study, profile.weekly_hours,
-             profile.max_group_count, profile.mentoring_approach),
-            ("postgraduate", "2", "Biology", 4, 2, "Weekly calls"),
+            (profile.background, profile.university_year, profile.field_of_study,
+             profile.max_group_count, profile.mentor_reason),
+            ("postgraduate", "2", "Biology", 2, "To help"),
         )
         self.assertEqual(result["data"]["mentorAvailability"], [{"weekday": 0, "start": "18:00", "end": "19:30"}])
 
@@ -2231,7 +2228,8 @@ class AdminAddMentorTests(TestCase):
     def test_only_an_email_is_needed_the_rest_may_come_later(self):
         from apps.admin.services.user import create_user
 
-        result = create_user({"email": "bare.mentor@example.com", "role": "mentor", "mentorWeeklyHours": None})
+        # As Add user's mentor form sends it (its weekly times), not an import.
+        result = create_user({"email": "bare.mentor@example.com", "role": "mentor", "mentorAvailability": []})
 
         self.assertIsNotNone(result["data"], result["msg"])
         profile = MentorProfile.objects.get(user_id=result["data"]["id"])

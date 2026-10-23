@@ -934,6 +934,11 @@ const submitForm = async () => {
   flex: 1;
 }
 
+/* Delete: its words and bin in red, on the plain button. */
+.admin-resource-form__footer .btn-danger {
+  color: var(--danger);
+}
+
 .admin-resource-form__spinner {
   display: inline-block;
   width: 14px;

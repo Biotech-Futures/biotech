@@ -38,7 +38,7 @@ _VERSIONS = {
             "I understand that the participant retains ownership of their pre-existing ideas and intellectual "
             "property. When Challenge materials are submitted, the team gives {brand_name} the non-exclusive "
             "permission described in section 15 of the Challenge Participant Terms and Conditions.",
-            "I understand that the participant may withdraw from the Challenge by contacting {support_email}, "
+            "I understand that the participant may withdraw from the Challenge by contacting info@biotechfutures.org, "
             "subject to the arrangements for existing team submissions and previously published material "
             "explained in section 20 of the Challenge Participant Terms and Conditions.",
             "I understand that this consent does not waive any right or protection that cannot lawfully be "

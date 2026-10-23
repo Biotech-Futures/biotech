@@ -32,11 +32,11 @@ class _World:
         self.mentor_role = Roles.objects.create(role_name="mentor")
         self.student_role = Roles.objects.create(role_name="student")
 
-    def _grant_role(self, user, role, *, valid_to=None):
+    def _grant_role(self, user, role, *, valid_from=None, valid_to=None):
         RoleAssignmentHistory.objects.create(
             user=user,
             role=role,
-            valid_from=timezone.now() - timedelta(days=1),
+            valid_from=valid_from or timezone.now() - timedelta(days=1),
             valid_to=valid_to,
         )
 
@@ -263,7 +263,9 @@ class RoleTaskMultipleRolesAndOrderingTests(_World, APITestCase):
         role_task = self._make_role_task("Mentor Training", self.mentor_role)
         user = User.objects.create_user(email="twice@t.com", password="pw")
         self._grant_role(user, self.mentor_role)
-        self._grant_role(user, self.mentor_role)
+        # From a different moment: the same one would break the rule of one
+        # row per user, role and start (Windows' clock can give both the same).
+        self._grant_role(user, self.mentor_role, valid_from=timezone.now() - timedelta(days=2))
 
         self.client.force_authenticate(user=user)
         ids = [item["id"] for item in self.client.get(MINE_URL).data]

@@ -24,7 +24,7 @@
         </section>
 
         <section class="group-detail__section">
-          <h3>Mutual Areas of Interest</h3>
+          <h3>Mutual Area(s) of Interest</h3>
           <div v-if="mutualInterests.length" class="group-detail__interests">
             <span
               v-for="item in mutualInterests"

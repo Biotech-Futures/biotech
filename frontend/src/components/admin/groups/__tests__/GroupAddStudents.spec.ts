@@ -126,11 +126,13 @@ describe('GroupAddStudents', () => {
     await flushPromises()
 
     expect(confirmCalls(fetchMock)).toHaveLength(1)
+    // Listed with no group: refused if one has joined a group since.
     expect(JSON.parse(String((confirmCalls(fetchMock)[0][1] as RequestInit).body))).toEqual({
       assignments: [
         { studentId: 30, groupId: 7 },
         { studentId: 31, groupId: 7 }
-      ]
+      ],
+      onlyUngrouped: true
     })
     const added = wrapper!.emitted('added')![0][0] as { id: number }[]
     expect(added.map((s) => s.id)).toEqual([30, 31])

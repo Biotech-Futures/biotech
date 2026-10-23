@@ -69,7 +69,7 @@ beforeEach(() => {
     open_now: false, opens_at: '2026-03-01T00:00:00Z', closes_at: '2026-06-30T13:59:00Z'
   })
   challengeStartMock.mockReset().mockResolvedValue({
-    year: 2026, starts_on: '2026-07-27', set_by: 'Ada Admin', updated_at: null
+    year: 2026, starts_at: new Date(2026, 6, 27, 23, 59).toISOString(), set_by: 'Ada Admin', updated_at: null
   })
   // Only the Symposium's date is read from the finalist email's details.
   symposiumMock.mockReset().mockResolvedValue({ symposium_date: '2026-11-20' } as never)
@@ -121,7 +121,7 @@ describe('the year dashboard', () => {
 
   it('says a date is not set until it is', async () => {
     registrationMock.mockResolvedValue({ open_now: true, opens_at: null, closes_at: null })
-    challengeStartMock.mockResolvedValue({ year: 2026, starts_on: null, set_by: '', updated_at: null })
+    challengeStartMock.mockResolvedValue({ year: 2026, starts_at: null, set_by: '', updated_at: null })
     symposiumMock.mockRejectedValue(new Error('down'))
     const wrapper = await mountPage()
     for (const label of ['Registration start', 'Registration close', 'Challenge start', 'Symposium date'])

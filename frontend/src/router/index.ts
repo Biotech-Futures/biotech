@@ -65,13 +65,19 @@ const router = createRouter({
       return { left: 0, top: 0 }
     }
 
+    // A resource's own page opens at its top, not as far down as the page
+    // it was opened from (Release Resources sits low on Challenge Start).
+    // The browser's back and forward still return to where they were.
+    if (to.name === 'resource-detail' && to.path !== from.path && !savedPosition) {
+      return { left: 0, top: 0 }
+    }
+
     return savedPosition ?? undefined
   },
 })
 
 import { useAuthStore } from '../stores/auth'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
-import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
 import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 router.beforeEach((to, from, next) => {
@@ -116,9 +122,6 @@ router.beforeEach((to, from, next) => {
     }
 
     next(auth.isAdmin ? '/admin' : (auth.isSupervisor ? '/profile' : '/dashboard'))
-  } else if (auth.isSupervisor && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
-    // Hidden from supervisors until Management > Supervisor Pages Visibility shows them.
-    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }
