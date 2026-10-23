@@ -22,7 +22,7 @@ const fixture = (): AdminPlanProgress => ({
       name: 'Introduce yourself',
       audience_role: 'student',
       completion_mode: 'per_person',
-      due_date: null,
+      due_date: '2026-10-01',
     },
     {
       id: 12,
@@ -45,6 +45,11 @@ const fixture = (): AdminPlanProgress => ({
       name: 'BTF10',
       cells: { '11': { completed: 0, total: 0 }, '12': { completed: 0, total: 1 } },
     },
+    {
+      id: 11,
+      name: 'BTF11',
+      cells: { '11': { completed: 3, total: 3 }, '12': { completed: 1, total: 1 } },
+    },
   ],
 })
 
@@ -65,54 +70,131 @@ async function mountPage() {
   return wrapper
 }
 
+const rows = (page: VueWrapper) => page.findAll('tbody tr.data-table-row')
+// A row's own cells, without the table's expand-button cell.
+const cells = (page: VueWrapper, index: number) =>
+  rows(page)[index].findAll('td:not(.data-table-expand-col)').map((cell) => cell.text())
+const names = (page: VueWrapper) => rows(page).map((row) => row.find('td:not(.data-table-expand-col)').text())
+const buttonByText = (page: VueWrapper, text: string) =>
+  page.findAll('button').find((button) => button.text().trim() === text)!
+
 beforeEach(() => {
+  // Only the clock is faked, so promises and timers still run normally.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-22T12:00:00'))
   fetchProgress.mockReset().mockResolvedValue(fixture())
 })
 afterEach(() => {
   wrapper?.unmount()
   wrapper = undefined
+  vi.useRealTimers()
 })
 
 describe('admin plan progress', () => {
-  it('shows the cohort, ordered stage/task headings, audiences and date-only due date', async () => {
+  it('leads with cohort health: groups behind, overdue tasks and overall completion', async () => {
     const page = await mountPage()
-    expect(page.text()).toContain('2026 cohort')
-    const headings = page.findAll('th').map((head) => head.text())
-    expect(headings).toHaveLength(3)
-    expect(headings[0]).toBe('Group')
-    expect(headings[1]).toContain('Getting started')
-    expect(headings[1]).toContain('Introduce yourself')
-    expect(headings[1]).toContain('Students · Each person')
-    expect(headings[2]).toContain('Project work')
-    expect(headings[2]).toContain('Mentors · Whole group')
-    expect(headings[2]).toContain('05/11/26')
+    expect(page.text()).toContain('2026 cohort · as of 22/10/26')
+    const health = page.get('[aria-label="Cohort health"]').text()
+    expect(health).toContain('1 of 3 groups have overdue tasks')
+    expect(health).toContain('2 on track')
+    expect(health).toContain('1 behind · 1 overdue task in total')
+    // (1 + 0 + 2) done of (2 + 1 + 2) applicable; 0/0 cells are left out.
+    expect(health).toContain('60% of all applicable tasks done')
+    expect(page.text()).not.toMatch(/NaN|Infinity/)
   })
 
-  it('preserves natural group order and renders raw counts including 0/0', async () => {
+  it('lists behind groups first, then natural order, with status, progress and what needs doing', async () => {
     const page = await mountPage()
-    const rows = page.findAll('tbody tr.data-table-row')
-    expect(rows.map((row) => row.find('td').text())).toEqual(['BTF2', 'BTF10'])
-    expect(rows[0].findAll('td').map((cell) => cell.text())).toEqual(['BTF2', '2/3', '1/1'])
-    expect(rows[1].findAll('td').map((cell) => cell.text())).toEqual(['BTF10', '0/0', '0/1'])
-    expect(page.text()).not.toMatch(/NaN|Infinity/)
+    expect(names(page)).toEqual(['BTF2', 'BTF10', 'BTF11'])
+    expect(cells(page, 0)).toEqual([
+      'BTF2',
+      '1 overdue',
+      '1 of 2 tasks',
+      'Oldest overdue: Introduce yourself (due 01/10/26)',
+    ])
+    expect(cells(page, 1)).toEqual(['BTF10', 'On track', '0 of 1 tasks', 'Next: Agree a meeting time · due 05/11/26'])
+    expect(cells(page, 2)).toEqual(['BTF11', 'All done', '2 of 2 tasks', 'All tasks done'])
     expect(page.find('a[href="/groups/2"]').exists()).toBe(true)
     expect(page.get('a[href="/admin/plan"]').text()).toBe('Back to plan builder')
   })
 
-  it('filters by group name only, without matching task names or cell counts', async () => {
+  it('opens a group to show its tasks by stage, with overdue, done and 0/0 states', async () => {
+    const page = await mountPage()
+    await rows(page)[0].get('.data-table-expand-btn').trigger('click')
+    const detail = page.get('tr.data-table-detail-row').text()
+    expect(detail).toContain('Getting started')
+    expect(detail).toContain('Introduce yourself')
+    expect(detail).toContain('2/3 · was due 01/10/26')
+    expect(detail).toContain('Project work')
+    expect(detail).toContain('done')
+    expect(page.find('tr.data-table-detail-row .plan-progress__item--overdue .fa-clock').exists()).toBe(true)
+    expect(page.find('tr.data-table-detail-row .plan-progress__item--done .fa-check').exists()).toBe(true)
+
+    await rows(page)[1].get('.data-table-expand-btn').trigger('click')
+    expect(page.findAll('tr.data-table-detail-row')[1].text()).toContain('nobody to tick')
+  })
+
+  it('shows a group with nobody in any audience as having nothing to tick', async () => {
+    const data = fixture()
+    data.groups[1].cells['12'] = { completed: 0, total: 0 }
+    fetchProgress.mockResolvedValue(data)
+    const page = await mountPage()
+    expect(cells(page, 1).slice(0, 3)).toEqual(['BTF10', 'Nothing to tick', '0 of 0 tasks'])
+    expect(page.text()).not.toMatch(/NaN|Infinity/)
+  })
+
+  it('filters to behind or on-track groups', async () => {
+    const page = await mountPage()
+    await buttonByText(page, 'Behind 1').trigger('click')
+    expect(names(page)).toEqual(['BTF2'])
+    await buttonByText(page, 'On track 2').trigger('click')
+    expect(names(page)).toEqual(['BTF10', 'BTF11'])
+    await buttonByText(page, 'All 3').trigger('click')
+    expect(names(page)).toHaveLength(3)
+  })
+
+  it('filters by group name only, without matching task names or statuses', async () => {
     const page = await mountPage()
     const search = page.get('input[type="search"]')
     await search.setValue('btf10')
-    expect(page.findAll('tbody tr.data-table-row').map((row) => row.text())).toHaveLength(1)
-    expect(page.find('tbody').text()).toContain('BTF10')
-    for (const text of ['Introduce yourself', '2/3', 'missing']) {
+    expect(names(page)).toEqual(['BTF10'])
+    for (const text of ['Introduce yourself', 'overdue', 'missing']) {
       await search.setValue(text)
-      expect(page.findAll('tbody tr.data-table-row')).toHaveLength(0)
-      expect(page.text()).toContain('No groups match this name.')
+      expect(rows(page)).toHaveLength(0)
+      expect(page.text()).toContain('No groups match.')
     }
     await search.setValue('')
-    expect(page.findAll('tbody tr.data-table-row')).toHaveLength(2)
+    expect(rows(page)).toHaveLength(3)
     expect(fetchProgress).toHaveBeenCalledOnce()
+  })
+
+  it('shows each task once by task, with groups done and groups overdue', async () => {
+    const page = await mountPage()
+    await buttonByText(page, 'By task').trigger('click')
+    expect(page.findAll('th').map((head) => head.text())).toEqual([
+      'Task',
+      'Stage',
+      'Due',
+      'Groups done',
+      'Overdue',
+    ])
+    expect(cells(page, 0)).toEqual([
+      'Introduce yourself Students · each person',
+      'Getting started',
+      '01/10/26',
+      '1 of 2 groups',
+      '1 group overdue',
+    ])
+    expect(cells(page, 1)).toEqual([
+      'Agree a meeting time Mentors · one tick per group',
+      'Project work',
+      '05/11/26',
+      '2 of 3 groups',
+      'Not due yet',
+    ])
+    expect(rows(page)[1].find('.fa-users').exists()).toBe(true)
+    await buttonByText(page, 'By group').trigger('click')
+    expect(names(page)).toEqual(['BTF2', 'BTF10', 'BTF11'])
   })
 
   it.each(['tasks', 'groups'] as const)('shows an explicit empty state for no %s', async (key) => {
@@ -124,6 +206,7 @@ describe('admin plan progress', () => {
       key === 'tasks' ? 'No plan tasks yet.' : 'No groups in the 2026 cohort yet.',
     )
     expect(page.find('table').exists()).toBe(false)
+    expect(page.find('[aria-label="Cohort health"]').exists()).toBe(false)
   })
 
   it('shows loading, then the result', async () => {
@@ -135,7 +218,7 @@ describe('admin plan progress', () => {
     )
     const page = await mountPage()
     expect(page.get('[role="status"]').text()).toContain('Loading')
-    expect(page.get('button').attributes('disabled')).toBeDefined()
+    expect(buttonByText(page, 'Refresh progress').attributes('disabled')).toBeDefined()
     finish(fixture())
     await flushPromises()
     expect(page.find('[role="status"]').exists()).toBe(false)
@@ -159,10 +242,11 @@ describe('admin plan progress', () => {
     const fresh = fixture()
     fresh.groups[0].cells['11'].completed = 3
     fetchProgress.mockResolvedValueOnce(fresh)
-    const refresh = page.findAll('button').find((button) => button.text() === 'Refresh progress')!
+    const refresh = buttonByText(page, 'Refresh progress')
     await refresh.trigger('click')
     await flushPromises()
-    expect(page.find('tbody').text()).toContain('3/3')
+    expect(page.get('[aria-label="Cohort health"]').text()).toContain('0 of 3 groups have overdue tasks')
+    expect(cells(page, 0).slice(0, 2)).toEqual(['BTF2', 'All done'])
     fetchProgress.mockRejectedValueOnce(new Error('Access denied'))
     await refresh.trigger('click')
     await flushPromises()
@@ -186,11 +270,10 @@ describe('admin plan progress', () => {
     }))
     fetchProgress.mockResolvedValueOnce(data)
     const page = await mountPage()
-    expect(page.findAll('th')).toHaveLength(61)
     expect(page.findComponent(AppDataTable).props('rows')).toHaveLength(250)
-    expect(page.findAll('tbody tr.data-table-row').length).toBeLessThan(250)
+    expect(rows(page).length).toBeLessThan(250)
+    expect(page.get('[aria-label="Cohort health"]').text()).toContain('250 of 250 groups have overdue tasks')
     await page.get('input[type="search"]').setValue('BTF250')
-    expect(page.findAll('tbody tr.data-table-row')).toHaveLength(1)
-    expect(page.find('tbody').text()).toContain('BTF250')
+    expect(names(page)).toEqual(['BTF250'])
   })
 })
