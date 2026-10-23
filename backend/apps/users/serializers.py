@@ -25,6 +25,8 @@ from zoneinfo import available_timezones
 # admin). Their guardian can be added later. A student registering
 # individually, or a form that doesn't say who filled it in, has to name one.
 _GUARDIAN_OPTIONAL_FOR = {"peer", "team", "supervisor", "teacher", "admin"}
+GUARDIAN_FIELDS = ("GuardianName", "GuardianSurname", "GuardianEmail")
+GUARDIAN_TOGETHER = "Enter the guardian's first name, surname and email together."
 REGISTRATION_OVERRIDES = {
     "ConfirmSchoolOverride", "ConfirmNameEmailOverride",
     "ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride",
@@ -56,8 +58,8 @@ def email_precheck_enabled() -> bool:
 
 
 def stored_email_answers(addresses) -> dict:
-    """The fresh valid or invalid QuickEmailVerification answers on file for
-    ``addresses``, keyed by lower-case address: one query for a whole
+    """The fresh QuickEmailVerification answers on file for ``addresses``
+    (see EmailVerification.reusable), keyed by lower-case address: one query for a whole
     submission, none while EMAIL_PRECHECK_ENABLED is off. Any failure gives
     no answers, so registration goes on unchecked."""
     if not email_precheck_enabled():
@@ -71,24 +73,26 @@ def stored_email_answers(addresses) -> dict:
 
 
 def _invalid_email_warning(answers, address, *, code, field, override, whose):
-    """A warning when ``address``'s answer on file says it doesn't exist."""
+    """A warning when ``address``'s answer on file says it doesn't exist, or
+    that it couldn't be told (unknown)."""
     answer = answers.get((address or "").strip().lower())
-    if answer is None or answer.status != EmailVerification.Status.INVALID:
+    if answer is None:
         return None
-    suggestion = f" Did you mean {answer.did_you_mean}?" if answer.did_you_mean else ""
-    return {
-        "code": code,
-        "field": field,
-        "override_field": override,
-        "message": f"{whose} doesn't appear to exist.{suggestion} Please correct it, or confirm if this is correct.",
-    }
+    if answer.status == EmailVerification.Status.INVALID:
+        suggestion = f" Did you mean {answer.did_you_mean}?" if answer.did_you_mean else ""
+        message = f"{whose} doesn't appear to exist.{suggestion} Please correct it, or confirm if this is correct."
+    elif answer.status == EmailVerification.Status.UNKNOWN:
+        message = f"{whose} couldn't be verified. Please check it, or confirm if this is correct."
+    else:
+        return None
+    return {"code": code, "field": field, "override_field": override, "message": message}
 
 
 def registration_warnings(data, email_answers=None, known_schools=None, *, check_supervisor=False):
     """The soft warnings for one student's registration details, each with
     the override that confirms past it. ``email_answers`` is
     ``stored_email_answers`` for the submission: an address answered invalid
-    gets a warning, and one with no answer gets none (it isn't blocked).
+    or unknown gets a warning, and one with no answer gets none (it isn't blocked).
     ``check_supervisor`` adds the supervisor the student named (once, on the
     first student; never a supervisor registering their own students).
     ``known_schools`` is ``KnownUniversity.matching`` for the submission's
@@ -248,6 +252,12 @@ class UserRegisterBodySerializer(serializers.Serializer):
             }
             if missing:
                 raise serializers.ValidationError(missing)
+        given = [field for field in GUARDIAN_FIELDS if data.get(field, "").strip()]
+        if given and len(given) < len(GUARDIAN_FIELDS):
+            raise serializers.ValidationError({
+                field: serializers.ValidationError(GUARDIAN_TOGETHER, code="guardian_incomplete").detail
+                for field in GUARDIAN_FIELDS if field not in given
+            })
 
         # Guardian can't be the same person as the student. Blank guardian
         # details match no one.

@@ -19,10 +19,10 @@ GUARDIAN = "guardian@example.com"
 SUPERVISOR = "teacher@example.com"
 
 
-def answer(email, status="invalid", *, did_you_mean="", days_old=0):
+def answer(email, status="invalid", *, did_you_mean="", days_old=0, hours_old=0):
     return EmailVerification.objects.create(
         email=email, status=status, reason="rejected_email" if status == "invalid" else "accepted_email",
-        did_you_mean=did_you_mean, checked_at=timezone.now() - timedelta(days=days_old),
+        did_you_mean=did_you_mean, checked_at=timezone.now() - timedelta(days=days_old, hours=hours_old),
     )
 
 
@@ -79,11 +79,42 @@ class WarningTests(TestCase):
 
         self.assertEqual(self.codes(), ["email_invalid", "guardian_email_invalid"])
 
-    def test_no_warning_for_a_valid_or_unknown_answer(self):
+    def test_no_warning_for_a_valid_answer(self):
         answer(STUDENT, "valid")
-        answer(GUARDIAN, "unknown")
+        answer(GUARDIAN, "valid")
 
         self.assertEqual(self.codes(), [])
+
+    def test_an_unknown_answer_warns_as_invalid_does_with_its_own_wording(self):
+        answer(STUDENT, "unknown", did_you_mean="jordan.lee@example.org")
+        answer(GUARDIAN, "unknown")
+
+        self.assertEqual(self.warnings(), [
+            {
+                "code": "email_invalid",
+                "field": "Title",
+                "override_field": "ConfirmEmailInvalidOverride",
+                "message": "This email address couldn't be verified. Please check it, or confirm if this is correct.",
+            },
+            {
+                "code": "guardian_email_invalid",
+                "field": "GuardianEmail",
+                "override_field": "ConfirmGuardianEmailInvalidOverride",
+                "message": "The guardian's email address couldn't be verified. Please check it, or confirm if this is correct.",
+            },
+        ])
+
+    def test_an_unknown_answer_is_confirmed_with_the_same_override(self):
+        answer(STUDENT, "unknown")
+
+        self.assertEqual(self.codes(ConfirmEmailInvalidOverride=True), [])
+
+    @override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=24)
+    def test_an_unknown_answer_older_than_its_window_is_no_answer(self):
+        answer(STUDENT, "unknown", hours_old=25)
+        answer(GUARDIAN, "unknown", hours_old=23)
+
+        self.assertEqual(self.codes(), ["guardian_email_invalid"])
 
     def test_no_warning_without_a_stored_answer(self):
         # A failed check is never stored, so it looks the same: no answer, no warning.
@@ -118,7 +149,8 @@ class WarningTests(TestCase):
     @override_settings(EMAIL_PRECHECK_ENABLED=False)
     def test_with_the_switch_off_there_are_none_even_with_answers_on_file(self):
         answer(STUDENT)
-        on_file = {STUDENT: EmailVerification.objects.get()}
+        answer(GUARDIAN, "unknown")
+        on_file = {row.email: row for row in EmailVerification.objects.all()}
 
         self.assertEqual(registration_warnings(details(), on_file), [])
         with self.assertNumQueries(0):

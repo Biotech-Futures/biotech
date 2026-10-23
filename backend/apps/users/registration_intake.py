@@ -36,7 +36,7 @@ from .models import (
 )
 from .profile_images import save_profile_image, validate_profile_image
 from .serializers import (
-    REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
+    GUARDIAN_TOGETHER, REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings, stored_email_answers,
 )
 
@@ -136,7 +136,11 @@ class StudentInput(StrictInput):
         optional_guardian = self.context.get("guardian_optional", False)
         if data["guardianDeferred"] and not optional_guardian:
             errors["guardianDeferred"] = "A student registering themselves must provide guardian contact."
-        if data["guardianDeferred"] and any(data["guardian"].values()):
+        given = [field for field in ("firstName", "lastName", "email") if data["guardian"].get(field)]
+        if data["guardianDeferred"] and given and len(given) < 3:
+            for field in {"firstName", "lastName", "email"} - set(given):
+                errors[f"guardian.{field}"] = GUARDIAN_TOGETHER
+        elif data["guardianDeferred"] and any(data["guardian"].values()):
             errors["guardianDeferred"] = "Clear guardian details or turn off deferral."
         if not self.context.get("legacy"):
             guardian = data["guardian"]
