@@ -79,6 +79,54 @@ jobs:
           name: coverage-report
           path: backend/coverage.xml
 
+  # The tests build their tables straight from the models and never load a
+  # migration, and production migrates on deploy. So this checks the
+  # migrations themselves, on the same Postgres version as docker-compose.dev.yml.
+  migrations:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Fails when two branches each added the next migration to one app (fix
+      # with `python manage.py makemigrations --merge`), or when a model
+      # changed with no migration.
+      - name: Check for migration conflicts and missing migrations
+        working-directory: ./backend
+        run: python manage.py makemigrations --check --dry-run --settings=config.settings_migrations
+
+      - name: Apply every migration to an empty database
+        working-directory: ./backend
+        run: python manage.py migrate --noinput --settings=config.settings_migrations
+
   build:
     runs-on: ubuntu-latest
     needs: test
@@ -138,7 +186,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [test, build]
+    needs: [test, migrations, build]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
