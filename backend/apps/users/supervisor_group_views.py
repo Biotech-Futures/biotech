@@ -249,6 +249,37 @@ class SupervisedGroupOrderView(APIView):
         return Response({"group_ids": order})
 
 
+GROUPING_PREFERENCES = ("school_only", "cross_school")
+
+
+def _grouping_preference(user) -> dict:
+    profile = SupervisorProfile.objects.get(user=user)
+    return {"grouping_preference": profile.grouping_preference, "school_name": profile.school_name or ""}
+
+
+class SupervisedGroupingPreferenceView(APIView):
+    """GET, or PUT ``{"grouping_preference": "school_only" | "cross_school"}``:
+    whether the supervisor's students without a group are matched only within
+    their school or with other schools too, asked at the top of My Groups."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    renderer_classes = [JSONRenderer]
+
+    @extend_schema(exclude=True)
+    def get(self, request):
+        _require_supervisor(request.user)
+        return Response(_grouping_preference(request.user))
+
+    @extend_schema(exclude=True)
+    def put(self, request):
+        _require_supervisor(request.user)
+        choice = request.data.get("grouping_preference")
+        if choice not in GROUPING_PREFERENCES:
+            raise ValidationError({"grouping_preference": ["Choose within your school or cross-school teams."]})
+        SupervisorProfile.objects.filter(user=request.user).update(grouping_preference=choice)
+        return Response(_grouping_preference(request.user))
+
+
 class SupervisedGroupDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     renderer_classes = [JSONRenderer]

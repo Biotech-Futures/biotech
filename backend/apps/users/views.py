@@ -184,8 +184,17 @@ class SetPasswordView(APIView):
                 {"msg": "Password must be at least 8 characters", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # A student, mentor or supervisor someone else registered agrees to the
+        # BIOTech Futures policies here, as the registration form asks.
+        from .registration_password import require_policies_agreed
+
+        agreeing = require_policies_agreed(request.user, request.data)
         request.user.set_password(password)
-        request.user.save(update_fields=["password"])
+        fields = ["password"]
+        if agreeing:
+            request.user.policies_agreed_at = timezone.now()
+            fields.append("policies_agreed_at")
+        request.user.save(update_fields=fields)
         update_session_auth_hash(request, request.user)
         return Response({"msg": "Password set successfully", "data": True})
 
@@ -1061,6 +1070,69 @@ def _log_edit(actor, user_id: int, action: str, changes: dict) -> None:
     log_audit_event(actor=actor, entity_type="user", entity_id=user_id, action=action, after_state=changes)
 
 
+def _own_guardian_profile(user):
+    """A student's own profile, locked for the change."""
+    if not user_has_role(user, ROLE_STUDENT):
+        raise PermissionDenied("Only students have guardian details.")
+    profile = StudentProfile.objects.select_for_update().filter(user=user).first()
+    if profile is None:
+        raise PermissionDenied("Only students have guardian details.")
+    return profile
+
+
+def save_own_guardian(user, data) -> None:
+    """A student gives their own parent/guardian (``data``: first_name,
+    last_name, email), as MeGuardianView and the Set password page a
+    registration email links to (registration_password) take it: checked,
+    saved, and the guardian emailed the consent form. Raises what the view
+    answers with."""
+    serializer = StudentGuardianUpdateSerializer(data=data, context={"user": user})
+    serializer.is_valid(raise_exception=True)
+    first_name = serializer.validated_data["first_name"]
+    last_name = serializer.validated_data["last_name"]
+    email = serializer.validated_data["email"]
+    current = StudentProfile.objects.filter(user=user).values_list("pg_email", flat=True).first()
+    if invalid := check_one_address(email, current=current):
+        raise serializers.ValidationError(
+            {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
+        )
+
+    with transaction.atomic():
+        profile = _own_guardian_profile(user)
+        if profile.guardian_locked:
+            raise PermissionDenied(
+                "Your guardian has given permission, so their details can't be changed here. "
+                "Contact BIOTech Support if they need to change."
+            )
+        unchanged = (
+            first_name == profile.pg_first_name
+            and last_name == profile.pg_last_name
+            and email == (profile.pg_email or "").strip().lower()
+        )
+        cleared = False
+        profile.clear_pending_guardian()
+        if not unchanged:
+            profile.pg_first_name = first_name
+            profile.pg_last_name = last_name
+            profile.pg_email = email
+            profile.parent_guardian_flag = True
+            # Changing the guardian clears permission: the new one has to sign.
+            cleared = profile.has_join_permission
+            profile.has_join_permission = False
+            profile.joinperm_responseID = None
+            profile.joinperm_granted_at = None
+            profile.media_consent = None
+            # Reminders start over, for the new guardian.
+            profile.guardian_reminder_sent_at = None
+            profile.guardian_reminder_due_at = None
+        profile.save()
+        _log_edit(user, user.id, "guardian_update", {"guardianEmail": email, "permissionCleared": cleared})
+
+    # Once the details are saved, the guardian just named gets the consent
+    # form straight away rather than at the next daily run.
+    email_new_guardian(profile)
+
+
 class MeGuardianView(APIView):
     """A student updates the parent/guardian on their own profile.
 
@@ -1079,66 +1151,14 @@ class MeGuardianView(APIView):
     renderer_classes = [JSONRenderer]
 
     def _profile(self, request):
-        if not user_has_role(request.user, ROLE_STUDENT):
-            raise PermissionDenied("Only students have guardian details.")
-        profile = StudentProfile.objects.select_for_update().filter(user=request.user).first()
-        if profile is None:
-            raise PermissionDenied("Only students have guardian details.")
-        return profile
+        return _own_guardian_profile(request.user)
 
     def _response(self, request):
         return Response(UserSerializer(request.user).data)
 
     @extend_schema(request=StudentGuardianUpdateSerializer, responses={200: UserSerializer})
     def put(self, request):
-        serializer = StudentGuardianUpdateSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        first_name = serializer.validated_data["first_name"]
-        last_name = serializer.validated_data["last_name"]
-        email = serializer.validated_data["email"]
-        current = StudentProfile.objects.filter(user=request.user).values_list("pg_email", flat=True).first()
-        if invalid := check_one_address(email, current=current):
-            raise serializers.ValidationError(
-                {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
-            )
-
-        with transaction.atomic():
-            profile = self._profile(request)
-            if profile.guardian_locked:
-                raise PermissionDenied(
-                    "Your guardian has given permission, so their details can't be changed here. "
-                    "Contact BIOTech Support if they need to change."
-                )
-            unchanged = (
-                first_name == profile.pg_first_name
-                and last_name == profile.pg_last_name
-                and email == (profile.pg_email or "").strip().lower()
-            )
-            cleared = False
-            profile.clear_pending_guardian()
-            if not unchanged:
-                profile.pg_first_name = first_name
-                profile.pg_last_name = last_name
-                profile.pg_email = email
-                profile.parent_guardian_flag = True
-                # Changing the guardian clears permission: the new one has to sign.
-                cleared = profile.has_join_permission
-                profile.has_join_permission = False
-                profile.joinperm_responseID = None
-                profile.joinperm_granted_at = None
-                profile.media_consent = None
-                # Reminders start over, for the new guardian.
-                profile.guardian_reminder_sent_at = None
-                profile.guardian_reminder_due_at = None
-            profile.save()
-            _log_edit(
-                request.user, request.user.id, "guardian_update",
-                {"guardianEmail": email, "permissionCleared": cleared},
-            )
-
-        # Once the details are saved, the guardian just named gets the consent
-        # form straight away rather than at the next daily run.
-        email_new_guardian(profile)
+        save_own_guardian(request.user, request.data)
         return self._response(request)
 
     @extend_schema(request=None, responses={200: UserSerializer})

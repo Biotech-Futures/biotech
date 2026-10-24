@@ -172,6 +172,128 @@ export interface MentorForm {
   interests: string[]
   capacity: '' | '1' | '2' | '3' | '4' | '5'
   motivation: string
+  /** Asked of a University of Sydney student (see isUsyd) on Affiliation:
+   *  whether they study Engineering there, and if so their student ID. */
+  usydEngineering: '' | 'yes' | 'no'
+  studentId: string
+  /** Asked in Australia alone, on their own step before Review: date of
+   *  birth (YYYY-MM-DD), their state's Working with Children Check (see
+   *  wwccFor), whether they identify as Aboriginal or Torres Strait Islander,
+   *  and the languages they speak (with Other's typed in). */
+  dateOfBirth: string
+  wwccNumber: string
+  indigenous: '' | 'yes' | 'no' | 'prefer_not'
+  languages: string[]
+  languagesOther: string
+  /** Drawn on Review, as a PNG data URL: signed again whenever they come back to it. */
+  signature: string
+}
+
+/** Those asked whether they study Engineering at USYD: its students. */
+export const UNIVERSITY_STUDENTS: MentorForm['affiliation'][] = ['undergraduate', 'postgraduate', 'hdr']
+
+// The University of Sydney as it may be typed: lower case, without "the" or
+// punctuation. Not Western Sydney University, nor UTS. As the backend's
+// (apps.users.mentor_registration.is_usyd).
+const USYD_NAMES = ['university of sydney', 'sydney university', 'sydney uni', 'uni of sydney', 'usyd']
+
+export const isUsyd = (institution: string) => {
+  const name = institution
+    .toLowerCase()
+    .replace(/[^a-z ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
+    .replace(/^the /, '')
+  return USYD_NAMES.includes(name) || name.startsWith('university of sydney ')
+}
+
+/** Languages Spoken's choices, as the backend takes them; Other's is typed in. */
+export const LANGUAGE_OTHER = 'Other (please specify)'
+export const LANGUAGE_OPTIONS = [
+  'Arabic',
+  'Bengali',
+  'English',
+  'French',
+  'German',
+  'Hindi/Urdu',
+  'Italian',
+  'Japanese',
+  'Mandarin',
+  'Portuguese',
+  'Punjabi',
+  'Russian',
+  'Spanish',
+  LANGUAGE_OTHER,
+] as const
+
+export type WorkingWithChildrenCheck = { label: string; check: string; url: string }
+
+// Each state's check, by its code or full name, as the state dropdown may list it.
+const WWCC_BY_STATE: Record<string, WorkingWithChildrenCheck> = {
+  nsw: {
+    label: 'Working with Children Check Number (NSW)',
+    check: 'A valid volunteer level WWCC',
+    url: 'https://www.service.nsw.gov.au/transaction/apply-for-a-working-with-children-check',
+  },
+  vic: {
+    label: 'Working with Children Check Number (VIC)',
+    check: 'A valid volunteer level WWCC',
+    url: 'https://www.vic.gov.au/working-with-children-check',
+  },
+  qld: {
+    label: 'Blue Card (QLD)',
+    check: 'A valid volunteer Blue Card',
+    url: 'https://www.qld.gov.au/bluecard',
+  },
+  wa: {
+    label: 'Working with Children Check Number (WA)',
+    check: 'A valid volunteer level WWCC',
+    url: 'https://www.wa.gov.au/organisation/department-of-communities/working-children-check',
+  },
+  sa: {
+    label: 'Working with Children Check Number (SA)',
+    check: 'A valid volunteer Working with Children Check (WWCC)',
+    url: 'https://www.sa.gov.au/topics/rights-and-law/rights-and-responsibilities/screening-checks',
+  },
+  tas: {
+    label: 'Working with Vulnerable People Number (TAS)',
+    check: 'A valid volunteer Registration to Work with Vulnerable People (RWVP)',
+    url: 'https://www.cbos.tas.gov.au/topics/licensing-and-registration/work-with-vulnerable-people/applications/apply',
+  },
+  act: {
+    label: 'Working with Vulnerable People Number (ACT)',
+    check: 'A valid volunteer Working with Vulnerable People (WWVP) registration',
+    url: 'https://www.accesscanberra.act.gov.au/business-and-work/working-with-vulnerable-people/apply-for-or-renew-a-wwvp-registration',
+  },
+  nt: {
+    label: 'Ochre Card Number (NT)',
+    check: 'A valid volunteer Ochre Card',
+    url: 'https://nt.gov.au/emergency/child-safety/apply-for-a-working-with-children-clearance',
+  },
+}
+const STATE_CODES: Record<string, string> = {
+  'new south wales': 'nsw',
+  victoria: 'vic',
+  queensland: 'qld',
+  'western australia': 'wa',
+  'south australia': 'sa',
+  tasmania: 'tas',
+  'australian capital territory': 'act',
+  'northern territory': 'nt',
+}
+
+/** The Working with Children Check an Australian state asks for: its
+ *  question, what's required and where to apply. A general one with no state. */
+export const wwccFor = (state: string): WorkingWithChildrenCheck => {
+  const key = state.trim().toLowerCase()
+  return (
+    WWCC_BY_STATE[STATE_CODES[key] ?? key] ?? {
+      label: 'Working with Children Check Number',
+      check: 'A valid volunteer Working with Children Check',
+      url: '',
+    }
+  )
 }
 
 /** A supervisor registering themselves: who they are, their school, and
@@ -337,6 +459,14 @@ export const createRegistrationForms = (): RegistrationForms => ({
     interests: [],
     capacity: '',
     motivation: '',
+    usydEngineering: '',
+    studentId: '',
+    dateOfBirth: '',
+    wwccNumber: '',
+    indigenous: '',
+    languages: [],
+    languagesOther: '',
+    signature: '',
   },
   supervisor: {
     firstName: '',

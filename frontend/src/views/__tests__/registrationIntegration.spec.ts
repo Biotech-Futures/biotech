@@ -127,7 +127,8 @@ const prepareStudent = async (wrapper: VueWrapper) => {
 const prepareMentor = async (wrapper: VueWrapper) => {
   const setup = setupOf(wrapper)
   setup.journey = 'mentor'
-  setup.currentStep = 3
+  // In Australia: Review follows its Checks step.
+  setup.currentStep = 4
   Object.assign(setup.forms.mentor, {
     firstName: 'Riley',
     lastName: 'Chen',
@@ -139,8 +140,14 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     interests: ['Biomedical Innovations'],
     capacity: '2',
     motivation: 'Support the next generation of researchers.',
+    dateOfBirth: '1990-05-01',
+    wwccNumber: 'WWC0012345E',
+    indigenous: 'no',
+    languages: ['English'],
   })
   await wrapper.vm.$nextTick()
+  // Signed on Review, as the box there would.
+  setup.forms.mentor.signature = 'data:image/png;base64,iVBORw0KGgo='
 }
 
 const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
@@ -948,12 +955,13 @@ describe('registration gateway UI integration', () => {
     expect(submitMock).toHaveBeenCalledTimes(2)
   })
 
-  it('shows the mentor Pending Review outcome', async () => {
+  it('tells a mentor they can sign in, with nothing for an admin to review', async () => {
     const wrapper = mountWithGateway(successfulGateway('mentor'))
     await prepareMentor(wrapper)
     await submit(wrapper)
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Application received'))
-    expect(wrapper.text()).toContain('pending administrator review')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
+    expect(wrapper.text()).toContain('You can now sign in.')
+    expect(wrapper.text()).not.toContain('pending administrator review')
   })
 })

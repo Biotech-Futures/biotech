@@ -86,6 +86,14 @@ _SAMPLE_REMINDER = section_html(
 )
 
 _FIRST_NAME = MergeTag("first_name", "Recipient's first name", "Alex", "First_Name")
+# A student someone else registered: their link to set a password, for 14
+# days (registration_password.emailed_password_url). Empty for anyone else.
+_SET_PASSWORD_URL = MergeTag(
+    "set_password_url",
+    "Their link to set a password (students registered by someone else, without one)",
+    "https://mentoring.biotechfutures.org/#/register/password?token=sample",
+    "SET_PASSWORD_URL",
+)
 
 # The ticket emails' tags (apps.tickets.services.emails). Everything they
 # say about an enquiry is a tag, the "is it assigned" sentence included, so
@@ -207,6 +215,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("year", "Competition year", "2026", "YEAR"),
             MergeTag("group_code", "The group's code, for teammates to join", "482913", "GROUP_CODE"),
+            _SET_PASSWORD_URL,
             *_BRAND_TAGS,
         ),
     ),
@@ -267,6 +276,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("supervisor_name", "The supervisor who registered them", "Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            _SET_PASSWORD_URL,
             *_BRAND_TAGS,
         ),
     ),
@@ -334,6 +344,7 @@ EMAIL_TYPES = (
             _FIRST_NAME,
             MergeTag("supervisor_name", "The supervisor the admin chose", "Sam Lee", "SUPERVISOR_NAME"),
             MergeTag("year", "Competition year", "2026", "YEAR"),
+            _SET_PASSWORD_URL,
             *_BRAND_TAGS,
         ),
     ),

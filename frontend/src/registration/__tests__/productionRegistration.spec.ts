@@ -153,19 +153,13 @@ describe('production registration normalization', () => {
     ])
     expect(normalized.payload).toHaveProperty('source.rowNumbers', [2])
   })
-  it('asks a mentor for no safeguarding, demographic or attestation details', () => {
+  it("sends a mentor's checks and signature, and no older compliance or attestation details", () => {
     const forms = createRegistrationForms()
     const request = buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms))
-    for (const field of [
-      'safeguardingJurisdiction',
-      'indigenousStatus',
-      'languages',
-      'dateOfBirth',
-      'complianceDeclaration',
-      'attestation',
-    ]) {
+    for (const field of ['usydEngineering', 'studentId', 'dateOfBirth', 'wwccNumber', 'indigenous', 'languages', 'signature'])
+      expect(request.payload).toHaveProperty(`mentor.${field}`)
+    for (const field of ['safeguardingJurisdiction', 'indigenousStatus', 'complianceDeclaration', 'attestation'])
       expect(request.payload).not.toHaveProperty(`mentor.${field}`)
-    }
   })
 
   it('does not assign a new grouping preference or replace server validation', () => {

@@ -46,7 +46,7 @@
         <!-- What Review showed, then when it was registered. -->
         <div class="success-body">
           <div class="success-intro">
-            <!-- Registration Complete, or a mentor's Application received, ticked. -->
+            <!-- Registration Complete, ticked. -->
             <h3>
               {{ successHeading }}
               <i class="fas fa-circle-check success-check" aria-hidden="true"></i>
@@ -182,14 +182,6 @@
           </span>
         </button>
       </div>
-      <!-- A supervisor from an earlier year comes back by confirming their email. -->
-      <p v-if="!invitationToken" class="supervisor-guidance">
-        Supervised in an earlier year?
-        <button type="button" class="supervisor-guidance__action" @click="startReturningSupervisor">
-          Confirm your email
-        </button>
-        to register your students again.
-      </p>
     </section>
 
     <!-- A supervisor back for a new year: Start new year deactivated their
@@ -1072,6 +1064,49 @@
                     :wide="!['undergraduate', 'postgraduate'].includes(forms.mentor.affiliation)"
                   />
                 </div>
+
+                <!-- A University of Sydney student: Engineering there earns PEP
+                     hours; if so, their student ID. -->
+                <template v-if="askUsydEngineering">
+                  <fieldset
+                    class="choice-fieldset"
+                    :aria-invalid="Boolean(errors['mentor.usydEngineering'])"
+                    aria-describedby="mentor-usyd-description"
+                  >
+                    <legend>
+                      Are you studying Engineering at USYD?
+                      <span class="required-mark" aria-hidden="true">*</span>
+                    </legend>
+                    <p id="mentor-usyd-description" class="fieldset-help">
+                      If so, you will be awarded 5 PEP hours per group you mentor, up to 15hrs
+                    </p>
+                    <div class="affiliation-options">
+                      <label v-for="option in YES_NO_OPTIONS" :key="option.value">
+                        <input
+                          v-model="forms.mentor.usydEngineering"
+                          type="radio"
+                          name="mentor-usyd-engineering"
+                          :value="option.value"
+                          :aria-invalid="Boolean(errors['mentor.usydEngineering'])"
+                        />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
+                    <span v-if="errors['mentor.usydEngineering']" class="inline-error">
+                      {{ errors['mentor.usydEngineering'] }}
+                    </span>
+                  </fieldset>
+                  <div v-if="forms.mentor.usydEngineering === 'yes'" class="field-grid">
+                    <RegistrationTextField
+                      id="mentor-student-id"
+                      v-model="forms.mentor.studentId"
+                      label="Student ID"
+                      description="e.g. 123456789"
+                      :error="errors['mentor.studentId']"
+                      required
+                    />
+                  </div>
+                </template>
               </div>
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -1124,6 +1159,76 @@
                   required
                   wide
                 />
+              </div>
+
+              <!-- In Australia alone: their check, and a little about them. -->
+              <div v-else-if="currentStepDefinition.label === MENTOR_CHECKS_STEP.label" class="step-stack">
+                <div class="field-grid">
+                  <RegistrationTextField
+                    id="mentor-dob"
+                    v-model="forms.mentor.dateOfBirth"
+                    label="Date of Birth"
+                    type="date"
+                    description="Note: This is used for WWCC verification and is deleted after use."
+                    autocomplete="bday"
+                    :error="errors['mentor.dateOfBirth']"
+                    required
+                  />
+                  <RegistrationTextField
+                    id="mentor-wwcc"
+                    v-model="forms.mentor.wwccNumber"
+                    :label="mentorWwcc.label"
+                    :error="errors['mentor.wwccNumber']"
+                    required
+                    wide
+                  >
+                    <template #description>
+                      {{ mentorWwcc.check }} is required to mentor for BIOTech Futures.
+                      <template v-if="mentorWwcc.url">
+                        Apply for a check via
+                        <a :href="mentorWwcc.url" target="_blank" rel="noopener noreferrer">{{ mentorWwcc.url }}</a>.
+                      </template>
+                      If your application is pending, please provide your application number.
+                    </template>
+                  </RegistrationTextField>
+                </div>
+                <fieldset class="choice-fieldset" :aria-invalid="Boolean(errors['mentor.indigenous'])">
+                  <legend>
+                    Do you identify as Aboriginal or Torres Strait Islander?
+                    <span class="required-mark" aria-hidden="true">*</span>
+                  </legend>
+                  <div class="affiliation-options">
+                    <label v-for="option in INDIGENOUS_OPTIONS" :key="option.value">
+                      <input
+                        v-model="forms.mentor.indigenous"
+                        type="radio"
+                        name="mentor-indigenous"
+                        :value="option.value"
+                        :aria-invalid="Boolean(errors['mentor.indigenous'])"
+                      />
+                      <span>{{ option.label }}</span>
+                    </label>
+                  </div>
+                  <span v-if="errors['mentor.indigenous']" class="inline-error">
+                    {{ errors['mentor.indigenous'] }}
+                  </span>
+                </fieldset>
+                <RegistrationInterestSelector
+                  id="mentor-languages"
+                  v-model="forms.mentor.languages"
+                  label="Languages Spoken"
+                  :options="LANGUAGE_OPTIONS"
+                  :error="errors['mentor.languages']"
+                />
+                <div v-if="forms.mentor.languages.includes(LANGUAGE_OTHER)" class="field-grid">
+                  <RegistrationTextField
+                    id="mentor-languages-other"
+                    v-model="forms.mentor.languagesOther"
+                    label="Other language(s)"
+                    :error="errors['mentor.languagesOther']"
+                    required
+                  />
+                </div>
               </div>
 
             </template>
@@ -1243,6 +1348,36 @@
               </div>
             </div>
 
+            <!-- A mentor signs that the form is true, above the policies. -->
+            <section
+              v-if="journey === 'mentor' && isReviewStep"
+              ref="signatureRef"
+              class="mentor-sign"
+              tabindex="-1"
+              aria-labelledby="mentor-sign-title"
+            >
+              <h3 id="mentor-sign-title">
+                Sign the box <span class="required-mark" aria-hidden="true">*</span>
+              </h3>
+              <p class="fieldset-help">
+                Sign in the box below to confirm that you have completed all fields in this form
+                truthfully, to the best of your knowledge. Click the <em>Submit</em> button once you
+                are finished.
+              </p>
+              <SignaturePad
+                class="mentor-sign__pad"
+                :invalid="Boolean(errors['mentor.signature'] || signatureError)"
+                @change="forms.mentor.signature = $event ?? ''"
+              />
+              <p
+                v-if="errors['mentor.signature'] || signatureError"
+                class="policies-agree__error"
+                role="alert"
+              >
+                {{ errors['mentor.signature'] || signatureError }}
+              </p>
+            </section>
+
             <!-- BIOTech Futures' policies, agreed to before submitting: the
                  last step of a student's or mentor's own registration (not a
                  supervisor's or admin's registering students for them). -->
@@ -1266,6 +1401,7 @@
                 {{ policiesError }}
               </p>
             </div>
+
           </section>
 
           <!-- On the right; the steps above go back, and Back to the
@@ -1352,7 +1488,8 @@ import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/uti
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
-import { SUPPORT_EMAIL } from '@/constants/brand'
+import SignaturePad from '@/components/consent/SignaturePad.vue'
+import { POLICIES_URL, SUPPORT_EMAIL } from '@/constants/brand'
 import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
 import {
@@ -1385,13 +1522,18 @@ import {
   hasSupervisor,
   isAustralia,
   isBlankStudent,
+  isUsyd,
   isValidRegistrationEmail,
+  LANGUAGE_OPTIONS,
+  LANGUAGE_OTHER,
   parseRegistrationCsv,
   registrationCsvTemplate,
   MENTOR_MAX_WORDS,
   revalidateRegistrationCsvRows,
   stateLabel,
   supervisorSummary,
+  UNIVERSITY_STUDENTS,
+  wwccFor,
   type CsvCategory,
   type CsvHeader,
   type CsvRow,
@@ -1685,6 +1827,40 @@ const CAPACITY_OPTIONS = (['1', '2', '3', '4', '5'] as const).map((count) => ({
   label: `${count} ${count === '1' ? 'group' : 'groups'}`,
 }))
 
+// An answer's words on Review.
+const answerLabel = (options: Array<{ value: string; label: string }>, value: string) =>
+  options.find((option) => option.value === value)?.label || ''
+// The languages a mentor speaks, with Other's typed in.
+const mentorLanguages = () =>
+  forms.mentor.languages.flatMap((language) =>
+    language === LANGUAGE_OTHER ? [forms.mentor.languagesOther.trim()].filter(Boolean) : [language],
+  )
+// "12 April 1999", from the date box's 1999-04-12.
+const longDate = (iso: string) => {
+  const [year, month, day] = iso.split('-').map(Number)
+  if (!year || !month || !day) return iso
+  return new Date(year, month - 1, day).toLocaleDateString('en-AU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+// Today in the date box's form, in this browser's time zone.
+const todayIso = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+const YES_NO_OPTIONS: Array<{ value: MentorForm['usydEngineering']; label: string }> = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+]
+const INDIGENOUS_OPTIONS: Array<{ value: MentorForm['indigenous']; label: string }> = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'prefer_not', label: 'Prefer not to answer' },
+]
+
 // The same backgrounds, in the same words, as everywhere a mentor's are shown:
 // from an undergraduate student up to industry.
 const mentorAffiliations: Array<{ value: MentorForm['affiliation']; label: string }> = [
@@ -1752,7 +1928,7 @@ if (draft) {
   const blank = createRegistrationForms()
   forms.studentIndividual = { ...blank.studentIndividual, ...draft.forms.studentIndividual }
   forms.studentTeam = { ...blank.studentTeam, ...draft.forms.studentTeam }
-  forms.mentor = { ...blank.mentor, ...draft.forms.mentor }
+  forms.mentor = { ...blank.mentor, ...draft.forms.mentor, signature: '' }
   forms.supervisor = { ...blank.supervisor, ...draft.forms.supervisor }
 }
 // The countries, and in Australia its states, from the database, for the
@@ -1761,6 +1937,12 @@ const mentorCountryOptions = useCountryOptions()
 // Offered as a mentor types their university (Management > Known Universities).
 const universityNames = useUniversityNames()
 const mentorStateOptions = useStateOptions(() => forms.mentor.country)
+// Asked of a University of Sydney student, on Affiliation.
+const askUsydEngineering = computed(
+  () => UNIVERSITY_STUDENTS.includes(forms.mentor.affiliation) && isUsyd(forms.mentor.institution),
+)
+// The Working with Children Check their state asks for.
+const mentorWwcc = computed(() => wwccFor(forms.mentor.state))
 // Another country: its state or region starts again, but only from one they'd
 // picked (none to start).
 watch(
@@ -2023,12 +2205,10 @@ const visibleRoleOptions = computed(() =>
         registrationGateway.supportedJourneys.includes(role.value)),
   ),
 )
-const successHeading = computed(() =>
-  journey.value === 'mentor' ? 'Application received' : 'Registration Complete',
-)
+const successHeading = computed(() => 'Registration Complete')
 const successNote = computed(() =>
   journey.value === 'mentor'
-    ? 'Your application is pending administrator review.'
+    ? 'You can now sign in.'
     : journey.value === 'supervisor'
       ? 'You can now sign in to register your students.'
       : 'Guardian consent is still required before full registration.',
@@ -2040,25 +2220,54 @@ const ADDED_STUDENTS_REVIEW = {
   title: 'Review the student registration',
   description: 'Check the record before saving.',
 }
+// A mentor in Australia: their Working with Children Check and a little
+// about them, on a step of its own before Review.
+const MENTOR_CHECKS_STEP = {
+  label: 'Checks',
+  title: 'Your Working with Children Check',
+  description: 'Required to mentor in Australia, with a little about you.',
+}
 const steps = computed(() => {
   const own = selectedJourney.value?.steps || []
+  if (journey.value === 'mentor' && isAustralia(forms.mentor.country))
+    return [...own.slice(0, -1), MENTOR_CHECKS_STEP, ...own.slice(-1)]
   return journey.value === 'supervisor_individual' && forms.supervisorIndividual.extraStudents.length
     ? [...own, ADDED_STUDENTS_REVIEW]
     : own
 })
+// Fewer steps (a mentor's country no longer Australia): none past Review.
+watch(
+  () => steps.value.length,
+  (count) => {
+    maxReachedStep.value = Math.min(maxReachedStep.value, Math.max(count - 1, 0))
+    currentStep.value = Math.min(currentStep.value, Math.max(count - 1, 0))
+  },
+)
 // Every journey's last step is Review, but Register one student's on its own.
 const isReviewStepIndex = (index: number) => steps.value[index]?.label === 'Review'
 const isReviewStep = computed(() => isReviewStepIndex(currentStep.value))
 
 // BIOTech Futures' policies: ticked on the last step to submit, and asked
 // again for each registration (a new journey, or after one is sent).
-const POLICIES_URL = 'https://www.biotechfutures.org/policies'
 const policiesAgreed = ref(false)
 // Asked of those registering themselves; a supervisor or admin registering
 // students isn't agreeing for them.
 const policiesAsked = computed(() => !(journey.value && SUPERVISOR_JOURNEYS.includes(journey.value)))
 const policiesError = ref('')
 const policiesRef = ref<HTMLInputElement | null>(null)
+// A mentor's signature on Review: drawn again each time they come back to it,
+// as the box starts empty.
+const signatureError = ref('')
+const signatureRef = ref<HTMLElement | null>(null)
+watch(
+  () => forms.mentor.signature,
+  (signed) => {
+    if (signed) signatureError.value = ''
+  },
+)
+watch(isReviewStep, (onReview) => {
+  if (!onReview) forms.mentor.signature = ''
+})
 watch(policiesAgreed, (agreed) => {
   if (agreed) policiesError.value = ''
 })
@@ -2415,6 +2624,17 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             ...(forms.mentor.affiliation !== 'industry'
               ? [{ label: 'Field of study or research', value: forms.mentor.fieldOfStudy }]
               : []),
+            ...(askUsydEngineering.value
+              ? [
+                  {
+                    label: 'Studying Engineering at USYD',
+                    value: answerLabel(YES_NO_OPTIONS, forms.mentor.usydEngineering),
+                  },
+                  ...(forms.mentor.usydEngineering === 'yes'
+                    ? [{ label: 'Student ID', value: forms.mentor.studentId }]
+                    : []),
+                ]
+              : []),
           ],
         },
         {
@@ -2427,6 +2647,22 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
             },
           ],
         },
+        ...(isAustralia(forms.mentor.country)
+          ? [
+              {
+                title: 'Checks',
+                items: [
+                  { label: 'Date of Birth', value: longDate(forms.mentor.dateOfBirth) },
+                  { label: mentorWwcc.value.label, value: forms.mentor.wwccNumber },
+                  {
+                    label: 'Aboriginal or Torres Strait Islander',
+                    value: answerLabel(INDIGENOUS_OPTIONS, forms.mentor.indigenous),
+                  },
+                  { label: 'Languages Spoken', value: mentorLanguages().join(', ') },
+                ],
+              },
+            ]
+          : []),
       ]
     case 'supervisor':
       return [
@@ -2666,6 +2902,30 @@ const validateCurrentStep = () => {
           'Enter your current year of study.',
         )
       }
+      if (askUsydEngineering.value) {
+        requireValue(
+          'mentor.usydEngineering',
+          forms.mentor.usydEngineering,
+          'Say whether you study Engineering at USYD.',
+        )
+        if (forms.mentor.usydEngineering === 'yes' && !/^\d+$/.test(forms.mentor.studentId.trim()))
+          clientErrors['mentor.studentId'] = 'Enter your student ID, in numbers.'
+      }
+    }
+    if (steps.value[step]?.label === MENTOR_CHECKS_STEP.label) {
+      const born = forms.mentor.dateOfBirth
+      if (!born || born < '1900-01-01' || born >= todayIso())
+        clientErrors['mentor.dateOfBirth'] = 'Enter your date of birth.'
+      requireValue(
+        'mentor.wwccNumber',
+        forms.mentor.wwccNumber,
+        "Enter your check's number, or your application number.",
+      )
+      requireValue('mentor.indigenous', forms.mentor.indigenous, 'Choose an answer.')
+      if (!forms.mentor.languages.length)
+        clientErrors['mentor.languages'] = 'Choose at least one language.'
+      if (forms.mentor.languages.includes(LANGUAGE_OTHER))
+        requireValue('mentor.languagesOther', forms.mentor.languagesOther, 'Enter the other language.')
     }
     if (step === 2) {
       if (!forms.mentor.interests.length)
@@ -3188,6 +3448,11 @@ const submitRegistration = async () => {
     warningSummaryRef.value?.focus()
     return
   }
+  if (journey.value === 'mentor' && !forms.mentor.signature) {
+    signatureError.value = 'Sign in the box to confirm your details.'
+    signatureRef.value?.focus()
+    return
+  }
   if (policiesAsked.value && !policiesAgreed.value) {
     policiesError.value = 'Tick the box to agree to the BIOTech Futures policies.'
     policiesRef.value?.focus()
@@ -3273,7 +3538,7 @@ const submitRegistration = async () => {
       Object.assign(serverFieldErrors, fieldErrors)
       serverError.value = result.message
       const errorStep = earliestRegistrationErrorStep(journey.value, Object.keys(fieldErrors))
-      if (errorStep !== null) currentStep.value = errorStep
+      if (errorStep !== null) currentStep.value = Math.min(errorStep, steps.value.length - 1)
       if (journey.value === 'supervisor_csv') {
         const rowKey = Object.keys(fieldErrors).find((key) =>
           /^supervisorCsv\.rows\.\d+\./.test(key),
@@ -4460,6 +4725,24 @@ form,
 }
 
 /* The options with no lines between them, as Areas of Interest's. */
+/* Sign the box: a mentor's, above the policies. */
+.mentor-sign {
+  margin-top: 24px;
+  outline: none;
+}
+
+.mentor-sign h3 {
+  margin: 0;
+  color: var(--registration-ink);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.mentor-sign__pad {
+  max-width: 420px;
+  margin-top: 12px;
+}
+
 .affiliation-options {
   margin-top: 20px;
   display: grid;

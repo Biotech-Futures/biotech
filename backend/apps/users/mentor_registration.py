@@ -1,13 +1,17 @@
 """A mentor registering on the public registration page (``journey:
 "mentor"``): their contact details, affiliation, what they'd mentor, how many
-groups and why, and when they're free each week.
+groups and why, and when they're free each week. A University of Sydney
+student also says whether they study Engineering there (PEP hours); a mentor
+in Australia gives their date of birth, Working with Children Check, whether
+they identify as Aboriginal or Torres Strait Islander and the languages they
+speak; and every mentor signs on Review that the form is true.
 
 Saved as the admin's Import Mentors saves a mentor: an account with the
 mentor role, a mentor profile and their interests, with their weekly
-availability. The account starts pending: it can't sign in until an admin
-activates it on Admin > Mentors. As for students, the registration dates
+availability. The account is active at once, for the year: they set their
+password and go on to their profile. As for students, the registration dates
 apply (late links stay student only), an email with an account is refused
-(but a mentor's back for a later year, which comes back pending: see
+(but a mentor's back for a later year, which comes back active: see
 ``apps.users.returning``), the same request sent again gets the same receipt
 (its Idempotency-Key), and a registration email is sent once it's saved
 (``registration_mentor``).
@@ -15,8 +19,9 @@ apply (late links stay student only), an email with an account is refused
 from __future__ import annotations
 
 import json
+import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
@@ -30,6 +35,7 @@ from apps.common.role_names import ROLE_MENTOR, get_role_by_name
 from apps.resources.models import RoleAssignmentHistory
 
 from .models import AreasOfInterest, MentorProfile, RegistrationSubmission, User, UserInterest
+from .guardian_consent import decode_signature
 from .models.mentor_availability import MentorAvailability
 from .registration_intake import (
     StrictInput, check_previous, current_window, error_fields, receipt, require_policies, resolve_location,
@@ -48,6 +54,27 @@ CAPACITIES = ("1", "2", "3", "4", "5")
 MAX_WORDS = 150
 WRITTEN = ("motivation",)
 SLOT_NOT_FULL = "Choose a day and both times."
+# Those asked whether they study Engineering at USYD: its students.
+UNIVERSITY_STUDENTS = ("undergraduate", "postgraduate", "hdr")
+# The University of Sydney as it may be typed: lower case, without "the" or
+# punctuation. Not Western Sydney University, nor UTS.
+USYD_NAMES = {"university of sydney", "sydney university", "sydney uni", "uni of sydney", "usyd"}
+YES_NO = ("yes", "no")
+INDIGENOUS = ("yes", "no", "prefer_not")
+# Languages Spoken, as the form lists them; "Other (please specify)" with
+# what they type.
+LANGUAGES = (
+    "Arabic", "Bengali", "English", "French", "German", "Hindi/Urdu", "Italian", "Japanese",
+    "Mandarin", "Portuguese", "Punjabi", "Russian", "Spanish",
+)
+LANGUAGE_OTHER = "Other (please specify)"
+
+
+def is_usyd(institution: str) -> bool:
+    """Whether ``institution`` is the University of Sydney, as the form checks it."""
+    name = re.sub(r"[^a-z ]+", " ", institution.casefold())
+    name = re.sub(r"^the ", "", " ".join(name.split()))
+    return name in USYD_NAMES or name.startswith("university of sydney ")
 
 
 class AvailabilityInput(StrictInput):
@@ -76,6 +103,18 @@ class MentorInput(StrictInput):
     # Weekly times: the form no longer asks for them, but they're still taken
     # and kept when given.
     availability = serializers.ListField(child=AvailabilityInput(), max_length=21, default=list)
+    # A University of Sydney student's (is_usyd): Engineering there, and if so
+    # their student ID. Dropped when not asked.
+    usydEngineering = serializers.ChoiceField(choices=("", *YES_NO), default="")
+    studentId = serializers.CharField(max_length=20, allow_blank=True, default="")
+    # Asked in Australia alone; dropped elsewhere. The date as YYYY-MM-DD.
+    dateOfBirth = serializers.CharField(max_length=10, allow_blank=True, default="")
+    wwccNumber = serializers.CharField(max_length=64, allow_blank=True, default="")
+    indigenous = serializers.ChoiceField(choices=("", *INDIGENOUS), default="")
+    languages = serializers.ListField(child=serializers.CharField(max_length=64), max_length=20, default=list)
+    languagesOther = serializers.CharField(max_length=255, allow_blank=True, default="")
+    # Drawn on Review: a PNG data URL (decode_signature), needed.
+    signature = serializers.CharField(max_length=500_000, allow_blank=True, default="")
 
     def validate(self, data):
         errors = {}
@@ -96,6 +135,23 @@ class MentorInput(StrictInput):
         for field in WRITTEN:
             if len(data[field].split()) > MAX_WORDS:
                 errors[field] = f"Keep this to {MAX_WORDS} words or fewer."
+        if data["affiliation"] in UNIVERSITY_STUDENTS and is_usyd(data["institution"]):
+            if not data["usydEngineering"]:
+                errors["usydEngineering"] = "Say whether you study Engineering at USYD."
+            elif data["usydEngineering"] == "yes" and not data["studentId"].isdigit():
+                errors["studentId"] = "Enter your student ID, in numbers."
+            if data["usydEngineering"] != "yes":
+                data["studentId"] = ""
+        else:
+            data["usydEngineering"], data["studentId"] = "", ""
+        if data["country"].casefold() == "australia":
+            errors.update(_australian_errors(data))
+        else:
+            data.update(dateOfBirth=None, wwccNumber="", indigenous="", languages=[], languagesOther="")
+        try:
+            data["signature"] = decode_signature(data["signature"])
+        except ValueError as error:
+            errors["signature"] = str(error)
         slots = []
         for index, slot in enumerate(data["availability"]):
             given = [slot["weekday"], slot["start"], slot["end"]]
@@ -124,6 +180,37 @@ class MentorInput(StrictInput):
         return data
 
 
+def _australian_errors(data) -> dict:
+    """A mentor in Australia's date of birth, Working with Children Check,
+    answer on identifying as Aboriginal or Torres Strait Islander and
+    languages: what's wrong with them. The date becomes a date, and the
+    languages the ones chosen, with what they typed for Other."""
+    errors = {}
+    try:
+        born = date.fromisoformat(data["dateOfBirth"])
+    except ValueError:
+        born = None
+    if born is None or not date(1900, 1, 1) <= born < date.today():
+        errors["dateOfBirth"] = "Enter your date of birth."
+    data["dateOfBirth"] = born
+    if not data["wwccNumber"]:
+        errors["wwccNumber"] = "Enter your check's number, or your application number."
+    if not data["indigenous"]:
+        errors["indigenous"] = "Choose an answer."
+    chosen = list(dict.fromkeys(data["languages"]))
+    if not chosen:
+        errors["languages"] = "Choose at least one language."
+    elif any(language not in (*LANGUAGES, LANGUAGE_OTHER) for language in chosen):
+        errors["languages"] = "Choose from the languages listed."
+    other = " ".join(data["languagesOther"].split())
+    if LANGUAGE_OTHER in chosen and not other:
+        errors["languagesOther"] = "Enter the other language."
+    data["languages"] = [language for language in chosen if language != LANGUAGE_OTHER]
+    if LANGUAGE_OTHER in chosen and other:
+        data["languages"].append(other)
+    return errors
+
+
 class MentorPayloadInput(StrictInput):
     mentor = MentorInput()
 
@@ -136,10 +223,10 @@ class MentorIntakeInput(StrictInput):
 
 
 def save_mentor(mentor: dict, now, *, returning: User | None = None) -> User:
-    """The mentor's account, pending until an admin activates it, with the
-    mentor role, profile, interests and weekly availability. A mentor back
-    for a later year (``returning``, apps.users.returning) gets their account
-    back, pending again, with this form's details in place of last year's."""
+    """The mentor's account, active at once, with the mentor role, profile,
+    interests and weekly availability. A mentor back for a later year
+    (``returning``, apps.users.returning) gets their account back, active
+    again, with this form's details in place of last year's."""
     country, state = resolve_location(mentor)
     industry = mentor["affiliation"] == "industry"
     details = {
@@ -150,12 +237,21 @@ def save_mentor(mentor: dict, now, *, returning: User | None = None) -> User:
         "field_of_study": "" if industry else mentor["fieldOfStudy"],
         "mentor_reason": mentor["motivation"],
         "max_group_count": int(mentor["capacity"]),
+        "usyd_engineering": {"yes": True, "no": False}.get(mentor["usydEngineering"]),
+        "usyd_student_id": mentor["studentId"],
+        "date_of_birth": mentor["dateOfBirth"],
+        "wwcc_number": mentor["wwccNumber"],
+        "indigenous": mentor["indigenous"],
+        "languages": mentor["languages"],
+        "signature_png": mentor["signature"],
+        "signed_at": now,
     }
     mentor_role = get_role_by_name(ROLE_MENTOR)
     if returning is None:
         user = User.objects.create_user(
             email=mentor["email"], first_name=mentor["firstName"], last_name=mentor["lastName"],
             country=country, state=state,
+            account_status=User.AccountStatus.ACTIVE, is_active=True, activated_at=now,
         )
         RoleAssignmentHistory.objects.create(user=user, role=mentor_role, valid_from=now, valid_to=None)
         MentorProfile.objects.create(user=user, **details)
@@ -163,7 +259,7 @@ def save_mentor(mentor: dict, now, *, returning: User | None = None) -> User:
         user = returning
         user.first_name, user.last_name = mentor["firstName"], mentor["lastName"]
         user.country, user.state = country, state
-        user.mark_pending(save=False)
+        user.activate(save=False)
         user.save()
         # Their mentor role, unless they still hold it.
         if not RoleAssignmentHistory.objects.filter(

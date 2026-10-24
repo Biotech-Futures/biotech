@@ -31,8 +31,12 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
   ],
   mentor: [
     [/^mentor\.(firstName|lastName|email|country|state)$/, 0],
-    [/^mentor\.(affiliation|institution|company|universityYear|fieldOfStudy)$/, 1],
+    [/^mentor\.(affiliation|institution|company|universityYear|fieldOfStudy|usydEngineering|studentId)$/, 1],
     [/^mentor\.(interests|capacity|motivation)$/, 2],
+    // Australia's own step, asked only there.
+    [/^mentor\.(dateOfBirth|wwccNumber|indigenous|languages|languagesOther)$/, 3],
+    // Signed on Review, the last step, wherever it falls (see RegistrationPage).
+    [/^mentor\.signature$/, Infinity],
   ],
   supervisor: [
     [/^supervisor\.(firstName|lastName|email)$/, 0],

@@ -5,8 +5,13 @@
       <small v-if="optional">(Optional)</small>
       <span v-else-if="required" class="required-mark" aria-hidden="true">*</span>
     </span>
-    <span v-if="description" :id="`${id}-description`" class="registration-field__description">
-      {{ description }}
+    <!-- Its slot for a description with more than text in it (a link). -->
+    <span
+      v-if="description || $slots.description"
+      :id="`${id}-description`"
+      class="registration-field__description"
+    >
+      <slot name="description">{{ description }}</slot>
     </span>
     <textarea
       v-if="multiline"
@@ -100,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useSlots } from 'vue'
 
 import AppSelect from '@/components/AppSelect.vue'
 import { countWords } from '@/registration/registration'
@@ -213,10 +218,11 @@ const onInput = (event: Event) => {
   emit('update:modelValue', props.digits ? keptDigits(field, props.maxLength) : field.value)
 }
 
+const slots = useSlots()
 const describedBy = computed(
   () =>
     [
-      props.description ? `${props.id}-description` : '',
+      props.description || slots.description ? `${props.id}-description` : '',
       props.hint ? `${props.id}-hint` : '',
       props.maxWords ? `${props.id}-count` : '',
       props.error ? `${props.id}-error` : '',

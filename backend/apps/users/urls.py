@@ -8,6 +8,7 @@ from .guardian_details_views import (
 )
 from .supervisor_group_views import (
     SupervisedGroupDetailView,
+    SupervisedGroupingPreferenceView,
     SupervisedGroupMembersView,
     SupervisedGroupOrderView,
     SupervisedGroupsPlaceView,
@@ -90,6 +91,11 @@ urlpatterns = [
     path("users/supervised-groups/interests/", SupervisedInterestCatalogView.as_view(), name="supervised-group-interests"),
     path("users/supervised-groups/", SupervisedGroupsView.as_view(), name="supervised-groups"),
     path("users/supervised-groups/order/", SupervisedGroupOrderView.as_view(), name="supervised-group-order"),
+    path(
+        "users/supervised-groups/grouping-preference/",
+        SupervisedGroupingPreferenceView.as_view(),
+        name="supervised-grouping-preference",
+    ),
     # My Groups' Waiting Area: Create all groups.
     path("users/supervised-groups/place/", SupervisedGroupsPlaceView.as_view(), name="supervised-groups-place"),
     path("users/supervised-groups/<int:pk>/members/", SupervisedGroupMembersView.as_view(), name="supervised-group-members"),

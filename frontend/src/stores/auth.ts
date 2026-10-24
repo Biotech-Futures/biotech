@@ -32,6 +32,8 @@ interface User {
   pg_firstname?: string | null
   pg_lastname?: string | null
   pg_email?: string | null
+  /** When they agreed to the BIOTech Futures policies; null until they have. */
+  policies_agreed_at?: string | null
   year_lvl?: string | null
   school_name?: string | null
   join_perm?: boolean | null
@@ -312,7 +314,9 @@ export const useAuthStore = defineStore('auth', {
       } catch {}
     },
 
-    async setInitialPassword(password: string) {
+    /** ``policiesAgreed``: someone registered by others, agreeing to the
+     *  BIOTech Futures policies with it (the server asks them to). */
+    async setInitialPassword(password: string, policiesAgreed = false) {
       const csrfReady = await ensureCsrfCookie(API_BASE_URL)
       if (!csrfReady) {
         throw new Error('Could not initialize a secure session. Please refresh and try again.')
@@ -326,9 +330,7 @@ export const useAuthStore = defineStore('auth', {
         headers: buildSessionHeaders({
           includeCSRF: true
         }),
-        body: JSON.stringify({
-          password
-        })
+        body: JSON.stringify(policiesAgreed ? { password, policiesAgreed } : { password })
       })
 
       const data = await parseResponseJson(response)

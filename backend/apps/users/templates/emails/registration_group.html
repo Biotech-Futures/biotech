@@ -28,4 +28,5 @@
                 registration closes.
               </p>
 {% endif %}
+{% if SET_PASSWORD_URL %}{% include "emails/_set_password_button.html" %}{% endif %}
 {% endblock %}

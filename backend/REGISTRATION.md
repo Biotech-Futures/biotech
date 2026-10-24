@@ -304,12 +304,38 @@ first-sign-in page. A student or supervisor is then signed in
 account waits for an admin to activate it, so they aren't signed in
 (`{signedIn: false}`) and are told they can sign in once it's activated.
 
-Anyone else without a password (students a supervisor, teammate or admin
-registered) sets one the first time they sign in, as before. On that page a
-student without all of their guardian's details (first name, last name and
-email) gives those too: they're saved as the student's profile saves a
-guardian (`PUT /api/v1/users/me/guardian/`, which emails the guardian the
-permission form), then the password is set.
+A student someone else registered (a team's students after the one sending
+the form, and every student a supervisor or admin registers) is emailed a
+link to the same page instead, while they have no password: a **Set your
+password** button in their registration email (`registration_group`,
+`registration_by_supervisor` or `registration_by_admin`, merge tag
+`SET_PASSWORD_URL`), `/#/register/password?token=…`. Its token is signed
+apart from a receipt's and lasts 14 days. The page first asks
+`GET /api/v1/registration/password/?token=…` whether the link still works and
+whether the student gives their guardian too (`{needsGuardian, guardian}`).
+System Emails' previews and test sends carry a sample link that sets no one's
+password. An admin's saved version of one of those emails shows the button
+only if it includes `SET_PASSWORD_URL`.
+
+Anyone without a password can also set one the first time they sign in, as
+before, and someone whose link expired does so. Either way the page is headed
+**Complete your registration** (**Set your password** for an admin or support
+agent). A student without all of their guardian's details (first name, last
+name and email) gives those first, as step 1, then their password as step 2.
+The guardian is saved as the student's profile saves one
+(`save_own_guardian`, as `PUT /api/v1/users/me/guardian/` does, which emails
+the guardian the permission form), then the password is set. From the link,
+`POST /api/v1/registration/password/` takes them as `guardian`; refused, no
+password is set, and the page goes back to step 1.
+
+The registration form asks only the person filling it in to agree to the
+BIOTech Futures policies, so a student, mentor or supervisor someone else
+registered agrees on the password step instead: a required checkbox, sent as
+`policiesAgreed` to either endpoint (`/api/v1/registration/password/` or, at
+first sign-in, `/api/v1/set-password/`), which records `policies_agreed_at`.
+`needs_policies` decides who's asked: anyone with one of those roles whose
+`policies_agreed_at` is empty, never an admin or a support agent.
+`/api/v1/users/me/` and the link's check (`needsPolicies`) say whether to ask.
 
 ## Email check before submission
 

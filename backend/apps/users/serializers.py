@@ -413,11 +413,15 @@ class UserSerializer(serializers.ModelSerializer):
             "details_locked",
             "guardian_locked",
             "must_change_password",
+            # When they agreed to the BIOTech Futures policies: the Set password
+            # page asks someone registered by others who hasn't yet.
+            "policies_agreed_at",
             "timezone",
             "pronouns",
         ]
         read_only_fields = [
             "id",
+            "policies_agreed_at",
             "pronouns",
             "interests",
             "supervisor_name",
@@ -835,7 +839,8 @@ class StudentGuardianUpdateSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         value = value.strip().lower()
-        user = self.context["request"].user
+        # The student giving it: context["user"] (save_own_guardian).
+        user = self.context["user"]
         if value == (user.email or "").strip().lower():
             raise serializers.ValidationError(
                 "Enter your parent or guardian's email, not your own."

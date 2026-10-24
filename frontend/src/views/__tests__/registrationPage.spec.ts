@@ -758,6 +758,100 @@ describe('canonical registration intake', () => {
     vi.unstubAllGlobals()
   })
 
+  it('asks a University of Sydney student whether they study Engineering there, and their ID', async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      errors: Record<string, string>
+      validateCurrentStep: () => boolean
+      forms: { mentor: Record<string, string> }
+    }
+    Object.assign(setup.forms.mentor, {
+      affiliation: 'undergraduate',
+      institution: 'The University of Sydney',
+      universityYear: '2',
+      fieldOfStudy: 'Engineering',
+    })
+    setup.currentStep = 1
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Are you studying Engineering at USYD?')
+    expect(wrapper.text()).toContain('5 PEP hours per group you mentor, up to 15hrs')
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.usydEngineering']).toBeTruthy()
+
+    setup.forms.mentor.usydEngineering = 'yes'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('#mentor-student-id').exists()).toBe(true)
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.studentId']).toBe('Enter your student ID, in numbers.')
+    setup.forms.mentor.studentId = '530123456'
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Not at Western Sydney University, nor of an academic.
+    setup.forms.mentor.institution = 'Western Sydney University'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Are you studying Engineering at USYD?')
+    Object.assign(setup.forms.mentor, { institution: 'USYD', affiliation: 'academic' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).not.toContain('Are you studying Engineering at USYD?')
+  })
+
+  it("adds a mentor in Australia a step for their state's check before Review", async () => {
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Mentor')
+    const setup = wrapper.vm as unknown as {
+      currentStep: number
+      maxReachedStep: number
+      errors: Record<string, string>
+      validateCurrentStep: () => boolean
+      forms: { mentor: Record<string, string | string[]> }
+    }
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    Object.assign(setup.forms.mentor, { country: 'Australia' })
+    await wrapper.vm.$nextTick()
+    setup.forms.mentor.state = 'QLD'
+    await wrapper.vm.$nextTick()
+    // Contact, Affiliation, Mentoring, Checks, Review.
+    expect(wrapper.findAll('.step-navigation li').map((step) => step.text())).toEqual([
+      expect.stringContaining('Contact'),
+      expect.stringContaining('Affiliation'),
+      expect.stringContaining('Mentoring'),
+      expect.stringContaining('Checks'),
+      expect.stringContaining('Review'),
+    ])
+
+    setup.currentStep = setup.maxReachedStep = 3
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('Date of Birth')
+    expect(wrapper.text()).toContain('This is used for WWCC verification and is deleted after use.')
+    expect(wrapper.text()).toContain('Blue Card (QLD)')
+    expect(wrapper.get('#mentor-wwcc-description a').attributes('href')).toBe('https://www.qld.gov.au/bluecard')
+    expect(wrapper.text()).toContain('Do you identify as Aboriginal or Torres Strait Islander?')
+    expect(wrapper.text()).toContain('Languages Spoken')
+    expect(setup.validateCurrentStep()).toBe(false)
+    for (const field of ['dateOfBirth', 'wwccNumber', 'indigenous', 'languages'])
+      expect(setup.errors[`mentor.${field}`], field).toBeTruthy()
+
+    Object.assign(setup.forms.mentor, {
+      dateOfBirth: '1999-04-12',
+      wwccNumber: '12345678',
+      indigenous: 'prefer_not',
+      languages: ['English', 'Other (please specify)'],
+    })
+    await wrapper.vm.$nextTick()
+    expect(setup.validateCurrentStep()).toBe(false)
+    expect(setup.errors['mentor.languagesOther']).toBe('Enter the other language.')
+    setup.forms.mentor.languagesOther = 'Tagalog'
+    expect(setup.validateCurrentStep()).toBe(true)
+
+    // Elsewhere, no such step: Review is the fourth again.
+    setup.forms.mentor.country = 'New Zealand'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.step-navigation li')).toHaveLength(4)
+    expect(setup.maxReachedStep).toBe(3)
+  })
+
   it("asks a mentor only why they'd mentor, in 150 words at most", async () => {
     const wrapper = mountPage()
     await clickButton(wrapper, 'Mentor')
@@ -1293,6 +1387,12 @@ describe('canonical registration intake', () => {
       setup.currentStep = setup.maxReachedStep = 3
       await wrapper.vm.$nextTick()
       await wrapper.get('[data-test="policies-agree"]').setValue(true)
+      // Not without signing.
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(submit).not.toHaveBeenCalled()
+      expect(wrapper.get('.mentor-sign').text()).toContain('Sign in the box to confirm your details.')
+      setup.forms.mentor.signature = 'data:image/png;base64,iVBORw0KGgo='
       await wrapper.get('form').trigger('submit')
       await flushPromises()
       expect(submit).toHaveBeenCalledOnce()

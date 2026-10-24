@@ -172,14 +172,14 @@ class ReturningMentorTests(RegistrationSetup, TestCase):
         )
         MentorProfile.objects.create(user=self.user, institution="Old Uni", mentor_reason="Before.", max_group_count=1)
 
-    def test_registering_again_brings_their_account_back_pending_approval(self):
+    def test_registering_again_brings_their_account_back_active(self):
         response = self.submit(body=mentor_body())
 
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(User.objects.filter(email__iexact=self.user.email).count(), 1)
         self.user.refresh_from_db()
-        # Pending until an admin activates them, as a new mentor is.
-        self.assertEqual((self.user.account_status, self.user.is_active), (User.AccountStatus.PENDING, False))
+        # Active at once, as a new mentor is.
+        self.assertEqual((self.user.account_status, self.user.is_active), (User.AccountStatus.ACTIVE, True))
         self.assertEqual((self.user.first_name, self.user.last_name), ("Jordan", "Ng"))
         profile = MentorProfile.objects.get(user=self.user)
         self.assertEqual((profile.institution, profile.max_group_count), ("University of Sydney", 3))
