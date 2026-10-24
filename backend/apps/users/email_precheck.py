@@ -59,7 +59,7 @@ from .registration_intake import (
     SUPERVISOR_JOURNEYS, IntakeInput, authenticated_supervisor, current_window, error_fields,
     registers_after_close, valid_invitation,
 )
-from .serializers import email_precheck_enabled
+from .serializers import email_precheck_enabled, is_placeholder_email
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +104,10 @@ def registration_addresses(students, supervisor_email="") -> list[str]:
         addresses.append(student["email"])
         addresses.append(student["guardian"].get("email", ""))
     addresses.append(supervisor_email or "")
+    # A template placeholder is refused at Submit, so it isn't paid for here.
     return list(dict.fromkeys(
-        address.strip().lower() for address in addresses if address and address.strip()
+        address.strip().lower() for address in addresses
+        if address and address.strip() and not is_placeholder_email(address)
     ))
 
 

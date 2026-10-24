@@ -182,14 +182,6 @@
           </span>
         </button>
       </div>
-      <!-- A supervisor from an earlier year comes back by confirming their email. -->
-      <p v-if="!invitationToken" class="supervisor-guidance">
-        Supervised in an earlier year?
-        <button type="button" class="supervisor-guidance__action" @click="startReturningSupervisor">
-          Confirm your email
-        </button>
-        to register your students again.
-      </p>
     </section>
 
     <!-- A supervisor back for a new year: Start new year deactivated their

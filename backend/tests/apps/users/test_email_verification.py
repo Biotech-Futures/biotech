@@ -392,12 +392,37 @@ class ListTests(QevTestCase):
 
         self.assertEqual(self.http.call_count, 1)
 
-    def test_an_unknown_answer_is_checked_again(self):
-        EmailVerification.objects.create(email="kid@example.com", status="unknown", reason="timeout")
+    @override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=24)
+    def test_an_unknown_answer_is_reused_within_its_window(self):
+        EmailVerification.objects.create(
+            email="kid@example.com", status="unknown", reason="timeout",
+            checked_at=timezone.now() - timedelta(hours=23),
+        )
+
+        result = ev.verify_email("kid@example.com")
+
+        self.assertEqual((result.status, result.cached), ("unknown", True))
+        self.http.assert_not_called()
+
+    @override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=24)
+    def test_an_unknown_answer_older_than_its_window_is_checked_again(self):
+        EmailVerification.objects.create(
+            email="kid@example.com", status="unknown", reason="timeout",
+            checked_at=timezone.now() - timedelta(hours=25),
+        )
         self.answer(response())
 
         self.assertEqual(ev.verify_email("kid@example.com").status, "valid")
         self.assertEqual(self.http.call_count, 1)
+
+    def test_an_unknown_answer_is_stored_and_a_service_error_is_not(self):
+        self.answer(response(qev("unknown", "timeout")), requests.Timeout("slow"))
+
+        self.assertEqual(ev.verify_email("maybe@example.com").status, "unknown")
+        self.assertEqual(ev.verify_email("down@example.com").status, "error")
+
+        self.assertEqual(self.stored("maybe@example.com").status, "unknown")
+        self.assertFalse(EmailVerification.objects.filter(email="down@example.com").exists())
 
     def test_a_mixed_batch_makes_one_call_per_new_address_in_order(self):
         EmailVerification.objects.create(email="known@example.com", status="valid")

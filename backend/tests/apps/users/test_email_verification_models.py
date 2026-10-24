@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from django.contrib import admin
 from django.db import IntegrityError, transaction
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
 from apps.users.models import EmailVerification, EmailVerificationCredits, User
@@ -12,9 +12,9 @@ from apps.users.models import EmailVerification, EmailVerificationCredits, User
 Status = EmailVerification.Status
 
 
-def _stored(email, status=Status.VALID, days_old=0, **fields):
+def _stored(email, status=Status.VALID, days_old=0, hours_old=0, **fields):
     return EmailVerification.objects.create(
-        email=email, status=status, checked_at=timezone.now() - timedelta(days=days_old), **fields,
+        email=email, status=status, checked_at=timezone.now() - timedelta(days=days_old, hours=hours_old), **fields,
     )
 
 
@@ -52,10 +52,34 @@ class ReusableAnswerTests(TestCase):
         self.assertEqual({email: row.status for email, row in found.items()},
                          {"good@example.com": "valid", "bad@example.com": "invalid"})
 
-    def test_unknown_answers_are_never_reused(self):
-        _stored("maybe@example.com", Status.UNKNOWN)
+    @override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=24)
+    def test_unknown_answers_are_reused_only_within_their_window(self):
+        _stored("recent@example.com", Status.UNKNOWN, hours_old=23)
+        _stored("old@example.com", Status.UNKNOWN, hours_old=25)
 
-        self.assertEqual(EmailVerification.reusable(["maybe@example.com"], max_age_days=180), {})
+        found = EmailVerification.reusable(["recent@example.com", "old@example.com"], max_age_days=180)
+
+        self.assertEqual(list(found), ["recent@example.com"])
+
+    def test_the_unknown_window_comes_from_the_setting_or_the_caller(self):
+        _stored("maybe@example.com", Status.UNKNOWN, hours_old=3)
+
+        with override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=2):
+            self.assertEqual(EmailVerification.reusable(["maybe@example.com"], max_age_days=180), {})
+        with override_settings(QEV_UNKNOWN_MAX_AGE_HOURS=4):
+            self.assertIn("maybe@example.com", EmailVerification.reusable(["maybe@example.com"], max_age_days=180))
+        found = EmailVerification.reusable(["maybe@example.com"], max_age_days=180, unknown_max_age_hours=2)
+        self.assertEqual(found, {})
+
+    def test_the_unknown_window_does_not_change_valid_or_invalid_reuse(self):
+        _stored("valid@example.com", Status.VALID, days_old=179)
+        _stored("invalid@example.com", Status.INVALID, days_old=179)
+
+        found = EmailVerification.reusable(
+            ["valid@example.com", "invalid@example.com"], max_age_days=180, unknown_max_age_hours=0,
+        )
+
+        self.assertEqual(sorted(found), ["invalid@example.com", "valid@example.com"])
 
     def test_answers_older_than_the_maximum_age_are_not_reused(self):
         _stored("old@example.com", days_old=181)

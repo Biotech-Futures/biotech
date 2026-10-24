@@ -8,8 +8,8 @@ Public surface:
   network call itself, inside its transaction or its serializer.
 - ``verify_emails(emails)`` / ``verify_email(email)``: the check itself, run
   by that worker. Blank and repeated addresses are dropped, a malformed one is
-  invalid without a lookup, and a recent valid or invalid answer on file is
-  reused instead of paid for again. Each answer from QEV is stored
+  invalid without a lookup, and a recent answer on file is reused instead of
+  paid for again (see ``EmailVerification.reusable``). Each answer from QEV is stored
   (``EmailVerification``); that row is what later flags an address. Each
   real answer also updates the credit balance (``email_credits``).
 
@@ -315,8 +315,7 @@ def _store(result: VerificationResult, data: dict) -> None:
 def verify_emails(emails: Iterable[str]) -> dict[str, VerificationResult]:
     """Check each address, keyed by its normalised form (stripped, lower case)
     in the order given. Blank addresses are left out and repeats checked once.
-    Makes one API call per address that has no recent valid or invalid answer
-    on file, up to the daily cap if one is set. Never raises."""
+    Makes one API call per address that has no recent answer on file, up to the daily cap if one is set. Never raises."""
     addresses = []
     for email in emails:
         address = EmailVerification.normalise(email)
