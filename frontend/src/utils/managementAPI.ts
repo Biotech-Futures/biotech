@@ -471,7 +471,7 @@ export function saveSupervisorPages(
   })
 }
 
-/** Management > Challenge Start > Release Resources: a resource, whether it's
+/** The Resources page's release columns, for admins: a resource, whether it's
  *  shown, its release date ("YYYY-MM-DD": hidden, it appears from the start
  *  of that day, Sydney time), whether students, mentors and supervisors have
  *  it now, and when it was released last year. */
