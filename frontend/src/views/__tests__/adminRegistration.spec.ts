@@ -5,6 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { REGISTRATION_GATEWAY_KEY, type RegistrationGateway } from '@/registration/registrationGateway'
 import RegistrationPage from '@/views/RegistrationPage.vue'
 
+// Submitting: the BIOTech Futures policies agreed to first, as anyone
+// registering must tick them on the last step.
+const submitForm = async (page: { vm: unknown; get: (selector: string) => { trigger: (event: string) => Promise<unknown> } }) => {
+  ;(page.vm as { policiesAgreed: boolean }).policiesAgreed = true
+  await page.get('form').trigger('submit')
+}
+
 vi.mock('@/utils/managementAPI', async (original) => ({
   ...(await original<typeof import('@/utils/managementAPI')>()),
   fetchRegistrationOpen: vi.fn(async () => ({ open_now: true, opens_at: null, closes_at: null, can_register_students: true })),
@@ -64,13 +71,13 @@ describe('admin registration', () => {
       school: 'Example High', yearLevel: '10', country: 'Australia', state: 'NSW', guardianDeferred: true,
     })
     await search.setValue('someone@else.test')
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     await flushPromises()
     expect(send).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('Choose a supervisor from the list.')
 
     await search.setValue('sam@school.test')
-    await wrapper.get('form').trigger('submit')
+    await submitForm(wrapper)
     await flushPromises()
     expect(send).toHaveBeenCalledOnce()
     expect(send.mock.calls[0]![1]!.supervisorEmail).toBe('sam@school.test')

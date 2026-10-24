@@ -9,7 +9,7 @@ export const labelizeCountry = (country: AdminUserCountry | null | undefined) =>
   country?.countryName ?? 'Unassigned'
 
 export const labelizeState = (state: AdminUserState | null | undefined) =>
-  state?.stateName ?? '-'
+  state?.stateName ?? '—'
 
 // The backend list payload has firstName/lastName, not a combined `name`.
 export const userName = (user: AdminUser | null | undefined) =>

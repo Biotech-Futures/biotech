@@ -28,10 +28,7 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled || exporting" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION, DETAILS_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -53,19 +50,19 @@
     <div class="kpi-grid">
       <article class="kpi-card">
         <div class="kpi-icon blue"><i class="fas fa-users"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Total Users</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.totalUsers" /></strong>
             <AnalyticsYearChange :current="yearComparison.current.total" :previous="yearComparison.previous.total" :label="`vs ${yearComparison.previousYear}`" />
           </div>
-          <small>Current participants on the platform</small>
+          <small>Current participants</small>
         </div>
       </article>
 
       <article class="kpi-card">
         <div class="kpi-icon blue"><i class="fas fa-graduation-cap"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Students</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.students" /></strong>
@@ -77,7 +74,7 @@
 
       <article class="kpi-card">
         <div class="kpi-icon red"><i class="fas fa-user"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Mentors</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.mentors" /></strong>
@@ -89,7 +86,7 @@
 
       <article class="kpi-card">
         <div class="kpi-icon purple"><i class="fas fa-user-friends"></i></div>
-        <div>
+        <div class="kpi-copy">
           <span class="kpi-label">Supervisors</span>
           <div class="kpi-value-row analytics-value-row">
             <strong><AnalyticsNumber :value="data.supervisors" /></strong>
@@ -117,7 +114,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
 
@@ -131,7 +128,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="role-donut-segment"
@@ -143,19 +140,6 @@
                 tabindex="0"
               />
 
-              <circle
-                v-if="roleRemainderPercent > 0"
-                cx="90"
-                cy="90"
-                r="64"
-                pathLength="100"
-                fill="none"
-                stroke="#e7ebef"
-                stroke-width="24"
-                :stroke-dasharray="`${roleRemainderPercent} ${100 - roleRemainderPercent}`"
-                :stroke-dashoffset="-roleCoveredPercent"
-                transform="rotate(-90 90 90)"
-              />
             </svg>
 
             <div class="donut-centre role-donut-centre">
@@ -191,13 +175,13 @@
       </article>
 
       <article class="analytics-card">
-        <h2>Users Logged In This Year ({{ currentYear }})</h2>
-        <div class="login-rate-grid">
+        <h2>{{ isCurrentYear ? 'Users Logged In This Year' : 'Users Logged In' }} ({{ selectedYear }})</h2>
+        <div v-if="data.loginRatesAvailable" class="login-rate-grid">
           <div
             v-for="item in loginRates"
             :key="item.label"
             class="login-rate-item interactive-chart-row"
-            @mouseenter="showTooltip($event, item.label, `${item.value}% logged in`, 'Current user records')"
+            @mouseenter="showTooltip($event, item.label, `${item.value}% logged in`, isCurrentYear ? 'Current user records' : 'Recorded login activity')"
             @mousemove="moveTooltip"
             @mouseleave="hideTooltip"
           >
@@ -210,9 +194,12 @@
             >
               <div class="rate-ring-inner">{{ item.value }}%</div>
             </div>
-            <small>Current users with a recorded login in {{ currentYear }} (UTC)</small>
+            <small>{{ loginRateCaption }}</small>
           </div>
         </div>
+        <p v-else class="login-rate-unavailable">
+          No login activity was recorded for {{ selectedYear }}, so login rates are unavailable.
+        </p>
       </article>
 
       <article class="analytics-card interests-card">
@@ -270,6 +257,9 @@
             </div>
           </div>
         </div>
+        <p v-if="sortedInterests.length" class="interest-count">
+          {{ sortedInterests.length }} areas of interest · scroll the list to see all
+        </p>
       </article>
     </div>
 
@@ -338,29 +328,31 @@
           </div>
         </div>
 
-        <div class="chart-with-y-axis">
-          <div class="y-axis">
-            <span v-for="tick in axisTicks(maxRegistration)" :key="tick">{{ tick }}</span>
-          </div>
-          <div class="y-axis-line">
-            <div class="trend-chart">
-          <svg viewBox="0 0 620 228" role="img" aria-label="User registration trend">
-            <line
-              x1="0"
-              x2="620"
-              y1="195"
-              y2="195"
-              class="grid-line registration-baseline"
-            />
-            <line
-              v-for="y in [40, 80, 120, 160]"
-              :key="y"
-              x1="0"
-              x2="620"
-              :y1="195 - y"
-              :y2="195 - y"
-              class="grid-line"
-            />
+        <div ref="registrationPlot" class="registration-plot">
+          <svg
+            :viewBox="`0 0 ${registrationChart.width} ${registrationChart.height}`"
+            :width="registrationChart.width"
+            :height="registrationChart.height"
+            role="img"
+            aria-label="User registration trend"
+          >
+            <g v-for="tick in registrationTicks" :key="`tick-${tick}`">
+              <line
+                :x1="registrationChart.plotLeft"
+                :x2="registrationChart.plotRight"
+                :y1="registrationY(tick)"
+                :y2="registrationY(tick)"
+                class="grid-line"
+                :class="{ 'registration-baseline': tick === 0 }"
+              />
+              <text
+                :x="registrationChart.plotLeft - 10"
+                :y="registrationY(tick)"
+                text-anchor="end"
+                class="registration-axis-label"
+              >{{ tick }}</text>
+            </g>
+
             <polyline v-show="!hiddenRegistrationRoles.includes('students')" :points="trendPoints(visibleRegistrationSeries.students)" class="trend-line students" />
             <polyline v-show="!hiddenRegistrationRoles.includes('mentors')" :points="trendPoints(visibleRegistrationSeries.mentors)" class="trend-line mentors" />
             <polyline
@@ -403,40 +395,24 @@
               />
             </g>
 
-            <g class="registration-label-layer">
-              <g v-for="role in visibleRegistrationRoles" :key="role">
-                <text
-                  v-for="point in registrationDots[role]"
-                  :key="point.index"
-                  :x="point.x + registrationLabelXOffsets[role]"
-                  :y="registrationLabelY(point.y)"
-                  text-anchor="middle"
-                  :class="['trend-value-label', `${role.slice(0, -1)}-value-label`]"
-                >{{ point.value }}</text>
-              </g>
-            </g>
-
             <text
               v-for="(month, index) in visibleRegistrationMonths"
               :key="`month-${month}`"
               :x="trendX(index, visibleRegistrationMonths.length)"
-              y="222"
+              :y="registrationChart.baseline + 18"
               text-anchor="middle"
               class="trend-month-label"
             >
               {{ month }}
             </text>
           </svg>
+        </div>
 
-          <div class="trend-legend">
-            <span v-show="!hiddenRegistrationRoles.includes('students')"><i class="dot student"></i>Students</span>
-            <span v-show="!hiddenRegistrationRoles.includes('mentors')"><i class="dot mentor"></i>Mentors</span>
-            <span v-show="!hiddenRegistrationRoles.includes('supervisors')"><i class="dot supervisor"></i>Supervisors</span>
-          </div>
+        <div class="trend-legend">
+          <span v-show="!hiddenRegistrationRoles.includes('students')"><i class="dot student"></i>Students</span>
+          <span v-show="!hiddenRegistrationRoles.includes('mentors')"><i class="dot mentor"></i>Mentors</span>
+          <span v-show="!hiddenRegistrationRoles.includes('supervisors')"><i class="dot supervisor"></i>Supervisors</span>
         </div>
-          </div>
-        </div>
-        <div class="y-axis-title">Registrations</div>
       </article>
     </section>
 
@@ -487,6 +463,12 @@
             </tbody>
           </table>
         </div>
+
+        <p class="activity-status-role-note">
+          <strong>Active</strong> means the user logged in within the last {{ ACTIVE_STATUS_WINDOW_DAYS }} days
+          (up to {{ analyticsAsOfLabel }}). <strong>Inactive</strong> users last logged in before that;
+          <strong>Never Logged In</strong> users have no recorded login.
+        </p>
       </article>
 
       <div class="expandable-side-card region-side-card">
@@ -575,7 +557,7 @@
                       v-for="(segment, segmentIndex) in worldShapeSegments"
                       :key="`country-segment-${segmentIndex}`"
                       :d="segment.d"
-                      :fill="segment.value > 0 ? mapColor(segment.value) : '#f8f9f8'"
+                      :fill="segment.value > 0 ? mapColor(segment.value) : 'var(--analytics-ui-soft, #f8f9f8)'"
                       class="country-registration-shape"
                       :class="{ 'country-registration-shape--highlighted': hoveredCountryName !== null && hoveredCountryName === segment.countryName }"
                       @mouseenter="handleCountryMapEnter($event, segment)"
@@ -728,7 +710,7 @@
                       v-for="(segment, segmentIndex) in worldShapeSegments"
                       :key="`country-segment-${segmentIndex}`"
                       :d="segment.d"
-                      :fill="segment.value > 0 ? mapColor(segment.value) : '#f8f9f8'"
+                      :fill="segment.value > 0 ? mapColor(segment.value) : 'var(--analytics-ui-soft, #f8f9f8)'"
                       class="country-registration-shape"
                       :class="{
                         'country-registration-shape--highlighted': hoveredLargeCountryName !== null && hoveredLargeCountryName === segment.countryName,
@@ -833,18 +815,40 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import type { UserAnalyticsYear } from '@/types/analytics'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import type { AdminUser } from '@/utils/liveAnalyticsApi'
+import type { ParticipantAnalyticsBundle } from '@/utils/liveAnalyticsData'
 import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  activityStatusLabel,
+  daysSince,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoDay,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
+import {
+  analyticsYears,
   buildUsersAnalytics,
-  liveAnalyticsAsOf,
   loadUsersAnalyticsBundle,
   participantYearComparison,
+  registeredByYear,
+  usersAnalyticsAsOf,
 } from '@/utils/liveAnalyticsData'
 
 const currentYear = ref(new Date().getFullYear())
@@ -863,6 +867,7 @@ const liveData = ref<UserAnalyticsYear>({
   mentorGrowth: null,
   supervisorGrowth: null,
   loginRates: { students: 0, mentors: 0, supervisors: 0 },
+  loginRatesAvailable: true,
   dailyActivity: { labels: [], total: [] },
   lastLogin: [],
   userLastLogins: [],
@@ -875,9 +880,21 @@ const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exporting = ref(false)
 const exportError = ref('')
 const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
+// Current participants (students, mentors, supervisors) for the details export.
+const participants = ref<AdminUser[]>([])
+const loadedBundle = ref<ParticipantAnalyticsBundle | null>(null)
+
+function applySelectedYear(year: number) {
+  const bundle = loadedBundle.value
+  if (!bundle) return
+
+  analyticsAsOf.value = usersAnalyticsAsOf(bundle, year)
+  yearComparison.value = participantYearComparison(bundle.users, year)
+  liveData.value = buildUsersAnalytics(bundle, year)
+  isEmpty.value = liveData.value.totalUsers === 0
+}
 
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await loadAnalytics(true, true) })
@@ -889,18 +906,19 @@ async function loadAnalytics(force = false, preserveFilters = false) {
   loadError.value = ''
   try {
     const bundle = await loadUsersAnalyticsBundle(force)
+    loadedBundle.value = bundle
     unavailableSources.value = bundle.unavailableSources ?? []
     const year = new Date().getUTCFullYear()
-    analyticsAsOf.value = liveAnalyticsAsOf(bundle)
     currentYear.value = year
-    yearComparison.value = participantYearComparison(bundle.users, year)
-    availableYears.value = [year]
+    availableYears.value = analyticsYears(bundle)
     if (!preserveFilters) currentMonthIndex.value = new Date().getUTCMonth()
     if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) {
       selectedYear.value = year
     }
-    liveData.value = buildUsersAnalytics(bundle)
-    isEmpty.value = liveData.value.totalUsers === 0
+    applySelectedYear(selectedYear.value)
+    participants.value = bundle.users.filter((user) =>
+      !user.isAdmin && ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
+    )
     hasLoaded.value = true
     markUpdated()
   } catch (error) {
@@ -919,6 +937,7 @@ function refreshAnalytics() {
 }
 
 onMounted(() => loadAnalytics())
+watch(selectedYear, (year) => applySelectedYear(year))
 const currentMonthIndex = ref(new Date().getMonth())
 
 const regionExpanded = ref(false)
@@ -1150,11 +1169,15 @@ const loginRates = computed(() => [
   { label: 'Mentors', value: data.value.loginRates.mentors, color: '#017151' },
   { label: 'Supervisors', value: data.value.loginRates.supervisors, color: '#5EA99E' },
 ])
+const loginRateCaption = computed(() => isCurrentYear.value
+  ? `Current users with a recorded login in ${selectedYear.value} (UTC)`
+  : `Users registered by ${selectedYear.value} with a recorded login that year (UTC)`)
 
 type RoleSegment = {
   label: string
   value: number
   percent: number
+  drawPercent: number
   start: number
   color: string
 }
@@ -1169,25 +1192,20 @@ const roleSegments = computed<RoleSegment[]>(() => {
   ]
 
   let start = 0
-  return raw.map((item) => {
-    const percentValue = percentage(item.value, data.value.totalUsers)
+  return raw.map((item, index) => {
+    const drawPercent = data.value.totalUsers
+      ? (index === raw.length - 1 ? Math.max(0, 100 - start) : (item.value / data.value.totalUsers) * 100)
+      : 0
     const segment = {
       ...item,
-      percent: percentValue,
+      percent: percentage(item.value, data.value.totalUsers),
+      drawPercent,
       start,
     }
-    start += percentValue
+    start += drawPercent
     return segment
   })
 })
-
-const roleCoveredPercent = computed(() =>
-  roleSegments.value.reduce((sum, segment) => sum + segment.percent, 0),
-)
-
-const roleRemainderPercent = computed(() =>
-  Math.max(0, 100 - roleCoveredPercent.value),
-)
 
 function selectRole(segment: RoleSegment) {
   selectedRole.value = segment
@@ -1257,18 +1275,30 @@ const lastLoginTicks = computed(() =>
   Array.from({ length: 6 }, (_, index) => lastLoginAxisMax.value * (5 - index) / 5),
 )
 
+// Activity Status by Role uses its own 14-day login window; the daily, weekly
+// and monthly active-user windows elsewhere are unchanged.
+const ACTIVE_STATUS_WINDOW_DAYS = ACTIVE_WINDOW_DAYS
+
+const analyticsAsOfLabel = computed(() => {
+  const date = analyticsAsOf.value ? new Date(`${analyticsAsOf.value}T00:00:00Z`) : null
+  return date && !Number.isNaN(date.getTime())
+    ? date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+    : 'the latest recorded date'
+})
+
 const activityStatusByRole = computed(() => {
   const roles = ['Student', 'Mentor', 'Supervisor'] as const
 
   return roles.map((role) => {
-    const rows = data.value.userLastLogins.filter((user) => user.role === role)
-
-    return {
-      role,
-      active: rows.filter((user) => user.status === 'Recent').length,
-      inactive: rows.filter((user) => user.status === 'Inactive').length,
-      never: rows.filter((user) => user.status === 'Never' || user.lastLogin === 'Never').length,
+    const counts = { role, active: 0, inactive: 0, never: 0 }
+    for (const user of data.value.userLastLogins) {
+      if (user.role !== role) continue
+      const daysInactive = resolvedDaysInactive(user)
+      if (daysInactive === null) counts.never += 1
+      else if (daysInactive < ACTIVE_STATUS_WINDOW_DAYS) counts.active += 1
+      else counts.inactive += 1
     }
+    return counts
   })
 })
 
@@ -1331,22 +1361,30 @@ const registrationDots = computed(() => ({
   supervisors: trendDots(visibleRegistrationSeries.value.supervisors),
 }))
 
-const registrationRoles = ['students', 'mentors', 'supervisors'] as const
-const visibleRegistrationRoles = computed(() =>
-  registrationRoles.filter((role) => !hiddenRegistrationRoles.value.includes(role)),
-)
+// The SVG is drawn at the plot's real pixel size so it fills the card at any
+// width and keeps its text at a readable, unscaled size.
+const registrationPlot = ref<HTMLElement | null>(null)
+const registrationPlotSize = ref({ width: 620, height: 260 })
+const registrationChart = computed(() => {
+  const { width, height } = registrationPlotSize.value
+  const plotLeft = 44
+  const plotRight = width - 12
+  const plotTop = 22
+  const baseline = height - 30
+  return { width, height, plotLeft, plotRight, plotTop, baseline }
+})
+const registrationTicks = computed(() => axisTicks(maxRegistration.value))
 
-// Keep each value close to its point. Small horizontal role offsets separate
-// values when two series share (or nearly share) the same coordinates.
-const registrationLabelXOffsets: Record<(typeof registrationRoles)[number], number> = {
-  students: 0,
-  mentors: -10,
-  supervisors: 10,
-}
-
-function registrationLabelY(pointY: number) {
-  return Math.max(14, pointY - 9)
-}
+watch(registrationPlot, (element, _previous, onCleanup) => {
+  if (!element || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(([entry]) => {
+    const width = Math.round(entry?.contentRect.width ?? 0)
+    const height = Math.round(entry?.contentRect.height ?? 0)
+    if (width > 0 && height > 0) registrationPlotSize.value = { width, height }
+  })
+  observer.observe(element)
+  onCleanup(() => observer.disconnect())
+})
 
 const countryHoverAnchors = [
   { name: 'Canada', lon: -106, lat: 57 },
@@ -1747,7 +1785,7 @@ const maxMapValue = computed(() =>
 )
 
 function mapColor(value: number) {
-  if (value <= 0) return '#FFFFFF'
+  if (value <= 0) return 'var(--analytics-ui-surface, #FFFFFF)'
 
   const ratio = value / maxMapValue.value
   if (ratio < 0.2) return '#BAD7B8'
@@ -1757,46 +1795,138 @@ function mapColor(value: number) {
 }
 
 function trendX(index: number, count: number) {
-  if (count <= 1) return 310
-
-  const left = 28
-  const right = 592
+  const { plotLeft, plotRight } = registrationChart.value
+  // Inset the first and last months so their dots and labels clear the axis.
+  const left = plotLeft + 14
+  const right = plotRight - 14
+  if (count <= 1) return (left + right) / 2
   return left + index * ((right - left) / (count - 1))
 }
 
-function trendDots(values: number[]) {
-  const max = registrationAxisMax.value
+function registrationY(value: number) {
+  const { baseline, plotTop } = registrationChart.value
+  return baseline - (value / registrationAxisMax.value) * (baseline - plotTop)
+}
 
+function trendDots(values: number[]) {
   return values.map((value, index) => ({
     index,
     value,
     x: trendX(index, values.length),
-    y: 195 - (value / max) * 160,
+    y: registrationY(value),
   }))
 }
 
 function trendPoints(values: number[]) {
-  const max = registrationAxisMax.value
-
   return values
-    .map((value, index) => {
-      const x = trendX(index, values.length)
-      const y = 195 - (value / max) * 160
-      return `${x},${y}`
-    })
+    .map((value, index) => `${trendX(index, values.length)},${registrationY(value)}`)
     .join(' ')
 }
 
-async function exportCsv() {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({ report: 'users', year: String(selectedYear.value) }), 'users')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
+const roleTitle = (role: string | null) => {
+  const value = (role ?? '').toLowerCase()
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : ''
+}
+
+function usersSummary() {
+  const current = data.value
+  const year = selectedYear.value
+  const rows: SummaryRow[] = [
+    figure('Users', 'Total users', current.totalUsers, 'users'),
+    figure('Users', 'Students', current.students, 'users'),
+    figure('Users', 'Mentors', current.mentors, 'users'),
+    figure('Users', 'Supervisors', current.supervisors, 'users'),
+    ...([
+      ['Total users', current.totalGrowth],
+      ['Students', current.studentGrowth],
+      ['Mentors', current.mentorGrowth],
+      ['Supervisors', current.supervisorGrowth],
+    ] as const)
+      .filter(([, change]) => change !== null)
+      .map(([label, change]) => figure('Change vs previous year', label, change, '%', `Compared with ${year - 1}`)),
+    ...(current.loginRatesAvailable
+      ? loginRates.value.map((rate) => figure('Logged in at least once', rate.label, rate.value, '%'))
+      : []),
+    ...activityStatusByRole.value.flatMap((row) => [
+      figure(`Activity status (${row.role}s)`, 'Active', row.active, 'users', `Logged in within the last ${ACTIVE_WINDOW_DAYS} days`),
+      figure(`Activity status (${row.role}s)`, 'Inactive', row.inactive, 'users'),
+      figure(`Activity status (${row.role}s)`, 'Never logged in', row.never, 'users'),
+    ]),
+    ...lastLoginRoles.flatMap((role) =>
+      lastLoginStacks.value.map((bucket) => figure(`Last login (${role.label}s)`, bucket.label, bucket[role.key], 'users')),
+    ),
+    ...(['students', 'mentors', 'supervisors'] as const).flatMap((role) =>
+      visibleRegistrationMonths.value.map((_, month) => figure(
+        `Registrations (${roleTitle(role.slice(0, -1))}s)`,
+        `${year}-${String(month + 1).padStart(2, '0')}`,
+        visibleRegistrationSeries.value[role][month] ?? 0,
+        'users',
+      )),
+    ),
+    ...sortedInterests.value.flatMap((interest) => [
+      figure('Areas of interest (Students)', interest.name, interest.students, 'users'),
+      figure('Areas of interest (Mentors)', interest.name, interest.mentors, 'users'),
+    ]),
+    ...current.regions.map((region) => figure('Users by region', region.name, region.value, 'users')),
+    ...current.dailyActivity.labels.map((label, index) =>
+      figure('Daily activity', label, current.dailyActivity.total[index] ?? 0, 'users'),
+    ),
+  ]
+  return {
+    fileName: exportFileName('users', 'summary', String(year)),
+    csv: summaryCsv({
+      page: 'Users',
+      covers: `Current participants; registrations for ${year}`,
+      dataAsOf: analyticsAsOf.value,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
   }
+}
+
+function usersDetails() {
+  const asOfDay = analyticsAsOf.value || isoDay(new Date())
+  const asOf = new Date(`${asOfDay}T00:00:00Z`)
+  // A past year lists those registered by then. A login after its asOf day
+  // happened later, so that user's activity in the selected year is unknown.
+  const cutoff = isCurrentYear.value ? null : asOf.getTime() + 86_400_000
+  const roleOrder = ['student', 'mentor', 'supervisor']
+  const rows = participants.value
+    .filter((user) => registeredByYear(user, selectedYear.value))
+    .sort((a, b) =>
+      roleOrder.indexOf((a.role ?? '').toLowerCase()) - roleOrder.indexOf((b.role ?? '').toLowerCase())
+      || `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`),
+    )
+    .map((user) => {
+      const loggedInLater = cutoff !== null && !!user.lastLogin && new Date(user.lastLogin).getTime() >= cutoff
+      const days = loggedInLater ? null : daysSince(user.lastLogin, asOf)
+      return [
+        user.id,
+        `${user.firstName} ${user.lastName}`.trim(),
+        user.email,
+        roleTitle(user.role),
+        accountStatusLabel(user.accountStatus, user.isActive),
+        loggedInLater ? `Logged in after ${asOfDay}` : activityStatusLabel(days),
+        isoUtc(user.lastLogin),
+        days,
+        isoUtc(user.createdAt ?? user.invitedAt ?? user.activatedAt),
+        user.groupName,
+        user.schoolName,
+        user.country?.countryName,
+        user.state?.stateName,
+        user.interests.join('; '),
+      ]
+    })
+  return {
+    fileName: exportFileName('users', 'details', asOfDay),
+    csv: detailsCsv([
+      'User ID', 'Name', 'Email', 'Role', 'Account Status', `Activity Status (${ACTIVE_WINDOW_DAYS} days)`,
+      'Last Login (UTC)', 'Days Since Last Login', 'Registered (UTC)', 'Group', 'School', 'Country', 'State', 'Interests',
+    ], rows),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? usersSummary : usersDetails)
 }
 </script>
 
@@ -1834,32 +1964,19 @@ async function exportCsv() {
   white-space: nowrap;
 }
 
-/* Numeric labels for registration and daily-activity line charts */
-.trend-value-label,
+/* Numeric labels for the daily-activity line chart */
 .daily-activity-value-label {
   font-size: 10px;
   font-weight: 700;
   paint-order: stroke;
-  stroke: #ffffff;
+  stroke: var(--analytics-ui-surface, #ffffff);
   stroke-width: 3px;
   stroke-linejoin: round;
   pointer-events: none;
 }
 
-.student-value-label {
-  fill: #39687B;
-}
-
-.mentor-value-label {
-  fill: #017151;
-}
-
-.supervisor-value-label {
-  fill: #5EA99E;
-}
-
 .daily-activity-value-label {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11px;
 }
 
@@ -1889,16 +2006,16 @@ async function exportCsv() {
   place-items: center;
   justify-self: end;
   padding: 0;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 12px;
-  background: #FFFFFF;
-  color: #017151;
+  background: var(--analytics-ui-surface, #FFFFFF);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 17px;
   cursor: pointer;
 }
 
 .interest-sort-button:hover {
-  background: #f3f8f5;
+  background: var(--analytics-ui-selected, #f3f8f5);
 }
 
 </style>
@@ -1907,8 +2024,8 @@ async function exportCsv() {
 .users-analytics-page {
   padding: 28px 32px 40px;
   min-height: 100%;
-  background: #f7faf9;
-  color: #153f3c;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #153f3c);
 }
 
 .page-heading {
@@ -1928,22 +2045,22 @@ async function exportCsv() {
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
 .breadcrumb a {
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   text-decoration: none;
 }
 
 .breadcrumb a:hover {
-  color: #08765d;
+  color: var(--analytics-ui-accent, #08765d);
   text-decoration: underline;
 }
 
 .breadcrumb-separator {
-  color: #9aaaa7;
+  color: var(--analytics-ui-muted, #9aaaa7);
 }
 
 .title-line {
@@ -1959,7 +2076,7 @@ async function exportCsv() {
 
 .page-heading h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1967,7 +2084,7 @@ async function exportCsv() {
 
 .page-heading p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -1983,7 +2100,7 @@ async function exportCsv() {
 .export-button {
   height: 46px;
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1994,8 +2111,8 @@ async function exportCsv() {
   gap: 9px;
   width: 120px;
   padding: 0 13px;
-  border: 1px solid #d7e3e0;
-  color: #174844;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
+  color: var(--analytics-ui-text, #174844);
 }
 
 .year-control select {
@@ -2016,8 +2133,8 @@ async function exportCsv() {
   gap: 8px;
   width: 142px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
-  color: #017151;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
   transition:
     background-color 0.2s ease,
@@ -2025,8 +2142,8 @@ async function exportCsv() {
 }
 
 .export-button:hover {
-  background: #ecf8f4;
-  border-color: #74c9b3;
+  background: var(--analytics-ui-selected, #ecf8f4);
+  border-color: var(--analytics-ui-control-border, #74c9b3);
 }
 
 .kpi-grid {
@@ -2038,18 +2155,18 @@ async function exportCsv() {
 
 .kpi-card,
 .analytics-card {
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 16px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
 }
 
-.kpi-card {
+.kpi-grid .kpi-card {
   display: flex;
-  align-items: center;
+  align-items: center !important;
   gap: 18px;
-  min-height: 118px;
-  padding: 20px;
+  min-height: 0;
+  padding: 16px 20px;
 }
 
 .kpi-icon {
@@ -2062,16 +2179,29 @@ async function exportCsv() {
   font-size: 24px;
 }
 
-.kpi-icon.blue { color: #39687B; background: color-mix(in srgb, #39687B 14%, white); }
+.kpi-grid .kpi-card > .kpi-icon {
+  align-self: center !important;
+}
 
-.kpi-icon.red { color: #017151; background: color-mix(in srgb, #BAD7B8 55%, white); }
+.kpi-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+}
 
-.kpi-icon.purple { color: #5EA99E; background: color-mix(in srgb, #5EA99E 14%, white); }
+.kpi-icon.blue { color: var(--analytics-ui-secondary, #39687B); background: color-mix(in srgb, #39687B 14%, var(--analytics-ui-surface, white)); }
 
-.kpi-label {
+.kpi-icon.red { color: var(--analytics-ui-accent, #017151); background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 55%, var(--analytics-ui-surface, white)); }
+
+.kpi-icon.purple { color: var(--analytics-ui-muted, #5EA99E); background: color-mix(in srgb, #5EA99E 14%, var(--analytics-ui-surface, white)); }
+
+.kpi-grid .kpi-card .kpi-copy > .kpi-label {
   display: block;
-  margin-bottom: 5px;
-  color: #4d6461;
+  min-height: 0 !important;
+  margin: 0 0 5px !important;
+  color: var(--analytics-ui-muted, #4d6461);
   font-size: 14px;
 }
 
@@ -2082,27 +2212,29 @@ async function exportCsv() {
 }
 
 .kpi-value-row strong {
-  color: #103c38;
+  color: var(--analytics-ui-text, #103c38);
   font-size: 32px;
   line-height: 1;
 }
 
 .positive {
-  color: #0ba969;
+  color: var(--analytics-ui-accent, #0ba969);
   font-size: 13px;
   font-weight: 800;
 }
 
 .metric-unavailable {
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 11px;
   font-weight: 700;
 }
 
-.kpi-card small {
+.kpi-grid .kpi-card .kpi-copy > small {
   display: block;
-  margin-top: 5px;
-  color: #81918f;
+  min-height: 0 !important;
+  margin: 5px 0 0 !important;
+  color: var(--analytics-ui-muted, #81918f);
+  line-height: 1.25;
 }
 
 .analytics-grid {
@@ -2122,7 +2254,7 @@ async function exportCsv() {
 
 .analytics-card h2 {
   margin: 0 0 16px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 18px;
   line-height: 1.2;
 }
@@ -2151,7 +2283,7 @@ async function exportCsv() {
   place-items: center;
   align-content: center;
   border-radius: 50%;
-  background: white;
+  background: var(--analytics-ui-surface, white);
   text-align: center;
 }
 
@@ -2161,7 +2293,7 @@ async function exportCsv() {
 
 .donut-centre span {
   margin-top: 2px;
-  color: #657774;
+  color: var(--analytics-ui-muted, #657774);
   font-size: 11px;
 }
 
@@ -2202,6 +2334,16 @@ async function exportCsv() {
   height: 238px;
 }
 
+.login-rate-unavailable {
+  display: grid;
+  height: 238px;
+  margin: 0;
+  place-items: center;
+  color: var(--analytics-ui-muted, #687a76);
+  font-size: 12px;
+  text-align: center;
+}
+
 .login-rate-item {
   min-width: 0;
   text-align: center;
@@ -2210,7 +2352,7 @@ async function exportCsv() {
 .login-rate-item > span {
   display: block;
   margin-bottom: 10px;
-  color: #294f4b;
+  color: var(--analytics-ui-text, #294f4b);
   font-size: 14px;
   font-weight: 700;
 }
@@ -2232,8 +2374,8 @@ async function exportCsv() {
   height: 68px;
   place-items: center;
   border-radius: 50%;
-  background: white;
-  color: #173f3c;
+  background: var(--analytics-ui-surface, white);
+  color: var(--analytics-ui-text, #173f3c);
   font-size: 21px;
   font-weight: 800;
 }
@@ -2241,7 +2383,7 @@ async function exportCsv() {
 .login-rate-item small {
   display: block;
   margin-top: 9px;
-  color: #7a8b88;
+  color: var(--analytics-ui-muted, #7a8b88);
   font-size: 10px;
 }
 
@@ -2261,7 +2403,7 @@ async function exportCsv() {
 }
 
 .bar-value {
-  color: #315a56;
+  color: var(--analytics-ui-text, #315a56);
   font-size: 11px;
   font-weight: 700;
 }
@@ -2271,7 +2413,7 @@ async function exportCsv() {
   align-items: flex-end;
   width: 34px;
   height: 128px;
-  border-bottom: 1px solid #dfe7e5;
+  border-bottom: 1px solid var(--analytics-ui-border, #dfe7e5);
 }
 
 .bar-fill {
@@ -2284,7 +2426,7 @@ async function exportCsv() {
 .bar-label {
   max-width: 58px;
   margin-top: 6px;
-  color: #697b79;
+  color: var(--analytics-ui-muted, #697b79);
   font-size: 9px;
   line-height: 1.2;
   text-align: center;
@@ -2305,9 +2447,9 @@ async function exportCsv() {
 
 .year-chip {
   padding: 6px 10px;
-  border: 1px solid #dce6e4;
+  border: 1px solid var(--analytics-ui-border, #dce6e4);
   border-radius: 8px;
-  color: #657774;
+  color: var(--analytics-ui-muted, #657774);
   font-size: 11px;
 }
 
@@ -2318,7 +2460,7 @@ async function exportCsv() {
 }
 
 .grid-line {
-  stroke: #edf1f0;
+  stroke: var(--analytics-ui-border, #edf1f0);
   stroke-width: 1;
 }
 
@@ -2337,7 +2479,7 @@ async function exportCsv() {
   display: grid;
   grid-template-columns: repeat(var(--visible-month-count, 12), 1fr);
   padding: 0;
-  color: #748683;
+  color: var(--analytics-ui-muted, #748683);
   font-size: 8px;
   text-align: center;
 }
@@ -2347,7 +2489,7 @@ async function exportCsv() {
   justify-content: center;
   gap: 18px;
   margin-top: 9px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 10px;
 }
 
@@ -2370,7 +2512,7 @@ async function exportCsv() {
   grid-template-columns: 100px minmax(70px, 1fr) 36px;
   align-items: center;
   gap: 10px;
-  color: #31514e;
+  color: var(--analytics-ui-text, #31514e);
   font-size: 11px;
 }
 
@@ -2382,7 +2524,7 @@ async function exportCsv() {
   overflow: hidden;
   height: 12px;
   border-radius: 4px;
-  background: #edf1f0;
+  background: var(--analytics-ui-soft, #edf1f0);
 }
 
 .horizontal-fill {
@@ -2400,16 +2542,16 @@ async function exportCsv() {
   height: 34px;
   flex: 0 0 34px;
   place-items: center;
-  border: 1px solid #d7e3e0;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
   border-radius: 9px;
-  background: #ffffff;
-  color: #174844;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174844);
   cursor: pointer;
 }
 
 .expand-button:hover {
-  border-color: #8bcab9;
-  background: #ecf8f4;
+  border-color: var(--analytics-ui-control-border, #8bcab9);
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .second-row {
@@ -2455,9 +2597,9 @@ async function exportCsv() {
 
 .world-map-panel,
 .region-ranking {
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 13px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
 }
 
 .world-map-panel {
@@ -2474,7 +2616,7 @@ async function exportCsv() {
   flex: 1;
   overflow: hidden;
   border-radius: 10px;
-  background: #FFFFFF;
+  background: var(--analytics-ui-surface, #FFFFFF);
 }
 
 .world-map {
@@ -2483,7 +2625,7 @@ async function exportCsv() {
   height: 100%;
   min-height: 0;
   cursor: zoom-in;
-  background: #FFFFFF;
+  background: var(--analytics-ui-surface, #FFFFFF);
 }
 
 .world-map-zoom-layer {
@@ -2492,8 +2634,8 @@ async function exportCsv() {
 }
 
 .world-shape {
-  fill: #FFFFFF;
-  stroke: #174243;
+  fill: var(--analytics-ui-surface, #FFFFFF);
+  stroke: var(--analytics-ui-border, #174243);
   stroke-width: 0.75;
   vector-effect: non-scaling-stroke;
 }
@@ -2513,19 +2655,19 @@ async function exportCsv() {
   height: 30px;
   place-items: center;
   padding: 0;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #017151;
+  background: var(--analytics-ui-surface, rgba(255, 255, 255, 0.94));
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
 }
 
 .map-zoom-controls button:hover:not(:disabled) {
-  background: #BAD7B8;
+  background: var(--analytics-ui-selected, #BAD7B8);
 }
 
 .map-zoom-controls button:disabled {
-  color: #96A39E;
+  color: var(--analytics-ui-muted, #96A39E);
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -2538,11 +2680,11 @@ async function exportCsv() {
 }
 
 .map-count--zero {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
 }
 
 .map-label {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 9px;
   font-weight: 700;
   pointer-events: none;
@@ -2554,19 +2696,19 @@ async function exportCsv() {
   justify-content: center;
   gap: 9px;
   margin-top: 2px;
-  color: #687b78;
+  color: var(--analytics-ui-muted, #687b78);
   font-size: 9px;
 }
 
 .legend-gradient {
   width: 150px;
   height: 9px;
-  border: 1px solid #D7E2DE;
+  border: 1px solid var(--analytics-ui-border, #D7E2DE);
   border-radius: 999px;
   background: linear-gradient(
     90deg,
-    #FFFFFF 0%,
-    #BAD7B8 30%,
+    var(--analytics-ui-surface, #FFFFFF) 0%,
+    var(--analytics-ui-soft, #BAD7B8) 30%,
     #5EA99E 58%,
     #39687B 80%,
     #017151 100%
@@ -2588,12 +2730,12 @@ async function exportCsv() {
 
 .ranking-heading h3 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 14px;
 }
 
 .ranking-heading span {
-  color: #7c8d8a;
+  color: var(--analytics-ui-muted, #7c8d8a);
   font-size: 9px;
 }
 
@@ -2618,15 +2760,15 @@ async function exportCsv() {
   height: 21px;
   place-items: center;
   border-radius: 6px;
-  background: #edf7f4;
-  color: #08765d;
+  background: var(--analytics-ui-soft, #edf7f4);
+  color: var(--analytics-ui-accent, #08765d);
   font-size: 9px;
   font-weight: 800;
 }
 
 .rank-name {
   overflow: hidden;
-  color: #36534f;
+  color: var(--analytics-ui-text, #36534f);
   font-size: 10px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -2637,7 +2779,7 @@ async function exportCsv() {
   overflow: hidden;
   height: 7px;
   border-radius: 999px;
-  background: #e8efed;
+  background: var(--analytics-ui-soft, #e8efed);
 }
 
 .rank-track span {
@@ -2648,7 +2790,7 @@ async function exportCsv() {
 }
 
 .region-ranking strong {
-  color: #234a45;
+  color: var(--analytics-ui-text, #234a45);
   font-size: 10px;
   text-align: right;
 }
@@ -2672,7 +2814,7 @@ async function exportCsv() {
 }
 
 .interactive-chart-row:hover {
-  background: rgba(236, 248, 244, 0.62);
+  background: var(--analytics-ui-selected, rgba(236, 248, 244, 0.62));
 }
 
 .interactive-svg-point {
@@ -2680,7 +2822,7 @@ async function exportCsv() {
 }
 
 .trend-dot {
-  stroke: #ffffff;
+  stroke: var(--analytics-ui-surface, #ffffff);
   stroke-width: 2;
 }
 
@@ -2816,7 +2958,7 @@ async function exportCsv() {
 .role-centre-label {
   max-width: 88px;
   margin-bottom: 2px;
-  color: #506965 !important;
+  color: var(--analytics-ui-muted, #506965) !important;
   font-size: 11px !important;
   font-weight: 700;
   line-height: 1.15;
@@ -2832,7 +2974,7 @@ async function exportCsv() {
 
 .interactive-role-row:hover,
 .interactive-role-row.selected {
-  background: #f2f7f5;
+  background: var(--analytics-ui-selected, #f2f7f5);
 }
 
 .chart-with-y-axis {
@@ -2847,19 +2989,19 @@ async function exportCsv() {
   flex-direction: column;
   justify-content: space-between;
   padding: 2px 0 24px;
-  color: #7a8984;
+  color: var(--analytics-ui-muted, #7a8984);
   font-size: 10px;
   line-height: 1;
   text-align: right;
 }
 
 .y-axis-line {
-  border-left: 1px solid #d9e2df;
+  border-left: 1px solid var(--analytics-ui-border, #d9e2df);
   padding-left: 8px;
 }
 
 .y-axis-title {
-  color: #667975;
+  color: var(--analytics-ui-muted, #667975);
   font-size: 10px;
   font-weight: 700;
   text-align: center;
@@ -2881,7 +3023,7 @@ async function exportCsv() {
 .green-fill { background: #5EA99E !important; }
 
 /* Official BTF palette for user charts */
-.rate-ring-inner { color: #174243; }
+.rate-ring-inner { color: var(--analytics-ui-text, #174243); }
 
 .trend-line.students { stroke: #39687B !important; }
 .trend-line.mentors { stroke: #017151 !important; }
@@ -2903,27 +3045,27 @@ async function exportCsv() {
 .daily-activity-row { grid-template-columns: 1fr; }
 .daily-activity-card { min-height: 310px; }
 .card-heading-row { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:8px; }
-.card-heading-row p { margin:4px 0 0; color:#667873; font-size:13px; }
+.card-heading-row p { margin:4px 0 0; color:var(--analytics-ui-muted, #667873); font-size:13px; }
 .activity-chart-with-axis { display:grid; grid-template-columns:42px minmax(0,1fr); gap:8px; align-items:stretch; }
-.activity-y-axis { display:flex; height:220px; flex-direction:column; justify-content:space-between; padding:11px 0 8px; color:#697875; font-size:11px; text-align:right; }
+.activity-y-axis { display:flex; height:220px; flex-direction:column; justify-content:space-between; padding:11px 0 8px; color:var(--analytics-ui-muted, #697875); font-size:11px; text-align:right; }
 .activity-chart-main { min-width:0; }
 .activity-chart-main svg { display:block; width:100%; height:220px; overflow:visible; }
-.activity-grid-line { stroke:#dfe9e5; stroke-width:1; }
+.activity-grid-line { stroke:var(--analytics-ui-border, #dfe9e5); stroke-width:1; }
 .daily-activity-line { fill:none; stroke:#017151; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
-.daily-activity-dot { fill:#017151; stroke:#fff; stroke-width:2; cursor:pointer; }
-.activity-x-labels { display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); margin-top:-2px; color:#697875; font-size:10px; text-align:center; }
-.activity-axis-title { margin-top:8px; color:#667873; font-size:11px; text-align:center; }
+.daily-activity-dot { fill:#017151; stroke:var(--analytics-ui-surface, #fff); stroke-width:2; cursor:pointer; }
+.activity-x-labels { display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); margin-top:-2px; color:var(--analytics-ui-muted, #697875); font-size:10px; text-align:center; }
+.activity-axis-title { margin-top:8px; color:var(--analytics-ui-muted, #667873); font-size:11px; text-align:center; }
 
 .user-login-table-card { margin-bottom:18px; }
-.user-login-table-wrap { margin-top:12px; overflow:auto; border:1px solid #e0e8e5; border-radius:12px; }
+.user-login-table-wrap { margin-top:12px; overflow:auto; border:1px solid var(--analytics-ui-border, #e0e8e5); border-radius:12px; }
 .user-login-table { width:100%; border-collapse:collapse; font-size:12px; }
-.user-login-table th { padding:11px 12px; background:#f0f4f2; color:#174243; text-align:left; }
-.user-login-table td { padding:11px 12px; border-top:1px solid #e4ebe8; color:#536762; }
+.user-login-table th { padding:11px 12px; background:var(--analytics-ui-soft, #f0f4f2); color:var(--analytics-ui-text, #174243); text-align:left; }
+.user-login-table td { padding:11px 12px; border-top:1px solid var(--analytics-ui-border, #e4ebe8); color:var(--analytics-ui-muted, #536762); }
 .user-login-table tbody tr:hover td { background:rgba(186,215,184,.35); }
 .login-status-pill { display:inline-flex; min-width:54px; min-height:24px; align-items:center; justify-content:center; padding:0 8px; border-radius:999px; font-size:10px; font-weight:700; }
-.login-status-pill.recent { background:rgba(186,215,184,.55); color:#017151; }
-.login-status-pill.inactive { background:rgba(241,229,166,.7); color:#174243; }
-.login-status-pill.never { background:rgba(94,169,158,.15); color:#174243; }
+.login-status-pill.recent { background:rgba(186,215,184,.55); color:var(--analytics-ui-accent, #017151); }
+.login-status-pill.inactive { background:rgba(241,229,166,.7); color:var(--analytics-ui-text, #174243); }
+.login-status-pill.never { background:rgba(94,169,158,.15); color:var(--analytics-ui-text, #174243); }
 
 /* Activity + last-login layout: one block + two blocks */
 .activity-login-row {
@@ -2991,7 +3133,7 @@ async function exportCsv() {
 
 .full-region-map-heading p {
   margin: 5px 0 0;
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 13px;
 }
 
@@ -3002,17 +3144,17 @@ async function exportCsv() {
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 10px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .close-map-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .full-map-layout {
@@ -3039,9 +3181,9 @@ async function exportCsv() {
   min-width: 0;
   flex-direction: column;
   padding: 14px;
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 13px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
 }
 
 .region-summary-heading {
@@ -3054,12 +3196,12 @@ async function exportCsv() {
 
 .region-summary-heading h3 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 15px;
 }
 
 .region-summary-heading span {
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 11px;
 }
 
@@ -3076,25 +3218,25 @@ async function exportCsv() {
   flex-direction: column;
   justify-content: space-between;
   padding: 14px;
-  border: 1px solid #dfe8e5;
+  border: 1px solid var(--analytics-ui-border, #dfe8e5);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
 }
 
 .region-summary-card > strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
 }
 
 .region-summary-value {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 30px;
   line-height: 1;
   font-weight: 700;
 }
 
 .region-summary-card > span {
-  color: #667873;
+  color: var(--analytics-ui-muted, #667873);
   font-size: 11px;
 }
 
@@ -3198,10 +3340,10 @@ async function exportCsv() {
 .login-top-filters select,
 .column-filter-heading select {
   height: 34px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 11px;
 }
 
@@ -3229,7 +3371,7 @@ async function exportCsv() {
 
 .empty-table-state {
   padding: 24px !important;
-  color: #75837f !important;
+  color: var(--analytics-ui-muted, #75837f) !important;
   text-align: center;
   font-weight: 500;
 }
@@ -3266,7 +3408,7 @@ async function exportCsv() {
   position: absolute;
   left: 10px;
   z-index: 1;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   pointer-events: none;
 }
@@ -3283,19 +3425,19 @@ async function exportCsv() {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
 }
 
 .login-sort-header i {
-  color: #5EA99E;
+  color: var(--analytics-ui-muted, #5EA99E);
   font-size: 11px;
 }
 
 .login-sort-header:hover {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .days-since-cell {
@@ -3307,14 +3449,14 @@ async function exportCsv() {
 
 .days-since-number {
   min-width: 24px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 15px;
   font-weight: 800;
   text-align: right;
 }
 
 .days-unit {
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 13px;
 }
 
@@ -3336,7 +3478,7 @@ async function exportCsv() {
   position: absolute;
   left: 10px;
   z-index: 1;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   pointer-events: none;
 }
@@ -3350,10 +3492,10 @@ async function exportCsv() {
   width: 132px !important;
   height: 34px;
   padding: 0 8px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 11px;
 }
 
@@ -3364,7 +3506,7 @@ async function exportCsv() {
 }
 
 .date-range-separator {
-  color: #7b8b87;
+  color: var(--analytics-ui-muted, #7b8b87);
   font-size: 12px;
 }
 
@@ -3456,7 +3598,7 @@ async function exportCsv() {
   max-height: 250px;
   margin-top: 12px;
   overflow: hidden;
-  border: 1px solid #e0e8e5;
+  border: 1px solid var(--analytics-ui-border, #e0e8e5);
   border-radius: 12px;
 }
 
@@ -3469,16 +3611,16 @@ async function exportCsv() {
 
 .compact-login-table th {
   padding: 9px 8px;
-  background: #f0f4f2;
-  color: #174243;
+  background: var(--analytics-ui-soft, #f0f4f2);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
   font-weight: 700;
 }
 
 .compact-login-table td {
   padding: 9px 8px;
-  border-top: 1px solid #e4ebe8;
-  color: #536762;
+  border-top: 1px solid var(--analytics-ui-border, #e4ebe8);
+  color: var(--analytics-ui-muted, #536762);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3539,17 +3681,17 @@ async function exportCsv() {
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 9px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .close-login-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .expanded-login-scroll {
@@ -3736,7 +3878,7 @@ async function exportCsv() {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #f0f4f2;
+  background: var(--analytics-ui-soft, #f0f4f2);
 }
 
 /* Region remains the only card that expands. */
@@ -3822,7 +3964,7 @@ async function exportCsv() {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #f0f4f2;
+  background: var(--analytics-ui-soft, #f0f4f2);
 }
 
 .close-login-button {
@@ -3832,17 +3974,17 @@ async function exportCsv() {
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 9px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .close-login-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 /* Region expansion remains unchanged */
@@ -4032,17 +4174,17 @@ async function exportCsv() {
 
 /* Reference-map styling: grey ocean, white country borders, filled registration areas. */
 .world-map-stage {
-  background: #cfd3d4 !important;
+  background: var(--analytics-ui-soft, #cfd3d4) !important;
   border-radius: 10px;
   overflow: hidden;
 }
 
 .world-map {
-  background: #cfd3d4 !important;
+  background: var(--analytics-ui-soft, #cfd3d4) !important;
 }
 
 .reference-world-base {
-  fill: #f8f9f8 !important;
+  fill: var(--analytics-ui-surface, #f8f9f8) !important;
   stroke: none !important;
 }
 
@@ -4052,14 +4194,14 @@ async function exportCsv() {
 }
 
 .reference-world-borders {
-  stroke: #ffffff !important;
+  stroke: var(--analytics-ui-surface, #ffffff) !important;
   stroke-width: 1.25 !important;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
 .reference-map-count {
-  fill: #24312f;
+  fill: var(--analytics-ui-text, #24312f);
   font-weight: 800;
   dominant-baseline: middle;
   pointer-events: none;
@@ -4079,13 +4221,13 @@ async function exportCsv() {
 }
 
 .small-map-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11px;
   font-weight: 800;
   text-anchor: middle;
   dominant-baseline: middle;
   paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.92);
+  stroke: var(--analytics-ui-surface, rgba(255, 255, 255, 0.92));
   stroke-width: 2.2px;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -4093,7 +4235,7 @@ async function exportCsv() {
 
 /* Keep the legend visually close to the supplied reference. */
 .map-legend {
-  background: #cfd3d4;
+  background: var(--analytics-ui-soft, #cfd3d4);
   padding: 6px 10px 8px;
   border-radius: 0 0 10px 10px;
 }
@@ -4113,11 +4255,11 @@ async function exportCsv() {
 }
 
 .reference-world-base {
-  fill: #f8f9f8 !important;
+  fill: var(--analytics-ui-surface, #f8f9f8) !important;
 }
 
 .reference-world-borders {
-  stroke: #ffffff !important;
+  stroke: var(--analytics-ui-surface, #ffffff) !important;
   stroke-width: 1.15 !important;
   vector-effect: non-scaling-stroke;
 }
@@ -4127,17 +4269,17 @@ async function exportCsv() {
 }
 
 .large-map-summary-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 16px;
   font-weight: 800;
 }
 
 .large-map-summary-label {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11.5px;
   font-weight: 700;
   paint-order: stroke;
-  stroke: rgba(255,255,255,.9);
+  stroke: var(--analytics-ui-surface, rgba(255,255,255,.9));
   stroke-width: 1.6px;
   stroke-linejoin: round;
 }
@@ -4165,13 +4307,13 @@ async function exportCsv() {
 }
 
 .region-summary-name strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   line-height: 1.1;
 }
 
 .region-summary-name small {
-  color: #617573;
+  color: var(--analytics-ui-muted, #617573);
   font-size: 11px;
   line-height: 1.25;
   font-weight: 500;
@@ -4200,13 +4342,13 @@ async function exportCsv() {
 }
 
 .region-summary-name strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   line-height: 1.1;
 }
 
 .region-summary-name small {
-  color: #617573;
+  color: var(--analytics-ui-muted, #617573);
   font-size: 12px;
   line-height: 1.25;
   font-weight: 500;
@@ -4219,10 +4361,10 @@ async function exportCsv() {
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
 }
@@ -4255,17 +4397,17 @@ line-expanded-region .world-map {
 
 /* Reference-map styling: grey ocean, white country borders, filled registration areas. */
 .world-map-stage {
-  background: #cfd3d4 !important;
+  background: var(--analytics-ui-soft, #cfd3d4) !important;
   border-radius: 10px;
   overflow: hidden;
 }
 
 .world-map {
-  background: #cfd3d4 !important;
+  background: var(--analytics-ui-soft, #cfd3d4) !important;
 }
 
 .reference-world-base {
-  fill: #f8f9f8 !important;
+  fill: var(--analytics-ui-surface, #f8f9f8) !important;
   stroke: none !important;
 }
 
@@ -4275,14 +4417,14 @@ line-expanded-region .world-map {
 }
 
 .reference-world-borders {
-  stroke: #ffffff !important;
+  stroke: var(--analytics-ui-surface, #ffffff) !important;
   stroke-width: 1.25 !important;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
 .reference-map-count {
-  fill: #24312f;
+  fill: var(--analytics-ui-text, #24312f);
   font-weight: 800;
   dominant-baseline: middle;
   pointer-events: none;
@@ -4302,13 +4444,13 @@ line-expanded-region .world-map {
 }
 
 .small-map-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11px;
   font-weight: 800;
   text-anchor: middle;
   dominant-baseline: middle;
   paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.92);
+  stroke: var(--analytics-ui-surface, rgba(255, 255, 255, 0.92));
   stroke-width: 2.2px;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -4316,7 +4458,7 @@ line-expanded-region .world-map {
 
 /* Keep the legend visually close to the supplied reference. */
 .map-legend {
-  background: #cfd3d4;
+  background: var(--analytics-ui-soft, #cfd3d4);
   padding: 6px 10px 8px;
   border-radius: 0 0 10px 10px;
 }
@@ -4336,11 +4478,11 @@ line-expanded-region .world-map {
 }
 
 .reference-world-base {
-  fill: #f8f9f8 !important;
+  fill: var(--analytics-ui-surface, #f8f9f8) !important;
 }
 
 .reference-world-borders {
-  stroke: #ffffff !important;
+  stroke: var(--analytics-ui-surface, #ffffff) !important;
   stroke-width: 1.15 !important;
   vector-effect: non-scaling-stroke;
 }
@@ -4350,17 +4492,17 @@ line-expanded-region .world-map {
 }
 
 .large-map-summary-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 16px;
   font-weight: 800;
 }
 
 .large-map-summary-label {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11.5px;
   font-weight: 700;
   paint-order: stroke;
-  stroke: rgba(255,255,255,.9);
+  stroke: var(--analytics-ui-surface, rgba(255,255,255,.9));
   stroke-width: 1.6px;
   stroke-linejoin: round;
 }
@@ -4388,13 +4530,13 @@ line-expanded-region .world-map {
 }
 
 .region-summary-name strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   line-height: 1.1;
 }
 
 .region-summary-name small {
-  color: #617573;
+  color: var(--analytics-ui-muted, #617573);
   font-size: 11px;
   line-height: 1.25;
   font-weight: 500;
@@ -4423,13 +4565,13 @@ line-expanded-region .world-map {
 }
 
 .region-summary-name strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   line-height: 1.1;
 }
 
 .region-summary-name small {
-  color: #617573;
+  color: var(--analytics-ui-muted, #617573);
   font-size: 12px;
   line-height: 1.25;
   font-weight: 500;
@@ -4442,10 +4584,10 @@ line-expanded-region .world-map {
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
 }
@@ -4478,17 +4620,17 @@ nline-expanded-region .world-map {
 
 /* Reference-map styling: grey ocean, white country borders, filled registration areas. */
 .world-map-stage {
-  background: #cfd3d4 !important;
+  background: var(--analytics-ui-soft, #cfd3d4) !important;
   border-radius: 10px;
   overflow: hidden;
 }
 
 .world-map {
-  background: #cfd3d4 !important;
+  background: var(--analytics-ui-soft, #cfd3d4) !important;
 }
 
 .reference-world-base {
-  fill: #f8f9f8 !important;
+  fill: var(--analytics-ui-surface, #f8f9f8) !important;
   stroke: none !important;
 }
 
@@ -4498,14 +4640,14 @@ nline-expanded-region .world-map {
 }
 
 .reference-world-borders {
-  stroke: #ffffff !important;
+  stroke: var(--analytics-ui-surface, #ffffff) !important;
   stroke-width: 1.25 !important;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
 .reference-map-count {
-  fill: #24312f;
+  fill: var(--analytics-ui-text, #24312f);
   font-weight: 800;
   dominant-baseline: middle;
   pointer-events: none;
@@ -4525,13 +4667,13 @@ nline-expanded-region .world-map {
 }
 
 .small-map-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11px;
   font-weight: 800;
   text-anchor: middle;
   dominant-baseline: middle;
   paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.92);
+  stroke: var(--analytics-ui-surface, rgba(255, 255, 255, 0.92));
   stroke-width: 2.2px;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
@@ -4539,7 +4681,7 @@ nline-expanded-region .world-map {
 
 /* Keep the legend visually close to the supplied reference. */
 .map-legend {
-  background: #cfd3d4;
+  background: var(--analytics-ui-soft, #cfd3d4);
   padding: 6px 10px 8px;
   border-radius: 0 0 10px 10px;
 }
@@ -4559,11 +4701,11 @@ nline-expanded-region .world-map {
 }
 
 .reference-world-base {
-  fill: #f8f9f8 !important;
+  fill: var(--analytics-ui-surface, #f8f9f8) !important;
 }
 
 .reference-world-borders {
-  stroke: #ffffff !important;
+  stroke: var(--analytics-ui-surface, #ffffff) !important;
   stroke-width: 1.15 !important;
   vector-effect: non-scaling-stroke;
 }
@@ -4573,17 +4715,17 @@ nline-expanded-region .world-map {
 }
 
 .large-map-summary-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 16px;
   font-weight: 800;
 }
 
 .large-map-summary-label {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 11.5px;
   font-weight: 700;
   paint-order: stroke;
-  stroke: rgba(255,255,255,.9);
+  stroke: var(--analytics-ui-surface, rgba(255,255,255,.9));
   stroke-width: 1.6px;
   stroke-linejoin: round;
 }
@@ -4611,13 +4753,13 @@ nline-expanded-region .world-map {
 }
 
 .region-summary-name strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   line-height: 1.1;
 }
 
 .region-summary-name small {
-  color: #617573;
+  color: var(--analytics-ui-muted, #617573);
   font-size: 11px;
   line-height: 1.25;
   font-weight: 500;
@@ -4646,13 +4788,13 @@ nline-expanded-region .world-map {
 }
 
 .region-summary-name strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   line-height: 1.1;
 }
 
 .region-summary-name small {
-  color: #617573;
+  color: var(--analytics-ui-muted, #617573);
   font-size: 12px;
   line-height: 1.25;
   font-weight: 500;
@@ -4665,10 +4807,10 @@ nline-expanded-region .world-map {
   justify-content: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
@@ -4676,18 +4818,18 @@ nline-expanded-region .world-map {
 }
 
 .clear-login-filters-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .last-login-year-note { display:flex; flex-direction:column; justify-content:center; min-height:220px; }
-.last-login-year-note p { margin:8px 0 0; color:#687a76; line-height:1.5; }
+.last-login-year-note p { margin:8px 0 0; color:var(--analytics-ui-muted, #687a76); line-height:1.5; }
 .role-pill { display:inline-flex; align-items:center; min-height:26px; padding:0 10px; border-radius:999px; font-size:11px; font-weight:700; }
-.role-student { background:rgba(57,104,123,.14); color:#39687B; }
-.role-mentor { background:rgba(1,113,81,.13); color:#017151; }
-.role-supervisor { background:rgba(94,169,158,.18); color:#357d73; }
-.days-filter-control { display:flex; align-items:center; gap:6px; color:#6a7a76; }
-.days-filter-control input { width:92px; height:34px; padding:0 9px; border:1px solid #bad7b8; border-radius:9px; color:#174243; }
-.country-registration-shape { stroke:#ffffff; stroke-width:1.15; vector-effect:non-scaling-stroke; cursor:pointer; transition:filter .12s ease, opacity .12s ease; }
+.role-student { background:rgba(57,104,123,.14); color:var(--analytics-ui-secondary, #39687B); }
+.role-mentor { background:rgba(1,113,81,.13); color:var(--analytics-ui-accent, #017151); }
+.role-supervisor { background:rgba(94,169,158,.18); color:var(--analytics-ui-muted, #357d73); }
+.days-filter-control { display:flex; align-items:center; gap:6px; color:var(--analytics-ui-muted, #6a7a76); }
+.days-filter-control input { width:92px; height:34px; padding:0 9px; border:1px solid var(--analytics-ui-border, #bad7b8); border-radius:9px; color:var(--analytics-ui-text, #174243); }
+.country-registration-shape { stroke:var(--analytics-ui-surface, #ffffff); stroke-width:1.15; vector-effect:non-scaling-stroke; cursor:pointer; transition:filter .12s ease, opacity .12s ease; }
 .country-registration-shape:hover { filter:brightness(.92); }
 
 /* Linked hover highlighting only. These rules do not change page overflow or scroll behaviour. */
@@ -4697,13 +4839,13 @@ nline-expanded-region .world-map {
 
 .country-registration-shape--highlighted,
 .continent-registration-shape--highlighted {
-  stroke: #f0b429 !important;
+  stroke: var(--analytics-ui-control-border, #f0b429) !important;
   stroke-width: 3px !important;
   filter: brightness(1.02) saturate(1.08);
 }
 
 .region-summary-card--highlighted {
-  border-color: #f0b429 !important;
+  border-color: var(--analytics-ui-control-border, #f0b429) !important;
   background: rgba(241, 229, 166, 0.24) !important;
   box-shadow: 0 0 0 1px rgba(240, 180, 41, 0.14);
 }
@@ -4735,20 +4877,20 @@ nline-expanded-region .world-map {
 }
 
 .australia-region-hover-shape {
-  stroke: #f0b429;
+  stroke: var(--analytics-ui-control-border, #f0b429);
   stroke-width: 2.2px;
   vector-effect: non-scaling-stroke;
   filter: brightness(1.03) saturate(1.08);
 }
 
 .australia-region-hover-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 8px;
   font-weight: 800;
   text-anchor: middle;
   dominant-baseline: middle;
   paint-order: stroke;
-  stroke: rgba(255, 255, 255, .96);
+  stroke: var(--analytics-ui-surface, rgba(255, 255, 255, .96));
   stroke-width: 2px;
   stroke-linejoin: round;
 }
@@ -4860,10 +5002,10 @@ nline-expanded-region .world-map {
   justify-content: center !important;
   margin: 0 !important;
   padding: 0 !important;
-  border: 1px solid #BAD7B8 !important;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8) !important;
   border-radius: 12px !important;
-  background: #FFFFFF !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-surface, #FFFFFF) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 18px !important;
   line-height: 1 !important;
   cursor: pointer;
@@ -4872,7 +5014,7 @@ nline-expanded-region .world-map {
 .upper-user-row .interest-sort-button i {
   display: block;
   margin: 0;
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 18px !important;
   line-height: 1 !important;
 }
@@ -4907,7 +5049,7 @@ nline-expanded-region .world-map {
 }
 
 .registration-baseline {
-  stroke: #d9e2df;
+  stroke: var(--analytics-ui-border, #d9e2df);
   stroke-width: 1;
 }
 
@@ -4953,9 +5095,41 @@ nline-expanded-region .world-map {
   width: 100% !important;
 }
 
-/* Interest list stays internally scrollable when there are many items. */
+/* Interest list fills the card and scrolls inside it, with a scrollbar that
+   stays visible so every area of interest is clearly reachable. */
+.users-analytics-page .first-row .interests-card {
+  display: flex;
+  flex-direction: column;
+}
+
 .users-analytics-page .first-row .interests-card .interest-list {
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 180px;
+  max-height: none;
+  overflow-y: scroll;
+}
+
+.users-analytics-page .first-row .interests-card .interest-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.users-analytics-page .first-row .interests-card .interest-list::-webkit-scrollbar-track {
+  border-radius: 3px;
+  background: var(--analytics-ui-soft, #eef3f1);
+}
+
+.users-analytics-page .first-row .interests-card .interest-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: #9fbfb9;
+}
+
+.users-analytics-page .interests-card .interest-count {
+  flex: 0 0 auto;
+  margin: 8px 0 0;
+  color: var(--analytics-ui-muted, #7a8c88);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* Responsive fallback */
@@ -5015,17 +5189,17 @@ nline-expanded-region .world-map {
   flex: 0 0 48px !important;
   margin: 0 !important;
   padding: 0 !important;
-  border: 1px solid #BAD7B8 !important;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8) !important;
   border-radius: 12px !important;
-  background: #FFFFFF !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-page, #FFFFFF) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 17px !important;
   cursor: pointer !important;
 }
 
 .users-analytics-page .interests-card .interest-sort-button i {
   margin: 0 !important;
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 17px !important;
   line-height: 1 !important;
 }
@@ -5076,12 +5250,12 @@ nline-expanded-region .world-map {
   align-items: center !important;
   gap: 10px !important;
   white-space: nowrap;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
 }
 
 .users-analytics-page .trend-role-filter strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   font-weight: 700;
 }
@@ -5150,7 +5324,7 @@ nline-expanded-region .world-map {
 .users-analytics-page .last-login-distribution-card .y-axis-line {
   min-width: 0 !important;
   height: 204px !important;
-  border-left: 1px solid #d9e2df !important;
+  border-left: 1px solid var(--analytics-ui-border, #d9e2df) !important;
 }
 
 .users-analytics-page .last-login-distribution-card .vertical-bars {
@@ -5181,7 +5355,7 @@ nline-expanded-region .world-map {
   height: 150px !important;
   align-items: flex-end !important;
   align-self: stretch !important;
-  border-bottom: 1px solid #dfe7e5 !important;
+  border-bottom: 1px solid var(--analytics-ui-border, #dfe7e5) !important;
 }
 
 .users-analytics-page .last-login-distribution-card .bar-fill {
@@ -5201,7 +5375,7 @@ nline-expanded-region .world-map {
   gap: 16px;
   min-height: 20px;
   margin: 8px 0 4px;
-  color: #506864;
+  color: var(--analytics-ui-muted, #506864);
   font-size: 10px;
   font-weight: 700;
 }
@@ -5256,67 +5430,104 @@ nline-expanded-region .world-map {
 
 /* Registration month labels are rendered inside the same SVG as the points,
    so their x positions are guaranteed to match exactly. */
-.users-analytics-page .trend-card .trend-value-label {
-  font-size: 11px;
-  paint-order: stroke;
-  stroke: #ffffff;
-  stroke-width: 3px;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-
 .users-analytics-page .trend-card .trend-month-label {
-  fill: #748683;
-  font-size: 9px;
+  fill: var(--analytics-ui-muted, #748683);
+  font-size: 11px;
   font-weight: 500;
   pointer-events: none;
 }
 
-/* Extra spacing for registration x-axis labels */
-.users-analytics-page .trend-card .trend-chart {
-  min-height: 205px !important;
+/* Registration trend fills the whole card: the plot takes the space left
+   under the heading and the SVG is absolutely positioned inside it, so the
+   chart follows the card instead of the card following a fixed SVG size. */
+.users-analytics-page .trend-card {
+  display: flex !important;
+  flex-direction: column;
+}
+
+.users-analytics-page .trend-card .registration-plot {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 240px;
+  margin-top: 10px;
+}
+
+.users-analytics-page .trend-card .registration-plot svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: visible;
+}
+
+.users-analytics-page .trend-card .registration-axis-label {
+  fill: var(--analytics-ui-muted, #748683);
+  font-size: 11px;
+  dominant-baseline: middle;
 }
 
 .users-analytics-page .trend-card .trend-legend {
-  margin-top: 8px !important;
+  margin-top: 6px !important;
+  font-size: 12px;
 }
 
 .users-analytics-page .trend-card .trend-month-label {
-  font-size: 9px;
+  font-size: 11px;
   dominant-baseline: middle;
 }
 
 /* Users summary only: operational user-by-user login details live in Activity Analytics. */
 .users-analytics-page .activity-status-role-card {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
+/* The table stretches to the card's height so its rows share the space
+   instead of leaving an empty band under the last role. */
 .users-analytics-page .activity-status-role-table-wrap {
+  display: flex;
+  flex: 1 1 auto;
   margin-top: 14px;
   overflow: hidden;
-  border: 1px solid #e0e8e5;
+  border: 1px solid var(--analytics-ui-border, #e0e8e5);
   border-radius: 12px;
 }
 
 .users-analytics-page .activity-status-role-table {
   width: 100%;
+  height: 100%;
   table-layout: fixed;
   border-collapse: collapse;
+  font-size: 14px;
+}
+
+.users-analytics-page .activity-status-role-table td strong {
+  font-size: 18px;
+}
+
+.users-analytics-page .activity-status-role-note {
+  margin: 12px 2px 0;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 12px;
+  line-height: 1.5;
+}
+
+.users-analytics-page .activity-status-role-note strong {
+  color: var(--analytics-ui-text, #174243);
 }
 
 .users-analytics-page .activity-status-role-table th {
   padding: 12px;
-  background: #edf4ef;
-  color: #174243;
+  background: var(--analytics-ui-soft, #edf4ef);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
   white-space: nowrap;
 }
 
 .users-analytics-page .activity-status-role-table td {
   padding: 14px 12px;
-  border-top: 1px solid #e4ebe8;
-  color: #536762;
+  border-top: 1px solid var(--analytics-ui-border, #e4ebe8);
+  color: var(--analytics-ui-muted, #536762);
 }
 
 .users-analytics-page .status-role-name { width: 31%; }
@@ -5330,7 +5541,7 @@ nline-expanded-region .world-map {
   justify-content: flex-start;
   gap: 18px;
   margin: -2px 0 10px 120px;
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 10px;
   font-weight: 600;
 }
@@ -5359,7 +5570,7 @@ nline-expanded-region .world-map {
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
-  color: #31514e;
+  color: var(--analytics-ui-text, #31514e);
   font-size: 11px;
 }
 
@@ -5380,7 +5591,7 @@ nline-expanded-region .world-map {
   overflow: hidden;
   height: 7px;
   border-radius: 3px;
-  background: #edf1f0;
+  background: var(--analytics-ui-soft, #edf1f0);
 }
 
 .users-analytics-page .interests-card .interest-role-fill {
@@ -5405,12 +5616,12 @@ nline-expanded-region .world-map {
 }
 
 .users-analytics-page .interests-card .interest-role-values strong {
-  color: #39687B;
+  color: var(--analytics-ui-secondary, #39687B);
   font-size: 10px;
 }
 
 .users-analytics-page .interests-card .interest-role-values span {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 10px;
   font-weight: 700;
 }
@@ -5421,7 +5632,7 @@ nline-expanded-region .world-map {
   align-items: center;
   gap: 5px;
   flex: 0 0 auto;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   text-decoration: none;
@@ -5432,7 +5643,7 @@ nline-expanded-region .world-map {
 }
 
 .activity-status-role-card .view-detail-link:hover {
-  color: #005f45;
+  color: var(--analytics-ui-accent, #005f45);
   text-decoration: underline;
 }
 

@@ -8,6 +8,31 @@ from apps.groups.models import Countries, CountryStates
 from .models import AreasOfInterest, StudentProfile, UserInterest
 from .guardian_reminders import send_guardian_reminder
 
+# The areas of interest registration offers, in its order (INTEREST_CATEGORIES
+# in frontend/src/registration/registration.ts). Users 0023 loads them.
+AREAS_OF_INTEREST = [
+    "Biomedical Innovations",
+    "Environmental Sustainability & Climate Tech",
+    "Space & Astrobiology",
+    "AI & Robotics and Smart Systems",
+    "Nanotechnology & Materials Science",
+    "Food & Agriculture Technology",
+    "Neuroscience & Mental Health Tech",
+    "Water & Energy Tech",
+    "Ethical & Societal Impacts of Emerging Tech",
+]
+
+
+def registration_interests():
+    """The registration areas as rows, leaving out any others in the table
+    (old or seeded ones), so a student picks from what registering offered."""
+    order = {name.lower(): index for index, name in enumerate(AREAS_OF_INTEREST)}
+    rows = [
+        row for row in AreasOfInterest.objects.values("id", "interest_desc")
+        if row["interest_desc"].lower() in order
+    ]
+    return sorted(rows, key=lambda row: order[row["interest_desc"].lower()])
+
 
 class StudentProfileOptionsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -17,7 +42,7 @@ class StudentProfileOptionsView(APIView):
         return Response({
             "countries": list(Countries.objects.order_by("country_name").values("id", "country_name")),
             "regions": list(CountryStates.objects.order_by("state_name").values("id", "country_id", "state_name")),
-            "interests": list(AreasOfInterest.objects.order_by("interest_desc").values("id", "interest_desc")),
+            "interests": registration_interests(),
             "selected_interest_ids": list(UserInterest.objects.filter(user=request.user).values_list("interest_id", flat=True)),
         })
 

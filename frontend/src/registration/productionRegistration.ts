@@ -17,6 +17,8 @@ export const REGISTRATION_OVERRIDE_FIELDS = {
   // An address the email check found doesn't exist: the student's or their guardian's.
   ConfirmEmailInvalidOverride: 'email',
   ConfirmGuardianEmailInvalidOverride: 'guardian.email',
+  // The supervisor a student named: the whole registration's, confirmed on Member 1.
+  ConfirmSupervisorEmailInvalidOverride: 'supervisor.email',
 } as const
 
 export const REGISTRATION_OVERRIDE_NAMES = Object.keys(REGISTRATION_OVERRIDE_FIELDS) as Array<
@@ -24,6 +26,16 @@ export const REGISTRATION_OVERRIDE_NAMES = Object.keys(REGISTRATION_OVERRIDE_FIE
 >
 
 type OverrideName = (typeof REGISTRATION_OVERRIDE_NAMES)[number]
+
+// Overrides about a field of the whole registration, not of one student's.
+const SHARED_OVERRIDES: ReadonlySet<OverrideName> = new Set(['ConfirmSupervisorEmailInvalidOverride'])
+
+/** The field a warning with this override is about: the student's own
+ *  (students.N.…), or the registration's for a shared one. */
+export const registrationOverrideField = (index: number, name: OverrideName): string =>
+  SHARED_OVERRIDES.has(name)
+    ? REGISTRATION_OVERRIDE_FIELDS[name]
+    : `students.${index}.${REGISTRATION_OVERRIDE_FIELDS[name]}`
 
 /** A warning's override path, students.N.overrides.<name>: the student's
  *  index and the override's name, or null if it isn't one. */
@@ -55,6 +67,7 @@ export const studentRequestPrefixes = (request: RegistrationRequest): string[] =
     case 'supervisor_csv':
       return request.payload.rows.map((_, index) => `supervisorCsv.rows.${index}`)
     case 'mentor':
+    case 'supervisor':
       return []
   }
 }
@@ -79,6 +92,7 @@ const journeyPrefix: Record<RegistrationIntakeJourney, string> = {
   supervisor_group: 'supervisorGroup',
   supervisor_csv: 'supervisorCsv',
   mentor: 'mentor',
+  supervisor: 'supervisor',
 }
 
 export const registrationFormPath = (request: RegistrationRequest, path: string) => {
@@ -89,6 +103,8 @@ export const registrationFormPath = (request: RegistrationRequest, path: string)
   }
   if (path === 'group.interests') return `${journeyPrefix[request.journey]}.interests`
   if (path === 'group.joinCode') return 'studentTeam.joinCode'
+  // A supervisor registering themselves: their own fields, as a mentor's are.
+  if (request.journey === 'supervisor') return path
   if (path.startsWith('supervisor.')) {
     return `${journeyPrefix[request.journey]}.${path}`
   }
@@ -100,8 +116,15 @@ export const buildProductionRegistrationRequest = (
   request: RegistrationRequest,
   overrideFlags: Record<string, boolean> = {},
 ) => {
+  // The policies agreed to: the page sends nothing until they're ticked
+  // (RegistrationPage's last step), and the backend needs them from a student
+  // mentor or supervisor registering themselves; a supervisor's journeys
+  // registering students don't ask.
   if (request.journey === 'mentor') {
-    return { journey: request.journey, payload: { mentor: request.payload.mentor } }
+    return { journey: request.journey, payload: { mentor: request.payload.mentor }, policiesAgreed: true }
+  }
+  if (request.journey === 'supervisor') {
+    return { journey: request.journey, payload: { supervisor: request.payload.supervisor }, policiesAgreed: true }
   }
   const students: SubmittedStudent[] = (() => {
     switch (request.journey) {
@@ -192,5 +215,6 @@ export const buildProductionRegistrationRequest = (
         : request.journey === 'supervisor_group'
           ? { group: { interests: request.payload.interests } }
           : {}
-  return { journey: request.journey, payload: { students, source, ...supervisor, ...group } }
+  const agreed = request.journey.startsWith('supervisor_') ? {} : { policiesAgreed: true }
+  return { journey: request.journey, payload: { students, source, ...supervisor, ...group }, ...agreed }
 }

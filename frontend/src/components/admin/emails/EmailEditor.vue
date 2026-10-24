@@ -59,7 +59,7 @@
       <label class="editor__label" :for="`${emailTemplate.key}-sender`">Send from</label>
       <AppSelect
         :id="`${emailTemplate.key}-sender`"
-        class="editor__title email-editor__sender"
+        class="editor__title email-editor__sender app-input"
         :model-value="emailTemplate.sender"
         :options="senderOptions"
         :disabled="busy"
@@ -85,7 +85,7 @@
         data-bwignore
         data-1p-ignore
         data-lpignore="true"
-        class="editor__title"
+        class="editor__title app-input app-input--wide"
         :value="subject"
         :placeholder="emailTemplate.defaultSubject"
         :disabled="saving || restoring"
@@ -113,12 +113,12 @@
 
     <footer class="editor__actions">
       <div class="editor__actions-primary">
-        <button type="button" class="btn btn-primary btn-sm" :disabled="!dirty || busy" @click="emit('save')">
+        <button type="button" class="btn btn-primary" :disabled="!dirty || busy" @click="emit('save')">
           {{ saving ? 'Saving…' : 'Save changes' }}
         </button>
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline"
           :disabled="!emailTemplate.usingSavedContent || busy"
           @click="emit('restore')"
         >
@@ -151,7 +151,7 @@
         <!-- A critical email (sign-in, passwords) can't be test sent. -->
         <button
           type="button"
-          class="btn btn-outline btn-sm"
+          class="btn btn-outline"
           :disabled="emailTemplate.locked || busy || testRecipientsLoading || !testTo.trim()"
           :title="emailTemplate.locked ? lockedTestReason : undefined"
           @click="sendTest"
@@ -164,7 +164,7 @@
           <!-- Open even on a critical email, so its preview can show anyone. -->
           <AppSelect
             v-model="testOf"
-            class="email-editor__test-select"
+            class="email-editor__test-select app-input"
             aria-label="Send it as"
             data-test="test-of"
             :options="testRecipients ?? []"
@@ -177,7 +177,7 @@
         <input
           v-model="testTo"
           type="email"
-          class="email-editor__test-to"
+          class="email-editor__test-to app-input"
           placeholder="Email address"
           aria-label="Send the test to"
           autocomplete="off"
@@ -354,32 +354,17 @@ const onToggleEnabled = (enabled: boolean) => {
   grid-column: 2;
 }
 
-.email-editor__test-select,
-.email-editor__test-to {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
-}
-
-/* As wide as the address box, or wider when a name needs it, up to 25rem. */
-.email-editor__test-select {
-  width: 100%;
-  max-width: 25rem;
-}
-
 .email-editor__test-button-lock {
   margin-right: 0.25rem;
   font-size: 0.75em;
 }
 
 
+/* The shared box (app-input), as is the list above it: 320px, narrowing to
+   13rem when room is short. The list is as wide, or wider when a name needs
+   it, up to the shared box's widest. */
 .email-editor__test-to {
-  /* 17rem, narrowing to 13rem when room is short. */
-  width: 17rem;
+  width: 16rem;
   max-width: 100%;
 }
 
@@ -501,13 +486,6 @@ const onToggleEnabled = (enabled: boolean) => {
   font-weight: 600;
   color: #4b5563;
   min-width: 3.5rem;
-}
-
-/* As wide as its addresses, not the whole column. */
-.email-editor__sender {
-  width: auto;
-  min-width: 16rem;
-  background: var(--surface-elevated, #fff);
 }
 
 /* The Subject box's focus, which editorForm.css gives on :focus. */

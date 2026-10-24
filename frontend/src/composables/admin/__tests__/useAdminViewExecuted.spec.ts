@@ -77,6 +77,34 @@ describe('canonicalColumnKey / columnLabel', () => {
   it('falls back to a title-cased label for an unrecognized key', () => {
     expect(columnLabel('custom_field')).toBe('Custom Field')
   })
+
+  it('keeps "Group Number" and "Number of Groups" as separate columns', () => {
+    expect(canonicalColumnKey('group_number')).toBe('group_number')
+    expect(columnLabel('group_number')).toBe('Group Number')
+    expect(columnLabel('Group Number')).toBe('Group Number')
+
+    expect(canonicalColumnKey('group_count')).toBe('group_count')
+    expect(columnLabel('group_count')).toBe('Number of Groups')
+  })
+
+  it('names the role-specific columns', () => {
+    expect(columnLabel('pronouns')).toBe('Pronouns')
+    expect(columnLabel('mentor_group_capacity')).toBe('Group Capacity')
+    expect(columnLabel('mentor_background')).toBe('Mentor Background')
+    expect(columnLabel('mentor_year_of_study')).toBe('Mentor Year of Study')
+    expect(columnLabel('mentor_field_of_study')).toBe('Mentor Field of Study')
+    expect(columnLabel('supervisor_email')).toBe('Supervisor Email')
+    expect(columnLabel('guardian_email')).toBe('Guardian Email')
+    expect(columnLabel('guardian_permission')).toBe('Guardian Permission')
+  })
+
+  it('reads the other spellings of a role-specific column as the same column', () => {
+    expect(canonicalColumnKey('max_group_count')).toBe('mentor_group_capacity')
+    expect(canonicalColumnKey('group_capacity')).toBe('mentor_group_capacity')
+    expect(canonicalColumnKey('university_year')).toBe('mentor_year_of_study')
+    expect(canonicalColumnKey('field_of_study')).toBe('mentor_field_of_study')
+    expect(canonicalColumnKey('join_permission')).toBe('guardian_permission')
+  })
 })
 
 describe('useAdminViewExecuted: columns', () => {
@@ -93,6 +121,28 @@ describe('useAdminViewExecuted: columns', () => {
     view.value = buildView({ visibleColumns: ['name', 'school', 'status'] })
 
     expect(columns.value.map((c) => c.key)).toEqual(['name', 'school', 'status', 'actions'])
+  })
+
+  it('offers "Group Number" as its own sortable column', () => {
+    const { view, columns } = useAdminViewExecuted(ref(5))
+    view.value = buildView({ visibleColumns: ['name', 'group_number', 'group_count'] })
+
+    expect(columns.value.map((c) => c.key)).toEqual([
+      'name',
+      'group_number',
+      'group_count',
+      'actions'
+    ])
+    expect(columns.value[1]).toMatchObject({
+      key: 'group_number',
+      label: 'Group Number',
+      sortable: true
+    })
+    expect(columns.value[2]).toMatchObject({
+      key: 'group_count',
+      label: 'Number of Groups',
+      sortable: true
+    })
   })
 })
 

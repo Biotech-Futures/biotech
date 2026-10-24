@@ -45,9 +45,8 @@ class ComponentMarkingListView(APIView):
 
     def get(self, request, code: str):
         component = get_object_or_404(SubmissionComponent, code=code)
-        year = int(request.query_params.get("year") or current_cohort())
 
-        rubric = Rubric.objects.filter(component=component, year=year, active=True).first()
+        rubric = Rubric.objects.filter(component=component, active=True).first()
         criteria = list(rubric.criteria.all()) if rubric else []
         criteria_total = len(criteria)
         # Rubric position (1-based) per criterion, for the marker breakdown.
@@ -150,7 +149,8 @@ class ComponentMarkingListView(APIView):
 
         return Response({
             "component": SubmissionComponentSerializer(component).data,
-            "year": year,
+            # The challenge year, which an uploaded marks sheet's rows must carry.
+            "year": current_cohort(),
             "criteria_total": criteria_total,
             "rows": rows,
         })

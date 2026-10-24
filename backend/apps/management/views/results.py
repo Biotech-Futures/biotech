@@ -81,7 +81,7 @@ class ResultsSampleSheetView(APIView):
 
     def get(self, request):
         year = results_notify.results_audience().year
-        response = HttpResponse(results_notify.sample_marks_sheet(year), content_type=results_notify.XLSX)
+        response = HttpResponse(results_notify.sample_marks_sheet(), content_type=results_notify.XLSX)
         response["Content-Disposition"] = content_disposition_header(
             as_attachment=True, filename=f"{year}_BTF_Student_Marks_Sample.xlsx"
         )

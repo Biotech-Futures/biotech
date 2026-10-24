@@ -82,12 +82,12 @@ def template_upload_to(instance, filename):
 
 
 class ChallengeStart(models.Model):
-    """The day a year's challenge starts (Management > Challenge Start): the
-    supervisors' daily registration status email asks for permission forms to
-    be signed by then. Who last set it, and when."""
+    """When a year's challenge starts, its date and time (Management >
+    Challenge Start): the supervisors' weekly registration status email asks
+    for permission forms to be signed by that day. Who last set it, and when."""
 
     year = models.PositiveSmallIntegerField(unique=True)
-    starts_on = models.DateField(null=True, blank=True)
+    starts_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -97,19 +97,42 @@ class ChallengeStart(models.Model):
         db_table = "challenge_start"
 
     def __str__(self):
-        return f"Challenge {self.year} starts {self.starts_on or 'unset'}"
+        return f"Challenge {self.year} starts {self.starts_at or 'unset'}"
 
     @classmethod
     def for_year(cls, year: int) -> "ChallengeStart":
         return cls.objects.get_or_create(year=year)[0]
 
 
-class SupervisorPagesSetting(SingletonModel):
-    """Whether supervisors see Home, Groups, Events, Announcements and
-    Resources; off until an admin turns it on (Management > Late
-    Registration > Supervisor Pages Visibility)."""
+class ChallengeYear(models.Model):
+    """A challenge year Start new year moved the platform on to (Management >
+    New Year): the newest is the year in progress, from the moment it's
+    pressed, even months before that year begins. Until it's first pressed
+    the year comes from the submission deadline (see ``current_cohort``).
+    Who pressed it, when, and how much it changed."""
 
-    shown = models.BooleanField(default=False)
+    year = models.PositiveSmallIntegerField(unique=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+    )
+    # What it changed, as the page's summary lists it, e.g. {"accounts": 412}.
+    counts = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "challenge_year"
+
+    def __str__(self):
+        return f"Challenge year {self.year}"
+
+
+class SupervisorPagesSetting(SingletonModel):
+    """When students, mentors and supervisors start seeing Home, Groups,
+    Events, Announcements and Resources (Management > Challenge Start > Pages
+    Visibility): hidden until ``shown_from``, and while it isn't set. Admins
+    always see them."""
+
+    shown_from = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
@@ -120,6 +143,10 @@ class SupervisorPagesSetting(SingletonModel):
 
     def __str__(self):
         return "SupervisorPagesSetting"
+
+    def shown_at(self, now) -> bool:
+        """Whether the pages are shown at ``now``."""
+        return self.shown_from is not None and now >= self.shown_from
 
 
 class GradingSettings(SingletonModel):
@@ -221,7 +248,7 @@ class FinalistEmailSettings(SingletonModel):
 
 
 class PresentationSettings(SingletonModel):
-    """Whether finalists see this year's presentation times to give their
+    """Whether finalists see the presentation times to give their
     availability. Off until the times are final, so teams only ever pick
     from the real ones."""
 
@@ -234,21 +261,18 @@ class PresentationSettings(SingletonModel):
 class PresentationSlot(models.Model):
     """A time finalists can present at the Symposium, on the Symposium date
     set on Notify Finalists. Admins set them on the Finalist Presentation
-    tab; each year has its own, since the times change year to year. Each
-    finalist team ticks every slot it can make."""
+    tab; they carry on from year to year until changed there. Each finalist
+    team ticks every slot it can make."""
 
-    year = models.PositiveSmallIntegerField()
     starts_at = models.TimeField()
     ends_at = models.TimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "presentation_slot"
-        ordering = ["year", "starts_at", "ends_at"]
+        ordering = ["starts_at", "ends_at"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["year", "starts_at", "ends_at"], name="uniq_presentation_slot_per_year"
-            ),
+            models.UniqueConstraint(fields=["starts_at", "ends_at"], name="uniq_presentation_slot"),
             models.CheckConstraint(
                 condition=models.Q(ends_at__gt=models.F("starts_at")),
                 name="presentation_slot_ends_after_it_starts",
@@ -256,7 +280,7 @@ class PresentationSlot(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.year} {self.starts_at:%H:%M}-{self.ends_at:%H:%M}"
+        return f"{self.starts_at:%H:%M}-{self.ends_at:%H:%M}"
 
 
 class PresentationAllocation(models.Model):
@@ -441,6 +465,11 @@ class EmailSendRun(models.Model):
     # Who it couldn't reach and why, as the page lists them:
     # {"who": "(BTF07) Amy Chen", "reason": "address refused"}.
     missed = models.JSONField(default=list, blank=True)
+    # A run's: how many mail server connections it ended up sending over
+    # (fewer than BULK_EMAIL_WORKERS once the server pushed back); none for
+    # a job. A mailbox queue's: until when its runs use fewer connections.
+    connections = models.PositiveSmallIntegerField(null=True, blank=True)
+    fewer_connections_until = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "email_send_run"
@@ -580,3 +609,22 @@ class NonSubmissionEmail(models.Model):
 
     def __str__(self):
         return f"Non-submission emailed: {self.group}"
+
+
+class ScheduledJobRun(models.Model):
+    """One timed job the backend runs itself (apps.management.scheduler): the
+    slot it last ran for, so only one process runs each slot, and how its
+    last run went, for Management > Email Checks."""
+
+    name = models.CharField(max_length=64, unique=True)
+    last_slot = models.DateTimeField(null=True, blank=True)
+    last_started_at = models.DateTimeField(null=True, blank=True)
+    last_finished_at = models.DateTimeField(null=True, blank=True)
+    last_ok = models.BooleanField(null=True, blank=True)
+    last_error = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta:
+        db_table = "scheduled_job_run"
+
+    def __str__(self):
+        return f"Scheduled job {self.name}"

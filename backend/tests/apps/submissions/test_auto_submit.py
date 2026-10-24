@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.grading.models import FinalistFlag
 from apps.groups.models import Groups
 from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.models import Deadline, GroupExtension, Submission
@@ -95,6 +96,36 @@ class AutoSubmitTests(TestCase):
         reopened.refresh_from_db()
         self.assertEqual(reopened.submitted_at, earlier)
         self.assertFalse(reopened.auto_submitted)
+
+    def test_nothing_before_the_announced_deadline(self):
+        self.deadline.closes_at = timezone.now() + timedelta(hours=1)
+        self.deadline.save()
+        self._entry()
+        GroupExtension.objects.create(
+            group=self.group, extended_until=timezone.now() - timedelta(hours=1), grace_hours=0,
+        )
+
+        self.assertEqual(auto_submit_due()["submitted"], [])
+
+    def test_stops_once_this_years_finalist_emails_have_gone_out(self):
+        self._close_grace()
+        entry = self._entry()
+        finalist = Groups.objects.create(group_name="BTF-FINAL", year=current_cohort())
+        flag = FinalistFlag.objects.create(group=finalist, notified=True, notified_at=timezone.now())
+
+        self.assertEqual(auto_submit_due()["submitted"], [])
+
+        # A bounce turns the flag back to unnotified; the email still went out.
+        flag.notified = False
+        flag.save()
+        self.assertEqual(auto_submit_due()["submitted"], [])
+
+        # Last year's finalists don't count.
+        finalist.year = current_cohort() - 1
+        finalist.save()
+        self.assertEqual(auto_submit_due()["submitted"], ["BTF-AUTO"])
+        entry.refresh_from_db()
+        self.assertTrue(entry.is_submitted)
 
     def test_a_previous_rounds_draft_is_left_alone(self):
         self._close_grace()

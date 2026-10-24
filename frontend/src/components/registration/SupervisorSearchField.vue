@@ -2,14 +2,12 @@
   <!-- An existing supervisor, found by their email and picked from the list
        (their name and school beside it): laid out as the form's other fields. -->
   <label class="supervisor-search registration-field--wide">
-    <span :id="`${id}-label`" class="supervisor-search__label">
-      {{ label }}
-      <small>(Optional)</small>
-    </span>
+    <span :id="`${id}-label`" class="supervisor-search__label">{{ label }}</span>
     <span class="supervisor-search__box">
       <i class="fas fa-magnifying-glass supervisor-search__icon" aria-hidden="true"></i>
       <input
         :id="id"
+        class="app-input app-input--wide"
         :value="modelValue"
         type="text"
         autocomplete="off"
@@ -94,12 +92,6 @@ const pick = (supervisor: RegistrationSupervisor) => {
   font-weight: 600;
 }
 
-.supervisor-search__label small {
-  color: var(--registration-muted);
-  font-size: 0.78rem;
-  font-weight: 500;
-}
-
 .supervisor-search__box {
   position: relative;
   display: block;
@@ -115,12 +107,11 @@ const pick = (supervisor: RegistrationSupervisor) => {
   pointer-events: none;
 }
 
+/* The shared box (app-input), with room on the left for the magnifier, in
+   registration's colours. */
 input {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: 0.4rem 0.6rem 0.4rem 2.1rem;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
+  padding-left: 2.1rem;
+  border-color: var(--registration-field-line);
   outline: none;
   background: var(--white);
   color: var(--registration-ink);

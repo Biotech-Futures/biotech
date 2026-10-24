@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+{# Sent to a supervisor a student names when registering, if their email had #}
+{# no account: one was created for them, to see their students.            #}
+
+{% block title %}{{ BRAND_NAME }}: Registration{% endblock %}
+
+{% block preheader %}You've been named as a supervisor for the {{ BRAND_NAME }} Challenge.{% endblock %}
+
+{% block footer_reason %}emails about your students' registration{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 24px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Hi {{ First_Name|default:"there" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                You've been named as a supervisor for the <span style="color:#307054;">{{ BRAND_NAME }}</span> Challenge.
+              </h1>
+
+              <p style="margin:24px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                {{ STUDENT_NAMES }} named you as their supervisor when registering for the {{ YEAR }} {{ BRAND_NAME }} Challenge, so we've set up a supervisor account for you in {{ BRAND_CONNECT }}.
+              </p>
+
+              <p style="margin:16px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Sign in with this email address to view your students on <a href="{{ STUDENTS_URL }}" style="color:#307054; text-decoration:underline;">Students</a>.
+              </p>
+{% endblock %}

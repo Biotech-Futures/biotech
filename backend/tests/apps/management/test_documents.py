@@ -50,7 +50,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         ComponentFeedback.objects.create(
             group=self.group, component=self.poster, comment="Strong poster overall.",
         )
-        components = grades_payload(self.group, self.year)
+        components = grades_payload(self.group)
         data = render_marks_summary(marks_summary_context(self.group, self.year, components))
         xml = self._document_xml(data)
         self.assertNotIn("<<[", xml)
@@ -104,7 +104,7 @@ class ClientDocxTemplateTests(_GradingFixture):
         template = _build_docx(
             "Poster: {{PosterOverallComment}} | SAQ: {{ShortAnswerQuestionOverallComment}}"
         )
-        context = marks_summary_context(self.group, self.year, grades_payload(self.group, self.year))
+        context = marks_summary_context(self.group, self.year, grades_payload(self.group))
         xml = self._document_xml(render_marks_summary_data(template, context))
         self.assertIn("Poster: Strong poster overall. | SAQ: Clear, well argued answers.", xml)
 
@@ -359,17 +359,16 @@ class ClientDocxTemplateTests(_GradingFixture):
         self.assertIn("Content / Clarity / Design", xml)
         self.assertNotIn("Sample", xml)
 
-    def test_the_test_summary_falls_back_when_this_year_has_no_rubric(self):
+    def test_the_test_summary_uses_each_components_rubric(self):
         from apps.management.services.docx import sample_components
 
-        # No 2030 rubric yet: the latest active one stands in.
-        by_code = {c["code"]: c for c in sample_components(2030)}
+        by_code = {c["code"]: c for c in sample_components()}
         self.assertEqual([c["name"] for c in by_code["SAQ"]["criteria"]], ["Content", "Clarity"])
 
-        # No active rubric at all: no criteria, as on a real summary.
+        # No active rubric: no criteria, as on a real summary.
         self.poster_rubric.active = False
         self.poster_rubric.save(update_fields=["active"])
-        poster = {c["code"]: c for c in sample_components(2026)}["POSTER"]
+        poster = {c["code"]: c for c in sample_components()}["POSTER"]
         self.assertEqual(poster["criteria"], [])
 
     def test_the_template_check_knows_the_criterion_names_but_not_the_old_ones(self):

@@ -309,6 +309,7 @@ def _sent(row: WaitingEmail, delivered: list[str]) -> None:
         failed=0,
         initiated_by=row.sent_by,
         started_at=row.created_at,
+        recipients=delivered,
     )
     _hook(row, "sent", delivered)
 
@@ -550,6 +551,7 @@ def resend_missed(key: str, actor=None, now=None) -> dict:
             failed=len(missed),
             source_mailbox=rows[0].from_email if rows else None,
             last_sent=bool(delivered),
+            recipients=[*delivered, *missed],
         )
     logger.info("waiting_email.resend key=%s sent=%s failed=%s waiting=%s", key, len(delivered), len(missed), len(waiting))
     return {"sent": len(delivered), "failed": len(missed)}

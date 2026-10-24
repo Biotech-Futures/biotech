@@ -10,6 +10,8 @@ import {
   fetchAdminUsers,
   getAdminViewExportUrl,
   runAdminView,
+  EARLIER_YEAR_BULK_NOTE,
+  earlierYearMessage,
   setAdminUserActive,
   type AdminUser,
   type AdminUserCountry,
@@ -28,6 +30,21 @@ export type ViewResultRow = AdminUser & {
   matchedPartner?: string
   phone?: string
   groupCount?: number
+  /** Names of the groups the user is in, comma separated ("BTF1, BTF6"). */
+  groupNumbers?: string
+  /** A mentor's own details: null for anyone who is not a mentor. */
+  mentorBackgroundLabel?: string | null
+  mentorGroupCapacity?: number | null
+  mentorYearOfStudy?: string | null
+  mentorFieldOfStudy?: string | null
+  /** A student's assigned supervisor's email: null for anyone who is not a
+   *  student, or for a student with no supervisor. */
+  supervisorEmail?: string | null
+  /** A student's guardian's email: null for anyone who is not a student. */
+  guardianEmail?: string | null
+  /** Whether a student's guardian gave permission: null for anyone who is not
+   *  a student, so the column can tell "not granted" from "not a student". */
+  guardianPermission?: boolean | null
 }
 
 interface ColumnConfig {
@@ -48,16 +65,34 @@ const COLUMN_ALIASES: Record<string, string> = {
   year_level: 'yearlevel',
   year_lvl: 'yearlevel',
   groupcount: 'group_count',
-  number_of_groups: 'group_count'
+  number_of_groups: 'group_count',
+  groupnumber: 'group_number',
+  group_capacity: 'mentor_group_capacity',
+  mentor_capacity: 'mentor_group_capacity',
+  max_group_count: 'mentor_group_capacity',
+  background: 'mentor_background',
+  year_of_study: 'mentor_year_of_study',
+  university_year: 'mentor_year_of_study',
+  field_of_study: 'mentor_field_of_study',
+  join_permission: 'guardian_permission'
 }
 
 const COLUMN_CONFIG: Record<string, ColumnConfig> = {
   name: { label: 'Full Name', sortBy: 'name' },
   email: { label: 'Email', sortBy: 'email' },
   role: { label: 'Role', sortBy: 'role' },
+  pronouns: { label: 'Pronouns' },
   school: { label: 'School / Institution', sortBy: 'school' },
   matched_mentor: { label: 'Matched Mentor / Group' },
+  group_number: { label: 'Group Number', sortBy: 'groupNumber' },
   group_count: { label: 'Number of Groups', sortBy: 'groupCount' },
+  mentor_group_capacity: { label: 'Group Capacity' },
+  mentor_background: { label: 'Mentor Background' },
+  mentor_year_of_study: { label: 'Mentor Year of Study' },
+  mentor_field_of_study: { label: 'Mentor Field of Study' },
+  supervisor_email: { label: 'Supervisor Email' },
+  guardian_email: { label: 'Guardian Email' },
+  guardian_permission: { label: 'Guardian Permission' },
   status: { label: 'Status', sortBy: 'status' },
   phone: { label: 'Phone' },
   state: { label: 'State', sortBy: 'state' },
@@ -252,7 +287,8 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
   }
 
   // -- Single activate/deactivate -------------------------------------------------
-  const singleToggle = ref({ open: false, userId: 0, message: '' })
+  // Deactivating, or activating a student from an earlier year: confirmed first.
+  const singleToggle = ref({ open: false, userId: 0, active: false, message: '' })
 
   const runActiveChange = async (userId: number, isActive: boolean): Promise<boolean> => {
     busy.value = true
@@ -274,8 +310,14 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
       singleToggle.value = {
         open: true,
         userId: user.id,
+        active: false,
         message: `${userName(user)} will no longer be able to sign in. You can reactivate them at any time.`
       }
+      return
+    }
+    const earlier = earlierYearMessage(user)
+    if (earlier) {
+      singleToggle.value = { open: true, userId: user.id, active: true, message: earlier }
       return
     }
     void runActiveChange(user.id, true)
@@ -283,8 +325,8 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
 
   const runSingleToggle = async (): Promise<void> => {
     if (!singleToggle.value.userId) return
-    const ok = await runActiveChange(singleToggle.value.userId, false)
-    if (ok) singleToggle.value = { open: false, userId: 0, message: '' }
+    const ok = await runActiveChange(singleToggle.value.userId, singleToggle.value.active)
+    if (ok) singleToggle.value = { open: false, userId: 0, active: false, message: '' }
   }
 
   // -- Single delete (reachable from the edit sheet's Delete button) --------------
@@ -335,7 +377,7 @@ export function useAdminViewExecuted(viewId: Ref<number>) {
       confirmLabel: isActive ? 'Activate' : 'Deactivate',
       title: `${isActive ? 'Activate' : 'Deactivate'} ${bulkCount.value} ${bulkCount.value === 1 ? 'user' : 'users'}?`,
       message: isActive
-        ? 'The selected users will be able to sign in again.'
+        ? `The selected users will be able to sign in again. ${EARLIER_YEAR_BULK_NOTE}`
         : 'The selected users will no longer be able to sign in. You can reactivate them at any time.'
     }
   }

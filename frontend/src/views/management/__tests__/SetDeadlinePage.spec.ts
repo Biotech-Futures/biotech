@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import SetDeadlinePage from '@/views/management/SetDeadlinePage.vue'
 import { fetchSubmissionDeadline, saveSubmissionDeadline } from '@/utils/managementAPI'
-import { formatStatementTime, getBrowserTimeZone } from '@/utils/date'
+import { dateTimeFieldsValue, setDateTimeFields } from '@/__tests__/appPicker'
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchSubmissionDeadline: vi.fn(),
@@ -55,8 +55,7 @@ describe('the current-deadline card', () => {
     expect(wrapper.text()).toContain('(+ 6h quiet grace)')
     expect(wrapper.text()).toContain('Set by Ada Admin')
     // The picker is pre-filled with the stored closing time.
-    const input = wrapper.find('input[type="datetime-local"]')
-    expect((input.element as HTMLInputElement).value).not.toBe('')
+    expect(dateTimeFieldsValue(wrapper, '.sydney-date-time')).not.toBe('')
   })
 
   it('reports the quiet grace period once the announced time has passed', async () => {
@@ -89,7 +88,7 @@ describe('the current-deadline card', () => {
 
 describe('setting a deadline', () => {
   const fillAndSubmit = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
-    await wrapper.find('input[type="datetime-local"]').setValue('2026-11-01T09:00')
+    await setDateTimeFields(wrapper, '.sydney-date-time', '2026-11-01T09:00')
     await wrapper.find('form').trigger('submit')
   }
 
@@ -100,9 +99,8 @@ describe('setting a deadline', () => {
     const dialog = wrapper.find('[role="dialog"]')
     expect(dialog.exists()).toBe(true)
     expect(dialog.text()).toContain('Set the submission deadline?')
-    // Read back in the computer's time it was typed in.
-    expect(dialog.text()).toContain(formatStatementTime(new Date('2026-11-01T09:00'), getBrowserTimeZone()))
-    expect(dialog.text()).toContain('01/11/2026 at 09:00')
+    // Read back in Sydney's time, as it was picked.
+    expect(dialog.text()).toContain('01/11/2026 at 09:00 AEDT')
     expect(saveMock).not.toHaveBeenCalled()
   })
 
@@ -122,7 +120,8 @@ describe('setting a deadline', () => {
     await fillAndSubmit(wrapper)
     await wrapper.find('[role="dialog"] .btn-primary').trigger('click')
     await flushPromises()
-    expect(saveMock).toHaveBeenCalledWith(new Date('2026-11-01T09:00').toISOString(), 24)
+    // 09:00 in Sydney (AEDT, UTC+11), whatever the computer's time zone.
+    expect(saveMock).toHaveBeenCalledWith('2026-10-31T22:00:00.000Z', 24)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('Submissions open')
     expect(wrapper.text()).toContain('Closes:')
@@ -142,11 +141,10 @@ describe('setting a deadline', () => {
   it('defaults the closing time to today at 23:59, and clearing it blocks submit', async () => {
     fetchMock.mockResolvedValueOnce({ deadline: null })
     const wrapper = await mountPage()
-    const input = wrapper.find('input[type="datetime-local"]')
-    expect((input.element as HTMLInputElement).value).toMatch(/T23:59$/)
+    expect(dateTimeFieldsValue(wrapper, '.sydney-date-time')).toMatch(/T23:59$/)
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
 
-    await input.setValue('')
+    await setDateTimeFields(wrapper, '.sydney-date-time', '')
     expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
   })
 })

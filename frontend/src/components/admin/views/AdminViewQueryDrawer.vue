@@ -22,7 +22,7 @@
           type="text"
           required
           placeholder="e.g. InScience 2026 - Active Participants"
-          class="form-input"
+          class="form-input app-input app-input--wide"
         />
       </div>
 
@@ -33,7 +33,7 @@
           v-model.trim="form.description"
           rows="2"
           placeholder="Provide a short description for this view cohort..."
-          class="form-input form-textarea"
+          class="form-input form-textarea app-input app-input--wide"
         ></textarea>
       </div>
 
@@ -66,7 +66,7 @@
           <AppSelect
             id="view-status"
             v-model="form.accountStatus"
-            class="form-input form-select"
+            class="form-input form-select app-input"
             :options="STATUS_OPTIONS"
           />
         </div>
@@ -76,7 +76,7 @@
           <AppSelect
             id="view-engagement"
             v-model="form.engagementStatus"
-            class="form-input form-select"
+            class="form-input form-select app-input"
             :options="ENGAGEMENT_OPTIONS"
           />
         </div>
@@ -335,16 +335,8 @@ const handleSubmit = async () => {
   color: var(--teal);
 }
 
+/* The shared box (app-input). */
 .form-input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  font: inherit;
-  font-family: inherit;
-  font-size: 0.9rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  background-color: var(--surface-elevated, #ffffff);
-  color: var(--teal);
   transition: border-color 0.15s ease-in-out;
 }
 
@@ -362,10 +354,10 @@ const handleSubmit = async () => {
   border-color: var(--dark-green);
 }
 
+/* Two lines, as tall as it was before the shared box. */
 .form-textarea {
   resize: vertical;
-  font: inherit;
-  font-family: inherit;
+  min-height: 4.3rem;
 }
 
 .view-drawer-form__checkbox-grid {

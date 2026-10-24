@@ -31,9 +31,8 @@ class FinalistReminderTests(TestCase):
             GroupMembership.objects.create(group=self.group, user=user, membership_role=role)
             self.members[role] = user
         FinalistFlag.objects.create(group=self.group, notified=True)
-        year = current_cohort()
-        self.morning = PresentationSlot.objects.create(year=year, starts_at=time(10), ends_at=time(11))
-        PresentationSlot.objects.create(year=year, starts_at=time(13), ends_at=time(14))
+        self.morning = PresentationSlot.objects.create(starts_at=time(10), ends_at=time(11))
+        PresentationSlot.objects.create(starts_at=time(13), ends_at=time(14))
         PresentationSettings.objects.create(times_shown=True)
         # Slides due in three days' time, Sydney time.
         self.today = timezone.localtime(timezone.now(), SYMPOSIUM_TZ).date()

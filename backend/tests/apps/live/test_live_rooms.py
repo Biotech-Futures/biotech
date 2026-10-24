@@ -16,6 +16,7 @@ from apps.live.consumers import LiveRoomConsumer
 from apps.live.rooms import can_join
 from apps.users.models import AdminScope
 from config.asgi import application
+from tests.apps._helpers import ConsumerConnectionMixin
 
 IN_MEMORY = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
@@ -302,7 +303,7 @@ class ChangedNoticeTests(TestCase):
 
 
 @override_settings(CHANNEL_LAYERS=IN_MEMORY)
-class RoomConnectionTests(TestCase):
+class RoomConnectionTests(ConsumerConnectionMixin, TestCase):
     def setUp(self):
         User = get_user_model()
         self.group = Groups.objects.create(group_name="BTF-LIVE")

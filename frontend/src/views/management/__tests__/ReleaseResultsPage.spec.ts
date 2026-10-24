@@ -14,6 +14,7 @@ import {
   updateResultsEmailDetails
 } from '@/utils/managementAPI'
 import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { setPicker } from '@/__tests__/appPicker'
 
 vi.mock('@/utils/managementAPI', () => ({
   downloadResultsSampleSheet: vi.fn(),
@@ -168,14 +169,13 @@ describe('email details', () => {
 
   it('a close date before today is only pointed out, above Save, once Save is pressed', async () => {
     const wrapper = await mountPage()
-    const date = wrapper.find('input[type="date"]')
-    await date.setValue('2026-09-01')
+    await setPicker(wrapper, '.app-picker', '2026-09-01')
     expect(wrapper.find('.release-results__field-error').exists()).toBe(false)
     await buttonNamed(wrapper, /^Save$/).trigger('click')
     await flushPromises()
     expect(saveMock).not.toHaveBeenCalled()
     expect(wrapper.find('.release-results__field-error').text()).toBe("Survey Closes can't be before today.")
-    expect(date.classes()).toContain('is-invalid')
+    expect(wrapper.find('.app-picker').classes()).toContain('is-invalid')
   })
 })
 

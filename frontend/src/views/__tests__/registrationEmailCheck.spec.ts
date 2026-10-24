@@ -8,6 +8,13 @@ import type { RegistrationForms } from '@/registration/registration'
 import { resetCsrfToken } from '@/utils/csrf'
 import RegistrationPage from '@/views/RegistrationPage.vue'
 
+// Submitting: the BIOTech Futures policies agreed to first, as anyone
+// registering must tick them on the last step.
+const submitForm = async (page: { vm: unknown; get: (selector: string) => { trigger: (event: string) => Promise<unknown> } }) => {
+  ;(page.vm as { policiesAgreed: boolean }).policiesAgreed = true
+  await page.get('form').trigger('submit')
+}
+
 type PageSetup = { currentStep: number; journey: string; forms: RegistrationForms }
 
 const receipt = {
@@ -56,7 +63,7 @@ const prepareStudent = async (wrapper: VueWrapper) => {
 }
 
 const submit = async (wrapper: VueWrapper) => {
-  await wrapper.get('form').trigger('submit')
+  await submitForm(wrapper)
   await wrapper.vm.$nextTick()
 }
 

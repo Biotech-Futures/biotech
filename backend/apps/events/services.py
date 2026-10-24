@@ -322,18 +322,41 @@ def set_user_rsvp(user, event_id, rsvp_status):
         # here would be theatre.
         raise PermissionDenied("You are not a target of this event.")
 
+    return set_event_rsvp(user.id, event.id, rsvp_status)
+
+
+def set_event_rsvp(
+    user_id, event_id, rsvp_status, *, exclude_from_promotion=(), keep_response=False,
+):
+    """Apply a validated RSVP with shared capacity, timestamp and promotion rules.
+
+    With ``keep_response``, a pending invite leaves an existing non-pending
+    answer untouched and returns that row unchanged. Released slots are not
+    re-filled once the event has ended.
+    """
     promoted_user_id = None
     with transaction.atomic():
         # Lock the event row so concurrent RSVPs against the same cap
         # serialize cleanly — no risk of overselling.
-        Events.objects.select_for_update().get(pk=event.pk)
+        event = Events.objects.select_for_update().filter(
+            pk=event_id, deleted_at__isnull=True
+        ).first()
+        if event is None:
+            raise NotFound("Event not found.")
 
         prior = (
             EventRsvp.objects.select_for_update()
-            .filter(event=event, user=user)
+            .filter(event=event, user_id=user_id)
             .first()
         )
         prior_status = prior.rsvp_status if prior else None
+
+        if (
+            keep_response
+            and rsvp_status == EventRsvp.RsvpStatus.PENDING
+            and prior_status not in (None, EventRsvp.RsvpStatus.PENDING)
+        ):
+            return event, prior, False
 
         effective_status = _apply_capacity(
             event,
@@ -341,30 +364,36 @@ def set_user_rsvp(user, event_id, rsvp_status):
             prior_status=prior_status,
         )
 
+        if effective_status == prior_status:
+            # Unchanged status keeps its timestamp, and with it the waitlist position.
+            responded_at = prior.responded_at
+        elif effective_status == EventRsvp.RsvpStatus.PENDING:
+            responded_at = None
+        else:
+            responded_at = timezone.now()
+
         rsvp, created = EventRsvp.objects.update_or_create(
             event=event,
-            user=user,
-            defaults={
-                "rsvp_status": effective_status,
-                "responded_at": timezone.now(),
-            },
+            user_id=user_id,
+            defaults={"rsvp_status": effective_status, "responded_at": responded_at},
         )
 
-        # If the caller was previously ACCEPTED and is now leaving the
-        # accepted bucket, a slot opened — promote the oldest waitlisted
-        # user. Skip promotion if the caller's new effective state is
-        # ACCEPTED (no slot really freed) or WAITLISTED (still full).
+        # A released slot goes to the oldest other waitlisted participant.
         if (
-            prior_status == EventRsvp.RsvpStatus.ACCEPTED
+            event.ends_datetime >= timezone.now()
+            and prior_status == EventRsvp.RsvpStatus.ACCEPTED
             and effective_status != EventRsvp.RsvpStatus.ACCEPTED
         ):
-            promoted_user_id = _promote_oldest_waitlisted(event)
+            promoted_user_id = _promote_oldest_waitlisted(
+                event, exclude_user_ids=(user_id, *exclude_from_promotion),
+            )
 
-    if promoted_user_id is not None:
-        # Email outside the txn so a slow SMTP doesn't hold the lock.
-        from .promotion_email import notify_waitlist_promoted
+        if promoted_user_id is not None:
+            from .promotion_email import notify_waitlist_promoted
 
-        notify_waitlist_promoted(event_id=event.id, user_id=promoted_user_id)
+            transaction.on_commit(partial(
+                notify_waitlist_promoted, event_id=event.id, user_id=promoted_user_id
+            ))
 
     return event, rsvp, created
 
@@ -396,7 +425,7 @@ def _apply_capacity(event, *, requested_status, prior_status):
     return EventRsvp.RsvpStatus.ACCEPTED
 
 
-def _promote_oldest_waitlisted(event):
+def _promote_oldest_waitlisted(event, *, exclude_user_ids):
     """Promote the oldest WAITLISTED row to ACCEPTED. Returns user id or None.
 
     Caller must hold ``select_for_update`` on the event row so the
@@ -415,6 +444,7 @@ def _promote_oldest_waitlisted(event):
     promoted = (
         EventRsvp.objects.select_for_update()
         .filter(event=event, rsvp_status=EventRsvp.RsvpStatus.WAITLISTED)
+        .exclude(user_id__in=exclude_user_ids)
         .order_by("responded_at", "id")
         .first()
     )
@@ -428,8 +458,9 @@ def _promote_oldest_waitlisted(event):
 
 
 # ---------------------------------------------------------------------------
-# RSVP reminder dispatch. Triggered hourly by the GitHub Actions workflow
-# (.github/workflows/rsvp-reminders.yml) hitting the HMAC-guarded
+# RSVP reminder dispatch. Queued hourly by the backend's timer
+# (apps.management.scheduler), or by hand from
+# .github/workflows/rsvp-reminders.yml hitting the HMAC-guarded
 # POST /api/v1/events/admin/send-rsvp-reminders/ endpoint.
 # ---------------------------------------------------------------------------
 
@@ -444,6 +475,8 @@ REMINDER_KINDS = {
         "field": "reminder_24h_sent_for_start",
         "hours_ahead_setting": "RSVP_REMINDER_24H_HOURS_AHEAD",
         "window_hours_setting": "RSVP_REMINDER_24H_WINDOW_HOURS",
+        # A run this many hours late still sends it (it still reads "tomorrow").
+        "catch_up_hours": 12,
         "audiences": (
             {
                 "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
@@ -474,6 +507,8 @@ REMINDER_KINDS = {
         "field": "reminder_1h_sent_for_start",
         "hours_ahead_setting": "RSVP_REMINDER_1H_HOURS_AHEAD",
         "window_hours_setting": "RSVP_REMINDER_1H_WINDOW_HOURS",
+        # Late, it's sent up to the event's start ("starts in X minutes").
+        "catch_up_hours": 0.5,
         "audiences": (
             {
                 "statuses": (EventRsvp.RsvpStatus.ACCEPTED,),
@@ -531,7 +566,9 @@ def _dispatch_reminder_kind(kind, *, dry_run):
     window_hours = float(getattr(settings, cfg["window_hours_setting"]))
 
     now = timezone.now()
-    window_start = now + timedelta(hours=hours_ahead)
+    # From catch_up_hours before the window too, so a run that came late
+    # still reminds anyone it missed (the claim stops anyone getting two).
+    window_start = now + timedelta(hours=max(0.0, hours_ahead - float(cfg.get("catch_up_hours", 0))))
     window_end = now + timedelta(hours=hours_ahead + window_hours)
 
     candidates = (
@@ -681,6 +718,7 @@ def _send_audience_reminders(event, audience):
     # Kept to send once the mail server can be reached, before the event starts.
     waiting = 0
     missed = {}
+    attempted_emails = []
     for rsvp in rsvps:
         user = rsvp.user
         email = (getattr(user, "email", "") or "").strip()
@@ -707,6 +745,7 @@ def _send_audience_reminders(event, audience):
             "EVENT_DESCRIPTION": event.description or "",
         }
 
+        attempted_emails.append(email)
         resend = partial(
             _send_one_reminder,
             subject=subject,
@@ -760,6 +799,7 @@ def _send_audience_reminders(event, audience):
             delivered=sent,
             failed=failed,
             source_mailbox=sender.address,
+            recipients=attempted_emails,
         )
     return sent, failed
 

@@ -311,6 +311,11 @@ class SystemEmailSettings(models.Model):
     # answer); cleared by a check that could. Failed Sending Emails says so.
     mail_api_failed_at = models.DateTimeField(null=True, blank=True)
     mail_api_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    # When Azure's Always On last called the backend (it does every few
+    # minutes while it's on), and when the backend began watching for it
+    # (apps.services.always_on). System Emails warns when the calls stop.
+    always_on_seen_at = models.DateTimeField(null=True, blank=True)
+    always_on_watch_started_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -438,6 +443,55 @@ class EmailDeliveryMetric(models.Model):
 
     def __str__(self):
         return f"{self.email_type}: {self.source_mailbox} ({self.status})"
+
+
+class EmailDeliveryRecipient(models.Model):
+    """Who one send operation was addressed to, and whether it reached them.
+
+    One row per address of an ``EmailDeliveryMetric``, so admins can export an
+    email's recipient list and find every email sent to one person. Written
+    by the send itself; sends made before this table existed have no rows.
+    ``reason`` is the short, address-free wording the Log uses (for example
+    "address refused"), never the mail server's own message.
+    """
+
+    class Status(models.TextChoices):
+        DELIVERED = "delivered", "Delivered"
+        FAILED = "failed", "Failed"
+
+    metric = models.ForeignKey(
+        EmailDeliveryMetric,
+        on_delete=models.CASCADE,
+        related_name="recipients",
+    )
+    # The account the address belonged to when sent, if any (guardians and
+    # other outside addresses have none).
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    email = models.EmailField()
+    status = models.CharField(max_length=16, choices=Status.choices)
+    reason = models.CharField(max_length=120, blank=True, default="")
+
+    class Meta:
+        db_table = "email_delivery_recipient"
+        ordering = ["email", "id"]
+        indexes = [
+            models.Index(fields=["email"], name="email_recipient_email_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["metric", "email"],
+                name="email_recipient_once_per_send",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.email} ({self.status})"
 
 
 class WaitingEmail(models.Model):

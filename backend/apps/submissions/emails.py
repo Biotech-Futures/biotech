@@ -173,6 +173,7 @@ def send_messages(messages, *, kind: str, sender, until=None) -> tuple[int, int]
         # server still can't be reached.
         logger.error("submission_email.connection_failed kind=%s", kind)
 
+    attempted_addresses = []
     try:
         for message in messages:
             message.connection = connection
@@ -181,6 +182,7 @@ def send_messages(messages, *, kind: str, sender, until=None) -> tuple[int, int]
             except Exception as exc:
                 failed += 1
                 failed_recipients += len(message.recipients())
+                attempted_addresses.extend(message.recipients())
                 missed.update(dict.fromkeys(message.recipients(), reason_for(exc)))
                 reset(connection)
                 # Not logger.exception, which would log the recipient address.
@@ -190,9 +192,10 @@ def send_messages(messages, *, kind: str, sender, until=None) -> tuple[int, int]
                 )
             else:
                 sent += 1
-                # One kept to send later is noted once it goes.
+                # One kept to send later is noted, with its recipients, once it goes.
                 if outcome is not WAITING:
                     delivered_recipients += len(message.recipients())
+                    attempted_addresses.extend(message.recipients())
     finally:
         try:
             connection.close()
@@ -205,6 +208,7 @@ def send_messages(messages, *, kind: str, sender, until=None) -> tuple[int, int]
         delivered=delivered_recipients,
         failed=failed_recipients,
         source_mailbox=sender.address,
+        recipients=attempted_addresses,
     )
     return sent, failed
 
