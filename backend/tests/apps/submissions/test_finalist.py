@@ -596,3 +596,70 @@ class FinalistTests(TestCase):
         self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
         self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
         self.assertEqual(client.post(self.reopen_url, {}, format="json").status_code, 200)
+
+    # Closed at the time set on Management > Finalist Submissions
+    def _close(self, minutes):
+        from datetime import timedelta
+
+        from apps.submissions.models import FinalistDeadline
+
+        return FinalistDeadline.objects.create(closes_at=timezone.now() + timedelta(minutes=minutes), set_by=self.admin)
+
+    def test_the_team_sees_when_finalist_submissions_close(self):
+        later = self._close(60)
+        deadline = self._client(self.student).get(self.url).data["deadline"]
+        self.assertEqual((deadline["closes_at"], deadline["is_open"]), (later.closes_at, True))
+
+    def test_after_closing_the_team_changes_and_submits_nothing(self):
+        client = self._ready()
+        client.post(self.submit_url, {}, format="json")
+        self._close(-1)
+        self.assertFalse(client.get(self.url).data["deadline"]["is_open"])
+        attempts = {
+            "times": lambda: client.put(self.url, {"session_ids": [self.noon.id]}, format="json"),
+            "upload": lambda: client.post(self.file_url, {"file": _pdf("new.pdf")}, format="multipart"),
+            "remove": lambda: client.delete(self.file_url),
+            "reopen": lambda: client.post(self.reopen_url, {}, format="json"),
+            "submit": lambda: client.post(self.submit_url, {}, format="json"),
+        }
+        for name, attempt in attempts.items():
+            with self.subTest(name):
+                response = attempt()
+                self.assertEqual(response.status_code, 403, response.data)
+                # The page's own word for it, so it shows the entry closed.
+                self.assertEqual(response.data["code"], "submissions_closed")
+        self.assertEqual(FinalistEntry.objects.get(group=self.group).presentation["name"], "deck.pdf")
+
+    def test_an_admin_still_acts_for_the_team_after_closing(self):
+        self._close(-1)
+        client = self._client(self.admin)
+        self.assertEqual(client.put(self.url, {"session_ids": [self.morning.id]}, format="json").status_code, 200)
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
+        self.assertEqual(client.post(self.submit_url, {}, format="json").status_code, 200)
+
+    def test_moving_the_time_later_opens_it_again(self):
+        self._close(-1)
+        client = self._client(self.student)
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 403)
+        admin = self._client(self.admin)
+        url = reverse("management:finalist-submissions-close")
+        from datetime import timedelta
+
+        later = (timezone.now() + timedelta(days=1)).isoformat()
+        response = admin.post(url, {"closes_at": later}, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertTrue(response.data["close"]["is_open"])
+        self.assertEqual(response.data["close"]["set_by"], "A Admin")
+        self.assertEqual(client.post(self.file_url, {"file": _pdf()}, format="multipart").status_code, 200)
+
+    def test_only_admins_see_or_set_the_closing_time(self):
+        url = reverse("management:finalist-submissions-close")
+        self.assertEqual(self._client(self.admin).get(url).data, {"close": None})
+        for user in (self.student, self.supervisor):
+            with self.subTest(user=user.email):
+                client = self._client(user)
+                self.assertEqual(client.get(url).status_code, 403)
+                self.assertEqual(
+                    client.post(url, {"closes_at": timezone.now().isoformat()}, format="json").status_code, 403,
+                )
+        self.assertEqual(self._client(self.admin).post(url, {}, format="json").status_code, 400)

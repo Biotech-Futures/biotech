@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { pickerValue, setDateTimeFields } from '@/__tests__/appPicker'
 
 import LateLinksPage from '@/views/management/LateLinksPage.vue'
 import RegistrationDatesPage from '@/views/management/RegistrationDatesPage.vue'
@@ -50,7 +51,7 @@ beforeEach(() => {
 })
 
 describe('Registration Dates', () => {
-  it('shows where the dates leave registration, and saves or clears them', async () => {
+  it('shows where the dates leave registration, and saves a date changed', async () => {
     vi.mocked(fetchRegistrationManagement).mockResolvedValue(
       management({
         window: {
@@ -63,7 +64,7 @@ describe('Registration Dates', () => {
       }),
     )
     vi.mocked(saveRegistrationWindow).mockResolvedValue({
-      window: { year: 2026, opens_at: null, closes_at: null },
+      window: { year: 2026, opens_at: null, closes_at: '2026-11-30T12:59:00.000Z' },
     })
     const wrapper = mount(RegistrationDatesPage)
     await flushPromises()
@@ -72,10 +73,16 @@ describe('Registration Dates', () => {
     expect(wrapper.get('[data-test="registration-dates-set-by"]').text()).toMatch(/^Set by Test Admin on /)
     expect(wrapper.get('[data-test="registration-closes"]').text()).not.toBe('Select date and time')
 
-    await wrapper.findAll('button').find((button) => button.text() === 'Clear Dates')!.trigger('click')
+    // No Clear Dates, and no × on a date: a date is changed, then saved.
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Clear Dates')
+    await setDateTimeFields(wrapper, '[data-test="registration-closes"]', '2026-11-30T23:59')
+    await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(saveRegistrationWindow).toHaveBeenCalledWith({ opens_at: null, closes_at: null })
-    expect(wrapper.get('[data-test="registration-dates-state"]').text()).toContain('No dates set')
+    // 23:59 on 30 November in Sydney (AEDT, UTC+11).
+    expect(saveRegistrationWindow).toHaveBeenCalledWith({ opens_at: null, closes_at: '2026-11-30T12:59:00.000Z' })
+    // No opening date: its time is the default, 00:01; closing keeps its 23:59.
+    expect(pickerValue(wrapper, '[data-test="registration-opens"] .sydney-date-time__time')).toBe('00:01')
+    expect(pickerValue(wrapper, '[data-test="registration-closes"] .sydney-date-time__time')).toBe('23:59')
   })
 
   it('says a year Start new year began is closed until its start is set', async () => {

@@ -1,7 +1,7 @@
 """Read the sending mailboxes' bounce notices and note who our emails didn't
 reach (see ``apps.management.services.bounce_check``), by hand. In production
-GitHub's schedule starts the same check about every 10 minutes
-(``.github/workflows/bounce-check.yml``). It reads only what's new since its
+the backend's timer starts the same check every 10 minutes
+(``apps.management.scheduler``). It reads only what's new since its
 last run, and never changes a mailbox. Does nothing until
 ``HOSTINGER_MAIL_API_KEY`` is set."""
 from django.conf import settings

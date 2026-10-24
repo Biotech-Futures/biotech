@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import DeadlineExtensionPage from '@/views/management/DeadlineExtensionPage.vue'
-import { pickerMin, setPicker } from '@/__tests__/appPicker'
+import { dateTimeFieldsLimit, setDateTimeFields } from '@/__tests__/appPicker'
 import {
   fetchGroupExtensions,
   fetchSubmissionDeadline,
@@ -64,7 +64,7 @@ const mountPage = async () => {
 
 const fillForm = async (wrapper: Awaited<ReturnType<typeof mountPage>>) => {
   await wrapper.find('.picker').setValue('BTF-1')
-  await setPicker(wrapper, '.app-picker', '2026-11-08T09:00')
+  await setDateTimeFields(wrapper, '.sydney-date-time', '2026-11-08T09:00')
 }
 
 const grantButton = (wrapper: Awaited<ReturnType<typeof mountPage>>) =>
@@ -151,11 +151,8 @@ describe('the extensions table', () => {
 
   it('floors the calendar at the current deadline so nothing can be shortened', async () => {
     const wrapper = await mountPage()
-    // The floor is rendered in the admin's local time, like the picker itself.
-    const d = new Date('2026-10-30T13:00:00Z')
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const localFloor = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    expect(pickerMin(wrapper, '.app-picker')).toBe(localFloor)
+    // The deadline (13:00 UTC on 30 October) in Sydney's time, as the picker is.
+    expect(dateTimeFieldsLimit(wrapper, '.sydney-date-time', 'min')).toBe('2026-10-31T00:00')
   })
 })
 
@@ -180,7 +177,7 @@ describe('granting', () => {
     await flushPromises()
 
     expect(saveMock).toHaveBeenCalledWith(
-      8, new Date('2026-11-08T09:00').toISOString(), 24, 'Storm damage'
+      8, '2026-11-07T22:00:00.000Z', 24, 'Storm damage'
     )
     expect(wrapper.find('.extensions__banner--ok').text()).toBe('Extension granted.')
     expect((wrapper.find('.picker').element as HTMLInputElement).value).toBe('')
@@ -219,7 +216,7 @@ describe('granting', () => {
 
     await dialog.findAll('button').at(-1)!.trigger('click') // Replace extension
     await flushPromises()
-    expect(saveMock).toHaveBeenCalledWith(7, new Date('2026-11-08T09:00').toISOString(), 24, '')
+    expect(saveMock).toHaveBeenCalledWith(7, '2026-11-07T22:00:00.000Z', 24, '')
     expect(wrapper.find('.extensions__dialog').exists()).toBe(false)
   })
 

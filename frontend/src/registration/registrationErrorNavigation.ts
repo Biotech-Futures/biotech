@@ -34,6 +34,10 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
     [/^mentor\.(affiliation|institution|company|universityYear|fieldOfStudy)$/, 1],
     [/^mentor\.(interests|capacity|motivation)$/, 2],
   ],
+  supervisor: [
+    [/^supervisor\.(firstName|lastName|email)$/, 0],
+    [/^supervisor\.(school|relationship|country|state|pronouns|pronounsOther|profilePhoto)$/, 1],
+  ],
 }
 
 export const earliestRegistrationErrorStep = (

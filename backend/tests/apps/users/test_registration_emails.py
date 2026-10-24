@@ -1,5 +1,5 @@
 """The emails sent once someone registers (System Emails > Registration)."""
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.test import TestCase
 
@@ -22,25 +22,33 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
         body = batch("student_individual")
         send = self.register(body)
         student = body["payload"]["students"][0]
-        send.assert_called_once_with(
-            "registration_student",
-            student["email"],
-            {"First_Name": student["firstName"], "YEAR": str(current_cohort())},
-            background=True,
+        # Besides the supervisor they named, created for them (NamedSupervisorEmailTests).
+        students = [sent for sent in send.call_args_list if sent.args[0] != "registration_named_supervisor"]
+        self.assertEqual(len(students), 1)
+        self.assertEqual(
+            students[0],
+            call(
+                "registration_student",
+                student["email"],
+                {"First_Name": student["firstName"], "YEAR": str(current_cohort())},
+                background=True,
+            ),
         )
 
     def test_each_student_registering_as_a_team_gets_their_own_group_confirmation(self):
         body = batch("student_team")
         send = self.register(body)
         students = body["payload"]["students"]
+        # Besides the supervisor they named, created for them (NamedSupervisorEmailTests).
+        sent = [sent for sent in send.call_args_list if sent.args[0] != "registration_named_supervisor"]
         self.assertEqual(
-            [(call.args[0], call.args[1], call.args[2]["First_Name"]) for call in send.call_args_list],
+            [(sent.args[0], sent.args[1], sent.args[2]["First_Name"]) for sent in sent],
             [("registration_group", student["email"], student["firstName"]) for student in students],
         )
         # Each with the group's code, to share with teammates still to register.
         code = Groups.objects.get().code
         self.assertTrue(code)
-        self.assertEqual({call.args[2]["GROUP_CODE"] for call in send.call_args_list}, {code})
+        self.assertEqual({sent.args[2]["GROUP_CODE"] for sent in sent}, {code})
 
     def test_a_student_joining_a_group_by_its_code_gets_it_too(self):
         response = self.post_batch(batch("student_team"))
@@ -148,7 +156,7 @@ class RegistrationEmailTests(MultiStudentSetup, TestCase):
         for text in (
             "Hi Sam,", "registration was successful",
             "registering your students to the 2026 BIOTech Futures Challenge",
-            'href="https://portal.test/#/my-students"', "My Students</a> in BIOTech Connect",
+            'href="https://portal.test/#/my-students"', ">Students</a> in BIOTech Connect",
         ):
             self.assertIn(text, rendered.html)
 
@@ -197,3 +205,39 @@ class GuardianConsentAtRegistrationTests(MultiStudentSetup, TestCase):
 
         self.assertFalse(GuardianConsentRequest.objects.exists())
         self.assertEqual(mail.outbox, [])
+
+
+class NamedSupervisorEmailTests(MultiStudentSetup, TestCase):
+    """The supervisor a student names, when their account was created for
+    them: who named them (System Emails > Supervisor registration)."""
+
+    def register(self, body):
+        with patch(SEND) as send, self.captureOnCommitCallbacks(execute=True):
+            response = self.post_batch(body)
+        self.assertEqual(response.status_code, 201, response.data)
+        return [call.args for call in send.call_args_list if call.args[0] == "registration_named_supervisor"]
+
+    def test_a_new_supervisor_hears_who_named_them(self):
+        body = batch("student_individual")
+        named = self.register(body)
+        student = body["payload"]["students"][0]
+        supervisor = body["payload"]["supervisor"]
+        self.assertEqual(len(named), 1)
+        key, to, context = named[0]
+        self.assertEqual(to, supervisor["email"].lower())
+        self.assertEqual(context["First_Name"], supervisor["firstName"])
+        self.assertEqual(context["STUDENT_NAMES"], f"{student['firstName']} {student['lastName']}")
+        self.assertEqual(context["YEAR"], str(current_cohort()))
+        self.assertTrue(context["STUDENTS_URL"].endswith("/#/my-students"))
+
+    def test_once_for_a_group_naming_every_student(self):
+        body = batch("student_team", 3)
+        named = self.register(body)
+        self.assertEqual(len(named), 1)
+        names = [f"{student['firstName']} {student['lastName']}" for student in body["payload"]["students"]]
+        self.assertEqual(named[0][2]["STUDENT_NAMES"], f"{names[0]}, {names[1]} and {names[2]}")
+
+    def test_not_for_a_supervisor_who_has_an_account(self):
+        body = batch("student_individual")
+        body["payload"]["supervisor"]["email"] = self.supervisor.email
+        self.assertEqual(self.register(body), [])
