@@ -108,6 +108,14 @@ describe('the bottom bar', () => {
     expect(wrapper.find('.data-table-summary').text()).toBe('1 - 5 out of 12')
   })
 
+  it('caps rows per page to maxPageSize and drops the All choice', async () => {
+    const wrapper = mountTable({ rows: many, pageSize: 5, totalCount: 12, page: 1, maxPageSize: 10 })
+    expect(await appSelectLabels(wrapper, '.data-table-page-size')).toEqual([
+      '5 Entries',
+      '7 Entries'
+    ])
+  })
+
   const picker = (wrapper: ReturnType<typeof mountTable>) => wrapper.find('.data-table-page-size .app-select')
 
   it('reads as the rows there are, and is off, while they all fit on one page', () => {

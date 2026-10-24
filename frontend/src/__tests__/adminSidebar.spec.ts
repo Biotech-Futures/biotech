@@ -55,6 +55,7 @@ const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
   '/admin/tasks',
+  '/admin/plan',
 ]
 
 const analyticsSubLinks = [
@@ -207,6 +208,18 @@ describe('App sidebar admin section', () => {
     expect(toggle.attributes('aria-expanded')).toBe('false')
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
   })
+
+  it('keeps Group Plans highlighted on the progress route', async () => {
+    const auth = useAuthStore()
+    auth.loginWithUser(adminUser)
+    await mountApp({ viewport: 'desktop' })
+    await router.push('/admin/plan/progress')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('admin-plan-progress')
+    expect(router.currentRoute.value.meta.requiresAdmin).toBe(true)
+    expect(wrapper!.get('a[href="#/admin/plan"]').classes()).toContain('active')
+  })
+
 })
 
 // port-design.md section 4: who sees what, for the five accounts the guard is
