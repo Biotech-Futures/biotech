@@ -248,6 +248,13 @@ REST_FRAMEWORK = {
         # The public consent page, per IP: generous for a family sharing a
         # connection, tight enough to make guessing links pointless.
         'guardian_consent': '60/hour',
+        # A registration page checking each email box as it's left, per
+        # person: a family or a classroom registering together stays well
+        # under it, a script spending QuickEmailVerification lookups doesn't.
+        'registration_email_field_check': '30/min',
+        # The same, on the admin portal's Add user.
+        'admin_user_email_check': '60/min',
+        'admin_import_email_check': '30/min',
     },
 }
 

@@ -7,6 +7,8 @@
     section="full"
     :errors="studentErrors"
     allow-guardian-defer
+    :email-state="emailState"
+    @box-left="emit('box-left', $event)"
   />
 </template>
 
@@ -22,16 +24,24 @@ import {
   type CsvRow,
   type StudentDetails,
 } from '@/registration/registration'
+import type { EmailBoxState, StudentBoxField } from '@/registration/emailFieldCheck'
 
 const props = withDefaults(
   defineProps<{
     row: CsvRow
     errors?: Partial<Record<CsvHeader, string>>
+    /** Its boxes' checks, as Register one student's (its paths are
+     *  csv-row-<row number>.email, .guardian.email and .school). */
+    emailState?: (path: string, email: string) => EmailBoxState | undefined
   }>(),
-  { errors: () => ({}) },
+  { errors: () => ({}), emailState: undefined },
 )
 
-const emit = defineEmits<{ 'update:values': [values: CsvRow['values']] }>()
+const emit = defineEmits<{
+  'update:values': [values: CsvRow['values']]
+  // A checked box left: the page checks it.
+  'box-left': [field: StudentBoxField]
+}>()
 
 // Each column's field on the student form.
 const FIELDS: Record<CsvHeader, string> = {

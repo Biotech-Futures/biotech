@@ -364,6 +364,7 @@ class MentorSubmitTests(RegistrationSetup, TestCase):
 
 UNKNOWN_STUDENT = "This email address couldn't be verified. Please check it, or confirm if this is correct."
 MISMATCH = "This email looks like it might have a typo compared to the student's name. Please confirm."
+SUPERVISOR_MISMATCH = "This email looks like it might have a typo compared to the supervisor's name. Please confirm."
 
 
 class SoftTests(FieldCheckSetup, QevTestCase):
@@ -382,6 +383,20 @@ class SoftTests(FieldCheckSetup, QevTestCase):
             "email_invalid", UNKNOWN_STUDENT, "students.2.email", "students.2.overrides.ConfirmEmailInvalidOverride",
         ))
 
+    def test_a_row_late_in_a_big_csv_is_checked_too(self):
+        answer(NEW, "unknown")
+
+        self.assertEqual(self.result(self.item("student", NEW, student=700))["box"], warned(
+            "email_invalid", UNKNOWN_STUDENT, "students.700.email",
+            "students.700.overrides.ConfirmEmailInvalidOverride",
+        ))
+        # A School box, as the page sends it: no address.
+        school = {"field": "box", "kind": "school", "email": "", "school": "University of Sydney", "student": 700}
+        self.assertEqual(
+            self.result(school)["box"]["warnings"][0]["override_field"],
+            "students.700.overrides.ConfirmSchoolOverride",
+        )
+
     def test_the_mailbox_warning_first_then_the_name_once_it_is_ticked(self):
         answer("jordn.lee@example.test", "unknown")
         item = self.item("student", "jordn.lee@example.test", firstName="Jordan", lastName="Lee")
@@ -396,6 +411,20 @@ class SoftTests(FieldCheckSetup, QevTestCase):
 
     def test_no_name_no_name_check(self):
         self.assertEqual(self.result(self.item("student", "jo@example.test"))["box"], ok())
+
+    def test_the_supervisor_a_student_names_is_checked_against_their_name(self):
+        item = self.item(
+            "supervisor", "samteachr@example.test", studentEmail="kid@example.test", firstName="Sam", lastName="Teacher",
+        )
+
+        self.assertEqual(self.result(item)["box"], warned(
+            "name_email_mismatch", SUPERVISOR_MISMATCH, "supervisor.email",
+            "students.0.overrides.ConfirmSupervisorNameEmailOverride",
+        ))
+        item["overrides"] = {"ConfirmSupervisorNameEmailOverride": True}
+        self.assertEqual(self.result(item)["box"], ok())
+        # Without their name, there's nothing to compare.
+        self.assertEqual(self.result(self.item("supervisor", "samteachr@example.test"))["box"], ok())
 
     def test_a_guardians_mailbox_warning_comes_before_its_account_warning(self):
         User.objects.create_user(email="no.role@example.test")

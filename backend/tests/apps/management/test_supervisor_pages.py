@@ -7,6 +7,8 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.management.models import ChallengeStart
+from apps.submissions.services import current_cohort
 from apps.users.models import AdminScope, User
 
 URL = "/api/v1/management/supervisor-pages/"
@@ -28,8 +30,16 @@ class PagesVisibilityTests(TestCase):
     def test_hidden_while_no_date_is_set(self):
         self.client.force_authenticate(self.student)
         self.assertEqual(
-            self.client.get(URL).json(), {"shown": False, "shown_from": None, "set_by": "", "updated_at": None},
+            self.client.get(URL).json(),
+            {"shown": False, "shown_from": None, "set_by": "", "updated_at": None, "challenge_starts_at": None},
         )
+
+    def test_anyone_signed_in_reads_when_this_years_challenge_starts(self):
+        starts = timezone.now() + timedelta(days=7)
+        ChallengeStart.objects.create(year=current_cohort(), starts_at=starts)
+        ChallengeStart.objects.create(year=current_cohort() - 1, starts_at=starts - timedelta(days=365))
+        self.client.force_authenticate(self.student)
+        self.assertEqual(self.client.get(URL).json()["challenge_starts_at"], starts.isoformat())
 
     def test_hidden_until_the_date_then_shown(self):
         later = timezone.now() + timedelta(days=2)

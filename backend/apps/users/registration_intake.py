@@ -10,7 +10,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, Signer
 from django.db import IntegrityError, transaction
-from django.db.models.functions import Lower
+from django.db.models import DateTimeField, ExpressionWrapper, F, Value
+from django.db.models.functions import Greatest, Lower
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, serializers
@@ -246,8 +247,20 @@ class IntakeInput(StrictInput):
                 errors["payload.source.rowNumbers"] = "Provide the filename and one unique ordered CSV row number per student."
         elif set(source) - {"method"}:
             errors["payload.source"] = "CSV metadata is only accepted for CSV intake."
-        # A student registering themselves may nominate a supervisor (optional).
-        # A supervisor is their own students'; an admin chooses one (register).
+        # A student registering themselves names their supervisor (not when
+        # joining a group by its code: it has one). The legacy form's is
+        # optional, as it always was, and the email pre-check only reads the
+        # addresses (``addresses_only``). A supervisor is their own students';
+        # an admin chooses one (register).
+        joining = bool((payload.get("group") or {}).get("joinCode"))
+        if (
+            journey in ("student_individual", "student_team") and not joining
+            and not self.context.get("legacy") and not self.context.get("addresses_only")
+            and "supervisor" not in payload
+        ):
+            errors["payload.supervisor.firstName"] = "Enter the supervisor first name."
+            errors["payload.supervisor.lastName"] = "Enter the supervisor last name."
+            errors["payload.supervisor.email"] = "Enter the supervisor email."
         if journey in SUPERVISOR_JOURNEYS and "supervisor" in payload:
             errors["payload.supervisor"] = "Supervisor identity comes from the authenticated session."
         if journey not in SUPERVISOR_JOURNEYS and payload.get("supervisorEmail"):
@@ -527,7 +540,9 @@ def save_student(student, supervisor, now, *, registered_by, lookups=None):
     returning = user is not None
     if returning:
         user.first_name, user.last_name = student["firstName"], student["lastName"]
-        user.country, user.state, user.pronouns = country, state, pronouns
+        user.country, user.state = country, state
+        # The form no longer asks for pronouns: theirs stay unless some are sent.
+        user.pronouns = pronouns or user.pronouns
         user.activate(save=False)
         user.save()
     else:
@@ -1179,9 +1194,14 @@ class RegistrationManagementView(APIView):
                 serializer.is_valid(raise_exception=True)
                 serializer.save(updated_by=request.user, updated_at=timezone.now())
                 # Codes held for student groups last until registration ends,
-                # so they move with its end.
+                # so they move with its end: 4 months from being held at least.
                 GroupCodeReservation.objects.filter(expires_at__gt=timezone.now()).update(
-                    expires_at=registration_end(serializer.instance),
+                    expires_at=Greatest(
+                        Value(registration_end(serializer.instance), output_field=DateTimeField()),
+                        ExpressionWrapper(
+                            F("created_at") + GroupCodeReservation.HOLD, output_field=DateTimeField(),
+                        ),
+                    ),
                 )
                 return Response({"window": serializer.data})
             if action == "invite":

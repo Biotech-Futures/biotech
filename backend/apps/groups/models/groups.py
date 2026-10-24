@@ -369,11 +369,13 @@ class GroupCodeReservation(models.Model):
     """A group code (numbers only, see ``new_group_code``) held for a student
     creating a group: shown while they register, so they can save it and
     share it with their teammates, and taken by the group once it's
-    registered (``Groups.create_with_code``). Held until registration ends
-    (``hold_new``'s ``until``); an expired hold counts for nothing."""
+    registered (``Groups.create_with_code``). Held for 4 months, as a
+    registered group's is said to be, or until registration ends if that's
+    later (``hold_new``'s ``until``); an expired hold counts for nothing."""
 
-    # The least a code is held for, even when registration ends sooner.
-    HOLD = timedelta(hours=24)
+    # The least a code is held for (about 4 months), even when registration
+    # ends sooner.
+    HOLD = timedelta(days=122)
 
     code = models.CharField(max_length=12, unique=True)
     # The holder's secret: whoever has it can register the group with the code.
@@ -399,7 +401,7 @@ class GroupCodeReservation(models.Model):
                 with transaction.atomic():
                     cls.objects.filter(code=code, expires_at__lte=now).delete()
                     return cls.objects.create(
-                        code=code, token=secrets.token_urlsafe(32), expires_at=expires_at,
+                        code=code, token=secrets.token_urlsafe(32), created_at=now, expires_at=expires_at,
                     )
             except IntegrityError:
                 continue

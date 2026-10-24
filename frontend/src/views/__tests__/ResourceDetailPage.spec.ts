@@ -22,28 +22,17 @@ describe('ResourceDetailPage & Recorded Session', () => {
     vi.restoreAllMocks()
   })
 
-  it('goes back to the library, or to Release Resources when opened from there', async () => {
+  it('goes back to the library, at its row', async () => {
     vi.spyOn(resourcesApi, 'fetchResource').mockResolvedValue({ id: 201, name: 'Guide', kind: 'page' } as never)
     vi.spyOn(resourcesApi, 'fetchResourceAccess').mockResolvedValue(null as never)
+    vi.mocked(useRoute).mockReturnValueOnce({ params: { id: '201' }, name: 'resource-detail', query: {} } as never)
 
     wrapper = mount(ResourceDetailPage)
     await flushPromises()
     expect(wrapper.get('.back-button').text()).toBe('Back to resources')
     await wrapper.get('.back-button').trigger('click')
-    expect(mockPush).toHaveBeenLastCalledWith({ name: 'resources' })
-    wrapper.unmount()
-
-    vi.mocked(useRoute).mockReturnValueOnce({
-      params: { id: '201' }, name: 'resource-detail', query: { from: 'release-resources' },
-    } as never)
-    wrapper = mount(ResourceDetailPage)
-    await flushPromises()
-    expect(wrapper.get('.back-button').text()).toBe('Back to Release Resources')
-    await wrapper.get('.back-button').trigger('click')
-    // At its row there, which Release Resources brings into view.
-    expect(mockPush).toHaveBeenLastCalledWith({
-      name: 'management-challenge-start', query: { resource: '201' }, hash: '#release-resources',
-    })
+    // Which the Resources page brings into view.
+    expect(mockPush).toHaveBeenLastCalledWith({ name: 'resources', query: { resource: '201' } })
   })
 
   it('renders regular resource without slides download button when has_slides is false', async () => {

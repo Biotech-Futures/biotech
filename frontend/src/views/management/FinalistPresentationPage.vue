@@ -31,7 +31,7 @@
       <p v-if="isLoading" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="loadError" class="finalist-presentation__load-error">
         <p>Failed to load the times. {{ loadError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="load">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="load">Try again</button>
       </div>
       <template v-else-if="data">
         <!-- After adding, the next time starts where this one ended and runs
@@ -47,7 +47,7 @@
           </label>
           <button
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-field"
             :disabled="isSaving || !draft.starts_at || !draft.ends_at"
             @click="add"
           >
@@ -151,7 +151,7 @@
       <p v-if="isLoadingResponses" class="finalist-presentation__hint">Loading…</p>
       <div v-else-if="responsesError" class="finalist-presentation__load-error">
         <p>Failed to load the teams. {{ responsesError }}</p>
-        <button type="button" class="btn btn-outline btn-sm" @click="loadResponses">Try again</button>
+        <button type="button" class="btn btn-outline btn-field" @click="loadResponses">Try again</button>
       </div>
       <template v-else>
         <AppDataTable

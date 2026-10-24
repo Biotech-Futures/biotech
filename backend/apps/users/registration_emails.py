@@ -77,20 +77,38 @@ def send_registration_emails(journey: str, users, *, supervisor=None, admin_for=
     (``users``, in their order on the form), and to the ``supervisor`` who
     registered them, if one did. ``admin_for``: an admin registered them,
     for the supervisor of that name. ``group``: the group they made or
-    joined, whose code a student group's email carries."""
+    joined, whose code a student group's email carries.
+
+    A student someone else registered (a team's students after the one who
+    sent the form, and every student a supervisor or an admin registers) is
+    sent, while they have no password, a link to set one (SET_PASSWORD_URL)."""
+    from .registration_password import emailed_password_url
+
+    if journey == "student_team":
+        by_others = users[1:]
+    elif supervisor is not None or admin_for is not None:
+        by_others = users
+    else:
+        by_others = []
+    links = {user.pk: emailed_password_url(user) for user in by_others if not user.has_usable_password()}
+
+    def with_link(user, context: dict) -> dict:
+        return {**context, "SET_PASSWORD_URL": links[user.pk]} if user.pk in links else context
+
     key = STUDENT_EMAILS.get(journey)
     if key:
         for user in users:
             context = registration_context(user)
             if key == GROUP_KEY and group is not None and group.code:
                 context["GROUP_CODE"] = group.code
-            send_system_email(key, user.email, context, background=True)
+            send_system_email(key, user.email, with_link(user, context), background=True)
     if supervisor is not None:
         # Each student they registered, then the supervisor.
         for user in users:
-            send_system_email(SUPERVISED_KEY, user.email, supervised_context(user, supervisor), background=True)
+            context = with_link(user, supervised_context(user, supervisor))
+            send_system_email(SUPERVISED_KEY, user.email, context, background=True)
         send_system_email(SUPERVISOR_KEY, supervisor.email, supervisor_context(supervisor), background=True)
     if admin_for is not None:
         for user in users:
-            context = {**registration_context(user), "SUPERVISOR_NAME": admin_for}
+            context = with_link(user, {**registration_context(user), "SUPERVISOR_NAME": admin_for})
             send_system_email(ADMIN_KEY, user.email, context, background=True)

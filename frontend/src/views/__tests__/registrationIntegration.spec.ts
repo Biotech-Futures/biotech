@@ -15,7 +15,6 @@ import {
   registrationCsvTemplate,
   revalidateRegistrationCsvRows,
   type RegistrationForms,
-  type StudentDetails,
 } from '@/registration/registration'
 import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { pickAppSelect } from '@/__tests__/appSelect'
@@ -42,7 +41,6 @@ type PageSetup = {
   goToStep: (index: number) => void
   changeJourney: () => void
   submitRegistration: () => Promise<void>
-  handlePhoto: (student: StudentDetails, prefix: string, file: File) => void
 }
 
 const mountWithGateway = (gateway: RegistrationGateway) =>
@@ -127,7 +125,8 @@ const prepareStudent = async (wrapper: VueWrapper) => {
 const prepareMentor = async (wrapper: VueWrapper) => {
   const setup = setupOf(wrapper)
   setup.journey = 'mentor'
-  setup.currentStep = 3
+  // In Australia: Review follows its Checks step.
+  setup.currentStep = 4
   Object.assign(setup.forms.mentor, {
     firstName: 'Riley',
     lastName: 'Chen',
@@ -139,8 +138,14 @@ const prepareMentor = async (wrapper: VueWrapper) => {
     interests: ['Biomedical Innovations'],
     capacity: '2',
     motivation: 'Support the next generation of researchers.',
+    dateOfBirth: '1990-05-01',
+    wwccNumber: 'WWC0012345E',
+    indigenous: 'no',
+    languages: ['English'],
   })
   await wrapper.vm.$nextTick()
+  // Signed on Review, as the box there would.
+  setup.forms.mentor.signature = 'data:image/png;base64,iVBORw0KGgo='
 }
 
 const prepareSupervisorStudent = async (wrapper: VueWrapper) => {
@@ -194,16 +199,7 @@ afterEach(() => {
 })
 
 describe('registration gateway UI integration', () => {
-  it('submits a selected image through the real HTTP adapter with CSRF, invitation and actual file bytes', async () => {
-    vi.stubGlobal(
-      'URL',
-      class extends URL {
-        static createObjectURL() {
-          return 'blob:selected-photo'
-        }
-        static revokeObjectURL() {}
-      },
-    )
+  it('submits through the real HTTP adapter as JSON with CSRF and the invitation', async () => {
     const endpoint = '/api/v1/registration'
     setCsrfToken('registration-csrf', window.location.origin)
     const send = vi.fn<typeof fetch>(
@@ -226,10 +222,6 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountWithGateway(gateway)
     await wrapper.setProps({ invitationToken: 'signed-invitation' })
     await prepareStudent(wrapper)
-    const setup = setupOf(wrapper)
-    const photo = new File(['actual image bytes'], 'profile.png', { type: 'image/png' })
-    setup.handlePhoto(setup.forms.studentIndividual.student, 'studentIndividual.student', photo)
-    await wrapper.vm.$nextTick()
     await submit(wrapper)
     await vi.waitFor(() => expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete'))
     const [url, init] = send.mock.calls[0]!
@@ -238,12 +230,10 @@ describe('registration gateway UI integration', () => {
     const headers = init?.headers as Headers
     expect(headers.get('X-CSRFToken')).toBe('registration-csrf')
     expect(headers.get('X-Registration-Invitation')).toBe('signed-invitation')
-    expect(headers.get('Content-Type')).toBeNull()
+    expect(headers.get('Content-Type')).toBe('application/json')
     expect(headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i)
-    const body = init?.body
-    if (!(body instanceof FormData)) throw new Error('Expected registration multipart data')
-    const serialized = body.get('request')
-    if (typeof serialized !== 'string') throw new Error('Expected JSON request part')
+    const serialized = init?.body
+    if (typeof serialized !== 'string') throw new Error('Expected a JSON request')
     expect(JSON.parse(serialized)).toMatchObject({
       journey: 'student_individual',
       payload: {
@@ -251,7 +241,9 @@ describe('registration gateway UI integration', () => {
         source: { method: 'student_individual' },
       },
     })
-    expect(body.get('students.0')).toBeInstanceOf(File)
+    // No pronouns or photo: the page no longer asks for them.
+    expect(JSON.parse(serialized).payload.students[0]).not.toHaveProperty('pronouns')
+    expect(JSON.parse(serialized).payload.students[0]).not.toHaveProperty('profilePhoto')
     wrapper.unmount()
   })
 
@@ -329,6 +321,11 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountWithGateway({ submit: send })
     await prepareStudent(wrapper)
     await submit(wrapper)
+    // Just above Submit, after the policies: every final tick in one place.
+    const html = wrapper.html()
+    expect(html.indexOf('data-test="policies-agree"')).toBeLessThan(html.indexOf('registration-warnings'))
+    expect(html.indexOf('registration-warnings')).toBeLessThan(html.indexOf('class="form-footer"'))
+    expect(html.indexOf('class="step-content"')).toBeLessThan(html.indexOf('registration-warnings'))
     const checkboxes = wrapper.findAll('.registration-warnings input')
     expect(checkboxes).toHaveLength(2)
     await checkboxes[0]!.setValue(true)
@@ -948,12 +945,13 @@ describe('registration gateway UI integration', () => {
     expect(submitMock).toHaveBeenCalledTimes(2)
   })
 
-  it('shows the mentor Pending Review outcome', async () => {
+  it('tells a mentor they can sign in, with nothing for an admin to review', async () => {
     const wrapper = mountWithGateway(successfulGateway('mentor'))
     await prepareMentor(wrapper)
     await submit(wrapper)
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Application received'))
-    expect(wrapper.text()).toContain('pending administrator review')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Registration Complete'))
+    expect(wrapper.text()).toContain('You can now sign in.')
+    expect(wrapper.text()).not.toContain('pending administrator review')
   })
 })

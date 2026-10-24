@@ -102,7 +102,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
   { path: '/reset-password', redirect: (to) => ({ path: '/auth/reset-password', query: to.query }) },
-  { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue') },
+  { path: '/auth/set-password', name: 'set-password', component: () => import('@/views/SetPasswordPage.vue'), meta: { siteHeader: true } },
   // Guardians open this from the consent email; no account needed.
   { path: '/consent/:token', name: 'guardian-consent', component: () => import('@/views/ConsentPage.vue'), meta: { public: true, siteHeader: true } },
   // Opened from a supervisor's Copy Details Link; no account needed.

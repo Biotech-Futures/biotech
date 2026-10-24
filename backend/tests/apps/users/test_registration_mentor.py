@@ -2,7 +2,7 @@
 (apps.users.mentor_registration): saved as an admin's Import Mentors saves
 one, pending until an admin activates them, with their registration email."""
 import uuid
-from datetime import time
+from datetime import date, time
 
 from django.core import mail
 from django.core.cache import cache
@@ -14,6 +14,7 @@ from apps.users.models import (
 )
 from apps.users.models.mentor_availability import MentorAvailability
 from apps.users.views import REGISTRATION_PER_IP_LIMIT
+from tests.apps.users.test_guardian_consent import png_data_url
 from tests.apps.users.test_registration_latelink import RegistrationSetup
 
 LOCMEM = "django.core.mail.backends.locmem.EmailBackend"
@@ -33,6 +34,12 @@ def mentor_body(**changes):
             {"weekday": "", "start": "", "end": ""},
             {"weekday": "3", "start": "09:00", "end": "10:00"},
         ],
+        # A University of Sydney student: asked about Engineering there.
+        "usydEngineering": "no", "studentId": "",
+        # In Australia: the checks step.
+        "dateOfBirth": "1999-04-12", "wwccNumber": "WWC1234567V", "indigenous": "no",
+        "languages": ["English"], "languagesOther": "",
+        "signature": png_data_url(),
     }
     mentor.update(changes)
     return {"journey": "mentor", "payload": {"mentor": mentor}, "policiesAgreed": True}
@@ -56,8 +63,9 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         self.assertEqual((response.data["journey"], response.data["student_count"]), ("mentor", 0))
 
         user = User.objects.get(email="jordan.ng@uni.example.test")
-        # Pending until an admin activates them on Admin > Mentors.
-        self.assertEqual((user.account_status, user.is_active), (User.AccountStatus.PENDING, False))
+        # Active at once, for the year.
+        self.assertEqual((user.account_status, user.is_active), (User.AccountStatus.ACTIVE, True))
+        self.assertIsNotNone(user.activated_at)
         self.assertEqual((user.first_name, user.last_name, user.country.country_name), ("Jordan", "Ng", "Australia"))
         self.assertTrue(RoleAssignmentHistory.objects.filter(user=user, role__role_name="mentor", valid_to=None).exists())
         profile = MentorProfile.objects.get(user=user)
@@ -123,6 +131,79 @@ class MentorRegistrationTests(RegistrationSetup, TestCase):
         response = self.register(ends_first)
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(email="jordan.ng@uni.example.test").exists())
+
+    def test_a_usyd_student_says_whether_they_study_engineering_there(self):
+        for field, changes in {
+            "mentor.usydEngineering": {"usydEngineering": ""},
+            "mentor.studentId": {"usydEngineering": "yes", "studentId": ""},
+        }.items():
+            with self.subTest(field=field):
+                response = self.register(mentor_body(**changes))
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn(field, response.data["fields"] if "fields" in response.data else response.data)
+
+        engineer = mentor_body(institution="The University of Sydney", usydEngineering="yes", studentId="530123456")
+        self.assertEqual(self.register(engineer).status_code, 201)
+        profile = MentorProfile.objects.get(user__email="jordan.ng@uni.example.test")
+        self.assertEqual((profile.usyd_engineering, profile.usyd_student_id), (True, "530123456"))
+
+        # Not asked elsewhere, nor of an academic: anything sent is dropped.
+        for email, changes in {
+            "unsw@example.test": {"institution": "UNSW"},
+            "wsu@example.test": {"institution": "Western Sydney University"},
+            "staff@example.test": {"affiliation": "academic", "universityYear": ""},
+        }.items():
+            body = mentor_body(email=email, usydEngineering="yes", studentId="530123456", **changes)
+            self.assertEqual(self.register(body).status_code, 201)
+            profile = MentorProfile.objects.get(user__email=email)
+            self.assertEqual((profile.usyd_engineering, profile.usyd_student_id), (None, ""))
+
+    def test_a_mentor_in_australia_gives_their_checks(self):
+        for field, body in (
+            ("mentor.dateOfBirth", mentor_body(dateOfBirth="")),
+            ("mentor.dateOfBirth", mentor_body(dateOfBirth="1899-12-31")),
+            ("mentor.wwccNumber", mentor_body(wwccNumber="")),
+            ("mentor.indigenous", mentor_body(indigenous="")),
+            ("mentor.languages", mentor_body(languages=[])),
+            ("mentor.languages", mentor_body(languages=["Klingon"])),
+            ("mentor.languagesOther", mentor_body(languages=["Other (please specify)"])),
+        ):
+            with self.subTest(field=field, body=body["payload"]["mentor"][field.split(".")[1].removesuffix("Other")]):
+                response = self.register(body)
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn(field, response.data["fields"] if "fields" in response.data else response.data)
+
+        body = mentor_body(
+            indigenous="prefer_not", languages=["English", "Other (please specify)"], languagesOther=" Tagalog ",
+        )
+        self.assertEqual(self.register(body).status_code, 201)
+        profile = MentorProfile.objects.get(user__email="jordan.ng@uni.example.test")
+        self.assertEqual(
+            (profile.date_of_birth, profile.wwcc_number, profile.indigenous, profile.languages),
+            (date(1999, 4, 12), "WWC1234567V", "prefer_not", ["English", "Tagalog"]),
+        )
+
+    def test_a_mentor_outside_australia_isnt_asked_for_the_checks(self):
+        body = mentor_body(
+            country="New Zealand", state="", dateOfBirth="", wwccNumber="", indigenous="", languages=[],
+        )
+        self.assertEqual(self.register(body).status_code, 201)
+        profile = MentorProfile.objects.get(user__email="jordan.ng@uni.example.test")
+        self.assertEqual(
+            (profile.date_of_birth, profile.wwcc_number, profile.indigenous, profile.languages), (None, "", "", []),
+        )
+
+    def test_every_mentor_signs_that_the_form_is_true(self):
+        for how, signature in (("missing", ""), ("blank", png_data_url(drawn=False)), ("not an image", "data:image/png;base64,aGVsbG8=")):
+            with self.subTest(how=how):
+                response = self.register(mentor_body(signature=signature))
+                self.assertEqual(response.status_code, 400, response.data)
+                self.assertIn("mentor.signature", response.data["fields"] if "fields" in response.data else response.data)
+
+        self.assertEqual(self.register().status_code, 201)
+        profile = MentorProfile.objects.get(user__email="jordan.ng@uni.example.test")
+        self.assertEqual(bytes(profile.signature_png)[1:4], b"PNG")
+        self.assertIsNotNone(profile.signed_at)
 
     def test_why_they_would_mentor_is_needed_and_kept_to_150_words(self):
         for motivation in ("", " ".join(["word"] * 151)):

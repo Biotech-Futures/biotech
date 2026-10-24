@@ -159,13 +159,14 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
         peer = User.objects.get(email="learner1@students.example.test")
         client = APIClient()
         client.force_authenticate(peer)
-        for data in (
-            {"school_name": "Completed High"}, {"year_lvl": "11"},
-            {"pg_firstname": "Real"}, {"pg_lastname": "Guardian"},
-            {"pg_email": "real.guardian@example.test"},
-        ):
+        for data in ({"school_name": "Completed High"}, {"year_lvl": "11"}):
             response = client.patch("/api/v1/users/me/", data, format="json")
             self.assertEqual(response.status_code, 200, response.data)
+        # Their guardian through its own endpoint, which checks it.
+        response = client.put("/api/v1/users/me/guardian/", {
+            "first_name": "Real", "last_name": "Guardian", "email": "real.guardian@example.test",
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
         profile = StudentProfile.objects.get(user=peer)
         self.assertEqual(profile.school_name, "Completed High")
         self.assertEqual(profile.year_lvl, "11")

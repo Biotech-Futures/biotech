@@ -42,7 +42,7 @@
           default-time="00:01"
         />
         <div class="supervisor-pages__actions">
-          <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !shownFromLocal">
+          <button type="submit" class="btn btn-primary btn-field" :disabled="isSaving || !shownFromLocal">
             Save Date
           </button>
         </div>

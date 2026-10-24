@@ -1,7 +1,7 @@
 <template>
   <!-- Management > Challenge Start: when this year's challenge starts, then what
-       students, mentors and supervisors see (Pages Visibility) and when each
-       resource is released (Release Resources), set as the challenge begins. -->
+       students, mentors and supervisors see (Pages Visibility), set as the
+       challenge begins. When each resource is released is on the Resources page. -->
   <div class="challenge-start-page">
     <section class="card challenge-start">
       <!-- Headed as a Management page's first card is. -->
@@ -37,7 +37,7 @@
             :max="minuteBeside(order.deadline.value, -1)"
           />
           <div class="challenge-start__actions">
-            <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
+            <button type="submit" class="btn btn-primary btn-field" :disabled="isSaving">Save Date</button>
           </div>
         </form>
   
@@ -45,7 +45,6 @@
       </template>
     </section>
     <SupervisorPagesPage />
-    <ReleaseResourcesPage />
   </div>
 </template>
 
@@ -57,7 +56,6 @@ import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatSydneyStatement, fromSydneyDateTimeInput, toSydneyDateTimeInput } from '@/utils/date'
 import { fetchChallengeStart, saveChallengeStart, type ChallengeStart } from '@/utils/managementAPI'
-import ReleaseResourcesPage from './ReleaseResourcesPage.vue'
 import SupervisorPagesPage from './SupervisorPagesPage.vue'
 
 const isLoading = ref(true)

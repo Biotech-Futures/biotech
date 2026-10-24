@@ -372,7 +372,7 @@ const props = withDefaults(
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
     // A row to bring into view (its rowKey's value), as a page asks on
-    // coming back to it: Release Resources, back from a resource's page.
+    // coming back to it: the Resources page, back from a resource's page.
     focusRow?: RowKey
   }>(),
   {
