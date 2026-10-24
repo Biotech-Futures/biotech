@@ -29,8 +29,7 @@
           <EmailCheckNote
             id="f-email"
             :state="emailNote('email')"
-            :confirmed="emailCheckStates.email?.confirmed"
-            @confirm="confirmEmailBox('email', $event)"
+            :confirmable="false"
           />
           <p v-if="isEditing && !isSupervisorMode" id="f-email-hint" class="admin-users-form__hint">
             Changing this address updates the user's login and future emails. They will need to
@@ -145,7 +144,19 @@
         <template v-if="form.role === 'student'">
           <div class="form-field">
             <label class="form-label" for="f-school">School</label>
-            <input id="f-school" v-model.trim="form.schoolName" class="form-input app-input" />
+            <input
+              id="f-school"
+              v-model.trim="form.schoolName"
+              class="form-input app-input"
+              @blur="checkEmailBox('schoolName')"
+            />
+            <!-- Checked as it's left too: a university gets a warning to confirm. -->
+            <EmailCheckNote
+              id="f-school"
+              subject="school"
+              :state="emailNote('schoolName')"
+              :confirmable="false"
+            />
           </div>
           <div class="form-field">
             <label class="form-label" for="f-year">Year level</label>
@@ -349,8 +360,7 @@
             <EmailCheckNote
               id="f-gemail"
               :state="emailNote('guardianEmail')"
-              :confirmed="emailCheckStates.guardianEmail?.confirmed"
-              @confirm="confirmEmailBox('guardianEmail', $event)"
+              :confirmable="false"
             />
           </div>
           <!-- Ticked when given: ticking records it, unticking records a withdrawal. -->
@@ -737,13 +747,13 @@ const onInterestToggle = (option: string, event: Event) => {
 // The email boxes, checked as each is left (user/email-check/, as the
 // registration page's are): a hard problem is refused at saving too; a
 // warning (a mailbox that doesn't exist, a likely typo, a guardian address
-// with an account) is shown under the box to confirm before saving.
-type EmailField = 'email' | 'guardianEmail'
+// with an account) is only shown under the box, and saving goes ahead. A
+// student's School too: a university is a warning.
+type EmailField = 'email' | 'guardianEmail' | 'schoolName'
 interface EmailCheckState {
   email: string
   status: 'checking' | 'ok' | 'hard' | 'soft'
   message: string
-  confirmed: boolean
 }
 const emailCheckStates = reactive<Partial<Record<EmailField, EmailCheckState>>>({})
 const pendingEmailChecks = new Set<Promise<void>>()
@@ -765,29 +775,32 @@ const emailNote = (field: EmailField): EmailBoxState | undefined => {
 }
 const checkEmailBox = (field: EmailField) => {
   const email = form[field].trim().toLowerCase()
-  // Unchanged on an edit, or not a student's guardian: nothing to check.
-  const own = field === 'email' && isEditing.value && email === (props.user?.email || '').trim().toLowerCase()
-  if (!email || own || (field === 'guardianEmail' && form.role !== 'student')) {
+  // Unchanged on an edit, or not a student's guardian or school: nothing to check.
+  const saved = field === 'email' ? props.user?.email : field === 'schoolName' ? props.user?.schoolName : undefined
+  const own = field !== 'guardianEmail' && isEditing.value && email === (saved || '').trim().toLowerCase()
+  if (!email || own || (field !== 'email' && form.role !== 'student')) {
     delete emailCheckStates[field]
     return
   }
   if (emailCheckFor(field)) return
-  emailCheckStates[field] = { email, status: 'checking', message: '', confirmed: false }
+  emailCheckStates[field] = { email, status: 'checking', message: '' }
   const job = checkAdminUserEmails([
     field === 'email'
       ? { field, kind: 'account', email, firstName: form.firstName, lastName: form.lastName, userId: props.user?.id }
-      : { field, kind: 'guardian', email, accountEmail: form.email },
+      : field === 'schoolName'
+        ? { field, kind: 'school', email: '', school: form.schoolName }
+        : { field, kind: 'guardian', email, accountEmail: form.email },
   ])
     .then((results) => {
       if (emailCheckStates[field]?.email !== email) return
       const result = results[field]
       if (!result) delete emailCheckStates[field]
-      else if (result.ok) emailCheckStates[field] = { email, status: 'ok', message: '', confirmed: false }
+      else if (result.ok) emailCheckStates[field] = { email, status: 'ok', message: '' }
       else if (result.severity === 'hard')
-        emailCheckStates[field] = { email, status: 'hard', message: result.message, confirmed: false }
+        emailCheckStates[field] = { email, status: 'hard', message: result.message }
       else
         emailCheckStates[field] = {
-          email, status: 'soft', message: result.warnings.map((warning) => warning.message).join(' '), confirmed: false,
+          email, status: 'soft', message: result.warnings.map((warning) => warning.message).join(' '),
         }
     })
     // A check that can't be done says nothing: saving still refuses what's wrong.
@@ -797,19 +810,14 @@ const checkEmailBox = (field: EmailField) => {
     .finally(() => pendingEmailChecks.delete(job))
   pendingEmailChecks.add(job)
 }
-const confirmEmailBox = (field: EmailField, confirmed: boolean) => {
-  const state = emailCheckStates[field]
-  if (state) state.confirmed = confirmed
-}
 // Before saving: the checks under way done (clicking Save leaves a box, which
-// starts its check), then none refused or unconfirmed. Saving refuses what's
-// wrong in any case.
+// starts its check), then none refused. A warning doesn't stop it. Saving
+// refuses what's wrong in any case.
 const emailChecksBlockSaving = async () => {
   await Promise.allSettled([...pendingEmailChecks])
-  for (const field of ['email', 'guardianEmail'] as const) {
+  for (const field of ['email', 'guardianEmail', 'schoolName'] as const) {
     const state = emailCheckFor(field)
     if (state?.status === 'hard') return state.message
-    if (state?.status === 'soft' && !state.confirmed) return 'Correct the email address, or tick to confirm it.'
   }
   return ''
 }
@@ -818,6 +826,7 @@ const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
   delete emailCheckStates.email
   delete emailCheckStates.guardianEmail
+  delete emailCheckStates.schoolName
   createdUserId.value = null
   clearPhoto()
   if (!editingUser) {

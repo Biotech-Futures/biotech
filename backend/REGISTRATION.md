@@ -538,7 +538,9 @@ names). Its kinds
 are `student`, `guardian`, `supervisor` (the one a student names), `mentor`
 and `supervisor_self` (a supervisor registering themselves), across every
 journey: the four sign-ups, a supervisor's three and an admin's three (a CSV
-row as it's corrected in the review table). On the page
+row as it's corrected in the review table). Each student's School box is
+checked as it's left too (kind `school`): one that looks like a university
+is a warning, confirmed with `ConfirmSchoolOverride`. On the page
 (`frontend/src/registration/emailFieldCheck.ts`, through the gateway's
 `checkEmailField`):
 
@@ -553,12 +555,14 @@ row as it's corrected in the review table). On the page
 It's limited to `registration_email_field_check` (30 a minute) per person,
 in `REST_FRAMEWORK`'s throttle rates, as each new address can cost a lookup.
 
-Admin > Users > Add user does the same for the user's own address and a
-student's guardian's (`POST /api/v1/admin/user/email-check/`,
+Admin > Users > Add user (and Edit) does the same for the user's own address,
+a student's guardian's and a student's School (`POST /api/v1/admin/user/email-check/`,
 `apps/admin/user_email_check.py`, admins only, 60 a minute): what saving
-refuses is shown under the box, and a warning (a mailbox that doesn't exist or
-couldn't be checked, a likely typo, a guardian address with an account) is
-ticked to confirm before saving. Saving itself refuses a bad format, the
+refuses is shown under the box, and so is a warning (a mailbox that doesn't
+exist or couldn't be checked, a likely typo, a guardian address with an
+account, a School that looks like a university), with nothing to tick: saving
+goes ahead. (Management > Registration is the registration page, with its
+ticks.) Saving itself refuses a bad format, the
 placeholder, an address in use, a guardian who is the student, and a
 student's address as a guardian.
 

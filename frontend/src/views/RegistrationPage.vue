@@ -370,8 +370,8 @@
                 :errors="errors"
                 :email-state="emailChecks.stateOf"
                 :email-confirmed="emailConfirmed"
-                @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
-                @email-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
+                @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
+                @box-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
               />
 
               <RegistrationStudentEditor
@@ -382,8 +382,8 @@
                 :errors="errors"
                 :email-state="emailChecks.stateOf"
                 :email-confirmed="emailConfirmed"
-                @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
-                @email-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
+                @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
+                @box-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -435,8 +435,8 @@
                   :errors="errors"
                   :email-state="emailChecks.stateOf"
                   :email-confirmed="emailConfirmed"
-                  @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
-                  @email-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
+                  @box-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
+                  @box-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
                 />
               </div>
             </template>
@@ -450,8 +450,8 @@
                 :errors="errors"
                 :email-state="emailChecks.stateOf"
                 :email-confirmed="emailConfirmed"
-                @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
-                @email-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
+                @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
+                @box-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -597,8 +597,8 @@
                       allow-guardian-defer
                       :email-state="emailChecks.stateOf"
                       :email-confirmed="emailConfirmed"
-                      @email-left="checkStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], $event)"
-                      @email-confirm="(field, confirmed) => confirmStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], field, confirmed)"
+                      @box-left="checkStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], $event)"
+                      @box-confirm="(field, confirmed) => confirmStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], field, confirmed)"
                     />
                   </div>
                 </template>
@@ -612,8 +612,8 @@
                   :errors="errors"
                   :email-state="emailChecks.stateOf"
                   :email-confirmed="emailConfirmed"
-                  @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
-                  @email-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
+                  @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
+                  @box-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
                 />
                 <div class="section-divider">
                   <h3>Guardian contact</h3>
@@ -626,8 +626,8 @@
                   :errors="errors"
                   :email-state="emailChecks.stateOf"
                   :email-confirmed="emailConfirmed"
-                  @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
-                  @email-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
+                  @box-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
+                  @box-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
                 />
               </div>
             </template>
@@ -659,8 +659,8 @@
                     allow-guardian-defer
                     :email-state="emailChecks.stateOf"
                     :email-confirmed="emailConfirmed"
-                    @email-left="checkStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, $event)"
-                    @email-confirm="(field, confirmed) => confirmStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, field, confirmed)"
+                    @box-left="checkStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, $event)"
+                    @box-confirm="(field, confirmed) => confirmStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, field, confirmed)"
                   />
                 </div>
                 <div
@@ -688,8 +688,8 @@
                     allow-guardian-defer
                     :email-state="emailChecks.stateOf"
                     :email-confirmed="emailConfirmed"
-                    @email-left="checkStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], $event)"
-                    @email-confirm="(field, confirmed) => confirmStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], field, confirmed)"
+                    @box-left="checkStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], $event)"
+                    @box-confirm="(field, confirmed) => confirmStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], field, confirmed)"
                   />
                 </div>
               </div>
@@ -733,8 +733,8 @@
                     allow-guardian-defer
                     :email-state="emailChecks.stateOf"
                     :email-confirmed="emailConfirmed"
-                    @email-left="checkStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], $event)"
-                    @email-confirm="(field, confirmed) => confirmStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], field, confirmed)"
+                    @box-left="checkStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], $event)"
+                    @box-confirm="(field, confirmed) => confirmStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], field, confirmed)"
                   />
                 </div>
               </div>
@@ -856,8 +856,8 @@
                     :email-state="emailChecks.stateOf"
                     :email-confirmed="emailConfirmed"
                     @update:values="updateCsvRow(editingCsvRow, $event)"
-                    @email-left="checkEditingCsvBox"
-                    @email-confirm="confirmEditingCsvBox"
+                    @box-left="checkEditingCsvBox"
+                    @box-confirm="confirmEditingCsvBox"
                   />
                   <footer class="csv-editor-footer">
                     <button type="button" class="primary-action" @click="closeCsvEditor">
@@ -1488,7 +1488,7 @@ import { useCountryOptions, useStateOptions, useUniversityNames } from '@/regist
 import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
 import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
 import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
-import { useEmailFieldChecks, type EmailBox } from '@/registration/emailFieldCheck'
+import { useEmailFieldChecks, type EmailBox, type StudentBoxField } from '@/registration/emailFieldCheck'
 import { studentRequestPrefixes } from '@/registration/productionRegistration'
 import { formatDayMonthTime } from '@/utils/date'
 import {
@@ -2009,9 +2009,13 @@ const studentIndexOf = (prefix: string) => {
     return 0
   }
 }
-// A student's or their guardian's box (RegistrationStudentEditor's).
-const studentBox = (prefix: string, student: StudentDetails, field: 'email' | 'guardian.email'): EmailBox =>
-  field === 'email'
+// A student's or their guardian's email box, or the student's School
+// (RegistrationStudentEditor's).
+const studentBox = (prefix: string, student: StudentDetails, field: StudentBoxField): EmailBox => {
+  if (field === 'school') {
+    return { field: `${prefix}.school`, kind: 'school', email: '', school: student.school, student: studentIndexOf(prefix) }
+  }
+  return field === 'email'
     ? {
         field: `${prefix}.email`, kind: 'student', email: student.email,
         student: studentIndexOf(prefix), firstName: student.firstName, lastName: student.lastName,
@@ -2020,12 +2024,13 @@ const studentBox = (prefix: string, student: StudentDetails, field: 'email' | 'g
         field: `${prefix}.guardian.email`, kind: 'guardian', email: student.guardian.email,
         student: studentIndexOf(prefix), studentEmail: student.email,
       }
-const checkStudentBox = (prefix: string, student: StudentDetails, field: 'email' | 'guardian.email') =>
+}
+const checkStudentBox = (prefix: string, student: StudentDetails, field: StudentBoxField) =>
   emailChecks.check(studentBox(prefix, student, field))
 const confirmStudentBox = (
   prefix: string,
   student: StudentDetails,
-  field: 'email' | 'guardian.email',
+  field: StudentBoxField,
   confirmed: boolean,
 ) => emailChecks.confirm(studentBox(prefix, student, field), confirmed)
 // The registration's own boxes: the supervisor a student names, and a mentor's
@@ -2072,8 +2077,14 @@ const csvRowIndex = (row: CsvRow) => {
     return 0
   }
 }
-const csvBox = (row: CsvRow, field: 'email' | 'guardian.email'): EmailBox =>
-  field === 'email'
+const csvBox = (row: CsvRow, field: StudentBoxField): EmailBox => {
+  if (field === 'school') {
+    return {
+      field: `csv-row-${row.rowNumber}.school`, kind: 'school', email: '', school: row.values.school,
+      student: csvRowIndex(row),
+    }
+  }
+  return field === 'email'
     ? {
         field: `csv-row-${row.rowNumber}.email`, kind: 'student', email: row.values.email,
         student: csvRowIndex(row), firstName: row.values.first_name, lastName: row.values.last_name,
@@ -2082,12 +2093,13 @@ const csvBox = (row: CsvRow, field: 'email' | 'guardian.email'): EmailBox =>
         field: `csv-row-${row.rowNumber}.guardian.email`, kind: 'guardian', email: row.values.guardian_email,
         student: csvRowIndex(row), studentEmail: row.values.email,
       }
+}
 // The row being edited (editingCsvRow, below)'s boxes.
-const checkEditingCsvBox = (field: 'email' | 'guardian.email') => {
+const checkEditingCsvBox = (field: StudentBoxField) => {
   const row = editingCsvRow.value
   return row ? emailChecks.check(csvBox(row, field)) : Promise.resolve()
 }
-const confirmEditingCsvBox = (field: 'email' | 'guardian.email', confirmed: boolean) => {
+const confirmEditingCsvBox = (field: StudentBoxField, confirmed: boolean) => {
   const row = editingCsvRow.value
   return row ? emailChecks.confirm(csvBox(row, field), confirmed) : Promise.resolve()
 }

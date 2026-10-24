@@ -33,7 +33,9 @@ from . import email_verification
 from .mentor_registration import (
     JOURNEY as MENTOR_JOURNEY, MENTOR_EMAIL_TAKEN, MENTOR_NAME, mentor_email_taken,
 )
-from .registration_intake import STUDENT_JOURNEYS, StrictInput, current_window, error_fields, registration_field
+from .registration_intake import (
+    MAX_CSV_ROWS, STUDENT_JOURNEYS, StrictInput, current_window, error_fields, registration_field,
+)
 from .serializers import (
     GUARDIAN_IS_SELF, MAILBOX_WHOSE, REGISTRATION_OVERRIDES, SUPERVISOR_IS_SELF, UNKNOWN_OVERRIDE,
     StrictBooleanField, UserRegisterBodySerializer, guardian_account_warning, mailbox_warning, name_email_warning,
@@ -81,7 +83,8 @@ class FieldInput(StrictInput):
     kind = serializers.ChoiceField(choices=sorted([*KINDS, "school"]))
     email = serializers.CharField(max_length=1000, allow_blank=True, trim_whitespace=False, required=False)
     studentEmail = serializers.CharField(max_length=1000, allow_blank=True, default="")
-    student = serializers.IntegerField(min_value=0, max_value=MAX_FIELDS, default=0)
+    # Any student's place: a CSV's last row's too.
+    student = serializers.IntegerField(min_value=0, max_value=MAX_CSV_ROWS - 1, default=0)
     firstName = serializers.CharField(max_length=255, allow_blank=True, default="")
     lastName = serializers.CharField(max_length=255, allow_blank=True, default="")
     school = serializers.CharField(max_length=255, allow_blank=True, default="")

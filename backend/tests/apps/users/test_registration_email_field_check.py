@@ -383,6 +383,20 @@ class SoftTests(FieldCheckSetup, QevTestCase):
             "email_invalid", UNKNOWN_STUDENT, "students.2.email", "students.2.overrides.ConfirmEmailInvalidOverride",
         ))
 
+    def test_a_row_late_in_a_big_csv_is_checked_too(self):
+        answer(NEW, "unknown")
+
+        self.assertEqual(self.result(self.item("student", NEW, student=700))["box"], warned(
+            "email_invalid", UNKNOWN_STUDENT, "students.700.email",
+            "students.700.overrides.ConfirmEmailInvalidOverride",
+        ))
+        # A School box, as the page sends it: no address.
+        school = {"field": "box", "kind": "school", "email": "", "school": "University of Sydney", "student": 700}
+        self.assertEqual(
+            self.result(school)["box"]["warnings"][0]["override_field"],
+            "students.700.overrides.ConfirmSchoolOverride",
+        )
+
     def test_the_mailbox_warning_first_then_the_name_once_it_is_ticked(self):
         answer("jordn.lee@example.test", "unknown")
         item = self.item("student", "jordn.lee@example.test", firstName="Jordan", lastName="Lee")

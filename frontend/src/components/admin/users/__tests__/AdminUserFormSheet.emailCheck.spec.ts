@@ -1,6 +1,6 @@
-// Add user's email boxes, checked as each is left (user/email-check/): what
-// saving refuses is shown under the box and stops it; a warning is shown to
-// confirm before saving.
+// Add user's email boxes (and a student's School), checked as each is left
+// (user/email-check/): what saving refuses is shown under the box and stops
+// it; a warning is only shown, and saving goes ahead.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
@@ -76,7 +76,7 @@ describe("Add user's email check", () => {
     expect(wrapper!.find('.admin-users-form__field-error').exists()).toBe(false)
   })
 
-  it('asks for a warning to be confirmed before saving', async () => {
+  it('shows a warning under the box, with nothing to tick, and saves', async () => {
     vi.mocked(checkAdminUserEmails).mockResolvedValue({
       email: {
         ok: false, severity: 'soft',
@@ -89,13 +89,28 @@ describe("Add user's email check", () => {
     await leave('#f-email', 'jo@unsure.test')
 
     expect(wrapper!.get('.email-check-note--warning').text()).toContain("couldn't be verified")
-    await submit()
-    expect(createAdminUser).not.toHaveBeenCalled()
-    expect(wrapper!.get('.admin-users-form__error').text()).toBe('Correct the email address, or tick to confirm it.')
-
-    await wrapper!.get('[data-test="f-email-confirm"]').setValue(true)
+    expect(wrapper!.find('[data-test="f-email-confirm"]').exists()).toBe(false)
     await submit()
     expect(createAdminUser).toHaveBeenCalledTimes(1)
+  })
+
+  it("warns about a student's School that looks like a university", async () => {
+    vi.mocked(checkAdminUserEmails).mockResolvedValue({
+      schoolName: {
+        ok: false, severity: 'soft',
+        warnings: [{ code: 'university_school', message: 'This looks like a university, not a school.' }],
+      },
+    })
+    await openSheet()
+
+    await leave('#f-school', 'University of Sydney')
+
+    expect(checkAdminUserEmails).toHaveBeenCalledWith([
+      { field: 'schoolName', kind: 'school', email: '', school: 'University of Sydney' },
+    ])
+    const note = wrapper!.get('.email-check-note--warning')
+    expect(note.text()).toContain('This looks like a university, not a school.')
+    expect(wrapper!.find('[data-test="f-school-confirm"]').exists()).toBe(false)
   })
 
   it('saves as before when the check is unreachable', async () => {

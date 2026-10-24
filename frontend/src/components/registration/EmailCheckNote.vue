@@ -1,20 +1,20 @@
 <template>
-  <!-- Under an email box, once it's left (registration/emailFieldCheck): its
-       check under way, or a warning to correct the address or confirm it. A
-       hard problem is the box's own error instead. -->
+  <!-- Under an email box (or a student's School), once it's left
+       (registration/emailFieldCheck): its check under way, or a warning to
+       correct it or confirm it. A hard problem is the box's own error instead. -->
   <p v-if="state?.status === 'checking'" class="email-check-note email-check-note--checking" role="status">
-    Checking this email…
+    Checking this {{ subject }}…
   </p>
   <div v-else-if="state?.status === 'soft'" class="email-check-note email-check-note--warning" role="status">
     <span>{{ state.message }}</span>
-    <label class="email-check-note__confirm">
+    <label v-if="confirmable" class="email-check-note__confirm">
       <input
         type="checkbox"
         :checked="confirmed"
         :data-test="`${id}-confirm`"
         @change="$emit('confirm', ($event.target as HTMLInputElement).checked)"
       />
-      <span>Yes, this address is correct</span>
+      <span>{{ subject === 'school' ? 'Yes, this school is correct' : 'Yes, this address is correct' }}</span>
     </label>
   </div>
 </template>
@@ -22,12 +22,20 @@
 <script setup lang="ts">
 import type { EmailBoxState } from '@/registration/emailFieldCheck'
 
-defineProps<{
-  /** The box's own id, for its tick's. */
-  id: string
-  state?: EmailBoxState
-  confirmed?: boolean
-}>()
+withDefaults(
+  defineProps<{
+    /** The box's own id, for its tick's. */
+    id: string
+    state?: EmailBoxState
+    confirmed?: boolean
+    /** What the box holds: an email, or a school. */
+    subject?: 'email' | 'school'
+    /** With a tick to confirm the warning (registration's); without, it's
+     *  only shown (an admin's form). */
+    confirmable?: boolean
+  }>(),
+  { state: undefined, confirmed: false, subject: 'email', confirmable: true },
+)
 
 defineEmits<{ confirm: [confirmed: boolean] }>()
 </script>

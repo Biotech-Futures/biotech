@@ -17,29 +17,31 @@ vi.mock('vue-router', async (importOriginal) => ({
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
-// The field check's answers, by address; anything else is fine.
+// The field check's answers, by address (or a School box's school); anything else is fine.
 let answers: Record<string, unknown> = {}
-let checks: Array<Record<string, any>> = []
-let submitted: Record<string, any> | null = null
+// Each check the page asked for, as sent.
+interface CheckRequest {
+  journey?: string
+  fields: Array<{ field: string; email?: string; school?: string; overrides?: Record<string, boolean> }>
+}
+let checks: CheckRequest[] = []
 
 beforeEach(() => {
   sessionStorage.clear()
   resetCsrfToken()
   answers = {}
   checks = []
-  submitted = null
   vi.stubGlobal('scrollTo', vi.fn())
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url)
     if (path.includes('/services/csrf/')) return json({ csrfToken: 'csrf' })
     if (path.includes('/registration/email-check/field/')) {
-      const body = JSON.parse(String(init?.body))
+      const body = JSON.parse(String(init?.body)) as CheckRequest
       checks.push(body)
-      const field = body.fields[0]
-      return json({ results: { [field.field]: answers[field.email] ?? { ok: true } } })
+      const field = body.fields[0]!
+      return json({ results: { [field.field]: answers[field.email || field.school || ''] ?? { ok: true } } })
     }
     if (path.includes('/registration/') && init?.method === 'POST') {
-      submitted = JSON.parse(String(init.body))
       return json({ error: 'Stop here.', code: 'invalid', request_id: 'x' }, 400)
     }
     return json({})
@@ -138,7 +140,46 @@ describe('a student registering on their own', () => {
     answers['jo@unsure.test'] = { ok: true }
     await wrapper.get('[data-test="studentIndividual-student-email-confirm"]').setValue(true)
     await flushPromises()
-    expect(checks.at(-1)!.fields[0].overrides).toEqual({ ConfirmEmailInvalidOverride: true })
+    expect(checks.at(-1)!.fields[0]!.overrides).toEqual({ ConfirmEmailInvalidOverride: true })
+    expect(wrapper.find('.email-check-note--warning').exists()).toBe(false)
+  })
+})
+
+describe("a student's School", () => {
+  it('warns about a university as the box leaves, and its tick goes with the next check', async () => {
+    const message = 'This looks like a university, not a school. Please confirm if this is correct.'
+    answers['University of Sydney'] = {
+      ok: false, severity: 'soft',
+      warnings: [{
+        code: 'university_school', message, field: 'students.0.school',
+        override_field: 'students.0.overrides.ConfirmSchoolOverride',
+      }],
+    }
+    const wrapper = mountPage()
+    await clickButton(wrapper, 'Student')
+    await clickButton(wrapper, "I don't have a group")
+    Object.assign(wrapper.vm as unknown as { currentStep: number; maxReachedStep: number }, {
+      currentStep: 1, maxReachedStep: 1,
+    })
+    await flushPromises()
+
+    await leave(wrapper, '#studentIndividual-student-school', 'University of Sydney')
+
+    expect(checks.at(-1)).toMatchObject({
+      journey: 'student_individual',
+      fields: [{
+        field: 'studentIndividual.student.school', kind: 'school', email: '', school: 'University of Sydney',
+        student: 0,
+      }],
+    })
+    const note = wrapper.get('.email-check-note--warning')
+    expect(note.text()).toContain(message)
+    expect(note.text()).toContain('Yes, this school is correct')
+
+    answers['University of Sydney'] = { ok: true }
+    await wrapper.get('[data-test="studentIndividual-student-school-confirm"]').setValue(true)
+    await flushPromises()
+    expect(checks.at(-1)!.fields[0]!.overrides).toEqual({ ConfirmSchoolOverride: true })
     expect(wrapper.find('.email-check-note--warning').exists()).toBe(false)
   })
 })

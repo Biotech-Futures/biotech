@@ -1439,6 +1439,8 @@ class SupervisorFromStudentImportTests(TestCase):
             email="zed-sup@example.com", first_name="Sam", last_name="Super",
             password=None,
         )
+        # A supervisor already: an account that isn't one is refused.
+        SupervisorProfile.objects.create(user=existing, school_name="Zed High")
         self.assertIsNone(existing.state_id)
         self._import_student()
         existing.refresh_from_db()

@@ -3,9 +3,10 @@ left (``POST /api/v1/admin/user/email-check/``), as a registration page's are
 (apps.users.email_field_check), with the same messages.
 
 Request: ``{"fields": [{"field", "kind", "email", "firstName"?, "lastName"?,
-"accountEmail"?, "userId"?}]}`` with at most MAX_FIELDS fields. ``kind`` is
-account (the user's own address) or guardian (a student's guardian's;
-``accountEmail`` is the student's). ``userId`` is the user being edited, whose
+"accountEmail"?, "userId"?, "school"?}]}`` with at most MAX_FIELDS fields.
+``kind`` is account (the user's own address), guardian (a student's
+guardian's; ``accountEmail`` is the student's), or school (a student's School,
+in ``school``: a warning when it looks like a university, as registering's). ``userId`` is the user being edited, whose
 own address isn't "already used".
 
 Answer, always 200: ``{"results": {<field>: {"ok": true}, or {"ok": false,
@@ -15,9 +16,10 @@ Answer, always 200: ``{"results": {<field>: {"ok": true}, or {"ok": false,
 - Hard, which saving refuses too (create_user): not an email address, the
   template's placeholder, an address another account has, a guardian who is
   the student, or a current student's address as a guardian.
-- Soft, which the admin confirms and saves anyway: a mailbox
+- Soft, only shown under the box (saving goes ahead): a mailbox
   QuickEmailVerification says doesn't exist or couldn't check, a name that
-  looks like a typo of the address, a guardian address that has an account.
+  looks like a typo of the address, a guardian address that has an account, a
+  School that looks like a university.
 
 Each new address is looked up once and the answer kept, as registration's
 are (verify_email), so at most ``admin_user_email_check`` requests a minute.
@@ -38,11 +40,11 @@ from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR
 from apps.users.models import StudentProfile, SupervisorProfile, User
 from apps.users.serializers import (
     GUARDIAN_IS_SELF, PLACEHOLDER_ADDRESS, SUPERVISOR_IS_SELF, _has_role, guardian_account_warning,
-    is_placeholder_email, mailbox_warning, name_email_warning, new_guardian_email_problem,
+    is_placeholder_email, mailbox_warning, name_email_warning, new_guardian_email_problem, school_warning,
 )
 
 MAX_FIELDS = 10
-KINDS = ("account", "guardian")
+KINDS = ("account", "guardian", "school")
 NOT_AN_EMAIL = "Enter a valid email address."
 TAKEN = "Account email already exists"
 SUPERVISOR_NOT_AN_EMAIL = "Supervisor email is not a valid email address"
@@ -58,6 +60,7 @@ class FieldInput(serializers.Serializer):
     lastName = serializers.CharField(max_length=255, allow_blank=True, default="")
     accountEmail = serializers.CharField(max_length=1000, allow_blank=True, default="")
     userId = serializers.IntegerField(min_value=1, required=False, allow_null=True, default=None)
+    school = serializers.CharField(max_length=255, allow_blank=True, default="")
 
 
 class CheckInput(serializers.Serializer):
@@ -119,6 +122,12 @@ def _is_email(address) -> bool:
 
 
 def _check(item, answers):
+    if item["kind"] == "school":
+        warning = school_warning(item["school"]) if item["school"].strip() else None
+        return (
+            {"ok": False, "severity": "soft", "warnings": [{"code": warning["code"], "message": warning["message"]}]}
+            if warning else {"ok": True}
+        )
     email = item["email"].strip().lower()
     if not email:
         return {"ok": True}

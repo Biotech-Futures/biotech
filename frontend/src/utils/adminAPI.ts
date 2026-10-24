@@ -388,9 +388,11 @@ export type AdminEmailCheckResult =
 
 export interface AdminEmailCheckField {
   field: string
-  /** The user's own address, or a student's guardian's. */
-  kind: 'account' | 'guardian'
+  /** The user's own address, a student's guardian's, or a student's School. */
+  kind: 'account' | 'guardian' | 'school'
   email: string
+  /** A school box's school. */
+  school?: string
   firstName?: string
   lastName?: string
   /** A guardian's student's address. */

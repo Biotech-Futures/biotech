@@ -6,7 +6,8 @@
  * asked again). POST registration/email-check/field/ (email_field_check on the
  * backend): the address's format, the template's placeholder, whether its
  * mailbox exists, whether it's already used, a name that looks like a typo of
- * it, and a guardian or supervisor the same as the student.
+ * it, and a guardian or supervisor the same as the student. A student's
+ * School box too: a warning when it looks like a university.
  *
  * A check that can't be done (no network, too many in a minute, a gateway
  * without it) says nothing: Submit still checks. It goes through the page's
@@ -14,9 +15,13 @@
  */
 import { reactive } from 'vue'
 
-/** student, guardian, supervisor (the one a student names), mentor, or
- *  supervisor_self (a supervisor registering themselves). */
-export type EmailCheckKind = 'student' | 'guardian' | 'supervisor' | 'mentor' | 'supervisor_self'
+/** student, guardian, supervisor (the one a student names), mentor,
+ *  supervisor_self (a supervisor registering themselves), or school (a
+ *  student's School box, not an email). */
+export type EmailCheckKind = 'student' | 'guardian' | 'supervisor' | 'mentor' | 'supervisor_self' | 'school'
+
+/** A student editor's checked boxes, by their fields under the student. */
+export type StudentBoxField = 'email' | 'guardian.email' | 'school'
 
 /** A box: ``field`` is the page's own path for it (its error's), ``student``
  *  the student's place in the registration as Submit sends it. */
@@ -28,6 +33,8 @@ export interface EmailBox {
   studentEmail?: string
   firstName?: string
   lastName?: string
+  /** A school box's school (its ``email`` is empty). */
+  school?: string
 }
 
 type Result =
@@ -40,7 +47,7 @@ type Result =
     }
 
 export interface EmailBoxState {
-  /** The address it's about, as it was left. */
+  /** The address (or school) it's about, as it was left. */
   email: string
   status: 'checking' | 'ok' | 'hard' | 'soft'
   message: string
@@ -60,14 +67,19 @@ const overridePrefix = (box: EmailBox) => {
   return `students.${box.kind === 'supervisor' ? 0 : (box.student ?? 0)}.overrides.`
 }
 // Which confirmations are a box's own: a student's mailbox and name, a
-// guardian's mailbox and account, the named supervisor's mailbox and name.
+// guardian's mailbox and account, the named supervisor's mailbox and name,
+// a student's school.
 const OWN_OVERRIDES: Record<EmailCheckKind, string[]> = {
   student: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
   guardian: ['ConfirmGuardianEmailInvalidOverride', 'ConfirmGuardianEmailHasAccountOverride'],
   supervisor: ['ConfirmSupervisorEmailInvalidOverride', 'ConfirmSupervisorNameEmailOverride'],
   mentor: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
   supervisor_self: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
+  school: ['ConfirmSchoolOverride'],
 }
+
+// What a box is checked for: its address, or a school box's school.
+const valueOf = (box: EmailBox) => (box.kind === 'school' ? (box.school ?? '') : box.email).trim()
 
 /**
  * The page's boxes, by their paths. ``overrides`` is the page's own map of
@@ -95,14 +107,14 @@ export function useEmailFieldChecks(options: {
   }
 
   const run = async (box: EmailBox) => {
-    const email = box.email.trim()
+    const email = valueOf(box)
     const overrides = ownOverrides(box)
     boxes[box.field] = { email, status: 'checking', message: '', overrideField: '' }
     const journey = options.journey()
     const results = await options
       .request({
         ...(journey ? { journey } : {}),
-        fields: [{ ...box, email, overrides }],
+        fields: [{ ...box, ...(box.kind === 'school' ? { school: email } : { email }), overrides }],
       })
       .catch(() => null)
     const result = (results?.[box.field] ?? null) as Result | null
@@ -123,7 +135,7 @@ export function useEmailFieldChecks(options: {
   /** Left, or a warning confirmed: checked again when anything it's
    *  checked with changed. */
   const check = (box: EmailBox) => {
-    const email = box.email.trim()
+    const email = valueOf(box)
     const before = boxes[box.field]
     // Another address: the old one's confirmations don't carry over.
     if (before && before.email !== email) {

@@ -44,6 +44,17 @@ class UserEmailCheckTests(QevTestCase):
         response = self.client.post(URL, {"fields": [{"field": "box", "kind": "account", "email": "a@b.test"}]}, format="json")
         self.assertEqual(response.status_code, 403)
 
+    def test_a_students_school_that_looks_like_a_university(self):
+        self.assertEqual(self.one("school", "", school="University of Sydney"), {
+            "ok": False, "severity": "soft", "warnings": [{
+                "code": "university_school",
+                "message": "This looks like a university, not a school. Please confirm if this is correct.",
+            }],
+        })
+        self.assertEqual(self.one("school", "", school="Example High"), {"ok": True})
+        self.assertEqual(self.one("school", "", school=" "), {"ok": True})
+        self.http.assert_not_called()
+
     def test_an_account_address_format_placeholder_and_one_in_use(self):
         User.objects.create_user(email="taken@example.test")
 

@@ -26,7 +26,7 @@
         :error="fieldError('email')"
         :required="markRequired"
         wide
-        @blur="emit('email-left', 'email')"
+        @blur="emit('box-left', 'email')"
       />
       <!-- Checked as it's left: a warning to confirm, under it. -->
       <EmailCheckNote
@@ -34,21 +34,32 @@
         :id="fieldId('email')"
         :state="emailState?.(`${prefix}.email`, student.email)"
         :confirmed="emailConfirmed?.(`${prefix}.email`)"
-        @confirm="emit('email-confirm', 'email', $event)"
+        @confirm="emit('box-confirm', 'email', $event)"
       />
     </div>
 
     <template v-if="showProfile">
       <div class="student-editor__grid">
-        <RegistrationTextField
-          :id="fieldId('school')"
-          v-model="student.school"
-          label="School"
-          autocomplete="organization"
-          :suggestions="schoolSuggestions"
-          :error="fieldError('school')"
-          :required="markRequired"
-        />
+        <!-- Checked as it's left too: a university gets a warning to confirm. -->
+        <div class="student-editor__cell">
+          <RegistrationTextField
+            :id="fieldId('school')"
+            v-model="student.school"
+            label="School"
+            autocomplete="organization"
+            :suggestions="schoolSuggestions"
+            :error="fieldError('school')"
+            :required="markRequired"
+            @blur="emit('box-left', 'school')"
+          />
+          <EmailCheckNote
+            :id="fieldId('school')"
+            subject="school"
+            :state="emailState?.(`${prefix}.school`, student.school)"
+            :confirmed="emailConfirmed?.(`${prefix}.school`)"
+            @confirm="emit('box-confirm', 'school', $event)"
+          />
+        </div>
         <label class="select-field">
           <span>Year level <span v-if="markRequired" class="required-mark" aria-hidden="true">*</span></span>
           <AppSelect
@@ -145,14 +156,14 @@
           :error="fieldError('guardian.email')"
           :required="markRequired"
           wide
-          @blur="emit('email-left', 'guardian.email')"
+          @blur="emit('box-left', 'guardian.email')"
         />
         <EmailCheckNote
           class="student-editor__note"
           :id="fieldId('guardian.email')"
           :state="emailState?.(`${prefix}.guardian.email`, student.guardian.email)"
           :confirmed="emailConfirmed?.(`${prefix}.guardian.email`)"
-          @confirm="emit('email-confirm', 'guardian.email', $event)"
+          @confirm="emit('box-confirm', 'guardian.email', $event)"
         />
       </div>
     </div>
@@ -171,7 +182,7 @@ import {
   stateLabel,
   type StudentDetails,
 } from '@/registration/registration'
-import type { EmailBoxState } from '@/registration/emailFieldCheck'
+import type { EmailBoxState, StudentBoxField } from '@/registration/emailFieldCheck'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 
 const props = withDefaults(
@@ -205,8 +216,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   // Its student's or guardian's email box left, or that box's warning
   // confirmed (or not): the page checks it (registration/emailFieldCheck).
-  'email-left': [field: 'email' | 'guardian.email']
-  'email-confirm': [field: 'email' | 'guardian.email', confirmed: boolean]
+  'box-left': [field: StudentBoxField]
+  'box-confirm': [field: StudentBoxField, confirmed: boolean]
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
 
@@ -259,6 +270,13 @@ const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
 /* A box's check, the whole row under it. */
 .student-editor__note {
   grid-column: 1 / -1;
+}
+
+/* A box with its check's note under it, in one cell. */
+.student-editor__cell {
+  display: grid;
+  align-content: start;
+  min-width: 0;
 }
 
 .student-editor__grid {
