@@ -32,6 +32,9 @@ describe('Student profile', () => {
         regions: [{ id: 2, country_id: 1, state_name: 'NSW' }],
         interests: [{ id: 3, interest_desc: 'Biology' }], selected_interest_ids: [],
       }))
+      if (input.includes('supervisor-pages')) return new Response(JSON.stringify({
+        shown: true, shown_from: '2020-01-01T00:00:00Z',
+      }))
       if (input.includes('group-members')) return new Response(JSON.stringify([
         { id: 1, membership_role: 'student', student_details: { first_name: 'Hiro', last_name: 'Bianchi', year_level: '10', school: 'Test High', supervisor: 'Grace Green' } },
         { id: 2, membership_role: 'mentor', student_details: null },
@@ -626,10 +629,13 @@ describe('Supervisor profile: every group they are in (SP1)', () => {
       current_role_name: 'supervisor', supervisor_school_name: 'Cardinal College', supervised_students: [],
     } as never
     vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
-    setSupervisorPages({ shown: true })
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     myGroups = page()
     fetchMock.mockReset()
     fetchMock.mockImplementation(async (input: string) => {
+      if (input.includes('supervisor-pages')) return new Response(JSON.stringify({
+        shown: true, shown_from: '2020-01-01T00:00:00Z',
+      }))
       if (input.includes('mine=true') && input.includes('page_size=100')) return myGroups
       return new Response(JSON.stringify({ results: [] }))
     })
