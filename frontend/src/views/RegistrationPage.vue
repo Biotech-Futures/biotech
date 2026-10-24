@@ -1458,7 +1458,13 @@ import {
   type GroupCodeCheck,
 } from '@/registration/groupCode'
 import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDraft'
-import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
+import {
+  australianStateNames,
+  countryNames,
+  useCountryOptions,
+  useStateOptions,
+  useUniversityNames,
+} from '@/registration/useLocationOptions'
 import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
 import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
 import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
@@ -1931,6 +1937,34 @@ if (draft) {
   currentStep.value = draft.currentStep
   maxReachedStep.value = draft.maxReachedStep
 }
+// A sign-up (a student's, a mentor's or a supervisor's own) starts in the
+// country, and Australia's state, the computer says it's in: chosen for them,
+// changed as any other. Only while Country is empty, so never over theirs.
+const ownPlace = (current: RegistrationJourney | null): { country: string; state: string } | null => {
+  if (isSupervisorMode.value) return null
+  if (current === 'student_individual') return forms.studentIndividual.student
+  if (current === 'student_team') return forms.studentTeam.creator
+  if (current === 'mentor') return forms.mentor
+  if (current === 'supervisor') return forms.supervisor
+  return null
+}
+watch(
+  journey,
+  async (current) => {
+    const place = ownPlace(current)
+    if (!place || place.country) return
+    const [{ detectPlace }, countries, states] = await Promise.all([
+      import('@/registration/detectPlace'),
+      countryNames(),
+      australianStateNames(),
+    ])
+    const detected = detectPlace(countries, states)
+    if (!detected || journey.value !== current || place.country) return
+    place.country = detected.country
+    if (!place.state) place.state = detected.state
+  },
+  { immediate: true },
+)
 const clientErrors = reactive<Record<string, string>>({})
 const serverFieldErrors = reactive<Record<string, string>>({})
 const errors = computed<Record<string, string>>(() => ({
