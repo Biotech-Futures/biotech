@@ -193,6 +193,23 @@ describe('App sidebar admin section', () => {
     expect(mediaQuery.addEventListener).toHaveBeenCalled()
   })
 
+  it("starts a supervisor's own pages open, on small screens too", async () => {
+    useAuthStore().loginWithUser({
+      id: 32, email: 'open.supervisor@example.com', first_name: 'Sue', last_name: 'Park',
+      current_role_name: 'supervisor', timezone: 'UTC', must_change_password: false, isAdmin: false, isSupport: false,
+    } as never)
+    // While the year's pages are shown, as a supervisor has them.
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
+    try {
+      await mountApp({ viewport: 'mobile', start: '/my-students' })
+
+      expect(wrapper!.get('button[aria-controls="supervisor-subnav"]').attributes('aria-expanded')).toBe('true')
+      expect(wrapper!.find('#supervisor-subnav').exists()).toBe(true)
+    } finally {
+      setSupervisorPages({ shown: false, shown_from: null })
+    }
+  })
+
   it('keeps the Admin submenu in the state selected by the user while navigating', async () => {
     const auth = useAuthStore()
     auth.loginWithUser(adminUser)
