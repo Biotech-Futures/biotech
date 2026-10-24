@@ -453,6 +453,9 @@ export interface SupervisorPagesState {
   shown_from: string | null
   set_by?: string
   updated_at?: string | null
+  /** When this year's challenge starts (Challenge Start), for the menu's
+   *  line while the pages are hidden; null while it isn't set. */
+  challenge_starts_at?: string | null
 }
 
 // GET /api/v1/management/supervisor-pages/ — when the pages are shown from.

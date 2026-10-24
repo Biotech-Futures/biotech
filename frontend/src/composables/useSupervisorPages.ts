@@ -11,6 +11,9 @@ import { fetchSupervisorPages, type SupervisorPagesState } from '@/utils/managem
 
 // When they're shown from (an instant), as the server has it; null for none.
 const shownFrom = ref<string | null>(null)
+// When this year's challenge starts (Challenge Start), which the menu says
+// while the pages are hidden; null while it isn't set.
+const challengeStartsAt = ref<string | null>(null)
 // The time, kept for the menu so the pages appear when the date comes.
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
@@ -53,6 +56,7 @@ export function loadSupervisorPages(force = false): Promise<boolean> {
 /** As saved (after an admin sets the date), so this tab's menu follows straight away. */
 export function setSupervisorPages(state: SupervisorPagesState): void {
   shownFrom.value = state.shown_from ?? null
+  challengeStartsAt.value = state.challenge_starts_at ?? null
   loading = Promise.resolve()
   followTime()
 }
@@ -64,5 +68,5 @@ export const isSupervisorHiddenPath = (path: string) =>
   SUPERVISOR_HIDDEN_PATHS.some((hidden) => path === hidden || path.startsWith(`${hidden}/`))
 
 export function useSupervisorPages() {
-  return { shown, shownFrom }
+  return { shown, shownFrom, challengeStartsAt, now }
 }
