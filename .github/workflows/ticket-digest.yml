@@ -1,9 +1,11 @@
 name: Open support enquiries, morning count
 
-# Emails the support inbox the number of enquiries still open, every morning
-# (C-18: the client asked for "a daily digest ... this is the number of
-# inquiries open"). The backend counts and decides; on a morning with nothing
-# open it sends nothing.
+# Emails the support inbox the number of enquiries still open, at 9am Sydney
+# time every day, weekends included (C-18: the client asked for "a daily
+# digest ... this is the number of inquiries open", and on 20 October said
+# "9am Sydney time" and "Daily everyday (weekends included)"). It goes on a
+# morning with nothing open as well. Whether it goes at all is System Emails'
+# switch for it, which the backend checks.
 #
 # A second run the same day sends a second count. That is left as it is: it
 # goes to one shared inbox, and the numbers it carries are true when sent.
@@ -14,12 +16,15 @@ name: Open support enquiries, morning count
 # thing it needs is the EMAIL_JOBS_TOKEN repository secret, which those jobs
 # already use, matching the backend setting of the same name.
 #
-# 22:07 UTC is 9:07 in Sydney while daylight saving is on (October to April)
-# and 8:07 outside it: before the working day, so the count is waiting when
-# the team starts. The odd minute dodges GitHub's top-of-hour scheduler spike.
+# The cron is read in Sydney time (timezone, below), so it stays 9am on both
+# sides of daylight saving; a plain cron is UTC and would drift to 8am in
+# April. 9:00 as the client asked, not an odd minute: GitHub says the start of
+# every hour is its busiest, so a run can start some minutes late, and under
+# heavy load a queued run can be dropped.
 on:
   schedule:
-    - cron: "7 22 * * *"
+    - cron: "0 9 * * *"
+      timezone: "Australia/Sydney"
   workflow_dispatch:
 
 jobs:

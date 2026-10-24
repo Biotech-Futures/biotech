@@ -1066,13 +1066,13 @@ class TicketSupportMessageView(APIView):
 class TicketDigestSendView(APIView):
     """The morning count of open enquiries, called by a scheduler (C-18).
 
-    .github/workflows/ticket-digest.yml calls this once a day with the email
-    jobs' shared token, in the same header as the platform's other scheduled
-    emails (apps.common.email_jobs), so it needs nothing configured that they
-    do not already have. The token is the whole of its access control: with
-    none set the endpoint answers 503 rather than standing open. What it
-    sends, and when it sends nothing, is emails.send_open_tickets_digest's
-    business.
+    .github/workflows/ticket-digest.yml calls this at 9am Sydney time every
+    day with the email jobs' shared token, in the same header as the
+    platform's other scheduled emails (apps.common.email_jobs), so it needs
+    nothing configured that they do not already have. The token is the whole
+    of its access control: with none set the endpoint answers 503 rather than
+    standing open. What it sends is emails.send_open_tickets_digest's
+    business; switched off on System Emails, it answers "sent": false.
     """
 
     authentication_classes = []

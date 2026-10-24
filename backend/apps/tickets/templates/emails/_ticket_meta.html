@@ -36,20 +36,8 @@ Named here because this is where the rule is explained; the test that keeps
 all three honest does not work from a list of places, it fills every field a
 requester can type into and looks for wherever the words come out.
 
-Every status is a pill since the designer's second round (D2-12, D2-21), in
-the colours the portal's badges use, so a status reads the same in the email
-and on the page: open pale green, in progress solid email green, pending user
-amber, resolved grey with a tick. The box around them is the one grey box for
-all four; the pill is what tells them apart. "Pending user" is the one status
-that means the requester has to act (the client asked for it to stand out,
-C-04), and it is the one warm colour. Style only: the words stay exactly the
-label the portal shows, and the tick is hidden from screen readers. The
-branches are on STATUS_KEY, the stored value, so rewording a label cannot
-silently drop its pill. Measured on their pills: #017151 on #D3ECE0 4.84:1,
-#ffffff on #307054 5.88:1, #7A5600 on #FFF4D2 6.05:1, #4F575C on #E6E8E9
-5.99:1; the ticket number #307054 on the #f4f7f5 box 5.45:1. Outlook for
-Windows does not support border-radius, so there a pill is a square box; the
-colours are what carry it.
+The status pill is built on its own, in _ticket_status_pill.html, and
+arrives here finished as STATUS_PILL; why, and its colours, are there.
 
 The address under the button is a real link and not plain text. Mail clients
 turn a bare URL into a link of their own and paint it their default blue, which
@@ -67,7 +55,7 @@ with it was rendered into a live email to a student.
                 <tr>
                   <td style="padding:16px 18px;">
                     <p style="margin:0; color:#307054; font-size:14px; line-height:1.55; font-weight:700;">
-                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; <span style="display:inline-block; padding:3px 12px; {% if STATUS_KEY == "pending_user" %}background:#FFF4D2; color:#7A5600;{% elif STATUS_KEY == "resolved" %}background:#E6E8E9; color:#4F575C;{% elif STATUS_KEY == "in_progress" %}background:#307054; color:#ffffff;{% else %}background:#D3ECE0; color:#017151;{% endif %} border-radius:999px; font-weight:700;">{% if STATUS_KEY == "resolved" %}<span aria-hidden="true">&#10003;&nbsp;</span>{% endif %}{{ STATUS_LABEL }}</span>{% if ASSIGNEE_LINE %} &nbsp;&middot;&nbsp; {{ ASSIGNEE_LINE }}{% endif %}
+                      {{ TICKET_NUMBER }} &nbsp;&middot;&nbsp; {{ STATUS_PILL|safe }}{% if ASSIGNEE_LINE %} &nbsp;&middot;&nbsp; {{ ASSIGNEE_LINE }}{% endif %}
                     </p>
                     <p style="margin:6px 0 0 0; color:#52645a; font-size:13px; line-height:1.55; overflow-wrap:anywhere;">
                       {{ TICKET_SUBJECT }}

@@ -847,7 +847,7 @@ class DispatchGuardTests(TicketEmailTestCase):
         Ticket.objects.filter(pk=ticket.pk).update(created_by=None)
         ticket.refresh_from_db()
 
-        with patch("apps.tickets.services.emails.send_async") as send:
+        with patch("apps.tickets.services.emails.send_system_email") as send:
             from apps.tickets.services import emails
             result = emails.send_ticket_resolved(ticket)
 

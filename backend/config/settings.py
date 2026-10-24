@@ -402,9 +402,12 @@ SUPPORT_EMAIL = "support@biotechfutures.org"
 # trace is an auth_email.send_failed log line (plus an internal note on the
 # ticket for the resolution email). Check the logs after changing either one.
 TICKET_FROM_EMAIL = f"{BRAND_NAME} <{SUPPORT_EMAIL}>"
-# Where the two emails about the queue go: a new enquiry, and the morning count
-# of what is still open (apps/tickets/services/emails.py, C-17 and C-18). The
-# designer's draft names support@; set this to send them somewhere else.
+# Where the three emails about the queue go: a new enquiry, a chat message the
+# AI screening flagged, and the morning count of what is still open
+# (apps/tickets/services/emails.py, C-17, C-18 and the client's 20 October
+# reply). The designer's draft names support@; set this to send them somewhere
+# else. They go from the "support" sender below unless System Emails picks
+# another.
 TICKET_SUPPORT_INBOX = config("TICKET_SUPPORT_INBOX", default=SUPPORT_EMAIL)
 
 # Second mailbox — the "unread messages" digest sends from here, NOT the default
@@ -442,6 +445,14 @@ EMAIL_SENDERS = {
         "address": "CONNECT_FROM_ADDRESS",
         "from_email": "CONNECT_DEFAULT_FROM_EMAIL",
         "login": "EMAIL_CONNECT_",
+    },
+    # support@ is an alias of the info@ mailbox (see TICKET_FROM_EMAIL above),
+    # so it signs in as the default account. The three emails to the support
+    # inbox go from it unless System Emails picks another.
+    "support": {
+        "address": "SUPPORT_EMAIL",
+        "from_email": "TICKET_FROM_EMAIL",
+        "login": None,
     },
 }
 

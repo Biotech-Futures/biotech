@@ -1,9 +1,13 @@
-"""The two emails to the support inbox (8 October client meeting).
+"""The three emails to the support inbox.
 
 E4, a new enquiry has come in (C-17: "we'd also want emails to go to our
 support inbox to say like there is a new inquiry"), and E5, the morning count
 of what is still open (C-18: "a daily digest ... this is the number of
-inquiries open"; every day, DEC-051). Both in the designer's M-27 and M-28.
+inquiries open"), from the 8 October meeting, in the designer's M-27 and M-28.
+On 20 October the client added E6 ("Please do cause an email to be triggered
+from the AI screening flags as well"), set E5 to "9am Sydney time" and "Daily
+everyday (weekends included)", and asked for them on System Emails ("Please
+ensure this email is integrated into the Systems email feature").
 """
 
 import json
@@ -22,7 +26,11 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.admin.services.system_email import get_email_template
 from apps.common import email_jobs
+from apps.services.email_registry import get_email_type, unknown_merge_tags
+from apps.services.models import SystemEmailLog, SystemEmailSettings, SystemEmailTemplate
+from apps.services.system_email import clean_email_body, sender_for
 
 from apps.tickets.models import (
     SupportScope,
@@ -38,6 +46,9 @@ User = get_user_model()
 
 DIGEST = "/api/v1/admin/tickets/digest/send/"
 
+SUPPORT_EMAILS = ("ticket_new_for_support", "ticket_flagged_for_support", "ticket_digest")
+REQUESTER_EMAILS = ("ticket_submitted", "ticket_reply", "ticket_resolved")
+
 
 def html_of(message) -> str:
     return message.alternatives[0][0]
@@ -48,6 +59,22 @@ def plain(text: str) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = text.replace("&nbsp;", " ").replace("&middot;", "·").replace("&#39;", "'")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def digest_rows(message) -> dict:
+    """The morning count's four numbers, by the label of their row."""
+    words = plain(html_of(message))
+    return {
+        label: int(re.search(rf"{label} [^0-9]*?(\d+)", words).group(1))
+        for label in ("Open", "In progress", "Pending user", "Of these, overdue")
+    }
+
+
+def flagged_message(sender):
+    """What the screening pipeline hands create_ticket_from_screening."""
+    return SimpleNamespace(
+        pk=42, group=SimpleNamespace(pk=7, group_name="Team Photosynthesis"), sender_user=sender
+    )
 
 
 class NewEnquiryEmailTests(TestCase):
@@ -148,22 +175,99 @@ class NewEnquiryEmailTests(TestCase):
             [m.to for m in mail.outbox], [["stella@example.com"], ["desk@example.com"]]
         )
 
-    def test_a_ticket_from_message_screening_sends_it_nowhere(self):
-        """The client's case was "when someone submits a ticket"."""
-        sender = User.objects.create_user(email="mia@example.com", password="pass1234")
-        message = SimpleNamespace(
-            pk=42, group=SimpleNamespace(pk=7, group_name="Team Photosynthesis"), sender_user=sender
-        )
-        verdict = SimpleNamespace(flagged=True, layer="rule", category="personal_contact", reason="x")
-        with self.captureOnCommitCallbacks(execute=True):
-            create_ticket_from_screening(message, verdict, "call me")
 
-        self.assertEqual([m.to for m in mail.outbox], [])
+class FlaggedMessageEmailTests(TestCase):
+    """E6. The client, 20 October: "Please do cause an email to be triggered
+    from the AI screening flags as well"."""
+
+    def setUp(self):
+        self.sender = User.objects.create_user(
+            email="mia@example.com", password="pass1234", first_name="Mia", last_name="Tran",
+        )
+        mail.outbox = []
+
+    def flag(self, text="Call me on 0400 111 222", layer="rule", execute=True):
+        verdict = SimpleNamespace(
+            flagged=True, layer=layer, category="personal_contact", reason="a phone number"
+        )
+        with self.captureOnCommitCallbacks(execute=execute) as callbacks:
+            ticket = create_ticket_from_screening(flagged_message(self.sender), verdict, text)
+        return ticket, callbacks
+
+    def test_a_flag_is_mailed_to_the_support_inbox_and_nowhere_else(self):
+        ticket, _ = self.flag()
+
+        self.assertEqual([m.to for m in mail.outbox], [[settings.TICKET_SUPPORT_INBOX]])
+        message = mail.outbox[0]
+        self.assertEqual(message.from_email, settings.TICKET_FROM_EMAIL)
+        self.assertEqual(
+            message.subject, f"BIOTech Connect: a chat message was flagged ({ticket.ticket_number})"
+        )
+
+    def test_it_says_what_happened_how_urgent_it_is_and_that_nobody_has_it(self):
+        ticket, _ = self.flag()
+        message = mail.outbox[0]
+
+        for half in (plain(html_of(message)), plain(message.body)):
+            with self.subTest(half=half[:40]):
+                self.assertIn(ticket.ticket_number, half)
+                self.assertIn(
+                    "The AI screening flagged a message in a group chat and opened an enquiry "
+                    "for it. It is not assigned to anyone yet.",
+                    half,
+                )
+                self.assertIn("Flagged content", half)
+                self.assertIn("Team Photosynthesis", half)
+        words = plain(html_of(message))
+        self.assertIn("A chat message was flagged", words)
+        self.assertIn("Category: Flagged content · Priority: Normal", words)
+        self.assertIn("Unassigned", words)
+
+    def test_a_flag_from_the_language_model_reads_as_high_priority(self):
+        self.flag(layer="llm")
+        self.assertIn("Priority: High", plain(html_of(mail.outbox[0])))
+        self.assertIn("Priority: High", mail.outbox[0].body)
+
+    def test_it_leaves_out_the_message_and_who_wrote_it(self):
+        self.flag(text="My number is 0400 111 222 and I live at 12 Hill St")
+        message = mail.outbox[0]
+
+        for half in (html_of(message), message.body):
+            for private in ("0400 111 222", "12 Hill St", "Mia Tran", "mia@example.com"):
+                self.assertNotIn(private, half)
+        self.assertIn("The message itself is not in this email.", plain(html_of(message)))
+
+    def test_the_button_opens_it_in_the_support_queue(self):
+        ticket, _ = self.flag()
+        html = html_of(mail.outbox[0])
+        expected = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/#/admin/tickets?ticket={ticket.pk}"
+
+        tags = re.findall(r'<(?:a\b[^>]*class="cta-link"|v:roundrect\b)[^>]*>', html)
+        self.assertEqual(len(tags), 2)
+        for tag in tags:
+            self.assertIn(f'href="{expected}"', tag)
+        self.assertIn("Open in the support queue", plain(html))
+
+    def test_it_waits_for_the_screening_batch_to_commit(self):
+        # A batch that rolls back must not have mailed anyone.
+        _, callbacks = self.flag(execute=False)
+        self.assertEqual(mail.outbox, [])
+        self.assertEqual(len(callbacks), 1)
+
+        callbacks[0]()
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_it_is_not_the_new_enquiry_email(self):
+        # E4 is for an enquiry someone raised; a flag has nobody behind it.
+        self.flag()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertNotIn("a new enquiry has come in", mail.outbox[0].subject)
 
 
 class OpenEnquiriesDigestTests(TestCase):
-    # 22:07 UTC on Thursday 8 October is 9:07 on Friday 9 October in Sydney.
-    NOW = datetime(2026, 10, 8, 22, 7, tzinfo=dt_timezone.utc)
+    # 22:00 UTC on Thursday 8 October is 9am on Friday 9 October in Sydney,
+    # when the schedule calls it.
+    NOW = datetime(2026, 10, 8, 22, 0, tzinfo=dt_timezone.utc)
 
     def setUp(self):
         self.requester = User.objects.create_user(
@@ -191,11 +295,7 @@ class OpenEnquiriesDigestTests(TestCase):
             return emails.send_open_tickets_digest(now=self.NOW)
 
     def rows(self, message):
-        words = plain(html_of(message))
-        return {
-            label: int(re.search(rf"{label} [^0-9]*?(\d+)", words).group(1))
-            for label in ("Open", "In progress", "Pending user", "Of these, overdue")
-        }
+        return digest_rows(message)
 
     def test_it_counts_what_is_still_open_and_how_much_of_it_is_overdue(self):
         self.ticket()
@@ -222,17 +322,33 @@ class OpenEnquiriesDigestTests(TestCase):
         self.send()
         words = plain(html_of(mail.outbox[0]))
         self.assertIn("Here is where the support queue stands this morning, Friday 9 October 2026.", words)
-        self.assertIn("We send this summary every morning while enquiries are open.", words)
+        self.assertIn("We send this summary every morning, weekends included.", words)
 
     def test_one_enquiry_is_one_enquiry(self):
         self.ticket()
         self.send()
         self.assertEqual(mail.outbox[0].subject, "BIOTech Connect: 1 enquiry is still open")
 
-    def test_nothing_open_sends_nothing(self):
+    def test_nothing_open_still_sends_a_count_of_zero(self):
+        # Jinqi, 21 October: "没有也要发"; the client's "Daily everyday".
         self.ticket(TicketStatus.RESOLVED)
-        self.assertEqual(self.send(), {"sent": False, "open": 0})
-        self.assertEqual(mail.outbox, [])
+
+        self.assertEqual(self.send(), {"sent": True, "open": 0, "overdue": 0})
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.subject, "BIOTech Connect: No enquiries are open")
+        self.assertEqual(
+            self.rows(message), {"Open": 0, "In progress": 0, "Pending user": 0, "Of these, overdue": 0}
+        )
+        self.assertIn("Open: 0", message.body)
+
+    def test_its_rows_are_named_as_the_portal_names_the_statuses(self):
+        # The template writes the three labels out (it is on System Emails,
+        # whose editor cannot keep a loop), so they have to stay the portal's.
+        self.assertEqual(
+            [TicketStatus.OPEN.label, TicketStatus.IN_PROGRESS.label, TicketStatus.PENDING_USER.label],
+            ["Open", "In progress", "Pending user"],
+        )
 
     def test_the_button_opens_the_support_queue(self):
         self.ticket()
@@ -312,9 +428,311 @@ class DigestWorkflowTests(SimpleTestCase):
         self.assertIn(f'-H "{email_jobs.HEADER}: ${{JOBS_TOKEN}}"', self.step["run"])
         self.assertIn(reverse("tickets_admin:digest-send"), self.step["run"])
 
+    def test_it_runs_at_9am_sydney_time_every_day(self):
+        # The client, 20 October: "9am Sydney time", "Daily everyday (weekends
+        # included)". Read in Sydney time, so daylight saving cannot move it.
+        # PyYAML reads the bare key `on` as True.
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        self.assertEqual(
+            triggers["schedule"], [{"cron": "0 9 * * *", "timezone": "Australia/Sydney"}]
+        )
+
     def test_it_reads_no_repository_variable(self):
         # main's scheduled jobs call the backend at its fixed address; the
         # repository has no variables to read.
         self.assertEqual(self.step["env"]["BACKEND_URL"], "https://api.biotechfutures.org")
         self.assertNotIn("vars.", yaml.safe_dump(self.workflow))
+
+
+class SupportEmailsOnSystemEmailsTests(TestCase):
+    """The client, 20 October: "Please ensure this email is integrated into
+    the Systems email feature", for the three to the support inbox; Jinqi,
+    22 October, for the three to the requester as well. All six are on it."""
+
+    NOW = OpenEnquiriesDigestTests.NOW
+
+    def setUp(self):
+        cache.clear()
+        self.requester = User.objects.create_user(
+            email="stella@example.com", password="pass1234", first_name="Stella", last_name="Nguyen",
+        )
+        self.agent = User.objects.create_user(
+            email="sam@example.com", password="pass1234", first_name="Sam", last_name="Lee",
+        )
+        SupportScope.objects.create(user=self.agent)
+        mail.outbox = []
+
+    def raise_enquiry(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            return lifecycle.create_ticket(
+                user=self.requester, category=TicketCategory.OTHER,
+                subject="My report will not upload", body="b",
+            )
+
+    def flag(self):
+        verdict = SimpleNamespace(flagged=True, layer="rule", category="personal_contact", reason="x")
+        with self.captureOnCommitCallbacks(execute=True):
+            return create_ticket_from_screening(flagged_message(self.requester), verdict, "text")
+
+    def digest(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            return emails.send_open_tickets_digest(now=self.NOW)
+
+    def to_inbox(self):
+        return [m for m in mail.outbox if m.to == [settings.TICKET_SUPPORT_INBOX]]
+
+    def sent(self) -> set:
+        """Which of the three reached the support inbox, by subject."""
+        found = set()
+        for message in self.to_inbox():
+            if "a new enquiry has come in" in message.subject:
+                found.add("ticket_new_for_support")
+            elif "a chat message was flagged" in message.subject:
+                found.add("ticket_flagged_for_support")
+            elif re.search(r"enquir(y is|ies are) (still )?open$", message.subject):
+                found.add("ticket_digest")
+        return found
+
+    def test_all_three_are_on_it_and_go_from_support(self):
+        for key in SUPPORT_EMAILS:
+            with self.subTest(key):
+                self.assertEqual(get_email_type(key).default_sender, "support")
+                self.assertEqual(sender_for(key).from_email, settings.TICKET_FROM_EMAIL)
+
+    def test_switching_one_off_there_stops_that_one_only(self):
+        for key in SUPPORT_EMAILS:
+            with self.subTest(key):
+                SystemEmailTemplate.objects.all().delete()
+                SystemEmailTemplate.objects.create(key=key, is_enabled=False)
+                mail.outbox = []
+
+                self.raise_enquiry()
+                self.flag()
+                result = self.digest()
+
+                self.assertEqual(self.sent(), set(SUPPORT_EMAILS) - {key})
+                # The requester's acknowledgement has a switch of its own.
+                self.assertIn(["stella@example.com"], [m.to for m in mail.outbox])
+                if key == "ticket_digest":
+                    self.assertEqual(result["sent"], False)
+                    self.assertEqual(result["reason"], "switched_off")
+
+    def test_pausing_every_system_email_stops_all_of_them(self):
+        switches = SystemEmailSettings.get()
+        switches.emails_enabled = False
+        switches.save()
+
+        ticket = self.raise_enquiry()
+        self.flag()
+        self.assertEqual(self.digest()["reason"], "switched_off")
+        with self.captureOnCommitCallbacks(execute=True):
+            lifecycle.resolve(ticket=ticket, actor=self.agent)
+
+        # The requester's three as well as the inbox's: all on System Emails.
+        self.assertEqual(mail.outbox, [])
+
+    def test_wording_saved_there_is_what_goes_out(self):
+        self.raise_enquiry()
+        SystemEmailTemplate.objects.create(
+            key="ticket_digest",
+            subject="Queue on {{ today }}: {{ open_total }} open",
+            body_html="<p>{{ headline }}. Overdue: {{ overdue }}.</p>",
+        )
+        mail.outbox = []
+
+        self.digest()
+
+        (message,) = self.to_inbox()
+        self.assertEqual(message.subject, "Queue on Friday 9 October 2026: 1 open")
+        self.assertIn("1 enquiry is still open. Overdue: 0.", plain(html_of(message)))
+        self.assertIn("1 enquiry is still open. Overdue: 0.", message.body)
+
+    def test_the_editor_starts_from_every_part_of_each_one(self):
+        # Their ticket box and button are includes; the editor has to render
+        # them too (apps.admin.services.system_email._render_content_block).
+        parts = {
+            "ticket_new_for_support": (
+                "{{ requester_name }}", "{{ assignment }}", "{{ category }}", "{{ urgency }}",
+                "{{ priority }}", "{{ ticket_number }}", "{{ status_pill }}", "{{ assignee }}",
+                "{{ ticket_subject }}", "{{ queue_link }}", "Open in the support queue",
+            ),
+            "ticket_flagged_for_support": (
+                "{{ assignment }}", "{{ category }}", "{{ priority }}", "{{ ticket_number }}",
+                "{{ status_pill }}", "{{ assignee }}", "{{ ticket_subject }}", "{{ queue_link }}",
+                "Open in the support queue", "The message itself is not in this email.",
+            ),
+            "ticket_digest": (
+                "{{ headline }}", "{{ today }}", "{{ open_count }}", "{{ in_progress_count }}",
+                "{{ pending_user_count }}", "{{ overdue }}", "{{ queue_link }}",
+                "Open the support queue",
+            ),
+            "ticket_submitted": (
+                "{{ greeting_name }}", "{{ expected_reply }}", "{{ ticket_number }}",
+                "{{ status_pill }}", "{{ ticket_subject }}", "{{ ticket_link }}", "Open this enquiry",
+            ),
+            "ticket_reply": (
+                "{{ greeting_name }}", "{{ next_step }}", "{{ ticket_number }}", "{{ status_pill }}",
+                "{{ ticket_subject }}", "{{ ticket_link }}", "Open this enquiry",
+            ),
+            "ticket_resolved": (
+                "{{ greeting_name }}", "{{ expected_reply }}", "{{ ticket_number }}",
+                "{{ status_pill }}", "{{ ticket_subject }}", "{{ ticket_link }}", "Open this enquiry",
+            ),
+        }
+        for key, expected in parts.items():
+            with self.subTest(key):
+                body = get_email_template(key)["data"]["defaultBody"]
+                for part in expected:
+                    self.assertIn(part, body)
+                self.assertEqual(unknown_merge_tags(key, body), set())
+
+    def test_saved_unchanged_from_the_editor_it_still_says_whether_anyone_has_it(self):
+        # Why that sentence arrives finished: an {% if %} in the template is
+        # always true in the editor, and the "nobody" wording would be gone.
+        body = clean_email_body(get_email_template("ticket_new_for_support")["data"]["defaultBody"])
+        SystemEmailTemplate.objects.create(key="ticket_new_for_support", body_html=body)
+
+        ticket = self.raise_enquiry()
+        self.assertIn("It is not assigned to anyone yet.", plain(html_of(self.to_inbox()[0])))
+
+        mail.outbox = []
+        Ticket.objects.filter(pk=ticket.pk).update(assignee=self.agent)
+        emails.send_new_ticket_to_support(ticket)
+        self.assertIn("It is assigned to Sam Lee.", plain(html_of(self.to_inbox()[0])))
+
+    def test_the_summary_saved_unchanged_from_the_editor_keeps_its_numbers(self):
+        body = clean_email_body(get_email_template("ticket_digest")["data"]["defaultBody"])
+        SystemEmailTemplate.objects.create(key="ticket_digest", body_html=body)
+        self.raise_enquiry()
+        mail.outbox = []
+
+        self.digest()
+
+        (message,) = self.to_inbox()
+        self.assertEqual(
+            digest_rows(message), {"Open": 1, "In progress": 0, "Pending user": 0, "Of these, overdue": 0}
+        )
+
+    def test_each_send_is_noted_in_its_log(self):
+        self.raise_enquiry()
+        self.flag()
+        self.digest()
+        for key in SUPPORT_EMAILS:
+            with self.subTest(key):
+                self.assertIsNotNone(SystemEmailLog.objects.get(key=key).last_sent_at)
+
+    def test_the_footer_names_the_mailbox_it_goes_from(self):
+        self.raise_enquiry()
+        self.assertIn(
+            "BIOTech Futures &lt;support@biotechfutures.org&gt;</a> to your address book", html_of(self.to_inbox()[0])
+        )
+
+        SystemEmailTemplate.objects.create(key="ticket_new_for_support", sender="info")
+        mail.outbox = []
+        self.raise_enquiry()
+        (message,) = self.to_inbox()
+        self.assertEqual(message.from_email, settings.DEFAULT_FROM_EMAIL)
+        self.assertIn("BIOTech Futures &lt;info@biotechfutures.org&gt;</a> to your address book", html_of(message))
+
+
+class RequesterEmailsOnSystemEmailsTests(TestCase):
+    """The three to whoever raised the enquiry, on System Emails since Jinqi
+    asked on 22 October ("那发给学生的那几封邮件也加进来吧")."""
+
+    def setUp(self):
+        cache.clear()
+        self.requester = User.objects.create_user(
+            email="stella@example.com", password="pass1234", first_name="Stella", last_name="Nguyen",
+        )
+        self.agent = User.objects.create_user(
+            email="sam@example.com", password="pass1234", first_name="Sam", last_name="Lee",
+        )
+        SupportScope.objects.create(user=self.agent)
+        mail.outbox = []
+
+    def raise_enquiry(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            ticket = lifecycle.create_ticket(
+                user=self.requester, category=TicketCategory.OTHER,
+                subject="My report will not upload", body="b",
+            )
+        lifecycle.claim(ticket=ticket, actor=self.agent)
+        return ticket
+
+    def reply(self, ticket, status=TicketStatus.IN_PROGRESS):
+        mail.outbox = []
+        with self.captureOnCommitCallbacks(execute=True):
+            lifecycle.add_support_reply_with_status(
+                ticket=ticket, actor=self.agent, body="Could you send the file again?", next_status=status,
+            )
+
+    def resolve(self, ticket):
+        mail.outbox = []
+        with self.captureOnCommitCallbacks(execute=True):
+            lifecycle.resolve(ticket=ticket, actor=self.agent)
+
+    def to_requester(self):
+        return [m for m in mail.outbox if m.to == ["stella@example.com"]]
+
+    def save_unchanged(self, key):
+        body = clean_email_body(get_email_template(key)["data"]["defaultBody"])
+        SystemEmailTemplate.objects.create(key=key, body_html=body)
+
+    def test_all_three_are_on_it_and_go_from_support(self):
+        for key in REQUESTER_EMAILS:
+            with self.subTest(key):
+                self.assertEqual(get_email_type(key).default_sender, "support")
+                self.assertEqual(sender_for(key).from_email, settings.TICKET_FROM_EMAIL)
+
+    def test_switching_the_acknowledgement_off_stops_it_and_nothing_else(self):
+        SystemEmailTemplate.objects.create(key="ticket_submitted", is_enabled=False)
+        self.raise_enquiry()
+        self.assertEqual(self.to_requester(), [])
+        # The support inbox still hears about it.
+        self.assertEqual([m.to for m in mail.outbox], [[settings.TICKET_SUPPORT_INBOX]])
+
+    def test_switching_the_reply_and_resolution_emails_off_stops_them(self):
+        ticket = self.raise_enquiry()
+        SystemEmailTemplate.objects.create(key="ticket_reply", is_enabled=False)
+        SystemEmailTemplate.objects.create(key="ticket_resolved", is_enabled=False)
+        self.reply(ticket)
+        self.resolve(ticket)
+        self.assertEqual(mail.outbox, [])
+
+    def test_wording_saved_there_is_what_goes_out(self):
+        SystemEmailTemplate.objects.create(
+            key="ticket_submitted",
+            subject="Got it: {{ ticket_number }}",
+            body_html="<p>Hi {{ greeting_name }}, {{ ticket_number }} is with us.</p>",
+        )
+        ticket = self.raise_enquiry()
+        (message,) = self.to_requester()
+        self.assertEqual(message.subject, f"Got it: {ticket.ticket_number}")
+        self.assertIn(f"Hi Stella, {ticket.ticket_number} is with us.", plain(html_of(message)))
+
+    def test_saved_unchanged_the_reply_still_says_the_right_next_step(self):
+        # Why the next step arrives finished: in the editor the template's
+        # branches would all have fallen to one of the three.
+        self.save_unchanged("ticket_reply")
+        ticket = self.raise_enquiry()
+
+        self.reply(ticket, status=TicketStatus.PENDING_USER)
+        self.assertIn("We have asked you for some more information.", plain(html_of(self.to_requester()[0])))
+
+        self.reply(ticket, status=TicketStatus.IN_PROGRESS)
+        self.assertIn(
+            "Open the enquiry to read it, and reply there if we have asked you for anything.",
+            plain(html_of(self.to_requester()[0])),
+        )
+
+    def test_saved_unchanged_the_resolution_email_still_shows_resolved_in_grey_with_a_tick(self):
+        # Why the pill arrives finished: in the editor it would have been the
+        # open pill's green for every status.
+        self.save_unchanged("ticket_resolved")
+        ticket = self.raise_enquiry()
+        self.resolve(ticket)
+        html = html_of(self.to_requester()[0])
+        self.assertIn("background:#E6E8E9; color:#4F575C;", html)
+        self.assertIn("&#10003;", html)
+        self.assertNotIn("background:#D3ECE0", html)
 

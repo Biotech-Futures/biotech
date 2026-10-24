@@ -1,0 +1,23 @@
+{% comment %}
+Every status is a pill since the designer's second round (D2-12, D2-21), in
+the colours the portal's badges use, so a status reads the same in the email
+and on the page: open pale green, in progress solid email green, pending user
+amber, resolved grey with a tick. The box around them is the one grey box for
+all four; the pill is what tells them apart. "Pending user" is the one status
+that means the requester has to act (the client asked for it to stand out,
+C-04), and it is the one warm colour. Style only: the words stay exactly the
+label the portal shows, and the tick is hidden from screen readers. The
+branches are on STATUS_KEY, the stored value, so rewording a label cannot
+silently drop its pill. Measured on their pills: #017151 on #D3ECE0 4.84:1,
+#ffffff on #307054 5.88:1, #7A5600 on #FFF4D2 6.05:1, #4F575C on #E6E8E9
+5.99:1; the ticket number #307054 on the #f4f7f5 box 5.45:1. Outlook for
+Windows does not support border-radius, so there a pill is a square box; the
+colours are what carry it.
+
+Rendered on its own by services/emails.py (_status_pill) and handed to
+_ticket_meta.html as STATUS_PILL, because the ticket emails are on System
+Emails. Its editor starts from each template with every value shown as its
+tag, where these branches all fall to the open style, so wording saved from
+there would show every status as open. As a value the pill is filled in at
+send time, from saved wording or the template alike.
+{% endcomment %}<span style="display:inline-block; padding:3px 12px; {% if STATUS_KEY == "pending_user" %}background:#FFF4D2; color:#7A5600;{% elif STATUS_KEY == "resolved" %}background:#E6E8E9; color:#4F575C;{% elif STATUS_KEY == "in_progress" %}background:#307054; color:#ffffff;{% else %}background:#D3ECE0; color:#017151;{% endif %} border-radius:999px; font-weight:700;">{% if STATUS_KEY == "resolved" %}<span aria-hidden="true">&#10003;&nbsp;</span>{% endif %}{{ STATUS_LABEL }}</span>

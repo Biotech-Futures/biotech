@@ -13,6 +13,11 @@ queue. Not the message: see send_new_ticket_to_support in services/emails.py.
 
 The requester's name is a field they can edit and can be long, so its line
 breaks anywhere, as the greeting in the requester emails does.
+
+On System Emails since 20 October, whose editor starts from this block with
+each value shown as its tag. So nothing in it branches on a value: whether
+anyone has it arrives as a finished sentence (ASSIGNMENT), and the button's
+words are written here rather than passed in.
 {% endcomment %}
               <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5;">
                 Hi support team,
@@ -23,14 +28,14 @@ breaks anywhere, as the greeting in the requester emails does.
               </h1>
 
               <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65; overflow-wrap:anywhere;">
-                {{ REQUESTER_NAME }} raised it in the Support Centre. {% if ASSIGNEE_NAME %}It is assigned to {{ ASSIGNEE_NAME }}.{% else %}It is not assigned to anyone yet.{% endif %}
+                {{ REQUESTER_NAME }} raised it in the Support Centre. {{ ASSIGNMENT }}
               </p>
 
               <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
                 Category: {{ CATEGORY_LABEL }} &nbsp;&middot;&nbsp; Urgency: {{ URGENCY_WORDS }} ({{ PRIORITY_LABEL }} priority)
               </p>
 
-{% include "emails/_ticket_meta.html" %}
+{% include "emails/_ticket_meta.html" with CTA_LABEL="Open in the support queue" %}
 
               <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
                 This is an automatic message from {{ BRAND_CONNECT }}.
