@@ -902,6 +902,30 @@ export function fetchPresentationSlides(): Promise<PresentationSlides> {
   return requestJson<PresentationSlides>('/api/v1/management/finalists/presentation-slides/')
 }
 
+/** When finalist teams stop being able to change and submit their entries. */
+export interface FinalistSubmissionsClose {
+  closes_at: string
+  is_open: boolean
+  /** Who set it; null when their account is gone. */
+  set_by: string | null
+  created_at: string
+}
+
+// GET /api/v1/management/finalists/submissions-close/ — the closing time in
+// force, or null while finalist submissions stay open.
+export function fetchFinalistSubmissionsClose(): Promise<{ close: FinalistSubmissionsClose | null }> {
+  return requestJson<{ close: FinalistSubmissionsClose | null }>('/api/v1/management/finalists/submissions-close/')
+}
+
+// POST /api/v1/management/finalists/submissions-close/ — a new closing time
+// (the newest is the one in force).
+export function saveFinalistSubmissionsClose(closesAt: string): Promise<{ close: FinalistSubmissionsClose | null }> {
+  return requestJson<{ close: FinalistSubmissionsClose | null }>('/api/v1/management/finalists/submissions-close/', {
+    method: 'POST',
+    body: JSON.stringify({ closes_at: closesAt })
+  })
+}
+
 // GET /api/v1/management/finalists/presentation-slides/{group_id}/file/ — a
 // team's slides, for a link: a PDF opens in the browser, anything else downloads.
 export function presentationSlidesUrl(groupId: number): string {

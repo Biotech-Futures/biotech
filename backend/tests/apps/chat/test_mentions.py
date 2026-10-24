@@ -97,6 +97,35 @@ class MentionWireupTests(TestCase):
             MessageMention.objects.filter(message_id=mid, mentioned_user=self.bob).exists()
         )
 
+    def test_mention_survives_the_word_filter(self):
+        # The word filter reads "@" and digits as letters, so the token
+        # "<@55555555>" reads "@55" as "ass". It must come through whole,
+        # posted or edited in. Such an id is far past any the suite reaches.
+        dana = get_user_model().objects.create_user(
+            id=55_555_555, email="dana-m@test.com", password="pw", first_name="Dana", last_name="D"
+        )
+        GroupMembership.objects.create(user=dana, group=self.group)
+
+        resp = self.client_alice.post(
+            self._post_url(),
+            {"message_text": f"hi <@{dana.id}>", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["message_text"], f"hi <@{dana.id}>")
+        self.assertTrue(
+            MessageMention.objects.filter(message_id=resp.data["id"], mentioned_user=dana).exists()
+        )
+
+        msg = Messages.objects.create(group=self.group, sender_user=self.alice, message_text="hi")
+        resp = self.client_alice.patch(
+            reverse("group-messages-detail", kwargs={"group_pk": self.group.id, "pk": msg.id}),
+            {"message_text": f"hi <@{dana.id}>"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertTrue(MessageMention.objects.filter(message=msg, mentioned_user=dana).exists())
+
     def test_mention_to_non_member_is_dropped(self):
         # outsider is in other_group, not self.group — mention must not insert.
         resp = self.client_alice.post(

@@ -3,6 +3,7 @@
 // and setting it as picking in its panel (or its ×) would.
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Root = VueWrapper<any>
@@ -45,4 +46,29 @@ export async function setPicker(root: Root, selector: string, value: string): Pr
   picker.vm.$emit('update:modelValue', value)
   picker.vm.$emit('change', value)
   await flushPromises()
+}
+
+/** A Management date and time (SydneyDateTimeFields) at `selector`. */
+const dateTimeFieldsAt = (root: Root, selector: string) => {
+  const found = root.find(selector)
+  if (!found.exists()) throw new Error(`No date and time at ${selector}`)
+  const fields = root.findAllComponents(SydneyDateTimeFields).find((candidate) => candidate.element === found.element)
+  if (!fields) throw new Error(`${selector} is not a Management date and time`)
+  return fields
+}
+
+/** What it holds: Sydney's "YYYY-MM-DDTHH:MM"; '' for none. */
+export function dateTimeFieldsValue(root: Root, selector: string): string {
+  return String(dateTimeFieldsAt(root, selector).props('modelValue') ?? '')
+}
+
+/** The earliest or latest it can be, as the page gave it. */
+export function dateTimeFieldsLimit(root: Root, selector: string, limit: 'min' | 'max'): string {
+  return String(dateTimeFieldsAt(root, selector).props(limit) ?? '')
+}
+
+/** Picks its date, then its time, as an admin does ('' empties it). */
+export async function setDateTimeFields(root: Root, selector: string, value: string): Promise<void> {
+  await setPicker(root, `${selector} .sydney-date-time__date`, value.slice(0, 10))
+  if (value) await setPicker(root, `${selector} .sydney-date-time__time`, value.slice(11, 16))
 }

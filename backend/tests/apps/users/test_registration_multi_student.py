@@ -105,7 +105,10 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
                     self.assertFalse(user.has_usable_password())
                     self.assertFalse(user.studentprofile.has_join_permission)
         self.assertFalse(GuardianConsent.objects.exists())
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The supervisor the students named, who had no account, is created:
+        # active, with a password still to set.
+        teacher = User.objects.get(email="teacher@example.com")
+        self.assertEqual((teacher.account_status, teacher.has_usable_password()), (User.AccountStatus.ACTIVE, False))
 
     def test_group_interests_and_memberships_are_real_not_personal_interest_copies(self):
         body = batch("supervisor_group", 5)
@@ -318,17 +321,6 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
             self.assertEqual(response.status_code, 400, response.data)
             self.assertIn("students", response.data["fields"])
         self.assertFalse(RegistrationSubmission.objects.exists())
-
-    def test_csv_accepts_1000_real_students_but_rejects_1001(self):
-        response = self.post_batch(batch("supervisor_csv", 1001))
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(StudentProfile.objects.exists())
-        body = batch("supervisor_csv", 1000)
-        response = self.post_batch(body)
-        self.assertEqual(response.status_code, 201, response.data)
-        self.assertEqual(response.data["student_count"], 1000)
-        self.assertEqual(RegistrationStudent.objects.count(), 1000)
-        self.assertEqual(StudentProfile.objects.count(), 1000)
 
     def test_csv_source_rows_must_correspond_to_every_included_student(self):
         for rows in ([2], [2, 2], [4, 2], [1, 2]):

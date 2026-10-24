@@ -166,15 +166,28 @@ def _persist_and_broadcast(
     """
     from .models import MessagePreview, Messages
 
-    try:
-        message = Messages.objects.only("id", "group_id").get(pk=message_id)
-    except Messages.DoesNotExist:
-        logger.info(
-            "skipping preview for missing message id=%s (deleted?)", message_id
-        )
-        return
-
     with transaction.atomic():
+        try:
+            # Re-check the moderation state while holding the row lock. A
+            # preview worker may finish after AI screening has suppressed the
+            # message; broadcasting its title/description would otherwise
+            # reveal part of hidden content to the rest of the group.
+            message = (
+                Messages.objects.select_for_update()
+                .only("id", "group_id", "is_suppressed", "deleted_at")
+                .get(pk=message_id)
+            )
+        except Messages.DoesNotExist:
+            logger.info(
+                "skipping preview for missing message id=%s (deleted?)", message_id
+            )
+            return
+        if message.is_suppressed or message.deleted_at is not None:
+            logger.info(
+                "skipping preview for moderated message id=%s", message_id
+            )
+            return
+
         MessagePreview.objects.update_or_create(
             message=message,
             defaults={

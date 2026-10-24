@@ -1,0 +1,31 @@
+{% comment %}
+The way back in: the pale green button and the address printed under it.
+
+Part of _ticket_meta.html, where the reasons for its markup and colours are
+written down, and split out so the support inbox's morning summary, which has
+no single ticket to show, can end on the same button. CTA_LABEL and CTA_URL
+change its words and link; without them it is "Open this enquiry" to the
+requester's own ticket page. firstof rather than the default filter: a
+filter's argument must exist, and the summary has no TICKET_URL to give.
+{% endcomment %}
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                  <td align="center" style="padding:24px 0 8px 0;">
+                    <!--[if mso]>
+                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{% firstof CTA_URL TICKET_URL %}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="12%" strokecolor="#007253" fillcolor="#C3EBCA">
+                      <w:anchorlock/>
+                      <center style="color:#007253;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;">{% firstof CTA_LABEL "Open this enquiry" %}</center>
+                    </v:roundrect>
+                    <![endif]-->
+                    <!--[if !mso]><!-- -->
+                    <a class="cta-link" href="{% firstof CTA_URL TICKET_URL %}" style="background:#C3EBCA; border:1px solid #007253; border-radius:6px; color:#007253; display:inline-block; font-size:16px; font-weight:700; line-height:1.2; padding:14px 28px; text-align:center; text-decoration:none; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+                      {% firstof CTA_LABEL "Open this enquiry" %}
+                    </a>
+                    <!--<![endif]-->
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:8px 0 0 0; color:#5c6860; font-size:12px; line-height:1.6; text-align:center;">
+                Or paste this into your browser: <a href="{% firstof CTA_URL TICKET_URL %}" style="color:#307054; text-decoration:underline; word-break:break-all;">{% firstof CTA_URL TICKET_URL %}</a>
+              </p>

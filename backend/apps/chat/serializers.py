@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import models
 from rest_framework import serializers
 from rest_framework.reverse import reverse
 
@@ -20,7 +21,22 @@ from .models import (
 )
 from .rbac import chat_recipients_qs
 from .services.storage import stored_chat_file
-from .utils import sanitize_text
+from .utils import message_contains_blacklisted
+
+
+BLOCKED_MESSAGE_ERROR = "This message contains blocked content and was not sent."
+
+
+def validate_chat_message_text(value: str, *, strip: bool = False) -> str:
+    """Reject configured sensitive words before anything is persisted.
+
+    Only the text around ``<@123>`` mention tokens is read: the filter reads
+    "@" and digits as letters, so a message mentioning user 555 would be
+    refused for "@55" (main's mention fix, e950c8bc, made for its masking)."""
+    text = (value or "").strip() if strip else (value or "")
+    if message_contains_blacklisted(text):
+        raise serializers.ValidationError(BLOCKED_MESSAGE_ERROR)
+    return text
 
 
 def is_admin_actor(user) -> bool:
@@ -261,12 +277,20 @@ class ReplyToSerializer(serializers.ModelSerializer):
         return sender.get_full_name() or sender.get_username() or ""
 
     def get_text(self, obj):
-        if obj.deleted_at is not None:
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        if obj.deleted_at is not None or (
+            obj.is_suppressed and obj.sender_user_id != viewer_id
+        ):
             return None
         return obj.message_text
 
     def get_deleted(self, obj):
-        return obj.deleted_at is not None
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
+        return obj.deleted_at is not None or (
+            obj.is_suppressed and obj.sender_user_id != viewer_id
+        )
 
 
 class ReplyToIdField(serializers.PrimaryKeyRelatedField):
@@ -298,10 +322,12 @@ class ReplyToIdField(serializers.PrimaryKeyRelatedField):
         group_pk = view.kwargs.get("group_pk")
         if group_pk is None:
             return Messages.objects.none()
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "id", None)
         return Messages.objects.filter(
             group_id=group_pk,
             deleted_at__isnull=True,
-        )
+        ).filter(models.Q(is_suppressed=False) | models.Q(sender_user_id=viewer_id))
 
 
 class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
@@ -314,6 +340,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
     deleted_by_is_admin = serializers.SerializerMethodField()
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    is_suppressed = serializers.BooleanField(read_only=True)
+    suppressed_at = serializers.DateTimeField(read_only=True)
     reactions = serializers.SerializerMethodField()
     # Counts are derived from the id lists so the two can never disagree —
     # see MessageReceiptFieldsMixin. Without the ids the FE cannot tell a
@@ -353,6 +381,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
+            "is_suppressed",
+            "suppressed_at",
             "attachments",
             "resources",
             "reactions",
@@ -401,11 +431,8 @@ class MessageSerializer(MessageReceiptFieldsMixin, serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Message must include text or at least one resource."
             )
-        # Sanitise BEFORE serializer.save() so the moderated text is what
-        # gets persisted. Doing this here keeps the rule decoupled from
-        # the view and ensures every write path goes through the same filter.
         if "message_text" in attrs:
-            attrs["message_text"] = sanitize_text(attrs["message_text"])
+            attrs["message_text"] = validate_chat_message_text(attrs["message_text"])
         return attrs
 
 
@@ -422,6 +449,8 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
     deleted_at = serializers.DateTimeField(read_only=True)
     is_deleted = serializers.BooleanField(read_only=True)
     is_edited = serializers.BooleanField(read_only=True)
+    is_suppressed = serializers.BooleanField(read_only=True)
+    suppressed_at = serializers.DateTimeField(read_only=True)
     attachments = serializers.SerializerMethodField()
     resources = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
@@ -458,6 +487,8 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
             "deleted_by_is_admin",
             "is_deleted",
             "is_edited",
+            "is_suppressed",
+            "suppressed_at",
             "attachments",
             "resources",
             "reactions",
@@ -532,7 +563,7 @@ class MessageAttachmentUploadSerializer(serializers.Serializer):
     )
 
     def validate_message_text(self, value):
-        return sanitize_text((value or "").strip())
+        return validate_chat_message_text(value, strip=True)
 
     def validate_uploaded_file(self, value):
         return validate_uploaded_file(
@@ -615,7 +646,7 @@ class MessageUpdateSerializer(serializers.ModelSerializer):
         fields = ["message_text"]
 
     def validate_message_text(self, value):
-        return sanitize_text(value)
+        return validate_chat_message_text(value)
 
     def update(self, instance, validated_data):
         from django.utils import timezone

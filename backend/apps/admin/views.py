@@ -50,6 +50,20 @@ from apps.admin.services.known_university import (
     list_known_universities,
     rename_known_university,
 )
+from apps.admin.services.plan_progress import get_plan_progress
+from apps.admin.services.plan_stage import (
+    create_plan_stage,
+    delete_plan_stage,
+    list_plan_stages,
+    update_plan_stage,
+)
+from apps.admin.services.plan_task import (
+    create_plan_task,
+    delete_plan_task,
+    get_plan_task,
+    list_plan_tasks,
+    update_plan_task,
+)
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
     create_group, update_group, remove_group_member, remove_group_message,
@@ -135,7 +149,7 @@ class UserListCreateView(APIView):
         return Response(result)
 
     def post(self, request):
-        result = create_user(request.data)
+        result = create_user(request.data, initiated_by=request.user)
         code = status.HTTP_201_CREATED if result.get(
             "data") else status.HTTP_400_BAD_REQUEST
         return Response(result, status=code)
@@ -353,9 +367,11 @@ class UserBulkDeleteView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        # force=True also purges records that PROTECT the user (chat messages,
-        # uploaded resources, workshops, match runs) — permanently. The admin
-        # portal gates this behind an explicit opt-in + typed confirmation.
+        # force=True also purges the records that PROTECT the user, permanently.
+        # Which records is written in services/user._purge_protecting_records and
+        # nowhere else — the copy that used to sit here went stale when tickets
+        # joined the purge. The admin portal gates this behind an explicit
+        # opt-in + typed confirmation.
         force = bool(request.data.get("force"))
         # "Select all matching" resolves the target set server-side from the
         # same filters the list uses, instead of shipping every id from the browser.
@@ -402,7 +418,7 @@ class UserBulkCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         # Raw rows, not validated_data: the service reads keys this serializer doesn't declare.
-        result = bulk_create_users(users, "", created_by=request.user)
+        result = bulk_create_users(users, "", initiated_by=request.user, created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -420,7 +436,11 @@ class UserBulkCsvView(APIView):
         import io
         reader = csv.DictReader(io.StringIO(csv_text))
         users = list(reader)
-        result = bulk_create_users(users, "", created_by=request.user)
+        # No serializer on this path, unlike the JSON twin above. The role
+        # whitelist lives in add_users_by_role instead, which both endpoints
+        # reach; putting a second copy here is what let the two drift far
+        # enough for one to refuse "support" and the other to grant it.
+        result = bulk_create_users(users, "", initiated_by=request.user, created_by=request.user)
         return Response(result, status=status.HTTP_201_CREATED)
 
 
@@ -2020,6 +2040,87 @@ class KnownUniversityDetailView(APIView):
 
     def delete(self, request, university_id):
         result, code = delete_known_university(university_id, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanStageListCreateView(APIView):
+    """GET/POST /api/v1/admin/plan-stage/ — ordered stage list / create stage."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(list_plan_stages())
+
+    def post(self, request):
+        result, code = create_plan_stage(request.data, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanStageDetailView(APIView):
+    """PATCH/DELETE /api/v1/admin/plan-stage/<id>/ — edit / soft-delete an empty stage."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def patch(self, request, stage_id):
+        result, code = update_plan_stage(stage_id, request.data, actor=request.user)
+        return Response(result, status=code)
+
+    def delete(self, request, stage_id):
+        result, code = delete_plan_stage(stage_id, actor=request.user)
+        if code == status.HTTP_204_NO_CONTENT:
+            return Response(status=code)
+        return Response(result, status=code)
+
+
+class AdminPlanTaskListCreateView(APIView):
+    """GET/POST /api/v1/admin/plan-task/ — paginated task list / create task.
+    GET accepts ``?page=&limit=&sortBy=position|name|due|createdAt&sortOrder=asc|desc``
+    and rejects invalid query values with 400."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        result, code = list_plan_tasks(
+            page=request.query_params.get("page"),
+            limit=request.query_params.get("limit"),
+            sort_by=request.query_params.get("sortBy"),
+            sort_order=request.query_params.get("sortOrder"),
+            stage_id=request.query_params.get("stage_id"),
+        )
+        return Response(result, status=code)
+
+    def post(self, request):
+        result, code = create_plan_task(request.data, actor=request.user)
+        return Response(result, status=code)
+
+
+class AdminPlanProgressView(APIView):
+    """GET /api/v1/admin/plan-task/progress/ - current-cohort progress matrix."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request):
+        return Response(get_plan_progress())
+
+
+class AdminPlanTaskDetailView(APIView):
+    """GET/PATCH/DELETE /api/v1/admin/plan-task/<id>/ — read / edit / soft-delete.
+    The literal ``plan-task/progress/`` route precedes this pattern."""
+
+    permission_classes = [IsAuthenticated, IsAdminScoped]
+
+    def get(self, request, task_id):
+        result, code = get_plan_task(task_id)
+        return Response(result, status=code)
+
+    def patch(self, request, task_id):
+        result, code = update_plan_task(task_id, request.data, actor=request.user)
+        return Response(result, status=code)
+
+    def delete(self, request, task_id):
+        result, code = delete_plan_task(task_id, actor=request.user)
+        if code == status.HTTP_204_NO_CONTENT:
+            return Response(status=code)
         return Response(result, status=code)
 
 

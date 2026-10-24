@@ -458,8 +458,9 @@ def _promote_oldest_waitlisted(event, *, exclude_user_ids):
 
 
 # ---------------------------------------------------------------------------
-# RSVP reminder dispatch. Triggered hourly by the GitHub Actions workflow
-# (.github/workflows/rsvp-reminders.yml) hitting the HMAC-guarded
+# RSVP reminder dispatch. Queued hourly by the backend's timer
+# (apps.management.scheduler), or by hand from
+# .github/workflows/rsvp-reminders.yml hitting the HMAC-guarded
 # POST /api/v1/events/admin/send-rsvp-reminders/ endpoint.
 # ---------------------------------------------------------------------------
 

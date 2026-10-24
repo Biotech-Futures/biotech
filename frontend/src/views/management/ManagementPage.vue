@@ -3,7 +3,7 @@
     <header class="page-header">
       <h1 class="page-title">Management</h1>
       <p class="page-subtitle">
-        Set deadlines, grant extensions, manage documents, releases and the new year.
+        Run each stage of the year from registration, challenge start, submission deadline, symposium and results to the new year.
       </p>
     </header>
 
@@ -91,7 +91,8 @@ const sections: ManagementSection[] = [
     icon: 'fa-chalkboard-user',
     pages: [
       { label: 'Notify Finalists', to: '/management/notify-finalists' },
-      { label: 'Finalist Presentation', to: '/management/finalist-presentation' }
+      { label: 'Finalist Presentation', to: '/management/finalist-presentation' },
+      { label: 'Finalist Submissions', to: '/management/finalist-submissions' }
     ]
   },
   {

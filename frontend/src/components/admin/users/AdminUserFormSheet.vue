@@ -37,8 +37,27 @@
             class="form-input app-input"
             :options="ROLE_OPTIONS"
             :disabled="!!fixedRole"
+            :aria-describedby="losesSupportAccess ? 'f-role-support-note' : undefined"
           />
         </div>
+        <!-- Moving an account off the support role revokes its queue access on
+             save (backend services/user.py, the role_moved branch, audited).
+             The server is right to do it, but nothing here said so; adminweb
+             was silent too (U6 C9). Said at the moment of the change, because
+             the save is the action and it cannot be taken back from here.
+             Not said for a move to admin, which keeps the queue (see
+             losesSupportAccess). aria-describedby is what carries the note to
+             a screen reader; aria-live on an element inserted together with
+             its text is announced unreliably, so it is only a second chance. -->
+        <p
+          v-if="losesSupportAccess"
+          id="f-role-support-note"
+          class="admin-users-form__note admin-users-form__note--support form-field--full"
+          aria-live="polite"
+        >
+          Saving with this role removes their access to the support queue. Tickets they own stay in
+          their name until somebody reassigns them.
+        </p>
       </div>
 
       <!-- Country, state and status, as the user panel's Account has them. -->
@@ -659,6 +678,22 @@ const stateOptions = computed<AppSelectOption[]>(() => form.countryId === undefi
   ...(inAustralia.value ? [] : [{ value: null, label: 'None' }]),
   ...formStates.value.map((state) => ({ value: state.id, label: state.stateName }))
 ])
+
+// Editing a support agent and picking another role. Case-folded like the
+// backend's role_moved check: a stored "Support" re-saved as "support" is not
+// a move and revokes nothing, so it must not be warned about either.
+//
+// Admin is not a loss. The save does delete their SupportScope row, but it
+// creates an AdminScope row in the same call, and is_support() is true for
+// every admin (backend apps/tickets/permissions.py), so the person keeps the
+// queue. Saying otherwise would warn an admin off a promotion that takes
+// nothing away.
+const losesSupportAccess = computed(() => {
+  if (!isEditing.value) return false
+  const stored = (props.user?.role ?? '').trim().toLowerCase()
+  const next = form.role.trim().toLowerCase()
+  return stored === 'support' && next !== 'support' && next !== 'admin'
+})
 
 const onInterestToggle = (option: string, event: Event) => {
   const checked = (event.target as HTMLInputElement).checked
@@ -1288,6 +1323,28 @@ const submitForm = async () => {
 
 .form-field--full {
   grid-column: 1 / -1;
+}
+
+/* Text in --teal on the sheet's own --white, both theme tokens that are
+   defined as a pair in light and dark (11:1 and 14:1). No tinted background:
+   a translucent one would hand the contrast to whatever paints underneath. */
+.admin-users-form__note {
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  color: var(--teal);
+  font-size: 0.85rem;
+}
+
+/* The support-role note keeps the pale ground the guardian and consent notes
+   brought (the first .admin-users-form__note rule) and loses the bar down its
+   left: the client called that side bar an "AI UI" look at the 2026-10-22
+   meeting (C-25), and the designer had every one on the support pages go.
+   Those two notes are another team's and keep theirs. After both rules, which
+   it ties with. */
+.admin-users-form__note--support {
+  border-left: 0;
 }
 
 .form-label {

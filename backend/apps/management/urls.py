@@ -44,6 +44,7 @@ from .views import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
+    FinalistSubmissionsCloseView,
     PresentationSlidesZipFileView,
     PresentationSlidesZipView,
     PresentationSlotDetailView,
@@ -178,6 +179,11 @@ urlpatterns = [
         name="presentation-allocation",
     ),
     # The slides each finalist team hands in for its presentation.
+    path(
+        "finalists/submissions-close/",
+        FinalistSubmissionsCloseView.as_view(),
+        name="finalist-submissions-close",
+    ),
     path(
         "finalists/presentation-slides/",
         PresentationSlidesView.as_view(),

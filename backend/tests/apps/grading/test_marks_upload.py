@@ -344,16 +344,16 @@ class BulkUploadMarksViewTests(_GradingFixture):
         # nothing the sheet carries can become invisible in the UI. Known
         # labels match case-insensitively to their canonical casing.
         upload = self._make_xlsx(
-            [self._with_categories(self._row(), "sustainable environment, sadfasd", "asdfasdf")],
+            [self._with_categories(self._row(), "sustainable environment, Space Exploration", "Mobile App")],
             header=self._category_header("product_category", "category_of_solution"),
         )
         resp = self.client.post(self.url, {"file": upload, "dry_run": "false"})
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         cats = GroupMarkingCategories.objects.get(group=self.group)
         self.assertEqual(cats.product_categories, ["Sustainable Environment", "Other"])
-        self.assertEqual(cats.product_category_other, "sadfasd")
+        self.assertEqual(cats.product_category_other, "Space Exploration")
         self.assertEqual(cats.solution_category, "Other")
-        self.assertEqual(cats.solution_category_other, "asdfasdf")
+        self.assertEqual(cats.solution_category_other, "Mobile App")
 
     def test_bare_other_ticks_other_and_the_other_prefix_is_plain_text(self):
         # "Other" alone ticks Other with no text; "Other: X" has no special

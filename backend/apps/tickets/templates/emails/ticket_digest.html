@@ -1,0 +1,76 @@
+{% extends "emails/base.html" %}
+
+{% block title %}{{ BRAND_CONNECT }}: {{ HEADLINE }}{% endblock %}
+
+{% block preheader %}{{ HEADLINE }}. Here is where the support queue stands this morning.{% endblock %}
+
+{% block content %}
+{% comment %}
+E5, to the support inbox at 9am Sydney time every day, weekends included, and
+on a day with nothing open as well (C-18; the client, 20 October), in the
+designer's M-28: a row a status in one grey box, the count on the right in
+the email green, and the overdue count in red because it is the one that
+needs somebody. Measured on the #f4f7f5 box: labels #1a2e23 13.34:1, hints
+#52645a 5.85:1, counts #307054 5.45:1, overdue #a71d2a 6.83:1.
+
+On System Emails since 20 October, whose editor starts from this block with
+each value shown as its tag. The rows are written out, one number each, and
+not a loop, because a loop has nothing to show there and the table would be
+gone from any wording saved from the editor. The three labels are the
+statuses' own labels in the portal (TicketStatus); a test keeps them equal.
+{% endcomment %}
+              <p style="margin:0 0 8px 0; color:#5c6860; font-size:14px; line-height:1.5;">
+                Hi support team,
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                {{ HEADLINE }}
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Here is where the support queue stands this morning, {{ TODAY }}.
+              </p>
+
+              <p style="margin:14px 0 22px 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                We send this summary every morning, weekends included.
+              </p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f7f5; border:1px solid #d8e1dc; border-radius:8px; border-collapse:separate;">
+                <tr>
+                  <td style="padding:9px 18px;">
+                    <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.2; font-weight:700;">Open</p>
+                    <p style="margin:0; color:#52645a; font-size:13px; line-height:1.4;">Nobody has picked it up yet</p>
+                  </td>
+                  <td align="right" style="padding:9px 18px; color:#307054; font-size:22px; line-height:1.2; font-weight:700; white-space:nowrap;">{{ OPEN_COUNT }}</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 18px; border-top:1px solid #d8e1dc;">
+                    <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.2; font-weight:700;">In progress</p>
+                    <p style="margin:0; color:#52645a; font-size:13px; line-height:1.4;">Someone is working on it</p>
+                  </td>
+                  <td align="right" style="padding:9px 18px; color:#307054; font-size:22px; line-height:1.2; font-weight:700; white-space:nowrap; border-top:1px solid #d8e1dc;">{{ IN_PROGRESS_COUNT }}</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 18px; border-top:1px solid #d8e1dc;">
+                    <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.2; font-weight:700;">Pending user</p>
+                    <p style="margin:0; color:#52645a; font-size:13px; line-height:1.4;">Waiting on the requester</p>
+                  </td>
+                  <td align="right" style="padding:9px 18px; color:#307054; font-size:22px; line-height:1.2; font-weight:700; white-space:nowrap; border-top:1px solid #d8e1dc;">{{ PENDING_USER_COUNT }}</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 18px; border-top:1px solid #d8e1dc;">
+                    <p style="margin:0; color:#1a2e23; font-size:15px; line-height:1.2; font-weight:700;">Of these, overdue</p>
+                    <p style="margin:0; color:#52645a; font-size:13px; line-height:1.4;">Longer than its priority allows</p>
+                  </td>
+                  <td align="right" style="padding:9px 18px; color:#a71d2a; font-size:22px; line-height:1.2; font-weight:700; white-space:nowrap; border-top:1px solid #d8e1dc;">{{ OVERDUE }}</td>
+                </tr>
+              </table>
+
+{% include "emails/_ticket_button.html" with CTA_LABEL="Open the support queue" %}
+
+              <p style="margin:22px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                This is an automatic message from {{ BRAND_CONNECT }}.
+              </p>
+{% endblock %}
+
+{% block footer_note %}{% include "emails/_ticket_footer_note.html" %}{% endblock %}
