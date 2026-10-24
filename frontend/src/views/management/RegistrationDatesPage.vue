@@ -80,11 +80,7 @@ import {
 const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
-<<<<<<< HEAD
-// As the server has them, and as the form has them (local, timezone-less).
-=======
 // As the server has them, and as the form has them (Sydney's time).
->>>>>>> admin-management
 type SavedDates = Pick<RegistrationWindow, 'opens_at' | 'closes_at' | 'set_by' | 'updated_at' | 'closed_until_set'>
 const saved = ref<SavedDates>({ opens_at: null, closes_at: null })
 const opensLocal = ref('')

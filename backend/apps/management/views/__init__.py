@@ -19,10 +19,7 @@ from .presentation import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
-<<<<<<< HEAD
-=======
     FinalistSubmissionsCloseView,
->>>>>>> admin-management
     PresentationSlidesZipFileView,
     PresentationSlidesZipView,
     PresentationSlotDetailView,
@@ -109,10 +106,7 @@ __all__ = [
     "PresentationResponsesView",
     "PresentationSlidesFileView",
     "PresentationSlidesView",
-<<<<<<< HEAD
-=======
     "FinalistSubmissionsCloseView",
->>>>>>> admin-management
     "PresentationSlidesZipFileView",
     "PresentationSlidesZipView",
     "PresentationSlotDetailView",

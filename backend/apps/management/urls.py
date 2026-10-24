@@ -44,10 +44,7 @@ from .views import (
     PresentationResponsesView,
     PresentationSlidesFileView,
     PresentationSlidesView,
-<<<<<<< HEAD
-=======
     FinalistSubmissionsCloseView,
->>>>>>> admin-management
     PresentationSlidesZipFileView,
     PresentationSlidesZipView,
     PresentationSlotDetailView,

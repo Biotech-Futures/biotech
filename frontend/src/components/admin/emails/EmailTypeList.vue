@@ -151,7 +151,12 @@ const SECTION_OF: Record<string, string> = {
 }
 const sectionOf = (group: string) => SECTION_OF[group] ?? ''
 // The groups set as subheadings under Registration.
-const SUBHEADINGS = new Set(['Self registration', 'Supervisor registration'])
+const SUBHEADINGS = new Set([
+  'Self registration',
+  'Registered by student',
+  'Registered by supervisor',
+  'Registered by admin'
+])
 
 // The first email shown of its group, or of its section.
 const startsGroup = (index: number) =>

@@ -190,79 +190,6 @@
         </button>
         to register your students again.
       </p>
-      <!-- A supervisor from an earlier year comes back by confirming their email. -->
-      <p v-if="!invitationToken" class="supervisor-guidance supervisor-guidance--returning">
-        Supervised in an earlier year?
-        <button type="button" class="supervisor-guidance__action" @click="startReturningSupervisor">
-          Confirm your email
-        </button>
-        to register your students again.
-      </p>
-    </section>
-
-    <!-- A supervisor back for a new year: Start new year deactivated their
-         account, so a code to their email brings it back and signs them in,
-         to register their students. -->
-    <section
-      v-else-if="!journey && selectionStage === 'returningSupervisor'"
-      class="setup-layout"
-      aria-labelledby="returning-supervisor-title"
-    >
-      <button type="button" class="btn btn-outline back-button setup-back" @click="backToRoleSelection">
-        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Roles
-      </button>
-      <header class="page-header">
-        <h1 id="returning-supervisor-title" class="page-title">Supervising Again</h1>
-      </header>
-      <form class="returning-supervisor" novalidate @submit.prevent="submitReturningSupervisor">
-        <p class="returning-supervisor__intro">
-          Enter the email you supervised with. We'll email you a code: entering it brings your
-          account back and signs you in, to register your students.
-        </p>
-        <RegistrationTextField
-          id="returning-supervisor-email"
-          v-model="returningSupervisor.email"
-          label="Your email"
-          type="email"
-          autocomplete="email"
-          :disabled="returningSupervisor.codeSent"
-          required
-          wide
-        />
-        <RegistrationTextField
-          v-if="returningSupervisor.codeSent"
-          id="returning-supervisor-code"
-          v-model="returningSupervisor.code"
-          label="Code"
-          hint="The 6-digit code in the email we sent you."
-          autocomplete="one-time-code"
-          required
-        />
-        <p v-if="returningSupervisor.codeSent" class="returning-supervisor__note" role="status">
-          If that's a supervisor's email, we've emailed it a code.
-        </p>
-        <div v-if="returningSupervisor.error" class="server-error" role="alert">
-          <span>{{ returningSupervisor.error }}</span>
-        </div>
-        <div class="returning-supervisor__actions">
-          <button type="submit" class="primary-action" :disabled="returningSupervisor.busy">
-            {{ returningSupervisor.codeSent ? 'Confirm' : 'Email Me a Code' }}
-          </button>
-          <button
-            v-if="returningSupervisor.codeSent"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="returningSupervisor.busy"
-            @click="changeReturningEmail"
-          >
-            Use Another Email
-          </button>
-        </div>
-      </form>
-      <p class="supervisor-guidance">
-        New to supervising? Contact
-        <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
-      </p>
     </section>
 
     <!-- A supervisor back for a new year: Start new year deactivated their
@@ -3724,13 +3651,6 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
-<<<<<<< HEAD
-.supervisor-guidance--returning {
-  margin-top: 8px;
-}
-
-=======
->>>>>>> admin-management
 /* Confirm your email: a link in the sentence, as the guidance's email is. */
 .supervisor-guidance__action {
   padding: 0;

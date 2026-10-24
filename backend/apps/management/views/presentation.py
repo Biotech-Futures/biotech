@@ -311,11 +311,7 @@ def _read_slides(handed_in: list):
 
 
 def _zip_name() -> str:
-<<<<<<< HEAD
-    return f"{current_cohort()}_Finalist_Slides.zip"
-=======
     return f"{current_cohort()}_BTF_Finalist_Slides.zip"
->>>>>>> admin-management
 
 
 def _zip_key() -> str:
@@ -330,11 +326,7 @@ class PresentationSlidesZipView(APIView):
     Slides that can't be read leave a "_MISSING.txt" note in their place.
     404 until any team's are in.
 
-<<<<<<< HEAD
-    Shape: {"file_name": "2026_Finalist_Slides.zip"}
-=======
     Shape: {"file_name": "2026_BTF_Finalist_Slides.zip"}
->>>>>>> admin-management
     """
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]

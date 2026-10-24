@@ -50,11 +50,7 @@ describe('Challenge Start', () => {
     expect(wrapper.get('.card-title').text()).toBe('Challenge Start')
     // Then what supervisors see, moved here from Late Registration.
     expect(wrapper.get('.supervisor-pages__title').text()).toBe('Pages Visibility')
-<<<<<<< HEAD
-    expect(wrapper.get('[data-test="challenge-start-state"]').text()).toContain('27/07/2026 at 23:59')
-=======
     expect(wrapper.get('[data-test="challenge-start-state"]').text()).toContain('27/07/2026 at 23:59 AEST')
->>>>>>> admin-management
     expect(wrapper.get('[data-test="challenge-start-set-by"]').text()).toMatch(/^Set by Test Admin on /)
     // Its date and time apart, in Sydney's time, its clock named.
     expect(dateTimeFieldsValue(wrapper, '[data-test="challenge-start-date"]')).toBe('2026-07-27T23:59')

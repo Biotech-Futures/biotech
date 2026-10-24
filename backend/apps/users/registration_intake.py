@@ -897,12 +897,9 @@ def register(request):
             from .views import _registered_by
             if legacy:
                 provenance[0] = _registered_by(raw["body"].get("RegisteredBy"))
-<<<<<<< HEAD
-=======
             # A supervisor a student names who has no account yet is created
             # now, so the students are theirs straight away.
             new_supervisor = create_nominated_supervisor(supervisor, students[0]) if named_supervisor else None
->>>>>>> admin-management
             lookups = SubmissionLookups()
             users = [
                 save_student(item, supervisor, now, registered_by=registered_by, lookups=lookups)
