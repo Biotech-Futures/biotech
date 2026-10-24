@@ -161,7 +161,7 @@ def start_check(request) -> tuple[dict, int]:
     SessionAuthentication().enforce_csrf(request)
     if not isinstance(request.data, dict):
         raise serializers.ValidationError({"detail": "Provide a registration object."})
-    parser = IntakeInput(data=request.data, context={"legacy": False, "addresses_only": True})
+    parser = IntakeInput(data=request.data, context={"legacy": False, "addresses_only": True, "email_precheck": True})
     if not parser.is_valid():
         errors = error_fields(parser.errors)
         raise serializers.ValidationError({key.removeprefix("payload."): value for key, value in errors.items()})

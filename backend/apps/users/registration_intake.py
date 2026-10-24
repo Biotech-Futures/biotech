@@ -257,6 +257,7 @@ class IntakeInput(StrictInput):
             and not self.context.get("legacy")
             and not self.context.get("addresses_only")
             and "supervisor" not in payload
+            and not self.context.get("email_precheck")
         ):
             errors["payload.supervisor.firstName"] = "Enter the supervisor first name."
             errors["payload.supervisor.lastName"] = "Enter the supervisor last name."
