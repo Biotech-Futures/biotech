@@ -19,9 +19,13 @@ is reconciled with current main and the newer intake contract.
 | `supervisor_group` | 2-5 | Current supervisor session/profile; real group and shared interests |
 | `supervisor_csv` | 1-1000 | Current supervisor session/profile; atomic batch with original CSV row numbers |
 
-Supervisor identity is resolved from the session and its existing profile,
-never from a payload claim. A current supervisor role (or staff/admin authority)
-and an existing supervisor profile are required. Anonymous, suspended/deactivated
+Supervisor identity is resolved from the session and its existing profile.
+An admin without a supervisor profile must select an existing supervisor using
+`payload.supervisorEmail`; omitting the email is rejected. The supervisor list is
+an autocomplete aid, not an exhaustive list of accepted profiles. A valid email
+can be entered manually if the list is unavailable or omits the supervisor;
+the backend checks that a `SupervisorProfile` exists for that email. A current
+supervisor role (or staff/admin authority) is required. Anonymous, suspended/deactivated
 or unauthorized users cannot use supervisor journeys.
 A student's registration never grants the person sending it the supervisor
 role. The supervisor a student names gets it only when their email has no
@@ -90,18 +94,20 @@ not bypass the window for a team or supervisor batch.
       "overrides": {}
     }],
     "source": {"method": "student_individual"},
-    "supervisorMode": "school",
     "supervisor": {
       "firstName": "Sam", "lastName": "Teacher",
-      "email": "teacher@example.com", "school": "Example High"
+      "email": "teacher@example.com"
     }
   }
 }
 ```
 
-The nominated supervisor is required for public individual/team intake; mode defaults to
-`school`. `parent` mode permits a blank supervisor school, but the supervisor
-must match the named guardian. Guardian contact is always required for
+A supervisor's first name, last name and valid email are required for public
+individual intake and creating a student group. Missing, blank and whitespace-only
+values are rejected. Joining by `group.joinCode` inherits the group's assigned
+supervisor or original recorded nomination; a group with neither cannot accept
+a registration. Nomination records contact details and does not create a
+supervisor account or grant a role. Guardian contact is always required for
 self-registration and for a team's creator. Supervisor journeys omit the
 supervisor object; each complete student may set `guardianDeferred:true`.
 Teams/groups supply `group:{"interests":[...]}` and empty personal-interest
@@ -486,7 +492,12 @@ QuickEmailVerification's free sandbox, which answers by the test address used
 ## Compatibility and deployment
 
 Existing `{body: ...}` student callers keep the same endpoint and HTTP 200
-body echo on first success. They now receive real validation and the same
+body echo on first success. **SP2 introduces a required-field change:** legacy
+callers must now send non-blank `SupervisorEmail`, `SupervisorFirstName` and
+`SupervisorSurname`, with a valid supervisor email. Bodies omitting these details
+are rejected with HTTP 400 field errors before any student is saved. Update
+legacy integrations before deploying SP2; the HTTP 200 body echo remains for
+valid first submissions. They now receive real validation and the same
 registration-window/invitation gate. Anonymous legacy submissions retain
 their historical CSRF behavior; authenticated legacy writes still require
 session CSRF. Optional idempotency keys return a receipt on unchanged retry.

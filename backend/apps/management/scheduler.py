@@ -158,7 +158,12 @@ _start_lock = threading.Lock()
 
 def enabled() -> bool:
     """Switched on, and not a test run."""
-    return bool(getattr(settings, "SCHEDULER_ENABLED", False)) and "test" not in sys.argv[1:2]
+    executable = sys.argv[0].rsplit("/", 1)[-1]
+    return (
+        bool(getattr(settings, "SCHEDULER_ENABLED", False))
+        and executable not in {"pytest", "py.test"}
+        and "test" not in sys.argv[1:2]
+    )
 
 
 def _loop() -> None:
