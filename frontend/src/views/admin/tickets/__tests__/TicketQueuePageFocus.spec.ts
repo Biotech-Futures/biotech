@@ -2,6 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { pickAppSelect } from '@/__tests__/appSelect'
 import { pureAgent } from '@/__tests__/supportAccountFixtures'
 import type { TicketQueue, TicketRow } from '@/utils/ticketAgentSchema'
 
@@ -168,7 +169,8 @@ function panel() {
 describe('focus after a bulk assign goes through', () => {
   async function pickAndFocusAssign() {
     await w().get('input[aria-label="Select SUP-2026-00007"]').setValue(true)
-    await w().get('select[aria-label="Assign to"]').setValue('9')
+    // The bulk bar's AppSelect (C-29); Sam Reid is the one agent, id 9.
+    await pickAppSelect(w(), 'input[aria-label="Assign to"]', 'Sam Reid')
     const assign = w()
       .findAll<HTMLButtonElement>('button')
       .find((b) => b.text() === 'Assign')!

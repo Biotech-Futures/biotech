@@ -8,19 +8,19 @@
              keyboard focus to the top of the document, and a size picked
              mid-load only starts a fresh load: the page's stale-response
              token throws the older answer away. -->
-        <select
+        <!-- The platform's own dropdown (AppSelect) since the 2026-10-22
+             client meeting (C-29). It shows the value it is given, so it
+             names the size the page says is in force rather than the choice
+             last clicked. -->
+        <AppSelect
           v-if="!customMode"
           :id="sizeId"
-          ref="selectEl"
-          :value="pageSize"
+          :model-value="String(pageSize)"
           class="audit-pager__select"
+          :options="sizeChoices"
+          :searchable="false"
           @change="pick"
-        >
-          <option v-for="option in sizeOptions" :key="option" :value="option">
-            {{ option }} / page
-          </option>
-          <option :value="CUSTOM">Custom…</option>
-        </select>
+        />
         <template v-else>
           <input
             :id="sizeId"
@@ -82,8 +82,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
-import '@/components/support/ticketControls.css'
 
+import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { pageItems } from './pageItems'
 
 // The React control, presets and custom box both
@@ -124,7 +124,8 @@ const emit = defineEmits<{
 }>()
 
 const sizeId = useId()
-const selectEl = ref<HTMLSelectElement | null>(null)
+// The dropdown's own field, which takes focus as the select did.
+const focusPresets = () => document.getElementById(sizeId)?.focus()
 const inputEl = ref<HTMLInputElement | null>(null)
 
 // A size that is not a preset opens on the number box, the one control that
@@ -141,6 +142,11 @@ const sizeOptions = computed(() =>
     : [...PAGE_SIZE_PRESETS, props.pageSize].sort((a, b) => a - b)
 )
 
+const sizeChoices = computed<AppSelectOption[]>(() => [
+  ...sizeOptions.value.map((option) => ({ value: String(option), label: `${option} / page` })),
+  { value: CUSTOM, label: 'Custom…' }
+])
+
 // Keep the box in step when the size changes from outside, and go back to the
 // presets whenever the size in force is one of them: a custom 300 comes back
 // from the server as 100. When that swap takes away the box the reader was
@@ -155,12 +161,12 @@ watch(
     customMode.value = false
     if (!hadFocus) return
     await nextTick()
-    selectEl.value?.focus()
+    focusPresets()
   }
 )
 
-async function pick(event: Event) {
-  const choice = (event.target as HTMLSelectElement).value
+async function pick(value: AppSelectValue) {
+  const choice = String(value)
   if (choice === CUSTOM) {
     customMode.value = true
     await nextTick()
@@ -168,14 +174,11 @@ async function pick(event: Event) {
     inputEl.value?.select()
     return
   }
+  // The dropdown goes on naming the size the page says is in force, which is
+  // what it is given, not the choice last clicked. They differ when the pick
+  // changes nothing on the page: asking for 200 again while the server serves
+  // 100 starts no load, and the box stays on 100.
   emit('page-size-change', Number(choice))
-  // Controlled, the way the React Select was: the select names the size the
-  // page says is in force, not the option last clicked. They differ when the
-  // pick changes nothing on the page. Asking for 200 again while the server
-  // serves 100 starts no load and so no re-render, and without this the
-  // select would sit on 200 over a page of 100 rows.
-  await nextTick()
-  if (selectEl.value) selectEl.value.value = String(props.pageSize)
 }
 
 function typed(event: Event) {
@@ -194,7 +197,7 @@ async function backToPresets() {
   // goes back to the first of them, as React did.
   if (!isPreset(props.pageSize)) emit('page-size-change', PAGE_SIZE_PRESETS[0]!)
   await nextTick()
-  selectEl.value?.focus()
+  focusPresets()
 }
 
 const items = computed(() => pageItems(props.page, props.totalPages))
@@ -274,14 +277,9 @@ function go(target: number, atEdge: boolean) {
   font-size: 0.875rem;
 }
 
-/* The thin chevron from ticketControls.css in place of the browser's. */
+/* AppSelect draws the chevron and the list. */
 .audit-pager__select {
   width: 7rem;
-  appearance: none;
-  padding-right: 2rem;
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
 }
 
 .audit-pager__custom {
@@ -345,7 +343,7 @@ function go(target: number, atEdge: boolean) {
    redefine: 2.79:1 on the dark surface, under the 3:1 a focus indicator
    needs. --mint-green is 6.13:1 there. */
 :root[data-theme='dark'] .audit-pager__btn:focus-visible,
-:root[data-theme='dark'] .audit-pager__select:focus-visible,
+:root[data-theme='dark'] .audit-pager__select:has(:focus-visible),
 :root[data-theme='dark'] .audit-pager__custom:focus-visible {
   outline-color: var(--mint-green);
 }

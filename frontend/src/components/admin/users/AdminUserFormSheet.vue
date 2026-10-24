@@ -52,7 +52,7 @@
         <p
           v-if="losesSupportAccess"
           id="f-role-support-note"
-          class="admin-users-form__note form-field--full"
+          class="admin-users-form__note admin-users-form__note--support form-field--full"
           aria-live="polite"
         >
           Saving with this role removes their access to the support queue. Tickets they own stay in
@@ -1335,6 +1335,16 @@ const submitForm = async () => {
   border-radius: 6px;
   color: var(--teal);
   font-size: 0.85rem;
+}
+
+/* The support-role note keeps the pale ground the guardian and consent notes
+   brought (the first .admin-users-form__note rule) and loses the bar down its
+   left: the client called that side bar an "AI UI" look at the 2026-10-22
+   meeting (C-25), and the designer had every one on the support pages go.
+   Those two notes are another team's and keep theirs. After both rules, which
+   it ties with. */
+.admin-users-form__note--support {
+  border-left: 0;
 }
 
 .form-label {

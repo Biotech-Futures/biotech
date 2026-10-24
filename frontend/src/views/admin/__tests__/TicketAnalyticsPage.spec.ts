@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 
 import TicketAnalyticsPage from '@/views/admin/tickets/TicketAnalyticsPage.vue'
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
+import { dimensionLabel } from '@/components/admin/tickets/analytics/analyticsFormat'
 import { ApiError } from '@/utils/apiError'
 import { fetchAssignees, fetchTicketAnalytics } from '@/utils/ticketAgentAPI'
 import { ticketAnalyticsSchema, type AssigneeOption, type TicketAnalytics } from '@/utils/ticketAgentSchema'
@@ -84,10 +86,14 @@ async function openPage() {
   return wrapper
 }
 
-const breakdown = () => wrapper!.find<HTMLSelectElement>('#ticket-analytics-dimension')
+// The platform's AppSelect since the 2026-10-22 client meeting (C-29), whose
+// field carries the id. Picked by the words on a choice, which are the
+// dimension's own name in words (dimensionLabel).
+const BREAKDOWN = '#ticket-analytics-dimension'
+const breakdown = () => wrapper!.find<HTMLInputElement>(BREAKDOWN)
 
 async function chooseDimension(value: string) {
-  await breakdown().setValue(value)
+  await pickAppSelect(wrapper!, BREAKDOWN, dimensionLabel(value))
   await flushPromises()
 }
 
@@ -475,7 +481,7 @@ describe('TicketAnalyticsPage', () => {
     await openPage()
 
     expect(wrapper!.find('label[for="ticket-analytics-dimension"]').text()).toBe('Break down by')
-    expect(breakdown().findAll('option').map((option) => option.text())).toEqual([
+    expect(await appSelectLabels(wrapper!, BREAKDOWN)).toEqual([
       'Region',
       'User type',
       'Category',
@@ -634,7 +640,7 @@ describe('TicketAnalyticsPage', () => {
     await flushPromises()
 
     expect(wrapper!.find('[role="alert"]').text()).toBe('from must be earlier than to.')
-    expect(breakdown().element.selectedOptions[0]?.textContent?.trim()).toBe('Priority')
+    expect(appSelectText(wrapper!, BREAKDOWN)).toBe('Priority')
   })
 
   it('blanks the cards while a new window loads, rather than showing the old numbers under it', async () => {

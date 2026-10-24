@@ -149,7 +149,6 @@ watch(() => route.params.id, load)
   --ticket-rule: #e6eae8;
   --ticket-wait: #fff4d2;
   --ticket-wait-ink: #7a5600;
-  --ticket-wait-edge: #e0b252;
   --ticket-fact: #ffffff;
   --ticket-fact-edge: #e3e7e5;
   --ticket-fact-ink: #174243;
@@ -165,7 +164,6 @@ watch(() => route.params.id, load)
   --ticket-rule: #2b3936;
   --ticket-wait: #3f3a17;
   --ticket-wait-ink: #fbbf24;
-  --ticket-wait-edge: #fbbf24;
   --ticket-fact: #1d2826;
   --ticket-fact-edge: #2b3936;
   --ticket-fact-ink: #e6efed;
@@ -274,15 +272,16 @@ watch(() => route.params.id, load)
   font-weight: 700;
 }
 
-/* The one thing a requester has to act on, so it is drawn to be seen: a bar
-   down the left, a reply arrow and bold text, in the pending user amber. */
+/* The one thing a requester has to act on, so it is drawn to be seen: a reply
+   arrow and bold text on the pending user amber. The first redesign round also
+   ran a 4px bar down its left; the client asked for that to go at the
+   2026-10-22 meeting (C-25: "the little side AI UI thing"). */
 .ticket__callout {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
   margin: 1rem 0 0 0;
-  padding: 0.725rem 1rem 0.725rem 1.25rem;
-  border-left: 4px solid var(--ticket-wait-edge);
+  padding: 0.725rem 1rem;
   border-radius: 8px;
   background: var(--ticket-wait);
   color: var(--ticket-wait-ink);

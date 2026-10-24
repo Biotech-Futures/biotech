@@ -60,24 +60,33 @@ import {
 
 const BASE = '/api/v1/admin/tickets'
 
-// The six the queue filters on, in one fixed order so a URL does not depend
-// on the order somebody built the filter object in. The export sends exactly
-// these and nothing else from the queue's state.
-const FILTER_KEYS = ['region', 'status', 'category', 'assignee', 'priority', 'search'] as const
+// The five lists the queue filters on, and then its search, in one fixed order
+// so a URL does not depend on the order somebody built the filter object in.
+// The export sends exactly these and nothing else from the queue's state.
+const LIST_FILTER_KEYS = ['region', 'status', 'category', 'assignee', 'priority'] as const
 
-// The filters that are set, as [key, value] pairs in FILTER_KEYS order.
-// Falsy means "no filter". The backend reads them the same way, so an empty
-// select does not have to be special-cased on either side. The list puts
-// these in its query string and the export in its body, both from here.
-function activeFilters(filters: TicketFilters): Array<[string, string]> {
-  return FILTER_KEYS.flatMap((key) => {
-    const value = filters[key]
-    return value ? [[key, value] as [string, string]] : []
-  })
+// The filters that are set, as [key, value] pairs: the five lists first, as
+// arrays of what is ticked in them, then the search text. An empty list or an
+// empty search is no filter, and the backend reads them the same way. The
+// list sends these in its query string, a list as its name repeated
+// (?status=open&status=pending_user), and the export in its JSON body, a list
+// as an array; both from here (services/queue.py and views_admin.py
+// _queue_filters read the two).
+function activeFilters(filters: TicketFilters): Array<[string, string | string[]]> {
+  const set: Array<[string, string | string[]]> = []
+  for (const key of LIST_FILTER_KEYS) {
+    const values = (filters[key] ?? []).filter(Boolean)
+    if (values.length) set.push([key, values])
+  }
+  if (filters.search) set.push(['search', filters.search])
+  return set
 }
 
 function appendFilters(params: URLSearchParams, filters: TicketFilters) {
-  activeFilters(filters).forEach(([key, value]) => params.set(key, value))
+  for (const [key, value] of activeFilters(filters)) {
+    if (Array.isArray(value)) value.forEach((one) => params.append(key, one))
+    else params.set(key, value)
+  }
   return params
 }
 
@@ -348,6 +357,25 @@ export async function fetchTicketAudit(
   if (filters.action) params.set('action', filters.action)
   if (filters.actor) params.set('actor', filters.actor)
   return ticketAuditPageSchema.parse(await requestJson<unknown>(withQuery(`${BASE}/audit/`, params)))
+}
+
+/** The Audit tab as an Excel file: every row its filters match (client item
+ *  C-26, 2026-10-22: "Could you add an export to that, if we needed to export
+ *  that to, like, an Excel?"). Built as the queue's export is: a POST with the
+ *  tab's filters in the body, an empty one left out, and the file named for
+ *  the exporter's day when the server does not say. */
+export async function exportTicketAudit(
+  filters: TicketAuditFilters = {}
+): Promise<{ blob: Blob; filename: string }> {
+  const body: Record<string, string> = {}
+  if (filters.action) body.action = filters.action
+  if (filters.actor) body.actor = filters.actor
+  const { blob, filename } = await requestBlob(
+    `${BASE}/audit/export/`,
+    { method: 'POST', body: JSON.stringify(body) },
+    'Could not export the audit log. Please try again.'
+  )
+  return { blob, filename: filename ?? `ticket-audit-${localDateStamp(new Date())}.xlsx` }
 }
 
 export type AnalyticsParams = { from?: string; to?: string; dimension?: string }

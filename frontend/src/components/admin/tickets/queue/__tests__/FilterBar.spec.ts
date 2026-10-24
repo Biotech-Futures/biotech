@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AssigneeOption, RegionOption, TicketFilters } from '@/utils/ticketAgentSchema'
 import FilterBar from '../FilterBar.vue'
+import { restingFilters } from '../queueFilters'
 
-/** Ported from adminweb's FilterBar.test.tsx, plus the dropdown contents and
- *  the Clear button, which React left untested. */
+/** Ported from adminweb's FilterBar.test.tsx, plus the lists' contents and
+ *  the Clear button, which React left untested. Since the 2026-10-22 client
+ *  meeting each list takes several values (C-27) and the queue rests on
+ *  every status but Resolved (C-28). */
 
 const REGIONS: RegionOption[] = [
   { value: 'Australia', label: 'Australia' },
@@ -23,7 +26,10 @@ const PEOPLE: AssigneeOption[] = [
 let wrapper: VueWrapper | null = null
 
 function show(filters: TicketFilters = {}) {
-  wrapper = mount(FilterBar, { props: { filters, regions: REGIONS, assignees: PEOPLE } })
+  wrapper = mount(FilterBar, {
+    props: { filters, regions: REGIONS, assignees: PEOPLE },
+    attachTo: document.body
+  })
   return wrapper
 }
 
@@ -32,11 +38,26 @@ function changes() {
   return (wrapper!.emitted('change') ?? []).map(([next]) => next)
 }
 
-function options(label: string) {
-  return wrapper!
-    .get(`select[aria-label="${label}"]`)
-    .findAll('option')
-    .map((o) => [o.attributes('value'), o.text()])
+const box = (label: string) => wrapper!.get(`button[aria-label="${label}"]`)
+const boxText = (label: string) => box(label).text()
+
+async function openList(label: string) {
+  if (box(label).attributes('aria-expanded') !== 'true') await box(label).trigger('click')
+  return wrapper!.get(`[role="group"][aria-label="${label}"]`)
+}
+
+/** The list's choices, as [value, words, ticked]. */
+async function choices(label: string) {
+  const list = await openList(label)
+  return list.findAll('label').map((option) => {
+    const check = option.get<HTMLInputElement>('input[type="checkbox"]')
+    return [check.element.value, option.text(), check.element.checked]
+  })
+}
+
+async function tick(label: string, value: string, ticked = true) {
+  const list = await openList(label)
+  await list.get(`input[value="${value}"]`).setValue(ticked)
 }
 
 afterEach(() => {
@@ -57,10 +78,10 @@ describe('FilterBar search box', () => {
     // The queue request is a COUNT plus a page of rows. Typing an eight-letter
     // ticket number used to issue eight of them.
     show()
-    const box = wrapper!.get('input[aria-label="Search tickets"]')
+    const search = wrapper!.get('input[aria-label="Search tickets"]')
 
     for (const value of ['S', 'SU', 'SUP', 'SUP-']) {
-      await box.setValue(value)
+      await search.setValue(value)
     }
 
     expect(changes()).toEqual([])
@@ -68,10 +89,10 @@ describe('FilterBar search box', () => {
 
   it('raises exactly one change once the typing settles', async () => {
     show()
-    const box = wrapper!.get('input[aria-label="Search tickets"]')
+    const search = wrapper!.get('input[aria-label="Search tickets"]')
 
     for (const value of ['S', 'SU', 'SUP', 'SUP-']) {
-      await box.setValue(value)
+      await search.setValue(value)
     }
     vi.advanceTimersByTime(400)
 
@@ -80,9 +101,9 @@ describe('FilterBar search box', () => {
 
   it('waits the whole 300ms after the last key', async () => {
     show()
-    const box = wrapper!.get('input[aria-label="Search tickets"]')
+    const search = wrapper!.get('input[aria-label="Search tickets"]')
 
-    await box.setValue('mia')
+    await search.setValue('mia')
     vi.advanceTimersByTime(299)
     expect(changes()).toEqual([])
 
@@ -97,27 +118,27 @@ describe('FilterBar search box', () => {
     // dependency list, "depending on `filters` as well would re-fire on every
     // other filter change and undo their edits", is the failure this pins.
     show()
-    const box = wrapper!.get<HTMLInputElement>('input[aria-label="Search tickets"]')
+    const search = wrapper!.get<HTMLInputElement>('input[aria-label="Search tickets"]')
 
-    await box.setValue('mia')
-    expect(box.element.value).toBe('mia')
+    await search.setValue('mia')
+    expect(search.element.value).toBe('mia')
 
-    await wrapper!.setProps({ filters: { status: 'open' } })
+    await wrapper!.setProps({ filters: { status: ['open'] } })
 
-    expect(box.element.value).toBe('mia')
+    expect(search.element.value).toBe('mia')
   })
 
   it('empties the box when the parent clears the filters', async () => {
-    // Clear filters sets the filters to {} from the outside; nothing else
-    // would reset the local draft, and a stale word left in the box reads as
-    // a filter that is still applied.
+    // Clear filters puts the resting view in from the outside, with no search
+    // in it; nothing else would reset the local draft, and a stale word left
+    // in the box reads as a filter that is still applied.
     show({ search: 'mia' })
-    const box = wrapper!.get<HTMLInputElement>('input[aria-label="Search tickets"]')
-    expect(box.element.value).toBe('mia')
+    const search = wrapper!.get<HTMLInputElement>('input[aria-label="Search tickets"]')
+    expect(search.element.value).toBe('mia')
 
-    await wrapper!.setProps({ filters: {} })
+    await wrapper!.setProps({ filters: restingFilters() })
 
-    expect(box.element.value).toBe('')
+    expect(search.element.value).toBe('')
     vi.advanceTimersByTime(400)
     // Emptying the box from outside is not the agent searching for nothing.
     expect(changes()).toEqual([])
@@ -128,36 +149,59 @@ describe('FilterBar search box', () => {
     // settles, not as they were when typing began.
     show()
     await wrapper!.get('input[aria-label="Search tickets"]').setValue('mia')
-    await wrapper!.setProps({ filters: { status: 'open' } })
+    await wrapper!.setProps({ filters: { status: ['open'] } })
 
     vi.advanceTimersByTime(400)
 
-    expect(changes()).toEqual([{ status: 'open', search: 'mia' }])
+    expect(changes()).toEqual([{ status: ['open'], search: 'mia' }])
   })
 })
 
-describe('FilterBar dropdowns', () => {
-  it('keeps agents who can no longer be assigned in the assignee filter', () => {
+describe('FilterBar lists', () => {
+  it('keeps agents who can no longer be assigned in the assignee filter', async () => {
     // The mirror image of BulkAssignBar: this list must NOT filter on
     // `assignable`. Dropping them here would make every ticket still in their
     // name invisible in bulk: not unassigned, so no counter shows it, and no
     // value to filter by.
     show()
 
-    expect(options('Filter by assignee')).toEqual([
-      ['', 'Any assignee'],
-      ['__unassigned__', 'Unassigned'],
-      ['1', 'Sam Reid'],
-      ['3', 'Gone Agent']
+    expect(await choices('Filter by assignee')).toEqual([
+      ['__unassigned__', 'Unassigned', false],
+      ['1', 'Sam Reid', false],
+      ['3', 'Gone Agent', false]
     ])
   })
 
-  it('carries Overdue as a status sentinel the server reads with the card rule', async () => {
-    show({ priority: 'high' })
+  it('ticks several of one kind (C-27)', async () => {
+    show({ status: ['open'] })
 
-    await wrapper!.get('select[aria-label="Filter by status"]').setValue('__overdue__')
+    await tick('Filter by status', 'pending_user')
 
-    expect(changes()).toEqual([{ priority: 'high', status: '__overdue__' }])
+    expect(changes()).toEqual([{ status: ['open', 'pending_user'] }])
+  })
+
+  it('sends what is ticked in the list’s own order, whatever order it was ticked in', async () => {
+    show({ priority: ['low'] })
+
+    await tick('Filter by priority', 'high')
+
+    expect(changes()).toEqual([{ priority: ['high', 'low'] }])
+  })
+
+  it('unticking the last one leaves no filter of that kind', async () => {
+    show({ status: ['open'] })
+
+    await tick('Filter by status', 'open', false)
+
+    expect(changes()).toEqual([{ status: [] }])
+  })
+
+  it('carries Overdue beside the statuses as the sentinel the server reads with the card rule', async () => {
+    show({ status: ['open'], priority: ['high'] })
+
+    await tick('Filter by status', '__overdue__')
+
+    expect(changes()).toEqual([{ status: ['open', '__overdue__'], priority: ['high'] }])
   })
 
   it('carries the Unknown region bucket as a sentinel, not an empty value', async () => {
@@ -165,39 +209,26 @@ describe('FilterBar dropdowns', () => {
     // platform, so the bucket needs a value of its own.
     show()
 
-    await wrapper!.get('select[aria-label="Filter by region"]').setValue('__unknown__')
+    await tick('Filter by region', '__unknown__')
 
-    expect(changes()).toEqual([{ region: '__unknown__' }])
+    expect(changes()).toEqual([{ region: ['__unknown__'] }])
   })
 
-  it('keeps every other filter when one dropdown changes', async () => {
+  it('keeps every other filter when one list changes', async () => {
     // The page replaces the whole filter state with what the bar sends, so a
     // bar that sent only the key it changed would silently clear the search
-    // and the region the agent had already narrowed to. React had no test
-    // for this; every case above starts from nothing or from one key.
-    show({ region: 'Australia', search: 'mia' })
+    // and the region the agent had already narrowed to.
+    show({ region: ['Australia'], search: 'mia' })
 
-    await wrapper!.get('select[aria-label="Filter by status"]').setValue('open')
+    await tick('Filter by status', 'open')
 
-    expect(changes()).toEqual([{ region: 'Australia', search: 'mia', status: 'open' }])
+    expect(changes()).toEqual([{ region: ['Australia'], search: 'mia', status: ['open'] }])
   })
 
-  it('turns the Any option back into no filter at all', async () => {
-    // React carried "Any" as an "__any__" sentinel because its Select could
-    // not hold an empty value; a native select can, so "Any" is "" itself.
-    // What leaves the bar is the same as before: the key, emptied.
-    show({ status: 'open' })
-
-    await wrapper!.get('select[aria-label="Filter by status"]').setValue('')
-
-    expect(changes()).toEqual([{ status: '' }])
-  })
-
-  it('offers the four statuses, Overdue and three priorities in triage words', () => {
+  it('offers the four statuses, Overdue and three priorities in triage words', async () => {
     show()
 
-    expect(options('Filter by status')).toEqual([
-      ['', 'Any status'],
+    expect((await choices('Filter by status')).map(([value, words]) => [value, words])).toEqual([
       ['open', 'Open'],
       ['in_progress', 'In progress'],
       ['pending_user', 'Pending user'],
@@ -206,21 +237,19 @@ describe('FilterBar dropdowns', () => {
       // status a ticket can be set to.
       ['__overdue__', 'Overdue']
     ])
-    expect(options('Filter by priority')).toEqual([
-      ['', 'Any priority'],
+    expect((await choices('Filter by priority')).map(([value, words]) => [value, words])).toEqual([
       ['high', 'High'],
       ['normal', 'Normal'],
       ['low', 'Low']
     ])
   })
 
-  it('offers every category a ticket can carry, screening’s included, last', () => {
+  it('offers every category a ticket can carry, screening’s included, last', async () => {
     // A bucket support cannot filter for is a bucket they cannot work
     // through, and message screening files its own tickets here.
     show()
 
-    expect(options('Filter by category')).toEqual([
-      ['', 'Any category'],
+    expect((await choices('Filter by category')).map(([value, words]) => [value, words])).toEqual([
       ['account_access', 'Account and access'],
       ['registration', 'Registration'],
       ['help_student_group', 'Help with a student or group'],
@@ -233,39 +262,54 @@ describe('FilterBar dropdowns', () => {
     ])
   })
 
-  it('shows the filter already applied', () => {
-    show({ priority: 'high', assignee: '3' })
+  it('shows the filters already applied, on the box and as ticks', async () => {
+    show({ priority: ['high'], assignee: ['3'] })
 
-    expect(
-      (wrapper!.get('select[aria-label="Filter by priority"]').element as HTMLSelectElement).value
-    ).toBe('high')
-    expect(
-      (wrapper!.get('select[aria-label="Filter by assignee"]').element as HTMLSelectElement).value
-    ).toBe('3')
+    expect(boxText('Filter by priority')).toBe('High')
+    expect(boxText('Filter by assignee')).toBe('Gone Agent')
+    expect(await choices('Filter by assignee')).toEqual([
+      ['__unassigned__', 'Unassigned', false],
+      ['1', 'Sam Reid', false],
+      ['3', 'Gone Agent', true]
+    ])
+  })
+
+  it('reads the queue’s resting view as Not Resolved (C-28)', () => {
+    show(restingFilters())
+
+    expect(boxText('Filter by status')).toBe('Not Resolved')
+    expect(boxText('Filter by priority')).toBe('Any priority')
   })
 })
 
 describe('Clear filters', () => {
   const clearButton = () => wrapper!.findAll('button').find((b) => b.text() === 'Clear filters')
 
-  it('is not offered while nothing is filtered', () => {
-    show()
+  it('is not offered on the view the queue opens on', () => {
+    show(restingFilters())
 
     expect(clearButton()).toBeUndefined()
   })
 
-  it('is not offered for a dropdown set back to Any', () => {
-    // "Any" leaves an empty string behind, which is no filter.
-    show({ status: '' })
-
-    expect(clearButton()).toBeUndefined()
+  it('is offered once anything else is chosen, Resolved ticked or every status cleared included', () => {
+    for (const filters of [
+      { status: ['open', 'in_progress', 'pending_user', 'resolved'] },
+      { status: [] },
+      { ...restingFilters(), priority: ['high'] },
+      { ...restingFilters(), search: 'mia' }
+    ]) {
+      show(filters)
+      expect(clearButton(), JSON.stringify(filters)).toBeDefined()
+      wrapper!.unmount()
+      wrapper = null
+    }
   })
 
-  it('clears everything at once', async () => {
-    show({ status: 'open', search: 'mia' })
+  it('goes back to every status but Resolved, and nothing else', async () => {
+    show({ status: ['resolved'], region: ['Australia'], search: 'mia' })
 
     await clearButton()!.trigger('click')
 
-    expect(changes()).toEqual([{}])
+    expect(changes()).toEqual([{ status: ['open', 'in_progress', 'pending_user'] }])
   })
 })

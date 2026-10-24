@@ -11,37 +11,47 @@
     <!-- Side by side once there is room for both, one above the other when
          there is not. -->
     <div class="ticket-form__pair">
-      <label class="ticket-form__field">
-        <span class="ticket-form__label">Issue category</span>
-        <select v-model="category" required class="ticket-form__control ticket-form__select">
-          <!-- Starts unselected on purpose. Defaulting to the first category
-               filed every untouched submission under the first category, and
-               afterwards nothing could tell those apart from a real choice.
-               That is the one thing that would quietly ruin the category
-               breakdown the client asked for. The list is the client's own. -->
-          <option value="" disabled>Select a category</option>
-          <option v-for="option in TICKET_CATEGORIES" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
+      <!-- The platform's own dropdown (AppSelect) since the 2026-10-22 client
+           meeting (C-29: "Team 3 has implemented a styling for the dropdowns
+           ... if you can adopt that as well"). A label beside it rather than
+           around it, as the platform's forms pair theirs. -->
+      <div class="ticket-form__field">
+        <label class="ticket-form__label" for="ticket-category">Issue category</label>
+        <!-- Starts unselected on purpose. Defaulting to the first category
+             filed every untouched submission under the first category, and
+             afterwards nothing could tell those apart from a real choice.
+             That is the one thing that would quietly ruin the category
+             breakdown the client asked for. The list is the client's own. -->
+        <AppSelect
+          id="ticket-category"
+          :model-value="category"
+          required
+          class="ticket-form__control ticket-form__select"
+          placeholder="Select a category"
+          :options="CATEGORY_OPTIONS"
+          @update:model-value="(value) => (category = value as TicketCategory)"
+        />
+      </div>
 
-      <label class="ticket-form__field">
-        <span class="ticket-form__label">Urgency</span>
-        <select v-model="priority" required class="ticket-form__control ticket-form__select">
-          <!-- Starts unselected, like the category, because the client asked
-               for it at the 8 October meeting (C-22): "Can you make that not
-               default to anything? I would want them to select that." A
-               preselected answer is one a student never reads, and it used to
-               be "I can keep working", so every untouched enquiry said so.
-               The server still falls back to Normal for a caller that sends
-               nothing; this form always sends a choice. -->
-          <option value="" disabled>Select how urgent this is</option>
-          <option v-for="option in TICKET_PRIORITIES" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
+      <div class="ticket-form__field">
+        <label class="ticket-form__label" for="ticket-urgency">Urgency</label>
+        <!-- Starts unselected, like the category, because the client asked
+             for it at the 8 October meeting (C-22): "Can you make that not
+             default to anything? I would want them to select that." A
+             preselected answer is one a student never reads, and it used to
+             be "I can keep working", so every untouched enquiry said so.
+             The server still falls back to Normal for a caller that sends
+             nothing; this form always sends a choice. -->
+        <AppSelect
+          id="ticket-urgency"
+          :model-value="priority"
+          required
+          class="ticket-form__control ticket-form__select"
+          placeholder="Select how urgent this is"
+          :options="URGENCY_OPTIONS"
+          @update:model-value="(value) => (priority = value as TicketPriority)"
+        />
+      </div>
     </div>
 
     <label class="ticket-form__field">
@@ -83,8 +93,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import TicketAttachmentPicker from '@/components/support/TicketAttachmentPicker.vue'
-import '@/components/support/ticketControls.css'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import {
   MAX_BODY_LENGTH,
@@ -97,6 +107,9 @@ import {
 } from '@/utils/supportAPI'
 
 const emit = defineEmits<{ submitted: [TicketDetail] }>()
+
+const CATEGORY_OPTIONS: AppSelectOption[] = TICKET_CATEGORIES.map(({ value, label }) => ({ value, label }))
+const URGENCY_OPTIONS: AppSelectOption[] = TICKET_PRIORITIES.map(({ value, label }) => ({ value, label }))
 
 const category = ref<TicketCategory | ''>('')
 const priority = ref<TicketPriority | ''>('')
@@ -143,8 +156,11 @@ async function submit() {
 
 <style scoped>
 /* The first redesign round (October 2026): taller, rounder controls with an
-   edge you can see, a brand green top on the card, quieter greys. Colours are
-   this component's own so main.css stays every other team's.
+   edge you can see, quieter greys. Colours are this component's own so
+   main.css stays every other team's. The round also put a 3px brand green
+   strip along the card's top; the client asked for it to go at the
+   2026-10-22 meeting (C-24: "very commonly associated with AI designs"), so
+   the card has the same 1px edge all round.
 
    Measured (WCAG AA: 4.5:1 for text, 3:1 for a control's edge):
      light  muted #5a6268 on #ffffff 6.21:1   placeholder #6c757d 4.69:1
@@ -171,7 +187,6 @@ async function submit() {
   padding: 1.5625rem 1.75rem 1.625rem;
   background: var(--surface-elevated);
   border: 1px solid var(--form-card-edge);
-  border-top: 3px solid var(--dark-green);
   border-radius: 12px;
   box-shadow: var(--form-card-shadow);
 }
@@ -243,24 +258,14 @@ async function submit() {
   box-shadow: 0 0 0 3px var(--form-focus-glow);
 }
 
-/* The browser's arrow is switched off for the thin chevron from
-   ticketControls.css, with room kept clear of it on the right. Until a
-   choice is made each required select is :invalid, and it reads as a
-   placeholder; the open list keeps the normal text colour. */
+/* AppSelect draws its own chevron and placeholder; the box keeps the form's
+   edge, corners and height through .ticket-form__control. At AppSelect's own
+   line height the 2.75rem floor decides the height, as it does for the
+   subject box below (44px both); its "large" size took the form's taller
+   line and came out 1.5px over. */
 .ticket-form__select {
-  appearance: none;
-  padding-right: 2.5rem;
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 1.05rem center;
-}
-
-.ticket-form__select:invalid {
-  color: var(--form-placeholder);
-}
-
-.ticket-form__select option {
-  color: var(--teal);
+  display: block;
+  width: 100%;
 }
 
 .ticket-form__control--area {
@@ -318,5 +323,12 @@ async function submit() {
 .ticket-form__submit:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* AppSelect rings its box in --dark-green when its field has keyboard focus,
+   which the dark theme does not redefine: about 2.8:1 on the dark grounds,
+   under the 3:1 a focus indicator needs. The student pages' dark ring (SupportCentrePage.vue), 7.04:1 on the card. */
+:root[data-theme='dark'] .ticket-form__select:has(:focus-visible) {
+  outline-color: #6dbfb1;
 }
 </style>

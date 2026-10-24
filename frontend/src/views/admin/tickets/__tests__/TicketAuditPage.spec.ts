@@ -19,17 +19,27 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 
 vi.mock('@/utils/ticketAgentAPI', async () => {
   const actual = await vi.importActual<typeof import('@/utils/ticketAgentAPI')>('@/utils/ticketAgentAPI')
-  return { ...actual, fetchTicketAudit: vi.fn(), fetchAssignees: vi.fn() }
+  return {
+    ...actual,
+    fetchTicketAudit: vi.fn(),
+    fetchAssignees: vi.fn(),
+    exportTicketAudit: vi.fn(),
+    saveTicketExport: vi.fn()
+  }
 })
 
 import routes from '@/router/routes'
 import { ApiError } from '@/utils/apiError'
-import { fetchAssignees, fetchTicketAudit } from '@/utils/ticketAgentAPI'
+import { exportTicketAudit, fetchAssignees, fetchTicketAudit, saveTicketExport } from '@/utils/ticketAgentAPI'
 import { ticketAuditPageSchema, type TicketAuditPage as AuditPage } from '@/utils/ticketAgentSchema'
 import TicketAuditPage from '../TicketAuditPage.vue'
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import { appSelectLabels, pickAppSelect } from '@/__tests__/appSelect'
 
 const auditMock = vi.mocked(fetchTicketAudit)
 const assigneesMock = vi.mocked(fetchAssignees)
+const exportMock = vi.mocked(exportTicketAudit)
+const saveMock = vi.mocked(saveTicketExport)
 
 // Generated from, not hand-picked: every action the ticket module writes,
 // read off the code that writes them. handoff.py writes create, lifecycle.py
@@ -130,11 +140,37 @@ function cellsOfEachRow() {
     .map((line) => line.findAll('td').map((cell) => cell.text()))
 }
 
-const actionSelect = () => view().find('select[aria-label="Filter by action"]')
-const whoSelect = () => view().find('select[aria-label="Filter by who did it"]')
-const sizeSelect = () => view().find('.audit-pager select')
-const optionNames = (select: ReturnType<typeof actionSelect>) =>
-  select.findAll('option').map((option) => option.text())
+/** One of the page's dropdowns, the platform's AppSelect since the 2026-10-22
+ *  client meeting (C-29), driven by the values the page gives its choices:
+ *  setValue picks the choice carrying that value, as a click on its words
+ *  does, and value() is the value it shows. */
+function dropdown(selector: string) {
+  const component = () =>
+    view()
+      .findAllComponents(AppSelect)
+      .find((select) => select.find('input[role="combobox"]').element === view().find(selector).element)!
+  return {
+    selector,
+    exists: () => view().find(selector).exists(),
+    get element() {
+      return view().find(selector).element as HTMLInputElement
+    },
+    value: () => String(component().props('modelValue') ?? ''),
+    async setValue(value: string) {
+      const option = (component().props('options') as AppSelectOption[]).find(
+        (choice) => String(choice.value) === value
+      )
+      if (!option) throw new Error(`No choice with the value "${value}" in ${selector}`)
+      await pickAppSelect(view(), selector, option.label)
+    }
+  }
+}
+
+const actionSelect = () => dropdown('input[aria-label="Filter by action"]')
+const whoSelect = () => dropdown('input[aria-label="Filter by who did it"]')
+const sizeSelect = () => dropdown('.audit-pager input[role="combobox"]')
+/** What a dropdown offers, opening its list to read it. */
+const optionNames = (select: ReturnType<typeof dropdown>) => appSelectLabels(view(), select.selector)
 
 /** What the page last asked the server for: page, limit, filters. */
 const lastAsked = () => auditMock.mock.calls.at(-1)
@@ -142,6 +178,8 @@ const lastAsked = () => auditMock.mock.calls.at(-1)
 beforeEach(() => {
   auditMock.mockReset()
   assigneesMock.mockReset()
+  exportMock.mockReset()
+  saveMock.mockReset()
   assigneesMock.mockResolvedValue([{ id: 4, name: 'Sam Reid', assignable: true }])
 })
 
@@ -508,7 +546,7 @@ describe('TicketAuditPage', () => {
 
     // Added to the roster, not swapped for it: an agent with no rows on this
     // page is still somebody worth filtering for. Sorted by name.
-    expect(optionNames(whoSelect())).toEqual(['Anyone', 'Grace Okafor', 'Sam Reid'])
+    expect(await optionNames(whoSelect())).toEqual(['Anyone', 'Grace Okafor', 'Sam Reid'])
   })
 
   it('asks the server for the person the reader picked, and for anyone again', async () => {
@@ -541,8 +579,8 @@ describe('TicketAuditPage', () => {
     await flushPromises()
 
     expect(cellsOfEachRow()).toEqual([['Nothing recorded for this filter.']])
-    expect(optionNames(whoSelect())).toEqual(['Anyone', 'Grace Okafor', 'Sam Reid'])
-    expect((whoSelect().element as HTMLSelectElement).value).toBe('7')
+    expect(await optionNames(whoSelect())).toEqual(['Anyone', 'Grace Okafor', 'Sam Reid'])
+    expect(whoSelect().value()).toBe('7')
   })
 
   it('says why the Created filter is the empty one', async () => {
@@ -887,7 +925,7 @@ describe('the filters above the audit table (new)', () => {
     auditMock.mockResolvedValue(page([]))
     await open()
 
-    expect(optionNames(actionSelect())).toEqual([
+    expect(await optionNames(actionSelect())).toEqual([
       'Any action',
       'Created',
       'Assigned',
@@ -981,7 +1019,7 @@ describe('the footer under the audit table', () => {
     await sizeSelect().setValue('200')
     await flushPromises()
 
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('100')
+    expect(sizeSelect().value()).toBe('100')
   })
 
   it('goes back to the served size when the refused size is picked a second time (new)', async () => {
@@ -994,13 +1032,13 @@ describe('the footer under the audit table', () => {
 
     await sizeSelect().setValue('200')
     await flushPromises()
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('100')
+    expect(sizeSelect().value()).toBe('100')
 
     await sizeSelect().setValue('200')
     await flushPromises()
 
     expect(auditMock).toHaveBeenCalledTimes(2)
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('100')
+    expect(sizeSelect().value()).toBe('100')
   })
 
   it('names the size just picked while that page loads (new)', async () => {
@@ -1015,11 +1053,11 @@ describe('the footer under the audit table', () => {
     await sizeSelect().setValue('50')
     await flushPromises()
     expect(lastAsked()).toEqual([1, 50, { action: '', actor: '' }])
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('50')
+    expect(sizeSelect().value()).toBe('50')
 
     answer.resolve(page([row()], { total: 300, limit: 50, hasMore: true }))
     await flushPromises()
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('50')
+    expect(sizeSelect().value()).toBe('50')
     expect(view().find('.audit-pager__info').text()).toBe('Page 1 of 6')
   })
 
@@ -1032,7 +1070,7 @@ describe('the footer under the audit table', () => {
     await open()
     await sizeSelect().setValue('200')
     await flushPromises()
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('100')
+    expect(sizeSelect().value()).toBe('100')
 
     auditMock.mockReturnValue(new Promise<AuditPage>(() => {}))
     await view().find('button[aria-label="Go to page 2"]').trigger('click')
@@ -1040,7 +1078,7 @@ describe('the footer under the audit table', () => {
 
     expect(lastAsked()).toEqual([2, 200, { action: '', actor: '' }])
     expect(cellsOfEachRow()).toEqual([['Loading…']])
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('100')
+    expect(sizeSelect().value()).toBe('100')
   })
 
   it('asks for a custom size, and names the size the server served for it (new)', async () => {
@@ -1070,7 +1108,7 @@ describe('the footer under the audit table', () => {
 
     expect(lastAsked()).toEqual([1, 300, { action: '', actor: '' }])
     expect(box().exists()).toBe(false)
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('100')
+    expect(sizeSelect().value()).toBe('100')
     expect(view().find('.audit-pager__info').text()).toBe('Page 1 of 3')
   })
 
@@ -1082,7 +1120,7 @@ describe('the footer under the audit table', () => {
     await open()
 
     expect(view().find('.audit-pager__info').text()).toBe('Page 1 of 1')
-    expect((sizeSelect().element as HTMLSelectElement).value).toBe('25')
+    expect(sizeSelect().value()).toBe('25')
   })
 
   it('keeps counting pages while the next page loads (new)', async () => {
@@ -1342,7 +1380,7 @@ describe('loading the audit log (new)', () => {
       new ApiError({ error: 'Internal server error', code: 'server_error', request_id: 'r' }, 500)
     )
 
-    ;(actionSelect().element as HTMLSelectElement).focus()
+    actionSelect().element.focus()
     await actionSelect().setValue('status')
     await flushPromises()
 
@@ -1371,7 +1409,7 @@ describe('loading the audit log (new)', () => {
 
     expect(cellsOfEachRow().map((cells) => cells[4])).toEqual(['Owner set to #4'])
     expect(view().find('[role="alert"]').exists()).toBe(false)
-    expect(optionNames(whoSelect())).toEqual(['Anyone', 'Ada Lin'])
+    expect(await optionNames(whoSelect())).toEqual(['Anyone', 'Ada Lin'])
   })
 })
 
@@ -1405,5 +1443,84 @@ describe('the times the audit table prints', () => {
     // in front of it, and there is something after it.
     expect(withZone.startsWith(withoutZone)).toBe(true)
     expect(printed).not.toBe(withoutZone)
+  })
+})
+
+describe('Export to Excel (C-26)', () => {
+  /* "Could you add an export to that, if we needed to export that to, like,
+   * an Excel?" (client meeting, 2026-10-22), pointing at the queue's own. */
+  const FILE = { blob: new Blob(['xlsx']), filename: 'ticket-audit-2026-10-22.xlsx' }
+  const exportButton = () => view().findAll('button').find((b) => /Export to Excel|Exporting…/.test(b.text()))!
+
+  it('exports what the filters match, and never the page or its size', async () => {
+    // A file is a fresh look at the whole filtered log; page 3 of 25 rows
+    // is what is on screen, not what was asked for.
+    auditMock.mockResolvedValue(page([row({ id: 1 })], { total: 80 }))
+    exportMock.mockResolvedValue(FILE)
+    await open()
+    await actionSelect().setValue('status')
+    await whoSelect().setValue('4')
+    await flushPromises()
+
+    await exportButton().trigger('click')
+    await flushPromises()
+
+    expect(exportMock.mock.calls).toEqual([[{ action: 'status', actor: '4' }]])
+    expect(saveMock.mock.calls).toEqual([[FILE]])
+  })
+
+  it('sends no filter when none is chosen', async () => {
+    auditMock.mockResolvedValue(page([row({ id: 1 })]))
+    exportMock.mockResolvedValue(FILE)
+    await open()
+
+    await exportButton().trigger('click')
+    await flushPromises()
+
+    expect(exportMock.mock.calls).toEqual([[{ action: '', actor: '' }]])
+  })
+
+  it('cannot be started twice while one is running, and says it is running', async () => {
+    // Two presses in one tick, before the button re-renders: the guard reads
+    // live state. Marked busy rather than disabled, so the button keeps focus.
+    auditMock.mockResolvedValue(page([row({ id: 1 })]))
+    exportMock.mockImplementation(() => new Promise(() => {}))
+    await open()
+
+    exportButton().element.click()
+    exportButton().element.click()
+    await flushPromises()
+
+    expect(exportMock).toHaveBeenCalledTimes(1)
+    expect(exportButton().text()).toBe('Exporting…')
+    expect(exportButton().attributes('aria-disabled')).toBe('true')
+    expect(exportButton().attributes('disabled')).toBeUndefined()
+  })
+
+  it('says so when the export fails, in the server’s words when it gives a reason', async () => {
+    auditMock.mockResolvedValue(page([row({ id: 1 })]))
+    exportMock.mockRejectedValue(
+      new ApiError({ error: 'actor must be an integer.', code: 'invalid', request_id: 'r1' }, 400)
+    )
+    await open()
+
+    await exportButton().trigger('click')
+    await flushPromises()
+
+    expect(view().find('.ticket-audit__export-error').text()).toBe('actor must be an integer.')
+    expect(view().find('.ticket-audit__export-error').attributes('role')).toBe('alert')
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(exportButton().attributes('aria-disabled')).toBeUndefined()
+  })
+
+  it('falls back to a plain sentence when the server says nothing useful', async () => {
+    auditMock.mockResolvedValue(page([row({ id: 1 })]))
+    exportMock.mockRejectedValue(new Error('network down'))
+    await open()
+
+    await exportButton().trigger('click')
+    await flushPromises()
+
+    expect(view().find('.ticket-audit__export-error').text()).toBe('Could not export the audit log. Please try again.')
   })
 })

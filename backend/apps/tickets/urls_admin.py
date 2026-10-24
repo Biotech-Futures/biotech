@@ -8,6 +8,7 @@ from .views_admin import (
     TicketAdminDetailView,
     TicketAnalyticsView,
     TicketAssigneesView,
+    TicketAuditExportView,
     TicketAuditView,
     TicketBulkAssignView,
     TicketDigestSendView,
@@ -40,6 +41,8 @@ urlpatterns = [
     # below the catch-alls.
     path("analytics/", TicketAnalyticsView.as_view(), name="analytics"),
     path("audit/", TicketAuditView.as_view(), name="audit"),
+    # The Audit tab as an Excel file; takes the tab's own filters (C-26).
+    path("audit/export/", TicketAuditExportView.as_view(), name="audit-export"),
     path("support-scope/", SupportScopeView.as_view(), name="support-scope"),
     path("support-scope/<int:user_id>/", SupportScopeRevokeView.as_view(),
          name="support-scope-revoke"),

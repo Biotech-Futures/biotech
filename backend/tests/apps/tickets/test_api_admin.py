@@ -305,6 +305,95 @@ class QueueFilterTests(AdminTicketAPITestCase):
         self.assertEqual(self.ids_for(search="Brazilian"), set())
 
 
+class SeveralValuesPerFilterTests(AdminTicketAPITestCase):
+    """Client item C-27 (2026-10-22): each of the five lists takes several
+    values, sent as its name repeated in the query string. Several of one
+    kind are any of them; different kinds still narrow each other."""
+
+    def setUp(self):
+        super().setUp()
+        self.au = self.make_ticket(subject="Australian one", region="Australia",
+                                   category=TicketCategory.ACCOUNT_ACCESS,
+                                   priority=TicketPriority.HIGH)
+        self.br = self.make_ticket(owner=self.other_requester, subject="Brazilian one",
+                                   region="Brazil", category=TicketCategory.TECHNICAL_ISSUE,
+                                   priority=TicketPriority.LOW)
+        self.unknown = self.make_ticket(subject="No region on file", region="",
+                                        category=TicketCategory.REGISTRATION)
+        self.done = self.make_ticket(subject="Already sorted", region="Australia")
+        lifecycle.resolve(ticket=self.done, actor=self.agent)
+
+    def ids_for(self, **params):
+        response = self.client.get(QUEUE, params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return {row["id"] for row in response.json()["data"]["items"]}
+
+    def test_several_statuses_are_any_of_them(self):
+        lifecycle.claim(ticket=self.br, actor=self.agent)
+
+        self.assertEqual(self.ids_for(status=["in_progress", "resolved"]),
+                         {self.br.pk, self.done.pk})
+
+    def test_everything_but_resolved_is_what_the_table_opens_on(self):
+        # The queue's resting view (C-28) is these three ticked.
+        self.assertEqual(self.ids_for(status=["open", "in_progress", "pending_user"]),
+                         {self.au.pk, self.br.pk, self.unknown.pk})
+
+    def test_several_regions_including_the_unknown_bucket(self):
+        self.assertEqual(self.ids_for(region=["Brazil", "__unknown__"]),
+                         {self.br.pk, self.unknown.pk})
+
+    def test_several_categories(self):
+        self.assertEqual(self.ids_for(category=["account_access", "registration"]),
+                         {self.au.pk, self.unknown.pk})
+
+    def test_several_priorities(self):
+        self.assertEqual(self.ids_for(priority=["high", "low"]), {self.au.pk, self.br.pk})
+
+    def test_an_agent_and_the_unassigned_bucket_together(self):
+        """The bucket keeps its own rule inside a list: with no status ticked
+        its half leaves resolved tickets out, as the card counts it."""
+        lifecycle.claim(ticket=self.br, actor=self.agent)
+
+        self.assertEqual(self.ids_for(assignee=[str(self.agent.pk), "__unassigned__"]),
+                         {self.br.pk, self.au.pk, self.unknown.pk})
+        self.assertEqual(
+            self.ids_for(assignee=[str(self.agent.pk), "__unassigned__"],
+                         status=["in_progress", "resolved"]),
+            {self.br.pk, self.done.pk},
+        )
+
+    def test_different_kinds_still_narrow_each_other(self):
+        self.assertEqual(self.ids_for(region=["Australia", "Brazil"], status=["resolved"]),
+                         {self.done.pk})
+        self.assertEqual(self.ids_for(region=["Australia", "Brazil"], priority=["low"]),
+                         {self.br.pk})
+
+    def test_one_value_still_works_as_it_always_did(self):
+        self.assertEqual(self.ids_for(region="Brazil"), {self.br.pk})
+
+    def test_one_bad_assignee_among_several_is_a_400_not_a_500(self):
+        response = self.client.get(QUEUE, {"assignee": [str(self.agent.pk), "abc"]})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_search_is_one_box_of_text(self):
+        """A repeated search is read as its last value, as the one box sends."""
+        self.assertEqual(self.ids_for(search=["Brazilian", "Australian"]), {self.au.pk})
+
+    def test_the_export_takes_lists_and_records_them(self):
+        lifecycle.claim(ticket=self.br, actor=self.agent)
+        body = {"status": ["in_progress", "resolved"], "region": ["Brazil", "Australia"]}
+
+        response = self.client.post(f"{QUEUE}export/", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = AuditLog.objects.filter(entity_type="ticket_export").latest("created_at")
+        self.assertEqual(set(row.after_state["ticketNumbers"]),
+                         {self.br.ticket_number, self.done.ticket_number})
+        self.assertEqual(row.after_state["filters"], body)
+
+
 @override_settings(
     MEDIA_ROOT=_MEDIA,
     TICKET_SLA_HIGH_HOURS=4,
@@ -2648,6 +2737,18 @@ class OverdueFilterTests(AdminTicketAPITestCase):
             self.ids_for(status="__overdue__", priority=TicketPriority.HIGH), {self.late.pk}
         )
 
+    def test_overdue_and_a_status_together_are_either(self):
+        """Overdue joins the ticked statuses as one more way in (C-27)."""
+        self.assertEqual(self.ids_for(status=["pending_user", "__overdue__"]),
+                         {self.late.pk, self.parked.pk})
+
+    def test_overdue_beside_the_resting_view_adds_nothing(self):
+        """An overdue ticket is never resolved, so ticking Overdue beside the
+        table's resting view (every status but Resolved) changes nothing."""
+        resting = ["open", "in_progress", "pending_user"]
+        self.assertEqual(self.ids_for(status=resting + ["__overdue__"]),
+                         self.ids_for(status=resting))
+
     def test_the_export_takes_the_same_bucket(self):
         response = self.client.post(f"{QUEUE}export/", {"status": "__overdue__"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -4617,14 +4718,19 @@ class QueueExportFilterTests(QueueExportTestCase):
 
     def test_a_filter_that_is_not_text_is_refused(self):
         """A query string can only carry text, and the table's filters are
-        read as text. A JSON body can carry anything. Read as it came,
-        ``true`` for assignee is user 1 (int(True)) and a list for status
-        matches nothing. Neither is a filter the table could have sent."""
+        read as text: one value, or for the five lists several (C-27). A JSON
+        body can carry anything. Read as it came, ``true`` for assignee is
+        user 1 (int(True)), a number inside a status list matches nothing, and
+        a list for search is not a search. None is a filter the table could
+        have sent."""
+        several = "must be a string or a list of strings."
         cases = [
-            ({"assignee": True}, "assignee must be a string."),
-            ({"assignee": self.admin.pk}, "assignee must be a string."),
-            ({"status": ["open", "resolved"]}, "status must be a string."),
+            ({"assignee": True}, f"assignee {several}"),
+            ({"assignee": self.admin.pk}, f"assignee {several}"),
+            ({"status": ["open", 5]}, f"status {several}"),
+            ({"region": {"name": "Australia"}}, f"region {several}"),
             ({"search": {"contains": "Mia"}}, "search must be a string."),
+            ({"search": ["Mia"]}, "search must be a string."),
         ]
         for body, error in cases:
             with self.subTest(body=body):

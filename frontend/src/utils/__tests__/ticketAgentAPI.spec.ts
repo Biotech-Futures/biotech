@@ -9,6 +9,7 @@ import {
   attachmentErrorMessage,
   bulkAssignTickets,
   downloadTicketAttachment,
+  exportTicketAudit,
   exportTickets,
   fetchAssignees,
   fetchTicketAnalytics,
@@ -190,7 +191,7 @@ describe('the queue list', () => {
     await fetchTicketQueue(
       2,
       25,
-      { status: 'open', region: 'Australia', assignee: '4' },
+      { status: ['open'], region: ['Australia'], assignee: ['4'] },
       { asOf: '2026-09-02T04:00:00+00:00', after: '2026-09-02T04:00:00+00:00_7' }
     )
 
@@ -206,9 +207,25 @@ describe('the queue list', () => {
   it('reads a fresh look without a walk, and an empty filter as no filter', async () => {
     answer(ok(QUEUE_PAGE))
 
-    await fetchTicketQueue(1, 10, { status: '', search: '', priority: 'high' })
+    await fetchTicketQueue(1, 10, { status: [], search: '', priority: ['high'] })
 
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/?page=1&limit=10&priority=high')
+  })
+
+  it('sends several of one kind as its name repeated, in the order given (C-27)', async () => {
+    answer(ok(QUEUE_PAGE))
+
+    await fetchTicketQueue(1, 10, {
+      status: ['open', 'in_progress', 'pending_user'],
+      region: ['Korea, Republic of', '__unknown__']
+    })
+
+    // Repeated rather than joined with commas: a region name can hold one.
+    expect(last().url).toBe(
+      'http://localhost:8000/api/v1/admin/tickets/?page=1&limit=10' +
+        '&region=Korea%2C+Republic+of&region=__unknown__' +
+        '&status=open&status=in_progress&status=pending_user'
+    )
   })
 
   it('parses a page with a screening row that has no requester', async () => {
@@ -310,10 +327,10 @@ describe('exporting the queue (C-09)', () => {
 
     await exportTickets({
       search: 'Mia Thompson',
-      assignee: '__unassigned__',
-      status: 'open',
-      // An empty select is no filter, as on the list.
-      region: '',
+      assignee: ['__unassigned__', '4'],
+      status: ['open'],
+      // An empty list is no filter, as on the list.
+      region: [],
       // What a page might spread in from its own state. Not filters.
       page: '3',
       limit: '25',
@@ -325,8 +342,9 @@ describe('exporting the queue (C-09)', () => {
     // Nothing in the URL: the body is where the export view reads filters.
     expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/export/')
     // The filters that are set, in the list's own order, and no other key.
+    // A list as an array, which the export view reads as the table's repeats.
     expect(String(last().body)).toBe(
-      '{"status":"open","assignee":"__unassigned__","search":"Mia Thompson"}'
+      '{"status":["open"],"assignee":["__unassigned__","4"],"search":"Mia Thompson"}'
     )
     expect(last().headers.get('Content-Type')).toBe('application/json')
     expect(last().headers.get('Accept')).toBe('application/json')
@@ -385,7 +403,7 @@ describe('exporting the queue (C-09)', () => {
       )
     )
 
-    const error = await exportTickets({ assignee: 'x' }).catch((caught: unknown) => caught)
+    const error = await exportTickets({ assignee: ['x'] }).catch((caught: unknown) => caught)
 
     expect(ticketRefusalReason(error)).toBe('assignee must be an integer.')
   })
@@ -397,7 +415,7 @@ describe('exporting the queue (C-09)', () => {
     meId = 99
     answer(json({ error: 'CSRF Failed: CSRF token incorrect.', code: 'permission_denied' }, 403))
 
-    const error = await exportTickets({ status: 'open' }).catch((caught: unknown) => caught)
+    const error = await exportTickets({ status: ['open'] }).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(TicketSessionError)
     expect((error as TicketSessionError).reason).toBe('signed-in-as-someone-else')
@@ -436,6 +454,49 @@ describe('exporting the queue (C-09)', () => {
     expect(clicked).toEqual(['tickets-2026-09-29.xlsx'])
     expect(created).toEqual(['blob:mock/0'])
     click.mockRestore()
+  })
+})
+
+describe('exporting the audit log (C-26)', () => {
+  const xlsx = (headers: Record<string, string> = {}) =>
+    new Response('PK', {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ...headers
+      }
+    })
+
+  it('posts the tab’s filters as JSON, leaving an empty one out', async () => {
+    answer(xlsx())
+
+    await exportTicketAudit({ action: 'status', actor: '' })
+
+    expect(last().method).toBe('POST')
+    expect(last().url).toBe('http://localhost:8000/api/v1/admin/tickets/audit/export/')
+    expect(String(last().body)).toBe('{"action":"status"}')
+  })
+
+  it('posts an empty object with no filter at all', async () => {
+    answer(xlsx())
+
+    await exportTicketAudit()
+
+    expect(String(last().body)).toBe('{}')
+  })
+
+  it('names the file the way the server did, and for the reader’s day when it did not', async () => {
+    answer(xlsx({ 'Content-Disposition': 'attachment; filename="ticket-audit-2026-10-23.xlsx"' }))
+    expect((await exportTicketAudit()).filename).toBe('ticket-audit-2026-10-23.xlsx')
+
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 18, 0))
+      answer(xlsx())
+      expect((await exportTicketAudit()).filename).toBe('ticket-audit-2026-10-22.xlsx')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

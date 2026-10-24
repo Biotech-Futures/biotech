@@ -183,12 +183,13 @@ function footer() {
   return w().get('.queue-pager__where').text()
 }
 
-/** What the rows-per-page control is claiming, in either of its two shapes. */
+/** What the rows-per-page control is claiming, in either of its two shapes:
+ *  the number in the box, or the size the dropdown names ("25 / page"; the
+ *  dropdown is the platform's AppSelect since the 2026-10-22 client meeting,
+ *  C-29, and shows its choice's words). */
 function rowsPerPageReads() {
-  const control = w().get('[aria-label="Rows per page"]').element as
-    | HTMLInputElement
-    | HTMLSelectElement
-  return control.value
+  const control = w().get('[aria-label="Rows per page"]').element as HTMLInputElement
+  return control.value.replace(/ \/ page$/, '')
 }
 
 /** The numbered buttons in the footer nav, in order, as they read. */

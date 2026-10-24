@@ -366,12 +366,13 @@ describe('the redesign round keeps its colour pairs at AA', () => {
   }
 })
 
-// The chevron on every ticket <select>, the paperclip on the detail panel's
-// file buttons and the cross in the roster's search box. Each is an SVG in a
-// data URI, so its colour is written into it once per theme. All three are
-// drawn on a --white control.
+// The paperclip on the detail panel's file buttons, and the cross for a
+// search box (drawn by nothing since the roster page went, C-15, but still
+// defined). Each is an SVG in a data URI, so its colour is written into it
+// once per theme. Both are drawn on a --white control. (The chevron the
+// ticket <select>s drew went with them: AppSelect draws its own, C-29.)
 const CONTROLS = uncommented(src('components/support/ticketControls.css'))
-const ICONS = ['--ticket-select-chevron', '--ticket-paperclip', '--ticket-clear-x']
+const ICONS = ['--ticket-paperclip', '--ticket-clear-x']
 
 function stroke(theme: Theme, icon: string): Rgb {
   const block = rule(CONTROLS, theme === 'light' ? ':root' : ":root[data-theme='dark']")

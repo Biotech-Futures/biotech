@@ -299,6 +299,12 @@ function onReplacePick(event: Event) {
 
 .attach__list {
   flex-basis: 100%;
+  /* A flex item is never narrower than its content unless told otherwise,
+     and a file row's content is the file's whole name. Without these the
+     longest name set the list's width and every row ran out past the card's
+     edge; with them the rows stop at the card and the name ends in "…". */
+  min-width: 0;
+  max-width: 100%;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -310,6 +316,7 @@ function onReplacePick(event: Event) {
 .attach__item {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 0.75rem;
   padding: 0.375rem 0.625rem 0.375rem 0.5rem;
   border: 1px solid var(--attach-rule);
@@ -386,6 +393,10 @@ function onReplacePick(event: Event) {
   text-decoration: underline;
 }
 
+/* A pale red ground, an alert icon and bold text. The first redesign round
+   also ran a 4px bar down its left; the client called that side bar an
+   "AI UI" look at the 2026-10-22 meeting (C-25), and the designer had the
+   others like it go the same way as the ticket page's. */
 .attach__error {
   flex-basis: 100%;
   display: flex;
@@ -393,7 +404,6 @@ function onReplacePick(event: Event) {
   gap: 0.5625rem;
   margin: 0;
   padding: 0.55rem 0.8rem;
-  border-left: 4px solid var(--attach-danger);
   border-radius: 4px;
   background: var(--attach-danger-ground);
   color: var(--attach-danger);

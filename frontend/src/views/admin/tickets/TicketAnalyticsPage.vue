@@ -43,19 +43,19 @@
            date counts the whole day. -->
       <div class="ticket-analytics__field">
         <label for="ticket-analytics-dimension" class="ticket-analytics__label">Break down by</label>
-        <select
+        <!-- The platform's own dropdown (AppSelect) since the 2026-10-22
+             client meeting (C-29). The list comes from the payload, so a
+             failed request leaves nothing to offer. Falling back to the
+             chosen dimension rather than to "region" keeps the control naming
+             what is selected instead of going blank. -->
+        <AppSelect
           id="ticket-analytics-dimension"
-          v-model="dimension"
+          :model-value="dimension"
           class="ticket-analytics__input ticket-analytics__select"
-        >
-          <!-- The list comes from the payload, so a failed request leaves
-               nothing to offer. Falling back to the chosen dimension rather
-               than to "region" keeps the control naming what is selected
-               instead of going blank. -->
-          <option v-for="option in dimensionOptions" :key="option" :value="option">
-            {{ dimensionLabel(option) }}
-          </option>
-        </select>
+          :options="dimensionChoices"
+          :searchable="false"
+          @update:model-value="(value) => (dimension = String(value))"
+        />
       </div>
     </div>
 
@@ -232,7 +232,8 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import '@/components/support/ticketControls.css'
+
+import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 
 import MeasureBars from '@/components/admin/tickets/analytics/MeasureBars.vue'
 import StatTile from '@/components/admin/tickets/analytics/StatTile.vue'
@@ -333,6 +334,9 @@ watch([from, to, dimension], () => {
 })
 
 const dimensionOptions = computed(() => data.value?.dimensions ?? [dimension.value])
+const dimensionChoices = computed<AppSelectOption[]>(() =>
+  dimensionOptions.value.map((option) => ({ value: option, label: dimensionLabel(option) }))
+)
 
 const categoryRows = computed(() =>
   (data.value?.demand.categoryMix ?? []).map((bucket) => ({
@@ -457,19 +461,14 @@ const resolvedShare = computed(() => {
   font-size: 0.9rem;
 }
 
-/* The select draws the thin chevron from ticketControls.css; the date boxes
-   keep the browser's own calendar button, which is how a date is picked. */
+/* AppSelect draws the dropdown's chevron and list; the date boxes keep the
+   browser's own calendar button, which is how a date is picked. */
 .ticket-analytics__select {
   width: 12.5rem;
-  appearance: none;
-  padding-right: 2.25rem;
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 0.9rem center;
 }
 
-/* The date input's calendar glyph and the select's arrow are drawn by the
-   browser, which only knows the theme through color-scheme. */
+/* The date input's calendar glyph is drawn by the browser, which only knows
+   the theme through color-scheme. */
 :root[data-theme='dark'] .ticket-analytics__input {
   color-scheme: dark;
 }
@@ -550,5 +549,12 @@ const resolvedShare = computed(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
   gap: 0.5rem;
+}
+
+/* AppSelect rings its box in --dark-green when its field has keyboard focus,
+   which the dark theme does not redefine: about 2.8:1 on the dark grounds,
+   under the 3:1 a focus indicator needs. The analytics page's dark ring, as its other controls take. */
+:root[data-theme='dark'] .ticket-analytics__select:has(:focus-visible) {
+  outline-color: #5ea99e;
 }
 </style>

@@ -8,88 +8,71 @@
       aria-label="Search tickets"
     />
 
-    <!-- "Any ..." is an empty value. React needed an "__any__" sentinel here
-         because its Select component cannot carry an empty value; a native
-         select can, so "no filter" is simply "" and is dropped when the
-         request is built (ticketAgentAPI appendFilters). -->
-    <select
+    <!-- Five lists with check boxes, so that several of a kind can be picked
+         (client item C-27, 2026-10-22). Nothing ticked is "Any ...", no
+         filter; the request leaves an empty list out (ticketAgentAPI
+         activeFilters). -->
+    <QueueFilterSelect
       class="queue-filters__select queue-filters__select--status"
       aria-label="Filter by status"
-      :value="filters.status || ''"
+      any-label="Any status"
+      :model-value="filters.status ?? []"
+      :options="statusOptions"
       @change="set('status', $event)"
-    >
-      <option value="">Any status</option>
-      <option v-for="(label, value) in TICKET_STATUS_LABELS" :key="value" :value="value">
-        {{ label }}
-      </option>
-      <!-- Not a status a ticket is saved with: the one the Overdue badge
-           beside the status marks, and where the Overdue card lands. -->
-      <option :value="OVERDUE">Overdue</option>
-    </select>
+    />
 
-    <select
+    <QueueFilterSelect
       class="queue-filters__select queue-filters__select--priority"
       aria-label="Filter by priority"
-      :value="filters.priority || ''"
+      any-label="Any priority"
+      :model-value="filters.priority ?? []"
+      :options="priorityOptions"
       @change="set('priority', $event)"
-    >
-      <option value="">Any priority</option>
-      <option v-for="(label, value) in TICKET_PRIORITY_LABELS" :key="value" :value="value">
-        {{ label }}
-      </option>
-    </select>
+    />
 
-    <select
+    <QueueFilterSelect
       class="queue-filters__select queue-filters__select--category"
       aria-label="Filter by category"
-      :value="filters.category || ''"
+      any-label="Any category"
+      :model-value="filters.category ?? []"
+      :options="TICKET_CATEGORY_OPTIONS"
       @change="set('category', $event)"
-    >
-      <option value="">Any category</option>
-      <option v-for="option in TICKET_CATEGORY_OPTIONS" :key="option.value" :value="option.value">
-        {{ option.label }}
-      </option>
-    </select>
+    />
 
-    <select
+    <!-- The server lists the regions in use, A to Z, then the Unknown bucket
+         as its own value (UNKNOWN_REGION): an empty parameter would read as
+         "no filter". -->
+    <QueueFilterSelect
       class="queue-filters__select queue-filters__select--region"
       aria-label="Filter by region"
-      :value="filters.region || ''"
+      any-label="Any region"
+      :model-value="filters.region ?? []"
+      :options="regions"
       @change="set('region', $event)"
-    >
-      <option value="">Any region</option>
-      <!-- The server lists the regions in use, A to Z, then the Unknown
-           bucket as its own value (UNKNOWN_REGION): an empty parameter would
-           read as "no filter". -->
-      <option v-for="region in regions" :key="region.value" :value="region.value">
-        {{ region.label }}
-      </option>
-    </select>
+    />
 
-    <select
+    <!-- Unassigned is the bucket the Unassigned card counts; it is not one of
+         the people, so it is listed by hand rather than coming from the
+         assignee options endpoint. Deactivated agents stay in the list on
+         purpose: their tickets did not move when the account was switched
+         off, and this is the only way to find that work in bulk. -->
+    <QueueFilterSelect
       class="queue-filters__select queue-filters__select--assignee"
       aria-label="Filter by assignee"
-      :value="filters.assignee || ''"
+      any-label="Any assignee"
+      :model-value="filters.assignee ?? []"
+      :options="assigneeOptions"
       @change="set('assignee', $event)"
-    >
-      <option value="">Any assignee</option>
-      <!-- The bucket the Unassigned card counts. Not one of the people below,
-           so it is listed by hand rather than coming from the assignee options
-           endpoint. -->
-      <option :value="UNASSIGNED">Unassigned</option>
-      <!-- Deactivated agents stay here on purpose: their tickets did not move
-           when the account was switched off, and this is the only way to find
-           that work in bulk. -->
-      <option v-for="person in assignees" :key="person.id" :value="String(person.id)">
-        {{ person.name }}
-      </option>
-    </select>
+    />
 
+    <!-- Back to the view the queue opens on (C-28: every status but
+         Resolved), not to nothing at all: that view is the queue at rest, so
+         it shows whenever anything else is chosen. -->
     <button
       v-if="hasAny"
       type="button"
       class="queue-filters__clear"
-      @click="emit('change', {})"
+      @click="emit('change', restingFilters())"
     >
       Clear filters
     </button>
@@ -98,7 +81,6 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import '@/components/support/ticketControls.css'
 
 import {
   OVERDUE,
@@ -111,6 +93,9 @@ import {
   type TicketFilters
 } from '@/utils/ticketAgentSchema'
 
+import QueueFilterSelect from './QueueFilterSelect.vue'
+import { isRestingView, restingFilters, type FilterOption } from './queueFilters'
+
 const props = defineProps<{
   filters: TicketFilters
   regions: RegionOption[]
@@ -119,12 +104,26 @@ const props = defineProps<{
 
 const emit = defineEmits<{ change: [next: TicketFilters] }>()
 
-// "" for "Any", stored as an empty string rather than a deleted key, the way
-// React stored it. The request drops every falsy value either way.
-function set(key: keyof TicketFilters, event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  emit('change', { ...props.filters, [key]: value })
+type ListKey = 'region' | 'status' | 'category' | 'assignee' | 'priority'
+
+function set(key: ListKey, values: string[]) {
+  emit('change', { ...props.filters, [key]: values })
 }
+
+// The statuses, then Overdue: not a status a ticket is saved with but the one
+// the Overdue badge beside the status marks, and where the Overdue card lands.
+// Ticked beside statuses it is one more way in (services/queue.py).
+const statusOptions: FilterOption[] = [
+  ...Object.entries(TICKET_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+  { value: OVERDUE, label: 'Overdue', extra: true }
+]
+
+const priorityOptions: FilterOption[] = Object.entries(TICKET_PRIORITY_LABELS).map(([value, label]) => ({ value, label }))
+
+const assigneeOptions = computed<FilterOption[]>(() => [
+  { value: UNASSIGNED, label: 'Unassigned' },
+  ...props.assignees.map((person) => ({ value: String(person.id), label: person.name }))
+])
 
 // The box types locally and only settles upward, so "SUP-2026" is one queue
 // request instead of eight. Every keystroke used to raise the filters, and
@@ -159,7 +158,7 @@ watch(
 
 onBeforeUnmount(() => clearTimeout(settleTimer))
 
-const hasAny = computed(() => Object.values(props.filters).some(Boolean))
+const hasAny = computed(() => !isRestingView(props.filters))
 </script>
 
 <style scoped>
@@ -229,17 +228,12 @@ const hasAny = computed(() => Object.values(props.filters).some(Boolean))
   opacity: 1;
 }
 
-/* The browser's arrow gives way to the thin chevron from ticketControls.css,
-   with room kept clear of it on the right. */
+/* The lists' boxes (QueueFilterSelect), with room kept clear on the right
+   for the chevron it draws as AppSelect does. */
 .queue-filters__select {
   flex: 1 1 0;
   min-width: 0;
-  appearance: none;
   padding-right: 2.25rem;
-  background-image: var(--ticket-select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 0.9rem center;
-  text-overflow: ellipsis;
 }
 
 /* A text button, green on the page ground (5.72:1 on --bg-light). The theme

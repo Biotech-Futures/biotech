@@ -7,6 +7,8 @@ can only find three" is a bug nobody enjoys.
 """
 
 from datetime import timedelta
+from functools import reduce
+from operator import or_
 
 from django.conf import settings
 from django.db.models import Q
@@ -161,57 +163,99 @@ def database_id(raw, name):
     return value
 
 
+def _chosen(value):
+    """A filter's values as a list. The table can tick several of one kind
+    (client item C-27, 2026-10-22: "can you make those check boxes so that it
+    can be, like, multiple select instead of just single select?").
+
+    None, "" and [] are "no filter". A single string is one value, as every
+    caller sent before the filters took several. Empty strings inside a list
+    are dropped, so a list of nothing but those is no filter either.
+    """
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [item for item in value if item]
+
+
 def apply_filters(queryset, *, region=None, status=None, category=None,
                   assignee=None, priority=None, search=None, now=None):
-    """``now`` is the instant the Overdue bucket is measured at. The queue
+    """Each filter takes one value or a list of them. Several of one kind mean
+    any of them (Open and Pending user ticked shows both); different kinds
+    narrow each other, as they always have.
+
+    ``now`` is the instant the Overdue bucket is measured at. The queue
     passes its snapshot instant, where every other membership rule is decided
     too (services/paging.py), so one walk reads one set: a ticket that
     crosses its deadline mid-walk does not join partway through, and the
     total under the table does not change between pages."""
-    if region:
-        queryset = queryset.filter(region="" if region == UNKNOWN_REGION else region)
-    if status == OVERDUE:
-        # The card's own condition, so the card and the list it opens
-        # cannot disagree.
-        queryset = queryset.filter(overdue_condition(now))
-    elif status:
-        queryset = queryset.filter(status=status)
-    if category:
-        queryset = queryset.filter(category=category)
-    if assignee == UNASSIGNED:
-        queryset = queryset.filter(assignee__isnull=True)
-        # Resolved is excluded as well. The sentinel exists so the summary
-        # card can be clicked through; summary() counts unowned tickets that
-        # are not resolved, so without the same exclusion here a card reading
-        # 3 opens a list of 5.
-        #
-        # Lifted for exactly two filters, and the pair is not "any other
-        # filter". Applied as a flat rule the exclusion went on to hide rows
-        # the agent had asked for by name: choosing Resolved in the status
-        # dropdown beside it emptied the table, and searching an unowned
-        # resolved ticket by its own number answered "No tickets match these
-        # filters" about a ticket that is right there in the database. Both
-        # are the queue asserting something untrue about its own contents.
-        #
-        # Region, category and priority are the other direction. None of
-        # them names a resolved ticket. They narrow the pile; they do not ask
-        # for anything outside it. And the card carries whatever is already on
-        # screen when it is clicked, because TicketQueuePage spreads the
-        # current filters into the link on purpose so a region the agent had
-        # chosen is not silently dropped. Letting those three lift the
-        # exclusion put the original mismatch straight back on the card's own
-        # path: a card reading 1 opening a list of 2, with the extra row
-        # resolved.
-        if not (status or search):
-            queryset = queryset.exclude(status=TicketStatus.RESOLVED)
-    elif assignee:
+    regions = _chosen(region)
+    statuses = _chosen(status)
+    categories = _chosen(category)
+    assignees = _chosen(assignee)
+    priorities = _chosen(priority)
+
+    if regions:
+        queryset = queryset.filter(
+            region__in=["" if value == UNKNOWN_REGION else value for value in regions]
+        )
+    if statuses:
+        # Overdue is a condition on the clock rather than a column, so it joins
+        # the ticked statuses as one more way in: Open and Overdue together is
+        # every open ticket and every overdue one. It is the card's own
+        # condition, so the card and the list it opens cannot disagree.
+        ways_in = []
+        saved = [value for value in statuses if value != OVERDUE]
+        if saved:
+            ways_in.append(Q(status__in=saved))
+        if OVERDUE in statuses:
+            ways_in.append(overdue_condition(now))
+        queryset = queryset.filter(reduce(or_, ways_in))
+    if categories:
+        queryset = queryset.filter(category__in=categories)
+    if assignees:
+        ways_in = []
         # The only filter that is not a string column. On a CharField any
         # value is legal and simply matches nothing; on an FK id Django
         # coerces at query-build time, and a non-number raises ValueError,
         # which the platform's handler turns into a 500 rather than a 400.
-        queryset = queryset.filter(assignee_id=database_id(assignee, "assignee"))
-    if priority:
-        queryset = queryset.filter(priority=priority)
+        people = [database_id(value, "assignee") for value in assignees if value != UNASSIGNED]
+        if people:
+            ways_in.append(Q(assignee_id__in=people))
+        if UNASSIGNED in assignees:
+            unowned = Q(assignee__isnull=True)
+            # Resolved is excluded as well. The sentinel exists so the summary
+            # card can be clicked through; summary() counts unowned tickets that
+            # are not resolved, so without the same exclusion here a card reading
+            # 3 opens a list of 5.
+            #
+            # Lifted for exactly two filters, and the pair is not "any other
+            # filter". Applied as a flat rule the exclusion went on to hide rows
+            # the agent had asked for by name: choosing Resolved in the status
+            # dropdown beside it emptied the table, and searching an unowned
+            # resolved ticket by its own number answered "No tickets match these
+            # filters" about a ticket that is right there in the database. Both
+            # are the queue asserting something untrue about its own contents.
+            #
+            # Region, category and priority are the other direction. None of
+            # them names a resolved ticket. They narrow the pile; they do not ask
+            # for anything outside it. And the card carries whatever is already on
+            # screen when it is clicked, because TicketQueuePage spreads the
+            # current filters into the link on purpose so a region the agent had
+            # chosen is not silently dropped. Letting those three lift the
+            # exclusion put the original mismatch straight back on the card's own
+            # path: a card reading 1 opening a list of 2, with the extra row
+            # resolved.
+            #
+            # Several ticked statuses lift it as one did: whatever is ticked is
+            # what the agent asked to see.
+            if not (statuses or search):
+                unowned &= ~Q(status=TicketStatus.RESOLVED)
+            ways_in.append(unowned)
+        queryset = queryset.filter(reduce(or_, ways_in))
+    if priorities:
+        queryset = queryset.filter(priority__in=priorities)
     if search:
         queryset = queryset.filter(
             Q(ticket_number__icontains=search)

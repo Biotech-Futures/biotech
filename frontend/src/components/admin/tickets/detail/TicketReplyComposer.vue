@@ -22,16 +22,17 @@
          the support agent to change it to in progress or resolved." -->
     <div class="reply-box__status">
       <label :for="statusId">Status after sending</label>
-      <select
+      <!-- The platform's own dropdown (AppSelect) since the 2026-10-22
+           client meeting (C-29). -->
+      <AppSelect
         :id="statusId"
-        v-model="nextStatus"
+        :model-value="nextStatus"
         class="reply-box__select"
+        :options="REPLY_STATUSES"
+        :searchable="false"
         :disabled="isSending"
-      >
-        <option v-for="option in REPLY_STATUSES" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
+        @update:model-value="(value) => (nextStatus = value as ReplyStatus)"
+      />
     </div>
 
     <div class="reply-box__footer">
@@ -112,7 +113,9 @@
 <script setup lang="ts">
 import { ref, useId } from 'vue'
 
+import AppSelect from '@/components/AppSelect.vue'
 import TicketIcon from '@/components/support/TicketIcon.vue'
+// The paperclip on the file button (--ticket-paperclip).
 import '@/components/support/ticketControls.css'
 
 import type { ReplyStatus } from '@/utils/ticketAgentAPI'
@@ -230,24 +233,17 @@ async function onSubmit() {
   font-size: 0.9rem;
 }
 
-/* The panel's own select: the field edge, the thin chevron from
-   ticketControls.css, the 2rem height of the file button beside it. */
+/* The panel's own dropdown: the field edge and the 2rem height of the file
+   button beside it. AppSelect draws the chevron and the disabled look. */
 .reply-box__select {
   min-height: 2rem;
-  padding: 0 2.25rem 0 0.75rem;
+  padding: 0 0.75rem;
   border: 1px solid var(--reply-edge);
   border-radius: 8px;
-  background: var(--white) var(--ticket-select-chevron) no-repeat right 0.75rem center;
-  appearance: none;
+  background: var(--white);
   color: var(--teal);
   font: inherit;
   font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.reply-box__select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .reply-box__footer {
@@ -395,5 +391,12 @@ async function onSubmit() {
   margin: 0;
   color: var(--reply-danger);
   font-size: 0.85rem;
+}
+
+/* AppSelect rings its box in --dark-green when its field has keyboard focus,
+   which the dark theme does not redefine: about 2.8:1 on the dark grounds,
+   under the 3:1 a focus indicator needs. The panel's own dark accent, as its other controls take. */
+:root[data-theme='dark'] .reply-box__select:has(:focus-visible) {
+  outline-color: #5ea99e;
 }
 </style>

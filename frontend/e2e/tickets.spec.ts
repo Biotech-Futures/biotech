@@ -4,7 +4,8 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
-  type TestInfo
+  type TestInfo,
+  type Locator
 } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
 import { inflateRawSync } from 'node:zlib'
@@ -55,6 +56,15 @@ const OLD_ACKNOWLEDGEMENT = /looking into this|get back to you shortly/i
 // the first visit to a page can take seconds. Every wait here polls; none of
 // them sleeps.
 const expect = baseExpect.configure({ timeout: 15_000 })
+
+/** Picks a choice from one of the platform's AppSelect dropdowns, which every
+ *  ticket screen uses since the 2026-10-22 client meeting (C-29): a press on
+ *  its field opens the list, which is drawn over the page rather than inside
+ *  whatever holds the field, and a press on the choice's words picks it. */
+async function pick(page: Page, field: Locator, choice: string) {
+  await field.click()
+  await page.getByRole('option', { name: choice, exact: true }).click()
+}
 // The config leaves actions without a limit (actionTimeout: 0), so a click on
 // something that never appears would sit until the test's own two minutes ran
 // out and say nothing about what it was waiting for.
@@ -169,9 +179,9 @@ async function raiseEnquiry(
   options: { body?: string; attachment?: Attachment } = {}
 ): Promise<RaisedTicket> {
   await expect(page.getByRole('heading', { name: 'Raise an enquiry' })).toBeVisible()
-  await page.getByLabel('Issue category').selectOption('technical_issue')
+  await pick(page, page.getByLabel('Issue category'), 'Technical issue')
   // No default since the client asked for one to be chosen (C-22).
-  await page.getByLabel('Urgency').selectOption('normal')
+  await pick(page, page.getByLabel('Urgency'), 'I can keep working')
   await page.getByLabel('Subject').fill(subject)
   await page
     .getByLabel('Message')
@@ -431,11 +441,12 @@ test.describe('support tickets, both sides in the portal', () => {
     // box left on its default, Pending user (C-19).
     const question = 'Which group is it? Please tell us its name.'
     await dialog.getByRole('textbox', { name: 'Reply to the requester' }).fill(question)
-    await expect(dialog.getByLabel('Status after sending')).toHaveValue('pending_user')
+    // The dropdown's field shows the choice's words.
+    await expect(dialog.getByLabel('Status after sending')).toHaveValue('Pending user')
     await dialog.getByRole('button', { name: 'Send reply' }).click()
     await expect(dialog.locator('.agent-timeline__body', { hasText: question })).toBeVisible()
     await expect(title).toContainText('Pending user')
-    await expect(status).toHaveValue('pending_user')
+    await expect(status).toHaveValue('Pending user')
 
     // The student sees the question and that it is their turn.
     const badges = student.page.locator('.ticket__badges')
@@ -454,7 +465,7 @@ test.describe('support tickets, both sides in the portal', () => {
     await agent.page.reload()
     await expect(dialog.locator('.agent-timeline__body', { hasText: answer })).toBeVisible()
     await expect(title).toContainText('In progress')
-    await expect(status).toHaveValue('in_progress')
+    await expect(status).toHaveValue('In progress')
 
     // Resolve. The control shows the server's value, not the pick, so wait
     // for the server's answer rather than for the select.
@@ -463,7 +474,7 @@ test.describe('support tickets, both sides in the portal', () => {
         response.request().method() === 'PATCH' &&
         response.url().startsWith(`${API_URL}/api/v1/admin/tickets/${ticket.id}/`)
     )
-    await status.selectOption('resolved')
+    await pick(agent.page, status, 'Resolved')
     expect((await patched).status()).toBe(200)
     await expect(title).toContainText('Resolved')
 
@@ -482,7 +493,7 @@ test.describe('support tickets, both sides in the portal', () => {
 
     await agent.page.reload()
     await expect(title).toContainText('Open')
-    await expect(status).toHaveValue('open')
+    await expect(status).toHaveValue('Open')
   })
 
   test('Export to Excel downloads an .xlsx of what the current filters match', async ({
@@ -494,7 +505,13 @@ test.describe('support tickets, both sides in the portal', () => {
 
     const { page } = await signInAsAgent(browser)
     await page.getByLabel('Search tickets').fill(tag)
-    await page.getByLabel('Filter by status').selectOption('open')
+    // The status filter takes several (C-27) and opens on every status but
+    // Resolved (C-28): leave Open alone ticked.
+    await page.getByRole('button', { name: 'Filter by status' }).click()
+    const statuses = page.getByRole('group', { name: 'Filter by status' })
+    await statuses.getByLabel('In progress').uncheck()
+    await statuses.getByLabel('Pending user').uncheck()
+    await page.keyboard.press('Escape')
     // The table settles on the one ticket the two filters match.
     await expect(page.getByRole('button', { name: /^Open SUP-/ })).toHaveCount(1)
     await expect(page.getByRole('button', { name: `Open ${ticket.number}` })).toBeVisible()
@@ -515,7 +532,8 @@ test.describe('support tickets, both sides in the portal', () => {
     expect(new URL(request.url()).search).toBe('')
     const body = request.postDataJSON() as Record<string, unknown>
     expect(body.search).toBe(tag)
-    expect(body.status).toBe('open')
+    // A list since the status filter takes several (C-27).
+    expect(body.status).toEqual(['open'])
     // The page on screen is not the export: no paging goes with it.
     expect('page' in body || 'limit' in body || 'asOf' in body || 'after' in body).toBe(false)
     expect(await request.headerValue('x-csrftoken')).toBeTruthy()
@@ -632,8 +650,8 @@ test.describe('the stale-session guard that predates the port: a tab whose sessi
   }
 
   async function submitEnquiryAndExpectRefusal(tabA: Page, subject: string) {
-    await tabA.getByLabel('Issue category').selectOption('account_access')
-    await tabA.getByLabel('Urgency').selectOption('normal')
+    await pick(tabA, tabA.getByLabel('Issue category'), 'Account and access')
+    await pick(tabA, tabA.getByLabel('Urgency'), 'I can keep working')
     await tabA.getByLabel('Subject').fill(subject)
     await tabA.getByLabel('Message').fill('I cannot see my group.')
     await tabA.getByRole('button', { name: 'Submit ticket' }).click()

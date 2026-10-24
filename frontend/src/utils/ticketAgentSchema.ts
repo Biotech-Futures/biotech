@@ -383,14 +383,16 @@ export const UNKNOWN_REGION = '__unknown__'
 // OVERDUE.
 export const OVERDUE = '__overdue__'
 
-// The five filter dimensions plus search, all optional. An empty string means
-// "no filter", matching how the backend reads them.
+// The five filter lists plus search, all optional. Each list holds the values
+// ticked in it, any of which a ticket may match (client item C-27); empty or
+// absent means "no filter", matching how the backend reads them. Search is one
+// box of text, and an empty string is no search.
 export const ticketFiltersSchema = z.object({
-  region: z.string().optional(),
-  status: z.string().optional(),
-  category: z.string().optional(),
-  assignee: z.string().optional(),
-  priority: z.string().optional(),
+  region: z.array(z.string()).optional(),
+  status: z.array(z.string()).optional(),
+  category: z.array(z.string()).optional(),
+  assignee: z.array(z.string()).optional(),
+  priority: z.array(z.string()).optional(),
   search: z.string().optional()
 })
 

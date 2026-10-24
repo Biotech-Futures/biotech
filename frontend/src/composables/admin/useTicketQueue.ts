@@ -37,6 +37,7 @@ import type {
   TicketSummary
 } from '@/utils/ticketAgentSchema'
 import { DEFAULT_PAGE_SIZE, servedPageCount } from '@/components/admin/tickets/queue/queueRules'
+import { restingFilters } from '@/components/admin/tickets/queue/queueFilters'
 
 /** A batch the server refused outright (a 4xx, a dropped connection). Kept
  *  with what it asked for, because the sentence depends on it. */
@@ -83,7 +84,9 @@ export function describeFailure(
 export function useTicketQueue() {
   const page = ref(1)
   const limit = ref(DEFAULT_PAGE_SIZE)
-  const filters = ref<TicketFilters>({})
+  // Every status but Resolved (client item C-28): what the queue opens on,
+  // and what Clear filters returns to.
+  const filters = ref<TicketFilters>(restingFilters())
   const selectedIds = ref<number[]>([])
 
   // Where each page of the current walk starts.

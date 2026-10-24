@@ -1,6 +1,7 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { appSelectLabels, appSelectText, pickAppSelect } from '@/__tests__/appSelect'
 import QueuePager from '../QueuePager.vue'
 
 /** The footer and its rows-per-page control on their own. Ported from
@@ -22,9 +23,17 @@ afterEach(() => {
   wrapper = null
 })
 
+const SIZE = '[aria-label="Rows per page"]'
+
+/** The number box or the dropdown, whichever is showing: both carry the
+ *  name. The dropdown is the platform's AppSelect since the 2026-10-22 client
+ *  meeting (C-29), whose field is a combobox. */
 function control() {
-  return wrapper!.get('[aria-label="Rows per page"]')
+  return wrapper!.get(SIZE)
 }
+
+const isBox = () => control().attributes('type') === 'number'
+const isDropdown = () => control().attributes('role') === 'combobox'
 
 function sizes() {
   return (wrapper!.emitted('page-size-change') ?? []).map(([size]) => size)
@@ -66,15 +75,16 @@ describe('the rows-per-page control', () => {
   it('opens as the number box on a size that is not a preset', () => {
     show({ pageSize: 10 })
 
-    expect(control().element.tagName).toBe('INPUT')
+    expect(isBox()).toBe(true)
     expect((control().element as HTMLInputElement).value).toBe('10')
   })
 
-  it('opens as the dropdown on a preset, offering nothing past the server’s cap', () => {
+  it('opens as the dropdown on a preset, offering nothing past the server’s cap', async () => {
     show({ pageSize: 25 })
 
-    expect(control().element.tagName).toBe('SELECT')
-    expect(control().findAll('option').map((o) => o.text())).toEqual([
+    expect(isDropdown()).toBe(true)
+    expect(appSelectText(wrapper!, SIZE)).toBe('25 / page')
+    expect(await appSelectLabels(wrapper!, SIZE)).toEqual([
       '25 / page',
       '50 / page',
       '100 / page',
@@ -115,10 +125,10 @@ describe('the rows-per-page control', () => {
   it('switches to the number box from Custom, and puts the agent in it', async () => {
     show({ pageSize: 25 })
 
-    await control().setValue('custom')
+    await pickAppSelect(wrapper!, SIZE, 'Custom…')
     await flushPromises()
 
-    expect(control().element.tagName).toBe('INPUT')
+    expect(isBox()).toBe(true)
     expect(document.activeElement).toBe(control().element)
     expect(sizes()).toEqual([])
   })
@@ -134,7 +144,7 @@ describe('the rows-per-page control', () => {
   it('reports a preset picked from the dropdown', async () => {
     show({ pageSize: 25 })
 
-    await control().setValue('100')
+    await pickAppSelect(wrapper!, SIZE, '100 / page')
 
     expect(sizes()).toEqual([100])
   })
@@ -163,18 +173,18 @@ describe('the rows-per-page control', () => {
 
     expect(wrapper!.emitted('page-change')).toBeUndefined()
     expect(sizes()).toEqual([])
-    expect(control().element.tagName).toBe('INPUT')
+    expect(isBox()).toBe(true)
   })
 
   it('ignores a pick from the dropdown while a page loads, and goes on naming the size in force', async () => {
     show({ pageSize: 25, disabled: true })
 
     expect(control().attributes('aria-disabled')).toBe('true')
-    expect((control().element as HTMLSelectElement).disabled).toBe(false)
-    await control().setValue('100')
+    expect((control().element as HTMLInputElement).disabled).toBe(false)
+    await pickAppSelect(wrapper!, SIZE, '100 / page')
 
     expect(sizes()).toEqual([])
-    expect((control().element as HTMLSelectElement).value).toBe('25')
+    expect(appSelectText(wrapper!, SIZE)).toBe('25 / page')
   })
 
   it('takes presses again once the page is in', async () => {
@@ -182,7 +192,7 @@ describe('the rows-per-page control', () => {
     await wrapper!.setProps({ disabled: false })
 
     expect(wrapper!.findAll('[aria-disabled]').map((el) => el.text())).toEqual(['Previous'])
-    await control().setValue('50')
+    await pickAppSelect(wrapper!, SIZE, '50 / page')
 
     expect(sizes()).toEqual([50])
   })
@@ -207,7 +217,7 @@ describe('where focus goes when the rows-per-page control changes shape', () => 
     await wrapper!.setProps({ pageSize: 25 })
     await flushPromises()
 
-    expect(control().element.tagName).toBe('SELECT')
+    expect(isDropdown()).toBe(true)
     expect(document.activeElement).toBe(control().element)
   })
 
@@ -220,14 +230,14 @@ describe('where focus goes when the rows-per-page control changes shape', () => 
     await flushPromises()
 
     expect(sizes()).toEqual([25])
-    expect(control().element.tagName).toBe('SELECT')
+    expect(isDropdown()).toBe(true)
     expect(document.activeElement).toBe(control().element)
   })
 
   it('hands focus to the dropdown from Presets when the size was a preset already', async () => {
     // Custom picked from the dropdown and left alone: nothing to send.
     show({ pageSize: 25 })
-    await control().setValue('custom')
+    await pickAppSelect(wrapper!, SIZE, 'Custom…')
     await flushPromises()
     presets().element.focus()
 
@@ -246,7 +256,7 @@ describe('where focus goes when the rows-per-page control changes shape', () => 
     await wrapper!.setProps({ pageSize: 25 })
     await flushPromises()
 
-    expect(control().element.tagName).toBe('SELECT')
+    expect(isDropdown()).toBe(true)
     expect(document.activeElement).toBe(next.element)
   })
 })
