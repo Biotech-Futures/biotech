@@ -609,9 +609,17 @@ class SystemEmailAdminApiTests(TestCase):
         items = {item["key"]: item for item in self.client.get("/api/v1/admin/email-template/").json()["data"]["items"]}
         self.assertEqual(items["login_code"]["sender"], "info")
         self.assertEqual(items["unread_messages"]["sender"], "connect")
+        # The ticket emails go from support@ (their own address since the
+        # client asked for it), an alias of info@.
+        for key in (
+            "ticket_submitted", "ticket_reply", "ticket_resolved",
+            "ticket_new_for_support", "ticket_flagged_for_support", "ticket_digest",
+        ):
+            self.assertEqual(items[key]["sender"], "support")
         self.assertEqual(items["login_code"]["senders"], [
             {"key": "info", "address": "info@biotechfutures.org"},
             {"key": "connect", "address": "connect@biotechfutures.org"},
+            {"key": "support", "address": "support@biotechfutures.org"},
         ])
 
     def test_patch_picks_a_sender_kept_through_restore_default(self):

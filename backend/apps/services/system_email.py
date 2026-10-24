@@ -453,6 +453,7 @@ def send_system_email(
     from_email: Optional[str] = None,
     files=(),
     sent_by=None,
+    on_failure=None,
 ) -> str:
     """Check, render and send email ``key`` to one recipient, with ``files``
     ((filename, content, mimetype) each) attached if given. The send is noted
@@ -465,6 +466,12 @@ def send_system_email(
     When the mail server can't be reached, the email is kept and sent once it
     can be (see ``waiting_email``), and that's ``SENT`` too: the Log lists it
     as waiting.
+
+    ``on_failure``, if given, is called with the exception when the send is a
+    miss, on whichever thread sent it, after the miss is noted in the Log; a
+    switched-off email is not a miss, nor is one kept waiting for the mail
+    server. The ticket emails pass it so that a resolution email that could
+    not be delivered is written onto the ticket.
     """
     if not is_email_enabled(key):
         logger.info("system_email.skipped_disabled key=%s", key)
@@ -479,7 +486,7 @@ def send_system_email(
     message = build_message(rendered, to, from_email=from_email, connection=connection, files=files)
 
     if background:
-        send_async(_NotedSend(message, key, sent_by), kind=key)
+        send_async(_NotedSend(message, key, sent_by), kind=key, on_failure=on_failure)
         return SENT
 
     try:
@@ -498,6 +505,16 @@ def send_system_email(
             source_mailbox=message.from_email,
             recipients=message.recipients(),
         )
+        if on_failure is not None:
+            try:
+                on_failure(exc)
+            except Exception as callback_exc:
+                # Named by type only, as the mailer does: the send's error
+                # carries the recipient's address.
+                logger.error(
+                    "system_email.failure_callback_failed key=%s callback_error=%s",
+                    key, type(callback_exc).__name__,
+                )
         return FAILED
     if outcome is WAITING:
         return SENT

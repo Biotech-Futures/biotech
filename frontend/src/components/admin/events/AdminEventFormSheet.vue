@@ -45,6 +45,8 @@
             :key="editorKey"
             v-model="form.description"
             placeholder="Event overview, agenda, or prerequisites..."
+            :allow-attachments="false"
+            :allow-manual-links="false"
           />
         </div>
 

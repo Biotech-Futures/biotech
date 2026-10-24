@@ -1,0 +1,42 @@
+name: Frontend unit tests
+
+# Runs the portal's vitest suite with pnpm. A separate file on purpose: the
+# existing deploy and typecheck workflows belong to other teams and stay
+# untouched (plan Phase 8-4).
+#
+# Started by hand only (Actions > Frontend unit tests > Run workflow). The
+# email editor imports @tiptap/pm without declaring it in package.json; npm
+# hoists it and pnpm does not, so under pnpm three test files fail to load.
+# "Frontend Checks" (frontend-typecheck.yml) already runs the same suite with
+# npm, the way production installs, on every PR and push to main.
+#
+# E2E is deliberately NOT here yet. The Playwright suite needs a running
+# backend with Postgres and seeded accounts; wiring that into CI is its own
+# piece of work, and a half-configured job that silently skips would read
+# as coverage that does not exist.
+#
+# The admin app (adminweb/) is not tested here any more: the client retires it
+# at the end of week 9, the ticket agent side now lives in the portal, and this
+# branch no longer changes a file under adminweb/.
+on:
+  workflow_dispatch:
+
+jobs:
+  portal:
+    name: Portal (Vue) vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:unit --run

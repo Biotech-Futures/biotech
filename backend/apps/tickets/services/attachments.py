@@ -1,0 +1,109 @@
+"""Getting uploaded files into storage before the database hears about them.
+
+Two rules drive the shape of this module:
+
+The upload has to finish before the transaction opens. A blob write is a
+network round-trip to Azure; doing it inside the transaction means one slow
+upload holds a row lock for the duration.
+
+A blob whose row never got written is litter nobody will ever find. So the
+context manager below deletes what it stored if the caller raises on the way
+to commit.
+"""
+
+import logging
+from contextlib import ExitStack, contextmanager
+
+from apps.common.storage import ManagedFileService, StoredFileMissing, get_ticket_storage
+from apps.common.upload_validation import validate_uploaded_file
+from rest_framework import serializers
+
+logger = logging.getLogger(__name__)
+
+# D9. jpg and jpeg both spelled out because the validator matches on the
+# literal suffix.
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+ALLOWED_EXTENSIONS = ("pdf", "png", "jpg", "jpeg", "docx")
+ALLOWED_MIME_TYPES = (
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+MAX_ATTACHMENTS_PER_MESSAGE = 5
+
+ticket_files = ManagedFileService(get_ticket_storage)
+
+
+def validate_attachments(files) -> None:
+    """Reject the batch before anything is uploaded."""
+    if len(files) > MAX_ATTACHMENTS_PER_MESSAGE:
+        raise serializers.ValidationError(
+            f"Attach at most {MAX_ATTACHMENTS_PER_MESSAGE} files to one message."
+        )
+    for uploaded in files:
+        validate_uploaded_file(
+            uploaded,
+            max_size=MAX_ATTACHMENT_BYTES,
+            allowed_extensions=ALLOWED_EXTENSIONS,
+            allowed_mime_types=ALLOWED_MIME_TYPES,
+            field_label="Attachment",
+        )
+        # The shared validator has an upper bound and no lower one, and the
+        # rest of the platform never needed one: chat and the resource library
+        # take their uploads through a DRF FileField, which refuses an empty
+        # file before the validator sees it. The three ticket endpoints read
+        # request.FILES themselves, so a 0 byte file went all the way into
+        # storage and onto the timeline as an ordinary attachment link, with
+        # nothing on either side saying it was empty.
+        if getattr(uploaded, "size", None) == 0:
+            raise serializers.ValidationError(
+                "Attachment is empty. Choose a file with something in it."
+            )
+
+
+@contextmanager
+def stored_attachments(files):
+    """Upload every file, yielding rows ready for TicketAttachment.
+
+    If the caller raises before it returns, every blob written here is removed
+    on the way out.
+    """
+    files = list(files or ())
+    validate_attachments(files)
+    with ExitStack() as stack:
+        rows = [
+            stack.enter_context(
+                ticket_files.stored_file(
+                    uploaded,
+                    content_type_field="mime_type",
+                    size_field="size",
+                    original_filename_field="original_filename",
+                )
+            )
+            for uploaded in files
+        ]
+        yield rows
+
+
+def open_for_download(attachment, *, ticket_id):
+    """The attachment's stored file, open and fetched, or None if it is gone.
+
+    Takes a row the caller has already authorised; which rows a caller may see
+    stays in each view's own queryset. None means storage has lost the file,
+    and both download views answer that exactly as they answer a row that is
+    not there, because to the person clicking it is the same thing. It still
+    gets a warning, since a row outliving its file is never supposed to
+    happen.
+    """
+    try:
+        return ticket_files.open_present(attachment.storage_key)
+    except StoredFileMissing as missing:
+        # Ids only. The storage key ends in the uploader's own file name.
+        logger.warning(
+            "ticket_attachment.file_missing ticket=%s attachment=%s reason=%s",
+            ticket_id,
+            attachment.pk,
+            missing.reason,
+        )
+        return None

@@ -51,6 +51,8 @@ _DUAL_MOUNTS: tuple[tuple[str, str], ...] = (
     ("resources/", "apps.resources.urls"),
     # ``services`` exposes csrf/login/logout endpoints; dual-mount for consistency.
     ("services/",  "apps.services.urls"),
+    # FE hits ``/api/v1/meetings/meetings/`` for mentor-scheduled group meetings.
+    ("meetings/",  "apps.meetings.urls"),
 )
 
 
@@ -71,6 +73,8 @@ def _dual_mount_patterns():
 # at the v1 root keeps ``/api/v1/users/me/`` and friends working.
 _api_v1_patterns = [
     *_dual_mount_patterns(),
+    path("tickets/", include("apps.tickets.urls")),
+    path("admin/tickets/", include("apps.tickets.urls_admin")),
     # Events keeps ``/events/v1/...`` as a legacy app-local alias. Mount only
     # the canonical patterns here so new clients use ``/api/v1/events/...``
     # without also exposing ``/api/v1/events/v1/...``.
