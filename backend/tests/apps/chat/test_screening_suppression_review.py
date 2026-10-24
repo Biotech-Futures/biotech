@@ -3,17 +3,25 @@ from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.chat.models import MessageScreeningStatus, Messages
 from apps.chat.services.screening import dispatch_message_screening, screen_suspicious_message
 from apps.groups.models import GroupMembership, Groups
+from apps.management.models import SupervisorPagesSetting
 from apps.tickets.models import SupportScope, TicketStatus
 
 
 class ScreeningSuppressionReviewTests(APITestCase):
     def setUp(self):
+        # The group chat is one of the pages Pages Visibility keeps from
+        # students until its date (main, 76a1307d); these tests are about
+        # review, so the date has come.
+        SupervisorPagesSetting.objects.update_or_create(
+            pk=1, defaults={"shown_from": timezone.now() - timedelta(days=1)}
+        )
         User = get_user_model()
         self.sender = User.objects.create_user(email="sender@example.com", password="pw")
         self.peer = User.objects.create_user(email="peer@example.com", password="pw")

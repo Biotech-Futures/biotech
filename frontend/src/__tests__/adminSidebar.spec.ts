@@ -4,6 +4,7 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import App from '@/App.vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import {
   mentorWithAccess,
   pureAgent,
@@ -214,10 +215,18 @@ describe('App sidebar admin section', () => {
 // the sidebar only: the header logo also points at a start page.
 describe('App sidebar support entries', () => {
   const memberLinks = ['/dashboard', '/groups', '/events', '/announcements', '/resources', '/support']
+  // Management > Challenge Start > Pages Visibility: the date that shows the
+  // member pages to students, mentors and supervisors (admins always see
+  // them). The table below is who sees what once it has come; the hidden
+  // state, which is where it starts, has its own tests at the end.
+  const PAGES_SHOWN = { shown: true, shown_from: '2020-01-01T00:00:00Z' }
+  const PAGES_HIDDEN = { shown: false, shown_from: null }
+  const hiddenPages = ['/dashboard', '/groups', '/events', '/announcements', '/resources']
 
   beforeEach(async () => {
     pinia = createPinia()
     setActivePinia(pinia)
+    setSupervisorPages(PAGES_SHOWN)
     await router.push('/dashboard')
     await router.isReady()
   })
@@ -228,6 +237,8 @@ describe('App sidebar support entries', () => {
     vi.unstubAllGlobals()
     localStorage.clear()
   })
+
+  afterEach(() => setSupervisorPages(PAGES_HIDDEN))
 
   const sidebarHas = (path: string) => wrapper!.find(`.sidebar-nav a[href="#${path}"]`).exists()
 
@@ -302,9 +313,36 @@ describe('App sidebar support entries', () => {
     }
   })
 
-  // Management's Pages Visibility kept these from a supervisor until an admin
-  // showed them (Support was never one of them); main took that switch out
-  // on 2026-10-23, so every member item is theirs.
+  // Support is not one of the pages Pages Visibility hides, so it stays in
+  // the menu while the others are hidden: a student or mentor keeps their
+  // profile and Support, a supervisor Support beside their own pages. Both
+  // start on Support, which the guard lets them open; /dashboard would send
+  // them on to /profile, whose loads outlive the test and sign the next one
+  // out.
+  it('a student while the pages are hidden: My Profile and Support, none of the rest', async () => {
+    setSupervisorPages(PAGES_HIDDEN)
+    useAuthStore().loginWithUser(student as never)
+    await mountApp({ viewport: 'desktop', start: '/support' })
+
+    expect(router.currentRoute.value.path).toBe('/support')
+    expect(sidebarHas('/profile'), 'My Profile').toBe(true)
+    expect(sidebarHas('/support'), 'Support').toBe(true)
+    for (const path of hiddenPages) {
+      expect(sidebarHas(path), `hidden page ${path}`).toBe(false)
+    }
+  })
+
+  it('a pure support agent while the pages are hidden: still the queue and nothing else', async () => {
+    setSupervisorPages(PAGES_HIDDEN)
+    useAuthStore().loginWithUser(pureAgent as never)
+    await mountApp({ viewport: 'desktop', start: '/admin/tickets' })
+
+    expect(sidebarHas('/admin/tickets'), 'Support queue').toBe(true)
+    for (const path of [...memberLinks, '/profile']) {
+      expect(sidebarHas(path), `member link ${path}`).toBe(false)
+    }
+  })
+
   describe('a supervisor', () => {
     const supervisor = {
       id: 31,
@@ -318,7 +356,19 @@ describe('App sidebar support entries', () => {
       isSupport: false
     }
 
-    it('gets every member item, Support among them', async () => {
+    it('while the pages are hidden, as they start: Support and none of the rest', async () => {
+      setSupervisorPages(PAGES_HIDDEN)
+      useAuthStore().loginWithUser(supervisor as never)
+      await mountApp({ viewport: 'desktop', start: '/support' })
+
+      expect(router.currentRoute.value.path).toBe('/support')
+      expect(sidebarHas('/support'), 'Support').toBe(true)
+      for (const path of hiddenPages) {
+        expect(sidebarHas(path), `hidden page ${path}`).toBe(false)
+      }
+    })
+
+    it('once the date has come: every member item, Support among them', async () => {
       useAuthStore().loginWithUser(supervisor as never)
       await mountApp({ viewport: 'desktop' })
 

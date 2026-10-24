@@ -21,7 +21,7 @@
                  with no matching label stays as plain text rather than
                  becoming a link to an empty list. -->
             <RouterLink
-              v-if="topicLabelId(topic.title)"
+              v-if="resourcesOpen && topicLabelId(topic.title)"
               :to="{ path: '/resources', query: { label: topicLabelId(topic.title) } }"
               class="support__topic-link support__topic-row"
             >
@@ -42,7 +42,7 @@
           </li>
         </ul>
 
-        <RouterLink to="/resources" class="support__resources-link">
+        <RouterLink v-if="resourcesOpen" to="/resources" class="support__resources-link">
           View all help articles in Resources &rarr;
         </RouterLink>
       </aside>
@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import MyTicketsTable from '@/components/support/MyTicketsTable.vue'
 import TicketForm from '@/components/support/TicketForm.vue'
@@ -109,6 +109,8 @@ import { apiErrorFromUnknown } from '@/utils/apiError'
 import { SUPPORT_TOPICS, labelIdFor } from '@/utils/supportTopics'
 import { fetchMyTickets, type TicketDetail, type TicketRow } from '@/utils/supportAPI'
 import { fetchResourceLabels, type ResourceLabel } from '@/utils/resourcesAPI'
+import { useSupervisorPages } from '@/composables/useSupervisorPages'
+import { useAuthStore } from '@/stores/auth'
 
 // The list itself lives in utils/supportTopics.ts so a test can import the
 // same one the page renders. See that file for why the strings are
@@ -138,6 +140,15 @@ const labels = ref<ResourceLabel[]>([])
 // imported, so the test that covered this had a copy of the function in the
 // test file and pinned the rule instead of the implementation.
 const topicLabelId = (topic: string) => labelIdFor(topic, labels.value)
+
+// Resources is one of the pages Management > Challenge Start > Pages
+// Visibility keeps from students, mentors and supervisors until its date,
+// and the router guard sends them to their profile instead. Until then the
+// panel names its topics without linking anywhere and leaves out the link
+// to the whole library. Admins always see Resources.
+const auth = useAuthStore()
+const { shown: memberPagesShown } = useSupervisorPages()
+const resourcesOpen = computed(() => auth.isAdmin || memberPagesShown.value)
 
 const router = useRouter()
 

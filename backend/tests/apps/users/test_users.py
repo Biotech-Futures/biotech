@@ -703,10 +703,19 @@ class RegistrationGeographyTests(TestCase):
         self.assertEqual(user.state.state_name, "NSW")
         self.assertEqual(user.state.country_id, user.country_id)
 
-    def test_supervisor_nomination_does_not_create_a_privileged_account(self):
+    def test_a_nominated_supervisor_without_an_account_is_created_in_the_students_place(self):
         self._register("Australia", region="NSW")
-        from apps.users.models import RegistrationSubmission
-        self.assertFalse(User.objects.filter(email="sup@example.com").exists())
+        from apps.users.models import RegistrationSubmission, SupervisorProfile
+        supervisor = User.objects.get(email="sup@example.com")
+        student = User.objects.get(email="kid@example.com")
+        # Active, as an admin's import creates one, at the student's school and
+        # in their country and state, with no password until they sign in.
+        self.assertEqual(supervisor.account_status, User.AccountStatus.ACTIVE)
+        self.assertFalse(supervisor.has_usable_password())
+        self.assertEqual((supervisor.country_id, supervisor.state_id), (student.country_id, student.state_id))
+        profile = SupervisorProfile.objects.get(user=supervisor)
+        self.assertEqual(profile.school_name, student.studentprofile.school_name)
+        self.assertEqual(student.studentprofile.supervisor, profile)
         submission = RegistrationSubmission.objects.get(student__email="kid@example.com")
         self.assertEqual(submission.supervisor_details["email"], "sup@example.com")
 

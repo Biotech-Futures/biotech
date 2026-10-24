@@ -36,8 +36,8 @@ export function landingPath(auth: LandingAuth): string {
     return auth.canWorkTickets ? TICKET_QUEUE_PATH : SUPPORT_ACCESS_PATH
   }
   // A supervisor starts on their own profile, where main's guard sends them
-  // too. The member pages used to stay hidden from them until Management
-  // showed them; main took that switch out on 2026-10-23 and kept this landing.
+  // too: until Management > Challenge Start > Pages Visibility's date the
+  // member pages are hidden from them, and their own pages are below.
   if (auth.isSupervisor) return SUPERVISOR_LANDING_PATH
   return MEMBER_LANDING_PATH
 }

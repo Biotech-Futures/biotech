@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SupportCentrePage from '../SupportCentrePage.vue'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
+import type { SupervisorPagesState } from '@/utils/managementAPI'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -232,10 +234,11 @@ describe('the page header', () => {
 })
 
 /**
- * The help panel links each topic to its shelf in Resources, for every role.
- * A supervisor used to get the topics as text while Management's Pages
- * Visibility kept Resources from them; main took that switch out on
- * 2026-10-23, so Resources is open to them as to everyone else.
+ * The help panel links each topic to its shelf in Resources. Resources is one
+ * of the pages Management > Challenge Start > Pages Visibility keeps from
+ * students, mentors and supervisors until its date (the router guard sends
+ * them to their profile), so until then they get the topics as text and no
+ * link to the library. Admins always see Resources.
  */
 describe('SupportCentrePage help panel', () => {
   const supervisor = {
@@ -257,27 +260,42 @@ describe('SupportCentrePage help panel', () => {
     labelsMock.mockResolvedValue([{ id: 7, name: 'Registration' }])
   })
 
+  const SHOWN: SupervisorPagesState = { shown: true, shown_from: '2020-01-01T00:00:00Z' }
+  const HIDDEN: SupervisorPagesState = { shown: false, shown_from: null }
+
   afterEach(() => {
+    setSupervisorPages(HIDDEN)
     labelsMock.mockResolvedValue([])
   })
 
-  async function panelFor(user: object) {
+  async function panelFor(user: object, pages: SupervisorPagesState) {
+    setSupervisorPages(pages)
     useAuthStore().loginWithUser(user as never)
     const wrapper = mount(SupportCentrePage)
     await flushPromises()
     return wrapper.get('.support__selfserve').text()
   }
 
-  it('links a supervisor to the guides and the library', async () => {
-    const panel = await panelFor(supervisor)
+  it.each([
+    ['a student', { ...supervisor, id: 32, current_role_name: 'student' }],
+    ['a supervisor', supervisor]
+  ])('names the topics without linking %s to Resources while it is hidden', async (_who, user) => {
+    const panel = await panelFor(user, HIDDEN)
 
     expect(panel).toContain('Registration')
+    expect(panel).not.toContain('Read the guides')
+    expect(panel).not.toContain('View all help articles in Resources')
+  })
+
+  it('links them once the date has come', async () => {
+    const panel = await panelFor({ ...supervisor, id: 32, current_role_name: 'student' }, SHOWN)
+
     expect(panel).toContain('Read the guides')
     expect(panel).toContain('View all help articles in Resources')
   })
 
-  it('links a student the same way', async () => {
-    const panel = await panelFor({ ...supervisor, id: 32, current_role_name: 'student' })
+  it('links an admin whatever the date says', async () => {
+    const panel = await panelFor({ ...supervisor, id: 33, current_role_name: 'admin', isAdmin: true }, HIDDEN)
 
     expect(panel).toContain('Read the guides')
     expect(panel).toContain('View all help articles in Resources')

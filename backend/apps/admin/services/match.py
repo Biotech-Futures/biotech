@@ -275,7 +275,7 @@ def match_student(uid: str) -> MatchStudentResult:
     
     standalone_students = (
         StudentProfile.objects
-        .filter(~Exists(active_membership_subquery))
+        .filter(~Exists(active_membership_subquery), user__is_active=True)
         .select_related('user', 'user__country')
         .values(
             'user_id',
@@ -612,7 +612,7 @@ def get_individual_students() -> List[Dict[str, Any]]:
     
     individual_students = (
         StudentProfile.objects
-        .filter(~Exists(active_membership_subquery))
+        .filter(~Exists(active_membership_subquery), user__is_active=True)
         .select_related('user', 'user__country')
         .values(
             'user_id',
@@ -676,7 +676,7 @@ def recommend_students_for_group(group_id: int) -> Dict[str, Any]:
     )
     standalone = list(
         StudentProfile.objects
-        .filter(~Exists(active_membership_subquery))
+        .filter(~Exists(active_membership_subquery), user__is_active=True)
         .select_related('user', 'user__country')
         .values(
             'user_id',

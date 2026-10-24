@@ -343,6 +343,7 @@ import { useGroupsStore } from './stores/groups'
 import { buildSessionHeaders } from '@/utils/csrf'
 import AppSelect, { type AppSelectOption, type AppSelectValue } from '@/components/AppSelect.vue'
 import { markingFullWidth } from '@/composables/markingLayout'
+import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
 import { landingPath } from '@/utils/landing'
@@ -494,8 +495,16 @@ type MainNavEntry =
       collapsed: boolean
     }
 
+const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
+watch(
+  () => auth.isAuthenticated && !auth.isAdmin,
+  (followsVisibility) => {
+    if (followsVisibility) void loadSupervisorPages()
+  },
+  { immediate: true },
+)
 watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
@@ -504,13 +513,27 @@ watch(
   { immediate: true },
 )
 
-// The top-level links every role sees, at all times. A support agent who is
-// not an admin gets the queue and none of these: the guard sends them back
-// from these anyway, so offering the links would only be a detour. The list
-// is the router guard's own, so the menu never offers a page the guard
+// The top-level links. A support agent who is not an admin gets the queue and
+// none of these: the guard sends them back from these anyway, so offering the
+// links would only be a detour. The rest come once Management > Challenge
+// Start > Pages Visibility's date comes (admins always see them); until then
+// a supervisor has their own pages below and a student or mentor their
+// profile. Support is not one of the hidden pages, so everybody keeps it. The
+// list is the router guard's own, so the menu never offers a page the guard
 // refuses or hides one it allows.
 const mainNavLinks = computed(() => {
   if (auth.isSupportOnly) return []
+  const support: MainNavEntry = {
+    to: '/support',
+    label: 'Support',
+    icon: 'fa-life-ring',
+    active: route.path.startsWith('/support'),
+  }
+  if (!auth.isAdmin && !supervisorPagesShown.value) {
+    return auth.isSupervisor
+      ? [support]
+      : [{ to: '/profile', label: 'My Profile', icon: 'fa-user', active: route.path === '/profile' }, support]
+  }
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]
@@ -519,7 +542,7 @@ const mainNavLinks = computed(() => {
     { to: '/events', label: 'Events', icon: 'fa-calendar', active: route.path.startsWith('/events') },
     { to: '/announcements', label: 'Announcements', icon: 'fa-bullhorn', active: route.path === '/announcements' },
     { to: '/resources', label: 'Resources', icon: 'fa-book', active: route.path === '/resources' },
-    { to: '/support', label: 'Support', icon: 'fa-life-ring', active: route.path.startsWith('/support') },
+    support,
   )
   return links
 })

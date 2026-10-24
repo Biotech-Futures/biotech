@@ -55,6 +55,7 @@ class CountryViewSet(viewsets.ModelViewSet):
 
 
 class GroupMemberViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     serializer_class = GroupMembershipSerializer
 
     def get_queryset(self):
@@ -120,6 +121,7 @@ class GroupMemberViewSet(viewsets.ModelViewSet):
 
 
 class GroupViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     serializer_class = GroupSerializer
 
     def get_queryset(self):
@@ -209,6 +211,8 @@ class GroupViewSet(viewsets.ModelViewSet):
         self._ensure_admin_track_access(request, group)
         if group.deleted_at is None:
             return Response(GroupSerializer(group).data, status=status.HTTP_200_OK)
+        if group.archived_at is not None:
+            raise ValidationError({"detail": "This group was archived by Start new year, so it can't be restored."})
         # Names may repeat across annual challenges, but not within one: coming
         # back must not give its year two teams of the same name.
         taken = duplicate_group_name_error(group.group_name, group.year, exclude_id=group.pk)

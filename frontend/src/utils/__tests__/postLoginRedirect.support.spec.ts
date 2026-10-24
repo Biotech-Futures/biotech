@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import { getBrowserTimeZone } from '@/utils/date'
 import { redirectAfterLogin } from '@/utils/postLoginRedirect'
 import {
@@ -20,6 +21,10 @@ import {
 describe('redirectAfterLogin for support accounts', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
+    // Where each account lands once Management > Challenge Start > Pages
+    // Visibility's date has come; before it the guard moves a student or a
+    // mentor on from /dashboard to their profile (adminSidebar.spec.ts).
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     await router.push('/login')
     sessionStorage.clear()
   })
@@ -29,6 +34,7 @@ describe('redirectAfterLogin for support accounts', () => {
     vi.unstubAllGlobals()
     localStorage.clear()
     sessionStorage.clear()
+    setSupervisorPages({ shown: false, shown_from: null })
   })
 
   const landings: Array<[string, string, object]> = [

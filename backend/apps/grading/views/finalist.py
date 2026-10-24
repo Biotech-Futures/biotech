@@ -44,8 +44,11 @@ class FinalistListView(APIView):
         return full_name or user.email
 
     def get(self, request):
-        flags = FinalistFlag.objects.select_related("group", "flagged_by", "notified_by").order_by(
-            "group__group_name"
+        # Not a deleted group's, nor one Start new year archived.
+        flags = (
+            FinalistFlag.objects.filter(group__deleted_at__isnull=True)
+            .select_related("group", "flagged_by", "notified_by")
+            .order_by("group__group_name")
         )
         return Response({
             "finalists": [
@@ -193,7 +196,9 @@ class FinalistCandidatesView(APIView):
                 continue
             marks_by_group.setdefault(group_id, {})[code] = total
 
-        finalist_ids = set(FinalistFlag.objects.values_list("group_id", flat=True))
+        finalist_ids = set(
+            FinalistFlag.objects.filter(group__deleted_at__isnull=True).values_list("group_id", flat=True)
+        )
         # The title each team submitted, as the entry being marked has it.
         titles = content.submitted_titles(g["id"] for g in groups)
         # The categories picked on the marking key.

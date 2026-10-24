@@ -79,6 +79,7 @@ const router = createRouter({
 import { useAuthStore } from '../stores/auth'
 import { landingPath, SUPPORT_ACCESS_PATH } from '@/utils/landing'
 import { rememberReturnTo } from '../utils/postLoginRedirect'
+import { isSupervisorHiddenPath, loadSupervisorPages } from '../composables/useSupervisorPages'
 import { resolveSupervisorRegistrationRouteAccess } from './registrationAccess'
 
 // Pages a support-only account may open besides the ticket routes: its own
@@ -149,6 +150,10 @@ router.beforeEach((to, from, next) => {
   } else if (to.path === '/login' && auth.isAuthenticated) {
     // landingPath() answers the set-password case first, as this branch did.
     next(landingPath(auth))
+  } else if (auth.isAuthenticated && !auth.isAdmin && isSupervisorHiddenPath(to.path)) {
+    // Hidden from students, mentors and supervisors until Management >
+    // Challenge Start > Pages Visibility's date: their profile instead.
+    void loadSupervisorPages().then((shown) => (shown ? next() : next('/profile')))
   } else {
     next()
   }

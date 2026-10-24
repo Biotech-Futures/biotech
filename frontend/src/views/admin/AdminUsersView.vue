@@ -170,12 +170,12 @@
       </div>
     </ConfirmDialog>
 
-    <!-- Single deactivate confirm -->
+    <!-- Single deactivate confirm, or activating a student from an earlier year -->
     <ConfirmDialog
       v-model="singleToggle.open"
-      title="Deactivate user"
+      :title="singleToggle.active ? 'Activate user' : 'Deactivate user'"
       :message="singleToggle.message"
-      confirm-label="Deactivate"
+      :confirm-label="singleToggle.active ? 'Activate' : 'Deactivate'"
       variant="warning"
       :busy="busy"
       @confirm="runSingleToggle"

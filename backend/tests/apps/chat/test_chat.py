@@ -1059,6 +1059,38 @@ class ChatBlockedContentTests(TestCase):
         self.assertIn("blocked content", str(resp.data).lower())
 
     @override_settings(
+        CHAT_SANITIZER_BLACKLIST=["ass*", "fuck*"],
+        CHAT_SANITIZER_REPLACEMENT="***",
+    )
+    def test_a_mention_alone_is_never_blocked_but_a_word_beside_it_is(self):
+        # The filter reads "@" and digits as letters, so the token
+        # "<@55555556>" reads "@55" as "ass" (main's mention fix, e950c8bc).
+        # Only the text around the token is checked: the mention goes
+        # through, and a blocked word beside it still stops the message.
+        reset_pattern_cache()
+        dana = get_user_model().objects.create_user(
+            id=55_555_556, email="dana-b@test.com", password="pw", first_name="Dana", last_name="B"
+        )
+        GroupMembership.objects.create(user=dana, group=self.group)
+
+        resp = self.client_student.post(
+            self._list_url(),
+            {"message_text": f"hi <@{dana.id}>", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.data["message_text"], f"hi <@{dana.id}>")
+
+        resp = self.client_student.post(
+            self._list_url(),
+            {"message_text": f"<@{dana.id}> what the fuck", "resources": []},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("blocked content", str(resp.data).lower())
+        self.assertEqual(Messages.objects.count(), 1)
+
+    @override_settings(
         CHAT_SANITIZER_BLACKLIST=["shit*"],
         CHAT_SANITIZER_REPLACEMENT="***",
     )

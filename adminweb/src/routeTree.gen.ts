@@ -9,51 +9,45 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SigninRouteImport } from './routes/signin'
-import { Route as SetupPasswordRouteImport } from './routes/setup-password'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as SetupPasswordRouteImport } from './routes/setup-password'
+import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AuthIndexRouteImport } from './routes/_auth/index'
-import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
-import { Route as AuthUserRouteImport } from './routes/_auth/user'
-import { Route as AuthTaskRouteImport } from './routes/_auth/task'
-import { Route as AuthStudentRouteImport } from './routes/_auth/student'
-import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
-import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentorMatching'
-import { Route as AuthMentorRouteImport } from './routes/_auth/mentor'
-import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
-import { Route as AuthGroupRouteImport } from './routes/_auth/group'
-import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthAnnouncementRouteImport } from './routes/_auth/announcement'
-import { Route as AuthPeopleRouteRouteImport } from './routes/_auth/people/route'
-import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route'
+import { Route as AuthEventRouteImport } from './routes/_auth/event'
 import { Route as AuthGradingRouteRouteImport } from './routes/_auth/grading/route'
-import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
-import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
+import { Route as AuthGroupRouteImport } from './routes/_auth/group'
+import { Route as AuthGroupsRouteRouteImport } from './routes/_auth/groups/route'
+import { Route as AuthMatchingRouteImport } from './routes/_auth/matching'
+import { Route as AuthMentorRouteImport } from './routes/_auth/mentor'
+import { Route as AuthMentorMatchingRouteImport } from './routes/_auth/mentorMatching'
+import { Route as AuthPeopleRouteRouteImport } from './routes/_auth/people/route'
+import { Route as AuthResourceRouteImport } from './routes/_auth/resource'
+import { Route as AuthStudentRouteImport } from './routes/_auth/student'
+import { Route as AuthTaskRouteImport } from './routes/_auth/task'
+import { Route as AuthUserRouteImport } from './routes/_auth/user'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthGradingIndexRouteImport } from './routes/_auth/grading/index'
-import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
-import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
-import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
-import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
-import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
-import { Route as AuthGroupsMatchedGroupsRouteImport } from './routes/_auth/groups/matched-groups'
-import { Route as AuthGradingSettingsRouteImport } from './routes/_auth/grading/settings'
-import { Route as AuthGradingReleaseRouteImport } from './routes/_auth/grading/release'
-import { Route as AuthGradingFinalistsRouteImport } from './routes/_auth/grading/finalists'
-import { Route as AuthGradingByGroupRouteImport } from './routes/_auth/grading/by-group'
 import { Route as AuthGradingByComponentRouteImport } from './routes/_auth/grading/by-component'
-import { Route as AuthGradingGroupsGroupIdRouteImport } from './routes/_auth/grading/groups/$groupId'
+import { Route as AuthGradingByGroupRouteImport } from './routes/_auth/grading/by-group'
+import { Route as AuthGradingFinalistsRouteImport } from './routes/_auth/grading/finalists'
+import { Route as AuthGradingReleaseRouteImport } from './routes/_auth/grading/release'
+import { Route as AuthGradingSettingsRouteImport } from './routes/_auth/grading/settings'
+import { Route as AuthGroupsIndexRouteImport } from './routes/_auth/groups/index'
+import { Route as AuthGroupsMatchedGroupsRouteImport } from './routes/_auth/groups/matched-groups'
+import { Route as AuthGroupsMentorMatchingRouteImport } from './routes/_auth/groups/mentor-matching'
+import { Route as AuthGroupsStudentMatchingRouteImport } from './routes/_auth/groups/student-matching'
+import { Route as AuthPeopleIndexRouteImport } from './routes/_auth/people/index'
+import { Route as AuthPeopleMentorsRouteImport } from './routes/_auth/people/mentors'
+import { Route as AuthPeopleStudentsRouteImport } from './routes/_auth/people/students'
+import { Route as AuthPeopleSupervisorsRouteImport } from './routes/_auth/people/supervisors'
 import { Route as AuthGradingComponentsCodeRouteImport } from './routes/_auth/grading/components/$code'
+import { Route as AuthGradingGroupsGroupIdRouteImport } from './routes/_auth/grading/groups/$groupId'
 import { Route as AuthGradingComponentsCodeGroupIdRouteImport } from './routes/_auth/grading/components/$code_.$groupId'
 
-const SigninRoute = SigninRouteImport.update({
-  id: '/signin',
-  path: '/signin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SetupPasswordRoute = SetupPasswordRouteImport.update({
-  id: '/setup-password',
-  path: '/setup-password',
+const AuthRouteRoute = AuthRouteRouteImport.update({
+  id: '/_auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -61,8 +55,14 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthRouteRoute = AuthRouteRouteImport.update({
-  id: '/_auth',
+const SetupPasswordRoute = SetupPasswordRouteImport.update({
+  id: '/setup-password',
+  path: '/setup-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SigninRoute = SigninRouteImport.update({
+  id: '/signin',
+  path: '/signin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthIndexRoute = AuthIndexRouteImport.update({
@@ -70,49 +70,9 @@ const AuthIndexRoute = AuthIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthCallbackRoute = AuthCallbackRouteImport.update({
-  id: '/auth/callback',
-  path: '/auth/callback',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthUserRoute = AuthUserRouteImport.update({
-  id: '/user',
-  path: '/user',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthTaskRoute = AuthTaskRouteImport.update({
-  id: '/task',
-  path: '/task',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthStudentRoute = AuthStudentRouteImport.update({
-  id: '/student',
-  path: '/student',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthResourceRoute = AuthResourceRouteImport.update({
-  id: '/resource',
-  path: '/resource',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthMentorMatchingRoute = AuthMentorMatchingRouteImport.update({
-  id: '/mentorMatching',
-  path: '/mentorMatching',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthMentorRoute = AuthMentorRouteImport.update({
-  id: '/mentor',
-  path: '/mentor',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthMatchingRoute = AuthMatchingRouteImport.update({
-  id: '/matching',
-  path: '/matching',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthGroupRoute = AuthGroupRouteImport.update({
-  id: '/group',
-  path: '/group',
+const AuthAnnouncementRoute = AuthAnnouncementRouteImport.update({
+  id: '/announcement',
+  path: '/announcement',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthEventRoute = AuthEventRouteImport.update({
@@ -120,14 +80,14 @@ const AuthEventRoute = AuthEventRouteImport.update({
   path: '/event',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthAnnouncementRoute = AuthAnnouncementRouteImport.update({
-  id: '/announcement',
-  path: '/announcement',
+const AuthGradingRouteRoute = AuthGradingRouteRouteImport.update({
+  id: '/grading',
+  path: '/grading',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthPeopleRouteRoute = AuthPeopleRouteRouteImport.update({
-  id: '/people',
-  path: '/people',
+const AuthGroupRoute = AuthGroupRouteImport.update({
+  id: '/group',
+  path: '/group',
   getParentRoute: () => AuthRouteRoute,
 } as any)
 const AuthGroupsRouteRoute = AuthGroupsRouteRouteImport.update({
@@ -135,76 +95,54 @@ const AuthGroupsRouteRoute = AuthGroupsRouteRouteImport.update({
   path: '/groups',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthGradingRouteRoute = AuthGradingRouteRouteImport.update({
-  id: '/grading',
-  path: '/grading',
+const AuthMatchingRoute = AuthMatchingRouteImport.update({
+  id: '/matching',
+  path: '/matching',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthPeopleIndexRoute = AuthPeopleIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthPeopleRouteRoute,
+const AuthMentorRoute = AuthMentorRouteImport.update({
+  id: '/mentor',
+  path: '/mentor',
+  getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthGroupsIndexRoute = AuthGroupsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthGroupsRouteRoute,
+const AuthMentorMatchingRoute = AuthMentorMatchingRouteImport.update({
+  id: '/mentorMatching',
+  path: '/mentorMatching',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthPeopleRouteRoute = AuthPeopleRouteRouteImport.update({
+  id: '/people',
+  path: '/people',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthResourceRoute = AuthResourceRouteImport.update({
+  id: '/resource',
+  path: '/resource',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthStudentRoute = AuthStudentRouteImport.update({
+  id: '/student',
+  path: '/student',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthTaskRoute = AuthTaskRouteImport.update({
+  id: '/task',
+  path: '/task',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthUserRoute = AuthUserRouteImport.update({
+  id: '/user',
+  path: '/user',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthGradingIndexRoute = AuthGradingIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AuthGradingRouteRoute,
-} as any)
-const AuthPeopleSupervisorsRoute = AuthPeopleSupervisorsRouteImport.update({
-  id: '/supervisors',
-  path: '/supervisors',
-  getParentRoute: () => AuthPeopleRouteRoute,
-} as any)
-const AuthPeopleStudentsRoute = AuthPeopleStudentsRouteImport.update({
-  id: '/students',
-  path: '/students',
-  getParentRoute: () => AuthPeopleRouteRoute,
-} as any)
-const AuthPeopleMentorsRoute = AuthPeopleMentorsRouteImport.update({
-  id: '/mentors',
-  path: '/mentors',
-  getParentRoute: () => AuthPeopleRouteRoute,
-} as any)
-const AuthGroupsStudentMatchingRoute =
-  AuthGroupsStudentMatchingRouteImport.update({
-    id: '/student-matching',
-    path: '/student-matching',
-    getParentRoute: () => AuthGroupsRouteRoute,
-  } as any)
-const AuthGroupsMentorMatchingRoute =
-  AuthGroupsMentorMatchingRouteImport.update({
-    id: '/mentor-matching',
-    path: '/mentor-matching',
-    getParentRoute: () => AuthGroupsRouteRoute,
-  } as any)
-const AuthGroupsMatchedGroupsRoute = AuthGroupsMatchedGroupsRouteImport.update({
-  id: '/matched-groups',
-  path: '/matched-groups',
-  getParentRoute: () => AuthGroupsRouteRoute,
-} as any)
-const AuthGradingSettingsRoute = AuthGradingSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AuthGradingRouteRoute,
-} as any)
-const AuthGradingReleaseRoute = AuthGradingReleaseRouteImport.update({
-  id: '/release',
-  path: '/release',
-  getParentRoute: () => AuthGradingRouteRoute,
-} as any)
-const AuthGradingFinalistsRoute = AuthGradingFinalistsRouteImport.update({
-  id: '/finalists',
-  path: '/finalists',
-  getParentRoute: () => AuthGradingRouteRoute,
-} as any)
-const AuthGradingByGroupRoute = AuthGradingByGroupRouteImport.update({
-  id: '/by-group',
-  path: '/by-group',
   getParentRoute: () => AuthGradingRouteRoute,
 } as any)
 const AuthGradingByComponentRoute = AuthGradingByComponentRouteImport.update({
@@ -212,16 +150,78 @@ const AuthGradingByComponentRoute = AuthGradingByComponentRouteImport.update({
   path: '/by-component',
   getParentRoute: () => AuthGradingRouteRoute,
 } as any)
-const AuthGradingGroupsGroupIdRoute =
-  AuthGradingGroupsGroupIdRouteImport.update({
-    id: '/groups/$groupId',
-    path: '/groups/$groupId',
-    getParentRoute: () => AuthGradingRouteRoute,
+const AuthGradingByGroupRoute = AuthGradingByGroupRouteImport.update({
+  id: '/by-group',
+  path: '/by-group',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
+const AuthGradingFinalistsRoute = AuthGradingFinalistsRouteImport.update({
+  id: '/finalists',
+  path: '/finalists',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
+const AuthGradingReleaseRoute = AuthGradingReleaseRouteImport.update({
+  id: '/release',
+  path: '/release',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
+const AuthGradingSettingsRoute = AuthGradingSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthGradingRouteRoute,
+} as any)
+const AuthGroupsIndexRoute = AuthGroupsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthGroupsRouteRoute,
+} as any)
+const AuthGroupsMatchedGroupsRoute = AuthGroupsMatchedGroupsRouteImport.update({
+  id: '/matched-groups',
+  path: '/matched-groups',
+  getParentRoute: () => AuthGroupsRouteRoute,
+} as any)
+const AuthGroupsMentorMatchingRoute =
+  AuthGroupsMentorMatchingRouteImport.update({
+    id: '/mentor-matching',
+    path: '/mentor-matching',
+    getParentRoute: () => AuthGroupsRouteRoute,
   } as any)
+const AuthGroupsStudentMatchingRoute =
+  AuthGroupsStudentMatchingRouteImport.update({
+    id: '/student-matching',
+    path: '/student-matching',
+    getParentRoute: () => AuthGroupsRouteRoute,
+  } as any)
+const AuthPeopleIndexRoute = AuthPeopleIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
+const AuthPeopleMentorsRoute = AuthPeopleMentorsRouteImport.update({
+  id: '/mentors',
+  path: '/mentors',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
+const AuthPeopleStudentsRoute = AuthPeopleStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
+const AuthPeopleSupervisorsRoute = AuthPeopleSupervisorsRouteImport.update({
+  id: '/supervisors',
+  path: '/supervisors',
+  getParentRoute: () => AuthPeopleRouteRoute,
+} as any)
 const AuthGradingComponentsCodeRoute =
   AuthGradingComponentsCodeRouteImport.update({
     id: '/components/$code',
     path: '/components/$code',
+    getParentRoute: () => AuthGradingRouteRoute,
+  } as any)
+const AuthGradingGroupsGroupIdRoute =
+  AuthGradingGroupsGroupIdRouteImport.update({
+    id: '/groups/$groupId',
+    path: '/groups/$groupId',
     getParentRoute: () => AuthGradingRouteRoute,
   } as any)
 const AuthGradingComponentsCodeGroupIdRoute =
@@ -463,18 +463,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/signin': {
-      id: '/signin'
-      path: '/signin'
-      fullPath: '/signin'
-      preLoaderRoute: typeof SigninRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/setup-password': {
-      id: '/setup-password'
-      path: '/setup-password'
-      fullPath: '/setup-password'
-      preLoaderRoute: typeof SetupPasswordRouteImport
+    '/_auth': {
+      id: '/_auth'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -484,11 +477,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_auth': {
-      id: '/_auth'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthRouteRouteImport
+    '/setup-password': {
+      id: '/setup-password'
+      path: '/setup-password'
+      fullPath: '/setup-password'
+      preLoaderRoute: typeof SetupPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signin': {
+      id: '/signin'
+      path: '/signin'
+      fullPath: '/signin'
+      preLoaderRoute: typeof SigninRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/': {
@@ -498,67 +498,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/auth/callback': {
-      id: '/auth/callback'
-      path: '/auth/callback'
-      fullPath: '/auth/callback'
-      preLoaderRoute: typeof AuthCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_auth/user': {
-      id: '/_auth/user'
-      path: '/user'
-      fullPath: '/user'
-      preLoaderRoute: typeof AuthUserRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/task': {
-      id: '/_auth/task'
-      path: '/task'
-      fullPath: '/task'
-      preLoaderRoute: typeof AuthTaskRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/student': {
-      id: '/_auth/student'
-      path: '/student'
-      fullPath: '/student'
-      preLoaderRoute: typeof AuthStudentRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/resource': {
-      id: '/_auth/resource'
-      path: '/resource'
-      fullPath: '/resource'
-      preLoaderRoute: typeof AuthResourceRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/mentorMatching': {
-      id: '/_auth/mentorMatching'
-      path: '/mentorMatching'
-      fullPath: '/mentorMatching'
-      preLoaderRoute: typeof AuthMentorMatchingRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/mentor': {
-      id: '/_auth/mentor'
-      path: '/mentor'
-      fullPath: '/mentor'
-      preLoaderRoute: typeof AuthMentorRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/matching': {
-      id: '/_auth/matching'
-      path: '/matching'
-      fullPath: '/matching'
-      preLoaderRoute: typeof AuthMatchingRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/_auth/group': {
-      id: '/_auth/group'
-      path: '/group'
-      fullPath: '/group'
-      preLoaderRoute: typeof AuthGroupRouteImport
+    '/_auth/announcement': {
+      id: '/_auth/announcement'
+      path: '/announcement'
+      fullPath: '/announcement'
+      preLoaderRoute: typeof AuthAnnouncementRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/event': {
@@ -568,18 +512,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthEventRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/announcement': {
-      id: '/_auth/announcement'
-      path: '/announcement'
-      fullPath: '/announcement'
-      preLoaderRoute: typeof AuthAnnouncementRouteImport
+    '/_auth/grading': {
+      id: '/_auth/grading'
+      path: '/grading'
+      fullPath: '/grading'
+      preLoaderRoute: typeof AuthGradingRouteRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/people': {
-      id: '/_auth/people'
-      path: '/people'
-      fullPath: '/people'
-      preLoaderRoute: typeof AuthPeopleRouteRouteImport
+    '/_auth/group': {
+      id: '/_auth/group'
+      path: '/group'
+      fullPath: '/group'
+      preLoaderRoute: typeof AuthGroupRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/_auth/groups': {
@@ -589,102 +533,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGroupsRouteRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/grading': {
-      id: '/_auth/grading'
-      path: '/grading'
-      fullPath: '/grading'
-      preLoaderRoute: typeof AuthGradingRouteRouteImport
+    '/_auth/matching': {
+      id: '/_auth/matching'
+      path: '/matching'
+      fullPath: '/matching'
+      preLoaderRoute: typeof AuthMatchingRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/people/': {
-      id: '/_auth/people/'
-      path: '/'
-      fullPath: '/people/'
-      preLoaderRoute: typeof AuthPeopleIndexRouteImport
-      parentRoute: typeof AuthPeopleRouteRoute
+    '/_auth/mentor': {
+      id: '/_auth/mentor'
+      path: '/mentor'
+      fullPath: '/mentor'
+      preLoaderRoute: typeof AuthMentorRouteImport
+      parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/groups/': {
-      id: '/_auth/groups/'
-      path: '/'
-      fullPath: '/groups/'
-      preLoaderRoute: typeof AuthGroupsIndexRouteImport
-      parentRoute: typeof AuthGroupsRouteRoute
+    '/_auth/mentorMatching': {
+      id: '/_auth/mentorMatching'
+      path: '/mentorMatching'
+      fullPath: '/mentorMatching'
+      preLoaderRoute: typeof AuthMentorMatchingRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/people': {
+      id: '/_auth/people'
+      path: '/people'
+      fullPath: '/people'
+      preLoaderRoute: typeof AuthPeopleRouteRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/resource': {
+      id: '/_auth/resource'
+      path: '/resource'
+      fullPath: '/resource'
+      preLoaderRoute: typeof AuthResourceRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/student': {
+      id: '/_auth/student'
+      path: '/student'
+      fullPath: '/student'
+      preLoaderRoute: typeof AuthStudentRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/task': {
+      id: '/_auth/task'
+      path: '/task'
+      fullPath: '/task'
+      preLoaderRoute: typeof AuthTaskRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/_auth/user': {
+      id: '/_auth/user'
+      path: '/user'
+      fullPath: '/user'
+      preLoaderRoute: typeof AuthUserRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_auth/grading/': {
       id: '/_auth/grading/'
       path: '/'
       fullPath: '/grading/'
       preLoaderRoute: typeof AuthGradingIndexRouteImport
-      parentRoute: typeof AuthGradingRouteRoute
-    }
-    '/_auth/people/supervisors': {
-      id: '/_auth/people/supervisors'
-      path: '/supervisors'
-      fullPath: '/people/supervisors'
-      preLoaderRoute: typeof AuthPeopleSupervisorsRouteImport
-      parentRoute: typeof AuthPeopleRouteRoute
-    }
-    '/_auth/people/students': {
-      id: '/_auth/people/students'
-      path: '/students'
-      fullPath: '/people/students'
-      preLoaderRoute: typeof AuthPeopleStudentsRouteImport
-      parentRoute: typeof AuthPeopleRouteRoute
-    }
-    '/_auth/people/mentors': {
-      id: '/_auth/people/mentors'
-      path: '/mentors'
-      fullPath: '/people/mentors'
-      preLoaderRoute: typeof AuthPeopleMentorsRouteImport
-      parentRoute: typeof AuthPeopleRouteRoute
-    }
-    '/_auth/groups/student-matching': {
-      id: '/_auth/groups/student-matching'
-      path: '/student-matching'
-      fullPath: '/groups/student-matching'
-      preLoaderRoute: typeof AuthGroupsStudentMatchingRouteImport
-      parentRoute: typeof AuthGroupsRouteRoute
-    }
-    '/_auth/groups/mentor-matching': {
-      id: '/_auth/groups/mentor-matching'
-      path: '/mentor-matching'
-      fullPath: '/groups/mentor-matching'
-      preLoaderRoute: typeof AuthGroupsMentorMatchingRouteImport
-      parentRoute: typeof AuthGroupsRouteRoute
-    }
-    '/_auth/groups/matched-groups': {
-      id: '/_auth/groups/matched-groups'
-      path: '/matched-groups'
-      fullPath: '/groups/matched-groups'
-      preLoaderRoute: typeof AuthGroupsMatchedGroupsRouteImport
-      parentRoute: typeof AuthGroupsRouteRoute
-    }
-    '/_auth/grading/settings': {
-      id: '/_auth/grading/settings'
-      path: '/settings'
-      fullPath: '/grading/settings'
-      preLoaderRoute: typeof AuthGradingSettingsRouteImport
-      parentRoute: typeof AuthGradingRouteRoute
-    }
-    '/_auth/grading/release': {
-      id: '/_auth/grading/release'
-      path: '/release'
-      fullPath: '/grading/release'
-      preLoaderRoute: typeof AuthGradingReleaseRouteImport
-      parentRoute: typeof AuthGradingRouteRoute
-    }
-    '/_auth/grading/finalists': {
-      id: '/_auth/grading/finalists'
-      path: '/finalists'
-      fullPath: '/grading/finalists'
-      preLoaderRoute: typeof AuthGradingFinalistsRouteImport
-      parentRoute: typeof AuthGradingRouteRoute
-    }
-    '/_auth/grading/by-group': {
-      id: '/_auth/grading/by-group'
-      path: '/by-group'
-      fullPath: '/grading/by-group'
-      preLoaderRoute: typeof AuthGradingByGroupRouteImport
       parentRoute: typeof AuthGradingRouteRoute
     }
     '/_auth/grading/by-component': {
@@ -694,18 +610,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthGradingByComponentRouteImport
       parentRoute: typeof AuthGradingRouteRoute
     }
-    '/_auth/grading/groups/$groupId': {
-      id: '/_auth/grading/groups/$groupId'
-      path: '/groups/$groupId'
-      fullPath: '/grading/groups/$groupId'
-      preLoaderRoute: typeof AuthGradingGroupsGroupIdRouteImport
+    '/_auth/grading/by-group': {
+      id: '/_auth/grading/by-group'
+      path: '/by-group'
+      fullPath: '/grading/by-group'
+      preLoaderRoute: typeof AuthGradingByGroupRouteImport
       parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/finalists': {
+      id: '/_auth/grading/finalists'
+      path: '/finalists'
+      fullPath: '/grading/finalists'
+      preLoaderRoute: typeof AuthGradingFinalistsRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/release': {
+      id: '/_auth/grading/release'
+      path: '/release'
+      fullPath: '/grading/release'
+      preLoaderRoute: typeof AuthGradingReleaseRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/settings': {
+      id: '/_auth/grading/settings'
+      path: '/settings'
+      fullPath: '/grading/settings'
+      preLoaderRoute: typeof AuthGradingSettingsRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/groups/': {
+      id: '/_auth/groups/'
+      path: '/'
+      fullPath: '/groups/'
+      preLoaderRoute: typeof AuthGroupsIndexRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/groups/matched-groups': {
+      id: '/_auth/groups/matched-groups'
+      path: '/matched-groups'
+      fullPath: '/groups/matched-groups'
+      preLoaderRoute: typeof AuthGroupsMatchedGroupsRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/groups/mentor-matching': {
+      id: '/_auth/groups/mentor-matching'
+      path: '/mentor-matching'
+      fullPath: '/groups/mentor-matching'
+      preLoaderRoute: typeof AuthGroupsMentorMatchingRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/groups/student-matching': {
+      id: '/_auth/groups/student-matching'
+      path: '/student-matching'
+      fullPath: '/groups/student-matching'
+      preLoaderRoute: typeof AuthGroupsStudentMatchingRouteImport
+      parentRoute: typeof AuthGroupsRouteRoute
+    }
+    '/_auth/people/': {
+      id: '/_auth/people/'
+      path: '/'
+      fullPath: '/people/'
+      preLoaderRoute: typeof AuthPeopleIndexRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
+    '/_auth/people/mentors': {
+      id: '/_auth/people/mentors'
+      path: '/mentors'
+      fullPath: '/people/mentors'
+      preLoaderRoute: typeof AuthPeopleMentorsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
+    '/_auth/people/students': {
+      id: '/_auth/people/students'
+      path: '/students'
+      fullPath: '/people/students'
+      preLoaderRoute: typeof AuthPeopleStudentsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
+    }
+    '/_auth/people/supervisors': {
+      id: '/_auth/people/supervisors'
+      path: '/supervisors'
+      fullPath: '/people/supervisors'
+      preLoaderRoute: typeof AuthPeopleSupervisorsRouteImport
+      parentRoute: typeof AuthPeopleRouteRoute
     }
     '/_auth/grading/components/$code': {
       id: '/_auth/grading/components/$code'
       path: '/components/$code'
       fullPath: '/grading/components/$code'
       preLoaderRoute: typeof AuthGradingComponentsCodeRouteImport
+      parentRoute: typeof AuthGradingRouteRoute
+    }
+    '/_auth/grading/groups/$groupId': {
+      id: '/_auth/grading/groups/$groupId'
+      path: '/groups/$groupId'
+      fullPath: '/grading/groups/$groupId'
+      preLoaderRoute: typeof AuthGradingGroupsGroupIdRouteImport
       parentRoute: typeof AuthGradingRouteRoute
     }
     '/_auth/grading/components/$code_/$groupId': {

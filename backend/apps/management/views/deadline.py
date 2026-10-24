@@ -59,7 +59,7 @@ class GroupExtensionListView(APIView):
             return Response(
                 {"detail": (
                     "The extension must be later than the current deadline "
-                    f"({statement_time(deadline['closes_at'], request.user)})."
+                    f"({statement_time(deadline['closes_at'])})."
                 )},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -103,7 +103,7 @@ class SubmissionDeadlineView(APIView):
         payload = _SetDeadlineSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         # After the challenge starts and registration closes.
-        problem = deadline_problem(payload.validated_data["closes_at"], request.user)
+        problem = deadline_problem(payload.validated_data["closes_at"])
         if problem:
             raise serializers.ValidationError({"closes_at": problem})
         status = deadlines.set_submission_deadline(

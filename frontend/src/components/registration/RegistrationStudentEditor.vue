@@ -100,60 +100,16 @@
         :error="fieldError('interests')"
       />
 
-      <div v-if="showOptionalProfile" class="student-editor__extras">
-        <div class="student-editor__grid">
-          <label class="select-field">
-            <span>Pronouns <small>(Optional)</small></span>
-            <AppSelect
-              :id="fieldId('pronouns')"
-              class="app-input"
-              :model-value="student.pronouns"
-              :options="PRONOUN_SELECT_OPTIONS"
-              placeholder="Select pronouns"
-              clearable
-              @update:model-value="(value) => (student.pronouns = String(value ?? ''))"
-            />
-          </label>
-          <RegistrationTextField
-            v-if="student.pronouns === 'Other'"
-            :id="fieldId('pronounsOther')"
-            v-model="student.pronounsOther"
-            label="Your pronouns"
-            :error="fieldError('pronounsOther')"
-            required
-          />
-        </div>
-
-        <div class="photo-field">
-          <div class="photo-field__copy">
-            <label :for="fieldId('profilePhoto')">Profile photo <small>(Optional)</small></label>
-            <p>
-              JPG, PNG, or WebP, up to 5 MB. The image is uploaded when you submit registration.
-            </p>
-            <input
-              :id="fieldId('profilePhoto')"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              :aria-invalid="Boolean(fieldError('profilePhoto'))"
-              :aria-describedby="
-                fieldError('profilePhoto') ? `${fieldId('profilePhoto')}-error` : undefined
-              "
-              @change="onPhotoChange"
-            />
-            <span
-              v-if="fieldError('profilePhoto')"
-              :id="`${fieldId('profilePhoto')}-error`"
-              class="student-editor__error"
-            >
-              {{ fieldError('profilePhoto') }}
-            </span>
-          </div>
-          <div v-if="previewUrl" class="photo-field__preview">
-            <img :src="previewUrl" alt="Local profile photo preview" />
-            <button type="button" @click="$emit('remove-photo')">Remove photo</button>
-          </div>
-        </div>
-      </div>
+      <RegistrationProfileExtras
+        v-if="showOptionalProfile"
+        v-model:pronouns="student.pronouns"
+        v-model:pronouns-other="student.pronounsOther"
+        :prefix="prefix"
+        :errors="errors"
+        :preview-url="previewUrl"
+        @photo-selected="emit('photo-selected', $event)"
+        @remove-photo="emit('remove-photo')"
+      />
     </template>
 
     <div v-if="showGuardian" class="guardian-editor">
@@ -202,6 +158,7 @@ import { computed, watch } from 'vue'
 
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
+import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import {
   isAustralia,
@@ -209,7 +166,6 @@ import {
   type StudentDetails,
 } from '@/registration/registration'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
-import { PRONOUN_SELECT_OPTIONS } from '@/utils/pronouns'
 
 const props = withDefaults(
   defineProps<{
@@ -280,11 +236,6 @@ const provideGuardian = computed({
 const safePrefix = computed(() => props.prefix.replace(/[^a-zA-Z0-9_-]/g, '-'))
 const fieldId = (field: string) => `${safePrefix.value}-${field.replace(/\./g, '-')}`
 const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
-
-const onPhotoChange = (event: Event) => {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (file) emit('photo-selected', file)
-}
 </script>
 
 <style scoped>
@@ -299,7 +250,6 @@ const onPhotoChange = (event: Event) => {
   gap: 18px;
 }
 
-.student-editor__extras,
 .guardian-editor {
   padding-top: 26px;
   display: grid;
@@ -357,84 +307,6 @@ const onPhotoChange = (event: Event) => {
   line-height: 1.35;
 }
 
-.photo-field {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.photo-field__copy {
-  display: grid;
-  gap: 7px;
-}
-
-.photo-field__copy > label {
-  color: var(--registration-ink);
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.photo-field__copy small {
-  color: var(--registration-muted);
-  font-weight: 500;
-}
-
-.photo-field__copy p {
-  margin: 0;
-  color: var(--registration-muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-input[type='file'] {
-  max-width: 100%;
-  color: var(--registration-muted);
-  font: inherit;
-  font-size: 0.82rem;
-}
-
-input[type='file']::file-selector-button {
-  min-height: 44px;
-  margin-right: 10px;
-  padding: 0 13px;
-  border: 1px solid var(--registration-field-line);
-  border-radius: 4px;
-  background: var(--white);
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.photo-field__preview {
-  flex: 0 0 auto;
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-}
-
-.photo-field__preview img {
-  width: 78px;
-  height: 78px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid #d4e2dc;
-}
-
-.photo-field__preview button {
-  padding: 3px;
-  border: 0;
-  background: transparent;
-  color: var(--registration-green-dark);
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 750;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
 .defer-control {
   display: flex;
   align-items: flex-start;
@@ -472,10 +344,6 @@ input[type='file']::file-selector-button {
 @media (max-width: 620px) {
   .student-editor__grid {
     grid-template-columns: 1fr;
-  }
-
-  .photo-field {
-    flex-direction: column;
   }
 }
 </style>

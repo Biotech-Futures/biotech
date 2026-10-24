@@ -136,7 +136,7 @@ def students_due(now=None):
             Q(pg_email__isnull=True) | Q(pg_email=""),
             has_join_permission=False,
             user__account_status__in=_CAN_SIGN_IN,
-            user__date_joined__year=current_cohort(),
+            challenge_year=current_cohort(),
         )
         .exclude(user__email="")
         .exclude(guardian_details_reminded_on=today)

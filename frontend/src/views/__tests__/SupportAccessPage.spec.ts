@@ -5,6 +5,7 @@ import { defineComponent, h } from 'vue'
 import { RouterView } from 'vue-router'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import {
   mentorWithAccess,
   pureAgent,
@@ -44,6 +45,10 @@ describe('SupportAccessPage', () => {
   beforeEach(async () => {
     pinia = createPinia()
     setActivePinia(pinia)
+    // Where these accounts land once Management > Challenge Start > Pages
+    // Visibility's date has come. Before it the guard moves a student or a
+    // mentor on to their profile instead (adminSidebar.spec.ts).
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     await router.push('/login')
     // The page a user is moved on to renders in the host and loads its own
     // data; answer it with nothing rather than let it reach the network.
@@ -59,6 +64,7 @@ describe('SupportAccessPage', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     localStorage.clear()
+    setSupervisorPages({ shown: false, shown_from: null })
   })
 
   it('tells a role-support account without queue access why there is nothing here', async () => {

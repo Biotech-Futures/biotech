@@ -67,6 +67,7 @@ export const studentRequestPrefixes = (request: RegistrationRequest): string[] =
     case 'supervisor_csv':
       return request.payload.rows.map((_, index) => `supervisorCsv.rows.${index}`)
     case 'mentor':
+    case 'supervisor':
       return []
   }
 }
@@ -91,6 +92,7 @@ const journeyPrefix: Record<RegistrationIntakeJourney, string> = {
   supervisor_group: 'supervisorGroup',
   supervisor_csv: 'supervisorCsv',
   mentor: 'mentor',
+  supervisor: 'supervisor',
 }
 
 export const registrationFormPath = (request: RegistrationRequest, path: string) => {
@@ -101,6 +103,8 @@ export const registrationFormPath = (request: RegistrationRequest, path: string)
   }
   if (path === 'group.interests') return `${journeyPrefix[request.journey]}.interests`
   if (path === 'group.joinCode') return 'studentTeam.joinCode'
+  // A supervisor registering themselves: their own fields, as a mentor's are.
+  if (request.journey === 'supervisor') return path
   if (path.startsWith('supervisor.')) {
     return `${journeyPrefix[request.journey]}.${path}`
   }
@@ -114,9 +118,13 @@ export const buildProductionRegistrationRequest = (
 ) => {
   // The policies agreed to: the page sends nothing until they're ticked
   // (RegistrationPage's last step), and the backend needs them from a student
-  // or mentor registering themselves; a supervisor's journeys don't ask.
+  // mentor or supervisor registering themselves; a supervisor's journeys
+  // registering students don't ask.
   if (request.journey === 'mentor') {
     return { journey: request.journey, payload: { mentor: request.payload.mentor }, policiesAgreed: true }
+  }
+  if (request.journey === 'supervisor') {
+    return { journey: request.journey, payload: { supervisor: request.payload.supervisor }, policiesAgreed: true }
   }
   const students: SubmittedStudent[] = (() => {
     switch (request.journey) {

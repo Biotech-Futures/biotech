@@ -4,7 +4,9 @@ The consolidated frontend/backend change on current `main` implements **five stu
 `POST /api/v1/registration` (both slash variants and `registration-intake/`
 are aliases). Mentors register at the same endpoint with `journey: "mentor"`
 (normalized JSON only, no legacy fallback); see
-[Mentor registration](#mentor-registration). It combines the
+[Mentor registration](#mentor-registration). Supervisors register themselves
+there too, with `journey: "supervisor"`; see
+[Supervisor registration](#supervisor-registration). It combines the
 full `registration` branch and the production changes from frontend #475 and
 backend #476. Registration history is retained while its older frontend wiring
 is reconciled with current main and the newer intake contract.
@@ -21,7 +23,11 @@ Supervisor identity is resolved from the session and its existing profile,
 never from a payload claim. A current supervisor role (or staff/admin authority)
 and an existing supervisor profile are required. Anonymous, suspended/deactivated
 or unauthorized users cannot use supervisor journeys.
-Registration never creates a supervisor or grants a public caller that role.
+A student's registration never grants the person sending it the supervisor
+role. The supervisor a student names gets it only when their email has no
+account yet: they're created then (see
+[Compatibility and deployment](#compatibility-and-deployment)). A supervisor can
+also register themselves (see [Supervisor registration](#supervisor-registration)).
 
 Group creators provide guardian contact. Represented students may defer it.
 Identity-only teammates retain blank school/year and null geography until the
@@ -206,6 +212,104 @@ mentor)** email (the `registration_mentor` template, System Emails > Registratio
 
 Mentors aren't covered by the name/email typo warning, or by the
 [email check before submission](#email-check-before-submission).
+
+## Supervisor registration
+
+A supervisor (a teacher, usually) registers on the public registration page by
+choosing **Supervisor**, as a mentor does: Contact (name and email), School &
+profile (school, teacher or parent, country, state, and a student's optional
+pronouns and photo), then Review with the policies and **Submit
+registration**. `register()` hands `journey: "supervisor"` to
+`apps/users/supervisor_registration.py` before any student handling. The
+request needs the same session, `X-CSRFToken` and UUID `Idempotency-Key` as a
+mentor's. A photo is sent as a student's is: the same JSON in a multipart
+`request`, with the file as `supervisor` (at most one), checked by the shared
+profile-image validator.
+
+```json
+{
+  "journey": "supervisor",
+  "payload": {
+    "supervisor": {
+      "firstName": "Sam", "lastName": "Teacher", "email": "sam.teacher@example.com",
+      "school": "Example High", "relationship": "teacher", "country": "Australia", "state": "NSW",
+      "pronouns": "she/her", "pronounsOther": "", "profilePhoto": null
+    }
+  },
+  "policiesAgreed": true
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `firstName`, `lastName` | Required, up to 150 characters |
+| `email` | Required email, up to 254 characters; saved in lower case |
+| `school` | Required, for every supervisor (a parent too) |
+| `relationship` | `teacher` or `parent` |
+| `country` | Required |
+| `state` | Required when the country is Australia |
+| `pronouns`, `pronounsOther` | Optional, as a student's: `pronounsOther` is required when `pronouns` is `Other`, and is what's saved then |
+| `profilePhoto` | `{name, type, size}` of the attached photo, or `null`; metadata without the file is refused |
+
+Unknown fields are refused, and each error comes back on its own field
+(`supervisor.<field>`). A supervisor is saved in one transaction:
+
+- an account that is **active** at once (no password): unlike a mentor's, no
+  admin activates it, and they sign in as anyone does to register their
+  students;
+- the `supervisor` role from now, with **no end date**;
+- a supervisor profile holding the school, their pronouns on their account,
+  and their photo, if they gave one;
+- teacher or parent kept on their registration as `supervisor_mode` (`school`
+  or `parent`), as a student's nominated supervisor's is;
+- this year's students who named this email as their supervisor before it was
+  a supervisor's (their registration's `supervisor_details`, in the current
+  registration window) become theirs, as their teacher or their parent. A
+  student with a supervisor keeps theirs.
+
+The answer is the usual receipt with **`student_count: 0`**, HTTP 201, or HTTP
+200 with the same receipt for an unchanged retry. A changed request with a used
+key returns HTTP 409, and the per-IP limit returns HTTP 429, as for mentors.
+
+Supervisors follow the student registration dates: when registration is closed
+the answer is "Registration is closed". Late links are for `student_individual`
+only, so a supervisor request carrying one is refused. An email that already has
+an account (student, mentor, supervisor or anyone else) is refused on
+`supervisor.email`.
+
+Once the save commits, the supervisor gets the **Registration confirmation (to
+new supervisor)** email (the `registration_new_supervisor` template, System
+Emails > Self registration). Like the mentor's, it confirms that they've
+registered for the year's Challenge, as a supervisor.
+
+Supervisors aren't covered by the
+[email check before submission](#email-check-before-submission), as mentors
+aren't.
+
+## Setting a password after registering
+
+Someone registering themselves (`student_individual`, `student_team`'s person
+sending the form, `mentor` or `supervisor`) isn't shown Registration Complete:
+the page takes them to **Set password** (`/#/register/password`). Their receipt
+carries a `passwordToken` for their account, also on an unchanged retry, while
+it has no password. It's never given for students a supervisor or admin
+registers.
+
+`POST /api/v1/registration/password/` takes `{token, password}` (no session or
+CSRF: the token is the authority). The token is signed for that one account,
+lasts an hour, and works only while the account has no password; after that,
+the reset link changes it. The password needs 8 characters, as on the
+first-sign-in page. A student or supervisor is then signed in
+(`{signedIn: true, user, csrfToken}`) and taken to their profile. A mentor's
+account waits for an admin to activate it, so they aren't signed in
+(`{signedIn: false}`) and are told they can sign in once it's activated.
+
+Anyone else without a password (students a supervisor, teammate or admin
+registered) sets one the first time they sign in, as before. On that page a
+student without all of their guardian's details (first name, last name and
+email) gives those too: they're saved as the student's profile saves a
+guardian (`PUT /api/v1/users/me/guardian/`, which emails the guardian the
+permission form), then the password is set.
 
 ## Email check before submission
 
@@ -394,14 +498,22 @@ authorization mechanism and do not change validation or grant any role.
 
 Registration creates only a **pending student** with an unusable password,
 the target's existing six-week student assignment, and **no guardian consent**.
-It never activates an account or creates a supervisor/admin role. Supervisor
-contacts are retained on the receipt for the existing staff invitation
-workflow; an existing supervisor profile may be linked without modifying
-that person's name, school, geography or role. Unlike the unsafe legacy
-side effect, an unknown supervisor nomination does not create an account.
-Registration does not send approval/invitation email or simulate those flows.
-Staff must provision unknown supervisors through the existing protected
-workflow, and guardian permission remains the real existing consent process.
+It never creates an admin role. Supervisor contacts are retained on the
+receipt; an existing supervisor profile is linked without modifying that
+person's name, school, geography or role. A supervisor a student names whose
+email has no account is **created on the spot**, as an admin's student import
+creates one (`_resolve_supervisor_id`): an active account with no password, the
+supervisor role with no end date, and a profile at the student's school, in the
+student's country and state. The students (all of a group's) are linked to them
+at once, and the supervisor joins the group. Once the registration is saved
+they're sent **Named as supervisor (to new supervisor)** (the
+`registration_named_supervisor` template, System Emails > Registered by
+student), once per registration, naming every student in it. They sign in
+with their email the first time, and set a password then. An email belonging to any other account (a
+student, mentor or admin) is still refused. Students who named a supervisor
+before this, with no account then, are linked when that supervisor registers
+themselves (see [Supervisor registration](#supervisor-registration)). Guardian
+permission remains the real existing consent process.
 
 Before deployment:
 
@@ -409,7 +521,9 @@ Before deployment:
    with the normal `manage.py migrate` deployment step.
 2. Configure the **registration** year's opening/closing timestamps via the
    management endpoint. Unconfigured/null boundaries deliberately retain the
-   legacy open default; task/challenge deadlines do not close registration.
+   legacy open default, except in a year Start new year began (Management >
+   New Year), which stays closed until its opening date is set;
+   task/challenge deadlines do not close registration.
 3. Keep a stable production `SECRET_KEY`, correctly configured session/CSRF
    origins, frontend base URL and shared throttle cache. The gateway's two
    custom headers are included in the CORS allowlist.

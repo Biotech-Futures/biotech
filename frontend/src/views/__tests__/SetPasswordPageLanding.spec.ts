@@ -1,8 +1,12 @@
+// Was SetPasswordPage.spec.ts: renamed on 2026-10-24 because main added
+// setPasswordPage.spec.ts (registration), and on a Mac or Windows disk the two
+// names are one file. This one is where each account lands afterwards.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { setSupervisorPages } from '@/composables/useSupervisorPages'
 import { resetCsrfToken } from '@/utils/csrf'
 import SetPasswordPage from '@/views/SetPasswordPage.vue'
 import {
@@ -46,6 +50,10 @@ describe('SetPasswordPage landing', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     resetCsrfToken()
+    // Where each account lands once Management > Challenge Start > Pages
+    // Visibility's date has come; before it the guard moves a student or a
+    // mentor on from /dashboard to their profile (adminSidebar.spec.ts).
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     await router.push('/login')
   })
 
@@ -55,14 +63,25 @@ describe('SetPasswordPage landing', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     localStorage.clear()
+    setSupervisorPages({ shown: false, shown_from: null })
   })
+
+  // A student someone else registered without their guardian's details gives
+  // them on this page before the password goes (main, 2026-10-24); this one
+  // has them, so the test is only about where the page goes afterwards.
+  const studentWithGuardian = {
+    ...student,
+    pg_firstname: 'Pat',
+    pg_lastname: 'Nguyen',
+    pg_email: 'pat.nguyen@example.com'
+  }
 
   const landings: Array<[string, string, object]> = [
     ['pure support agent', '/admin/tickets', pureAgent],
     ['mentor granted access', '/dashboard', mentorWithAccess],
     ['role-support account without access', '/support-access', supportWithoutAccess],
     ['admin', '/admin', ticketAdmin],
-    ['student', '/dashboard', student]
+    ['student', '/dashboard', studentWithGuardian]
   ]
 
   it.each(landings)(

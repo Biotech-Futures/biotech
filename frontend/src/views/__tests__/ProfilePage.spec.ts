@@ -435,3 +435,174 @@ describe('Admin profile', () => {
     wrapper.unmount()
   })
 })
+
+describe('Profile photo and timezone', () => {
+  // The page's other reads, as for the student above; a test adds the photo
+  // requests it answers.
+  const stubFetch = (photo?: (init?: RequestInit) => Response) => {
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.includes('profile-image') && photo) return photo(init)
+      if (input.includes('profile-options')) return new Response(JSON.stringify({
+        countries: [], regions: [], interests: [], selected_interest_ids: [],
+      }))
+      if (input.includes('group-members')) return new Response(JSON.stringify([]))
+      return new Response(JSON.stringify({ results: [] }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  const photoRequests = (fetchMock: ReturnType<typeof stubFetch>) =>
+    fetchMock.mock.calls.filter(([input]) => String(input).includes('profile-image'))
+
+  const openMenu = async (wrapper: ReturnType<typeof mount>) => {
+    await wrapper.get('[data-test="profile-menu"]').trigger('click')
+  }
+
+  const pickFile = async (wrapper: ReturnType<typeof mount>, file: File) => {
+    const input = wrapper.get('#profile-avatar')
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+    await flushPromises()
+  }
+
+  const png = () => new File(['png'], 'me.png', { type: 'image/png' })
+
+  const button = (wrapper: ReturnType<typeof mount>, label: string) =>
+    wrapper.findAll('button').find((b) => b.text() === label)!
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAuthStore()
+    auth.user = {
+      id: 1, email: 'student@example.org', first_name: 'Hiro', last_name: 'Bianchi',
+      current_role_name: 'student', school_name: 'Test High', year_lvl: '10', timezone: 'Australia/Perth',
+    }
+    vi.spyOn(auth, 'fetchUserData').mockResolvedValue(undefined)
+  })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+  it('uploads a new photo picked from the menu, and shows it', async () => {
+    const fetchMock = stubFetch(() => new Response(JSON.stringify({
+      ...useAuthStore().user, profile_image_url: '/media/me.png',
+    })))
+    const changed = vi.fn()
+    window.addEventListener('btf-profile-avatar-changed', changed)
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    await openMenu(wrapper)
+    // Only Change: there's no photo of their own to remove yet.
+    expect(wrapper.find('[data-test="profile-photo-remove"]').exists()).toBe(false)
+    const click = vi.spyOn(wrapper.get('#profile-avatar').element as HTMLInputElement, 'click')
+    await wrapper.get('[data-test="profile-photo-change"]').trigger('click')
+    expect(click).toHaveBeenCalled()
+    expect(wrapper.find('.profile-menu__list').exists()).toBe(false)
+
+    await pickFile(wrapper, png())
+    const [request] = photoRequests(fetchMock)
+    expect(request![1]!.method).toBe('POST')
+    expect((request![1]!.body as FormData).get('image')).toBeInstanceOf(File)
+    expect(wrapper.get('.status-card').text()).toBe('Profile picture uploaded successfully.')
+    expect(wrapper.get('.profile-avatar-large').attributes('src')).toBe('/media/me.png')
+    expect(changed).toHaveBeenCalled()
+    window.removeEventListener('btf-profile-avatar-changed', changed)
+    wrapper.unmount()
+  })
+
+  it('refuses a file that is not a small enough image, without uploading it', async () => {
+    const fetchMock = stubFetch(() => new Response('{}'))
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    await pickFile(wrapper, new File(['text'], 'notes.txt', { type: 'text/plain' }))
+    expect(wrapper.text()).toContain('Choose a PNG, JPEG, or WebP image smaller than 5 MB.')
+    const huge = new File(['x'], 'huge.png', { type: 'image/png' })
+    Object.defineProperty(huge, 'size', { value: 6 * 1024 * 1024 })
+    await pickFile(wrapper, huge)
+    expect(wrapper.text()).toContain('Choose a PNG, JPEG, or WebP image smaller than 5 MB.')
+    expect(photoRequests(fetchMock)).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('says why an upload was refused', async () => {
+    stubFetch(() => new Response(JSON.stringify({ image: ['That image is too wide.'] }), { status: 400 }))
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await pickFile(wrapper, png())
+    expect(wrapper.text()).toContain('That image is too wide.')
+    expect(wrapper.find('.status-card').exists()).toBe(false)
+
+    stubFetch(() => new Response('<html>', { status: 500 }))
+    await pickFile(wrapper, png())
+    expect(wrapper.text()).toContain('Your profile picture could not be uploaded.')
+    wrapper.unmount()
+  })
+
+  it('removes their own photo from the menu', async () => {
+    Object.assign(useAuthStore().user!, { profile_image_url: '/media/old.png' })
+    const fetchMock = stubFetch(() => new Response(JSON.stringify({
+      ...useAuthStore().user, profile_image_url: null,
+    })))
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+
+    await openMenu(wrapper)
+    await wrapper.get('[data-test="profile-photo-remove"]').trigger('click')
+    await flushPromises()
+    expect(photoRequests(fetchMock)[0]![1]!.method).toBe('DELETE')
+    expect(wrapper.get('.status-card').text()).toBe('Profile picture removed.')
+    // Their initials again.
+    expect(wrapper.find('.profile-avatar-initials').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('says why a photo could not be removed', async () => {
+    Object.assign(useAuthStore().user!, { profile_image_url: '/media/old.png' })
+    stubFetch(() => new Response(JSON.stringify({ detail: 'Try again later.' }), { status: 503 }))
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await openMenu(wrapper)
+    await wrapper.get('[data-test="profile-photo-remove"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Try again later.')
+    expect(wrapper.find('.status-card').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("saves this device's timezone", async () => {
+    stubFetch()
+    const update = vi.spyOn(useAuthStore(), 'updateTimeZone').mockResolvedValue(undefined as never)
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    // Nothing to save while it's the one already saved.
+    expect(button(wrapper, 'Save timezone').attributes('disabled')).toBeDefined()
+
+    await button(wrapper, 'Use device timezone').trigger('click')
+    expect(button(wrapper, 'Save timezone').attributes('disabled')).toBeUndefined()
+    await button(wrapper, 'Save timezone').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update.mock.calls[0]![0]).not.toBe('Australia/Perth')
+    expect(wrapper.get('.status-card').text()).toBe('Your timezone has been updated.')
+    wrapper.unmount()
+  })
+
+  it('says why the timezone could not be saved', async () => {
+    stubFetch()
+    const update = vi.spyOn(useAuthStore(), 'updateTimeZone')
+    update.mockRejectedValueOnce(new Error('The server is busy.'))
+    const wrapper = mount(ProfilePage)
+    await flushPromises()
+    await button(wrapper, 'Use device timezone').trigger('click')
+    await button(wrapper, 'Save timezone').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('The server is busy.')
+
+    update.mockRejectedValueOnce('offline')
+    await button(wrapper, 'Save timezone').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Your timezone could not be updated right now.')
+    wrapper.unmount()
+  })
+})

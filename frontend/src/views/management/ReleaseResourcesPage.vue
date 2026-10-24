@@ -51,6 +51,7 @@
         <AppDatePicker
           :model-value="(row.release_on as string | null)"
           class="app-input app-input--compact release-resources__date"
+          :clearable="false"
           :disabled="savingId === row.id"
           placeholder="No date"
           :data-test="`release-date-${row.id}`"
@@ -226,7 +227,7 @@ onMounted(load)
   text-align: center;
 }
 
-/* A plain title, its hint under it. */
+/* Headed as Pages Visibility above it: a plain title, its hint under it. */
 .release-resources__title {
   font-size: 1.05rem;
   font-weight: 600;

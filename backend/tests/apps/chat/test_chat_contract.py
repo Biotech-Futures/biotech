@@ -42,7 +42,7 @@ from apps.common.storage import get_chat_storage
 from apps.groups.models import GroupMembership, Groups
 from apps.resources.models import RoleAssignmentHistory, Roles, Resources
 from apps.users.models import AdminScope
-from tests.apps._helpers import StorageCleanupMixin, assert_public_message_shape
+from tests.apps._helpers import ConsumerConnectionMixin, StorageCleanupMixin, assert_public_message_shape
 
 
 CHANNEL_TEST_SETTINGS = {
@@ -472,7 +472,7 @@ class AttachmentDownloadContractTests(_ChatFixture):
 
 @unittest.skipUnless(HAS_CHANNELS_TESTING, "channels.testing requires daphne")
 @override_settings(CHANNEL_LAYERS=CHANNEL_TEST_SETTINGS)
-class WebSocketCloseCodeTests(_ChatFixture):
+class WebSocketCloseCodeTests(ConsumerConnectionMixin, _ChatFixture):
     """The consumer must close with 4400 for a non-numeric group id and
     4403 for unauthenticated or no-group-access callers. The 4400 path
     is already covered by ``GroupChatConsumerDefensiveTests`` at the

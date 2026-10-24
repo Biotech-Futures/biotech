@@ -55,7 +55,7 @@ beforeEach(() => {
 describe('Release Resources (Challenge Start)', () => {
   it('lists each resource by when it was released last year, those never released last', async () => {
     const wrapper = await mountPage()
-    // A plain title.
+    // Headed as Pages Visibility is: a plain title.
     expect(wrapper.get('.release-resources__title').text()).toBe('Release Resources')
     expect(wrapper.text()).toContain('from the start of that day, Sydney time')
     expect(wrapper.findAll('thead th').map((th) => th.text())).toEqual(
@@ -111,6 +111,8 @@ describe('Release Resources (Challenge Start)', () => {
     await flushPromises()
     expect(saveResourceRelease).toHaveBeenLastCalledWith(3, { shown: false })
 
+    // No × on the date.
+    expect(wrapper.findAllComponents({ name: 'AppDatePicker' })[0]!.props('clearable')).toBe(false)
     wrapper.findAllComponents({ name: 'AppDatePicker' })[0]!.vm.$emit('update:modelValue', '2026-11-30')
     await flushPromises()
     expect(saveResourceRelease).toHaveBeenLastCalledWith(3, { release_on: '2026-11-30' })

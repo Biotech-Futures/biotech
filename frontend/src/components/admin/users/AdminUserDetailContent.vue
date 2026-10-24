@@ -1130,6 +1130,7 @@ import {
   removeGroupMember,
   sendGuardianConsentRequest,
   removeAdminUserPhoto,
+  earlierYearMessage,
   setAdminUserActive,
   unassignMentors,
   updateAdminUser,
@@ -1524,6 +1525,12 @@ const save = async () => {
     cancelEdit()
     return
   }
+  // A student from an earlier year set back to Active is this year's: said first.
+  if (statusChanged && active && earlierYearMessage(user) && !earlierYearConfirmed.value) {
+    confirmOpen.value = true
+    return
+  }
+  earlierYearConfirmed.value = false
   saving.value = true
   saveError.value = ''
   let updated: AdminUser | null = null
@@ -1718,6 +1725,14 @@ const replacing = computed(() => {
 })
 
 const confirmOpen = ref(false)
+// Activating a student from an earlier year, once its popup is confirmed.
+const earlierYearConfirmed = ref(false)
+
+const confirmEarlierYear = async () => {
+  earlierYearConfirmed.value = true
+  await save()
+  confirmOpen.value = false
+}
 
 const saveSupervisorAndGroup = () => {
   if (!supervisorChanged.value && !groupChanged.value) {
@@ -2132,6 +2147,14 @@ const commitSupervisees = async () => {
 // The popup, for whichever part is saving.
 const confirmSetup = computed(() => {
   const name = userName(props.user)
+  if (editing.value === 'account') {
+    return {
+      title: 'Activate for this year?',
+      message: earlierYearMessage(props.user),
+      lines: [] as string[],
+      confirm: confirmEarlierYear
+    }
+  }
   if (editing.value === 'mentorGroups') {
     return {
       title: 'Change their groups?',

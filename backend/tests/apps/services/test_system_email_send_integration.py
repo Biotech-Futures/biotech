@@ -29,7 +29,7 @@ from apps.admin.services.system_email import (
     update_email_settings,
     update_email_template,
 )
-from apps.events.models import Events
+from apps.events.models import EventRsvp, Events
 from apps.events.promotion_email import notify_waitlist_promoted
 from apps.services.auth_service import send_login_code, send_password_reset
 from apps.users.models import User
@@ -128,6 +128,9 @@ class SenderHonoursTogglesTests(TestCase):
     def test_per_type_switch_off_suppresses_the_sender(self):
         owner = _owner()
         event = _event()
+        EventRsvp.objects.create(
+            event=event, user=self.user, rsvp_status="accepted", responded_at=event.start_datetime,
+        )
         update_email_template("event_promotion", {"enabled": False}, requested_by=owner)
         mail.outbox = []
 
@@ -138,6 +141,9 @@ class SenderHonoursTogglesTests(TestCase):
     def test_global_switch_off_suppresses_unlocked_sender_emails(self):
         owner = _owner()
         event = _event()
+        EventRsvp.objects.create(
+            event=event, user=self.user, rsvp_status="accepted", responded_at=event.start_datetime,
+        )
         update_email_settings(False, requested_by=owner)
         mail.outbox = []
 

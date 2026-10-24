@@ -7,8 +7,8 @@
         <h3 class="card-title">Submission Deadline</h3>
       </div>
       <p class="deadline__hint">
-        Times are in your local timezone ({{ localTimeZone }}). Students see the closing time; the
-        server quietly keeps accepting for the grace hours after it.
+        Times are Sydney time. Students see the closing time; the server quietly keeps accepting
+        for the grace hours after it.
       </p>
 
       <p v-if="isLoading" class="deadline__hint">Loading…</p>
@@ -55,7 +55,7 @@
           </p>
           <p class="deadline__row">
             Closes:
-            <strong>{{ formatStatementTime(deadline.closes_at) }}</strong>
+            <strong>{{ formatSydneyStatement(deadline.closes_at) }}</strong>
             <span v-if="deadline.grace_hours" class="deadline__muted">
               (+ {{ deadline.grace_hours }}h quiet grace)
             </span>
@@ -63,7 +63,7 @@
           <p v-if="deadline.set_by" class="deadline__row deadline__muted">
             Set by {{ deadline.set_by }}
             <template v-if="deadline.created_at">
-              on {{ formatStatementTime(deadline.created_at) }}
+              on {{ formatSydneyStatement(deadline.created_at) }}
             </template>
           </p>
         </template>
@@ -71,16 +71,12 @@
 
       <div class="deadline__change">
         <form class="deadline__form" @submit.prevent="confirmOpen = true">
-          <label class="deadline__field">
-            <span>Closes at</span>
-            <AppDateTimePicker
-              v-model="closesAtLocal"
-              required
-              class="deadline__input app-input app-input--compact"
-              default-time="23:59"
-              :min="earliest"
-            />
-          </label>
+          <SydneyDateTimeFields
+            v-model="closesAtLocal"
+            date-label="Closing Date"
+            required
+            :min="earliest"
+          />
           <label class="deadline__field">
             <span>Grace hours</span>
             <input
@@ -130,7 +126,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
 import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 import {
   fetchSubmissionDeadline,
@@ -138,9 +134,7 @@ import {
   type SubmissionDeadline,
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import { describeBrowserTimeZone, formatStatementTime, getBrowserTimeZone } from '@/utils/date'
-
-const localTimeZone = describeBrowserTimeZone()
+import { formatSydneyStatement, fromSydneyDateTimeInput, sydneyToday, toSydneyDateTimeInput } from '@/utils/date'
 
 const deadline = ref<SubmissionDeadline | null>(null)
 const isLoading = ref(false)
@@ -148,14 +142,9 @@ const loadError = ref('')
 const actionError = ref('')
 const isSaving = ref(false)
 
-// Defaults to today at 23:59 (deadlines are almost always end-of-day);
-// replaced by the saved deadline's value on load when one exists.
-const defaultClosesAtLocal = () => {
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
-}
-const closesAtLocal = ref(defaultClosesAtLocal())
+// Sydney's "YYYY-MM-DDTHH:MM": today at 23:59 (deadlines are almost always
+// end-of-day), replaced by the saved deadline's on load when one exists.
+const closesAtLocal = ref(`${sydneyToday()}T23:59`)
 // The challenge start and registration's close: it must be later than both.
 const order = useDateOrder()
 const earliest = computed(() => {
@@ -166,13 +155,8 @@ const earliest = computed(() => {
 const graceHours = ref(24)
 const confirmOpen = ref(false)
 
-// Human-readable version of the picked time, for the confirm dialog. It was
-// typed in the computer's time, so it reads back the same way.
-const pendingLabel = computed(() =>
-  closesAtLocal.value
-    ? formatStatementTime(new Date(closesAtLocal.value), getBrowserTimeZone())
-    : '',
-)
+// The picked time read back for the confirm dialog, in Sydney as it was picked.
+const pendingLabel = computed(() => formatSydneyStatement(fromSydneyDateTimeInput(closesAtLocal.value)))
 
 // open: before the announced closing time; grace: past it but the server is
 // still quietly accepting; closed: past the grace window too.
@@ -194,10 +178,8 @@ const load = async () => {
     deadline.value = (await fetchSubmissionDeadline()).deadline
     if (deadline.value) {
       graceHours.value = deadline.value.grace_hours
-      // Pre-fill the picker with the current closing time, in local time.
-      const d = new Date(deadline.value.closes_at)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      closesAtLocal.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+      // Pre-fill the picker with the current closing time, in Sydney.
+      closesAtLocal.value = toSydneyDateTimeInput(deadline.value.closes_at)
     }
   } catch (err) {
     deadline.value = null
@@ -211,9 +193,8 @@ const save = async () => {
   actionError.value = ''
   isSaving.value = true
   try {
-    // datetime-local is timezone-less; Date() reads it as local time and
-    // toISOString() converts to the UTC instant the server stores.
-    const iso = new Date(closesAtLocal.value).toISOString()
+    // Sydney's time picked, as the instant the server stores.
+    const iso = fromSydneyDateTimeInput(closesAtLocal.value)!
     deadline.value = (await saveSubmissionDeadline(iso, graceHours.value || 0)).deadline
     confirmOpen.value = false
   } catch (err) {

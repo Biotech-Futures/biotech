@@ -36,12 +36,13 @@ _CAN_SIGN_IN = (User.AccountStatus.INVITED, User.AccountStatus.PENDING, User.Acc
 
 
 def _students(supervisor_id: int):
-    """A supervisor's students this year (by when their account was made, as
-    the guardian emails count them) whose accounts can still sign in."""
+    """A supervisor's students this challenge year (registered for it, or
+    back for it, as the guardian emails count them) whose accounts can still
+    sign in."""
     return StudentProfile.objects.filter(
         supervisor_id=supervisor_id,
         user__account_status__in=_CAN_SIGN_IN,
-        user__date_joined__year=_cohort(),
+        challenge_year=_cohort(),
     )
 
 
@@ -90,7 +91,7 @@ def supervisors_due(now=None):
     pending = StudentProfile.objects.filter(
         has_join_permission=False,
         user__account_status__in=_CAN_SIGN_IN,
-        user__date_joined__year=_cohort(),
+        challenge_year=_cohort(),
     ).values("supervisor_id")
     return (
         SupervisorProfile.objects.select_related("user")

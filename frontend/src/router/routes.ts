@@ -58,7 +58,7 @@ import type { RouteRecordRaw } from 'vue-router';
 import { useGroupsStore } from '@/stores/groups';
 import { useAuthStore } from '@/stores/auth';
 import { loadSupervisorResults } from '@/composables/useSupervisorResults';
-import { publicRegistrationRoute } from './publicRegistrationRoute';
+import { publicRegistrationRoute, registrationPasswordRoute } from './publicRegistrationRoute';
 import { supervisorRegistrationRoute } from './supervisorRegistrationRoute';
 
 const requireSupervisor = () => {
@@ -97,6 +97,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/login' },
   { path: '/login', name: 'login', component: () => import('@/views/LoginPage.vue') },
   publicRegistrationRoute,
+  registrationPasswordRoute,
   supervisorRegistrationRoute,
   { path: '/auth/callback', name: 'auth-callback', component: () => import('@/views/AuthCallbackPage.vue') },
   { path: '/auth/reset-password', name: 'password-reset', component: () => import('@/views/PasswordResetPage.vue') },
@@ -213,10 +214,12 @@ const routes: RouteRecordRaw[] = [
       { path: 'notify-finalists', name: 'management-notify-finalists', component: () => import('@/views/management/NotifyTabPage.vue') },
       { path: 'email-nonfinalist', redirect: '/management/notify-finalists' },
       { path: 'finalist-presentation', name: 'management-finalist-presentation', component: () => import('@/views/management/FinalistPresentationPage.vue') },
+      // When finalist submissions close, then the slides each team handed in.
+      { path: 'finalist-submissions', name: 'management-finalist-submissions', component: () => import('@/views/management/FinalistSubmissionsPage.vue') },
       // The registration dates, then registering students as a supervisor does.
       { path: 'registration', name: 'management-registration', component: () => import('@/views/management/ManagementRegistrationPage.vue') },
       // Late Registration: late links and supervisors after close. Its old
-      // path still leads to it.
+      // path still leads to it (Supervisor Pages Visibility's is on Challenge Start).
       { path: 'late-registration', name: 'management-late-registration', component: () => import('@/views/management/LateRegistrationPage.vue') },
       { path: 'registration-visibility', redirect: '/management/late-registration' },
       // The names registration treats as a university, not a school.

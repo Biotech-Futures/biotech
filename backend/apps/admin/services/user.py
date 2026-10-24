@@ -21,6 +21,8 @@ from apps.tickets.models import SupportScope
 from apps.users.models.admin_scope import AdminScope
 from apps.users.models.mentor_availability import MentorAvailability
 from apps.users.profile_images import delete_profile_image_file, profile_image_url
+from apps.submissions.services import current_cohort
+from apps.users.returning import bring_back_for_this_year, earlier_challenge_year
 from apps.users.email_verification import check_one_address, invalid_address_message
 from apps.users.mentor_registration import (
     MAX_WORDS as MENTOR_MAX_WORDS, STUDY_YEARS as MENTOR_STUDY_YEARS,
@@ -539,7 +541,7 @@ def with_consent_request_sent_at(queryset):
     """Student profiles with when a consent request was last sent, and their
     standing signed form's media answer and its times, in the same query, for
     the admin payload."""
-    form = GuardianConsent.objects.filter(student=OuterRef("pk"), withdrawn_at__isnull=True).order_by("-signed_at")
+    form = GuardianConsent.objects.standing().filter(student=OuterRef("pk")).order_by("-signed_at")
     return queryset.annotate(
         last_consent_request_at=Max("consent_requests__created_at"),
         form_signed_at=Subquery(form.values("signed_at")[:1]),
@@ -782,6 +784,9 @@ def build_user_dict(user: User, role_str: Optional[str] = None,
         # Every group a supervisor is in: their students' groups.
         "supervisorGroups": member_extras([user.id])[user.id]["groups"] if supervisor_profile else [],
         "yearLevel": int(student_profile.year_lvl) if student_profile and student_profile.year_lvl else None,
+        # The challenge year a student is from, when it's an earlier one: set
+        # back to Active, they're this year's (apps.users.returning).
+        "earlierChallengeYear": earlier_challenge_year(student_profile, current_cohort()),
         **_guardian_dict(student_profile),
         "interests": interests,
         "isAdmin": is_admin,
@@ -1058,6 +1063,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
 
     # Build response in original user_ids order
     users_list = []
+    this_year = current_cohort()
     for uid in user_ids:
         user = users_by_id.get(uid)
         if not user:
@@ -1101,6 +1107,7 @@ def query_users(page: int = 1, limit: int = 10, search: Optional[str] = None,
             **_mentor_dict(mp, members_extra.get(uid)),
             "supervisorGroups": members_extra[uid]["groups"] if supervisor else [],
             "yearLevel": int(sp.year_lvl) if sp and sp.year_lvl else None,
+            "earlierChallengeYear": earlier_challenge_year(sp, this_year),
             **_guardian_dict(sp),
             "interests": interests_map.get(uid, []),
             "isAdmin": uid in admin_user_ids,
@@ -2174,6 +2181,8 @@ def update_status(user_id: int, is_active: bool, initiated_by=None) -> Dict[str,
     before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
     if is_active:
         user.activate()
+        # A student from an earlier year is this year's once set back to Active.
+        bring_back_for_this_year(user)
     else:
         user.deactivate()
     log_audit_event(
@@ -2226,6 +2235,7 @@ def bulk_update_status(user_ids: List[int], is_active: bool, initiated_by=None) 
             before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
             if is_active:
                 user.activate()
+                bring_back_for_this_year(user)
             else:
                 user.deactivate()
             log_audit_event(
