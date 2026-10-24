@@ -32,11 +32,15 @@ from apps.resources.models import RoleAssignmentHistory
 from .models import AreasOfInterest, MentorProfile, RegistrationSubmission, User, UserInterest
 from .models.mentor_availability import MentorAvailability
 from .registration_intake import (
-    StrictInput, check_previous, current_window, error_fields, receipt, require_policies, resolve_location,
+    RegistrationWarnings, StrictInput, check_previous, current_window, error_fields, receipt, require_policies, resolve_location,
     token_hash,
     valid_invitation,
 )
 from .returning import returning_mentor
+from .serializers import (
+    MAILBOX_WHOSE, UNKNOWN_OVERRIDE, StrictBooleanField, mailbox_warning, name_email_warning, refuse_invalid_mailbox,
+    refuse_placeholder, stored_email_answers,
+)
 
 JOURNEY = "mentor"
 AFFILIATIONS = ("undergraduate", "postgraduate", "hdr", "academic", "industry")
@@ -48,6 +52,8 @@ CAPACITIES = ("1", "2", "3", "4", "5")
 MAX_WORDS = 150
 WRITTEN = ("motivation",)
 SLOT_NOT_FULL = "Choose a day and both times."
+MENTOR_OVERRIDES = {"ConfirmEmailInvalidOverride", "ConfirmNameEmailOverride"}
+MENTOR_NAME = "the mentor's"
 
 
 class AvailabilityInput(StrictInput):
@@ -76,6 +82,16 @@ class MentorInput(StrictInput):
     # Weekly times: the form no longer asks for them, but they're still taken
     # and kept when given.
     availability = serializers.ListField(child=AvailabilityInput(), max_length=21, default=list)
+    overrides = serializers.DictField(child=StrictBooleanField(), default=dict)
+
+    def validate_overrides(self, value):
+        if set(value) - MENTOR_OVERRIDES:
+            raise serializers.ValidationError(UNKNOWN_OVERRIDE)
+        return value
+
+    def validate_email(self, value):
+        refuse_placeholder(value)
+        return value
 
     def validate(self, data):
         errors = {}
@@ -185,8 +201,29 @@ def save_mentor(mentor: dict, now, *, returning: User | None = None) -> User:
     return user
 
 
+MENTOR_EMAIL_TAKEN = "An account with this email already exists."
+
+
+def mentor_email_taken(email, window) -> bool:
+    """Whether ``email`` has an account, other than a mentor's back for a later year."""
+    return returning_mentor(email, window) is None and User.objects.filter(email__iexact=email).exists()
+
+
 def _taken() -> serializers.ValidationError:
-    return serializers.ValidationError({"mentor.email": ["An account with this email already exists."]})
+    return serializers.ValidationError({"mentor.email": [MENTOR_EMAIL_TAKEN]})
+
+
+def mentor_warnings(mentor: dict, answers) -> list[dict]:
+    """A mentor's soft warnings, as a student's (registration_warnings): the
+    name-and-email mismatch and an unknown mailbox, unless confirmed."""
+    warnings = [
+        name_email_warning(mentor["firstName"], mentor["lastName"], mentor["email"], MENTOR_NAME),
+        mailbox_warning(answers, mentor["email"], "Title", invalid_is_error=True),
+    ]
+    return [
+        {**warning, "field": "mentor.email", "override_field": f"mentor.overrides.{warning['override_field']}"}
+        for warning in warnings if warning and not mentor["overrides"].get(warning["override_field"])
+    ]
 
 
 def register_mentor(request, raw: dict) -> Response:
@@ -232,9 +269,17 @@ def register_mentor(request, raw: dict) -> Response:
             valid_invitation(raw_token, window, now, journey=JOURNEY)
             if not window.is_open(now):
                 raise serializers.ValidationError({"detail": "Registration is closed. Contact an administrator."})
-            returning = returning_mentor(mentor["email"], window)
-            if returning is None and User.objects.filter(email__iexact=mentor["email"]).exists():
+            if mentor_email_taken(mentor["email"], window):
                 raise _taken()
+            answers = stored_email_answers([mentor["email"]])
+            try:
+                refuse_invalid_mailbox(answers, mentor["email"], MAILBOX_WHOSE["Title"])
+            except serializers.ValidationError as error:
+                raise serializers.ValidationError({"mentor.email": error.detail})
+            warnings = mentor_warnings(mentor, answers)
+            if warnings:
+                raise RegistrationWarnings(warnings)
+            returning = returning_mentor(mentor["email"], window)
             user = save_mentor(mentor, now, returning=returning)
             User.objects.filter(pk=user.pk).update(policies_agreed_at=now)
             submission = RegistrationSubmission.objects.create(

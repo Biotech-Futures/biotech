@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, Signer
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Lower
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import permissions, serializers
@@ -38,7 +39,7 @@ from .models import (
 from .profile_images import save_profile_image, validate_profile_image
 from .returning import restart_guardian_permission, returning_student
 from .serializers import (
-    REGISTRATION_OVERRIDES, StrictBooleanField, UserRegisterBodySerializer,
+    GUARDIAN_TOGETHER, REGISTRATION_OVERRIDES, UNKNOWN_OVERRIDE, StrictBooleanField, UserRegisterBodySerializer,
     registration_warnings, stored_email_answers,
 )
 
@@ -121,7 +122,7 @@ class StudentInput(StrictInput):
 
     def validate_overrides(self, value):
         if set(value) - REGISTRATION_OVERRIDES:
-            raise serializers.ValidationError("Unknown registration override.")
+            raise serializers.ValidationError(UNKNOWN_OVERRIDE)
         return value
 
     def validate(self, data):
@@ -138,7 +139,11 @@ class StudentInput(StrictInput):
         optional_guardian = self.context.get("guardian_optional", False)
         if data["guardianDeferred"] and not optional_guardian:
             errors["guardianDeferred"] = "A student registering themselves must provide guardian contact."
-        if data["guardianDeferred"] and any(data["guardian"].values()):
+        given = [field for field in ("firstName", "lastName", "email") if data["guardian"].get(field)]
+        if data["guardianDeferred"] and given and len(given) < 3:
+            for field in {"firstName", "lastName", "email"} - set(given):
+                errors[f"guardian.{field}"] = GUARDIAN_TOGETHER
+        elif data["guardianDeferred"] and any(data["guardian"].values()):
             errors["guardianDeferred"] = "Clear guardian details or turn off deferral."
         if not self.context.get("legacy"):
             guardian = data["guardian"]
@@ -858,6 +863,12 @@ def register(request):
                 *((supervisor.get("email"),) if named_supervisor else ()),
             ])
             known_schools = KnownUniversity.matching(student.get("school", "") for student in students)
+            guardian_accounts = set(
+                User.objects.annotate(lowered=Lower("email")).filter(lowered__in={
+                    (student["guardian"].get("email") or "").strip().lower() for student in students
+                } - {""}).values_list("lowered", flat=True)
+            )
+            invalid_is_error = journey != "supervisor_csv"
             for index, student in enumerate(students):
                 registered_by = (
                     (
@@ -875,6 +886,8 @@ def register(request):
                     context={
                         "defer_warnings": True, "canonical_registration_fields": True,
                         "allow_partial_student": registered_by == StudentProfile.RegisteredBy.PEER,
+                        "email_answers": email_answers, "invalid_is_error": invalid_is_error,
+                        "check_supervisor": named_supervisor,
                     },
                 )
                 if not validator.is_valid():
@@ -888,7 +901,8 @@ def register(request):
                     "override_field": f"students.{index}.overrides.{warning['override_field']}",
                 } for warning in registration_warnings(
                     validator.validated_data, email_answers, known_schools,
-                    check_supervisor=named_supervisor and index == 0,
+                    check_supervisor=named_supervisor and index == 0, invalid_is_error=invalid_is_error,
+                    guardian_accounts=guardian_accounts,
                 )])
             if errors:
                 raise serializers.ValidationError(errors)
