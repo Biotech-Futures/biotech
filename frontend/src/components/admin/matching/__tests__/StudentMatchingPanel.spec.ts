@@ -481,8 +481,11 @@ describe('StudentMatchingPanel', () => {
     )
     expect(confirmCall).toBeDefined()
     const body = JSON.parse((confirmCall![1] as RequestInit).body as string)
-    // Omar's join into the formed group BTF10 is never written.
+    // Only the new group is written: Omar's join into the formed group BTF10
+    // is dropped by the board (MA3).
     expect(body.assignments).toEqual([{ studentId: 1, groupId: 'new-Australia-1' }])
+    // It placed students with no group: refused if one has joined a group since.
+    expect(body.onlyUngrouped).toBe(true)
   })
 
   it('filters the board with the group filter', async () => {

@@ -40,6 +40,30 @@
     <template #cell-role="{ row }">
       <span class="admin-view-table__badge">{{ roleLabel(toRow(row).role) }}</span>
     </template>
+    <template #cell-pronouns="{ row }">
+      {{ toRow(row).pronouns || '—' }}
+    </template>
+    <template #cell-mentor_group_capacity="{ row }">
+      {{ toRow(row).mentorGroupCapacity ?? '—' }}
+    </template>
+    <template #cell-mentor_background="{ row }">
+      {{ toRow(row).mentorBackgroundLabel || '—' }}
+    </template>
+    <template #cell-mentor_year_of_study="{ row }">
+      {{ toRow(row).mentorYearOfStudy || '—' }}
+    </template>
+    <template #cell-mentor_field_of_study="{ row }">
+      {{ toRow(row).mentorFieldOfStudy || '—' }}
+    </template>
+    <template #cell-supervisor_email="{ row }">
+      {{ toRow(row).supervisorEmail || '—' }}
+    </template>
+    <template #cell-guardian_email="{ row }">
+      {{ toRow(row).guardianEmail || '—' }}
+    </template>
+    <template #cell-guardian_permission="{ row }">
+      {{ guardianPermissionLabel(toRow(row).guardianPermission) }}
+    </template>
     <template #cell-school="{ row }">
       {{ toRow(row).schoolName || toRow(row).mentorInstitution || '—' }}
     </template>
@@ -67,7 +91,7 @@
          under the row and drawn as part of it, as Extend Deadline's reasons. -->
     <template v-if="showsInterests" #row-detail="{ row }">
       <div class="admin-view-table__interests">
-        <span class="admin-view-table__interests-label">Areas of Interest:</span>
+        <span class="admin-view-table__interests-label">Area(s) of Interest:</span>
         {{ toRow(row).interests!.join(', ') }}
       </div>
     </template>
@@ -79,6 +103,9 @@
     </template>
     <template #cell-group="{ row }">
       {{ toRow(row).groupName || '—' }}
+    </template>
+    <template #cell-group_number="{ row }">
+      {{ toRow(row).groupNumbers || '—' }}
     </template>
     <template #cell-group_count="{ row }">
       {{ toRow(row).groupCount ?? 0 }}
@@ -146,6 +173,13 @@ const emit = defineEmits<{
 
 /** DataTable slots hand rows out as Record<string, unknown>. */
 const toRow = (row: Record<string, unknown>): ViewResultRow => row as unknown as ViewResultRow
+
+/** A student's guardian's permission. Null (no student, so the column does
+ *  not apply) reads as a dash, as it does in the CSV export. */
+const guardianPermissionLabel = (permission: boolean | null | undefined): string => {
+  if (permission === null || permission === undefined) return '—'
+  return permission ? 'Granted' : 'Not granted'
+}
 
 // AppDataTable's `rows` prop is intentionally the loose Record<string, unknown>[]
 // so it stays reusable across tables; cast back at this boundary like toRow() above.

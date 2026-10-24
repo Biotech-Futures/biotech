@@ -124,13 +124,13 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div class="admin-users__delete-type">
-        <label class="admin-users__filter-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
         </label>
         <input
           id="bulk-delete-confirm"
           v-model="deleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
@@ -159,25 +159,25 @@
         This destroys their content for everyone, not just the account, and cannot be undone.
       </p>
       <div v-if="singleDelete.force" class="admin-users__delete-type">
-        <label class="admin-users__filter-label" for="single-delete-confirm">
+        <label class="table-filter-label" for="single-delete-confirm">
           Type <span class="admin-users__delete-keyword">DELETE</span> to confirm
         </label>
         <input
           id="single-delete-confirm"
           v-model="singleDeleteConfirmText"
-          class="form-input"
+          class="form-input app-input"
           autocomplete="off"
           placeholder="DELETE"
         />
       </div>
     </ConfirmDialog>
 
-    <!-- Single deactivate confirm -->
+    <!-- Single deactivate confirm, or activating a student from an earlier year -->
     <ConfirmDialog
       v-model="singleToggle.open"
-      title="Deactivate user"
+      :title="singleToggle.active ? 'Activate user' : 'Deactivate user'"
       :message="singleToggle.message"
-      confirm-label="Deactivate"
+      :confirm-label="singleToggle.active ? 'Activate' : 'Deactivate'"
       variant="warning"
       :busy="busy"
       @confirm="runSingleToggle"
@@ -510,26 +510,14 @@ defineExpose({
   margin-top: 0.75rem;
 }
 
-.admin-users__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .admin-users__delete-keyword {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
   color: var(--danger);
 }
 
+/* The shared box (app-input), on the dialog's own background. */
 .admin-users__delete-type input {
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background-color: var(--white);
-  color: var(--teal);
-  font: inherit;
 }
 </style>

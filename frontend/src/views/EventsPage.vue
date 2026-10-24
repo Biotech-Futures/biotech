@@ -37,14 +37,14 @@
 
     <section class="event-filterbar" aria-label="Event filters">
       <form class="filter-form" @submit.prevent="submitSearch">
-        <label class="filter-field filter-field-search">
-          <span class="filter-label">Search</span>
+        <label class="table-filter-field filter-field filter-field-search">
+          <span class="table-filter-label filter-label">Search</span>
           <span class="filter-search-input-wrap">
             <i class="fas fa-search filter-search-icon" aria-hidden="true"></i>
             <input
               v-model.trim="filters.search"
               type="search"
-              class="filter-input"
+              class="filter-input app-input"
               placeholder="Title or description"
               @input="onSearchInput"
             />
@@ -60,21 +60,21 @@
           </span>
         </label>
 
-        <label class="filter-field">
-          <span class="filter-label">Category</span>
+        <label class="table-filter-field filter-field">
+          <span class="table-filter-label filter-label">Category</span>
           <AppSelect
             v-model="filters.category"
-            class="filter-input filter-select"
+            class="filter-input filter-select app-input"
             :options="categoryFilterOptions"
             @change="loadEvents()"
           />
         </label>
 
-        <label class="filter-field">
-          <span class="filter-label">RSVP</span>
+        <label class="table-filter-field filter-field">
+          <span class="table-filter-label filter-label">RSVP</span>
           <AppSelect
             v-model="filters.rsvpStatus"
-            class="filter-input filter-select"
+            class="filter-input filter-select app-input"
             :options="rsvpStatusFilterOptions"
             @change="loadEvents()"
           />
@@ -1612,18 +1612,15 @@ const onFormEditorDelete = () => {
   align-items: end;
 }
 
+/* Each filter with its label above it (table-filter-field and
+   table-filter-label, in main.css), shrinking to fit its grid column. */
 .filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
   min-width: 0;
 }
 
+/* The shared label, a touch larger and more spaced out on this bar. */
 .filter-label {
   font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
@@ -1641,17 +1638,14 @@ const onFormEditorDelete = () => {
   font-size: 0.85rem;
 }
 
+/* The shared box (app-input). */
 .filter-input {
-  width: 100%;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
   background: var(--white);
   color: var(--teal);
-  font-size: 0.92rem;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
+/* Room for the magnifier and the clear button. */
 .filter-search-input-wrap .filter-input {
   padding-left: 2.25rem;
   padding-right: 2.25rem;
@@ -1666,7 +1660,6 @@ const onFormEditorDelete = () => {
 
 /* AppSelect draws its own arrow. */
 .filter-select {
-  padding-right: 2rem;
   cursor: pointer;
 }
 

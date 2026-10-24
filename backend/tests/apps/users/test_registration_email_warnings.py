@@ -16,6 +16,7 @@ from tests.apps.users.test_registration_multi_student import MultiStudentSetup, 
 
 STUDENT = "jordan.lee@example.com"
 GUARDIAN = "guardian@example.com"
+SUPERVISOR = "teacher@example.com"
 
 
 def answer(email, status="invalid", *, did_you_mean="", days_old=0):
@@ -138,6 +139,21 @@ class WarningTests(TestCase):
     def test_both_new_overrides_are_accepted(self):
         self.assertTrue({"ConfirmEmailInvalidOverride", "ConfirmGuardianEmailInvalidOverride"} <= REGISTRATION_OVERRIDES)
 
+    def test_the_supervisor_a_student_named_is_warned_about_when_asked(self):
+        answer(SUPERVISOR)
+        data = details(SupervisorEmail=SUPERVISOR)
+        answers = stored_email_answers([SUPERVISOR])
+
+        self.assertEqual(registration_warnings(data, answers), [])
+        self.assertEqual(registration_warnings(data, answers, check_supervisor=True), [{
+            "code": "supervisor_email_invalid",
+            "field": "SupervisorEmail",
+            "override_field": "ConfirmSupervisorEmailInvalidOverride",
+            "message": "The supervisor's email address doesn't appear to exist. Please correct it, or confirm if this is correct.",
+        }])
+        confirmed = details(SupervisorEmail=SUPERVISOR, ConfirmSupervisorEmailInvalidOverride=True)
+        self.assertEqual(registration_warnings(confirmed, answers, check_supervisor=True), [])
+
 
 @override_settings(EMAIL_PRECHECK_ENABLED=True, QEV_RESULT_MAX_AGE_DAYS=180)
 class RegistrationTests(MultiStudentSetup, TestCase):
@@ -167,6 +183,26 @@ class RegistrationTests(MultiStudentSetup, TestCase):
         }
 
         self.assertEqual(self.post_batch(self.body).status_code, 201)
+
+    def test_a_supervisor_address_answered_invalid_holds_it_until_confirmed(self):
+        answer(SUPERVISOR)
+
+        response = self.post_batch(self.body)
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(
+            [(w["code"], w["field"], w["override_field"]) for w in response.data["warnings"]],
+            [("supervisor_email_invalid", "supervisor.email",
+              "students.0.overrides.ConfirmSupervisorEmailInvalidOverride")],
+        )
+        self.body["payload"]["students"][0]["overrides"] = {"ConfirmSupervisorEmailInvalidOverride": True}
+        self.assertEqual(self.post_batch(self.body).status_code, 201)
+
+    def test_a_supervisor_registering_their_students_isnt_checked(self):
+        body = batch("supervisor_csv", 2)
+        answer(self.supervisor.email)
+
+        self.assertEqual(self.post_batch(body).status_code, 201)
 
     def test_a_later_students_warning_points_at_that_student(self):
         body = batch("supervisor_csv", 3)

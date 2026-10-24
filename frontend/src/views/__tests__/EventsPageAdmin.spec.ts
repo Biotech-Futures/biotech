@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { DOMWrapper, mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { pickAppSelect } from '@/__tests__/appSelect'
 import EventsPage from '@/views/EventsPage.vue'
 import AdminEventFormSheet from '@/components/admin/events/AdminEventFormSheet.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -303,6 +304,41 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(rsvpsSheet?.textContent).toContain('Going')
     })
 
+    it("shows an event's RSVPs in the site's table, searched and filtered by status", async () => {
+      const auth = useAuthStore()
+      auth.user = adminUser
+      vi.mocked(adminApi.fetchAdminEventRsvps).mockResolvedValueOnce([
+        { id: 1, eventId: 101, userId: 10, rsvpStatus: 'accepted', respondedAt: '2026-09-01T12:00:00Z' },
+        {
+          id: 2, eventId: 101, userId: 11, rsvpStatus: 'declined', respondedAt: '2026-09-02T12:00:00Z',
+          userName: 'Mia Mentor', userEmail: 'mia@example.com', userRole: 'mentor'
+        }
+      ] as any)
+      const w = await mountPage()
+      await w.findAll('.event-card-more-btn')[0].trigger('click')
+      await flushPromises()
+      await w.findAll('.event-card-dropdown-item').find((el) => el.text().includes('See RSVPs'))!.trigger('click')
+      await flushPromises()
+
+      const sheet = new DOMWrapper(document.body.querySelector('.admin-event-rsvps')!)
+      const names = () => sheet.findAll('tr.data-table-row .admin-event-rsvps__name').map((name) => name.text())
+      // Newest response first, with the table's bar under it.
+      expect(names()).toEqual(['Mia Mentor', 'Sam Student'])
+      expect(sheet.find('.data-table-summary').text()).toBe('1 - 2 out of 2')
+      // Search, and Status beside it, each labelled above its box.
+      expect(sheet.findAll('.table-filter-label').map((label) => label.text())).toEqual(['Search', 'Status'])
+      const status = sheet.find<HTMLLabelElement>('label[for="rsvp-status-filter"]').element
+      expect(document.getElementById(status.htmlFor)?.tagName).toBe('INPUT')
+
+      await sheet.find('.data-table-search-input').setValue('mia')
+      await flushPromises()
+      expect(names()).toEqual(['Mia Mentor'])
+
+      await sheet.find('.data-table-search-input').setValue('')
+      await pickAppSelect(sheet, '#rsvp-status-filter', 'Going')
+      expect(names()).toEqual(['Sam Student'])
+    })
+
     it('opens Edit Event form sheet when clicking Edit in dropdown', async () => {
       const auth = useAuthStore()
       auth.user = adminUser
@@ -530,7 +566,8 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       expect(rsvpsSheet).not.toBeNull()
       expect(rsvpsSheet.textContent).toContain('Sam Student')
 
-      const searchInput = rsvpsSheet.querySelector('.admin-event-rsvps__search-input') as HTMLInputElement
+      // The table's own Search.
+      const searchInput = rsvpsSheet.querySelector('.data-table-search-input') as HTMLInputElement
       expect(searchInput).not.toBeNull()
 
       // Search for non-matching name
@@ -538,7 +575,7 @@ describe('EventsPage - Admin Integration & Role Access', () => {
       searchInput.dispatchEvent(new Event('input'))
       await flushPromises()
 
-      expect(rsvpsSheet.textContent).toContain('No matching RSVPs found')
+      expect(rsvpsSheet.textContent).toContain('No matching RSVPs.')
 
       // Clear search
       searchInput.value = ''

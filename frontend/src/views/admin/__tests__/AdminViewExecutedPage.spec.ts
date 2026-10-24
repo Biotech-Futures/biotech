@@ -155,9 +155,115 @@ describe('AdminViewExecutedPage', () => {
     expect(headers).toEqual(['Full Name', 'Email', 'Role', 'Actions', 'Actions'])
   })
 
+  it('shows the group numbers of a user, comma separated, next to the group count', async () => {
+    const view = buildView({ visibleColumns: ['name', 'group_number', 'group_count'] })
+    const result = await mountPage(
+      [
+        buildUser({ id: 1, groupNumbers: 'BTF182' }),
+        buildUser({
+          id: 2,
+          firstName: 'Mary',
+          lastName: 'Somerville',
+          role: 'mentor',
+          groupNumbers: 'BTF1, BTF6',
+          groupCount: 2
+        })
+      ],
+      view
+    )
+    wrapper = result.wrapper
+
+    const headers = wrapper.findAll('.data-table-head').map((h) => h.text().replace(/[^\w ]/g, '').trim())
+    expect(headers).toEqual(['Full Name', 'Group Number', 'Number of Groups', 'Actions', 'Actions'])
+
+    const cells = wrapper.findAll('.data-table-cell').map((c) => c.text().trim())
+    expect(cells).toContain('BTF182')
+    expect(cells).toContain('BTF1, BTF6')
+  })
+
+  it('shows the role-specific columns, and a dash where one does not apply', async () => {
+    const view = buildView({
+      visibleColumns: [
+        'name',
+        'role',
+        'pronouns',
+        'mentor_group_capacity',
+        'mentor_background',
+        'mentor_year_of_study',
+        'mentor_field_of_study',
+        'supervisor_email',
+        'guardian_email',
+        'guardian_permission'
+      ]
+    })
+    const result = await mountPage(
+      [
+        buildUser({
+          id: 1,
+          role: 'student',
+          pronouns: 'She/her',
+          supervisorEmail: 'supervisor@example.com',
+          guardianEmail: 'guardian@example.com',
+          guardianPermission: true
+        }),
+        buildUser({
+          id: 2,
+          firstName: 'Mary',
+          lastName: 'Somerville',
+          role: 'mentor',
+          pronouns: '',
+          mentorGroupCapacity: 4,
+          mentorBackgroundLabel: 'University Student - Postgraduate',
+          mentorYearOfStudy: '2',
+          mentorFieldOfStudy: 'Molecular Biology',
+          supervisorEmail: null,
+          guardianEmail: null,
+          guardianPermission: null
+        })
+      ],
+      view
+    )
+    wrapper = result.wrapper
+
+    const headers = wrapper.findAll('.data-table-head').map((h) => h.text().replace(/[^\w ]/g, '').trim())
+    expect(headers).toEqual([
+      'Full Name',
+      'Role',
+      'Pronouns',
+      'Group Capacity',
+      'Mentor Background',
+      'Mentor Year of Study',
+      'Mentor Field of Study',
+      'Supervisor Email',
+      'Guardian Email',
+      'Guardian Permission',
+      'Actions',
+      'Actions'
+    ])
+
+    const rows = wrapper.findAll('.data-table-row')
+    expect(rows.length).toBe(2)
+
+    // The student: their own details, and a dash for the mentor columns.
+    const studentCells = rows[0].findAll('.data-table-cell').map((c) => c.text().trim())
+    expect(studentCells).toContain('She/her')
+    expect(studentCells).toContain('supervisor@example.com')
+    expect(studentCells).toContain('guardian@example.com')
+    expect(studentCells).toContain('Granted')
+    expect(studentCells.filter((text) => text === '—').length).toBe(4)
+
+    // The mentor: their own details, and a dash for the student's and their
+    // own missing pronouns.
+    const mentorCells = rows[1].findAll('.data-table-cell').map((c) => c.text().trim())
+    expect(mentorCells).toContain('4')
+    expect(mentorCells).toContain('University Student - Postgraduate')
+    expect(mentorCells).toContain('2')
+    expect(mentorCells).toContain('Molecular Biology')
+    expect(mentorCells.filter((text) => text === '—').length).toBe(4)
+  })
+
   // The sheet has no buttons below (its parts have their own Edit); the row's Edit opens the form.
-  it('opens the user detail sheet from a name click, with no buttons below', async () => {
-    const result = await mountPage([buildUser({ role: 'admin' })], buildView())
+  it('opens the user detail sheet from a name click, with no buttons below', async () => {    const result = await mountPage([buildUser({ role: 'admin' })], buildView())
     wrapper = result.wrapper
 
     const nameButton = wrapper.find('.admin-view-table__name-btn')

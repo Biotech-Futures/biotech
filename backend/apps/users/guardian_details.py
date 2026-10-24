@@ -53,16 +53,22 @@ class DetailsFormError(Exception):
 
 
 def details_form_link(profile: StudentProfile) -> str:
+    """A link to the details form. Copying one resets the time for every
+    copy out: each works until FORM_LINK_LIFETIME after the latest."""
+    now = timezone.now()
+    StudentProfile.objects.filter(pk=profile.pk).update(guardian_details_link_at=now)
+    profile.guardian_details_link_at = now
     token = signing.dumps({"student": profile.user_id}, salt=_FORM_SALT)
     return f"{settings.FRONTEND_BASE_URL}/#/guardian-details/{token}"
 
 
 def open_details_form(token: str, *, for_update: bool = False) -> StudentProfile:
-    """The student behind a details form link, while it can still be used."""
+    """The student behind a details form link, while it can still be used:
+    until the guardian's details are given (or consent recorded), and for
+    FORM_LINK_LIFETIME after the latest copy of the link."""
+    expired = DetailsFormError("expired", "This link has expired. Ask the student's supervisor for a new one.")
     try:
-        data = signing.loads(token or "", salt=_FORM_SALT, max_age=FORM_LINK_LIFETIME)
-    except signing.SignatureExpired:
-        raise DetailsFormError("expired", "This link has expired. Ask the student's supervisor for a new one.")
+        data = signing.loads(token or "", salt=_FORM_SALT)
     except signing.BadSignature:
         raise DetailsFormError("invalid", "This link isn't valid. Check you opened the whole link.")
     queryset = StudentProfile.objects.select_related("user")
@@ -73,6 +79,15 @@ def open_details_form(token: str, *, for_update: bool = False) -> StudentProfile
         raise DetailsFormError("invalid", "This link isn't valid. Check you opened the whole link.")
     if (profile.pg_email or "").strip() or profile.has_join_permission:
         raise DetailsFormError("done", "The guardian's details have already been given. Thank you.")
+    latest = profile.guardian_details_link_at
+    if latest is None:
+        # A link copied before copies reset the time counts from when it was made.
+        try:
+            signing.loads(token, salt=_FORM_SALT, max_age=FORM_LINK_LIFETIME)
+        except signing.SignatureExpired:
+            raise expired
+    elif timezone.now() - latest > FORM_LINK_LIFETIME:
+        raise expired
     return profile
 
 
@@ -121,7 +136,7 @@ def students_due(now=None):
             Q(pg_email__isnull=True) | Q(pg_email=""),
             has_join_permission=False,
             user__account_status__in=_CAN_SIGN_IN,
-            user__date_joined__year=current_cohort(),
+            challenge_year=current_cohort(),
         )
         .exclude(user__email="")
         .exclude(guardian_details_reminded_on=today)

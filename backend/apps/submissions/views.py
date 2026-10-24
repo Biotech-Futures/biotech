@@ -437,13 +437,12 @@ class SendSubmissionRemindersView(APIView):
 
     @extend_schema(exclude=True)
     def post(self, request):
-        from apps.management.services.send_guard import queue_job
+        from .reminders import queue_reminder_runs
 
         refused = email_jobs.refused(request)
         if refused:
             return refused
-        queue_job("finalist_submission_reminder")
-        return email_jobs.queued("submission_reminder")
+        return Response({"status": queue_reminder_runs()}, status=status.HTTP_202_ACCEPTED)
 
 
 class AutoSubmitView(APIView):

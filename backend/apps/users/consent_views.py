@@ -98,10 +98,9 @@ class GuardianConsentView(APIView):
     @extend_schema(request=None, responses={200: None})
     def get(self, request, token):
         try:
-            consent_request = guardian_consent.open_request(token)
+            return Response(guardian_consent.page_for(token))
         except guardian_consent.ConsentLinkError as error:
             return _link_error(error)
-        return Response(guardian_consent.form_for(consent_request))
 
     @extend_schema(request=GuardianConsentSignSerializer, responses={201: None})
     def post(self, request, token):

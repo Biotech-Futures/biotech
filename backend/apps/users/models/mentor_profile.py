@@ -4,11 +4,11 @@ from django.db.models import Q
 
 class MentorProfile(models.Model):
     class BackgroundChoices(models.TextChoices):
+        ACADEMIC = "academic", "Academic"
         INDUSTRY = "industry", "Industry"
-        UG = "undergraduate", "University Student - Undergraduate"
-        PG = "postgraduate", "University Student - Postgraduate"
-        HDR = "hdr", "University Student - HDR"
-        ACADEMIC = "academic", "Academic / research staff"
+        UG = "undergraduate", "University Student – Undergraduate"
+        PG = "postgraduate", "University Student – Postgraduate"
+        HDR = "hdr", "University Student – HDR"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, primary_key=True)
     background = models.CharField(max_length=50, choices=BackgroundChoices.choices, blank=True, null=True)
@@ -21,12 +21,10 @@ class MentorProfile(models.Model):
     company = models.CharField(max_length=255, blank=True, default="")
     university_year = models.CharField(max_length=8, blank=True, default="")
     field_of_study = models.CharField(max_length=255, blank=True, default="")
-    # Their relevant background, and how they'd mentor BIOTech groups (150
-    # words at most each, as the form asks).
+    # No longer asked, shown or changed (relevant background, how they'd
+    # mentor BIOTech groups, hours a week): kept for what earlier mentors gave.
     relevant_background = models.TextField(blank=True, default="")
     mentoring_approach = models.TextField(blank=True, default="")
-    # How many hours a week they can give a group, as registering asks (1 to
-    # 40). None for mentors from before it was asked.
     weekly_hours = models.PositiveSmallIntegerField(blank=True, null=True)
 
     class Meta:

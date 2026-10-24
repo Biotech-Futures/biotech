@@ -88,9 +88,13 @@ describe('useStudentMatching confirm', () => {
     }
 
     await expect(matching.confirm()).resolves.toBe(true)
-    expect(confirmStudentAssignments).toHaveBeenCalledWith([
-      { studentId: 1, groupId: 'new-Australia-1' }
-    ])
+    // The board names itself: onlyUngrouped so a student who has since joined
+    // a group stops the save, formOnly so the server refuses a formed target
+    // even if one reached the payload (MA3).
+    expect(confirmStudentAssignments).toHaveBeenCalledWith(
+      [{ studentId: 1, groupId: 'new-Australia-1' }],
+      { onlyUngrouped: true, formOnly: true }
+    )
   })
 
   it('refuses to confirm when only formed-group assignments remain', async () => {

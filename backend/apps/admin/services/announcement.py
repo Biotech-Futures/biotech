@@ -900,6 +900,8 @@ def send_announcement_email(
         failed=len(failed),
         source_mailbox=sender_for("announcement").address,
         started_at=delivery.started_at,
+        # Waiting addresses are recorded with the send that finally reaches them.
+        recipients=[addr for addr in emails if addr not in set(waiting)],
         # Which announcement, for Resend on the Log.
         ref={"announcement_id": announcement_id, "delivery_id": delivery.pk},
     )

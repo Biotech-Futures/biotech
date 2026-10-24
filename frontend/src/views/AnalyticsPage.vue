@@ -26,10 +26,7 @@
           </select>
         </label>
         <div class="analytics-export-stack">
-          <button class="export-button" type="button" :disabled="exportDisabled || exporting" @click="exportCsv">
-            <i class="fas fa-download"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="[SUMMARY_OPTION]" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
@@ -54,30 +51,36 @@
           <h2><i class="fas fa-triangle-exclamation"></i> Attention Required</h2>
           <p>Items worth checking before the next programme review.</p>
         </div>
-        <button
-          v-if="displayedAttentionItems.length"
-          type="button"
-          class="view-all-button"
-          :aria-expanded="showAllIssues"
-          aria-controls="attention-issue-details"
-          @click="showAllIssues = !showAllIssues"
-        >
-          {{ showAllIssues ? 'Hide Issues ↑' : 'View All Issues →' }}
-        </button>
       </div>
 
-      <div v-if="displayedAttentionItems.length" class="attention-grid">
+      <div
+        v-if="attentionIssueDetails.length"
+        id="attention-issue-details"
+        class="attention-issue-details"
+      >
         <article
-          v-for="item in displayedAttentionItems"
-          :key="item.label"
-          class="attention-item"
-          :class="`attention-${item.tone}`"
+          v-for="issue in attentionIssueDetails"
+          :key="`detail-${issue.label}`"
+          class="attention-detail-row"
         >
-          <span class="attention-icon"><i :class="item.icon"></i></span>
-          <div>
-          <strong><AnalyticsNumber :value="item.value" /></strong>
-            <p>{{ item.label }}</p>
+          <div class="attention-detail-main">
+            <span class="attention-detail-icon">
+              <i :class="issue.icon"></i>
+            </span>
+
+            <div class="attention-detail-copy">
+              <div class="attention-detail-title">
+                <strong><AnalyticsNumber :value="issue.value" /></strong>
+                <span>{{ issue.label }}</span>
+              </div>
+              <p>{{ issue.description }}</p>
+            </div>
           </div>
+
+          <RouterLink class="attention-detail-button" :to="issue.to">
+            {{ issue.action }}
+            <span aria-hidden="true">→</span>
+          </RouterLink>
         </article>
       </div>
 
@@ -85,39 +88,6 @@
         <i class="fas fa-circle-check" aria-hidden="true"></i>
         <span>{{ unavailableSources.length ? 'No issues in the available data. Some modules could not be checked.' : 'No issues currently require attention.' }}</span>
       </div>
-
-      <Transition name="issues-expand">
-        <div
-          v-if="showAllIssues"
-          id="attention-issue-details"
-          class="attention-issue-details"
-        >
-          <article
-            v-for="issue in attentionIssueDetails"
-            :key="`detail-${issue.label}`"
-            class="attention-detail-row"
-          >
-            <div class="attention-detail-main">
-              <span class="attention-detail-icon">
-                <i :class="issue.icon"></i>
-              </span>
-
-              <div class="attention-detail-copy">
-                <div class="attention-detail-title">
-                  <strong>{{ issue.value }}</strong>
-                  <span>{{ issue.label }}</span>
-                </div>
-                <p>{{ issue.description }}</p>
-              </div>
-            </div>
-
-            <RouterLink class="attention-detail-button" :to="issue.to">
-              {{ issue.action }}
-              <span aria-hidden="true">→</span>
-            </RouterLink>
-          </article>
-        </div>
-      </Transition>
     </section>
 
     <section class="summary-grid" aria-label="Analytics summary">
@@ -372,7 +342,8 @@ import {
   type OverviewAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import { useRouter } from 'vue-router'
-import { downloadReportCsv } from '@/utils/reportExport'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import { SUMMARY_OPTION, exportFileName, figure, runExport, sourceLabels, summaryCsv, type SummaryRow } from '@/utils/analyticsExport'
 
 const currentYear = new Date().getFullYear()
 const availableAnalyticsYears = ref<number[]>([currentYear])
@@ -385,10 +356,10 @@ const loadError = ref('')
 const isLoading = ref(true)
 const isEmpty = ref(false)
 const hasLoaded = ref(false)
-const exporting = ref(false)
 const exportError = ref('')
 const unavailableSources = ref<AnalyticsSource[]>([])
-const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value || unavailableSources.value.length > 0 || selectedData.value.modules.some((module) => module.unavailable))
+// Unavailable sources are named in the export rather than blocking it.
+const exportDisabled = computed(() => isLoading.value || !!loadError.value || isEmpty.value || !hasLoaded.value)
 
 const overviewSummary = computed(() => {
   const originalSummary = selectedData.value.summary
@@ -691,13 +662,10 @@ const displayedAttentionItems = computed(() =>
   })),
 )
 
-const showAllIssues = ref(false)
-
 useAnalyticsRefreshState('overview', {
   selectedYear,
   registrationPeriod,
-  showAllIssues,
-}, () => !isLoading.value && hasLoaded.value)
+},() => !isLoading.value && hasLoaded.value)
 
 const attentionIssueMeta: Record<
   string,
@@ -969,18 +937,39 @@ const handleViewDetails = async (key: string) => {
   window.alert('This analytics page is not available yet.')
 }
 
-const exportCsv = async () => {
-  exporting.value = true
-  exportError.value = ''
-  try {
-    await downloadReportCsv(new URLSearchParams({
-      report: 'overview', year: String(selectedYear.value), registration_period: registrationPeriod.value,
-    }), 'overview')
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : 'The report could not be downloaded.'
-  } finally {
-    exporting.value = false
-  }
+const exportCsv = () => {
+  exportError.value = runExport(() => {
+    const year = selectedYear.value
+    const rows: SummaryRow[] = [
+      ...overviewSummary.value.flatMap((item) => {
+        const comparison = overviewComparisons.value[item.label]
+        return [
+          figure('Headline', item.label, item.value, '', item.helper),
+          ...(comparison ? [figure('Headline', `${item.label} (${year - 1})`, comparison.previous, '', 'Previous year')] : []),
+        ]
+      }),
+      ...attentionIssueDetails.value.map((item) => figure('Attention required', item.label, item.value, '', item.description)),
+      ...displayedModules.value.flatMap((module) => module.unavailable
+        ? [figure(module.title, module.title, '—')]
+        : [
+            figure(module.title, module.title, module.value, module.unit, module.helper),
+            ...(module.breakdown ?? []).map((part) => figure(module.title, part.label, part.value)),
+            // Only these mini charts have labelled points; the others repeat the breakdown.
+            ...(['registration', 'activity'].includes(module.key)
+              ? module.chart.map((value, index) => figure(module.title, `Trend: ${modulePointLabel(module.key, index)}`, value))
+              : []),
+          ]),
+    ]
+    return {
+      fileName: exportFileName('overview', 'summary', String(year)),
+      csv: summaryCsv({
+        page: 'Overview',
+        covers: `Year ${year}`,
+        filters: [['Registration period', registrationPeriod.value]],
+        unavailable: sourceLabels(unavailableSources.value),
+      }, rows),
+    }
+  })
 }
 
 onBeforeUnmount(() => window.clearTimeout(toastTimer))
@@ -988,7 +977,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 <style src="@/assets/analytics-theme.css">
 .overview-point-value {
-  fill: #173f43;
+  fill: var(--analytics-ui-text, #173f43);
   font-size: 8px;
   font-weight: 800;
   pointer-events: none;
@@ -1015,7 +1004,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  color: #173f43;
+  color: var(--analytics-ui-text, #173f43);
   font-size: 9px;
   font-weight: 800;
   line-height: 1;
@@ -1036,10 +1025,10 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   min-width: 92px;
   height: 40px;
   padding: 0 32px 0 12px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 10px;
-  background: #FFFFFF;
-  color: #174243;
+  background: var(--analytics-ui-surface, #FFFFFF);
+  color: var(--analytics-ui-text, #174243);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -1056,10 +1045,10 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 .module-period-select {
   height: 32px;
   padding: 0 26px 0 9px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -1079,11 +1068,11 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   height: 40px;
   padding: 0 16px;
 
-  border: 1px solid #9ea9a7;
+  border: 1px solid var(--analytics-ui-control-border, #9ea9a7);
   border-radius: 8px;
 
-  background: #ffffff;
-  color: #243f3c;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #243f3c);
 
   font-size: 14px;
   font-weight: 500;
@@ -1096,9 +1085,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .view-details-button:hover {
-  background: #f4f8f7;
+  background: var(--analytics-ui-selected, #f4f8f7);
   border-color: #017151;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   text-decoration: none;
 }
 
@@ -1109,14 +1098,14 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 .analytics-page {
   padding: 28px 32px 40px;
   min-height: 100%;
-  background: #f7faf9;
-  color: #153f3c;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #153f3c);
 }
 
 
 .analytics-breadcrumb {
   margin: 0 0 14px;
-  color: #53675f;
+  color: var(--analytics-ui-muted, #53675f);
   font-size: 0.9rem;
 }
 
@@ -1129,7 +1118,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .title-row h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1137,7 +1126,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .page-subtitle {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
   line-height: 1.45;
 }
@@ -1148,9 +1137,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   align-items: center;
   border-radius: 999px;
   padding: 5px 9px;
-  background: #fff6dd;
-  color: #174243;
-  border: 1px solid #F1E5A6;
+  background: var(--analytics-ui-soft, #fff6dd);
+  color: var(--analytics-ui-text, #174243);
+  border: 1px solid var(--analytics-ui-control-border, #F1E5A6);
   font-size: 0.72rem;
   font-weight: 700;
 }
@@ -1163,10 +1152,10 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   width: 120px;
   height: 46px;
   padding: 0 13px;
-  border: 1px solid #d7e3e0;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
   border-radius: 12px;
-  background: #ffffff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1190,10 +1179,10 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   width: 142px;
   height: 46px;
   padding: 0 16px;
-  border: 1px solid #5EA99E;
+  border: 1px solid var(--analytics-ui-control-border, #5EA99E);
   border-radius: 12px;
-  background: #ffffff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -1203,7 +1192,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .export-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .summary-grid {
@@ -1215,8 +1204,8 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .summary-card,
 .module-card {
-  background: #fff;
-  border: 1px solid #e1e9e6;
+  background: var(--analytics-ui-surface, #fff);
+  border: 1px solid var(--analytics-ui-border, #e1e9e6);
   border-radius: 12px;
   box-shadow: 0 8px 22px rgba(16, 32, 27, 0.035);
 }
@@ -1236,7 +1225,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .card-label {
   margin: 0;
-  color: #4d6461;
+  color: var(--analytics-ui-muted, #4d6461);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1245,7 +1234,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   margin-top: 5px;
   font-size: clamp(2rem, 2.4vw, 2.75rem);
   line-height: 1;
-  color: #12261f;
+  color: var(--analytics-ui-accent, #12261f);
 }
 
 .analytics-page .summary-card .analytics-value-row {
@@ -1271,18 +1260,10 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .summary-helper {
   margin-top: auto;
-  color: #7a8984;
-  font-size: 0.66rem;
+  color: var(--analytics-ui-muted, #7a8984);
+  font-size: 13px;
   line-height: 1.28;
   text-align: right;
-}
-
-.attention-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  background: color-mix(in srgb, currentColor 11%, white);
 }
 
 .sparkline {
@@ -1312,7 +1293,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .module-heading h2 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 18px;
   font-weight: 700;
 }
@@ -1325,20 +1306,20 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .metric-line strong {
-  color: #10201b;
+  color: var(--analytics-ui-accent, #10201b);
   font-size: 2rem;
   line-height: 1;
 }
 
 .metric-line span {
-  color: #52655e;
+  color: var(--analytics-ui-muted, #52655e);
   font-size: 14px;
 }
 
 .module-helper {
   margin: 7px 0 12px;
   min-height: 38px;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 13px;
   line-height: 1.4;
 }
@@ -1354,7 +1335,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #40544d;
+  color: var(--analytics-ui-text, #40544d);
   font-size: 13px;
 }
 
@@ -1363,7 +1344,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   height: 7px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e9eeec;
+  background: var(--analytics-ui-soft, #e9eeec);
 }
 
 .progress-track.large {
@@ -1402,7 +1383,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   max-width: 26px;
   min-height: 12px;
   border-radius: 3px 3px 0 0;
-  background: color-mix(in srgb, currentColor 72%, white);
+  background: color-mix(in srgb, currentColor 72%, var(--analytics-ui-surface, white));
 }
 
 .mini-line-wrap {
@@ -1418,7 +1399,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .line-baseline {
-  stroke: #dce6e2;
+  stroke: var(--analytics-ui-border, #dce6e2);
   stroke-width: 1;
   stroke-dasharray: 3 3;
 }
@@ -1437,7 +1418,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   display: grid;
   place-items: center;
   align-content: center;
-  background: conic-gradient(currentColor var(--quota), #edf0ef 0);
+  background: conic-gradient(currentColor var(--quota), var(--analytics-ui-soft, #edf0ef) 0);
   position: relative;
   isolation: isolate;
 }
@@ -1447,7 +1428,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   position: absolute;
   inset: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 
 .quota-ring strong,
@@ -1462,7 +1443,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .quota-ring span {
   margin-top: -4px;
-  color: #6a7974;
+  color: var(--analytics-ui-muted, #6a7974);
   font-size: 0.58rem;
 }
 
@@ -1475,12 +1456,11 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   gap: 10px;
 }
 
-.details-button,
-.view-all-button {
-  border: 1px solid color-mix(in srgb, currentColor 45%, white);
+.details-button {
+  border: 1px solid color-mix(in srgb, currentColor 45%, var(--analytics-ui-border, white));
   border-radius: 7px;
-  background: color-mix(in srgb, currentColor 7%, white);
-  color: #2f3440;
+  background: color-mix(in srgb, currentColor 7%, var(--analytics-ui-surface, white));
+  color: var(--analytics-ui-secondary, #2f3440);
   font-size: 0.72rem;
   cursor: pointer;
 }
@@ -1497,9 +1477,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   margin-top: 0;
   margin-bottom: 18px;
   padding: 12px 13px 13px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 11px;
-  background: #fff9f9;
+  background: var(--analytics-ui-surface, #fff9f9);
 }
 
 .attention-heading {
@@ -1512,59 +1492,19 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .attention-heading h2 {
   margin: 0;
-  font-size: 0.92rem;
-  color: #273a34;
+  font-size: 18px;
+  color: var(--analytics-ui-text, #273a34);
 }
 
 .attention-heading h2 i {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   margin-right: 7px;
 }
 
 .attention-heading p {
   margin: 3px 0 0;
-  color: #7c8884;
-  font-size: 0.68rem;
-}
-
-.view-all-button {
-  padding: 7px 10px;
-  color: #017151;
-}
-
-.attention-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.attention-item {
-  position: relative;
-  min-height: 66px;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid #ebefed;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.attention-icon {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-}
-
-.attention-item strong {
-  font-size: 0.86rem;
-}
-
-.attention-item p {
-  margin: 2px 0 0;
-  color: #687872;
-  font-size: 0.59rem;
-  line-height: 1.2;
+  color: var(--analytics-ui-muted, #7c8884);
+  font-size: 13px;
 }
 
 .mock-dot {
@@ -1576,21 +1516,21 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: #F1E5A6;
-  color: #174243;
+  background: var(--analytics-ui-warning-bg, #F1E5A6);
+  color: var(--analytics-ui-text, #174243);
   font-size: 0.5rem;
   font-weight: 800;
 }
 
-.tone-blue { color: #39687B; }
-.tone-purple { color: #5EA99E; }
-.tone-teal { color: #174243; }
-.tone-orange { color: #017151; }
-.attention-red { color: #174243; }
-.attention-orange { color: #017151; }
-.attention-purple { color: #5EA99E; }
-.attention-blue { color: #39687B; }
-.attention-teal { color: #174243; }
+.tone-blue { color: var(--analytics-ui-secondary, #39687B); }
+.tone-purple { color: var(--analytics-ui-muted, #5EA99E); }
+.tone-teal { color: var(--analytics-ui-text, #174243); }
+.tone-orange { color: var(--analytics-ui-accent, #017151); }
+.attention-red { color: var(--analytics-ui-text, #174243); }
+.attention-orange { color: var(--analytics-ui-accent, #017151); }
+.attention-purple { color: var(--analytics-ui-muted, #5EA99E); }
+.attention-blue { color: var(--analytics-ui-secondary, #39687B); }
+.attention-teal { color: var(--analytics-ui-text, #174243); }
 
 .analytics-toast {
   position: fixed;
@@ -1630,19 +1570,18 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 }
 
 .interactive-chart-row:hover {
-  background: rgba(236, 248, 244, 0.62);
+  background: var(--analytics-ui-selected, rgba(236, 248, 244, 0.62));
 }
 
 .module-line-point {
   fill: currentColor;
-  stroke: #ffffff;
+  stroke: var(--analytics-ui-surface, #ffffff);
   stroke-width: 2;
 }
 
 @media (max-width: 1200px) {
   .summary-grid,
   .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .attention-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -1651,8 +1590,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   .page-actions { width: 100%; flex-wrap: wrap; }
   .date-range { flex: 1; }
   .summary-grid,
-  .module-grid,
-  .attention-grid { grid-template-columns: 1fr; }
+  .module-grid { grid-template-columns: 1fr; }
   .summary-card { min-height: 94px; }
 }
 
@@ -1662,22 +1600,22 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   gap: 8px;
   margin-bottom: 18px;
 
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
 .breadcrumb a {
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   text-decoration: none;
 }
 
 .breadcrumb a:hover {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   text-decoration: underline;
 }
 
 .breadcrumb-separator {
-  color: #9aaaa7;
+  color: var(--analytics-ui-muted, #9aaaa7);
 }
 
 .page-heading {
@@ -1690,7 +1628,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .page-heading h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1698,7 +1636,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .page-heading p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -1715,43 +1653,33 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
    separated from the primary dark-green KPI treatment. */
 .module-card.tone-blue .mini-bars span,
 .module-card.tone-blue .module-line {
-  color: #39687B !important;
+  color: var(--analytics-ui-secondary, #39687B) !important;
 }
 .module-card.tone-purple .mini-bars span,
 .module-card.tone-purple .module-line {
-  color: #5EA99E !important;
+  color: var(--analytics-ui-muted, #5EA99E) !important;
 }
 .module-card.tone-teal .mini-bars span,
 .module-card.tone-teal .module-line {
-  color: #174243 !important;
+  color: var(--analytics-ui-text, #174243) !important;
 }
 .module-card.tone-orange .mini-bars span,
 .module-card.tone-orange .module-line {
-  color: #39687B !important;
+  color: var(--analytics-ui-secondary, #39687B) !important;
 }
 
 .module-card .mini-bars span {
   background: currentColor !important;
 }
 
-/* Issue controls use official brand colours only. */
-.view-all-button {
-  color: #017151 !important;
-  border-color: #BAD7B8 !important;
-  background: #FFFFFF !important;
-}
-.view-all-button:hover {
-  background: #BAD7B8 !important;
-}
-
 .overview-axis-chart { display:grid; grid-template-columns:28px minmax(0,1fr); gap:8px; align-items:stretch; min-height:82px; margin-top:8px; }
-.overview-y-axis { display:flex; flex-direction:column; justify-content:space-between; padding:2px 0 8px; color:#6b7b77; font-size:10px; text-align:right; }
+.overview-y-axis { display:flex; flex-direction:column; justify-content:space-between; padding:2px 0 8px; color:var(--analytics-ui-muted, #6b7b77); font-size:10px; text-align:right; }
 .overview-axis-plot { min-width:0; }
 .overview-axis-chart .mini-bars { height:78px; align-items:end; }
 .overview-axis-chart .mini-line-wrap { margin-top:0; }
 
 .overview-point-value {
-  fill: #173f43;
+  fill: var(--analytics-ui-text, #173f43);
   font-size: 8px;
   font-weight: 800;
   pointer-events: none;
@@ -1778,7 +1706,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  color: #173f43;
+  color: var(--analytics-ui-text, #173f43);
   font-size: 9px;
   font-weight: 800;
   line-height: 1;
@@ -1794,7 +1722,7 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   gap: 8px;
   margin-top: 11px;
   padding-top: 11px;
-  border-top: 1px solid #e1e9e6;
+  border-top: 1px solid var(--analytics-ui-border, #e1e9e6);
 }
 
 .attention-detail-row {
@@ -1804,16 +1732,16 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   gap: 18px;
   min-height: 72px;
   padding: 12px 14px;
-  border: 1px solid #e4ebe8;
+  border: 1px solid var(--analytics-ui-border, #e4ebe8);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
   transition:
     border-color 0.16s ease,
     box-shadow 0.16s ease;
 }
 
 .attention-detail-row:hover {
-  border-color: #bad7b8;
+  border-color: var(--analytics-ui-border, #bad7b8);
   box-shadow: 0 6px 16px rgba(23, 66, 67, 0.06);
 }
 
@@ -1826,14 +1754,14 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .attention-detail-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   place-items: center;
   border-radius: 10px;
-  background: #e4f0e2;
-  color: #017151;
-  font-size: 15px;
+  background: var(--analytics-ui-soft, #e4f0e2);
+  color: var(--analytics-ui-accent, #017151);
+  font-size: 17px;
 }
 
 .attention-detail-copy {
@@ -1844,25 +1772,25 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   display: flex;
   align-items: baseline;
   gap: 9px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
 }
 
 .attention-detail-title strong {
-  color: #017151;
-  font-size: 18px;
+  color: var(--analytics-ui-accent, #017151);
+  font-size: 24px;
   line-height: 1;
 }
 
 .attention-detail-title span {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .attention-detail-copy p {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   max-width: 820px;
-  color: #687872;
-  font-size: 11px;
+  color: var(--analytics-ui-muted, #687872);
+  font-size: 13px;
   line-height: 1.4;
 }
 
@@ -1874,11 +1802,11 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   min-width: 126px;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 8px;
-  background: #ffffff;
-  color: #017151;
-  font-size: 11px;
+  background: var(--analytics-ui-surface, #ffffff);
+  color: var(--analytics-ui-accent, #017151);
+  font-size: 13px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
@@ -1886,22 +1814,9 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 .attention-detail-button:hover {
   border-color: #017151;
-  background: #ecf8f4;
-  color: #017151;
+  background: var(--analytics-ui-selected, #ecf8f4);
+  color: var(--analytics-ui-accent, #017151);
   text-decoration: none;
-}
-
-.issues-expand-enter-active,
-.issues-expand-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-}
-
-.issues-expand-enter-from,
-.issues-expand-leave-to {
-  opacity: 0;
-  transform: translateY(-5px);
 }
 
 @media (max-width: 760px) {
@@ -1969,16 +1884,16 @@ onBeforeUnmount(() => window.clearTimeout(toastTimer))
   gap: 9px;
   min-height: 54px;
   padding: 11px 13px;
-  border: 1px solid #e1e9e6;
+  border: 1px solid var(--analytics-ui-border, #e1e9e6);
   border-radius: 9px;
-  background: #f7fbf9;
-  color: #4f6964;
+  background: var(--analytics-ui-surface, #f7fbf9);
+  color: var(--analytics-ui-muted, #4f6964);
   font-size: 12px;
   font-weight: 700;
 }
 
 .attention-empty-state i {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 </style>

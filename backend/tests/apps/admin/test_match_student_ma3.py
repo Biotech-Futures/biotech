@@ -112,6 +112,7 @@ class ConfirmRejectsFormedGroupsTests(TestCase):
     def test_assignment_into_a_formed_group_is_refused(self):
         with self.assertRaises(ValidationError) as caught:
             confirm_student_assignments({
+                "formOnly": True,
                 "assignments": [
                     {"studentId": self.students[1].id, "groupId": self.formed_group.id},
                 ]
@@ -125,6 +126,7 @@ class ConfirmRejectsFormedGroupsTests(TestCase):
     def test_one_formed_target_rejects_the_whole_payload(self):
         with self.assertRaises(ValidationError):
             confirm_student_assignments({
+                "formOnly": True,
                 "assignments": [
                     {
                         "studentId": self.students[1].id,
@@ -142,10 +144,27 @@ class ConfirmRejectsFormedGroupsTests(TestCase):
             ).exists()
         )
 
+    def test_another_flow_may_still_place_someone_in_a_formed_group(self):
+        # The same endpoint serves Add Students and moving a student between
+        # groups. Without ``formOnly`` the rule does not apply to them, or
+        # topping up a group would become impossible.
+        result = confirm_student_assignments({
+            "assignments": [
+                {"studentId": self.students[1].id, "groupId": self.formed_group.id},
+            ]
+        })
+
+        self.assertEqual(result, {"assigned_count": 1})
+        self.assertEqual(
+            GroupMembership.objects.get(user=self.students[1]).group_id,
+            self.formed_group.id,
+        )
+
     def test_an_empty_existing_group_can_still_be_confirmed_into(self):
         # Only membership makes a group off-limits, so a hand-made empty group is
         # still a valid target for an admin confirming a board.
         result = confirm_student_assignments({
+            "formOnly": True,
             "assignments": [
                 {"studentId": self.students[1].id, "groupId": self.empty_group.id},
             ]

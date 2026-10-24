@@ -174,6 +174,32 @@ export const systemEmailMailApiSchema = z.object({
 
 export type SystemEmailMailApi = z.infer<typeof systemEmailMailApiSchema>
 
+const makeMailApiKey = (which: string) =>
+  `Make ${which} in hPanel under Emails, Agentic Mail, API access, and set it as HOSTINGER_MAIL_API_KEY in Azure.`
+
+/** Why bounced emails aren't being checked, or '' when they are: for the
+ *  top of the page and of Failed Sending Emails. ``when`` formats a time. */
+export const mailApiNote = (state: SystemEmailMailApi | null | undefined, when: (iso: string) => string): string => {
+  if (!state?.problem) return ''
+  const at = state.at ? when(state.at) : ''
+  if (state.problem === 'unset') {
+    return `Bounced emails aren't being checked because the Hostinger Mail API key isn't set. ${makeMailApiKey('one')}`
+  }
+  if (state.problem === 'rejected') {
+    return `Bounced emails aren't being checked because Hostinger rejected the Mail API key at ${at}. ${makeMailApiKey('a new one')}`
+  }
+  const answer = state.status ? `answered ${state.status}` : "didn't answer"
+  return `Bounced emails couldn't be checked at ${at} because Hostinger's Mail API ${answer}. It's tried again every 10 minutes.`
+}
+
+/** Whether Azure's Always On is keeping the backend awake. */
+export const systemEmailAlwaysOnSchema = z.object({
+  state: z.enum(['on', 'off', 'checking', 'not_azure']).catch('not_azure'),
+  lastSeenAt: z.string().nullable()
+})
+
+export type SystemEmailAlwaysOn = z.infer<typeof systemEmailAlwaysOnSchema>
+
 // ---------------------------------------------------------------------------
 // Request payloads
 // ---------------------------------------------------------------------------

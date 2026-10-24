@@ -332,6 +332,36 @@ describe('the email warnings', () => {
     ])
   })
 
+  it('accepts a warning for the supervisor the student named, on the supervisor field', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response(
+        {
+          warnings: [
+            {
+              code: 'supervisor_email_invalid',
+              field: 'supervisor.email',
+              override_field: 'students.0.overrides.ConfirmSupervisorEmailInvalidOverride',
+              message: "The supervisor's email address doesn't appear to exist.",
+            },
+          ],
+        },
+        400,
+      ),
+    )
+    const gateway = createHttpRegistrationGateway({ endpoint, fetchImpl, ensureCsrf })
+
+    const result = await gateway.submit(studentRequest())
+
+    expect(!result.ok && result.warnings).toEqual([
+      {
+        code: 'supervisor_email_invalid',
+        field: 'studentIndividual.supervisor.email',
+        overrideField: 'students.0.overrides.ConfirmSupervisorEmailInvalidOverride',
+        message: "The supervisor's email address doesn't appear to exist.",
+      },
+    ])
+  })
+
   it('refuses a guardian warning placed on the student’s own email', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
       response(
@@ -368,12 +398,13 @@ describe('the email warnings', () => {
     })
   })
 
-  it('knows all four overrides and nothing else', () => {
+  it('knows all five overrides and nothing else', () => {
     expect(REGISTRATION_OVERRIDE_NAMES).toEqual([
       'ConfirmSchoolOverride',
       'ConfirmNameEmailOverride',
       'ConfirmEmailInvalidOverride',
       'ConfirmGuardianEmailInvalidOverride',
+      'ConfirmSupervisorEmailInvalidOverride',
     ])
     expect(parseOverridePath('students.2.overrides.ConfirmGuardianEmailInvalidOverride')).toEqual({
       index: 2,

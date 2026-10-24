@@ -329,7 +329,7 @@ import { markingFullWidth } from '@/composables/markingLayout'
 import { loadSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { loadSupervisorResults, useSupervisorResults } from '@/composables/useSupervisorResults'
 import { apiErrorFromResponse } from '@/utils/apiError'
-import { clearLiveAnalyticsCache } from '@/utils/liveAnalyticsData'
+import { clearLiveAnalyticsCache, prefetchAnalytics } from '@/utils/liveAnalyticsData'
 import logo from '@/assets/btf-logo.png'
 import { BRAND_NAME, BRAND_CONNECT, SUPPORT_EMAIL } from '@/constants/brand'
 
@@ -468,19 +468,29 @@ const { shown: supervisorPagesShown } = useSupervisorPages()
 // Results, once marks or certificates are released.
 const { shown: supervisorResultsShown } = useSupervisorResults()
 watch(
+  () => auth.isAuthenticated && !auth.isAdmin,
+  (followsVisibility) => {
+    if (followsVisibility) void loadSupervisorPages()
+  },
+  { immediate: true },
+)
+watch(
   () => auth.isSupervisor,
   (isSupervisor) => {
-    if (!isSupervisor) return
-    void loadSupervisorPages()
-    void loadSupervisorResults()
+    if (isSupervisor) void loadSupervisorResults()
   },
   { immediate: true },
 )
 
-// The top-level links every role sees; supervisors only once Management >
-// Supervisor Pages Visibility shows them.
+// The top-level links every role sees, once Management > Challenge Start >
+// Pages Visibility's date comes (admins always). Until then a supervisor has
+// their own pages below, and a student or mentor their profile.
 const mainNavLinks = computed(() => {
-  if (auth.isSupervisor && !auth.isAdmin && !supervisorPagesShown.value) return []
+  if (!auth.isAdmin && !supervisorPagesShown.value) {
+    return auth.isSupervisor
+      ? []
+      : [{ to: '/profile', label: 'My Profile', icon: 'fa-user', active: route.path === '/profile' }]
+  }
   const links: MainNavEntry[] = [
     { to: '/dashboard', label: 'Home', icon: 'fa-home', active: route.path === '/dashboard' },
   ]
@@ -537,6 +547,7 @@ const sidebarSections = computed(() => {
         { label: 'Views', to: '/admin/views', active: path.startsWith('/admin/views') },
         { label: 'Groups', to: '/admin/groups', active: path === '/admin/groups' },
         { label: 'Tasks', to: '/admin/tasks', active: path === '/admin/tasks' },
+        { label: 'Role Tasks', to: '/admin/role-tasks', active: path.startsWith('/admin/role-tasks') },
         { label: 'System Emails', to: '/admin/emails', active: path === '/admin/emails' },
         { label: 'Grading', to: '/grading', active: path.startsWith('/grading') },
         { label: 'Management', to: '/management', active: path.startsWith('/management') },
@@ -794,6 +805,38 @@ const handleKeydown = (event: KeyboardEvent) => {
     avatarRef.value?.focus?.()
   }
 }
+
+// Warm the Analytics cache for admins once the rest of the site has loaded,
+// so opening Analytics does not wait. It runs after the page's own requests
+// (window load, then idle time) and again for each newly signed-in admin.
+let analyticsPrefetchUserId: number | string | null = null
+const scheduleAnalyticsPrefetch = () => {
+  const userId = auth.user?.id ?? null
+  if (!auth.isAdmin || userId === null || analyticsPrefetchUserId === userId) return
+  analyticsPrefetchUserId = userId
+  const run = () => {
+    if (!auth.isAdmin || auth.user?.id !== userId) return
+    void prefetchAnalytics()
+  }
+  const whenIdle = () => {
+    const ric = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => void
+    }).requestIdleCallback
+    if (typeof ric === 'function') ric(run, { timeout: 5000 })
+    else window.setTimeout(run, 1500)
+  }
+  if (document.readyState === 'complete') whenIdle()
+  else window.addEventListener('load', whenIdle, { once: true })
+}
+
+watch(
+  () => [auth.user?.id, auth.isAdmin],
+  () => {
+    if (!auth.isAdmin) analyticsPrefetchUserId = null
+    scheduleAnalyticsPrefetch()
+  },
+  { immediate: true },
+)
 
 // Sidebar group list is non-critical — defer behind requestIdleCallback
 // so we don't fight the main page's fetches for connection budget.

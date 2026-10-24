@@ -92,7 +92,9 @@ export const deliveryNote = (sentFrom: string, toGroups = true) =>
  *  many were emailed, then why it stopped short and how to retry. Always
  *  ends with where any that can't be delivered come back to. */
 export function describeRun(run: EmailRun, wording: RunWording): { text: string; isError: boolean } {
-  const sent = `Emailed ${plural(run.emailed, ...wording.emailed)}.`
+  // Slower than usual: the mail server took fewer emails at once.
+  const limited = run.limited ? ' The mail server limited how many could go at once, so it sent more slowly.' : ''
+  const sent = `Emailed ${plural(run.emailed, ...wording.emailed)}.${limited}`
   // An email to each supervisor isn't a group's.
   const note = wording.sentFrom ? ` ${deliveryNote(wording.sentFrom, !wording.failedWhole)}` : ''
   if (run.error) return { text: `${sent} ${run.error}${note}`, isError: true }

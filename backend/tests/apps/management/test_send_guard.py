@@ -82,6 +82,28 @@ class SendRunTests(TestCase):
         self.assertEqual((run["due"], run["emailed"], run["failed"], run["missed"]), (5, 2, 0, []))
         self.assertIn("was switched off on System Emails", run["error"])
 
+    def test_a_finished_run_keeps_who_it_reached_and_who_it_missed(self):
+        from apps.services.models import EmailDeliveryRecipient
+
+        addresses = ["amy@example.com", "bo@example.com", "cy@example.com"]
+        labels = [f"{address} (BTF1)" for address in addresses]
+
+        def send(connection, cache):
+            # Bo's address is refused on both tries.
+            return [{"who": labels[1], "reason": "address refused"}]
+
+        self._press("test_email", [Work(labels, send, addresses)])
+
+        rows = {
+            row.email: (row.status, row.reason)
+            for row in EmailDeliveryRecipient.objects.filter(metric__email_type="test_email")
+        }
+        self.assertEqual(rows, {
+            "amy@example.com": ("delivered", ""),
+            "bo@example.com": ("failed", "address refused"),
+            "cy@example.com": ("delivered", ""),
+        })
+
     def test_every_item_is_sent_and_the_progress_kept(self):
         work = [self._item(f"BTF{n}", 3) for n in range(5)] + [self._item("BTF9", 2, reached=1)]
         self._press("test_email", work)
@@ -194,6 +216,103 @@ class SendRunTests(TestCase):
         # Three workers: seven items over three connections.
         self.assertEqual(len({id(connection) for _, connection in self.sent}), 3)
         self.assertEqual(EmailSendRun.objects.get(key="test_email").emailed, 7)
+
+    # -- connections that drop out when the mail server pushes back --------------
+
+    def _busy_on(self, team, times=1):
+        """A team whose email the server pushes back on, the first ``times``
+        tries; it goes after that."""
+        tries = []
+
+        def send(connection, cache):
+            tries.append(1)
+            self.sent.append((team, connection))
+            if len(tries) <= times:
+                return [{"who": f"({team}) Person 0", "reason": "mail server busy"}]
+            return []
+        return Work([f"({team}) Person 0"], send)
+
+    @override_settings(BULK_EMAIL_WORKERS=3, BULK_EMAIL_MIN_WORKERS=2, BULK_EMAIL_RETRY_SECONDS=0)
+    def test_pushed_back_one_connection_drops_out_at_once_and_its_email_still_goes(self):
+        work = [self._item("BTF1", 1), self._item("BTF2", 1), self._busy_on("BTF3"),
+                *[self._item(f"BTF{n}", 1) for n in range(4, 10)]]
+        send_guard._take("test_email", due=9, started_at=timezone.now())
+
+        with self.assertLogs("apps.management.services.send_guard", level="WARNING") as logs:
+            send_guard._run("test_email", work, workers=3, threaded=False)
+
+        self.assertIn("sending over 2 connections", " ".join(logs.output))
+        # The one that pushed back sent nothing more; the other two took the rest.
+        dropped = next(connection for team, connection in self.sent if team == "BTF3")
+        self.assertEqual([team for team, connection in self.sent if connection is dropped], ["BTF3"])
+        run = EmailSendRun.objects.get(key="test_email")
+        self.assertEqual((run.emailed, run.failed, run.missed, run.connections), (9, 0, [], 2))
+        self.assertTrue(run_state("test_email")["run"]["limited"])
+
+    @override_settings(BULK_EMAIL_WORKERS=3, BULK_EMAIL_MIN_WORKERS=2, BULK_EMAIL_FEWER_MINUTES=60)
+    def test_after_pushing_back_the_mailboxs_next_runs_start_with_fewer_for_a_while(self):
+        self.assertEqual(send_guard.connections_for("test_email"), 3)
+        send_guard._take("test_email", due=1)
+        with self.assertLogs("apps.management.services.send_guard", level="WARNING"):
+            send_guard._run("test_email", [self._busy_on("BTF1"), self._item("BTF2", 1)], workers=3, threaded=False)
+
+        self.assertEqual(send_guard.connections_for("test_email"), 2)
+        EmailSendRun.objects.filter(key=send_guard.queue_key(send_guard.lane("test_email"))).update(
+            fewer_connections_until=timezone.now() - timedelta(minutes=1),
+        )
+        self.assertEqual(send_guard.connections_for("test_email"), 3)
+
+    @override_settings(BULK_EMAIL_WORKERS=3, BULK_EMAIL_MIN_WORKERS=2, BULK_EMAIL_RETRY_SECONDS=0)
+    def test_emails_starting_to_fail_drop_a_connection_but_a_refused_address_doesnt(self):
+        def failing(team, reason):
+            def send(connection, cache):
+                self.sent.append((team, connection))
+                return [{"who": f"({team}) Person 0", "reason": reason}]
+            return Work([f"({team}) Person 0"], send)
+
+        send_guard._take("test_email", due=4, started_at=timezone.now())
+        send_guard._run("test_email", [failing("BTF1", "address refused"), *[self._item(f"BTF{n}", 1) for n in range(2, 5)]],
+                        workers=3, threaded=False)
+        self.assertEqual(EmailSendRun.objects.get(key="test_email").connections, 3)
+
+        send_guard._take("test_email", due=4, started_at=timezone.now())
+        with self.assertLogs("apps.management.services.send_guard", level="WARNING"):
+            send_guard._run(
+                "test_email",
+                [failing("BTF5", "lost the mail server connection"), *[self._item(f"BTF{n}", 1) for n in range(6, 9)]],
+                workers=3, threaded=False,
+            )
+        self.assertEqual(EmailSendRun.objects.get(key="test_email").connections, 2)
+
+    @override_settings(BULK_EMAIL_WORKERS=2, BULK_EMAIL_MIN_WORKERS=2, BULK_EMAIL_RETRY_SECONDS=0)
+    def test_never_fewer_than_the_minimum(self):
+        send_guard._take("test_email", due=4, started_at=timezone.now())
+        send_guard._run("test_email", [self._busy_on("BTF1"), *[self._item(f"BTF{n}", 1) for n in range(2, 5)]],
+                        workers=2, threaded=False)
+
+        run = EmailSendRun.objects.get(key="test_email")
+        self.assertEqual((run.emailed, run.connections), (4, 2))
+        self.assertFalse(run_state("test_email")["run"]["limited"])
+
+    @override_settings(BULK_EMAIL_WORKERS=3, BULK_EMAIL_MIN_WORKERS=2)
+    def test_a_connection_the_server_refuses_drops_out_before_sending(self):
+        import smtplib
+
+        opens = []
+
+        def third_refused(connection):
+            opens.append(1)
+            if len(opens) == 3:
+                raise smtplib.SMTPConnectError(421, b"Too many connections")
+
+        send_guard._take("test_email", due=6)
+        with mock.patch("django.core.mail.backends.locmem.EmailBackend.open", autospec=True,
+                        side_effect=third_refused),                 self.assertLogs("apps.management.services.send_guard", level="WARNING"):
+            send_guard._run("test_email", [self._item(f"BTF{n}", 1) for n in range(6)], workers=3, threaded=False)
+
+        self.assertEqual(len({id(connection) for _, connection in self.sent}), 2)
+        run = EmailSendRun.objects.get(key="test_email")
+        self.assertEqual((run.emailed, run.connections), (6, 2))
 
     def test_a_send_pressed_while_another_is_going_waits_its_turn(self):
         # Another email is sending.

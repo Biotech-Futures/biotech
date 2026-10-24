@@ -22,8 +22,8 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
   ],
   supervisor_individual: [[/^supervisorIndividual\.(student|extraStudents)(\.|$)/, 0]],
   supervisor_group: [
-    [/^supervisorGroup\.interests(\.|$)/, 0],
-    [/^supervisorGroup\.(students|size)(\.|$)/, 1],
+    [/^supervisorGroup\.(students|size)(\.|$)/, 0],
+    [/^supervisorGroup\.interests(\.|$)/, 1],
   ],
   supervisor_csv: [
     [/^supervisorCsv\.(file|fileName)$/, 0],
@@ -32,7 +32,11 @@ const fieldStepPatterns: Record<RegistrationIntakeJourney, Array<[RegExp, number
   mentor: [
     [/^mentor\.(firstName|lastName|email|country|state)$/, 0],
     [/^mentor\.(affiliation|institution|company|universityYear|fieldOfStudy)$/, 1],
-    [/^mentor\.(interests|capacity|weeklyHours|background|motivation|mentoringApproach)$/, 2],
+    [/^mentor\.(interests|capacity|motivation)$/, 2],
+  ],
+  supervisor: [
+    [/^supervisor\.(firstName|lastName|email)$/, 0],
+    [/^supervisor\.(school|relationship|country|state|pronouns|pronounsOther|profilePhoto)$/, 1],
   ],
 }
 

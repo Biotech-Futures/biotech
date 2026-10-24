@@ -245,7 +245,7 @@
         <template #filters>
           <AppSelect
             v-model="recCountry"
-            class="mentor-matching__select"
+            class="mentor-matching__select table-filter"
             aria-label="Filter by country"
             :options="countryOptions"
           />
@@ -735,17 +735,14 @@ const onConfirm = () => {
   display: block;
 }
 
-.mentor-matching__select {
-  padding: 0.45rem 0.7rem;
+/* The country filter is the table's filter box. A mentor picker in a row
+   keeps its own smaller one. */
+.mentor-matching__select--inline {
+  padding: 0.25rem 0.4rem;
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background-color: var(--surface-elevated);
   color: var(--teal);
-  font-size: 0.9rem;
-}
-
-.mentor-matching__select--inline {
-  padding: 0.25rem 0.4rem;
   font-size: 0.8rem;
 }
 

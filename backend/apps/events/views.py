@@ -39,6 +39,7 @@ from .serializers import (
 )
 from .services import (
     get_request_accepted_event_ids,
+    set_event_rsvp,
     set_user_rsvp,
     visible_events_queryset,
 )
@@ -100,6 +101,7 @@ class EventInvitePagination(PageNumberPagination):
 
 
 class EventViewSet(viewsets.ModelViewSet):
+    hidden_with_pages = True
     queryset = Events.objects.all()
     serializer_class = EventSerializer
     permission_classes = [EventManagePermission]
@@ -232,6 +234,11 @@ class EventViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.deleted_at is None:
             return Response(EventSerializer(instance, context=self.get_serializer_context()).data, status=status.HTTP_200_OK)
+        if instance.archived_at is not None:
+            return Response(
+                {"detail": "This event was archived by Start new year, so it can't be restored."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Target groups must be restored before their events can be restored.
         if EventTargetGroup.objects.filter(
@@ -265,6 +272,7 @@ class EventRsvpSetView(APIView):
     user choice. The legacy /events/v1/{id}/rsvp/ route still resolves.
     """
 
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
@@ -332,6 +340,7 @@ class IsNotStudent(permissions.BasePermission):
 
 
 class EventInviteCreateView(APIView):
+    hidden_with_pages = True
     permission_classes = [IsNotStudent]
 
     @extend_schema(
@@ -343,20 +352,13 @@ class EventInviteCreateView(APIView):
     )
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Events, pk=kwargs.get("id"))
+        event = _get_event_for_user_or_404(request.user, kwargs.get("id"))
         user = get_object_or_404(User, pk=kwargs.get("uid"))
 
-        rsvp_status = request.data.get("rsvp_status", EventRsvp.RsvpStatus.PENDING)
-        responded_at = timezone.now() if rsvp_status != EventRsvp.RsvpStatus.PENDING else None
-
-        rsvp, _ = EventRsvp.objects.update_or_create(
-            event=event,
-            user=user,
-            defaults={
-                "rsvp_status": rsvp_status,
-                "responded_at": responded_at,
-            },
-        )
+        payload = EventRsvpRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        rsvp_status = payload.validated_data["rsvp_status"]
+        _, rsvp, _ = set_event_rsvp(user.id, event.id, rsvp_status, keep_response=True)
         log_audit_event(
             actor=request.user,
             entity_type="event_rsvp",
@@ -368,6 +370,7 @@ class EventInviteCreateView(APIView):
 
 
 class EventInviteListHTMLView(generics.ListAPIView):
+    hidden_with_pages = True
     serializer_class = EventRsvpSerializer
     permission_classes = [IsNotStudent]
     pagination_class = EventInvitePagination
@@ -382,6 +385,7 @@ class EventInviteListHTMLView(generics.ListAPIView):
 
 
 class EventInviteListMeHTMLView(generics.ListAPIView):
+    hidden_with_pages = True
     serializer_class = EventRsvpSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = EventInvitePagination
@@ -404,8 +408,11 @@ class EventBulkInviteView(APIView):
 
     Returns `created` / `updated` / `not_found` so the FE can show a
     partial-success summary instead of failing the whole call on one bad id.
+    `unchanged` lists users whose existing answer a pending invite kept, and
+    `waitlisted` lists users an accept placed on the waitlist of a full event.
     """
 
+    hidden_with_pages = True
     permission_classes = [IsNotStudent]
     throttle_classes = [throttling.ScopedRateThrottle]
     throttle_scope = "event_bulk_invite"
@@ -415,16 +422,13 @@ class EventBulkInviteView(APIView):
         responses={200: None},
     )
     def post(self, request, *args, **kwargs):
-        event = get_object_or_404(Events, pk=kwargs.get("id"), deleted_at__isnull=True)
+        event = _get_event_for_user_or_404(request.user, kwargs.get("id"))
 
         payload = EventBulkInviteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         # De-dup but keep first-seen order so partial-success output is stable.
         user_ids = list(dict.fromkeys(payload.validated_data["user_ids"]))
         rsvp_status = payload.validated_data["rsvp_status"]
-        responded_at = (
-            timezone.now() if rsvp_status != EventRsvp.RsvpStatus.PENDING else None
-        )
 
         existing_user_ids = set(
             User.objects.filter(id__in=user_ids).values_list("id", flat=True)
@@ -434,29 +438,23 @@ class EventBulkInviteView(APIView):
 
         created_ids = []
         updated_ids = []
+        unchanged_ids = []
+        waitlisted_ids = []
 
         with transaction.atomic():
-            existing_rsvps = {
-                row.user_id: row
-                for row in EventRsvp.objects.select_for_update().filter(
-                    event=event, user_id__in=valid_user_ids
-                )
-            }
             for uid in valid_user_ids:
-                row = existing_rsvps.get(uid)
-                if row is None:
-                    EventRsvp.objects.create(
-                        event=event,
-                        user_id=uid,
-                        rsvp_status=rsvp_status,
-                        responded_at=responded_at,
-                    )
+                _, rsvp, created = set_event_rsvp(
+                    uid, event.id, rsvp_status,
+                    exclude_from_promotion=valid_user_ids, keep_response=True,
+                )
+                if created:
                     created_ids.append(uid)
+                elif rsvp_status == EventRsvp.RsvpStatus.PENDING and rsvp.rsvp_status != EventRsvp.RsvpStatus.PENDING:
+                    unchanged_ids.append(uid)
                 else:
-                    row.rsvp_status = rsvp_status
-                    row.responded_at = responded_at
-                    row.save(update_fields=["rsvp_status", "responded_at"])
                     updated_ids.append(uid)
+                if rsvp_status == EventRsvp.RsvpStatus.ACCEPTED and rsvp.rsvp_status == EventRsvp.RsvpStatus.WAITLISTED:
+                    waitlisted_ids.append(uid)
 
             log_audit_event(
                 actor=request.user,
@@ -468,6 +466,8 @@ class EventBulkInviteView(APIView):
                     "rsvp_status": rsvp_status,
                     "created_user_ids": created_ids,
                     "updated_user_ids": updated_ids,
+                    "unchanged_user_ids": unchanged_ids,
+                    "waitlisted_user_ids": waitlisted_ids,
                 },
             )
 
@@ -477,6 +477,8 @@ class EventBulkInviteView(APIView):
                 "rsvp_status": rsvp_status,
                 "created": created_ids,
                 "updated": updated_ids,
+                "unchanged": unchanged_ids,
+                "waitlisted": waitlisted_ids,
                 "not_found": not_found,
             },
             status=status.HTTP_200_OK,
@@ -486,8 +488,8 @@ class EventBulkInviteView(APIView):
 class RsvpReminderTriggerView(APIView):
     """Cron-trigger endpoint for the 24h RSVP reminder dispatcher.
 
-    Called hourly by ``.github/workflows/rsvp-reminders.yml`` (no
-    in-process scheduler / Celery worker). Auth is a shared secret
+    By hand from ``.github/workflows/rsvp-reminders.yml``; the backend's
+    timer (``apps.management.scheduler``) queues the same run hourly. Auth is a shared secret
     header rather than a user session — there is no human caller. To
     keep the surface small:
 
@@ -567,6 +569,7 @@ class EventIcalExportView(APIView):
     only gets events they could already see in the regular list view.
     """
 
+    hidden_with_pages = True
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(

@@ -14,11 +14,12 @@ from apps.admin.services.user import (
     bulk_update_status_by_filter, delete_user, bulk_delete_users,
     bulk_delete_users_by_filter, has_ungrouped_students, bulk_create_users,
 )
+from apps.audit.models import AuditLog
 from apps.groups.models import (
     Countries, CountryStates, GroupAutoNameUnavailable, Groups, GroupMembership,
 )
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.users.models import StudentProfile, MentorProfile, User, StudentSupervisor
+from apps.users.models import StudentProfile, MentorProfile, SupervisorProfile, User, StudentSupervisor
 from apps.users.models.admin_scope import AdminScope
 
 
@@ -508,20 +509,23 @@ class AdminUserServiceCreateUserTests(TestCase):
         self.assertIsNotNone(profile.joinperm_granted_at)
         self.assertTrue(result["data"]["joinPermissionReceived"])
 
-    def test_create_student_missing_school_returns_error(self):
-        result = create_user({
-            "email": "student2@example.com",
-            "firstName": "Bob",
-            "lastName": "Student",
-            "role": "student",
-            "state": "NSW",
-            "yearLevel": 10,
-        })
+    def test_a_student_needs_only_an_email_the_rest_may_come_later(self):
+        result = create_user({"email": "student2@example.com", "role": "student"})
 
-        self.assertEqual(result["msg"], "School is required for student users")
-        self.assertIsNone(result["data"])
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = StudentProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual((profile.school_name, profile.year_lvl, profile.parent_guardian_flag), ("", "", False))
 
-    def test_create_student_missing_country_returns_error(self):
+        # Later edits aren't held up by what's still blank.
+        result = update_user(profile.user_id, {"firstName": "Bob"})
+        self.assertIsNotNone(result["data"], result["msg"])
+
+    def test_a_year_given_must_be_9_to_12(self):
+        result = create_user({"email": "student4@example.com", "role": "student", "yearLevel": 15})
+
+        self.assertEqual(result["msg"], "Year level must be from 9 to 12")
+
+    def test_a_student_may_be_added_without_a_country(self):
         result = create_user({
             "email": "student3@example.com",
             "firstName": "Cara",
@@ -532,8 +536,8 @@ class AdminUserServiceCreateUserTests(TestCase):
             "interests": ["Biotech"],
         })
 
-        self.assertEqual(result["msg"], "Country is required")
-        self.assertIsNone(result["data"])
+        self.assertIsNotNone(result["data"], result["msg"])
+        self.assertIsNone(result["data"]["country"])
 
     def test_create_mentor_user(self):
         result = create_user({
@@ -774,6 +778,99 @@ class AdminUserServiceBulkStatusTests(TestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class AdminUserStatusActivatedAtTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_user(
+            email="statusadmin@example.com", first_name="Ada", last_name="Admin", password="testpass",
+        )
+        AdminScope.objects.create(user=self.admin_user)
+        self.mentor = User.objects.create_user(email="mentor@example.com", first_name="Ari", last_name="Mentor")
+        MentorProfile.objects.create(user=self.mentor, institution="UNSW", mentor_reason="Testing", max_group_count=2)
+        self.student = User.objects.create_user(email="student@example.com", first_name="Sam", last_name="Student")
+        StudentProfile.objects.create(
+            user=self.student, pg_first_name="Pat", pg_last_name="Parent", school_name="Test High", year_lvl="10",
+        )
+        self.supervisor = User.objects.create_user(email="supervisor@example.com", first_name="Sue", last_name="Super")
+        self.supervisor.invite()
+        SupervisorProfile.objects.create(user=self.supervisor, school_name="Test High")
+        self.people = [self.mentor, self.student, self.supervisor]
+
+    def ids(self):
+        return [person.id for person in self.people]
+
+    def refreshed(self):
+        for person in self.people:
+            person.refresh_from_db()
+        return self.people
+
+    def test_bulk_activation_stamps_activated_at_for_each_role(self):
+        self.assertEqual(
+            [(p.account_status, p.is_active, p.activated_at) for p in self.people],
+            [("pending", False, None), ("pending", False, None), ("invited", False, None)],
+        )
+
+        result = bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+
+        self.assertEqual(sorted(result["data"]["updatedIds"]), sorted(self.ids()))
+        for person in self.refreshed():
+            self.assertEqual((person.account_status, person.is_active), ("active", True))
+            self.assertIsNotNone(person.activated_at)
+        entry = AuditLog.objects.get(entity_id=self.supervisor.id, action="status_change")
+        self.assertEqual(entry.before_state, {"isActive": False, "accountStatus": "invited"})
+        self.assertEqual(entry.after_state, {"isActive": True, "accountStatus": "active"})
+
+    def test_select_all_and_single_activation_stamp_activated_at(self):
+        bulk_update_status_by_filter({"search": "mentor@example.com"}, True, initiated_by=self.admin_user)
+        update_status(self.student.id, True, initiated_by=self.admin_user)
+
+        self.mentor.refresh_from_db()
+        self.student.refresh_from_db()
+        self.assertIsNotNone(self.mentor.activated_at)
+        self.assertIsNotNone(self.student.activated_at)
+
+    def test_reactivating_keeps_the_first_activated_at(self):
+        bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+        first = {person.id: person.activated_at for person in self.refreshed()}
+
+        bulk_update_status(self.ids(), False, initiated_by=self.admin_user)
+        bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+        update_status(self.student.id, True, initiated_by=self.admin_user)
+
+        for person in self.refreshed():
+            self.assertEqual((person.account_status, person.is_active), ("active", True))
+            self.assertEqual(person.activated_at, first[person.id])
+
+    def test_deactivating_leaves_activated_at_alone(self):
+        bulk_update_status(self.ids(), True, initiated_by=self.admin_user)
+        first = {person.id: person.activated_at for person in self.refreshed()}
+
+        result = bulk_update_status(self.ids(), False, initiated_by=self.admin_user)
+        update_status(self.mentor.id, False, initiated_by=self.admin_user)
+
+        self.assertEqual(sorted(result["data"]["updatedIds"]), sorted(self.ids()))
+        for person in self.refreshed():
+            self.assertEqual((person.account_status, person.is_active), ("deactivated", False))
+            self.assertEqual(person.activated_at, first[person.id])
+
+    def test_end_state_for_true_and_false_from_every_status(self):
+        for start in ("pending", "invited", "active", "deactivated", "suspended"):
+            for is_active, expected in ((True, ("active", True)), (False, ("deactivated", False))):
+                with self.subTest(start=start, is_active=is_active):
+                    User.objects.filter(pk=self.mentor.pk).update(
+                        account_status=start, is_active=start == "active",
+                    )
+                    bulk_update_status([self.mentor.id], is_active, initiated_by=self.admin_user)
+                    self.mentor.refresh_from_db()
+                    self.assertEqual((self.mentor.account_status, self.mentor.is_active), expected)
+
+                    User.objects.filter(pk=self.mentor.pk).update(
+                        account_status=start, is_active=start == "active",
+                    )
+                    update_status(self.mentor.id, is_active, initiated_by=self.admin_user)
+                    self.mentor.refresh_from_db()
+                    self.assertEqual((self.mentor.account_status, self.mentor.is_active), expected)
 
 
 class AdminUserServiceQueryTests(TestCase):
@@ -1765,6 +1862,62 @@ class AdminUserTypedStateTests(TestCase):
         self.assertIsNone(self._state())
 
 
+class AdminStudentPronounsTests(TestCase):
+    """Student Details shows and changes a student's pronouns."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="pronouns@example.com", first_name="Sam", last_name="Lee", pronouns="He/him",
+        )
+        role, _ = Roles.objects.get_or_create(role_name="student")
+        RoleAssignmentHistory.objects.create(user=self.user, role=role, valid_from=timezone.now() - timedelta(days=1))
+        StudentProfile.objects.create(
+            user=self.user, school_name="Test High", year_lvl="10",
+            pg_first_name="Pat", pg_last_name="Lee", pg_email="pat@example.com", parent_guardian_flag=True,
+        )
+        from apps.users.models import AreasOfInterest, UserInterest
+        UserInterest.objects.create(user=self.user, interest=AreasOfInterest.objects.create(interest_desc="Biotech"))
+
+    def test_they_are_shown_changed_and_cleared(self):
+        result = update_user(self.user.id, {"pronouns": " Xe/xem "})
+
+        self.assertEqual(result["data"]["pronouns"], "Xe/xem")
+        update_user(self.user.id, {"pronouns": ""})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pronouns, "")
+
+    def test_the_panel_has_their_photo_or_none(self):
+        from apps.admin.services.user import build_user_dict
+
+        self.assertIsNone(build_user_dict(self.user)["profileImageUrl"])
+        self.user.profile_image_key = "users/1/photo.png"
+        self.user.profile_image_content_type = "image/png"
+        self.assertIn("users/1/photo.png", build_user_dict(self.user)["profileImageUrl"])
+
+    def test_a_new_student_gets_the_pronouns_given(self):
+        from apps.admin.services.user import create_user
+
+        Roles.objects.get_or_create(role_name="student")
+        result = create_user({
+            "email": "new.student@example.com", "firstName": "Ivy", "lastName": "Lee", "role": "student",
+            "country": "Australia", "schoolName": "Test High", "yearLevel": 10, "interests": ["Biotech"],
+            "pronouns": " They/them ",
+        })
+
+        self.assertEqual(result["data"]["pronouns"], "They/them", result["msg"])
+        self.assertIsNone(create_user({
+            "email": "long@example.com", "firstName": "Ivy", "lastName": "Lee", "role": "student",
+            "country": "Australia", "schoolName": "Test High", "yearLevel": 10, "interests": ["Biotech"],
+            "pronouns": "x" * 101,
+        })["data"])
+
+    def test_too_long_or_not_text_is_refused(self):
+        self.assertEqual(update_user(self.user.id, {"pronouns": "x" * 101})["data"], None)
+        self.assertEqual(update_user(self.user.id, {"pronouns": 5})["data"], None)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pronouns, "He/him")
+
+
 class AdminMentorDetailsTests(TestCase):
     """A mentor's panel: what they registered with, their weekly times and
     groups, and an admin changing them as registering checks them."""
@@ -1810,8 +1963,9 @@ class AdminMentorDetailsTests(TestCase):
                 self.assertEqual(data["mentorBackground"], "postgraduate")
                 self.assertEqual(data["mentorUniversityYear"], "2")
                 self.assertEqual(data["mentorFieldOfStudy"], "Biology")
-                self.assertEqual(data["mentorRelevantBackground"], "Lab work")
-                self.assertEqual(data["mentorMentoringApproach"], "Weekly calls")
+                # No longer shown, though earlier mentors' answers are kept.
+                for gone in ("mentorWeeklyHours", "mentorRelevantBackground", "mentorMentoringApproach"):
+                    self.assertNotIn(gone, data)
                 self.assertEqual(data["mentorAvailability"], [
                     {"weekday": 0, "start": "18:00", "end": "20:00"},
                     {"weekday": 2, "start": "17:00", "end": "19:00"},
@@ -1821,12 +1975,13 @@ class AdminMentorDetailsTests(TestCase):
                     [("BTF2", 3), ("BTF10", 1)],
                 )
 
-    def test_an_industry_mentor_needs_a_company_not_an_institution(self):
+    def test_an_industry_mentor_keeps_a_company_not_an_institution(self):
+        # Blank is allowed: an admin may add a mentor before they're known.
         result = update_user(self.mentor.id, {
             "mentorBackground": "industry", "mentorCompany": "", "mentorInstitution": "",
             "mentorUniversityYear": "", "mentorFieldOfStudy": "",
         })
-        self.assertEqual(result["msg"], "Company is required for industry mentors")
+        self.assertIsNotNone(result["data"], result["msg"])
 
         result = update_user(self.mentor.id, {
             "mentorBackground": "industry", "mentorCompany": "Acme Bio", "mentorInstitution": "",
@@ -1839,28 +1994,23 @@ class AdminMentorDetailsTests(TestCase):
         result = update_user(self.mentor.id, {"firstName": "Maya"})
         self.assertIsNotNone(result["data"], result["msg"])
 
-    def test_a_student_background_needs_its_year_and_field(self):
+    def test_a_student_background_may_leave_its_year_and_field_blank_but_not_a_made_up_year(self):
         result = update_user(self.mentor.id, {
             "mentorBackground": "undergraduate", "mentorInstitution": "Uni", "mentorUniversityYear": "",
-            "mentorFieldOfStudy": "Biology", "mentorCompany": "",
-        })
-        self.assertEqual(result["msg"], "Year of study is required for university students")
-
-        result = update_user(self.mentor.id, {
-            "mentorBackground": "academic", "mentorInstitution": "Uni", "mentorUniversityYear": "",
             "mentorFieldOfStudy": "", "mentorCompany": "",
         })
-        self.assertEqual(result["msg"], "Field of study is required for this background")
-
-    def test_answers_are_kept_to_150_words(self):
-        result = update_user(self.mentor.id, {"mentorMentoringApproach": "word " * 151})
-        self.assertEqual(result["msg"], "Keep each answer to 150 words or fewer")
-
-        result = update_user(self.mentor.id, {
-            "mentorReason": "To share what I know", "mentorRelevantBackground": "Ten years in labs",
-            "mentorMentoringApproach": "word " * 150,
-        })
         self.assertIsNotNone(result["data"], result["msg"])
+
+        result = update_user(self.mentor.id, {"mentorUniversityYear": "7"})
+        self.assertEqual(result["msg"], "Year of study is not valid")
+
+    def test_why_they_would_mentor_is_kept_to_150_words(self):
+        result = update_user(self.mentor.id, {"mentorReason": "word " * 151})
+        self.assertEqual(result["msg"], "Keep the answer to 150 words or fewer")
+
+        result = update_user(self.mentor.id, {"mentorReason": "word " * 150})
+        self.assertIsNotNone(result["data"], result["msg"])
+        result = update_user(self.mentor.id, {"mentorReason": "To share what I know"})
         self.assertEqual(self._profile().mentor_reason, "To share what I know")
 
     def test_weekly_times_are_replaced_and_checked(self):
@@ -1883,20 +2033,19 @@ class AdminMentorDetailsTests(TestCase):
         update_user(self.mentor.id, {"mentorAvailability": []})
         self.assertFalse(MentorAvailability.objects.filter(mentor_user=self.mentor).exists())
 
-    def test_hours_per_week_are_given_and_changed(self):
+    def test_hours_and_the_two_dropped_answers_are_no_longer_changed(self):
         self.profile.weekly_hours = 4
         self.profile.save()
-        self.assertEqual(fetch_user_by_id(self.mentor.id)["mentorWeeklyHours"], 4)
 
-        result = update_user(self.mentor.id, {"mentorWeeklyHours": 41})
-        self.assertEqual(result["msg"], "Hours per week must be from 1 to 40")
-        result = update_user(self.mentor.id, {"mentorWeeklyHours": 6})
+        result = update_user(self.mentor.id, {
+            "mentorWeeklyHours": 6, "mentorRelevantBackground": "New", "mentorMentoringApproach": "New",
+        })
+
         self.assertIsNotNone(result["data"], result["msg"])
-        self.assertEqual(self._profile().weekly_hours, 6)
-        # A mentor from before it was asked can be left without.
-        result = update_user(self.mentor.id, {"mentorWeeklyHours": None})
-        self.assertIsNotNone(result["data"], result["msg"])
-        self.assertIsNone(self._profile().weekly_hours)
+        profile = self._profile()
+        self.assertEqual(
+            (profile.weekly_hours, profile.relevant_background, profile.mentoring_approach), (4, "Lab work", "Weekly calls"),
+        )
 
     def test_capacity_can_be_zero(self):
         result = update_user(self.mentor.id, {"mentorMaxGroupCount": 0})
@@ -2039,3 +2188,49 @@ class AdminSuperviseesTests(TestCase):
         self.assertTrue(self._in_group(self.sam))
         # Pat still has Ben in BTF3.
         self.assertTrue(self._in_group(self.pat))
+
+
+class AdminAddMentorTests(TestCase):
+    """Add user's mentor form, as the mentor panel has it: their details,
+    weekly times and application answers, checked as the panel's edit is."""
+
+    def setUp(self):
+        Roles.objects.get_or_create(role_name="mentor")
+        self.mentor = {
+            "email": "new.mentor@example.com", "firstName": "Mia", "lastName": "Ng", "role": "mentor",
+            "country": "Australia", "mentorBackground": "postgraduate", "mentorInstitution": "Uni",
+            "mentorUniversityYear": "2", "mentorFieldOfStudy": "Biology", "mentorMaxGroupCount": 2,
+            "mentorReason": "To help",
+            "mentorAvailability": [{"weekday": 0, "start": "18:00", "end": "19:30"}],
+        }
+
+    def test_a_mentor_is_added_with_everything_the_form_gives(self):
+        from apps.admin.services.user import create_user
+
+        result = create_user(self.mentor)
+
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = MentorProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual(
+            (profile.background, profile.university_year, profile.field_of_study,
+             profile.max_group_count, profile.mentor_reason),
+            ("postgraduate", "2", "Biology", 2, "To help"),
+        )
+        self.assertEqual(result["data"]["mentorAvailability"], [{"weekday": 0, "start": "18:00", "end": "19:30"}])
+
+    def test_times_must_end_after_they_start(self):
+        from apps.admin.services.user import create_user
+
+        backwards = {**self.mentor, "mentorAvailability": [{"weekday": 0, "start": "19:00", "end": "18:00"}]}
+        self.assertEqual(create_user(backwards)["msg"], "Each weekly time must end after it starts")
+        self.assertFalse(User.objects.filter(email="new.mentor@example.com").exists())
+
+    def test_only_an_email_is_needed_the_rest_may_come_later(self):
+        from apps.admin.services.user import create_user
+
+        # As Add user's mentor form sends it (its weekly times), not an import.
+        result = create_user({"email": "bare.mentor@example.com", "role": "mentor", "mentorAvailability": []})
+
+        self.assertIsNotNone(result["data"], result["msg"])
+        profile = MentorProfile.objects.get(user_id=result["data"]["id"])
+        self.assertEqual((profile.background, profile.institution, profile.max_group_count), (None, "", 2))

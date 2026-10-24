@@ -90,7 +90,7 @@ class FinalistToggleTests(_GradingFixture):
         # A two-criterion report rubric makes REPORT a column; the fixture
         # team hands in a report with only one of its criteria marked.
         report = SubmissionComponent.objects.get(code="REPORT")
-        rubric = Rubric.objects.create(component=report, year=self.year, active=True)
+        rubric = Rubric.objects.create(component=report, active=True)
         method = RubricCriterion.objects.create(
             rubric=rubric, name="Method", max_mark=Decimal("5"), order=1
         )

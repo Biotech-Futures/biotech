@@ -50,6 +50,9 @@ export type AdminMentor = {
   name: string
   email: string
   isActive: boolean
+  // User.account_status ("active" once the account is activated). Optional
+  // while older backends that only send isActive are still deployed.
+  accountStatus?: string | null
   hasLoggedIn: boolean
   lastLogin: string | null
   institution: string | null
@@ -92,6 +95,13 @@ export type GroupActivityResponse = {
     mentor_count: number
     student_count: number
     students_per_mentor: number | null
+    group_size_distribution?: Array<{ student_count: number; group_count: number }>
+    small_groups?: number
+    full_groups?: number
+    over_capacity_groups?: number
+    active_groups?: number
+    inactive_groups?: number
+    not_started_groups?: number
   }>
   query_range: { start: string | null; end: string | null }
 }
@@ -122,6 +132,14 @@ export type ResourceAnalyticsResponse = {
   active_resources: number
   clicks_by_day: Array<{ date: string; click_count: number }>
   top_resources: Array<{ resource_id: number; resource_name: string; click_count: number; unique_users: number }>
+  // Optional until every backend sends per-resource daily usage.
+  clicks_by_resource_by_day?: Array<{
+    date: string
+    resource_id: number
+    resource_name: string
+    click_count: number
+    unique_users: number
+  }>
   clicks_by_category: Array<{ category_id: number | null; category_name: string | null; click_count: number }>
   query_range: { start: string | null; end: string | null }
 }
@@ -176,6 +194,7 @@ export type EmailDeliveryAnalyticsResponse = {
     announcement_id: number
     title: string
     started_at: string
+    completed_at?: string | null
     status: 'success' | 'partial' | 'failed'
     recipient_count: number
     success_count: number
@@ -183,6 +202,46 @@ export type EmailDeliveryAnalyticsResponse = {
     initiated_by_name: string
     initiated_by_email: string
   }>
+  // Every email type (system emails, announcements, digests, bulk sends).
+  // Optional while older backends only send announcement deliveries.
+  recent_sends?: Array<Omit<EmailSend, 'id' | 'status'> & {
+    // An announcement send still going has no id yet: delivery_id names its
+    // announcement delivery row and its status is 'sending'.
+    id: number | null
+    delivery_id?: number
+    status: EmailSend['status'] | 'sending'
+    // Recipients kept for the send; 0 for sends made before they were recorded.
+    recipients_recorded?: number
+  }>
+}
+
+// One finished send of any email type.
+export type EmailSend = {
+  id: number
+  email_type: string
+  email_type_label: string
+  title: string | null
+  announcement_id: number | null
+  source_mailbox: string
+  started_at: string
+  status: 'success' | 'partial' | 'failed'
+  attempted: number
+  delivered: number
+  failed: number
+  initiated_by_name: string
+  initiated_by_email: string
+}
+
+export type EmailRecipient = {
+  email: string
+  user_id: number | null
+  name: string
+  status: 'delivered' | 'failed'
+  reason: string
+}
+
+export type EmailSendToRecipient = EmailSend & {
+  recipient: EmailRecipient
 }
 
 export type AdminResource = {
@@ -290,6 +349,37 @@ export async function fetchEmailDeliveryAnalytics(): Promise<EmailDeliveryAnalyt
   const body = await getJson<ApiEnvelope<EmailDeliveryAnalyticsResponse>>('/api/v1/admin/analytics/email/')
   if (!body.data) throw new Error('Email analytics returned no data.')
   return body.data
+}
+
+/** Emails sent to recipients whose address or name matches ``query``. */
+export async function searchEmailsToRecipient(query: string): Promise<EmailSendToRecipient[]> {
+  const params = new URLSearchParams({ recipient: query })
+  const body = await getJson<ApiEnvelope<EmailSendToRecipient[]>>(
+    `/api/v1/admin/analytics/email/recipients/?${params}`,
+  )
+  return body.data ?? []
+}
+
+/** Download one send's recipient list as CSV. */
+export async function downloadEmailRecipientsCsv(sendId: number): Promise<string> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/admin/analytics/email/sends/${sendId}/recipients/export/`,
+    { credentials: 'include' },
+  )
+  if (!response.ok) throw new Error(`The recipient list could not be downloaded (${response.status}).`)
+  const candidate = /filename="?([^";]+)"?/i.exec(response.headers.get('Content-Disposition') ?? '')?.[1]
+  const filename = candidate && /^[a-z0-9][a-z0-9._-]*\.csv$/i.test(candidate)
+    ? candidate
+    : `biotech-email-recipients-send-${sendId}.csv`
+  const url = window.URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+  return filename
 }
 
 export async function fetchAllResources(): Promise<AdminResource[]> {

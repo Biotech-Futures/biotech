@@ -28,16 +28,15 @@
         </label>
 
         <div class="analytics-export-stack">
-          <button type="button" class="export-button" :disabled="exportDisabled" @click="exportCsv">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            Export CSV
-          </button>
+          <AnalyticsExportMenu :options="exportOptions" :disabled="exportDisabled" @select="exportCsv" />
           <div class="analytics-update-status">
             <AnalyticsRefreshStatus :updated-at="lastUpdated" :refresh-failed="refreshFailed" />
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="exportError" role="alert">{{ exportError }}</p>
 
     <AnalyticsPartialNotice :sources="unavailableSources" @retry="loadAnalytics(true)" />
 
@@ -261,9 +260,6 @@
                     @mousemove="moveTooltip"
                     @mouseleave="hideTooltip"
                   />
-                  <text v-if="showPointValue(point.index, series.values.length)" :x="point.x" :y="Math.max(point.y - 12, 14)" text-anchor="middle" class="activity-value">
-                    {{ point.value }}
-                  </text>
                 </g>
               </template>
 
@@ -585,7 +581,7 @@
               <input
                 v-model.number="userActivityThreshold"
                 type="number"
-                min="0"
+                min="1"
                 max="3650"
                 step="1"
                 aria-label="User active threshold in days"
@@ -665,7 +661,10 @@
         <article class="analytics-card insights-card">
           <AnalyticsKeyInsights
             :items="activityInsightItems"
-            description="Summarises login coverage and identifies the participant role with the strongest login rate."
+            :subtitle="activityInsightSnapshotLabel"
+            :description="activityInsightSnapshotDate
+              ? `Cumulative login coverage and role comparisons as at ${activityInsightSnapshotDate}.`
+              : 'Cumulative login coverage; no latest login activity date is available.'"
           />
         </article>
       </div>
@@ -696,7 +695,7 @@ import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vu
 import AnalyticsDataState from '@/components/analytics/AnalyticsDataState.vue'
 import AnalyticsDatePicker from '@/components/analytics/AnalyticsDatePicker.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
-import { fetchLoginActivity, type LoginActivityResponse } from '@/utils/liveAnalyticsApi'
+import type { LoginActivityResponse } from '@/utils/liveAnalyticsApi'
 import { useRoute } from 'vue-router'
 import type {
   ActivityAnalyticsData,
@@ -717,8 +716,26 @@ import {
   liveAnalyticsAsOf,
   liveAnalyticsYear,
   loadActivityAnalyticsBundle,
+  loadLoginActivityRange,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
+import AnalyticsExportMenu from '@/components/analytics/AnalyticsExportMenu.vue'
+import {
+  ACTIVE_WINDOW_DAYS,
+  DETAILS_OPTION,
+  SUMMARY_OPTION,
+  accountStatusLabel,
+  detailsCsv,
+  exportFileName,
+  figure,
+  isoUtc,
+  runExport,
+  sourceLabels,
+  summaryCsv,
+  type ExportKind,
+  type ExportOption,
+  type SummaryRow,
+} from '@/utils/analyticsExport'
 
 const data = reactive<ActivityAnalyticsData>({
   totalUsers: 0,
@@ -736,6 +753,7 @@ const liveUserData = ref<UserAnalyticsYear>({
   totalUsers: 0, students: 0, mentors: 0, supervisors: 0,
   totalGrowth: null, studentGrowth: null, mentorGrowth: null, supervisorGrowth: null,
   loginRates: { students: 0, mentors: 0, supervisors: 0 },
+  loginRatesAvailable: true,
   dailyActivity: { labels: [], total: [] },
   lastLogin: [], userLastLogins: [],
   registration: { students: [], mentors: [], supervisors: [] },
@@ -748,8 +766,8 @@ const liveGroupData = ref<GroupsAnalyticsYear>({
   comparisonPreviousYear: new Date().getFullYear() - 1,
   groupsWithMentorPrevious: null, groupsWithoutMentorPrevious: null,
   mentorStudentRatioPrevious: null,
-  smallGroups: 0, inactiveRecent: 0, nearCapacity: 0,
-  groupSizeDistribution: [], groupStatus: [], ratioDistribution: [], groupActivity: [],
+  smallGroups: 0, inactiveRecent: 0, nearCapacity: 0, overCapacity: 0,
+  groupSizeDistribution: [], groupStatus: [], groupActivity: [],
 })
 const liveYear = ref(new Date().getFullYear())
 const unavailableSources = ref<AnalyticsSource[]>([])
@@ -819,9 +837,10 @@ function applyGroupStatusFilter(status: GroupActivityDetailStatus) {
   highlightedGroupStatus.value = status
 }
 
-const USER_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.userThresholdDays'
+// Renamed when the default became the shared 14-day window, so an old saved 7 does not linger.
+const USER_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.userActiveWindowDays'
 const GROUP_ACTIVITY_THRESHOLD_KEY = 'btf.analytics.activity.groupThresholdDays'
-const DEFAULT_USER_ACTIVITY_THRESHOLD_DAYS = 7
+const DEFAULT_USER_ACTIVITY_THRESHOLD_DAYS = ACTIVE_WINDOW_DAYS
 const DEFAULT_GROUP_ACTIVITY_THRESHOLD_DAYS = 3
 
 function savedThreshold(key: string, fallback: number) {
@@ -841,7 +860,7 @@ function normaliseThreshold(scope: 'users' | 'groups') {
   const target = scope === 'users' ? userActivityThreshold : groupActivityThreshold
   const parsed = Number(target.value)
   target.value = Number.isFinite(parsed)
-    ? Math.min(3650, Math.max(0, Math.round(parsed)))
+    ? Math.min(3650, Math.max(scope === 'users' ? 1 : 0, Math.round(parsed)))
     : scope === 'users'
       ? DEFAULT_USER_ACTIVITY_THRESHOLD_DAYS
       : DEFAULT_GROUP_ACTIVITY_THRESHOLD_DAYS
@@ -972,10 +991,17 @@ async function loadActivityWindowComparison() {
     activityWindowComparison.value = null
     return
   }
+  // The unranged response already compares windows ending on the latest
+  // login date, so the default end date needs no extra request.
+  const loaded = liveCoreBundle.value?.loginActivity
+  if (loaded?.active_user_comparison && loaded.latest_activity_date === selectedEndDate.value) {
+    activityWindowComparison.value = loaded.active_user_comparison
+    return
+  }
   const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - 59)
   try {
-    const response = await fetchLoginActivity(
+    const response = await loadLoginActivityRange(
       start.toISOString().slice(0, 10),
       selectedEndDate.value,
     )
@@ -1144,11 +1170,6 @@ function showXAxisLabel(index: number, length: number) {
   const step = Math.ceil((length - 1) / 9)
   return index === 0 || index === length - 1 || index % step === 0
 }
-
-function showPointValue(index: number, length: number) {
-  return length <= 14 || showXAxisLabel(index, length)
-}
-
 
 const groupMonthLabels = computed(() => trendBuckets.value.map((bucket) => bucket.shortLabel))
 const groupActiveValues = computed(() => {
@@ -1444,7 +1465,7 @@ const yearUsers = computed(() =>
         ? 'Inactive'
         : user.lastLogin === null || user.daysInactive === null
         ? 'Never'
-        : user.daysInactive <= Number(userActivityThreshold.value)
+        : user.daysInactive < Number(userActivityThreshold.value)
           ? 'Active'
           : 'Inactive'
     ) as ActivityStatus,
@@ -1524,6 +1545,25 @@ const mostActiveRole = computed(() =>
     role: 'Student' as ActivityRole,
     value: 0,
   },
+)
+const activityInsightSnapshotDate = computed(() => {
+  // These insights describe login coverage, so their date must come from the
+  // login activity source rather than newer registration, group or message data.
+  const asOf = liveCoreBundle.value?.loginActivity?.latest_activity_date ?? ''
+  const date = parseInputDate(asOf)
+  return date
+    ? date.toLocaleDateString('en-AU', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        timeZone: 'UTC',
+      })
+    : null
+})
+const activityInsightSnapshotLabel = computed(() =>
+  activityInsightSnapshotDate.value
+    ? `Data as at ${activityInsightSnapshotDate.value}`
+    : 'No login activity date available',
 )
 const activityInsightItems = computed(() => [
   { key: 'logged-in', value: `${selectedLoggedInRate.value}%`, text: 'of current participants have logged in at least once.' },
@@ -1607,7 +1647,8 @@ async function loadAnalytics(force = false, preserveFilters = false) {
     liveGroupData.value = buildGroupsAnalytics(bundle)
     liveCoreBundle.value = bundle
     if (!preserveFilters) applyObservedTrendRange()
-    await loadActivityWindowComparison()
+    // Show the page now; the window KPIs update when their comparison arrives.
+    void loadActivityWindowComparison()
     const hasParticipants = bundle.users.some((user) =>
       ['student', 'mentor', 'supervisor'].includes((user.role ?? '').toLowerCase()),
     )
@@ -1670,41 +1711,114 @@ onMounted(async () => {
   })
 })
 
-function exportCsv() {
-  const rows = viewMode.value === 'groups'
-    ? [
-        ['Group ID', 'Group', 'Mentors', 'Activity Status', 'Last Message Date (UTC)', 'Days Since Last Message'],
-        ...filteredGroupRows.value.map((group) => [
-          group.id,
-          group.name,
-          group.mentors.join('; ') || 'None',
-          group.status,
-          group.lastActiveDate ?? 'No messages recorded',
-          group.daysSinceActive ?? '',
-        ]),
-      ]
-    : [
-        ['User', 'Role', 'Last Login', activityMetricHeading.value, 'Status'],
-        ...filteredUsers.value.map((user) => [
-          user.name,
-          user.role,
-          formatLogin(user.lastLogin),
-          activityMetricValue(user),
-          statusLabel(user.status),
-        ]),
-      ]
+const exportError = ref('')
+const exportOptions = computed<ExportOption[]>(() => [
+  SUMMARY_OPTION,
+  {
+    ...DETAILS_OPTION,
+    description: viewMode.value === 'groups'
+      ? 'One row per group in the table below, with its filters'
+      : 'One row per user in the table below, with its filters',
+  },
+])
 
-  const csv = rows
-    .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
-    .join('\n')
+function activitySummary() {
+  const start = selectedStartDate.value
+  const end = selectedEndDate.value
+  const comparison = activityWindowComparison.value
+  const windows = [
+    ['Daily active users', yearKpis.value.dailyActive, comparison?.daily.previous, 'The selected day'],
+    ['Weekly active users', yearKpis.value.weeklyActive, comparison?.weekly.previous, '7 days ending on the selected date'],
+    ['Monthly active users', yearKpis.value.monthlyActive, comparison?.monthly.previous, '30 days ending on the selected date'],
+  ] as const
+  const rows: SummaryRow[] = [
+    ...windows.flatMap(([label, current, previous, notes]) => [
+      figure('Active users', label, current, 'users', notes),
+      figure('Active users', `${label} (previous period)`, previous, 'users', 'The same length of time just before'),
+    ]),
+    figure('Logins', 'Participants who have logged in', loggedInCount.value, 'users'),
+    figure('Logins', 'Logged in at least once', selectedLoggedInRate.value, '%'),
+    figure('Logins', 'Never logged in', selectedNeverLoggedIn.value, 'users'),
+    figure('Logins', `Login events in ${selectedYear.value}`, yearlyLoginComparison.value.current, 'logins'),
+    figure('Logins', `Login events in ${yearlyLoginComparison.value.previousYear}`, yearlyLoginComparison.value.previous, 'logins'),
+    ...filteredRoleLoginRates.value.map((rate) => figure('Logged in at least once by role', `${rate.role}s`, rate.value, '%')),
+    ...selectedLoginRecency.value.map((bucket) => figure('Last login', bucket.label, bucket.value, 'users')),
+    ...chartSeries.value.flatMap((series) => trendBuckets.value.map((bucket, index) =>
+      figure(`Logins (${series.label})`, bucket.key, series.values[index] ?? 0, 'logins', `${trendIntervalLabel.value} buckets`),
+    )),
+    figure('Group activity', 'Active groups', groupActiveCount.value, 'groups', `A message within ${groupActivityThreshold.value} days`),
+    figure('Group activity', 'Inactive groups', groupInactiveCount.value, 'groups'),
+    figure('Group activity', 'Not started', groupNotStartedCount.value, 'groups', 'No messages yet'),
+    ...trendBuckets.value.flatMap((bucket, index) => [
+      figure('Groups with messages', bucket.key, groupActiveValues.value[index] ?? 0, 'groups'),
+      figure('Groups without messages', bucket.key, groupInactiveValues.value[index] ?? 0, 'groups'),
+    ]),
+    ...activityInsightItems.value.map((item) => figure('Key insights', item.text, item.value)),
+  ]
+  return {
+    fileName: exportFileName('activity', 'summary', `${start} to ${end}`),
+    csv: summaryCsv({
+      page: 'Activity',
+      covers: `${start} to ${end} (UTC)`,
+      filters: [
+        ['Trend interval', trendInterval.value],
+        ['Role', selectedRole.value],
+        ['Active window (users)', `${userActivityThreshold.value} days`],
+        ['Active window (groups)', `${groupActivityThreshold.value} days`],
+      ],
+      dataAsOf: liveCoreBundle.value ? liveAnalyticsAsOf(liveCoreBundle.value) : null,
+      unavailable: sourceLabels(unavailableSources.value),
+    }, rows),
+  }
+}
 
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `activity-analytics-${viewMode.value}-${selectedYear.value}.csv`
-  anchor.click()
-  URL.revokeObjectURL(url)
+function activityDetails() {
+  if (viewMode.value === 'groups') {
+    const rows = filteredGroupRows.value.map((group) => [
+      group.id,
+      group.name,
+      group.mentors.join('; '),
+      group.status,
+      group.lastActiveDate ?? '',
+      group.daysSinceActive,
+    ])
+    return {
+      fileName: exportFileName('activity', 'details', `groups ${selectedEndDate.value}`),
+      csv: detailsCsv(
+        ['Group ID', 'Group', 'Mentors', `Activity Status (${groupActivityThreshold.value} days)`, 'Last Message Day (UTC)', 'Days Since Last Message'],
+        rows,
+      ),
+    }
+  }
+  const activeWindow = Number(userActivityThreshold.value)
+  const accounts = new Map((liveCoreBundle.value?.users ?? []).map((user) => [user.id, user]))
+  // Account status and login recency are separate columns: a deactivated
+  // account can still have logged in recently.
+  const rows = filteredUsers.value.map((user) => {
+    const account = accounts.get(user.id)
+    const days = user.lastLogin === null ? null : user.daysInactive
+    return [
+      user.id,
+      user.name,
+      account?.email,
+      user.role,
+      accountStatusLabel(user.accountStatus ?? account?.accountStatus, user.isActive),
+      days === null ? 'Never logged in' : days < activeWindow ? 'Active' : 'Inactive',
+      isoUtc(user.lastLogin),
+      days,
+    ]
+  })
+  return {
+    fileName: exportFileName('activity', 'details', `users ${selectedEndDate.value}`),
+    csv: detailsCsv(
+      ['User ID', 'Name', 'Email', 'Role', 'Account Status', `Activity Status (${activeWindow} days)`, 'Last Login (UTC)', 'Days Since Last Login'],
+      rows,
+    ),
+  }
+}
+
+function exportCsv(kind: ExportKind) {
+  exportError.value = runExport(kind === 'summary' ? activitySummary : activityDetails)
 }
 </script>
 
@@ -1712,8 +1826,8 @@ function exportCsv() {
 .activity-analytics-page {
   min-width: 0;
   padding: 32px 40px 44px;
-  background: #f7faf9;
-  color: #174243;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #174243);
   font-family: Arial, sans-serif;
 }
 
@@ -1728,7 +1842,7 @@ function exportCsv() {
   display: flex;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
@@ -1746,7 +1860,7 @@ function exportCsv() {
 
 h1 {
   margin: 0;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -1754,7 +1868,7 @@ h1 {
 
 .heading-copy > p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -1763,9 +1877,9 @@ h1 {
   min-height: 30px;
   align-items: center;
   padding: 0 10px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 999px;
-  background: #F1E5A6;
+  background: var(--analytics-ui-warning-bg, #F1E5A6);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1780,10 +1894,10 @@ h1 {
 .export-button,
 .reset-button {
   height: 46px;
-  border: 1px solid #9fd8c7;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
   border-radius: 12px;
-  background: #fff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font-weight: 700;
 }
 
@@ -1801,7 +1915,7 @@ h1 {
   border: 0;
   outline: 0;
   background: transparent;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font: inherit;
 }
 
@@ -1824,9 +1938,9 @@ h1 {
 .kpi-card,
 .analytics-card,
 .filter-card {
-  border: 1px solid #d7e3df;
+  border: 1px solid var(--analytics-ui-border, #d7e3df);
   border-radius: 16px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 8px 20px rgba(23, 66, 67, .04);
 }
 
@@ -1845,18 +1959,18 @@ h1 {
   flex: 0 0 50px;
   place-items: center;
   border-radius: 14px;
-  background: #e4f0e2;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e4f0e2);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 19px;
 }
 
 .kpi-icon.warning {
-  background: #fff7d6;
-  color: #9d7100;
+  background: var(--analytics-ui-soft, #fff7d6);
+  color: var(--analytics-ui-warning, #9d7100);
 }
 
 .kpi-card span {
-  color: #465b57;
+  color: var(--analytics-ui-muted, #465b57);
   font-size: 13px;
   font-weight: 700;
 }
@@ -1864,7 +1978,7 @@ h1 {
 .kpi-card strong {
   display: block;
   margin-top: 5px;
-  color: #123f3c;
+  color: var(--analytics-ui-text, #123f3c);
   font-size: 30px;
   line-height: 1;
 }
@@ -1872,7 +1986,7 @@ h1 {
 .kpi-card small {
   display: block;
   margin-top: 8px;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 12px;
 }
 
@@ -1891,7 +2005,7 @@ h1 {
 }
 
 .filter-card label > span {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1900,10 +2014,10 @@ h1 {
 .table-heading input {
   height: 42px;
   padding: 0 12px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 10px;
-  background: #fff;
-  color: #174243;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174243);
   font-size: 13px;
 }
 
@@ -1938,7 +2052,7 @@ h1 {
 
 .analytics-card h2 {
   margin: 0;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 20px;
 }
 
@@ -1955,7 +2069,7 @@ h1 {
 .table-heading p,
 .card-subtitle {
   margin: 5px 0 0;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 12px;
 }
 
@@ -1964,7 +2078,7 @@ h1 {
   align-items: center;
   gap: 9px;
   flex-wrap: wrap;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 11px;
 }
 
@@ -1982,7 +2096,7 @@ h1 {
 }
 
 .compare-year-control span {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 11px;
   font-weight: 700;
 }
@@ -1991,17 +2105,17 @@ h1 {
   height: 34px;
   min-width: 104px;
   padding: 0 30px 0 10px;
-  border: 1px solid #BAD7B8;
+  border: 1px solid var(--analytics-ui-border, #BAD7B8);
   border-radius: 9px;
-  background: #fff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .hide-role-controls strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .hide-role-controls label {
@@ -2029,7 +2143,7 @@ h1 {
   justify-content: space-between;
   padding: 20px 0 30px;
   box-sizing: border-box;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 11px;
   text-align: right;
 }
@@ -2061,7 +2175,7 @@ h1 {
 }
 
 .grid-line {
-  stroke: #dde7e3;
+  stroke: var(--analytics-ui-border, #dde7e3);
   stroke-width: 1;
 }
 
@@ -2072,10 +2186,10 @@ h1 {
 
 .activity-line.students { stroke: #39687B; }
 .activity-line.mentors { stroke: #017151; }
-.activity-line.supervisors { stroke: #5EA99E; }
+.activity-line.supervisors { stroke: var(--analytics-ui-control-border, #5EA99E); }
 
 .activity-dot {
-  stroke: #fff;
+  stroke: var(--analytics-ui-surface, #fff);
   stroke-width: 2;
 }
 
@@ -2084,16 +2198,16 @@ h1 {
 .activity-dot.supervisors { fill: #5EA99E; }
 
 .activity-value {
-  fill: #174243;
+  fill: var(--analytics-ui-text, #174243);
   font-size: 10px;
   font-weight: 700;
   paint-order: stroke;
-  stroke: #fff;
+  stroke: var(--analytics-ui-surface, #fff);
   stroke-width: 3px;
 }
 
 .activity-date {
-  fill: #667873;
+  fill: var(--analytics-ui-muted, #667873);
   font-size: 10px;
 }
 
@@ -2102,7 +2216,7 @@ h1 {
   justify-content: center;
   gap: 18px;
   margin-top: 4px;
-  color: #536762;
+  color: var(--analytics-ui-muted, #536762);
   font-size: 11px;
 }
 
@@ -2125,7 +2239,7 @@ h1 {
 .text-button {
   border: 0;
   background: transparent;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -2148,7 +2262,7 @@ h1 {
 
 .comparison-card-heading p {
   margin: 5px 0 0;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -2164,9 +2278,9 @@ h1 {
   gap: 14px;
   margin-top: 0;
   padding: 14px;
-  border: 1px solid #dce8e4;
+  border: 1px solid var(--analytics-ui-border, #dce8e4);
   border-radius: 12px;
-  background: #f8fbfa;
+  background: var(--analytics-ui-surface, #f8fbfa);
 }
 
 .activity-comparison-strip > div:not(.comparison-arrow):not(.comparison-change) {
@@ -2175,17 +2289,17 @@ h1 {
 }
 
 .activity-comparison-strip span {
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 11px;
 }
 
 .activity-comparison-strip strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 18px;
 }
 
 .comparison-arrow {
-  color: #7d918c;
+  color: var(--analytics-ui-muted, #7d918c);
   font-size: 18px;
 }
 
@@ -2201,13 +2315,13 @@ h1 {
 }
 
 .comparison-change.positive {
-  background: #e5f3ed;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e5f3ed);
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .comparison-change.negative {
-  background: #fff3c4;
-  color: #7a5b00;
+  background: var(--analytics-ui-warning-bg, #fff3c4);
+  color: var(--analytics-ui-warning, #7a5b00);
 }
 
 .role-rate-list {
@@ -2235,8 +2349,8 @@ h1 {
   height: 40px;
   place-items: center;
   border-radius: 11px;
-  background: #e4f0e2;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e4f0e2);
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .rate-track,
@@ -2244,7 +2358,7 @@ h1 {
   height: 10px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e8efec;
+  background: var(--analytics-ui-soft, #e8efec);
 }
 
 .rate-track i,
@@ -2273,10 +2387,10 @@ h1 {
   align-items: center;
   gap: 7px;
   padding: 0 11px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  background: #fff;
-  color: #425e59;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -2296,10 +2410,10 @@ h1 {
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  background: #fff;
-  color: #425e59;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-muted, #425e59);
   white-space: nowrap;
 }
 
@@ -2317,15 +2431,21 @@ h1 {
 }
 
 .threshold-control small {
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 10px;
 }
 
 .table-wrap {
   max-height: 430px;
   overflow: auto;
-  border: 1px solid #e0e8e5;
+  border: 1px solid var(--analytics-ui-border, #e0e8e5);
   border-radius: 12px;
+}
+
+@media (min-width: 1201px) {
+  .activity-analytics-page #user-activity-details .table-wrap {
+    max-height: 620px;
+  }
 }
 
 table {
@@ -2346,15 +2466,15 @@ th {
   top: 0;
   z-index: 1;
   padding: 12px;
-  background: #edf4ef;
-  color: #174243;
+  background: var(--analytics-ui-soft, #edf4ef);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
 }
 
 td {
   padding: 12px;
-  border-top: 1px solid #e4ebe8;
-  color: #536762;
+  border-top: 1px solid var(--analytics-ui-border, #e4ebe8);
+  color: var(--analytics-ui-muted, #536762);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2379,14 +2499,14 @@ tbody tr:hover td {
   font-weight: 700;
 }
 
-.role-pill.student { background: #e7eef1; color: #39687B; }
-.role-pill.mentor { background: #e0f0eb; color: #017151; }
-.role-pill.supervisor { background: #e0eeee; color: #347f76; }
+.role-pill.student { background: var(--analytics-ui-soft, #e7eef1); color: var(--analytics-ui-secondary, #39687B); }
+.role-pill.mentor { background: var(--analytics-ui-soft, #e0f0eb); color: var(--analytics-ui-accent, #017151); }
+.role-pill.supervisor { background: var(--analytics-ui-soft, #e0eeee); color: var(--analytics-ui-muted, #347f76); }
 
-.status-pill.active { background: #e0f0e5; color: #017151; }
-.status-pill.inactive { background: #fff3c4; color: #7a5b00; }
-.status-pill.never { background: #eef3f3; color: #52615c; }
-.status-pill.not-started { background: #eef3f3; color: #52615c; }
+.status-pill.active { background: var(--analytics-ui-selected, #e0f0e5); color: var(--analytics-ui-accent, #017151); }
+.status-pill.inactive { background: var(--analytics-ui-warning-bg, #fff3c4); color: var(--analytics-ui-warning, #7a5b00); }
+.status-pill.never { background: var(--analytics-ui-soft, #eef3f3); color: var(--analytics-ui-muted, #52615c); }
+.status-pill.not-started { background: var(--analytics-ui-soft, #eef3f3); color: var(--analytics-ui-muted, #52615c); }
 
 .mentor-none-pill {
   display: inline-flex;
@@ -2394,8 +2514,8 @@ tbody tr:hover td {
   align-items: center;
   padding: 0 10px;
   border-radius: 999px;
-  background: #eef3f3;
-  color: #52615c;
+  background: var(--analytics-ui-soft, #eef3f3);
+  color: var(--analytics-ui-muted, #52615c);
   font-weight: 700;
 }
 
@@ -2429,13 +2549,13 @@ tbody tr:hover td {
   height: 26px;
   place-items: center;
   border-radius: 8px;
-  background: #f0f4f2;
+  background: var(--analytics-ui-soft, #f0f4f2);
   font-weight: 700;
 }
 
 .insights-card h2 i {
   margin-right: 6px;
-  color: #39687B;
+  color: var(--analytics-ui-secondary, #39687B);
 }
 
 .insight-row {
@@ -2444,7 +2564,7 @@ tbody tr:hover td {
   gap: 12px;
   align-items: center;
   padding: 12px 0;
-  border-top: 1px solid #e7eeeb;
+  border-top: 1px solid var(--analytics-ui-border, #e7eeeb);
 }
 
 .insight-row:first-of-type {
@@ -2452,12 +2572,12 @@ tbody tr:hover td {
 }
 
 .insight-row strong {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 18px;
 }
 
 .insight-row span {
-  color: #536762;
+  color: var(--analytics-ui-muted, #536762);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -2705,7 +2825,7 @@ tbody tr:hover td {
   .activity-analytics-page .filter-card,
   .activity-analytics-page .analytics-card {
     border-radius: 12px !important;
-    border-color: #e1e9e6 !important;
+    border-color: var(--analytics-ui-border, #e1e9e6) !important;
     box-shadow: 0 8px 22px rgba(16, 32, 27, 0.035) !important;
   }
 
@@ -2735,7 +2855,7 @@ tbody tr:hover td {
   .activity-analytics-page .kpi-card > div:not(.kpi-icon) > span {
     display: flex !important;
     align-items: flex-start !important;
-    color: #516966 !important;
+    color: var(--analytics-ui-muted, #516966) !important;
     font-size: 12px !important;
     font-weight: 700 !important;
     line-height: 17px !important;
@@ -2857,8 +2977,8 @@ tbody tr:hover td {
 
 
 /* Activity sticky filters and fixed table widths */
-.activity-analytics-page .sticky-filter-card { position: sticky; top: 72px; z-index: 20; background: #fff; box-shadow: 0 8px 20px rgba(23,66,67,.08); }
-.activity-analytics-page .date-filter-control input { width:100%; height:38px; box-sizing:border-box; padding:0 11px; border:1px solid #dbe5e2; border-radius:8px; outline:0; background:#fff; color:#234844; font:inherit; font-size:13px; }
+.activity-analytics-page .sticky-filter-card { position: sticky; top: 72px; z-index: 20; background: var(--analytics-ui-page, #fff); box-shadow: 0 8px 20px rgba(23,66,67,.08); }
+.activity-analytics-page .date-filter-control input { width:100%; height:38px; box-sizing:border-box; padding:0 11px; border:1px solid var(--analytics-ui-border, #dbe5e2); border-radius:8px; outline:0; background:var(--analytics-ui-page, #fff); color:var(--analytics-ui-text, #234844); font:inherit; font-size:13px; }
 .activity-analytics-page .date-filter-control input:focus { border-color:#017151; box-shadow:0 0 0 2px rgba(1,113,81,.12); }
 .activity-analytics-page .table-wrap { overflow-x:hidden; }
 .activity-analytics-page .table-wrap table { width:100%; min-width:0; table-layout:fixed; }
@@ -2897,7 +3017,7 @@ tbody tr:hover td {
   top: 84px !important;
   z-index: 100 !important;
   isolation: isolate;
-  background: #ffffff !important;
+  background: var(--analytics-ui-page, #ffffff) !important;
   box-shadow: 0 8px 18px rgba(23, 66, 67, 0.10) !important;
 }
 
@@ -2907,7 +3027,7 @@ tbody tr:hover td {
   position: absolute;
   inset: -2px 0 auto;
   height: 2px;
-  background: #f7faf9;
+  background: var(--analytics-ui-page, #f7faf9);
   pointer-events: none;
 }
 
@@ -2942,7 +3062,7 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .group-inactive-line {
-  stroke: #5EA99E;
+  stroke: var(--analytics-ui-control-border, #5EA99E);
 }
 
 .activity-analytics-page .group-active-dot {
@@ -2956,7 +3076,7 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .inactive-label {
-  fill: #347f76;
+  fill: var(--analytics-ui-muted, #347f76);
 }
 
 .activity-analytics-page .group-status-summary-list {
@@ -2979,9 +3099,9 @@ tbody tr:hover td {
   gap: 12px;
   align-items: center;
   padding: 12px;
-  border: 1px solid #dfe9e5;
+  border: 1px solid var(--analytics-ui-border, #dfe9e5);
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-page, #fff);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -2989,13 +3109,13 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .group-status-summary-row:hover {
-  border-color: #9ccbbb;
-  background: #f5faf7;
+  border-color: var(--analytics-ui-control-border, #9ccbbb);
+  background: var(--analytics-ui-selected, #f5faf7);
 }
 
 .activity-analytics-page .group-status-summary-row.is-selected {
   border-color: #017151;
-  background: #e8f5ee;
+  background: var(--analytics-ui-selected, #e8f5ee);
   box-shadow: 0 0 0 1px #017151;
 }
 
@@ -3005,7 +3125,7 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .group-status-summary-row b {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 24px;
   text-align: right;
 }
@@ -3013,7 +3133,7 @@ tbody tr:hover td {
 .activity-analytics-page .group-status-summary-row small {
   display: block;
   margin-top: 4px;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 11px;
 }
 
@@ -3023,18 +3143,18 @@ tbody tr:hover td {
   height: 42px;
   place-items: center;
   border-radius: 11px;
-  background: #e4f0e2;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e4f0e2);
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .activity-analytics-page .group-summary-icon.inactive {
-  background: #e7f1ef;
-  color: #5EA99E;
+  background: var(--analytics-ui-selected, #e7f1ef);
+  color: var(--analytics-ui-muted, #5EA99E);
 }
 
 .activity-analytics-page .group-summary-icon.not-started {
-  background: #eef3f3;
-  color: #52615c;
+  background: var(--analytics-ui-soft, #eef3f3);
+  color: var(--analytics-ui-muted, #52615c);
 }
 
 .activity-analytics-page .group-activity-details-card {
@@ -3043,14 +3163,14 @@ tbody tr:hover td {
 
 .activity-analytics-page .group-directory-summary {
   margin: -2px 0 12px;
-  color: #60736f;
+  color: var(--analytics-ui-muted, #60736f);
   font-size: 12px;
 }
 
 .activity-analytics-page .group-id-label {
   display: block;
   margin-top: 3px;
-  color: #60736f;
+  color: var(--analytics-ui-muted, #60736f);
   font-size: 11px;
 }
 
@@ -3121,7 +3241,7 @@ tbody tr:hover td {
 
 .activity-analytics-page .compact-compare-card > p {
   margin: 4px 0 10px;
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 10px;
   line-height: 1.3;
 }
@@ -3140,18 +3260,18 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .compact-comparison-values span {
-  color: #6c7c78;
+  color: var(--analytics-ui-muted, #6c7c78);
   font-size: 9px;
 }
 
 .activity-analytics-page .compact-comparison-values strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 20px;
   line-height: 1;
 }
 
 .activity-analytics-page .compact-comparison-values .comparison-arrow {
-  color: #7d918c;
+  color: var(--analytics-ui-muted, #7d918c);
   font-size: 15px;
 }
 
@@ -3168,15 +3288,15 @@ tbody tr:hover td {
   flex: 0 0 auto;
   border-radius: 999px;
   padding: 4px 9px;
-  background: #e5f3ee;
-  color: #017151;
+  background: var(--analytics-ui-soft, #e5f3ee);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 11px;
   line-height: 1;
 }
 
 .activity-analytics-page .compact-comparison-values .comparison-change.negative {
-  background: #fff1df;
-  color: #9a5b00;
+  background: var(--analytics-ui-danger-bg, #fff1df);
+  color: var(--analytics-ui-warning, #9a5b00);
 }
 
 .activity-analytics-page .activity-side-stack {
@@ -3224,12 +3344,12 @@ tbody tr:hover td {
 
 .activity-analytics-page .kpi-card > div:not(.kpi-icon) > strong {
   width: 100%;
-  text-align: center;
+  text-align: left;
 }
 
 .activity-analytics-page .kpi-card .analytics-value-row {
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 @media (max-width: 1279px) {
@@ -3292,16 +3412,16 @@ tbody tr:hover td {
   gap: 8px;
   margin: 0 0 10px;
   padding: 8px 10px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 8px;
-  background: #f2f8f1;
-  color: #174243;
+  background: var(--analytics-ui-soft, #f2f8f1);
+  color: var(--analytics-ui-text, #174243);
   font-size: 11px;
   font-weight: 700;
 }
 
 .activity-issue-context i {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 /* Keep every Activity filter usable when browser zoom narrows the content area. */
@@ -3353,9 +3473,9 @@ tbody tr:hover td {
   gap: 10px !important;
   align-items: end !important;
   padding: 16px !important;
-  border: 1px solid #d7e3df !important;
+  border: 1px solid var(--analytics-ui-border, #d7e3df) !important;
   border-radius: 14px !important;
-  background: #fff !important;
+  background: var(--analytics-ui-page, #fff) !important;
 }
 
 .activity-analytics-page .sticky-filter-card label {
@@ -3366,7 +3486,7 @@ tbody tr:hover td {
 }
 
 .activity-analytics-page .sticky-filter-card label > span {
-  color: #425e59 !important;
+  color: var(--analytics-ui-muted, #425e59) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
   line-height: 1.2;
@@ -3378,10 +3498,10 @@ tbody tr:hover td {
   height: 42px !important;
   box-sizing: border-box;
   padding: 0 12px !important;
-  border: 1px solid #79bdb4 !important;
+  border: 1px solid var(--analytics-ui-control-border, #79bdb4) !important;
   border-radius: 10px !important;
-  background: #fff !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-page, #fff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font: inherit;
   font-size: 13px !important;
 }
@@ -3391,10 +3511,10 @@ tbody tr:hover td {
   min-width: 132px !important;
   height: 42px !important;
   margin: 0 !important;
-  border: 1px solid #79bdb4 !important;
+  border: 1px solid var(--analytics-ui-control-border, #79bdb4) !important;
   border-radius: 10px !important;
-  background: #fff !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-page, #fff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   white-space: nowrap;
 }
 

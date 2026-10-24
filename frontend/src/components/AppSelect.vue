@@ -7,7 +7,7 @@
     ref="boxRef"
     v-bind="boxAttrs"
     class="app-select"
-    :class="{ 'is-open': open, 'is-disabled': disabled, 'is-large': size === 'large' }"
+    :class="{ 'is-open': open, 'is-disabled': disabled, 'is-large': size === 'large', 'has-clear': showClear }"
     @mousedown="onBoxMousedown"
   >
     <input
@@ -33,6 +33,18 @@
       @keydown="onKeydown"
       @blur="closeList"
     />
+    <!-- Clearable: a × that empties the choice, while there's one to empty. -->
+    <button
+      v-if="showClear"
+      type="button"
+      class="app-select__clear"
+      aria-label="Clear"
+      data-test="app-select-clear"
+      @mousedown.stop.prevent
+      @click.stop="clear"
+    >
+      <i class="fas fa-xmark" aria-hidden="true"></i>
+    </button>
     <i class="fas fa-chevron-down app-select__arrow" aria-hidden="true"></i>
     <!-- As wide as the longest choice, as a select is. -->
     <span class="app-select__sizer" aria-hidden="true">
@@ -139,6 +151,8 @@ const props = withDefaults(
     /** Small, as tall as a select (the default); large, as tall as the
      *  page's text boxes beside it. */
     size?: 'small' | 'large'
+    /** A × in the box that empties the choice (to null), shown while there's one. */
+    clearable?: boolean
   }>(),
   {
     modelValue: null,
@@ -149,7 +163,8 @@ const props = withDefaults(
     disabled: false,
     required: false,
     searchable: 'auto',
-    size: 'small'
+    size: 'small',
+    clearable: false
   }
 )
 
@@ -295,6 +310,15 @@ const onInput = (event: Event) => {
   active.value = firstPickable(0, 1)
 }
 
+const showClear = computed(() => props.clearable && hasValue.value && !props.disabled)
+
+const clear = () => {
+  closeList()
+  emit('update:modelValue', null)
+  emit('change', null)
+  inputRef.value?.focus()
+}
+
 const pick = (option: AppSelectOption) => {
   if (option.disabled) return
   closeList()
@@ -406,8 +430,10 @@ const onKeydown = (event: KeyboardEvent) => {
   text-overflow: ellipsis;
 }
 
-/* Large: the page's line height, as the text boxes beside it have. */
-.app-select.is-large .app-select__input {
+/* Large, or the shared text box (app-input): the page's line height, as
+   the text boxes beside it have, so it's as tall as they are. */
+.app-select.is-large .app-select__input,
+.app-select.app-input .app-select__input {
   line-height: inherit;
 }
 
@@ -436,6 +462,36 @@ const onKeydown = (event: KeyboardEvent) => {
   transition: transform 160ms ease;
 }
 
+/* The clear button, left of the arrow, and the room the text leaves for it. */
+.app-select.has-clear .app-select__input {
+  padding-right: 2.6rem;
+}
+
+.app-select__clear {
+  position: absolute;
+  top: 50%;
+  right: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75em;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.app-select__clear:hover,
+.app-select__clear:focus-visible {
+  background: var(--bg-light);
+  color: var(--teal);
+}
+
 .app-select.is-open .app-select__arrow {
   transform: translateY(-50%) rotate(180deg);
 }
@@ -451,6 +507,27 @@ const onKeydown = (event: KeyboardEvent) => {
 
 .app-select__sizer > span {
   display: block;
+}
+
+/* The shared box (app-input) fills its column, so its longest option
+   mustn't widen the column past the boxes beside it. */
+.app-select.app-input .app-select__sizer {
+  width: 0;
+  padding-right: 0;
+}
+
+/* A compact one (app-input--compact) keeps its own width: as wide as its
+   longest option, up to what its page allows. */
+.app-select.app-input--compact .app-select__sizer {
+  width: auto;
+  padding-right: 1.25rem;
+}
+
+/* Its text centred in its height, as a text box's is, rather than pushed
+   down by padding its line doesn't fit inside. */
+.app-select.app-input--compact {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .app-select__validator {

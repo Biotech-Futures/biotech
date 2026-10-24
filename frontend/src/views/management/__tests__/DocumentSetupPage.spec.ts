@@ -80,12 +80,21 @@ const mountPage = async () => {
 const buttonNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: RegExp) =>
   wrapper.findAll('button').find((b) => label.test(b.text().trim()))!
 
-// The text box under a field label such as "Director 2 Name".
-const fieldNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) =>
+// A director's column, under its "Director 1" or "Director 2" heading.
+const directorColumn = (wrapper: Awaited<ReturnType<typeof mountPage>>, director: string) =>
   wrapper
+    .findAll('.grading-settings__director')
+    .find((c) => c.find('.grading-settings__director-title').text() === director)!
+
+// The text box under a field label such as "Director 2 Name": Name in the
+// Director 2 column.
+const fieldNamed = (wrapper: Awaited<ReturnType<typeof mountPage>>, label: string) => {
+  const [, director, field] = label.match(/^(Director \d) (.+)$/)!
+  return directorColumn(wrapper, director)
     .findAll('label.grading-settings__field')
-    .find((l) => l.find('span').text() === label)!
+    .find((l) => l.find('span').text() === field)!
     .find('input')
+}
 
 const pickFile = async (
   wrapper: Awaited<ReturnType<typeof mountPage>>,
@@ -182,9 +191,9 @@ describe('saving', () => {
     const wrapper = await mountPage()
     // The hint sits under the director's signature row, at the end of their fields.
     const hintUnder = (director: 1 | 2) =>
-      wrapper
+      directorColumn(wrapper, `Director ${director}`)
         .findAll('div.grading-settings__field')
-        .find((f) => f.find('span').text() === `Director ${director} Signature`)!
+        .find((f) => f.find('span').text() === 'Signature')!
         .find('.grading-settings__save-hint')
     const detailsHint = 'Click Update to save details'
     expect(hintUnder(1).exists()).toBe(false)

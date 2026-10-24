@@ -297,7 +297,9 @@ export function useStudentMatching() {
     confirming.value = true
     error.value = ''
     try {
-      await confirmStudentAssignments(payload)
+      // The board places students who had no group when the match ran, and
+      // only ever into groups it formed (MA3).
+      await confirmStudentAssignments(payload, { onlyUngrouped: true, formOnly: true })
       // Re-run so the board reflects what is now actually in the database.
       await run()
       return true

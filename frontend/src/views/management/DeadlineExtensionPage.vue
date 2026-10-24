@@ -5,9 +5,8 @@
     <section class="card">
       <h3 class="extensions__section-title">Extend Deadline</h3>
       <p class="extensions__hint">
-        Search by the group's name to extend their deadline. Times are in your local
-        timezone ({{ localTimeZone }}). Students see the closing time; the server quietly
-        keeps accepting for the grace hours after it.
+        Search by the group's name to extend their deadline. Times are Sydney time. Students see
+        the closing time; the server quietly keeps accepting for the grace hours after it.
       </p>
       <!-- Granting is the Grant button only: Enter in a field (e.g. the
            search box) must never grant an extension. -->
@@ -16,16 +15,12 @@
           <span>Search</span>
           <GroupSearchInput ref="picker" v-model="groupQuery" />
         </label>
-        <label class="extensions__field">
-          <span>Extended until</span>
-          <input
-            v-model="untilLocal"
-            type="datetime-local"
-            :min="minLocal || undefined"
-            required
-            class="extensions__input"
-          />
-        </label>
+        <SydneyDateTimeFields
+          v-model="untilLocal"
+          date-label="Extended until"
+          required
+          :min="minLocal || undefined"
+        />
         <label class="extensions__field">
           <span>Grace hours</span>
           <input
@@ -33,7 +28,7 @@
             type="number"
             min="0"
             max="72"
-            class="extensions__input extensions__input--grace"
+            class="extensions__input extensions__input--grace app-input app-input--compact"
           />
         </label>
         <label class="extensions__field extensions__field--reason">
@@ -42,7 +37,7 @@
             v-model="reason"
             rows="3"
             placeholder="e.g. school closure"
-            class="extensions__input extensions__input--reason"
+            class="extensions__input extensions__input--reason app-input app-input--compact"
           ></textarea>
         </label>
         <button
@@ -182,10 +177,17 @@ import {
 } from '@/utils/managementAPI'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { DATA_TABLE_ALL } from '@/utils/dataTable'
-import { describeBrowserTimeZone, formatShortDateTime, formatStatementTime } from '@/utils/date'
+import {
+  SYDNEY_TIME_ZONE,
+  formatShortDateTime,
+  formatSydneyStatement,
+  fromSydneyDateTimeInput,
+  sydneyToday,
+  toSydneyDateTimeInput
+} from '@/utils/date'
 import GroupSearchInput from '@/components/grading/GroupSearchInput.vue'
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
 
-const localTimeZone = describeBrowserTimeZone()
 
 const extensions = ref<GroupExtension[]>([])
 const isLoading = ref(false)
@@ -196,13 +198,9 @@ const isSaving = ref(false)
 
 const picker = ref<InstanceType<typeof GroupSearchInput> | null>(null)
 const groupQuery = ref('')
-// Defaults to today at 23:59 — extensions are almost always end-of-day,
-// so the admin only has to adjust the date.
-const defaultUntilLocal = () => {
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`
-}
+// Sydney's "YYYY-MM-DDTHH:MM": today at 23:59 by default, as extensions are
+// almost always end-of-day, so the admin only has to adjust the date.
+const defaultUntilLocal = () => `${sydneyToday()}T23:59`
 const untilLocal = ref(defaultUntilLocal())
 const graceHours = ref(24)
 const reason = ref('')
@@ -243,7 +241,7 @@ const extensionRows = computed(() =>
       id: e.id,
       record: { ...e, status },
       group: e.group_name,
-      until: formatShortDateTime(e.extended_until),
+      until: formatShortDateTime(e.extended_until, SYDNEY_TIME_ZONE),
       added: e.added ?? '—',
       grace: e.grace_hours ? `+${e.grace_hours}h` : '—',
       status: status.label,
@@ -265,11 +263,7 @@ const minLocal = ref('')
 const loadDeadlineFloor = async () => {
   try {
     const deadline = (await fetchSubmissionDeadline()).deadline
-    if (deadline) {
-      const d = new Date(deadline.closes_at)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      minLocal.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-    }
+    if (deadline) minLocal.value = toSydneyDateTimeInput(deadline.closes_at)
   } catch {
     minLocal.value = ''
   }
@@ -305,7 +299,7 @@ const save = async () => {
     overwriteWarning.value = {
       id,
       groupName: existing.group_name,
-      until: formatStatementTime(existing.extended_until)
+      until: formatSydneyStatement(existing.extended_until)
     }
     return
   }
@@ -315,7 +309,7 @@ const save = async () => {
 const performSave = async (id: number) => {
   isSaving.value = true
   try {
-    const iso = new Date(untilLocal.value).toISOString()
+    const iso = fromSydneyDateTimeInput(untilLocal.value)!
     await saveGroupExtension(id, iso, graceHours.value || 0, reason.value)
     flashSaved('Extension granted.')
     groupQuery.value = ''
@@ -335,7 +329,7 @@ const performSave = async (id: number) => {
 const pendingRevoke = ref<GroupExtension | null>(null)
 
 // "05/11/2026 at 13:00", as the other management popups write it.
-const untilLabel = (iso: string) => formatStatementTime(iso)
+const untilLabel = (iso: string) => formatSydneyStatement(iso)
 
 const revoke = async (id: number) => {
   actionError.value = ''
@@ -420,14 +414,18 @@ onMounted(() => {
   font-family: inherit;
 }
 
+/* The shared compact box (app-input), at its own width. */
 .extensions__input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
+}
+
+/* The group search, drawn as the boxes beside it. */
+.extensions__field--group :deep(.group-search .group-search__input) {
+  height: var(--app-input-compact-height);
+  padding: 0.4rem 0 0.4rem 2rem;
+  font-size: var(--app-input-compact-text);
+  line-height: normal;
 }
 
 .extensions__input:focus {
