@@ -246,6 +246,7 @@ class IntakeInput(StrictInput):
             journey not in SUPERVISOR_JOURNEYS
             and not payload.get("group", {}).get("joinCode")
             and "supervisor" not in payload
+            and not self.context.get("email_precheck")
         ):
             errors["payload.supervisor"] = "Supervisor details are required."
         # A supervisor is their own students'; an admin chooses one (register).
@@ -651,7 +652,7 @@ def group_supervisor(group):
     member = GroupMembership.objects.filter(
         group=group, membership_role=GroupMembership.MembershipRoleChoices.SUPERVISOR, left_at__isnull=True,
         user__supervisorprofile__isnull=False,
-    ).select_related("user").order_by("pk").first()
+    ).select_related("user").order_by("-pk").first()
     if member:
         return {
             "firstName": member.user.first_name, "lastName": member.user.last_name,
