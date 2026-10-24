@@ -45,14 +45,6 @@
           <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !shownFromLocal">
             Save Date
           </button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="isSaving || !saved.shown_from"
-            @click="write(null)"
-          >
-            Clear Date
-          </button>
         </div>
       </form>
 

@@ -54,9 +54,8 @@ describe('Pages Visibility (Challenge Start)', () => {
     expect(useSupervisorPages().shown.value).toBe(false)
   })
 
-  it('shows them once the date has passed, and clears the date', async () => {
+  it('shows them once the date has passed, with no way to clear the date', async () => {
     vi.mocked(fetchSupervisorPages).mockResolvedValue({ shown: true, shown_from: earlier })
-    vi.mocked(saveSupervisorPages).mockResolvedValue({ shown: false, shown_from: null })
     const wrapper = mount(SupervisorPagesPage)
     await flushPromises()
 
@@ -64,11 +63,6 @@ describe('Pages Visibility (Challenge Start)', () => {
       'Students, mentors and supervisors can see these pages',
     )
     expect(useSupervisorPages().shown.value).toBe(true)
-
-    await wrapper.findAll('button').find((button) => button.text() === 'Clear Date')!.trigger('click')
-    await flushPromises()
-    expect(saveSupervisorPages).toHaveBeenCalledWith({ shown_from: null })
-    expect(wrapper.get('[data-test="pages-visibility-state"]').text()).toBe('Hidden: no date set')
-    expect(useSupervisorPages().shown.value).toBe(false)
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('Clear Date')
   })
 })
