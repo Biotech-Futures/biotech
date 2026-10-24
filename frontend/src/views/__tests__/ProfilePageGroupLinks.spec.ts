@@ -5,13 +5,14 @@ import ProfilePage from '@/views/ProfilePage.vue'
 import router from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { setSupervisorPages } from '@/composables/useSupervisorPages'
+import { fetchSupervisorPages } from '@/utils/managementAPI'
 
 // The application's own router and guards: a group link is followed as a
 // click in the app would be. Management > Supervisor Pages Visibility is set
 // per test; the server is never asked.
 vi.mock('@/utils/managementAPI', async (original) => ({
   ...(await original<typeof import('@/utils/managementAPI')>()),
-  fetchSupervisorPages: vi.fn(async () => ({ shown: false })),
+  fetchSupervisorPages: vi.fn(async () => ({ shown: true, shown_from: '2020-01-01T00:00:00Z' })),
 }))
 vi.mock('@/utils/csrf', () => ({
   buildSessionHeaders: () => ({ 'Content-Type': 'application/json' }),
@@ -59,7 +60,7 @@ describe("a supervisor's profile group links, through the app's router", () => {
     wrapper.findAll('[data-test="supervisor-groups"] a').find((link) => link.text() === name)!
 
   it.each([[1, 'BTF1'], [2, 'BTF2']])('opens group %i\'s page from %s while supervisor pages are shown', async (id, name) => {
-    setSupervisorPages({ shown: true })
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     const wrapper = await openProfile()
 
     await follow(groupLink(wrapper, name))
@@ -70,7 +71,8 @@ describe("a supervisor's profile group links, through the app's router", () => {
   })
 
   it('lists the groups without links while supervisor pages are hidden', async () => {
-    setSupervisorPages({ shown: false })
+    setSupervisorPages({ shown: false, shown_from: null })
+    vi.mocked(fetchSupervisorPages).mockResolvedValueOnce({ shown: false, shown_from: null })
     const wrapper = await openProfile()
 
     const section = wrapper.find('[data-test="supervisor-groups"]')
@@ -83,11 +85,12 @@ describe("a supervisor's profile group links, through the app's router", () => {
   })
 
   it('turns the names into links when an admin shows the pages', async () => {
-    setSupervisorPages({ shown: false })
+    setSupervisorPages({ shown: false, shown_from: null })
+    vi.mocked(fetchSupervisorPages).mockResolvedValueOnce({ shown: false, shown_from: null })
     const wrapper = await openProfile()
     expect(wrapper.find('[data-test="supervisor-groups"] a').exists()).toBe(false)
 
-    setSupervisorPages({ shown: true })
+    setSupervisorPages({ shown: true, shown_from: '2020-01-01T00:00:00Z' })
     await flushPromises()
     await follow(groupLink(wrapper, 'BTF2'))
     expect(router.currentRoute.value.params.id).toBe('2')

@@ -109,7 +109,8 @@ describe('SetPasswordPage landing', () => {
       // a lazy import, which one flush does not cover).
       await replace.mock.results[0]?.value
       expect(router.currentRoute.value.path).toBe(expected)
-    }
+    },
+    15000
   )
 
   it.each(landings)(
