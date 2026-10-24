@@ -1,6 +1,6 @@
-"""Rules for the finalist round: who is a finalist, when slides are due, and
-the times its students can present. The due date is shown, not enforced:
-the round stays open for now."""
+"""Rules for the finalist round: who is a finalist, when slides are due, when
+the round closes, and the times its students can present. The due date is
+shown, not enforced; the closing time, once one's set, is."""
 from __future__ import annotations
 
 from datetime import datetime, time
@@ -9,7 +9,7 @@ from django.apps import apps
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import FinalistEntry
+from .models import FinalistDeadline, FinalistEntry
 from .serializers import submitter_name
 
 
@@ -28,6 +28,19 @@ def slides_due_at() -> datetime | None:
     if day is None:
         return None
     return datetime.combine(day, time(23, 59), tzinfo=SYMPOSIUM_TZ)
+
+
+def finalist_deadline() -> FinalistDeadline | None:
+    """When finalist submissions close (Management > Finalist Submissions):
+    the newest active row; None while the round stays open."""
+    return FinalistDeadline.objects.filter(is_active=True).select_related("set_by").order_by("-created_at").first()
+
+
+def finalist_round_open(now=None) -> bool:
+    """Whether finalist teams can still change and submit their entries: up
+    to the closing time, if one's set."""
+    deadline = finalist_deadline()
+    return deadline is None or (now or timezone.now()) <= deadline.closes_at
 
 
 # --- the times, set on Management > Finalist Presentation ------------------------

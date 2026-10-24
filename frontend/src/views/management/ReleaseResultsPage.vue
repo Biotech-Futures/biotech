@@ -29,6 +29,7 @@
             <AppDatePicker
               v-model="form.survey_closes"
               class="app-input app-input--compact"
+              :clearable="false"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && closesPast }"
             />

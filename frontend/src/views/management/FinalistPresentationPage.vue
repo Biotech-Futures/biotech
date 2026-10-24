@@ -164,6 +164,15 @@
           search-placeholder="Group name"
           empty-message="No finalist teams yet."
         >
+<<<<<<< HEAD
+=======
+          <!-- As Grading's By Group: how many teams have answered, and been given a time. -->
+          <template #stats>
+            <span>
+              {{ answeredCount }}/{{ teams.length }} Answered · {{ allocatedCount }}/{{ teams.length }} Allocated
+            </span>
+          </template>
+>>>>>>> admin-management
           <template #search-side>
             <button
               type="button"
@@ -215,6 +224,7 @@
         <p v-if="allocateError" class="finalist-presentation__error" role="alert">{{ allocateError }}</p>
       </template>
     </section>
+<<<<<<< HEAD
 
     <section class="card finalist-presentation__submissions">
       <h3 class="finalist-presentation__section-title">Finalist Submissions</h3>
@@ -290,6 +300,8 @@
       </AppDataTable>
       <p v-if="zipError" class="finalist-presentation__error" role="alert">{{ zipError }}</p>
     </section>
+=======
+>>>>>>> admin-management
   </div>
 </template>
 
@@ -305,14 +317,10 @@ import {
   deletePresentationSlot,
   downloadPresentationSlidesZip,
   fetchPresentationResponses,
-  fetchPresentationSlides,
   fetchPresentationSlots,
-  presentationSlidesDownloadUrl,
-  presentationSlidesUrl,
   setPresentationTimesShown,
   updatePresentationSlot,
   type PresentationResponseTeam,
-  type PresentationSlidesTeam,
   type PresentationSlot,
   type PresentationSlots
 } from '@/utils/managementAPI'
@@ -377,7 +385,7 @@ const loadResponses = async () => {
 // A column for each time listed above, so it follows every change there.
 const columns = computed(() => data.value?.slots ?? [])
 
-// Both tables keep the teams in the order they come; nothing sorts them.
+// The teams in the order they come; nothing sorts them.
 const NO_SORT: DataTableSort = { key: '', direction: 'asc' }
 
 // Allocate Slots: each team as a row, with plain text for search; the team
@@ -393,6 +401,11 @@ const teamRows = computed(() =>
 )
 
 const teamOf = (row: Record<string, unknown>) => row.team as PresentationResponseTeam
+
+// "12/28 Answered · 9/28 Allocated": the teams that gave their times, and
+// those given one.
+const answeredCount = computed(() => teams.value.filter((team) => team.answered_at).length)
+const allocatedCount = computed(() => teams.value.filter((team) => team.allocated_slot_id != null).length)
 
 // Group, Answered, Allocate, then a column for each time, centred, the
 // team's given time tinted.
@@ -466,6 +479,7 @@ const allocate = async (team: PresentationResponseTeam, value: AppSelectValue) =
   }
 }
 
+<<<<<<< HEAD
 // Finalist Submissions: each finalist team's slides.
 const slidesTeams = ref<PresentationSlidesTeam[]>([])
 const slidesDueOn = ref<string | null>(null)
@@ -522,10 +536,11 @@ const downloadSlides = async () => {
   }
 }
 
+=======
+>>>>>>> admin-management
 onMounted(() => {
   void load()
   void loadResponses()
-  void loadSlides()
 })
 
 // "Friday, 23rd October 2026".
@@ -537,7 +552,6 @@ const sydneyClock = computed(() => {
   const clock = sydneyClockOn(iso)
   return `${clock.name} (${clock.daylight ? 'daylight saving, ' : ''}${clock.offset})`
 })
-const slidesDue = computed(() => formatEventCalendarDay(slidesDueOn.value))
 
 const minutesOf = (hhmm: string) => {
   const [hours, minutes] = hhmm.split(':').map(Number)
@@ -556,9 +570,6 @@ const slotLabel = (slot: PresentationSlot | undefined) =>
 
 // "17/10/26 23:06", as the other management tables write it.
 const formatSubmitted = (iso: string | null) => (iso ? formatShortDateTime(iso) : '')
-
-// "PDF", "PPTX" or "PPT", from the file's name.
-const fileType = (name: string) => (name.includes('.') ? name.split('.').pop()!.toUpperCase() : '')
 
 // Every change answers with the whole list, which replaces the one shown.
 const run = async (change: () => Promise<PresentationSlots>): Promise<boolean> => {

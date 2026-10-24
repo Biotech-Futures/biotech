@@ -18,6 +18,7 @@
             <AppDatePicker
               v-model="form[field.key]"
               class="app-input app-input--compact"
+              :clearable="false"
               :data-test="`email-date-${field.key}`"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && isPast(field.key) }"

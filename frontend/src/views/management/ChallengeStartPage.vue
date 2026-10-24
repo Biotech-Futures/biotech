@@ -9,7 +9,7 @@
         <h3 class="card-title">Challenge Start</h3>
       </div>
       <p class="challenge-start__hint">
-        When this year's challenge starts. Times are in your local timezone ({{ localTimeZone }}).
+        When this year's challenge starts. Times are Sydney time.
         The supervisors' weekly Registration status email asks for their students' permission forms
         to be signed by that day.
       </p>
@@ -19,36 +19,25 @@
         <!-- As Registration Dates: the date and time, then who last set it. -->
         <div class="challenge-start__state" data-test="challenge-start-state">
           <p>
-            Starts: <strong>{{ saved.starts_at ? formatStatementTime(saved.starts_at) : 'Not set' }}</strong>
+            Starts: <strong>{{ saved.starts_at ? formatSydneyStatement(saved.starts_at) : 'Not set' }}</strong>
           </p>
           <p v-if="saved.set_by" class="challenge-start__muted" data-test="challenge-start-set-by">
             Set by {{ saved.set_by }}
-            <template v-if="saved.updated_at">on {{ formatStatementTime(saved.updated_at) }}</template>
+            <template v-if="saved.updated_at">on {{ formatSydneyStatement(saved.updated_at) }}</template>
           </p>
         </div>
   
-        <form class="challenge-start__form" @submit.prevent="save(fromLocalDateTimeInput(startsAtLocal))">
-          <label class="challenge-start__field">
-            <span>Starts</span>
-            <AppDateTimePicker
-              v-model="startsAtLocal"
-              class="app-input app-input--compact"
-              data-test="challenge-start-date"
-              default-time="23:59"
-              :min="minuteBeside(order.registrationOpens.value, 1)"
-              :max="minuteBeside(order.deadline.value, -1)"
-            />
-          </label>
+        <form class="challenge-start__form" @submit.prevent="save(fromSydneyDateTimeInput(startsAtLocal))">
+          <SydneyDateTimeFields
+            v-model="startsAtLocal"
+            data-test="challenge-start-date"
+            date-label="Start Date"
+            default-time="00:01"
+            :min="minuteBeside(order.registrationOpens.value, 1)"
+            :max="minuteBeside(order.deadline.value, -1)"
+          />
           <div class="challenge-start__actions">
             <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Date</button>
-            <button
-              type="button"
-              class="btn btn-outline btn-sm"
-              :disabled="isSaving || !saved.starts_at"
-              @click="save(null)"
-            >
-              Clear Date
-            </button>
           </div>
         </form>
   
@@ -62,16 +51,11 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
 import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import {
-  describeBrowserTimeZone,
-  formatStatementTime,
-  fromLocalDateTimeInput,
-  toLocalDateTimeInput,
-} from '@/utils/date'
+import { formatSydneyStatement, fromSydneyDateTimeInput, toSydneyDateTimeInput } from '@/utils/date'
 import { fetchChallengeStart, saveChallengeStart, type ChallengeStart } from '@/utils/managementAPI'
 import ReleaseResourcesPage from './ReleaseResourcesPage.vue'
 import SupervisorPagesPage from './SupervisorPagesPage.vue'
@@ -80,15 +64,14 @@ const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
 const saved = ref<ChallengeStart>({ year: 0, starts_at: null, set_by: '', updated_at: null })
-// The form's, in this browser's time zone: "2026-07-27T23:59".
+// The form's, in Sydney's time: "2026-07-27T23:59".
 const startsAtLocal = ref('')
-const localTimeZone = describeBrowserTimeZone()
 // Registration's opening and the deadline: when it can be.
 const order = useDateOrder()
 
 const show = (state: ChallengeStart) => {
   saved.value = state
-  startsAtLocal.value = toLocalDateTimeInput(state.starts_at)
+  startsAtLocal.value = toSydneyDateTimeInput(state.starts_at)
 }
 
 const save = async (value: string | null) => {
@@ -156,21 +139,6 @@ onMounted(async () => {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 1rem;
-}
-
-/* As Extend Deadline's fields: the label small above it. */
-.challenge-start__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: var(--teal);
-}
-
-/* The shared compact box (app-input), at its own width. */
-.challenge-start__field .app-input {
-  width: auto;
-  max-width: none;
 }
 
 .challenge-start__actions {

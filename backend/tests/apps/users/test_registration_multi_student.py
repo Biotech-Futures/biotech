@@ -105,7 +105,10 @@ class MultiStudentTests(MultiStudentSetup, TestCase):
                     self.assertFalse(user.has_usable_password())
                     self.assertFalse(user.studentprofile.has_join_permission)
         self.assertFalse(GuardianConsent.objects.exists())
-        self.assertFalse(User.objects.filter(email="teacher@example.com").exists())
+        # The supervisor the students named, who had no account, is created:
+        # active, with a password still to set.
+        teacher = User.objects.get(email="teacher@example.com")
+        self.assertEqual((teacher.account_status, teacher.has_usable_password()), (User.AccountStatus.ACTIVE, False))
 
     def test_group_interests_and_memberships_are_real_not_personal_interest_copies(self):
         body = batch("supervisor_group", 5)

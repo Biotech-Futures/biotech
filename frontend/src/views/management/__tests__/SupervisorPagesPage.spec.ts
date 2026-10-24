@@ -4,6 +4,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import SupervisorPagesPage from '@/views/management/SupervisorPagesPage.vue'
 import { useSupervisorPages } from '@/composables/useSupervisorPages'
 import { fetchSupervisorPages, saveSupervisorPages } from '@/utils/managementAPI'
+<<<<<<< HEAD
+=======
+import { pickerValue, setDateTimeFields } from '@/__tests__/appPicker'
+>>>>>>> admin-management
 
 vi.mock('@/utils/managementAPI', () => ({
   fetchSupervisorPages: vi.fn(),
@@ -28,8 +32,14 @@ describe('Pages Visibility (Challenge Start)', () => {
     expect(wrapper.text()).toContain('students and mentors see their profile page')
     expect(wrapper.get('[data-test="pages-visibility-state"]').text()).toBe('Hidden: no date set')
     expect(wrapper.get('[data-test="pages-visibility-saved"]').text()).toContain('Shown from: Not set')
+<<<<<<< HEAD
     // A date and time to set, not a switch.
     expect(wrapper.find('[data-test="pages-visibility-date"]').exists()).toBe(true)
+=======
+    // A date and time to set, not a switch: the time from 00:01, in Sydney.
+    expect(wrapper.find('[data-test="pages-visibility-date"]').exists()).toBe(true)
+    expect(pickerValue(wrapper, '[data-test="pages-visibility-date"] .sydney-date-time__time')).toBe('00:01')
+>>>>>>> admin-management
     expect(wrapper.find('[role="switch"]').exists()).toBe(false)
   })
 
@@ -41,6 +51,7 @@ describe('Pages Visibility (Challenge Start)', () => {
     const wrapper = mount(SupervisorPagesPage)
     await flushPromises()
 
+<<<<<<< HEAD
     const picker = wrapper.getComponent({ name: 'AppDateTimePicker' })
     picker.vm.$emit('update:modelValue', '2026-11-30T09:00')
     await flushPromises()
@@ -48,6 +59,14 @@ describe('Pages Visibility (Challenge Start)', () => {
     await flushPromises()
 
     expect(saveSupervisorPages).toHaveBeenCalledWith({ shown_from: new Date('2026-11-30T09:00').toISOString() })
+=======
+    await setDateTimeFields(wrapper, '[data-test="pages-visibility-date"]', '2026-11-30T09:00')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    // 09:00 in Sydney (AEDT, UTC+11), whatever the computer's time zone.
+    expect(saveSupervisorPages).toHaveBeenCalledWith({ shown_from: '2026-11-29T22:00:00.000Z' })
+>>>>>>> admin-management
     expect(wrapper.get('[data-test="pages-visibility-state"]').text()).toMatch(/^Hidden until /)
     expect(wrapper.get('[data-test="pages-visibility-set-by"]').text()).toMatch(/^Set by Test Admin on /)
     expect(useSupervisorPages().shown.value).toBe(false)

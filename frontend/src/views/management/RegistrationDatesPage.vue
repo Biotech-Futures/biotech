@@ -6,8 +6,8 @@
       <h3 class="card-title">Registration Dates</h3>
     </div>
     <p class="registration-dates__hint">
-      When registration opens and closes this year. Times are in your local timezone
-      ({{ localTimeZone }}). Leave one empty for no limit. While it's closed, the sign-in page has
+      When registration opens and closes this year. Times are Sydney time. Leave one empty for
+      no limit. While it's closed, the sign-in page has
       no Register now button, only a late link lets a student register, and only supervisors
       switched on under Supervisors After Close can register students.
     </p>
@@ -26,52 +26,35 @@
       <div class="registration-dates__dates" data-test="registration-dates-saved">
         <p>
           Opens:
-          <strong>{{ saved.opens_at ? formatStatementTime(saved.opens_at) : 'Not set' }}</strong>
+          <strong>{{ saved.opens_at ? formatSydneyStatement(saved.opens_at) : 'Not set' }}</strong>
         </p>
         <p>
           Closes:
-          <strong>{{ saved.closes_at ? formatStatementTime(saved.closes_at) : 'Not set' }}</strong>
+          <strong>{{ saved.closes_at ? formatSydneyStatement(saved.closes_at) : 'Not set' }}</strong>
         </p>
         <!-- As Submission Deadline's: who last saved them, and when. -->
         <p v-if="saved.set_by" class="registration-dates__muted" data-test="registration-dates-set-by">
           Set by {{ saved.set_by }}
-          <template v-if="saved.updated_at">on {{ formatStatementTime(saved.updated_at) }}</template>
+          <template v-if="saved.updated_at">on {{ formatSydneyStatement(saved.updated_at) }}</template>
         </p>
       </div>
 
       <form class="registration-dates__form" @submit.prevent="save">
-        <label class="registration-dates__field">
-          <span>Opens</span>
-          <AppDateTimePicker
-            v-model="opensLocal"
-            class="app-input app-input--compact"
-            data-test="registration-opens"
-            default-time="23:59"
-            clearable
-            :max="minuteBeside(order.challengeStart.value, -1)"
-          />
-        </label>
-        <label class="registration-dates__field">
-          <span>Closes</span>
-          <AppDateTimePicker
-            v-model="closesLocal"
-            class="app-input app-input--compact"
-            data-test="registration-closes"
-            default-time="23:59"
-            clearable
-            :max="minuteBeside(order.deadlineThisYear.value, -1)"
-          />
-        </label>
+        <SydneyDateTimeFields
+          v-model="opensLocal"
+          data-test="registration-opens"
+          date-label="Opening Date"
+          default-time="00:01"
+          :max="minuteBeside(order.challengeStart.value, -1)"
+        />
+        <SydneyDateTimeFields
+          v-model="closesLocal"
+          data-test="registration-closes"
+          date-label="Closing Date"
+          :max="minuteBeside(order.deadlineThisYear.value, -1)"
+        />
         <div class="registration-dates__actions">
           <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving">Save Dates</button>
-          <button
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="isSaving || (!saved.opens_at && !saved.closes_at)"
-            @click="clearDates"
-          >
-            Clear Dates
-          </button>
         </div>
       </form>
 
@@ -82,28 +65,26 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
 import { minuteBeside, useDateOrder } from '@/composables/useDateOrder'
 
 import { loadRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { apiErrorFromUnknown } from '@/utils/apiError'
-import {
-  describeBrowserTimeZone,
-  formatStatementTime,
-  fromLocalDateTimeInput,
-  toLocalDateTimeInput,
-} from '@/utils/date'
+import { formatSydneyStatement, fromSydneyDateTimeInput, toSydneyDateTimeInput } from '@/utils/date'
 import {
   fetchRegistrationManagement,
   saveRegistrationWindow,
   type RegistrationWindow,
 } from '@/utils/managementAPI'
 
-const localTimeZone = describeBrowserTimeZone()
 const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
+<<<<<<< HEAD
 // As the server has them, and as the form has them (local, timezone-less).
+=======
+// As the server has them, and as the form has them (Sydney's time).
+>>>>>>> admin-management
 type SavedDates = Pick<RegistrationWindow, 'opens_at' | 'closes_at' | 'set_by' | 'updated_at' | 'closed_until_set'>
 const saved = ref<SavedDates>({ opens_at: null, closes_at: null })
 const opensLocal = ref('')
@@ -117,8 +98,8 @@ const show = (window: SavedDates) => {
     updated_at: window.updated_at,
     closed_until_set: window.closed_until_set,
   }
-  opensLocal.value = toLocalDateTimeInput(window.opens_at)
-  closesLocal.value = toLocalDateTimeInput(window.closes_at)
+  opensLocal.value = toSydneyDateTimeInput(window.opens_at)
+  closesLocal.value = toSydneyDateTimeInput(window.closes_at)
 }
 
 // Where the dates leave registration now.
@@ -151,9 +132,8 @@ const write = async (dates: Pick<RegistrationWindow, 'opens_at' | 'closes_at'>) 
 }
 
 const save = () =>
-  write({ opens_at: fromLocalDateTimeInput(opensLocal.value), closes_at: fromLocalDateTimeInput(closesLocal.value) })
+  write({ opens_at: fromSydneyDateTimeInput(opensLocal.value), closes_at: fromSydneyDateTimeInput(closesLocal.value) })
 
-const clearDates = () => write({ opens_at: null, closes_at: null })
 
 // The challenge start and the deadline: opening before the one, closing
 // before the other.
@@ -220,21 +200,6 @@ onMounted(async () => {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 1rem;
-}
-
-/* Each field as Extend Deadline's: its label small above it. */
-.registration-dates__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: var(--teal);
-}
-
-/* The shared compact box (app-input), at its own width. */
-.registration-dates__field .app-input {
-  width: auto;
-  max-width: none;
 }
 
 .registration-dates__actions {

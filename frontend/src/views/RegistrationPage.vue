@@ -108,7 +108,7 @@
               {{ anotherLabel }}
             </button>
             <template v-else>
-              <p class="form-footer-note">
+              <p v-if="journey !== 'supervisor'" class="form-footer-note">
                 We will contact you after we set up and activate your account
               </p>
               <RouterLink to="/login" class="primary-action">Return to sign in</RouterLink>
@@ -182,9 +182,13 @@
           </span>
         </button>
       </div>
+      <!-- A supervisor from an earlier year comes back by confirming their email. -->
       <p v-if="!invitationToken" class="supervisor-guidance">
-        If you are a supervisor, please
-        contact <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
+        Supervised in an earlier year?
+        <button type="button" class="supervisor-guidance__action" @click="startReturningSupervisor">
+          Confirm your email
+        </button>
+        to register your students again.
       </p>
       <!-- A supervisor from an earlier year comes back by confirming their email. -->
       <p v-if="!invitationToken" class="supervisor-guidance supervisor-guidance--returning">
@@ -259,6 +263,67 @@
         New to supervising? Contact
         <a :href="`mailto:${SUPPORT_EMAIL}`">BIOTech Support</a> for an invitation.
       </p>
+    </section>
+
+    <!-- A supervisor back for a new year: Start new year deactivated their
+         account, so a code to their email brings it back and signs them in,
+         to register their students. -->
+    <section
+      v-else-if="!journey && selectionStage === 'returningSupervisor'"
+      class="setup-layout"
+      aria-labelledby="returning-supervisor-title"
+    >
+      <button type="button" class="btn btn-outline back-button setup-back" @click="backToRoleSelection">
+        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Roles
+      </button>
+      <header class="page-header">
+        <h1 id="returning-supervisor-title" class="page-title">Supervising Again</h1>
+      </header>
+      <form class="returning-supervisor" novalidate @submit.prevent="submitReturningSupervisor">
+        <p class="returning-supervisor__intro">
+          Enter the email you supervised with. We'll email you a code: entering it brings your
+          account back and signs you in, to register your students.
+        </p>
+        <RegistrationTextField
+          id="returning-supervisor-email"
+          v-model="returningSupervisor.email"
+          label="Your email"
+          type="email"
+          autocomplete="email"
+          :disabled="returningSupervisor.codeSent"
+          required
+          wide
+        />
+        <RegistrationTextField
+          v-if="returningSupervisor.codeSent"
+          id="returning-supervisor-code"
+          v-model="returningSupervisor.code"
+          label="Code"
+          hint="The 6-digit code in the email we sent you."
+          autocomplete="one-time-code"
+          required
+        />
+        <p v-if="returningSupervisor.codeSent" class="returning-supervisor__note" role="status">
+          If that's a supervisor's email, we've emailed it a code.
+        </p>
+        <div v-if="returningSupervisor.error" class="server-error" role="alert">
+          <span>{{ returningSupervisor.error }}</span>
+        </div>
+        <div class="returning-supervisor__actions">
+          <button type="submit" class="primary-action" :disabled="returningSupervisor.busy">
+            {{ returningSupervisor.codeSent ? 'Confirm' : 'Email Me a Code' }}
+          </button>
+          <button
+            v-if="returningSupervisor.codeSent"
+            type="button"
+            class="btn btn-outline btn-sm"
+            :disabled="returningSupervisor.busy"
+            @click="changeReturningEmail"
+          >
+            Use Another Email
+          </button>
+        </div>
+      </form>
     </section>
 
     <section
@@ -1136,6 +1201,88 @@
 
             </template>
 
+            <template v-else-if="journey === 'supervisor'">
+              <div v-if="currentStep === 0" class="field-grid">
+                <RegistrationTextField
+                  id="supervisor-first"
+                  v-model="forms.supervisor.firstName"
+                  label="First name"
+                  autocomplete="given-name"
+                  :error="errors['supervisor.firstName']"
+                  required
+                />
+                <RegistrationTextField
+                  id="supervisor-last"
+                  v-model="forms.supervisor.lastName"
+                  label="Last name"
+                  autocomplete="family-name"
+                  :error="errors['supervisor.lastName']"
+                  required
+                />
+                <RegistrationTextField
+                  id="supervisor-email"
+                  v-model="forms.supervisor.email"
+                  label="Email"
+                  type="email"
+                  autocomplete="email"
+                  :error="errors['supervisor.email']"
+                  required
+                  wide
+                />
+              </div>
+
+              <div v-else-if="currentStep === 1" class="field-grid">
+                <RegistrationTextField
+                  id="supervisor-school"
+                  v-model="forms.supervisor.school"
+                  label="School"
+                  autocomplete="organization"
+                  :error="errors['supervisor.school']"
+                  required
+                />
+                <RegistrationTextField
+                  id="supervisor-relationship"
+                  v-model="forms.supervisor.relationship"
+                  label="Teacher or parent"
+                  :options="SUPERVISOR_RELATIONSHIP_OPTIONS"
+                  :error="errors['supervisor.relationship']"
+                  required
+                />
+                <RegistrationTextField
+                  id="supervisor-country"
+                  v-model="forms.supervisor.country"
+                  label="Country"
+                  :options="supervisorCountryOptions.length ? supervisorCountryOptions : undefined"
+                  :placeholder="supervisorCountryOptions.length ? 'Select a country' : undefined"
+                  :error="errors['supervisor.country']"
+                  required
+                />
+                <!-- In Australia, its State (required, a dropdown of its states
+                     and territories); elsewhere typed in (optional). -->
+                <RegistrationTextField
+                  id="supervisor-state"
+                  v-model="forms.supervisor.state"
+                  :label="stateLabel()"
+                  :options="supervisorStateOptions.length ? supervisorStateOptions : undefined"
+                  :placeholder="supervisorStateOptions.length ? 'Select a state' : undefined"
+                  :error="errors['supervisor.state']"
+                  :required="isAustralia(forms.supervisor.country)"
+                  :optional="!isAustralia(forms.supervisor.country)"
+                />
+              </div>
+              <RegistrationProfileExtras
+                v-if="currentStep === 1"
+                v-model:pronouns="forms.supervisor.pronouns"
+                v-model:pronouns-other="forms.supervisor.pronounsOther"
+                class="supervisor-extras"
+                prefix="supervisor"
+                :errors="errors"
+                :preview-url="photoPreviews['supervisor']"
+                @photo-selected="handlePhoto(forms.supervisor, 'supervisor', $event)"
+                @remove-photo="removePhoto(forms.supervisor, 'supervisor')"
+              />
+            </template>
+
             <div v-if="isReviewStep" class="review-step">
               <div v-for="section in reviewSections" :key="section.title" class="review-section">
                 <h3>{{ section.title }}</h3>
@@ -1277,6 +1424,7 @@ import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
+import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
 import { SUPPORT_EMAIL } from '@/constants/brand'
 import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
 import { earliestRegistrationErrorStep } from '@/registration/registrationErrorNavigation'
@@ -1328,6 +1476,10 @@ import {
   type SupervisorGroupForm,
 } from '@/registration/registration'
 import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
+import { holdRegistrationPassword, REGISTRATION_PASSWORD_PATH } from '@/registration/registrationPassword'
+
+/** Whose photo: a student's, or a supervisor's registering themselves. */
+type PhotoHolder = Pick<StudentDetails, 'profilePhoto'>
 
 interface StepDefinition {
   label: string
@@ -1407,14 +1559,14 @@ const roleOptions: RoleOption[] = [
     description: 'Register yourself or create a group with teammates.',
   },
   {
-    value: 'supervisor',
-    title: 'Supervisor or teacher',
-    description: 'Register students individually, as a group or from a CSV.',
-  },
-  {
     value: 'mentor',
     title: 'Mentor',
-    description: 'Apply to support student groups with your expertise.',
+    description: 'Register to support student groups with your expertise.',
+  },
+  {
+    value: 'supervisor',
+    title: 'Supervisor',
+    description: 'Sign up to register your students and follow their progress.',
   },
 ]
 
@@ -1450,7 +1602,7 @@ const journeyOptions: JourneyOption[] = [
   {
     value: 'student_team',
     role: 'Student',
-    title: 'Create a student group',
+    title: 'Register as a group',
     description: 'Register a group of 2-5 students, including yourself.',
     steps: [
       {
@@ -1566,6 +1718,29 @@ const journeyOptions: JourneyOption[] = [
       },
     ],
   },
+  {
+    value: 'supervisor',
+    role: 'Supervisor',
+    title: 'Register as a supervisor',
+    description: 'Share your contact details and school, and review information.',
+    steps: [
+      {
+        label: 'Contact',
+        title: 'Your contact details',
+        description: 'Tell BIOTech how to identify and contact you.',
+      },
+      {
+        label: 'School & profile',
+        title: 'Your school and profile',
+        description: 'The school your students attend, and optionally your pronouns and photo.',
+      },
+      {
+        label: 'Review',
+        title: 'Review the supervisor registration',
+        description: 'Check your details before submitting.',
+      },
+    ],
+  },
 ]
 
 // A student mentor's year at university.
@@ -1651,6 +1826,7 @@ if (draft) {
   forms.studentIndividual = { ...blank.studentIndividual, ...draft.forms.studentIndividual }
   forms.studentTeam = { ...blank.studentTeam, ...draft.forms.studentTeam }
   forms.mentor = { ...blank.mentor, ...draft.forms.mentor }
+  forms.supervisor = { ...blank.supervisor, ...draft.forms.supervisor }
 }
 // The countries, and in Australia its states, from the database, for the
 // mentor's dropdowns.
@@ -1664,6 +1840,19 @@ watch(
   () => forms.mentor.country,
   (country, before) => {
     if (before && country !== before) forms.mentor.state = ''
+  },
+)
+// A supervisor's, likewise; and whether they're a teacher or a parent.
+const SUPERVISOR_RELATIONSHIP_OPTIONS = [
+  { value: 'teacher', label: 'Teacher' },
+  { value: 'parent', label: 'Parent' },
+]
+const supervisorCountryOptions = useCountryOptions()
+const supervisorStateOptions = useStateOptions(() => forms.supervisor.country)
+watch(
+  () => forms.supervisor.country,
+  (country, before) => {
+    if (before && country !== before) forms.supervisor.state = ''
   },
 )
 const journey = ref<RegistrationJourney | null>(null)
@@ -1688,7 +1877,7 @@ const csvFileErrors = ref<string[]>([])
 const editingCsvRowNumber = ref<number | null>(null)
 const csvEditorHeadingRef = ref<HTMLElement | null>(null)
 const photoPreviews = reactive<Record<string, string>>({})
-const photoFiles = new WeakMap<StudentDetails, File>()
+const photoFiles = new WeakMap<PhotoHolder, File>()
 let submissionKey = ''
 let submissionSignature = ''
 const serverError = ref('')
@@ -1901,11 +2090,10 @@ const registrationClosed = computed(
 const visibleRoleOptions = computed(() =>
   roleOptions.filter(
     (role) =>
-      role.value !== 'supervisor' &&
       (!invitationToken.value || role.value === 'student') &&
-      (role.value !== 'mentor' ||
+      (role.value === 'student' ||
         !registrationGateway.supportedJourneys ||
-        registrationGateway.supportedJourneys.includes('mentor')),
+        registrationGateway.supportedJourneys.includes(role.value)),
   ),
 )
 const successHeading = computed(() =>
@@ -1914,7 +2102,9 @@ const successHeading = computed(() =>
 const successNote = computed(() =>
   journey.value === 'mentor'
     ? 'Your application is pending administrator review.'
-    : 'Guardian consent is still required before full registration.',
+    : journey.value === 'supervisor'
+      ? 'You can now sign in to register your students.'
+      : 'Guardian consent is still required before full registration.',
 )
 // Register one student with students added: reviewed, then confirmed on
 // the saved registration's page, until they're removed again.
@@ -1975,7 +2165,7 @@ const studentPathwayOptions: { value: RegistrationJourney; title: string; descri
   {
     value: 'student_team',
     title: 'I have a group',
-    description: 'Make a group of 2-5 students or join one.',
+    description: 'Register as a group of 2-5 students or join one.',
   },
   {
     value: 'student_individual',
@@ -2311,6 +2501,31 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
           ],
         },
       ]
+    case 'supervisor':
+      return [
+        {
+          title: 'Supervisor',
+          items: [
+            { label: 'Name', value: `${forms.supervisor.firstName} ${forms.supervisor.lastName}` },
+            { label: 'Email', value: forms.supervisor.email },
+          ],
+        },
+        {
+          title: 'School',
+          items: [
+            { label: 'School', value: forms.supervisor.school },
+            {
+              label: 'Teacher or parent',
+              value:
+                SUPERVISOR_RELATIONSHIP_OPTIONS.find(
+                  (option) => option.value === forms.supervisor.relationship,
+                )?.label ?? '',
+            },
+            { label: 'Country', value: forms.supervisor.country },
+            { label: stateLabel(), value: forms.supervisor.state },
+          ],
+        },
+      ]
     default:
       return []
   }
@@ -2477,6 +2692,21 @@ const validateCurrentStep = () => {
           'Edit and correct, or explicitly exclude, every invalid row before continuing.'
       }
     }
+  } else if (journey.value === 'supervisor') {
+    if (step === 0) {
+      requireValue('supervisor.firstName', forms.supervisor.firstName, 'Enter your first name.')
+      requireValue('supervisor.lastName', forms.supervisor.lastName, 'Enter your last name.')
+      validateEmail('supervisor.email', forms.supervisor.email, 'Email')
+    }
+    if (step === 1) {
+      requireValue('supervisor.school', forms.supervisor.school, 'Enter your school.')
+      requireValue('supervisor.relationship', forms.supervisor.relationship, 'Choose teacher or parent.')
+      requireValue('supervisor.country', forms.supervisor.country, 'Enter your country.')
+      if (isAustralia(forms.supervisor.country))
+        requireValue('supervisor.state', forms.supervisor.state, 'Enter your state.')
+      if (forms.supervisor.pronouns === 'Other')
+        requireValue('supervisor.pronounsOther', forms.supervisor.pronounsOther, 'Enter your pronouns.')
+    }
   } else if (journey.value === 'mentor') {
     if (step === 0) {
       requireValue('mentor.firstName', forms.mentor.firstName, 'Enter your first name.')
@@ -2592,6 +2822,10 @@ const selectRole = (role: RegistrationRole) => {
     selectJourney('mentor')
     return
   }
+  if (role === 'supervisor') {
+    selectJourney('supervisor')
+    return
+  }
   selectionStage.value = 'pathway'
   scrollToTop()
 }
@@ -2656,11 +2890,7 @@ const changeJourney = () => {
   clearServerErrors()
   serverError.value = ''
   selectionStage.value =
-    isSupervisorMode.value ||
-    selectedRole.value === 'student' ||
-    selectedRole.value === 'supervisor'
-      ? 'pathway'
-      : 'role'
+    isSupervisorMode.value || selectedRole.value === 'student' ? 'pathway' : 'role'
   scrollToTop()
 }
 
@@ -2850,7 +3080,7 @@ const reindexStudentErrors = (prefix: string, removedIndex: number) => {
   reindexErrorMap(serverFieldErrors, prefix, removedIndex)
 }
 
-const handlePhoto = (student: StudentDetails, prefix: string, file: File) => {
+const handlePhoto = (student: PhotoHolder, prefix: string, file: File) => {
   delete clientErrors[`${prefix}.profilePhoto`]
   if (!allowedPhotoTypes.has(file.type)) {
     removePhoto(student, prefix)
@@ -2869,7 +3099,7 @@ const handlePhoto = (student: StudentDetails, prefix: string, file: File) => {
   submissionKey = ''
 }
 
-const removePhoto = (student: StudentDetails, prefix: string) => {
+const removePhoto = (student: PhotoHolder, prefix: string) => {
   if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
   delete photoPreviews[prefix]
   student.profilePhoto = null
@@ -3057,12 +3287,13 @@ const submitRegistration = async () => {
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
     const attachments: Record<string, File> = {}
-    const attach = (student: StudentDetails, prefix: string) => {
+    const attach = (student: PhotoHolder, prefix: string) => {
       const file = photoFiles.get(student)
       if (file) attachments[prefix] = file
     }
     if (journey.value === 'student_individual')
       attach(forms.studentIndividual.student, 'studentIndividual.student')
+    if (journey.value === 'supervisor') attach(forms.supervisor, 'supervisor')
     if (journey.value === 'student_team') {
       attach(forms.studentTeam.creator, 'studentTeam.creator')
       forms.studentTeam.teammates.forEach((student, index) =>
@@ -3133,6 +3364,14 @@ const submitRegistration = async () => {
       const who = `${studentName(student)} (${student.email.trim()})`
       startAnotherRegistration()
       registeredNote.value = `Registration successful: ${who} is registered.`
+      return
+    }
+    // Someone registering themselves sets their password next, instead of
+    // seeing the registration complete.
+    if (result.receipt.passwordToken && !isSupervisorMode.value && router) {
+      holdRegistrationPassword(result.receipt.passwordToken, journey.value === 'mentor')
+      clearDraft()
+      await router.push(REGISTRATION_PASSWORD_PATH)
       return
     }
     success.value = result.receipt
@@ -3223,6 +3462,7 @@ if (!isSupervisorMode.value) {
             studentIndividual: forms.studentIndividual,
             studentTeam: forms.studentTeam,
             mentor: forms.mentor,
+            supervisor: forms.supervisor,
           },
         })
       }, 250)
@@ -3484,10 +3724,13 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
+<<<<<<< HEAD
 .supervisor-guidance--returning {
   margin-top: 8px;
 }
 
+=======
+>>>>>>> admin-management
 /* Confirm your email: a link in the sentence, as the guidance's email is. */
 .supervisor-guidance__action {
   padding: 0;
@@ -4420,6 +4663,11 @@ dd {
   gap: 32px;
 }
 
+/* A supervisor's pronouns and photo, below their school and where it is. */
+.supervisor-extras {
+  margin-top: 30px;
+}
+
 /* The policies to agree to: a line of its own above Submit registration. */
 .policies-agree {
   margin-top: 32px;
@@ -4563,6 +4811,7 @@ dd {
   font-size: 0.85rem;
   font-style: italic;
 }
+
 
 .primary-action,
 .secondary-action {

@@ -146,7 +146,8 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["group_code"], code)
         group = Groups.objects.get(code=code)
-        self.assertEqual(GroupMembership.objects.filter(group=group).count(), 3)
+        students = GroupMembership.objects.filter(group=group, membership_role="student")
+        self.assertEqual(students.count(), 3)
         self.assertTrue(
             GroupMembership.objects.filter(group=group, user__email="learner50@students.example.test").exists()
         )
@@ -182,7 +183,7 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         response = self.post_batch(batch("student_team", 1))
         self.assertEqual(response.status_code, 201, response.data)
         group = Groups.objects.get(code=response.data["group_code"])
-        self.assertEqual(GroupMembership.objects.filter(group=group).count(), 1)
+        self.assertEqual(GroupMembership.objects.filter(group=group, membership_role="student").count(), 1)
 
     def test_a_student_group_has_at_most_five(self):
         response = self.post_batch(batch("student_team", 6))

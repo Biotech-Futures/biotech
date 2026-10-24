@@ -9,7 +9,11 @@
       <p class="supervisor-pages__hint">
         Shows or hides Home, Groups, Events, Announcements and Resources for students, supervisors and
         mentors. While hidden, students and mentors see their profile page and supervisors only see
+<<<<<<< HEAD
         Supervisor portal pages like My Profile, Students and Groups.
+=======
+        Supervisor portal pages like My Profile, Students and Groups. Times are Sydney time.
+>>>>>>> admin-management
       </p>
 
       <p
@@ -25,15 +29,24 @@
       <div class="supervisor-pages__saved" data-test="pages-visibility-saved">
         <p>
           Shown from:
+<<<<<<< HEAD
           <strong>{{ saved.shown_from ? formatStatementTime(saved.shown_from) : 'Not set' }}</strong>
         </p>
         <p v-if="saved.set_by" class="supervisor-pages__muted" data-test="pages-visibility-set-by">
           Set by {{ saved.set_by }}
           <template v-if="saved.updated_at">on {{ formatStatementTime(saved.updated_at) }}</template>
+=======
+          <strong>{{ saved.shown_from ? formatSydneyStatement(saved.shown_from) : 'Not set' }}</strong>
+        </p>
+        <p v-if="saved.set_by" class="supervisor-pages__muted" data-test="pages-visibility-set-by">
+          Set by {{ saved.set_by }}
+          <template v-if="saved.updated_at">on {{ formatSydneyStatement(saved.updated_at) }}</template>
+>>>>>>> admin-management
         </p>
       </div>
 
       <form class="supervisor-pages__form" @submit.prevent="save">
+<<<<<<< HEAD
         <label class="supervisor-pages__field">
           <span>Shown from</span>
           <AppDateTimePicker
@@ -44,6 +57,15 @@
             clearable
           />
         </label>
+=======
+        <!-- As Challenge Start's: the date, then the time from 00:01, in Sydney. -->
+        <SydneyDateTimeFields
+          v-model="shownFromLocal"
+          data-test="pages-visibility-date"
+          date-label="Shown from"
+          default-time="00:01"
+        />
+>>>>>>> admin-management
         <div class="supervisor-pages__actions">
           <button type="submit" class="btn btn-primary btn-sm" :disabled="isSaving || !shownFromLocal">
             Save Date
@@ -67,10 +89,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
+<<<<<<< HEAD
 import AppDateTimePicker from '@/components/AppDateTimePicker.vue'
 import { setSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
 import { apiErrorFromUnknown } from '@/utils/apiError'
 import { formatStatementTime, fromLocalDateTimeInput, toLocalDateTimeInput } from '@/utils/date'
+=======
+import SydneyDateTimeFields from '@/components/management/SydneyDateTimeFields.vue'
+import { setSupervisorPages, useSupervisorPages } from '@/composables/useSupervisorPages'
+import { apiErrorFromUnknown } from '@/utils/apiError'
+import { formatSydneyStatement, fromSydneyDateTimeInput, toSydneyDateTimeInput } from '@/utils/date'
+>>>>>>> admin-management
 import {
   fetchSupervisorPages,
   saveSupervisorPages,
@@ -82,20 +111,32 @@ const { shown } = useSupervisorPages()
 const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
+<<<<<<< HEAD
 // As the server has it, and as the picker has it (local, timezone-less).
+=======
+// As the server has it, and as the fields have it (Sydney's time).
+>>>>>>> admin-management
 const saved = ref<SupervisorPagesState>({ shown: false, shown_from: null })
 const shownFromLocal = ref('')
 
 const stateText = computed(() => {
   if (shown.value) return 'Students, mentors and supervisors can see these pages'
+<<<<<<< HEAD
   if (saved.value.shown_from) return `Hidden until ${formatStatementTime(saved.value.shown_from)}`
+=======
+  if (saved.value.shown_from) return `Hidden until ${formatSydneyStatement(saved.value.shown_from)}`
+>>>>>>> admin-management
   return 'Hidden: no date set'
 })
 
 // Saved or loaded: the card, and every menu in this tab, follow it.
 const show = (state: SupervisorPagesState) => {
   saved.value = state
+<<<<<<< HEAD
   shownFromLocal.value = toLocalDateTimeInput(state.shown_from)
+=======
+  shownFromLocal.value = toSydneyDateTimeInput(state.shown_from)
+>>>>>>> admin-management
   setSupervisorPages(state)
 }
 
@@ -111,7 +152,11 @@ const write = async (shownFrom: string | null) => {
   }
 }
 
+<<<<<<< HEAD
 const save = () => write(fromLocalDateTimeInput(shownFromLocal.value))
+=======
+const save = () => write(fromSydneyDateTimeInput(shownFromLocal.value))
+>>>>>>> admin-management
 
 onMounted(async () => {
   try {
@@ -182,6 +227,7 @@ onMounted(async () => {
   gap: 1rem;
 }
 
+<<<<<<< HEAD
 .supervisor-pages__field {
   display: flex;
   flex-direction: column;
@@ -190,6 +236,8 @@ onMounted(async () => {
   color: var(--teal);
 }
 
+=======
+>>>>>>> admin-management
 .supervisor-pages__actions {
   display: flex;
   gap: 0.75rem;

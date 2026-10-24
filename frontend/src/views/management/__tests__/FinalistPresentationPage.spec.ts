@@ -7,7 +7,6 @@ import {
   deletePresentationSlot,
   downloadPresentationSlidesZip,
   fetchPresentationResponses,
-  fetchPresentationSlides,
   fetchPresentationSlots,
   setPresentationTimesShown,
   updatePresentationSlot,
@@ -27,15 +26,18 @@ const rowEnd = 'tbody tr:first-child td:nth-child(2) .app-picker'
 vi.mock('@/utils/managementAPI', () => ({
   allocatePresentationSlot: vi.fn(),
   fetchPresentationResponses: vi.fn(),
-  fetchPresentationSlides: vi.fn(),
   fetchPresentationSlots: vi.fn(),
   addPresentationSlot: vi.fn(),
   updatePresentationSlot: vi.fn(),
   deletePresentationSlot: vi.fn(),
+<<<<<<< HEAD
   setPresentationTimesShown: vi.fn(),
   presentationSlidesUrl: (groupId: number) => `/slides/${groupId}/file/`,
   presentationSlidesDownloadUrl: (groupId: number) => `/slides/${groupId}/file/?download=1`,
   downloadPresentationSlidesZip: vi.fn()
+=======
+  setPresentationTimesShown: vi.fn()
+>>>>>>> admin-management
 }))
 // The CSV as it's built; only saving it is stopped.
 vi.mock('@/utils/analyticsExport', async (importOriginal) => ({
@@ -43,13 +45,15 @@ vi.mock('@/utils/analyticsExport', async (importOriginal) => ({
   downloadCsv: vi.fn()
 }))
 const csvMock = vi.mocked(downloadCsv)
+<<<<<<< HEAD
 const zipMock = vi.mocked(downloadPresentationSlidesZip)
+=======
+>>>>>>> admin-management
 const fetchMock = vi.mocked(fetchPresentationSlots)
 const addMock = vi.mocked(addPresentationSlot)
 const updateMock = vi.mocked(updatePresentationSlot)
 const deleteMock = vi.mocked(deletePresentationSlot)
 const responsesMock = vi.mocked(fetchPresentationResponses)
-const slidesMock = vi.mocked(fetchPresentationSlides)
 const allocateMock = vi.mocked(allocatePresentationSlot)
 const shownMock = vi.mocked(setPresentationTimesShown)
 
@@ -115,6 +119,7 @@ beforeEach(() => {
   responsesMock.mockReset().mockImplementation(async () => ({ teams: structuredClone(TEAMS) }))
   allocateMock.mockReset()
   csvMock.mockReset()
+<<<<<<< HEAD
   zipMock.mockReset().mockResolvedValue()
   slidesMock.mockReset().mockResolvedValue({
     slides_due: '2026-10-16',
@@ -137,6 +142,8 @@ beforeEach(() => {
       }
     ]
   })
+=======
+>>>>>>> admin-management
 })
 
 describe('Finalist Presentation', () => {
@@ -243,11 +250,14 @@ describe('Finalist Presentation', () => {
   it("Allocate Slots shows when each team answered and the times it can make", async () => {
     const wrapper = await mountPage()
     const titles = wrapper.findAll('.finalist-presentation__section-title').map((h) => h.text())
-    expect(titles).toEqual(['Presentation Times', 'Show Time Slots', 'Allocate Slots', 'Finalist Submissions'])
+    // Finalist Submissions has a tab of its own.
+    expect(titles).toEqual(['Presentation Times', 'Show Time Slots', 'Allocate Slots'])
     expect(allocation(wrapper).text()).toContain(
       'Give each finalist team a time. Ticks show the times each team said it can make.'
     )
     const table = allocation(wrapper)
+    // How many answered, and were given a time, as Grading's By Group counts.
+    expect(table.find('.data-table-stats').text()).toBe('1/2 Answered · 1/2 Allocated')
     expect(table.findAll('thead th').map((h) => h.text())).toEqual([
       'Group',
       'Answered',
@@ -311,54 +321,40 @@ describe('Finalist Presentation', () => {
     )
   })
 
-  it("Finalist Submissions lists each finalist team's slides and when they're due", async () => {
+  it('Download CSV saves Allocate Slots as it now stands, every team whatever the search', async () => {
     const wrapper = await mountPage()
-    const table = wrapper.find('.finalist-presentation__submissions')
-    expect(table.find('h3').text()).toBe('Finalist Submissions')
-    expect(table.text()).toContain("Each finalist team's presentation slides, due Friday, 16th October 2026")
-    // Open and Download each have a column, both headed Actions for screen readers.
-    expect(table.findAll('thead th').map((h) => h.text())).toEqual([
-      'Group',
-      'Submitted',
-      'Type',
-      'Actions',
-      'Actions'
-    ])
-    const [btf2, btf10] = table.findAll('tbody tr')
-    const cells = btf2!.findAll('td')
-    expect(cells[0]!.text()).toBe('BTF2')
-    expect(cells[1]!.text()).toMatch(/^10\/10\/26 \d{2}:05$/)
-    expect(cells[2]!.text()).toBe('PPTX')
-    // PowerPoint can't show in the browser: only Download, its name on hover.
-    expect(cells[3]!.find('a').exists()).toBe(false)
-    const links = btf2!.findAll('a')
-    expect(links.map((a) => a.text())).toEqual(['Download'])
-    expect(links[0]!.attributes('href')).toBe('/slides/2/file/?download=1')
-    expect(links[0]!.attributes('title')).toBe('BTF2 slides.pptx')
-    expect(btf10!.findAll('td').slice(0, 3).map((c) => c.text())).toEqual(['BTF10', 'Not submitted yet', '—'])
-    expect(btf10!.find('a').exists()).toBe(false)
+    await allocation(wrapper).find('input[type="search"]').setValue('BTF10')
+    // Since the page loaded, another admin gave BTF10 the afternoon.
+    responsesMock.mockImplementation(async () => ({
+      teams: structuredClone(TEAMS).map((team) => (team.group_id === 10 ? { ...team, allocated_slot_id: 2 } : team))
+    }))
+    await buttonNamed(wrapper, 'Download CSV').trigger('click')
+    await flushPromises()
+
+    const [fileName, csv] = csvMock.mock.calls[0]!
+    expect(fileName).toBe('2026_Finalist_Allocations.csv')
+    const [header, btf2, btf10] = csv.replace(/^﻿/, '').trim().split('\r\n')
+    expect(header).toBe('Group,Answered,Allocate,09:30 - 10:00 AEDT,13:00 - 13:30 AEDT')
+    // Written so Excel keeps it as text, not a date it shows as ###.
+    expect(btf2).toMatch(/^BTF2,29\/09\/2026 at \d{2}:10,09:30 - 10:00 AEDT,Yes,No$/)
+    expect(btf10).toBe('BTF10,No response,13:00 - 13:30 AEDT,No,No')
+    // The table shows the same.
+    const btf10Row = allocation(wrapper).findAll('tbody tr').find((r) => r.text().includes('BTF10'))!
+    expect(appSelectText(btf10Row, '.finalist-presentation__allocate-select')).toBe('13:00 - 13:30 AEDT')
   })
 
-  it('a PDF opens in a new tab, with Download to its right', async () => {
-    slidesMock.mockResolvedValue({
-      slides_due: '2026-10-16',
-      teams: [
-        {
-          group_id: 2, group_name: 'BTF2', submitted: true, file_name: 'BTF2 slides.pdf',
-          submitted_by: 'Amy Chen', submitted_at: '2026-10-10T00:05:00Z'
-        }
-      ]
-    })
+  it("says why the CSV wasn't saved when the teams fail to load", async () => {
     const wrapper = await mountPage()
-    const row = wrapper.find('.finalist-presentation__submissions tbody tr')
-    expect(row.findAll('td')[2]!.text()).toBe('PDF')
-    const [open, download] = row.findAll('a')
-    expect([open!.text(), download!.text()]).toEqual(['Open', 'Download'])
-    expect(open!.attributes('href')).toBe('/slides/2/file/')
-    expect(open!.attributes('target')).toBe('_blank')
-    expect(download!.attributes('href')).toBe('/slides/2/file/?download=1')
+    responsesMock.mockRejectedValueOnce(new Error('Server down'))
+    await buttonNamed(wrapper, 'Download CSV').trigger('click')
+    await flushPromises()
+
+    expect(csvMock).not.toHaveBeenCalled()
+    expect(allocation(wrapper).find('[role="alert"]').text()).toBe('Failed to download the CSV. Server down')
+    expect(buttonNamed(wrapper, 'Download CSV').attributes('disabled')).toBeUndefined()
   })
 
+<<<<<<< HEAD
   it('Download CSV saves Allocate Slots as it now stands, every team whatever the search', async () => {
     const wrapper = await mountPage()
     await allocation(wrapper).find('input[type="search"]').setValue('BTF10')
@@ -430,10 +426,12 @@ describe('Finalist Presentation', () => {
 
   it('asks for the slides due date while it is not set', async () => {
     slidesMock.mockResolvedValue({ slides_due: null, teams: [] })
+=======
+  it('Download CSV waits for finalist teams', async () => {
+    responsesMock.mockResolvedValue({ teams: [] })
+>>>>>>> admin-management
     const wrapper = await mountPage()
-    const table = wrapper.find('.finalist-presentation__submissions')
-    expect(table.text()).toContain("Set the date they're due on Notify Finalists.")
-    expect(table.find('.data-table-empty').text()).toBe('No finalist teams yet.')
+    expect(buttonNamed(wrapper, 'Download CSV').attributes('disabled')).toBeDefined()
   })
 
   it('offers a retry when the times fail to load', async () => {

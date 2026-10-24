@@ -306,11 +306,10 @@ class Submission(models.Model):
 
 
 class FinalistDeadline(models.Model):
-    """Closing time for the finalist round, separate from the main deadline.
-
-    Not used for now: the finalist round stays open. Kept so a deadline can
-    come back without recreating the table.
-    """
+    """Closing time for the finalist round, separate from the main deadline:
+    set on Management > Finalist Submissions. After it, finalist teams can't
+    change or submit their entry (admins still can, for a team). With none
+    set, the round stays open."""
 
     closes_at = models.DateTimeField()
     # Only the active row is consulted; past rows are kept on record.

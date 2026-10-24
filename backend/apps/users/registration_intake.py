@@ -302,8 +302,7 @@ class WindowInput(serializers.ModelSerializer):
         # Opening before the challenge starts, closing before submissions close.
         from apps.management.services.date_order import registration_problems
 
-        request = self.context.get("request")
-        problems = registration_problems(opens, closes, self.instance.year, getattr(request, "user", None))
+        problems = registration_problems(opens, closes, self.instance.year)
         if problems:
             raise serializers.ValidationError(problems)
         return data
@@ -579,6 +578,27 @@ def save_student(student, supervisor, now, *, registered_by, lookups=None):
     return user
 
 
+def create_nominated_supervisor(supervisor, student) -> User | None:
+    """The supervisor a student names, when their email has no account: an
+    active account with the supervisor role and a profile at the student's
+    school, in the student's country and state, as an admin's student import
+    creates one. They sign in with their email the first time, and set a
+    password then. An existing supervisor is only linked (``save_student``),
+    unchanged; any other account's email was refused before this. The
+    supervisor created, if one was."""
+    from apps.admin.services.user import _resolve_supervisor_id
+
+    email = (supervisor.get("email") or "").strip()
+    if not email or User.objects.filter(email__iexact=email).exists():
+        return None
+    country, state = resolve_location(student) if student["country"] else (None, None)
+    created = _resolve_supervisor_id(
+        email, supervisor.get("firstName"), supervisor.get("lastName"), school_name=student["school"],
+        country_id=getattr(country, "pk", None), state_id=getattr(state, "pk", None),
+    )
+    return User.objects.get(pk=created) if created else None
+
+
 def registering_as_admin(user) -> bool:
     """An admin registering students (Management > Registration) who isn't a
     supervisor: their students have no supervisor, registered by an admin."""
@@ -722,6 +742,11 @@ def register(request):
         from .mentor_registration import register_mentor
 
         return register_mentor(request, raw)
+    # A supervisor registering themselves, likewise (apps.users.supervisor_registration).
+    if not legacy and raw.get("journey") == "supervisor":
+        from .supervisor_registration import register_supervisor
+
+        return register_supervisor(request, raw)
     envelope = legacy_request(raw["body"]) if legacy else raw
     parser = IntakeInput(data=envelope, context={"legacy": legacy})
     if not parser.is_valid():
@@ -872,6 +897,12 @@ def register(request):
             from .views import _registered_by
             if legacy:
                 provenance[0] = _registered_by(raw["body"].get("RegisteredBy"))
+<<<<<<< HEAD
+=======
+            # A supervisor a student names who has no account yet is created
+            # now, so the students are theirs straight away.
+            new_supervisor = create_nominated_supervisor(supervisor, students[0]) if named_supervisor else None
+>>>>>>> admin-management
             lookups = SubmissionLookups()
             users = [
                 save_student(item, supervisor, now, registered_by=registered_by, lookups=lookups)
@@ -921,6 +952,11 @@ def register(request):
             transaction.on_commit(lambda: send_registration_emails(
                 journey, users, supervisor=registering, admin_for=admin_for, group=group,
             ))
+            # A supervisor created for them hears who named them (System Emails).
+            if new_supervisor is not None:
+                from .registration_emails import send_named_supervisor_email
+
+                transaction.on_commit(lambda: send_named_supervisor_email(new_supervisor, users))
             # Each guardian named is sent the consent form ("Approval required")
             # as soon as it's saved, not at the next daily run.
             from .guardian_reminders import email_registered_guardians
@@ -969,7 +1005,12 @@ class RegistrationIntakeView(APIView):
         return Response(WindowInput(current_window()).data)
 
     def post(self, request):
-        return register(request)
+        from .registration_password import with_password_token
+
+        response = register(request)
+        # Someone registering themselves sets their password next.
+        response.data = with_password_token(response.data)
+        return response
 
 
 class GroupCodeThrottle(AnonRateThrottle):
