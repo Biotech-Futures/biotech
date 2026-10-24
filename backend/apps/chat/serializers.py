@@ -508,6 +508,11 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         model = Messages
         fields = [
             "id",
+            # The viewer needs the sender's id to know what they may do with
+            # the message - a mentor may remove a *student's*. ``mask_admin_sender``
+            # below nulls it on an admin-sent message, so this cannot out an
+            # admin posting as "Administrator" (AM6).
+            "sender_user",
             "sender_name",
             "sent_as_admin",
             "message_text",
@@ -587,7 +592,10 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         return is_admin_actor(user)
 
     def get_attachments(self, obj):
-        if obj.deleted_at is not None:
+        # Kept for whoever reviews the removal, on the same terms as the text:
+        # a removed image is the thing a moderator most needs to look at, and
+        # blanking it meant deciding whether to restore it blind.
+        if obj.deleted_at is not None and not self._may_read_removed(obj):
             return []
         return MessageAttachmentSerializer(
             obj.attachments.all(),
@@ -596,12 +604,12 @@ class MessagePublicSerializer(MessageReceiptFieldsMixin, serializers.ModelSerial
         ).data
 
     def get_resources(self, obj):
-        if obj.deleted_at is not None:
+        if obj.deleted_at is not None and not self._may_read_removed(obj):
             return []
         return MessageResourcePublicSerializer(obj.resources.all(), many=True).data
 
     def get_preview(self, obj):
-        if obj.deleted_at is not None:
+        if obj.deleted_at is not None and not self._may_read_removed(obj):
             return None
         # Reverse OneToOne raises DoesNotExist when no row — guard so
         # missing previews surface as ``None`` instead of an exception.

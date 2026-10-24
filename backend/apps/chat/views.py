@@ -571,7 +571,10 @@ class MessageViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         gid = self.kwargs.get("group_pk")
         return self._message_queryset(
-            include_deleted=self.action in {"list", "restore"}
+            # ``attachment_download`` resolves removed messages too, so a
+            # moderator can open what was taken down; the action itself then
+            # refuses anyone who may not read it.
+            include_deleted=self.action in {"list", "restore", "attachment_download"}
         ).filter(group_id=gid)
 
     def get_serializer_context(self):
@@ -1113,6 +1116,15 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         if not can_access_chat_group(request.user, group):
             return Response({"detail": "You do not have access to this group."}, status=status.HTTP_403_FORBIDDEN)
+
+        # The queryset now resolves removed messages so moderation can open
+        # what was taken down. Everyone else sees exactly what they did
+        # before: the message is simply not there.
+        if message.deleted_at is not None and not can_restore_chat_message(request.user, message):
+            return Response(
+                {"detail": "Attachment not found for this message."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         # ``?inline=1`` flips ``Content-Disposition`` from ``attachment`` to
         # ``inline`` so the browser previews the file in a tab (PDF viewer,

@@ -3352,6 +3352,16 @@ const normalizeMessage = (item) => {
 
 /** Admins may undo any removal; anyone else only their own, which mirrors
  *  the API. The tombstone carries ``deletedById``, so no extra request. */
+// Whoever may read a removed message keeps its content on screen instead of
+// watching it blank out: admins, and the person who removed it. Mirrors
+// MessagePublicSerializer._may_read_removed on the backend.
+const mayReadRemoved = (deletedById) =>
+  auth.isAdmin || Number(deletedById || 0) === Number(currentUserId.value || 0)
+
+/** What a delete clears locally — nothing, for a viewer who may still read it. */
+const removedContentPatch = (deletedById) =>
+  mayReadRemoved(deletedById) ? {} : { text: '', attachments: [], resources: [], preview: null }
+
 const canRestoreMessage = (message) => {
   if (!message?.isDeleted) return false
   if (auth.isAdmin) return true
@@ -4120,6 +4130,9 @@ const mentionSuggestions = computed(() => {
 const showMentionSuggestions = computed(
   () => mentionStartIndex.value >= 0 && mentionSuggestions.value.length > 0,
 )
+
+const hasMessage = (messageId) =>
+  messages.value.some((message) => String(message.id) === String(messageId))
 
 const applyMessageUpdate = (messageId, updater) => {
   const index = messages.value.findIndex((message) => String(message.id) === String(messageId))
@@ -4910,11 +4923,10 @@ const deleteMessage = async (message) => {
     })
     applyMessageUpdate(message.id, (current) => ({
       ...current,
-      text: '',
-      attachments: [],
-      resources: [],
+      // The remover may always read it back, so nothing is cleared here
+      // beyond the reactions, which the API drops for everyone.
+      ...removedContentPatch(currentUserId.value),
       reactions: {},
-      preview: null,
       deletedAt: new Date().toISOString(),
       deletedById: currentUserId.value,
       deletedByName: auth.isAdmin ? 'Admin' : getCurrentUserMentionName(),
@@ -5068,24 +5080,29 @@ const handleSocketPayload = async (payload) => {
 
   if (eventName === 'message.deleted') {
     if (!socketMessageId) return
-    if (socketMessage) {
+    // One payload reaches the whole room, redacted for all of them, so its
+    // blank text and empty attachments must not overwrite the copy a viewer
+    // who may read the removal already holds. They get the removal merged
+    // onto what they have; everyone else gets the broadcast as before.
+    const source = socketMessage || payload
+    const deletedById = Number(source.deleted_by ?? source.deletedBy ?? 0)
+    const keepsContent = mayReadRemoved(deletedById) && hasMessage(socketMessageId)
+
+    if (socketMessage && !keepsContent) {
       upsertMessage(socketMessage)
     } else {
       const deletedByIsAdmin =
-        payload.deleted_by_is_admin === true ||
-        payload.deletedByIsAdmin === true ||
-        payload.deleted_by_is_admin === 'true' ||
-        payload.deletedByIsAdmin === 'true'
+        source.deleted_by_is_admin === true ||
+        source.deletedByIsAdmin === true ||
+        source.deleted_by_is_admin === 'true' ||
+        source.deletedByIsAdmin === 'true'
       applyMessageUpdate(socketMessageId, (message) => ({
         ...message,
-        text: '',
-        attachments: [],
-        resources: [],
+        ...removedContentPatch(deletedById),
         reactions: {},
-        preview: null,
-        deletedAt: payload.deleted_at || new Date().toISOString(),
-        deletedById: Number(payload.deleted_by || 0),
-        deletedByName: deletedByIsAdmin ? 'Admin' : payload.deleted_by_name || '',
+        deletedAt: source.deleted_at || new Date().toISOString(),
+        deletedById,
+        deletedByName: deletedByIsAdmin ? 'Admin' : source.deleted_by_name || '',
         deletedByIsAdmin,
         isDeleted: true,
       }))
