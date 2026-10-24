@@ -311,6 +311,11 @@ class SystemEmailSettings(models.Model):
     # answer); cleared by a check that could. Failed Sending Emails says so.
     mail_api_failed_at = models.DateTimeField(null=True, blank=True)
     mail_api_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    # When Azure's Always On last called the backend (it does every few
+    # minutes while it's on), and when the backend began watching for it
+    # (apps.services.always_on). System Emails warns when the calls stop.
+    always_on_seen_at = models.DateTimeField(null=True, blank=True)
+    always_on_watch_started_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

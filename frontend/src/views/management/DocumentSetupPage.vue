@@ -13,54 +13,65 @@
           <h3 class="card-title">Document Setup</h3>
         </div>
         <h3 class="grading-settings__section-title">Directors</h3>
-        <div class="grading-settings__fields">
-          <label class="grading-settings__field">
-            <span>Director 1 Name</span>
-            <input v-model="d1" type="text" placeholder="e.g. Prof. Alice Adams" />
-          </label>
-          <label class="grading-settings__field">
-            <span>Director 1 Position</span>
-            <input v-model="p1" type="text" placeholder="e.g. Chair" />
-          </label>
-          <div class="grading-settings__field">
-            <span>Director 1 Signature</span>
-            <div class="grading-settings__file-row">
-              <button type="button" class="grading-settings__file-btn" @click="sig1Input?.click()">
-                Browse…
-              </button>
-              <span class="grading-settings__file-name">{{ sig1?.name || settings.director_1_signature || 'No file selected.' }}</span>
+        <!-- The two directors side by side, each under their own heading. -->
+        <div class="grading-settings__directors">
+          <div class="grading-settings__director">
+            <h4 class="grading-settings__director-title">Director 1</h4>
+            <div class="grading-settings__fields">
+              <label class="grading-settings__field">
+                <span>Name</span>
+                <input v-model="d1" type="text" class="app-input app-input--compact" placeholder="e.g. Prof. Alice Adams" />
+              </label>
+              <label class="grading-settings__field">
+                <span>Position</span>
+                <input v-model="p1" type="text" class="app-input app-input--compact" placeholder="e.g. Chair" />
+              </label>
+              <div class="grading-settings__field">
+                <span>Signature</span>
+                <div class="grading-settings__file-row">
+                  <button type="button" class="grading-settings__file-btn" @click="sig1Input?.click()">
+                    Browse…
+                  </button>
+                  <span class="grading-settings__file-name">{{ sig1?.name || settings.director_1_signature || 'No file selected.' }}</span>
+                </div>
+                <p
+                  v-if="director1Changed"
+                  class="grading-settings__save-hint grading-settings__save-hint--director"
+                >
+                  Click Update to save details
+                </p>
+                <input ref="sig1Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig1 = fileOf($event)" />
+              </div>
             </div>
-            <p
-              v-if="director1Changed"
-              class="grading-settings__save-hint grading-settings__save-hint--director"
-            >
-              Click Update to save details
-            </p>
-            <input ref="sig1Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig1 = fileOf($event)" />
           </div>
-          <label class="grading-settings__field">
-            <span>Director 2 Name</span>
-            <input v-model="d2" type="text" placeholder="e.g. Dr. Bob Brown" />
-          </label>
-          <label class="grading-settings__field">
-            <span>Director 2 Position</span>
-            <input v-model="p2" type="text" placeholder="e.g. Co-Chair" />
-          </label>
-          <div class="grading-settings__field">
-            <span>Director 2 Signature</span>
-            <div class="grading-settings__file-row">
-              <button type="button" class="grading-settings__file-btn" @click="sig2Input?.click()">
-                Browse…
-              </button>
-              <span class="grading-settings__file-name">{{ sig2?.name || settings.director_2_signature || 'No file selected.' }}</span>
+          <div class="grading-settings__director">
+            <h4 class="grading-settings__director-title">Director 2</h4>
+            <div class="grading-settings__fields">
+              <label class="grading-settings__field">
+                <span>Name</span>
+                <input v-model="d2" type="text" class="app-input app-input--compact" placeholder="e.g. Dr. Bob Brown" />
+              </label>
+              <label class="grading-settings__field">
+                <span>Position</span>
+                <input v-model="p2" type="text" class="app-input app-input--compact" placeholder="e.g. Co-Chair" />
+              </label>
+              <div class="grading-settings__field">
+                <span>Signature</span>
+                <div class="grading-settings__file-row">
+                  <button type="button" class="grading-settings__file-btn" @click="sig2Input?.click()">
+                    Browse…
+                  </button>
+                  <span class="grading-settings__file-name">{{ sig2?.name || settings.director_2_signature || 'No file selected.' }}</span>
+                </div>
+                <p
+                  v-if="director2Changed"
+                  class="grading-settings__save-hint grading-settings__save-hint--director"
+                >
+                  Click Update to save details
+                </p>
+                <input ref="sig2Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig2 = fileOf($event)" />
+              </div>
             </div>
-            <p
-              v-if="director2Changed"
-              class="grading-settings__save-hint grading-settings__save-hint--director"
-            >
-              Click Update to save details
-            </p>
-            <input ref="sig2Input" type="file" accept="image/*" class="grading-settings__file-input" @change="sig2 = fileOf($event)" />
           </div>
         </div>
       </section>
@@ -129,7 +140,7 @@
                 </button>
                 <AppSelect
                   :model-value="person['marks-summary']"
-                  class="grading-settings__person-select"
+                  class="grading-settings__person-select app-input app-input--compact app-input--small"
                   aria-label="Group"
                   :options="personOptions('marks-summary')"
                   :disabled="!people['marks-summary'].length"
@@ -197,7 +208,7 @@
                 </button>
                 <AppSelect
                   :model-value="person['certificate']"
-                  class="grading-settings__person-select"
+                  class="grading-settings__person-select app-input app-input--compact app-input--small"
                   aria-label="Student"
                   :options="personOptions('certificate')"
                   :disabled="!people['certificate'].length"
@@ -265,7 +276,7 @@
                 </button>
                 <AppSelect
                   :model-value="person['mentor-certificate']"
-                  class="grading-settings__person-select"
+                  class="grading-settings__person-select app-input app-input--compact app-input--small"
                   aria-label="Mentor"
                   :options="personOptions('mentor-certificate')"
                   :disabled="!people['mentor-certificate'].length"
@@ -793,6 +804,26 @@ const save = async () => {
   gap: 0.85rem;
 }
 
+/* Director 1 and Director 2 side by side; one under the other when narrow. */
+.grading-settings__directors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.grading-settings__director-title {
+  margin: 0 0 0.6rem;
+  color: var(--teal);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .grading-settings__directors {
+    grid-template-columns: 1fr;
+  }
+}
+
 .grading-settings__template {
   border: 1px solid var(--border-light);
   border-radius: 8px;
@@ -906,14 +937,9 @@ const save = async () => {
   gap: 0.5rem;
 }
 
+/* The shared compact box (app-input), as wide as its longest name. */
 .grading-settings__person-select {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
   max-width: 14rem;
 }
 
@@ -952,14 +978,10 @@ const save = async () => {
   color: var(--text-muted);
 }
 
+/* The shared compact box (app-input), filling its column. */
 .grading-settings__field input[type='text'] {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+  width: auto;
+  max-width: none;
 }
 
 .grading-settings__field input[type='text']:focus {

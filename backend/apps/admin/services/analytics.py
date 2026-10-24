@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone as datetime_timezone
 
 from django.conf import settings
-from django.db.models import Count, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, Window
+from django.db.models import Count, F, IntegerField, Max, OuterRef, Q, Subquery, Sum, Value, Window
 from django.db.models.functions import Coalesce, RowNumber, TruncDate, TruncHour
 from django.utils import timezone
 
@@ -17,6 +17,7 @@ from apps.groups.models import GroupMembership, Groups, group_name_sort_key
 from apps.resources.models import ResourceAccessEvent, RoleAssignmentHistory
 from apps.services.email_registry import get_email_type, is_known_email_type
 from apps.services.models import EmailDeliveryMetric, EmailDeliveryRecipient
+from apps.services.system_email import sender_for
 from apps.users.models import User
 
 
@@ -25,6 +26,7 @@ SUPPORTED_ANALYTICS_ROLES = {
     "mentor": "Mentor",
     "supervisor": "Supervisor",
 }
+MAX_STUDENTS_PER_GROUP = 5
 
 
 def _utc_date_range_filter(
@@ -246,6 +248,15 @@ def get_group_activity_analytics(
         .distinct()
         .count()
     )
+    mentor_assignments = active_memberships.filter(
+        membership_role=GroupMembership.MembershipRoleChoices.MENTOR
+    )
+    mentor_assignment_count = mentor_assignments.count()
+    mentored_group_ids = mentor_assignments.values("group_id")
+    students_in_mentored_groups = active_memberships.filter(
+        membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+        group_id__in=mentored_group_ids,
+    ).count()
 
     comparison_year = (end_date or timezone.localdate()).year
     average_group_size_by_year = []
@@ -285,6 +296,77 @@ def get_group_activity_analytics(
         groups_with_mentor = (
             mentor_memberships_at_year_end.values("group_id").distinct().count()
         )
+        historical_mentor_assignments = mentor_memberships_at_year_end.count()
+        historical_students_in_mentored_groups = (
+            student_memberships_at_year_end.filter(
+                group_id__in=mentor_memberships_at_year_end.values("group_id")
+            ).count()
+        )
+        student_counts_by_group = {
+            row["group_id"]: row["student_count"]
+            for row in student_memberships_at_year_end.values("group_id").annotate(
+                student_count=Count("id")
+            )
+        }
+        group_ids = list(groups_at_year_end.values_list("id", flat=True))
+        group_sizes = [student_counts_by_group.get(group_id, 0) for group_id in group_ids]
+        group_size_distribution = [
+            {
+                "student_count": size,
+                "group_count": group_sizes.count(size),
+            }
+            for size in range(MAX_STUDENTS_PER_GROUP + 1)
+        ]
+        over_capacity_groups = sum(
+            size > MAX_STUDENTS_PER_GROUP for size in group_sizes
+        )
+        if over_capacity_groups:
+            group_size_distribution.append(
+                {
+                    "student_count": MAX_STUDENTS_PER_GROUP + 1,
+                    "group_count": over_capacity_groups,
+                }
+            )
+
+        messages_through_year = Messages.objects.filter(
+            deleted_at__isnull=True,
+            group_id__in=group_ids,
+            sent_at__lte=period_end,
+        )
+        # Active groups messaged in the seven UTC days ending on the year's
+        # latest message, as the Groups page counts the live year. A window
+        # ending on 31 December would lie in the future for the current year
+        # and fall in the holiday week for earlier ones.
+        latest_message_at = messages_through_year.filter(
+            sent_at__gte=datetime(year, 1, 1, tzinfo=datetime_timezone.utc),
+        ).aggregate(latest=Max("sent_at"))["latest"]
+        active_group_ids = set()
+        if latest_message_at:
+            recent_start = datetime.combine(
+                latest_message_at.astimezone(datetime_timezone.utc).date()
+                - timedelta(days=6),
+                time.min,
+                tzinfo=datetime_timezone.utc,
+            )
+            active_group_ids = set(
+                messages_through_year.filter(sent_at__gte=recent_start)
+                .values_list("group_id", flat=True)
+                .distinct()
+            )
+        started_group_ids = set(
+            messages_through_year.values_list("group_id", flat=True).distinct()
+        )
+        occupied_group_ids = set(
+            memberships_at_year_end.values_list("group_id", flat=True).distinct()
+        )
+        not_started_group_ids = {
+            group_id
+            for group_id in group_ids
+            if group_id not in started_group_ids and group_id not in occupied_group_ids
+        }
+        inactive_groups = max(
+            group_count - len(active_group_ids) - len(not_started_group_ids), 0
+        )
         average_group_size_by_year.append(
             {
                 "year": year,
@@ -304,10 +386,21 @@ def get_group_activity_analytics(
                 "mentor_count": historical_mentor_count,
                 "student_count": historical_student_count,
                 "students_per_mentor": (
-                    round(historical_student_count / historical_mentor_count, 2)
-                    if historical_mentor_count
+                    round(
+                        historical_students_in_mentored_groups
+                        / historical_mentor_assignments,
+                        2,
+                    )
+                    if historical_mentor_assignments
                     else None
                 ),
+                "group_size_distribution": group_size_distribution,
+                "small_groups": sum(size < 3 for size in group_sizes),
+                "full_groups": group_sizes.count(MAX_STUDENTS_PER_GROUP),
+                "over_capacity_groups": over_capacity_groups,
+                "active_groups": len(active_group_ids),
+                "inactive_groups": inactive_groups,
+                "not_started_groups": len(not_started_group_ids),
             }
         )
 
@@ -321,7 +414,9 @@ def get_group_activity_analytics(
         "mentor_count": mentor_count,
         "student_count": student_count,
         "students_per_mentor": (
-            round(student_count / mentor_count, 2) if mentor_count else None
+            round(students_in_mentored_groups / mentor_assignment_count, 2)
+            if mentor_assignment_count
+            else None
         ),
         "average_group_size_by_year": average_group_size_by_year,
         "group_summary_by_year": group_summary_by_year,
@@ -530,6 +625,10 @@ def get_resource_analytics(
 # (announcements) out of the list or out of its type filter.
 RECENT_SENDS_PER_TYPE = 100
 
+# How long an announcement send with no completion time still counts as
+# sending. A send that has not finished by then was interrupted.
+ANNOUNCEMENT_SENDING_WINDOW = timedelta(minutes=30)
+
 
 def _email_type_label(key: str) -> str:
     """System Emails name for a send type, or a readable form of its key."""
@@ -538,8 +637,57 @@ def _email_type_label(key: str) -> str:
     return key.replace("_", " ").replace("-", " ").strip().capitalize() or "Email"
 
 
-def _recent_email_sends() -> list[dict]:
-    """The latest ``RECENT_SENDS_PER_TYPE`` sends of each email type, newest first.
+def _sending_announcements(now) -> list[dict]:
+    """Announcement sends still going, newest first.
+
+    An announcement's delivery row is created as ``failed`` when its send
+    starts and completed when the send ends, while its ``EmailDeliveryMetric``
+    row is written only once every recipient has been tried. Listed here, a
+    running send shows as sending instead of being missing until it ends.
+    """
+    finished_starts = EmailDeliveryMetric.objects.filter(
+        email_type="announcement"
+    ).values("started_at")
+    deliveries = (
+        AnnouncementDelivery.objects.filter(
+            completed_at__isnull=True,
+            started_at__gt=now - ANNOUNCEMENT_SENDING_WINDOW,
+            started_at__lte=now,
+        )
+        .exclude(started_at__in=finished_starts)
+        .select_related("announcement", "initiated_by")
+        .order_by("-started_at", "-id")
+    )
+    return [
+        {
+            # No metric row yet, so no send to export recipients from.
+            "id": None,
+            "delivery_id": delivery.id,
+            "email_type": "announcement",
+            "email_type_label": _email_type_label("announcement"),
+            "title": delivery.announcement.title,
+            "announcement_id": delivery.announcement_id,
+            "source_mailbox": sender_for("announcement").address,
+            "started_at": delivery.started_at.isoformat(),
+            "status": "sending",
+            "attempted": delivery.recipient_count,
+            "delivered": delivery.success_count,
+            "failed": 0,
+            "initiated_by_name": (
+                f"{delivery.initiated_by.first_name} {delivery.initiated_by.last_name}".strip()
+                if delivery.initiated_by
+                else "System"
+            ),
+            "initiated_by_email": delivery.initiated_by.email if delivery.initiated_by else "",
+            "recipients_recorded": 0,
+        }
+        for delivery in deliveries
+    ]
+
+
+def _recent_email_sends(now) -> list[dict]:
+    """The latest ``RECENT_SENDS_PER_TYPE`` sends of each email type, newest
+    first, after any announcement sends still going.
 
     ``EmailDeliveryMetric`` records one row per real send operation for system
     emails, announcements, chat digests and management bulk sends, so it is the
@@ -564,10 +712,15 @@ def _recent_email_sends() -> list[dict]:
         .annotate(total=Count("id"))
         .values_list("metric_id", "total")
     )
-    return [
+    sends = [
         {**send, "recipients_recorded": recorded.get(send["id"], 0)}
         for send in _send_rows(rows)
     ]
+    return sorted(
+        _sending_announcements(now) + sends,
+        key=lambda send: datetime.fromisoformat(send["started_at"]),
+        reverse=True,
+    )
 
 
 def _send_rows(rows) -> list[dict]:
@@ -778,7 +931,8 @@ def get_email_delivery_analytics() -> dict:
             "hourly": [],
             "daily": [],
             "status_by_role": empty_role_status(),
-            "recent_sends": [],
+            # The first announcement ever sent has no metric row until it ends.
+            "recent_sends": _sending_announcements(snapshot_at),
             "role_attribution": role_attribution(
                 tracked_delivery_runs=0,
                 unattributed_delivery_runs=0,
@@ -955,6 +1109,7 @@ def get_email_delivery_analytics() -> dict:
             "announcement_id": row.announcement_id,
             "title": row.announcement.title,
             "started_at": row.started_at.isoformat(),
+            "completed_at": row.completed_at.isoformat() if row.completed_at else None,
             "status": row.status,
             "recipient_count": row.recipient_count,
             "success_count": row.success_count,
@@ -1045,5 +1200,5 @@ def get_email_delivery_analytics() -> dict:
         "status_by_role": status_by_role,
         "role_attribution": attribution,
         "recent_deliveries": recent_deliveries,
-        "recent_sends": _recent_email_sends(),
+        "recent_sends": _recent_email_sends(snapshot_at),
     }

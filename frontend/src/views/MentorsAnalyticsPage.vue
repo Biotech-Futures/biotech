@@ -82,7 +82,7 @@
                   r="64"
                   pathLength="100"
                   fill="none"
-                  stroke="#e7ebef"
+                  stroke="var(--analytics-ui-border, #e7ebef)"
                   stroke-width="24"
                 />
 
@@ -163,6 +163,9 @@
                   <span :style="{ width: `${Math.min(snapshot.capacityPool.utilisation, 100)}%` }"></span>
                 </div>
                 <small>{{ snapshot.capacityPool.utilisation }}% used · {{ snapshot.capacityPool.openSlots }} open slots</small>
+                <button type="button" class="capacity-table-shortcut" @click="openCapacityTable">
+                  View mentors with capacity <span aria-hidden="true">→</span>
+                </button>
               </div>
             </div>
           </div>
@@ -176,6 +179,14 @@
         />
       </article>
     </section>
+
+    <MentorCapacityTable
+      v-if="sourceAvailable('groups')"
+      id="mentors-with-capacity"
+      ref="capacityTable"
+      :mentors="liveMentors"
+      @select="openAdminMentor"
+    />
 
     <section v-if="sourceAvailable('groupActivity')" class="activity-grid" aria-label="Mentor activity in the selected range">
       <article class="analytics-card activity-card">
@@ -306,7 +317,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
               <circle
@@ -395,13 +406,15 @@ import type { AnalyticsSource } from '@/utils/liveAnalyticsData'
 import AnalyticsRefreshStatus from '@/components/analytics/AnalyticsRefreshStatus.vue'
 import { useAnalyticsRefresh } from '@/composables/useAnalyticsRefresh'
 import { useAnalyticsRefreshState } from '@/composables/useAnalyticsRefreshState'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BtfIcon from '@/components/BtfIcon.vue'
 import AnalyticsKeyInsights from '@/components/analytics/AnalyticsKeyInsights.vue'
 import AnalyticsYearChange from '@/components/analytics/AnalyticsYearChange.vue'
 import AnalyticsNumber from '@/components/analytics/AnalyticsNumber.vue'
 import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import MentorDistributionChart from '@/components/analytics/MentorDistributionChart.vue'
+import MentorCapacityTable from '@/components/analytics/MentorCapacityTable.vue'
+import { useRouter } from 'vue-router'
 import { BTF_COLORS } from '@/constants/btfTheme'
 import type { DemoMentor, MentorEvent } from '@/types/analytics'
 import { buildMentorData, loadMentorsAnalyticsBundle } from '@/utils/liveAnalyticsData'
@@ -431,6 +444,8 @@ import {
 } from '@/utils/analyticsExport'
 
 const liveMentors = ref<DemoMentor[]>([])
+const capacityTable = ref<{ open: () => void } | null>(null)
+const router = useRouter()
 const liveEvents = ref<MentorEvent[]>([])
 const unavailableSources = ref<AnalyticsSource[]>([])
 const sourceAvailable = (source: AnalyticsSource) => !unavailableSources.value.includes(source)
@@ -462,6 +477,27 @@ const mentorInsightItems = computed(() =>
     detail: item.detail,
   })),
 )
+
+async function openCapacityTable() {
+  capacityTable.value?.open()
+  await nextTick()
+  document.getElementById('mentors-with-capacity')?.scrollIntoView?.({
+    behavior: 'smooth',
+    block: 'start',
+  })
+}
+
+function openAdminMentor(mentor: DemoMentor) {
+  void router.push({
+    path: '/admin/users',
+    query: {
+      tab: 'mentors',
+      capacity: 'available',
+      search: mentor.name,
+    },
+    hash: '#admin-mentors-table',
+  })
+}
 const range = computed(() => {
   const year = selectedYear.value
   return {
@@ -637,13 +673,15 @@ function mentorDonutTotal(chart: MentorChart) {
 }
 
 function mentorDonutSegments(chart: MentorChart): MentorDonutSegment[] {
-  const total = mentorDonutTotal(chart) || 1
+  const total = mentorDonutTotal(chart)
   let start = 0
 
   return chart.items.map((item, index) => {
     // Geometry uses the exact share; the rounded percent is only for labels,
     // so the arcs always close the ring without gaps or overlaps.
-    const arc = (item.value / total) * 100
+    const arc = total
+      ? (index === chart.items.length - 1 ? Math.max(0, 100 - start) : (item.value / total) * 100)
+      : 0
     const segment = {
       label: item.label,
       value: item.value,
@@ -827,8 +865,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .mentors-analytics-page {
   container-type: inline-size;
-  color: var(--btf-teal);
-  background: var(--btf-surface);
+  color: var(--analytics-ui-text, var(--btf-teal));
+  background: var(--analytics-ui-page, var(--btf-surface));
   font-family: Arial, sans-serif;
   padding: 22px;
   min-width: 0;
@@ -856,11 +894,11 @@ select {
   margin-bottom: 15px;
 }
 .breadcrumb a {
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   text-decoration: none;
 }
 .breadcrumb a:hover {
-  color: var(--btf-dark-green);
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
 }
 .title-line {
   display: flex;
@@ -875,15 +913,15 @@ h1 {
 }
 .heading-copy p {
   font-size: 13px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   margin: 8px 0 0;
 }
 .demo-badge {
   font-size: 10px;
   padding: 5px 9px;
   border-radius: 5px;
-  border: 1px solid var(--btf-light-green);
-  background: var(--btf-track);
+  border: 1px solid var(--analytics-ui-border, var(--btf-light-green));
+  background: var(--analytics-ui-soft, var(--btf-track));
   white-space: nowrap;
 }
 .page-actions {
@@ -898,9 +936,9 @@ h1 {
   align-items: center;
   gap: 8px;
   min-height: 40px;
-  border: 1px solid var(--btf-mint-green);
-  background: white;
-  color: var(--btf-dark-green);
+  border: 1px solid var(--analytics-ui-control-border, var(--btf-mint-green));
+  background: var(--analytics-ui-surface, white);
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
   border-radius: 7px;
   padding: 9px 12px;
   font-size: 12px;
@@ -915,7 +953,7 @@ h1 {
   cursor: pointer;
 }
 .export-button:hover {
-  background: var(--btf-track);
+  background: var(--analytics-ui-soft, var(--btf-track));
 }
 .export-button:disabled {
   opacity: 0.5;
@@ -934,7 +972,7 @@ circle:focus-visible {
   align-items: flex-start;
   gap: 8px;
   font-size: 12px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   margin: 0 0 18px;
   line-height: 1.6;
 }
@@ -955,19 +993,19 @@ circle:focus-visible {
   font-size: 12px;
 }
 .custom-range input {
-  border: 1px solid var(--btf-border);
+  border: 1px solid var(--analytics-ui-border, var(--btf-border));
   border-radius: 5px;
   padding: 7px;
-  background: white;
-  color: var(--btf-teal);
+  background: var(--analytics-ui-surface, white);
+  color: var(--analytics-ui-text, var(--btf-teal));
 }
 .range-error,
 .export-status {
   padding: 12px;
-  border: 1px solid var(--btf-border);
+  border: 1px solid var(--analytics-ui-border, var(--btf-border));
   border-radius: 6px;
   font-size: 12px;
-  background: var(--btf-track);
+  background: var(--analytics-ui-soft, var(--btf-track));
 }
 .kpi-grid {
   display: grid;
@@ -977,9 +1015,9 @@ circle:focus-visible {
 }
 .kpi-card,
 .analytics-card {
-  border: 1px solid var(--btf-border);
+  border: 1px solid var(--analytics-ui-border, var(--btf-border));
   border-radius: 10px;
-  background: white;
+  background: var(--analytics-ui-surface, white);
   box-shadow: 0 2px 6px rgb(23 66 67 / 3%);
   min-width: 0;
 }
@@ -993,8 +1031,8 @@ circle:focus-visible {
 .kpi-icon {
   display: grid;
   place-items: center;
-  background: var(--btf-track);
-  color: var(--btf-dark-green);
+  background: var(--analytics-ui-soft, var(--btf-track));
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
   border-radius: 13px;
   width: 58px;
   height: 58px;
@@ -1008,7 +1046,7 @@ circle:focus-visible {
   font-size: 14px;
   line-height: 1.4;
   margin-bottom: 5px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
 }
 .kpi-value {
   display: block;
@@ -1018,13 +1056,13 @@ circle:focus-visible {
 }
 .kpi-copy small {
   font-size: 12px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   line-height: 1.5;
   display: block;
 }
 .progress-track,
 .rank-track {
-  background: var(--btf-track);
+  background: var(--analytics-ui-soft, var(--btf-track));
   height: 7px;
   border-radius: 3px;
   overflow: hidden;
@@ -1060,12 +1098,12 @@ h2 {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   cursor: help;
 }
 .card-note {
   font-size: 12px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   line-height: 1.5;
   margin: 0 0 14px;
 }
@@ -1097,17 +1135,17 @@ h2 {
   overflow: visible;
 }
 .activity-chart text {
-  fill: var(--btf-muted);
+  fill: var(--analytics-ui-muted, var(--btf-muted));
   font-size: 10px;
   font-family: Arial, sans-serif;
 }
 .activity-chart .activity-value-label {
-  fill: var(--btf-teal);
+  fill: var(--analytics-ui-text, var(--btf-teal));
   font-size: 10px;
   pointer-events: none;
 }
 .grid-line {
-  stroke: var(--btf-border);
+  stroke: var(--analytics-ui-border, var(--btf-border));
   stroke-width: 1;
 }
 .series-key {
@@ -1116,7 +1154,7 @@ h2 {
   gap: 6px;
   font-size: 11px;
   margin: 10px 0;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
 }
 .series-key i {
   width: 18px;
@@ -1154,15 +1192,15 @@ h2 {
   width: 40px;
   height: 40px;
   padding: 0;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  background: #fff;
-  color: #017151;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 16px;
   cursor: pointer;
 }
 .mentor-activity-sort:hover {
-  background: #f3f8f5;
+  background: var(--analytics-ui-selected, #f3f8f5);
 }
 .mentor-activity-list {
   flex: 1 1 0;
@@ -1178,7 +1216,7 @@ h2 {
 }
 .mentor-activity-list::-webkit-scrollbar-track {
   border-radius: 3px;
-  background: #eef3f1;
+  background: var(--analytics-ui-soft, #eef3f1);
 }
 .mentor-activity-list::-webkit-scrollbar-thumb {
   border-radius: 3px;
@@ -1191,32 +1229,53 @@ h2 {
   gap: 4px;
   margin-top: 6px;
   padding-top: 10px;
-  border-top: 1px solid #e7eeeb;
+  border-top: 1px solid var(--analytics-ui-border, #e7eeeb);
 }
 .capacity-pool > span {
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 11px;
   font-weight: 700;
 }
 .capacity-pool strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 15px;
 }
 .capacity-pool small {
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 11px;
 }
 .capacity-pool-track {
   height: 8px;
   overflow: hidden;
   border-radius: 4px;
-  background: var(--btf-track, #eef3f1);
+  background: var(--analytics-ui-soft, var(--btf-track, #eef3f1));
 }
 .capacity-pool-track span {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--btf-dark-green, #017151);
+}
+.capacity-table-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 5px;
+  padding: 6px 0 0;
+  border: 0;
+  border-top: 1px solid var(--analytics-ui-border, #e7eeeb);
+  background: transparent;
+  color: var(--analytics-ui-accent, #017151);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.capacity-table-shortcut:hover,
+.capacity-table-shortcut:focus-visible {
+  color: var(--analytics-ui-text, #174243);
 }
 .ranking li {
   display: flex;
@@ -1225,7 +1284,7 @@ h2 {
   font-size: 12px;
 }
 .rank-number {
-  background: var(--btf-track);
+  background: var(--analytics-ui-soft, var(--btf-track));
   border-radius: 4px;
   padding: 4px 7px;
 }
@@ -1245,7 +1304,7 @@ h2 {
   display: block;
   font-weight: normal;
   font-size: 10px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
 }
 .insights {
   display: grid;
@@ -1258,11 +1317,11 @@ h2 {
   gap: 12px;
   align-items: flex-start;
   padding: 12px 0;
-  border-top: 1px solid var(--btf-border);
+  border-top: 1px solid var(--analytics-ui-border, var(--btf-border));
 }
 .insight > strong {
-  background: var(--btf-track);
-  color: var(--btf-dark-green);
+  background: var(--analytics-ui-soft, var(--btf-track));
+  color: var(--analytics-ui-accent, var(--btf-dark-green));
   border-radius: 7px;
   padding: 9px;
   min-width: 38px;
@@ -1278,12 +1337,12 @@ h2 {
 .insight small {
   display: block;
   font-size: 12px;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   line-height: 1.5;
 }
 .empty-state {
   text-align: center;
-  color: var(--btf-muted);
+  color: var(--analytics-ui-muted, var(--btf-muted));
   font-size: 13px;
   padding: 55px 12px;
   line-height: 1.6;
@@ -1384,17 +1443,17 @@ h2 {
   align-items: center !important;
   gap: 8px !important;
   margin-bottom: 18px !important;
-  color: #59706e !important;
+  color: var(--analytics-ui-muted, #59706e) !important;
   font-size: 14px !important;
 }
 
 .breadcrumb a {
-  color: #59706e !important;
+  color: var(--analytics-ui-muted, #59706e) !important;
   text-decoration: none !important;
 }
 
 .breadcrumb a:hover {
-  color: #08765d !important;
+  color: var(--analytics-ui-accent, #08765d) !important;
   text-decoration: underline !important;
 }
 
@@ -1408,7 +1467,7 @@ h2 {
 .title-line h1,
 .heading-copy h1 {
   margin: 0 !important;
-  color: #163f3c !important;
+  color: var(--analytics-ui-text, #163f3c) !important;
   font-size: 36px !important;
   line-height: 1.15 !important;
   font-weight: 800 !important;
@@ -1418,7 +1477,7 @@ h2 {
 .page-heading .heading-copy > p,
 .page-heading p {
   margin: 8px 0 0 !important;
-  color: #617572 !important;
+  color: var(--analytics-ui-muted, #617572) !important;
   font-size: 16px !important;
 }
 
@@ -1427,10 +1486,10 @@ h2 {
   align-items: center !important;
   min-height: 30px !important;
   padding: 0 10px !important;
-  border: 1px solid #f0d487 !important;
+  border: 1px solid var(--analytics-ui-control-border, #f0d487) !important;
   border-radius: 999px !important;
-  background: #fff7df !important;
-  color: #916700 !important;
+  background: var(--analytics-ui-soft, #fff7df) !important;
+  color: var(--analytics-ui-warning, #916700) !important;
   font-size: 12px !important;
   font-weight: 700 !important;
   white-space: nowrap !important;
@@ -1453,17 +1512,17 @@ h2 {
   height: 46px !important;
   min-height: 46px !important;
   padding: 0 16px !important;
-  border: 1px solid #9fd8c7 !important;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7) !important;
   border-radius: 12px !important;
-  background: #fff !important;
-  color: #017151 !important;
+  background: var(--analytics-ui-surface, #fff) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 14px !important;
   font-weight: 700 !important;
   cursor: pointer !important;
 }
 
 .export-button:hover {
-  background: #ecf8f4 !important;
+  background: var(--analytics-ui-selected, #ecf8f4) !important;
 }
 
 @media (max-width: 780px) {
@@ -1491,10 +1550,10 @@ h2 {
   height: 46px !important;
   min-height: 46px !important;
   padding: 0 13px !important;
-  border: 1px solid #d7e3e0 !important;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0) !important;
   border-radius: 12px !important;
-  background: #fff !important;
-  color: #174844 !important;
+  background: var(--analytics-ui-surface, #fff) !important;
+  color: var(--analytics-ui-text, #174844) !important;
   font-size: 14px !important;
   font-weight: 700 !important;
 }
@@ -1544,9 +1603,9 @@ h2 {
 .mentors-analytics-page .range-control {
   width: 120px !important;
   padding: 0 13px !important;
-  border: 1px solid #9fd8c7 !important;
-  color: #017151 !important;
-  background: #ffffff !important;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
+  background: var(--analytics-ui-page, #ffffff) !important;
   gap: 9px !important;
 }
 
@@ -1564,13 +1623,13 @@ h2 {
 .mentors-analytics-page .export-button {
   width: 142px !important;
   padding: 0 16px !important;
-  border: 1px solid #9fd8c7 !important;
-  color: #017151 !important;
-  background: #ffffff !important;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7) !important;
+  color: var(--analytics-ui-accent, #017151) !important;
+  background: var(--analytics-ui-page, #ffffff) !important;
 }
 
 .mentors-analytics-page .export-button:hover {
-  background: #ecf8f4 !important;
+  background: var(--analytics-ui-selected, #ecf8f4) !important;
 }
 
 /* Keep all six mentor KPI cards on one desktop row. */
@@ -1648,7 +1707,7 @@ h2 {
 
 .mentors-analytics-page .range-control svg,
 .mentors-analytics-page .range-control i {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   stroke: #017151 !important;
 }
 
@@ -1681,7 +1740,7 @@ h2 {
 /* Groups-style green icons in the top-right controls. */
 .mentors-analytics-page .range-control > i,
 .mentors-analytics-page .export-button > i {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
   font-size: 16px !important;
   line-height: 1 !important;
 }
@@ -1689,7 +1748,7 @@ h2 {
 .mentors-analytics-page .range-control,
 .mentors-analytics-page .range-control select,
 .mentors-analytics-page .export-button {
-  color: #017151 !important;
+  color: var(--analytics-ui-accent, #017151) !important;
 }
 
 @media (max-width: 1200px) {
@@ -1719,7 +1778,7 @@ h2 {
 .interactive-mentor-donut-layout {
   display: grid;
   grid-template-columns: minmax(150px, 0.9fr) minmax(180px, 1.1fr);
-  align-items: center;
+  align-items: start;
   gap: 14px;
   min-height: 220px;
   padding-top: 8px;
@@ -1767,7 +1826,7 @@ h2 {
   height: 104px;
   padding: 8px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-sizing: border-box;
   transform: translate(-50%, -50%);
   flex-direction: column;
@@ -1779,14 +1838,14 @@ h2 {
 }
 
 .interactive-mentor-donut-centre strong {
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 28px;
   line-height: 1;
 }
 
 .interactive-mentor-donut-centre > span:last-child {
   margin-top: 8px;
-  color: #667b77;
+  color: var(--analytics-ui-muted, #667b77);
   font-size: 11px;
   line-height: 1.25;
 }
@@ -1794,7 +1853,7 @@ h2 {
 .interactive-donut-selection-label {
   max-width: 88px;
   margin-bottom: 7px;
-  color: #506965 !important;
+  color: var(--analytics-ui-muted, #506965) !important;
   font-size: 10px !important;
   line-height: 1.15 !important;
   font-weight: 700;
@@ -1827,7 +1886,7 @@ h2 {
 .interactive-mentor-donut-legend-row:hover,
 .interactive-mentor-donut-legend-row:focus,
 .interactive-mentor-donut-legend-row.selected {
-  background: #e5f0e2;
+  background: var(--analytics-ui-selected, #e5f0e2);
 }
 
 .interactive-mentor-donut-legend-row > span {
@@ -1835,19 +1894,19 @@ h2 {
   min-width: 0;
   align-items: center;
   gap: 9px;
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .interactive-mentor-donut-legend-row > strong {
-  color: #123f3c;
+  color: var(--analytics-ui-text, #123f3c);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .interactive-mentor-donut-legend-row > strong small {
-  color: #667b77;
+  color: var(--analytics-ui-muted, #667b77);
   font-size: 10px;
   font-weight: 500;
 }

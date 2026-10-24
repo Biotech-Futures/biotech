@@ -266,6 +266,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    # First, so Azure's Always On calls are noted before anything redirects them.
+    "apps.services.always_on.AlwaysOnPingMiddleware",
+    # Starts this process's timer for the timed jobs, when SCHEDULER_ENABLED.
+    "apps.management.scheduler.SchedulerStartMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # GZip must sit above middleware that touches response content.
     "django.middleware.gzip.GZipMiddleware",
@@ -275,6 +279,9 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "apps.user_sessions.middleware.SessionTrackingMiddleware",
+    # Home, Groups, Events, Announcements and Resources kept back from all but
+    # admins until Pages Visibility's date (Management > Challenge Start).
+    "apps.management.pages_visibility.PagesVisibilityMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -671,10 +678,15 @@ GUARDIAN_REMINDER_INTERVAL_DAYS = config("GUARDIAN_REMINDER_INTERVAL_DAYS", defa
 # execute inline so assertions can observe the job row and result URL.
 GRADING_JOB_DISPATCH_SYNC = config("GRADING_JOB_DISPATCH_SYNC", default="false", cast=env_bool)
 # The bulk emails (Notify Finalists, Email Nonfinalist, Release Results) send
-# on the server once started, over this many mail server connections at once.
-# Raise it only as far as the mailbox's sending limits allow. Tests set the
-# sync flag to send inline, one at a time.
-BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=2, cast=int)
+# on the server once started, over this many mail server connections at once,
+# each taking the next email as it's free. When the mail server pushes back
+# (won't take a connection, or emails start failing for anything but an
+# address refused) one is dropped at once, down to BULK_EMAIL_MIN_WORKERS, and that mailbox's runs use that many
+# for BULK_EMAIL_FEWER_MINUTES before trying again. Tests set the sync flag
+# to send inline, the connections taking turns.
+BULK_EMAIL_WORKERS = config("BULK_EMAIL_WORKERS", default=3, cast=int)
+BULK_EMAIL_MIN_WORKERS = config("BULK_EMAIL_MIN_WORKERS", default=2, cast=int)
+BULK_EMAIL_FEWER_MINUTES = config("BULK_EMAIL_FEWER_MINUTES", default=60, cast=int)
 BULK_EMAIL_DISPATCH_SYNC = config("BULK_EMAIL_DISPATCH_SYNC", default="false", cast=env_bool)
 # Once a run has tried every email, it waits this many seconds, then tries
 # once more the ones that failed: Management's bulk emails, announcements, the
@@ -696,9 +708,8 @@ MAIL_SERVER_DOWN_SECONDS = config("MAIL_SERVER_DOWN_SECONDS", default=60, cast=i
 # lock every student out. Flip on post-deploy once the consent flow is live.
 ENFORCE_JOIN_PERMISSION = config("ENFORCE_JOIN_PERMISSION", default="false", cast=env_bool)
 
-# The unread messages digest, run every 15 minutes by
-# .github/workflows/unread-digest.yml (with EMAIL_JOBS_TOKEN) so the first
-# notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
+# The unread messages digest, run every 15 minutes by the backend's timer
+# (apps.management.scheduler) so the first notification is fast. MIN_INTERVAL 8h caps an ignored-but-active conversation at ~2 emails per
 # user per day; QUIET hours (evaluated in QUIET_TZ; start == end disables)
 # hold all sends overnight and re-anchor them to daytime. The quiet block is
 # what makes a sub-24h interval safe — without it, delivery times walk
@@ -793,6 +804,10 @@ QEV_EXHAUSTED_RETRY_MINUTES = config("QEV_EXHAUSTED_RETRY_MINUTES", default=60, 
 # it). Off unless set.
 EMAIL_PRECHECK_ENABLED = config("EMAIL_PRECHECK_ENABLED", default="false", cast=env_bool)
 
+# The backend runs its timed jobs itself (apps.management.scheduler) instead
+# of waiting for GitHub's schedules. Off unless set; needs Always On.
+SCHEDULER_ENABLED = config("SCHEDULER_ENABLED", default="false", cast=env_bool)
+
 # Limits on checking addresses before a registration is submitted: addresses
 # in one request (fewer for anyone not signed in), new lookups one IP address
 # may cause an hour (the rest are left unchecked), and the seconds after which
@@ -810,3 +825,7 @@ QEV_PRECHECK_WORKERS = config("QEV_PRECHECK_WORKERS", default=8, cast=int)
 # Seconds a queued pre-submission check (waiting behind earlier ones) may go
 # without starting before it counts as stalled and the page submits anyway.
 EMAIL_PRECHECK_QUEUED_STALL_SECONDS = config("EMAIL_PRECHECK_QUEUED_STALL_SECONDS", default=300, cast=int)
+
+# Refuse an address QuickEmailVerification answered as not existing when an
+# admin edits a user or a student changes their guardian. Off unless set.
+EMAIL_CHECK_ON_EDIT = config("EMAIL_CHECK_ON_EDIT", default="false", cast=env_bool)

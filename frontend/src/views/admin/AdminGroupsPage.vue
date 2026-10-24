@@ -130,9 +130,9 @@
     >
       <!-- Mentor status, beside Search. -->
       <template #filters>
-        <label class="admin-groups__filter-field">
-          <span class="admin-groups__filter-label">Mentor status</span>
-          <AppSelect v-model="mentorStatus" aria-label="Mentor status" :options="MENTOR_STATUS_OPTIONS" />
+        <label class="table-filter-field">
+          <span class="table-filter-label">Mentor status</span>
+          <AppSelect v-model="mentorStatus" class="table-filter" aria-label="Mentor status" :options="MENTOR_STATUS_OPTIONS" />
         </label>
       </template>
       <template #cell-name="{ row }">
@@ -200,7 +200,7 @@
         This destroys that content too, not just the group, and cannot be undone.
       </p>
       <div class="admin-groups__delete-type">
-        <label class="admin-groups__delete-confirm-label" for="bulk-delete-confirm">
+        <label class="table-filter-label" for="bulk-delete-confirm">
           Type <span class="admin-groups__delete-keyword">DELETE</span> to confirm
         </label>
         <input
@@ -771,14 +771,6 @@ const submitForm = async () => {
   margin-top: 0.75rem;
 }
 
-.admin-groups__delete-confirm-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 .admin-groups__delete-keyword {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 700;
@@ -802,36 +794,11 @@ const submitForm = async () => {
 
 /* White filter panel, matching .admin-users__filters on the People page. */
 /* Mentor status beside Search in the table's search card, drawn like it. */
-.admin-groups__filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.admin-groups__filter-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
 /* Dialog form labels stay sentence-case (like .form-label on the user form). */
 .admin-groups__form-label {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-muted);
-}
-
-.admin-groups__filter-field .app-select {
-  min-width: 9rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
 }
 
 .admin-groups__error {

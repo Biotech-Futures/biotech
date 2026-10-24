@@ -16,7 +16,7 @@ const formattedTime = computed(() => props.updatedAt
 <style scoped>
 .analytics-refresh-status {
   margin: 8px 0 0;
-  color: #536763;
+  color: var(--analytics-ui-muted, #536763);
   font-size: 13px;
   line-height: 1.3;
   text-align: right;

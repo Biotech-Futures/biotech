@@ -506,17 +506,15 @@ def render_participation_certificate(context: dict) -> bytes:
 _SAMPLE_MARK_SHARES = (Decimal("0.6"), Decimal("0.7"), Decimal("0.8"), Decimal("0.9"))
 
 
-def sample_components(year: int, shift: int = 0) -> list[dict]:
+def sample_components(shift: int = 0) -> list[dict]:
     """Every component with its real rubric, as a released summary would show
-    it: this year's active rubric, else the component's latest active one.
-    Marks and comments are made up; ``shift`` varies them, so several sample
-    teams don't all score the same. A component with no rubric has no
-    criteria, as on a real summary."""
+    it. Marks and comments are made up; ``shift`` varies them, so several
+    sample teams don't all score the same. A component with no active rubric
+    has no criteria, as on a real summary."""
     out = []
     for component in SubmissionComponent.objects.order_by("order", "id"):
         code, name = component.code, component.name
-        rubrics = Rubric.objects.filter(component=component, active=True)
-        rubric = rubrics.filter(year=year).first() or rubrics.order_by("-year").first()
+        rubric = Rubric.objects.filter(component=component, active=True).first()
         criteria = [(c.name, c.max_mark) for c in rubric.criteria.all()] if rubric else []
         out.append({
             "code": code,
@@ -551,7 +549,7 @@ def sample_marks_summary_context() -> dict:
         "project_category": "Sample Project Category",
         "solution_category": "Sample Solution Category",
         "year": current_cohort(),
-        "components": sample_components(current_cohort()),
+        "components": sample_components(),
         "director_1_name": settings.director_1_name or "Sample Director One",
         "director_2_name": settings.director_2_name or "Sample Director Two",
         "director_1_position": settings.director_1_position or "Sample Position One",

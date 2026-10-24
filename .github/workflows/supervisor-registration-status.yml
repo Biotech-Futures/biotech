@@ -1,24 +1,24 @@
-name: Daily supervisor registration status
+name: Weekly supervisor registration status
 
 # Emails each supervisor whose students aren't all registered yet (a
 # permission form still to sign): how many are complete, waiting for a
-# signature, or waiting for guardian details. Once a day, until every one of
-# their students is complete. The backend decides who is due, so this only
-# has to fire once a day.
+# signature, or waiting for guardian details. Once a week, until every one of
+# their students is complete. The backend decides who is due (not emailed in
+# the last 7 days), so it runs once a day: a missed run is made up the
+# next day.
 #
-# Firing more often than that is harmless: a supervisor already emailed today
-# is skipped, so a retry or an overlapping run cannot email anyone twice.
+# Firing more often than that is harmless: a supervisor emailed in the last
+# week is skipped, so a retry or an overlapping run cannot email anyone twice.
 #
 # Required configuration:
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# 22:03 UTC is 8:03am in Sydney during registration (AEST, UTC+10), 9:03am
-# under daylight saving. The odd minute avoids GitHub's top-of-hour cron
-# congestion.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself daily at 20:00 UTC (7am in Sydney under daylight saving, 6am in
+# winter), an hour after the guardian details reminders
+# (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "3 22 * * *"
   workflow_dispatch:
 
 jobs:

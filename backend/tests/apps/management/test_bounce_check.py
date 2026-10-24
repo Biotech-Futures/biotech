@@ -123,7 +123,9 @@ class MailApiTests(SimpleTestCase):
     def test_it_lists_the_mailboxes_signed_in_with_the_key(self, get):
         get.return_value = self.response(body={"data": {"mailboxes": [{"resourceId": "mb1", "address": "Info@X.org"}]}})
         self.assertEqual(hostinger_mail.mailboxes(), [{"id": "mb1", "address": "info@x.org"}])
-        self.assertEqual(get.call_args.kwargs["headers"], {"Authorization": "Bearer test-key"})
+        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer test-key")
+        # By name: Cloudflare turns away requests' own User-Agent with a 403.
+        self.assertNotIn("python-requests", get.call_args.kwargs["headers"]["User-Agent"])
 
     @patch("apps.services.hostinger_mail.requests.get")
     def test_it_pages_through_the_inbox_newest_first(self, get):
@@ -306,8 +308,10 @@ class TriggerTests(TestCase):
         self.assertEqual(self.post().json(), {"status": SWITCHED_OFF})
         self.thread.assert_not_called()
 
+    # The thread closes its own connection, and run here that is the test's.
+    @patch("apps.management.services.bounce_check.close_old_connections")
     @patch("apps.management.services.bounce_check.check_bounces", side_effect=MailApiError("The Mail API answered 401."))
-    def test_a_failed_check_lets_the_next_one_run(self, check):
+    def test_a_failed_check_lets_the_next_one_run(self, check, close_connections):
         cache.add(RUNNING, True)
         with self.assertLogs("apps.management.services.bounce_check", level="ERROR"):
             _run_check()

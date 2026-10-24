@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CSV_HEADERS,
+  CSV_HEADER_LABELS,
   createPendingPeer,
   createRegistrationForms,
   findCrossRoleEmailConflicts,
@@ -24,7 +25,7 @@ describe('registration form factories', () => {
 
   it("leaves out the guardian's relationship, and ignores extra columns and the rows only they fill", () => {
     expect(registrationCsvTemplate()).toBe(
-      'first_name,last_name,email,school,year_level,country,state,interests,guardian_first_name,guardian_last_name,guardian_email\r\n',
+      'First Name,Last Name,Email,School,Year Level,Country,State,Area(s) of Interest,Guardian First Name,Guardian Last Name,Guardian Email\r\n',
     )
     const extra = `${CSV_HEADERS.join(',')},guardian_relationship,notes\r\nAlex,Morgan,alex@example.edu.au,Example Secondary College,10,Australia,NSW,Biomedical Innovations,Taylor,Morgan,taylor@example.com,Parent,Keen\r\n,,,,,,,,,,,,Just a note\r\n`
     const result = parseRegistrationCsv(extra)
@@ -36,12 +37,14 @@ describe('registration form factories', () => {
 
   it('starts every group member as Member 1, with their guardian optional', () => {
     const forms = createRegistrationForms()
-    expect(forms.studentTeam.creator.country).toBe('Australia')
+    // No country is chosen for anyone: each picks their own.
+    expect(forms.studentTeam.creator.country).toBe('')
+    expect(forms.mentor.country).toBe('')
     for (const peer of [forms.studentTeam.teammates[0], createPendingPeer()]) {
       expect(peer).toMatchObject({
         school: '',
         yearLevel: '',
-        country: 'Australia',
+        country: '',
         state: '',
         interests: [],
         guardianDeferred: true,
@@ -79,7 +82,9 @@ describe('registration form factories', () => {
 
 describe('parseRegistrationCsv', () => {
   it('downloads an empty template without sample people or grouping choices', () => {
-    expect(registrationCsvTemplate()).toBe(`${CSV_HEADERS.join(',')}\r\n`)
+    expect(registrationCsvTemplate()).toBe(
+      `${CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]).join(',')}\r\n`,
+    )
     expect(parseRegistrationCsv(registrationCsvTemplate()).errors).toEqual([
       'The CSV has a header row but no student rows.',
     ])
@@ -161,12 +166,12 @@ describe('parseRegistrationCsv', () => {
     row.values.interests = 'Unknown interest'
     const unknown = revalidateRegistrationCsvRows([row, peer])[0]
     expect(unknown.category).toBe('invalid')
-    expect(unknown.fieldErrors?.interests).toBe('Not an Areas of Interest option: Unknown interest.')
+    expect(unknown.fieldErrors?.interests).toBe('Not an Area(s) of Interest option: Unknown interest.')
     row.values.interests = 'biomedical innovations'
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
     row.values.interests = ''
     expect(revalidateRegistrationCsvRows([row, peer])[0].category).toBe('valid')
-    // A State in Australia, as on the student form; a Region elsewhere is optional.
+    // A State in Australia, as on the student form; elsewhere it's optional.
     row.values.state = ''
     expect(revalidateRegistrationCsvRows([row, peer])[0].fieldErrors?.state).toBe(
       'Enter the Australian state or territory.',
@@ -244,8 +249,21 @@ describe('parseRegistrationCsv', () => {
     const result = parseRegistrationCsv('first_name,email\nAlex,alex@example.com')
 
     expect(result.rows).toEqual([])
-    expect(result.errors[0]).toBe('Column 2 must be last_name, not email.')
-    expect(result.errors.at(-1)).toBe('Column 11 must be guardian_email.')
+    expect(result.errors[0]).toBe('Column 2 must be Last Name, not email.')
+    expect(result.errors.at(-1)).toBe('Column 11 must be Guardian Email.')
+  })
+
+  it("takes the template's names, or the old ones, in any case", () => {
+    const row = 'Alex,Morgan,alex@example.edu.au,Example Secondary College,10,Australia,NSW,,,,'
+    for (const headers of [
+      CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]),
+      [...CSV_HEADERS],
+      CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header].toLowerCase()),
+    ]) {
+      const result = parseRegistrationCsv(`${headers.join(',')}\n${row}`)
+      expect(result.errors).toEqual([])
+      expect(result.rows[0].values.first_name).toBe('Alex')
+    }
   })
 
   it('needs the headers in their order', () => {
@@ -255,8 +273,8 @@ describe('parseRegistrationCsv', () => {
 
     expect(result.rows).toEqual([])
     expect(result.errors).toEqual([
-      'Column 1 must be first_name, not last_name.',
-      'Column 2 must be last_name, not first_name.',
+      'Column 1 must be First Name, not last_name.',
+      'Column 2 must be Last Name, not first_name.',
     ])
   })
 })

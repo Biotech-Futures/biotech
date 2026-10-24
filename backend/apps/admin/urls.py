@@ -27,6 +27,7 @@ urlpatterns = [
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
     path('user/<str:user_id>/supervisees/', views.UserSuperviseesView.as_view(), name='user-supervisees'),
+    path('user/<str:user_id>/profile-image/', views.UserProfileImageView.as_view(), name='user-profile-image'),
     path('user/<str:user_id>/guardian-consent-request/', views.UserGuardianConsentRequestView.as_view(), name='user-guardian-consent-request'),
     path('user/<str:user_id>/guardian-consents/', views.UserGuardianConsentsView.as_view(), name='user-guardian-consents'),
     path('user/<str:user_id>/guardian-consents/<int:consent_id>/record/', views.UserGuardianConsentRecordView.as_view(), name='user-guardian-consent-record'),
@@ -99,10 +100,16 @@ urlpatterns = [
     # TASK ROUTES
     # ========================================================================
     path('task/', views.AdminTaskListCreateView.as_view(), name='admin-task-list-create'),
-    # Must precede the <int:task_id> route so the literal segment wins.
-    path('task/role-recipients/', views.AdminTaskRoleRecipientsView.as_view(), name='admin-task-role-recipients'),
     path('task/<int:task_id>/', views.AdminTaskDetailView.as_view(), name='admin-task-detail'),
     path('task/<int:task_id>/toggle/', views.AdminTaskToggleView.as_view(), name='admin-task-toggle'),
+
+    # ========================================================================
+    # ROLE TASK ROUTES
+    # ========================================================================
+    path('role-task/', views.AdminRoleTaskListCreateView.as_view(), name='admin-role-task-list-create'),
+    # Must precede the <int:role_task_id> route so the literal segment wins.
+    path('role-task/role-recipients/', views.AdminRoleTaskRoleRecipientsView.as_view(), name='admin-role-task-role-recipients'),
+    path('role-task/<int:role_task_id>/', views.AdminRoleTaskDetailView.as_view(), name='admin-role-task-detail'),
 
     # ========================================================================
     # ADMIN AUTH ROUTES
@@ -133,6 +140,8 @@ urlpatterns = [
     path('email-template/<str:key>/restore-default/', views.SystemEmailTemplateRestoreView.as_view(), name='email-template-restore'),
     path('email-template/<str:key>/', views.SystemEmailTemplateDetailView.as_view(), name='email-template-detail'),
     path('email-settings/', views.SystemEmailSettingsView.as_view(), name='email-settings'),
+    path('email-settings/always-on/', views.SystemEmailAlwaysOnView.as_view(), name='email-settings-always-on'),
+    path('scheduled-jobs/', views.ScheduledJobsView.as_view(), name='scheduled-jobs'),
     path('email-log/', views.SystemEmailLogView.as_view(), name='email-log'),
     path('email-log/unseen/', views.SystemEmailUnseenFailuresView.as_view(), name='email-log-unseen'),
     path('email-log/mail-api/', views.SystemEmailMailApiView.as_view(), name='email-log-mail-api'),
@@ -157,6 +166,7 @@ urlpatterns = [
     # ========================================================================
     path('known-university/', views.KnownUniversityListCreateView.as_view(), name='known-university-list-create'),
     path('known-university/<int:university_id>/', views.KnownUniversityDetailView.as_view(), name='known-university-detail'),
+    path('known-university/upload/', views.KnownUniversityUploadView.as_view(), name='known-university-upload'),
 
     # ========================================================================
     # GROUP PLAN ROUTES (builder and progress; literal progress precedes task IDs)

@@ -21,7 +21,7 @@
             id="ann-title"
             v-model.trim="title"
             type="text"
-            class="editor__title"
+            class="editor__title app-input app-input--wide"
             placeholder="Announcement title"
             maxlength="255"
             required
@@ -527,23 +527,6 @@ async function handleSubmit(sendEmail: boolean) {
 
 .required-star {
   color: #dc2626;
-}
-
-.form-input {
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  color: #111827;
-  background-color: #ffffff;
-  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
 }
 
 .admin-ann-form__section {

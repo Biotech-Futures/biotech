@@ -143,7 +143,7 @@ class GroupResultsView(APIView):
         shows_certificates = (
             state["certificates_released"] and state["has_submission"] and not state["certificates_withheld"]
         )
-        components = grades_payload(group, year) if shows_marks else []
+        components = grades_payload(group) if shows_marks else []
         parts = [_results_part(component) for component in components if component["code"] in RELEASED_PARTS]
         return Response({
             **state,

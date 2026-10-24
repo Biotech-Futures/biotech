@@ -91,7 +91,7 @@ class GroupActivityAnalyticsApiTests(APITestCase):
             user=self.mentor,
             membership_role=GroupMembership.MembershipRoleChoices.MENTOR,
         )
-        # A mentor in two groups is still one mentor in the ratio.
+        # Each mentor assignment represents one group's mentor-to-student ratio.
         GroupMembership.objects.create(
             group=self.empty_group,
             user=self.mentor,
@@ -214,7 +214,7 @@ class GroupActivityAnalyticsApiTests(APITestCase):
         )
         self.assertEqual(response.data["data"]["mentor_count"], 1)
         self.assertEqual(response.data["data"]["student_count"], 2)
-        self.assertEqual(response.data["data"]["students_per_mentor"], 2.0)
+        self.assertEqual(response.data["data"]["students_per_mentor"], 1.0)
         self.assertEqual(
             response.data["data"]["query_range"],
             {"start": None, "end": None},
@@ -290,6 +290,85 @@ class GroupActivityAnalyticsApiTests(APITestCase):
         self.assertEqual(summaries[2025]["mentor_count"], 1)
         self.assertEqual(summaries[2025]["student_count"], 2)
         self.assertEqual(summaries[2025]["students_per_mentor"], 2.0)
+        self.assertEqual(
+            summaries[2025]["group_size_distribution"],
+            [
+                {"student_count": 0, "group_count": 0},
+                {"student_count": 1, "group_count": 0},
+                {"student_count": 2, "group_count": 1},
+                {"student_count": 3, "group_count": 0},
+                {"student_count": 4, "group_count": 0},
+                {"student_count": 5, "group_count": 0},
+            ],
+        )
+        self.assertEqual(summaries[2025]["small_groups"], 1)
+        self.assertEqual(summaries[2025]["full_groups"], 0)
+        self.assertEqual(summaries[2025]["over_capacity_groups"], 0)
+        self.assertEqual(summaries[2025]["active_groups"], 0)
+        self.assertEqual(summaries[2025]["inactive_groups"], 1)
+        self.assertEqual(summaries[2025]["not_started_groups"], 0)
+
+    def test_active_groups_use_the_week_ending_on_the_years_latest_message(self):
+        recent_group, quiet_group = (
+            Groups.objects.create(
+                group_name=name,
+                year=2025,
+                created_at=datetime(2025, 1, 1, tzinfo=datetime_timezone.utc),
+            )
+            for name in ("Recent 2025 group", "Quiet 2025 group")
+        )
+        for group in (recent_group, quiet_group):
+            GroupMembership.objects.create(
+                group=group,
+                user=self.user,
+                membership_role=GroupMembership.MembershipRoleChoices.STUDENT,
+                joined_at=datetime(2025, 2, 1, tzinfo=datetime_timezone.utc),
+            )
+        # The last 2025 message is on 10 September: the week before it counts,
+        # earlier messages do not, and nobody wrote over the holidays.
+        Messages.objects.create(
+            group=recent_group,
+            sender_user=self.user,
+            message_text="september",
+            sent_at=datetime(2025, 9, 4, 0, tzinfo=datetime_timezone.utc),
+        )
+        Messages.objects.create(
+            group=recent_group,
+            sender_user=self.user,
+            message_text="last of the year",
+            sent_at=datetime(2025, 9, 10, 9, tzinfo=datetime_timezone.utc),
+        )
+        Messages.objects.create(
+            group=quiet_group,
+            sender_user=self.user,
+            message_text="early september",
+            sent_at=datetime(2025, 9, 3, 23, 59, tzinfo=datetime_timezone.utc),
+        )
+        # 2026 ends in a window still to come; its latest message (15
+        # September, after BTF1's August messages) anchors the week instead.
+        group_2026 = Groups.objects.create(
+            group_name="2026 group",
+            year=2026,
+            created_at=datetime(2026, 1, 1, tzinfo=datetime_timezone.utc),
+        )
+        Messages.objects.create(
+            group=group_2026,
+            sender_user=self.user,
+            message_text="mid september",
+            sent_at=datetime(2026, 9, 15, 3, tzinfo=datetime_timezone.utc),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(self.url, {"end": "2026-10-15"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        summaries = {
+            row["year"]: row
+            for row in response.data["data"]["group_summary_by_year"]
+        }
+        self.assertEqual(summaries[2025]["active_groups"], 1)
+        self.assertEqual(summaries[2025]["inactive_groups"], 1)
+        self.assertEqual(summaries[2026]["active_groups"], 1)
 
     def test_date_range_filters_message_counts_inclusively(self):
         Messages.objects.create(

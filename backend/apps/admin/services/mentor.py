@@ -9,7 +9,6 @@ from apps.common.tz import utc_offset_hours
 from apps.users.models import User, MentorProfile
 from apps.chat.models import Messages
 from apps.users.models import UserInterest, AreasOfInterest
-from apps.admin.services.user import STATUS_ACTIVE, STATUS_DEACTIVATED
 from apps.audit.services import log_audit_event
 
 
@@ -180,9 +179,10 @@ def set_mentor_active(mentor_id: int, is_active: bool, initiated_by=None) -> Opt
         return None
 
     before_state = {"isActive": user.is_active, "accountStatus": user.account_status}
-    user.is_active = is_active
-    user.account_status = STATUS_ACTIVE if is_active else STATUS_DEACTIVATED
-    user.save(update_fields=["is_active", "account_status"])
+    if is_active:
+        user.activate()
+    else:
+        user.deactivate()
     log_audit_event(
         actor=initiated_by,
         entity_type="user",

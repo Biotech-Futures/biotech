@@ -20,10 +20,10 @@ defineEmits<{ retry: [] }>()
 .analytics-partial-notice {
   margin: 16px 0;
   padding: 16px 20px;
-  border: 1px solid var(--btf-border, #d7e2de);
+  border: 1px solid var(--analytics-ui-border, var(--btf-border, #d7e2de));
   border-radius: 12px;
-  background: var(--btf-surface, #f7faf9);
-  color: var(--btf-teal, #174243);
+  background: var(--analytics-ui-page, var(--btf-surface, #f7faf9));
+  color: var(--analytics-ui-text, var(--btf-teal, #174243));
 }
 .analytics-partial-notice p { margin: 0 0 10px; line-height: 1.5; }
 .analytics-partial-notice button {

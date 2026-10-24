@@ -15,16 +15,18 @@
         <div class="notify-finalists__fields">
           <label v-for="field in DATE_FIELDS" :key="field.key" class="notify-finalists__field">
             <span>{{ field.label }}</span>
-            <input
+            <AppDatePicker
               v-model="form[field.key]"
-              type="date"
+              class="app-input app-input--compact"
+              :clearable="false"
+              :data-test="`email-date-${field.key}`"
               :min="details.today"
               :class="{ 'is-invalid': saveTried && isPast(field.key) }"
             />
           </label>
           <label class="notify-finalists__field notify-finalists__field--wide">
-            <span>Registration Link</span>
-            <input v-model="form.registration_url" type="url" placeholder="https://…" />
+            <span>Symposium Registration Link</span>
+            <input v-model="form.registration_url" class="app-input app-input--compact" type="url" placeholder="https://…" />
           </label>
         </div>
         <p v-if="pastDatesMessage" class="notify-finalists__field-error" role="alert">
@@ -216,6 +218,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import AppDatePicker from '@/components/AppDatePicker.vue'
 import { useEmailPreview } from '@/composables/useEmailPreview'
 import {
   deliveryNote,
@@ -490,7 +493,7 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   color: var(--text-muted);
 }
 
-.notify-finalists__field input.is-invalid {
+.notify-finalists__field .is-invalid {
   border-color: var(--danger);
 }
 
@@ -501,15 +504,10 @@ useEmailRun(() => details.value, loadDetails, reportRun)
   margin: 0 0 0.75rem;
 }
 
-/* Same boxes as Document Setup's text fields. */
-.notify-finalists__field input {
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
-  font-size: 0.9rem;
-  font-family: inherit;
-  background: var(--surface-elevated);
-  color: var(--teal);
+/* The shared compact box (app-input), filling its column. */
+.notify-finalists__field .app-input {
+  width: auto;
+  max-width: none;
 }
 
 .notify-finalists__field input:focus {

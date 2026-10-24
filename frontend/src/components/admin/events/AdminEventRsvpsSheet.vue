@@ -28,64 +28,37 @@
         </div>
       </div>
 
-      <!-- Search & Filters -->
-      <div v-if="rsvps.length > 0 || searchFilter" class="admin-event-rsvps__toolbar">
-        <div class="admin-event-rsvps__search-wrap">
-          <i class="fas fa-search admin-event-rsvps__search-icon" aria-hidden="true"></i>
-          <input
-            v-model.trim="searchFilter"
-            type="search"
-            class="admin-event-rsvps__search-input"
-            placeholder="Search attendees by name or email..."
-            aria-label="Search attendees"
-          />
-          <button
-            v-if="searchFilter"
-            type="button"
-            class="admin-event-rsvps__search-clear"
-            aria-label="Clear attendee search"
-            @click="searchFilter = ''"
-          >
-            &times;
-          </button>
-        </div>
-
-        <AppSelect
-          v-model="statusFilter"
-          class="admin-event-rsvps__status-select"
-          aria-label="Filter by RSVP status"
-          :options="STATUS_OPTIONS"
-        />
-      </div>
-
       <!-- Error alert -->
       <p v-if="error" class="admin-event-rsvps__error" role="alert">
         {{ error }}
       </p>
 
-      <!-- Loading skeleton -->
-      <div v-if="loading" class="admin-event-rsvps__loading" role="status" aria-live="polite">
-        <div class="admin-event-rsvps__spinner" aria-hidden="true"></div>
-        <span>Loading RSVP attendee list...</span>
-      </div>
-
-      <!-- Empty state (no RSVPs or no match) -->
-      <div
-        v-else-if="!filteredRsvps.length"
-        class="admin-event-rsvps__empty"
-        role="status"
+      <!-- The site's table: Search and Status above it, rows per page and its
+           pager under it. Every RSVP at once (All), as the list always showed
+           them. Newest response first; its headings sort. -->
+      <AppDataTable
+        v-model:search="searchFilter"
+        :columns="rsvpColumns"
+        :rows="rsvpRows"
+        row-key="id"
+        :selectable="false"
+        :page-size="DATA_TABLE_ALL"
+        :loading="loading"
+        search-placeholder="Name, email or user type"
+        :default-sort="{ key: 'respondedAt', direction: 'desc' }"
+        :empty-message="searchFilter.trim() || statusFilter ? 'No matching RSVPs.' : 'No RSVPs yet.'"
       >
-        <i class="fas fa-users-slash admin-event-rsvps__empty-icon" aria-hidden="true"></i>
-        <p class="admin-event-rsvps__empty-title">
-          {{ searchFilter || statusFilter ? 'No matching RSVPs found' : 'No RSVPs yet' }}
-        </p>
-        <p class="admin-event-rsvps__empty-sub">
-          {{ searchFilter || statusFilter ? 'Try clearing your search query or status filter.' : 'When students or mentors respond to this event, they will appear here.' }}
-        </p>
-      </div>
-
-      <!-- RSVP Table -->
-      <AppSimpleTable v-else :columns="rsvpColumns" :rows="rsvpRows">
+        <template #filters>
+          <div class="table-filter-field">
+            <label class="table-filter-label" for="rsvp-status-filter">Status</label>
+            <AppSelect
+              id="rsvp-status-filter"
+              v-model="statusFilter"
+              class="table-filter"
+              :options="STATUS_OPTIONS"
+            />
+          </div>
+        </template>
         <template #cell-user="{ row }">
           <div class="admin-event-rsvps__attendee">
             <div class="admin-event-rsvps__avatar" aria-hidden="true">{{ row.initials }}</div>
@@ -111,7 +84,7 @@
         <template #cell-respondedAt="{ value }">
           <span class="admin-event-rsvps__date">{{ value }}</span>
         </template>
-      </AppSimpleTable>
+      </AppDataTable>
     </div>
 
     <template #footer>
@@ -126,7 +99,8 @@
 import { computed, ref, watch } from 'vue'
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
-import AppSimpleTable, { type SimpleTableColumn } from '@/components/AppSimpleTable.vue'
+import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
+import { DATA_TABLE_ALL } from '@/utils/dataTable'
 import type { AdminEventRsvpItem, AdminUser } from '@/utils/adminAPI'
 import { fetchAdminEventRsvps, fetchAdminUsers, fetchAdminUser } from '@/utils/adminAPI'
 import { formatShortDateTime } from '@/utils/date'
@@ -324,8 +298,8 @@ const filteredRsvps = computed(() => {
     list = list.filter((r) => r.rsvpStatus === statusFilter.value)
   }
 
-  if (searchFilter.value) {
-    const q = searchFilter.value.toLowerCase()
+  const q = searchFilter.value.trim().toLowerCase()
+  if (q) {
     list = list.filter((r) => {
       const name = userName(r).toLowerCase()
       const email = userEmail(r).toLowerCase()
@@ -337,25 +311,17 @@ const filteredRsvps = computed(() => {
   return list
 })
 
-// Newest response first.
-const sortedRsvps = computed(() =>
-  [...filteredRsvps.value].sort((a, b) => {
-    const dateA = a.respondedAt ? new Date(a.respondedAt).getTime() : 0
-    const dateB = b.respondedAt ? new Date(b.respondedAt).getTime() : 0
-    return dateB - dateA
-  })
-)
-
-const rsvpColumns: SimpleTableColumn[] = [
-  { key: 'user', label: 'User' },
+// Sorted as their headings are clicked; newest response first to start.
+const rsvpColumns: DataTableColumn[] = [
+  { key: 'user', label: 'User', sortValue: (row) => String(row.name).toLowerCase() },
   { key: 'role', label: 'User Type' },
-  { key: 'status', label: 'Status' },
-  { key: 'respondedAt', label: 'Responded At' },
+  { key: 'status', label: 'Status', sortValue: (row) => String(row.statusLabel) },
+  { key: 'respondedAt', label: 'Responded At', sortValue: (row) => Number(row.respondedTime) },
 ]
 
 // What each row shows, worked out once for the table.
 const rsvpRows = computed(() =>
-  sortedRsvps.value.map((rsvp) => ({
+  filteredRsvps.value.map((rsvp) => ({
     id: rsvp.id,
     initials: userInitials(rsvp),
     name: userName(rsvp),
@@ -365,6 +331,7 @@ const rsvpRows = computed(() =>
     status: rsvp.rsvpStatus,
     statusLabel: statusLabel(rsvp.rsvpStatus),
     respondedAt: rsvp.respondedAt ? formatShortDateTime(rsvp.respondedAt) : '—',
+    respondedTime: rsvp.respondedAt ? new Date(rsvp.respondedAt).getTime() : 0,
   }))
 )
 </script>
@@ -428,110 +395,6 @@ const rsvpRows = computed(() =>
   background-color: rgba(255, 80, 80, 0.12);
   border-color: #ff5050;
   color: #ff5050;
-}
-
-.admin-event-rsvps__toolbar {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.admin-event-rsvps__search-wrap {
-  position: relative;
-  flex: 1;
-  min-width: 220px;
-  display: flex;
-  align-items: center;
-}
-
-.admin-event-rsvps__search-icon {
-  position: absolute;
-  left: 0.75rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  pointer-events: none;
-}
-
-.admin-event-rsvps__search-input {
-  width: 100%;
-  padding: 0.5rem 2rem 0.5rem 2.2rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
-}
-
-.admin-event-rsvps__search-input:focus {
-  outline: none;
-  border-color: var(--dark-green);
-  box-shadow: 0 0 0 3px rgba(1, 113, 81, 0.15);
-}
-
-.admin-event-rsvps__search-clear {
-  position: absolute;
-  right: 0.5rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 1.1rem;
-  cursor: pointer;
-  padding: 0.1rem 0.3rem;
-  border-radius: 999px;
-}
-
-.admin-event-rsvps__status-select {
-  padding: 0.5rem 0.6rem 0.5rem 0.75rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--white);
-  color: var(--teal);
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.admin-event-rsvps__loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  padding: 3rem 1rem;
-  color: var(--text-muted);
-  font-size: 0.95rem;
-}
-
-.admin-event-rsvps__spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border-light);
-  border-top-color: var(--dark-green);
-  border-radius: 50%;
-  animation: admin-spin 0.8s linear infinite;
-}
-
-.admin-event-rsvps__empty {
-  text-align: center;
-  padding: 3rem 1.5rem;
-  color: var(--text-muted);
-}
-
-.admin-event-rsvps__empty-icon {
-  font-size: 2.5rem;
-  color: var(--border-light);
-  margin-bottom: 0.75rem;
-}
-
-.admin-event-rsvps__empty-title {
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--teal);
-  margin: 0 0 0.25rem;
-}
-
-.admin-event-rsvps__empty-sub {
-  font-size: 0.875rem;
-  margin: 0;
 }
 
 /* Avatar beside the name, email under the name. */
@@ -617,11 +480,5 @@ const rsvpRows = computed(() =>
   font-weight: 700;
   vertical-align: middle;
   white-space: nowrap;
-}
-
-@keyframes admin-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 </style>

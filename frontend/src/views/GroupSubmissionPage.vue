@@ -165,7 +165,7 @@
             <input
               id="project-title"
               v-model="projectTitle"
-              class="form-control"
+              class="form-control app-input app-input--wide"
               type="text"
               :maxlength="PROJECT_TITLE_MAX_LENGTH"
               v-show="!live.isLocked(TITLE_FIELD)"
@@ -181,7 +181,7 @@
             />
             <LiveTextPanel
               v-if="live.isLocked(TITLE_FIELD)"
-              class="form-control"
+              class="form-control app-input app-input--wide"
               :text="projectTitle"
               :caret="live.caretIn(TITLE_FIELD)"
               :rows="1"
@@ -549,7 +549,7 @@
             <input
               id="prototype-url"
               v-model="prototypeUrl"
-              class="form-control"
+              class="form-control app-input app-input--wide"
               type="url"
               placeholder="https://…"
               :disabled="!isEditable"

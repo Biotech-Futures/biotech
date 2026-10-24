@@ -56,7 +56,7 @@
             <strong><AnalyticsNumber :value="data.totalGroups" /></strong>
             <AnalyticsYearChange :current="groupComparison.current" :previous="groupComparison.previous" :label="`vs ${groupComparison.previousYear}`" />
           </div>
-          <small>Current groups, compared by creation year</small>
+          <small>Current groups</small>
         </div>
       </article>
 
@@ -73,7 +73,7 @@
               :label="`vs ${data.averageGroupSizePreviousYear}`"
             />
           </div>
-          <small>{{ data.averageGroupSizePrevious === null ? 'No earlier membership history available' : `Compared with ${data.averageGroupSizePreviousYear}` }}</small>
+          <small>Students per group</small>
         </div>
       </article>
 
@@ -124,7 +124,7 @@
               :label="`vs ${data.comparisonPreviousYear}`"
             />
           </div>
-          <small>{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Target 1 : 8' }}</small>
+          <small>{{ data.mentorStudentRatio === null ? 'No ratio available' : 'Students per assigned mentor' }}</small>
         </div>
       </article>
     </section>
@@ -147,7 +147,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
               <circle
@@ -160,7 +160,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="group-donut-segment"
@@ -221,7 +221,7 @@
                 r="64"
                 pathLength="100"
                 fill="none"
-                stroke="#e7ebef"
+                stroke="var(--analytics-ui-border, #e7ebef)"
                 stroke-width="24"
               />
               <circle
@@ -234,7 +234,7 @@
                 fill="none"
                 :stroke="segment.color"
                 stroke-width="24"
-                :stroke-dasharray="`${segment.percent} ${100 - segment.percent}`"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
                 :stroke-dashoffset="-segment.start"
                 stroke-linecap="butt"
                 class="group-donut-segment"
@@ -279,6 +279,81 @@
         </div>
       </article>
 
+      <article class="analytics-card student-assignment-card">
+        <h2>Student Assignment Coverage</h2>
+        <div v-if="studentAssignmentCoverage" class="donut-layout">
+          <div class="group-donut-wrap" @mouseleave="clearStudentCoverageSelection">
+            <svg
+              class="group-donut-svg"
+              viewBox="0 0 180 180"
+              role="img"
+              aria-label="Student assignment coverage"
+            >
+              <circle
+                cx="90"
+                cy="90"
+                r="64"
+                pathLength="100"
+                fill="none"
+                stroke="var(--analytics-ui-border, #e7ebef)"
+                stroke-width="24"
+              />
+              <circle
+                v-for="segment in studentCoverageSegments"
+                :key="segment.label"
+                cx="90"
+                cy="90"
+                r="64"
+                pathLength="100"
+                fill="none"
+                :stroke="segment.color"
+                stroke-width="24"
+                :stroke-dasharray="`${segment.drawPercent} ${100 - segment.drawPercent}`"
+                :stroke-dashoffset="-segment.start"
+                stroke-linecap="butt"
+                class="group-donut-segment"
+                :class="{ selected: selectedStudentCoverage?.label === segment.label }"
+                transform="rotate(-90 90 90)"
+                tabindex="0"
+                @mouseenter="selectStudentCoverage(segment)"
+                @focus="selectStudentCoverage(segment)"
+                @blur="clearStudentCoverageSelection"
+              />
+            </svg>
+
+            <div class="donut-centre group-donut-centre">
+              <template v-if="selectedStudentCoverage">
+                <span class="donut-selection-label">{{ selectedStudentCoverage.label }}</span>
+                <strong>{{ selectedStudentCoverage.value }}</strong>
+                <span>{{ selectedStudentCoverage.percent }}% of students</span>
+              </template>
+              <template v-else>
+                <strong>{{ studentAssignmentCoverage.total }}</strong>
+                <span>Total Students</span>
+              </template>
+            </div>
+          </div>
+
+          <div class="legend-list">
+            <div
+              v-for="segment in studentCoverageSegments"
+              :key="segment.label"
+              class="legend-row donut-legend-row"
+              :class="{ selected: selectedStudentCoverage?.label === segment.label }"
+              @mouseenter="selectStudentCoverage(segment)"
+              @mouseleave="clearStudentCoverageSelection"
+            >
+              <span>
+                <i class="dot" :style="{ background: segment.color }"></i>
+                {{ segment.label }}
+              </span>
+              <strong>{{ segment.value }} ({{ segment.percent }}%)</strong>
+            </div>
+          </div>
+        </div>
+        <p v-else class="student-assignment-unavailable">Student assignment data is unavailable.</p>
+      </article>
+
 <article class="analytics-card wide-distribution-card group-size-card">
         <h2>Group Size Distribution</h2>
         <div class="chart-with-y-axis">
@@ -309,38 +384,6 @@
         </div>
         <div class="y-axis-title">Number of Groups</div>
         <div class="axis-caption">Number of Students per Group</div>
-      </article>
-
-<article class="analytics-card wide-distribution-card ratio-card">
-        <h2>Mentor-to-Student Ratio by Group</h2>
-        <div class="chart-with-y-axis">
-          <div class="y-axis">
-            <span v-for="tick in axisTicks(maxRatioCount)" :key="tick">{{ tick }}</span>
-          </div>
-          <div class="y-axis-line">
-            <div class="vertical-chart">
-          <div
-            v-for="item in data.ratioDistribution"
-            :key="item.label"
-            class="vertical-bar-item"
-          >
-            <span class="bar-value">{{ item.value }}</span>
-            <div class="vertical-track">
-              <div
-                class="vertical-fill blue-bar interactive-chart-mark"
-                :style="{ height: `${barHeight(item.value, maxRatioCount)}%` }"
-                @mouseenter="showTooltip($event, `Ratio ${item.label}`, `${item.value} groups`, 'Mentor-to-student ratio')"
-                @mousemove="moveTooltip"
-                @mouseleave="hideTooltip"
-              ></div>
-            </div>
-            <span class="bar-label">{{ item.label }}</span>
-          </div>
-        </div>
-          </div>
-        </div>
-        <div class="y-axis-title">Number of Groups</div>
-        <div class="axis-caption">Mentor-to-Student Ratio</div>
       </article>
 
       <article class="analytics-card compact-insights-card insights-card">
@@ -462,12 +505,12 @@ import ChartTooltip from '@/components/analytics/ChartTooltip.vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { GroupsAnalyticsYear } from '@/types/analytics'
 import {
-  analyticsYears,
   buildGroupsAnalytics,
+  groupAnalyticsYears,
   groupYearComparison,
   liveAnalyticsAsOf,
-  liveAnalyticsYear,
   loadGroupsAnalyticsBundle,
+  participantYearComparison,
   type CoreAnalyticsBundle,
 } from '@/utils/liveAnalyticsData'
 import type { AdminGroup, AdminUser } from '@/utils/liveAnalyticsApi'
@@ -525,7 +568,6 @@ const liveData = ref<GroupsAnalyticsYear>({
   overCapacity: 0,
   groupSizeDistribution: [],
   groupStatus: [],
-  ratioDistribution: [],
   groupActivity: [],
 })
 const liveUsers = ref<AdminUser[]>([])
@@ -544,6 +586,19 @@ useAnalyticsRefreshState('groups', {
 const analyticsRefreshBusy = ref(false)
 const { lastUpdated, refreshFailed, markUpdated, markRefreshFailed } = useAnalyticsRefresh(async () => { if (!analyticsRefreshBusy.value) await initializeGroups(true, true) })
 
+function applySelectedYear(year: number) {
+  if (!groupBundle.value) return
+  liveData.value = buildGroupsAnalytics(groupBundle.value, year)
+  const previousSummary = groupBundle.value.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === year - 1)
+  groupComparison.value = {
+    year,
+    previousYear: year - 1,
+    current: liveData.value.totalGroups,
+    previous: previousSummary?.group_count ?? groupYearComparison(groupBundle.value.groups, year).previous,
+  }
+}
+
 async function initializeGroups(force = false, preserveFilters = false) {
   if (analyticsRefreshBusy.value) return
   analyticsRefreshBusy.value = true
@@ -552,16 +607,16 @@ async function initializeGroups(force = false, preserveFilters = false) {
   try {
     const bundle = await loadGroupsAnalyticsBundle(force)
     unavailableSources.value = bundle.unavailableSources ?? []
-    // User records are needed for current allocation only. Keep the existing
-    // group charts and year range anchored to group message activity.
+    // User records are needed for current allocation only. Group years come
+    // from group creation, membership summaries and recorded group activity.
     const activityBundle = { ...bundle, users: [] }
     groupBundle.value = activityBundle
-    availableYears.value = analyticsYears(activityBundle)
-    groupComparison.value = groupYearComparison(bundle.groups, liveAnalyticsYear(bundle))
-    if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) selectedYear.value = availableYears.value[0]!
+    availableYears.value = groupAnalyticsYears(activityBundle)
+    const currentYear = new Date().getUTCFullYear()
+    if (!preserveFilters || !availableYears.value.includes(selectedYear.value)) selectedYear.value = currentYear
     liveUsers.value = bundle.users
     liveGroups.value = bundle.groups
-    liveData.value = buildGroupsAnalytics(activityBundle, selectedYear.value)
+    applySelectedYear(selectedYear.value)
     markUpdated()
   } catch (error) {
     if (preserveFilters && lastUpdated.value) { markRefreshFailed(); return }
@@ -573,9 +628,7 @@ async function initializeGroups(force = false, preserveFilters = false) {
 }
 
 onMounted(() => initializeGroups())
-watch(selectedYear, (year) => {
-  if (groupBundle.value) liveData.value = buildGroupsAnalytics(groupBundle.value, year)
-})
+watch(selectedYear, applySelectedYear)
 
 const tooltip = ref({
   visible: false,
@@ -610,11 +663,6 @@ function hideTooltip() {
 
 const data = computed(() => liveData.value)
 const groupInsightItems = computed(() => [
-  {
-    key: 'without-mentor',
-    value: data.value.groupsWithoutMentor,
-    text: `groups (${percent(data.value.groupsWithoutMentor, data.value.totalGroups)}%) do not have a mentor assigned.`,
-  },
   { key: 'small', value: data.value.smallGroups, text: 'groups have fewer than 3 students.' },
   ...(sourceAvailable('groupActivity') ? [{ key: 'inactive', value: data.value.inactiveRecent, text: 'groups have had no activity in the past 7 days.' }] : []),
   { key: 'capacity', value: data.value.nearCapacity, text: 'groups are full (5 students, the maximum).' },
@@ -635,6 +683,29 @@ const studentsNotAssignedRows = computed(() =>
 )
 const studentsNotAssignedCount = computed(() => studentsNotAssignedRows.value.length)
 
+const studentAssignmentCoverage = computed(() => {
+  if (!sourceAvailable('users')) return null
+
+  const participantStudents = participantYearComparison(liveUsers.value, selectedYear.value).current.students
+  const historicalSummary = groupBundle.value?.groupActivity.group_summary_by_year
+    ?.find((row) => row.year === selectedYear.value)
+  const assignedFallback = new Set(
+    liveGroups.value
+      .filter((group) => new Date(group.createdAt).getUTCFullYear() <= selectedYear.value)
+      .flatMap((group) => group.members)
+      .filter((member) => member.role.toLowerCase() === 'student')
+      .map((member) => String(member.id)),
+  ).size
+  const assigned = historicalSummary?.student_count ?? assignedFallback
+  const total = Math.max(participantStudents, assigned)
+
+  return {
+    total,
+    assigned,
+    unassigned: Math.max(total - assigned, 0),
+  }
+})
+
 const groupsWithoutMentorRows = computed(() =>
   liveGroups.value
     .filter((group) => !group.mentor)
@@ -649,22 +720,41 @@ const maxGroupSizeCount = computed(() =>
   Math.max(...groupSizeDistributionForChart.value.map((item) => item.value), 1),
 )
 
-const maxRatioCount = computed(() =>
-  Math.max(...data.value.ratioDistribution.map((item) => item.value), 1),
-)
-
 
 
 type DonutSegment = {
   label: string
   value: number
   percent: number
+  drawPercent: number
   start: number
   color: string
 }
 
 const selectedStatus = ref<DonutSegment | null>(null)
 const selectedCoverage = ref<DonutSegment | null>(null)
+const selectedStudentCoverage = ref<DonutSegment | null>(null)
+
+function buildDonutSegments(
+  items: Array<{ label: string; value: number; color: string }>,
+  total: number,
+): DonutSegment[] {
+  let start = 0
+
+  return items.map((item, index) => {
+    const drawPercent = total
+      ? (index === items.length - 1 ? Math.max(0, 100 - start) : (item.value / total) * 100)
+      : 0
+    const segment = {
+      ...item,
+      percent: percent(item.value, total),
+      drawPercent,
+      start,
+    }
+    start += drawPercent
+    return segment
+  })
+}
 
 const statusSegments = computed<DonutSegment[]>(() => {
   const statusColors: Record<string, string> = {
@@ -673,20 +763,14 @@ const statusSegments = computed<DonutSegment[]>(() => {
     'Not started': '#5EA99E',
   }
 
-  let start = 0
-
-  return data.value.groupStatus.map((item) => {
-    const segment = {
+  return buildDonutSegments(
+    data.value.groupStatus.map((item) => ({
       label: item.label,
       value: item.value,
-      percent: percent(item.value, data.value.totalGroups),
-      start,
       color: statusColors[item.label] ?? item.color,
-    }
-
-    start += segment.percent
-    return segment
-  })
+    })),
+    data.value.totalGroups,
+  )
 })
 
 const coverageSegments = computed<DonutSegment[]>(() => {
@@ -703,18 +787,18 @@ const coverageSegments = computed<DonutSegment[]>(() => {
     },
   ]
 
-  let start = 0
+  return buildDonutSegments(raw, data.value.totalGroups)
+})
 
-  return raw.map((item) => {
-    const segment = {
-      ...item,
-      percent: percent(item.value, data.value.totalGroups),
-      start,
-    }
+const studentCoverageSegments = computed<DonutSegment[]>(() => {
+  const coverage = studentAssignmentCoverage.value
+  if (!coverage) return []
 
-    start += segment.percent
-    return segment
-  })
+  const raw = [
+    { label: 'Assigned', value: coverage.assigned, color: '#017151' },
+    { label: 'Unassigned', value: coverage.unassigned, color: '#F1E5A6' },
+  ]
+  return buildDonutSegments(raw, coverage.total)
 })
 
 function selectStatus(segment: DonutSegment) {
@@ -733,6 +817,15 @@ function selectCoverage(segment: DonutSegment) {
 
 function clearCoverageSelection() {
   selectedCoverage.value = null
+}
+
+function selectStudentCoverage(segment: DonutSegment) {
+  selectedStudentCoverage.value = segment
+  hideTooltip()
+}
+
+function clearStudentCoverageSelection() {
+  selectedStudentCoverage.value = null
 }
 
 
@@ -812,11 +905,15 @@ function groupsSummary() {
     figure('Groups', `Groups without mentor (${previous})`, current.groupsWithoutMentorPrevious, 'groups'),
     figure('Groups', 'Students per mentor', current.mentorStudentRatio, 'students', 'Mentor-to-student ratio 1 : value'),
     figure('Groups', `Students per mentor (${previous})`, current.mentorStudentRatioPrevious, 'students'),
-    figure('Groups', 'Students not assigned to a group', studentsNotAssignedCount.value, 'students'),
+    ...(studentAssignmentCoverage.value
+      ? [
+          figure('Student assignment', 'Assigned to a group', studentAssignmentCoverage.value.assigned, 'students'),
+          figure('Student assignment', 'Not assigned to a group', studentAssignmentCoverage.value.unassigned, 'students'),
+        ]
+      : []),
     ...groupInsightItems.value.map((item) => figure('Key insights', item.text, item.value, 'groups')),
     ...current.groupStatus.map((item) => figure('Group status', item.label, item.value, 'groups')),
     ...current.groupSizeDistribution.map((item) => figure('Group size (students)', item.label, item.value, 'groups')),
-    ...current.ratioDistribution.map((item) => figure('Mentor-to-student ratio by group', item.label, item.value, 'groups')),
     ...current.groupActivity.flatMap((month) => [
       figure('Group activity by month', `${month.month}: active`, month.active, 'groups'),
       figure('Group activity by month', `${month.month}: inactive`, month.inactive, 'groups'),
@@ -910,8 +1007,8 @@ function exportCsv(kind: ExportKind) {
 .groups-analytics-page {
   padding: 28px 32px 40px;
   min-height: 100%;
-  background: #f7faf9;
-  color: #153f3c;
+  background: var(--analytics-ui-page, #f7faf9);
+  color: var(--analytics-ui-text, #153f3c);
 }
 
 .page-heading {
@@ -927,22 +1024,22 @@ function exportCsv(kind: ExportKind) {
   align-items: center;
   gap: 8px;
   margin-bottom: 18px;
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   font-size: 14px;
 }
 
 .breadcrumb a {
-  color: #59706e;
+  color: var(--analytics-ui-muted, #59706e);
   text-decoration: none;
 }
 
 .breadcrumb a:hover {
-  color: #08765d;
+  color: var(--analytics-ui-accent, #08765d);
   text-decoration: underline;
 }
 
 .breadcrumb-separator {
-  color: #9aaaa7;
+  color: var(--analytics-ui-muted, #9aaaa7);
 }
 
 .title-line {
@@ -954,7 +1051,7 @@ function exportCsv(kind: ExportKind) {
 
 .title-line h1 {
   margin: 0;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 36px;
   line-height: 1.15;
   font-weight: 800;
@@ -962,7 +1059,7 @@ function exportCsv(kind: ExportKind) {
 
 .page-heading p {
   margin: 8px 0 0;
-  color: #617572;
+  color: var(--analytics-ui-muted, #617572);
   font-size: 16px;
 }
 
@@ -971,10 +1068,10 @@ function exportCsv(kind: ExportKind) {
   align-items: center;
   min-height: 30px;
   padding: 0 10px;
-  border: 1px solid #f0d487;
+  border: 1px solid var(--analytics-ui-control-border, #f0d487);
   border-radius: 999px;
-  background: #fff7df;
-  color: #916700;
+  background: var(--analytics-ui-soft, #fff7df);
+  color: var(--analytics-ui-warning, #916700);
   font-size: 12px;
   font-weight: 700;
 }
@@ -990,7 +1087,7 @@ function exportCsv(kind: ExportKind) {
 .export-button {
   height: 46px;
   border-radius: 12px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   font-size: 14px;
   font-weight: 700;
 }
@@ -1001,8 +1098,8 @@ function exportCsv(kind: ExportKind) {
   gap: 9px;
   width: 120px;
   padding: 0 13px;
-  border: 1px solid #d7e3e0;
-  color: #174844;
+  border: 1px solid var(--analytics-ui-border, #d7e3e0);
+  color: var(--analytics-ui-text, #174844);
 }
 
 .year-control select {
@@ -1023,13 +1120,13 @@ function exportCsv(kind: ExportKind) {
   gap: 8px;
   width: 142px;
   padding: 0 16px;
-  border: 1px solid #9fd8c7;
-  color: #017151;
+  border: 1px solid var(--analytics-ui-control-border, #9fd8c7);
+  color: var(--analytics-ui-accent, #017151);
   cursor: pointer;
 }
 
 .export-button:hover {
-  background: #ecf8f4;
+  background: var(--analytics-ui-selected, #ecf8f4);
 }
 
 .kpi-grid {
@@ -1041,9 +1138,9 @@ function exportCsv(kind: ExportKind) {
 
 .kpi-card,
 .analytics-card {
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 14px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
 }
 
@@ -1051,8 +1148,8 @@ function exportCsv(kind: ExportKind) {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 112px;
-  padding: 17px;
+  min-height: 0;
+  padding: 10px 18px;
 }
 
 .kpi-icon {
@@ -1065,16 +1162,16 @@ function exportCsv(kind: ExportKind) {
   font-size: 22px;
 }
 
-.kpi-icon.purple { color: #5EA99E; background: color-mix(in srgb, #5EA99E 14%, white); }
-.kpi-icon.teal { color: #017151; background: color-mix(in srgb, #BAD7B8 55%, white); }
-.kpi-icon.blue { color: #39687B; background: color-mix(in srgb, #39687B 14%, white); }
-.kpi-icon.red { color: #174243; background: color-mix(in srgb, #BAD7B8 45%, white); }
-.kpi-icon.orange { color: #017151; background: color-mix(in srgb, #F1E5A6 50%, white); }
+.kpi-icon.purple { color: var(--analytics-ui-muted, #5EA99E); background: color-mix(in srgb, #5EA99E 14%, var(--analytics-ui-surface, white)); }
+.kpi-icon.teal { color: var(--analytics-ui-accent, #017151); background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 55%, var(--analytics-ui-surface, white)); }
+.kpi-icon.blue { color: var(--analytics-ui-secondary, #39687B); background: color-mix(in srgb, #39687B 14%, var(--analytics-ui-surface, white)); }
+.kpi-icon.red { color: var(--analytics-ui-text, #174243); background: color-mix(in srgb, var(--analytics-ui-soft, #BAD7B8) 45%, var(--analytics-ui-surface, white)); }
+.kpi-icon.orange { color: var(--analytics-ui-accent, #017151); background: color-mix(in srgb, var(--analytics-ui-warning-bg, #F1E5A6) 50%, var(--analytics-ui-surface, white)); }
 
 .kpi-label {
   display: block;
   margin-bottom: 5px;
-  color: #4e6662;
+  color: var(--analytics-ui-muted, #4e6662);
   font-size: 12px;
 }
 
@@ -1087,7 +1184,7 @@ function exportCsv(kind: ExportKind) {
 .kpi-value-row strong,
 .kpi-value {
   display: block;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 27px;
   line-height: 1.05;
 }
@@ -1097,14 +1194,14 @@ function exportCsv(kind: ExportKind) {
   white-space: nowrap;
 }
 
-.trend-up { color: #017151; font-weight: 700; }
+.trend-up { color: var(--analytics-ui-accent, #017151); font-weight: 700; }
 
-.trend-down { color: #39687B; font-weight: 700; }
+.trend-down { color: var(--analytics-ui-secondary, #39687B); font-weight: 700; }
 
 .kpi-card small {
   display: block;
   margin-top: 4px;
-  color: #7c8d89;
+  color: var(--analytics-ui-muted, #7c8d89);
   font-size: 10px;
 }
 
@@ -1123,7 +1220,7 @@ function exportCsv(kind: ExportKind) {
 
 .analytics-card h2 {
   margin: 0 0 12px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 16px;
   line-height: 1.2;
 }
@@ -1131,7 +1228,7 @@ function exportCsv(kind: ExportKind) {
 .analytics-card h2 small {
   font-size: 10px;
   font-weight: 500;
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
 }
 
 .vertical-chart {
@@ -1150,7 +1247,7 @@ function exportCsv(kind: ExportKind) {
 }
 
 .bar-value {
-  color: #355953;
+  color: var(--analytics-ui-text, #355953);
   font-size: 10px;
   font-weight: 700;
 }
@@ -1160,7 +1257,7 @@ function exportCsv(kind: ExportKind) {
   align-items: flex-end;
   width: 35px;
   height: 138px;
-  border-bottom: 1px solid #dce5e2;
+  border-bottom: 1px solid var(--analytics-ui-border, #dce5e2);
 }
 
 .vertical-fill {
@@ -1175,14 +1272,14 @@ function exportCsv(kind: ExportKind) {
 
 .bar-label {
   margin-top: 5px;
-  color: #647875;
+  color: var(--analytics-ui-muted, #647875);
   font-size: 9px;
   text-align: center;
 }
 
 .axis-caption {
   margin-top: -2px;
-  color: #5f7470;
+  color: var(--analytics-ui-muted, #5f7470);
   font-size: 9px;
   text-align: center;
 }
@@ -1211,18 +1308,18 @@ function exportCsv(kind: ExportKind) {
   place-items: center;
   align-content: center;
   border-radius: 50%;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   text-align: center;
 }
 
 .donut-centre strong {
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 25px;
 }
 
 .donut-centre span {
   margin-top: 2px;
-  color: #687b77;
+  color: var(--analytics-ui-muted, #687b77);
   font-size: 10px;
 }
 
@@ -1235,7 +1332,7 @@ function exportCsv(kind: ExportKind) {
   justify-content: space-between;
   gap: 12px;
   margin: 16px 0;
-  color: #3f5b57;
+  color: var(--analytics-ui-muted, #3f5b57);
   font-size: 11px;
 }
 
@@ -1253,9 +1350,9 @@ function exportCsv(kind: ExportKind) {
 }
 
 .blue-dot { background: #017151; }
-.grey-dot { background: #BAD7B8; }
+.grey-dot { background: var(--analytics-ui-soft, #BAD7B8); }
 .active-dot { background: #017151; }
-.inactive-dot { background: #BAD7B8; }
+.inactive-dot { background: var(--analytics-ui-selected, #BAD7B8); }
 
 .horizontal-bars {
   display: grid;
@@ -1268,7 +1365,7 @@ function exportCsv(kind: ExportKind) {
   grid-template-columns: 62px minmax(80px, 1fr) 36px;
   align-items: center;
   gap: 8px;
-  color: #3d5b57;
+  color: var(--analytics-ui-text, #3d5b57);
   font-size: 10px;
 }
 
@@ -1283,7 +1380,7 @@ function exportCsv(kind: ExportKind) {
   overflow: hidden;
   height: 11px;
   border-radius: 4px;
-  background: #edf1f0;
+  background: var(--analytics-ui-soft, #edf1f0);
 }
 
 .horizontal-fill,
@@ -1302,7 +1399,7 @@ function exportCsv(kind: ExportKind) {
 }
 
 .grid-line {
-  stroke: #edf1f0;
+  stroke: var(--analytics-ui-border, #edf1f0);
   stroke-width: 1;
 }
 
@@ -1312,7 +1409,7 @@ function exportCsv(kind: ExportKind) {
 
 .message-line {
   fill: none;
-  stroke: #7f5af0;
+  stroke: var(--analytics-ui-control-border, #7f5af0);
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -1327,7 +1424,7 @@ function exportCsv(kind: ExportKind) {
   grid-template-columns: repeat(12, 1fr);
   margin-top: -10px;
   padding: 0 7px 0 22px;
-  color: #6f807d;
+  color: var(--analytics-ui-muted, #6f807d);
   font-size: 8px;
   text-align: center;
 }
@@ -1337,7 +1434,7 @@ function exportCsv(kind: ExportKind) {
   justify-content: center;
   gap: 20px;
   margin-bottom: 6px;
-  color: #617571;
+  color: var(--analytics-ui-muted, #617571);
   font-size: 10px;
 }
 
@@ -1393,11 +1490,11 @@ function exportCsv(kind: ExportKind) {
 }
 
 .stacked-value-labels .active-value {
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .stacked-value-labels .inactive-value {
-  color: #7aa777;
+  color: var(--analytics-ui-muted, #7aa777);
 }
 
 .stacked-track {
@@ -1405,14 +1502,14 @@ function exportCsv(kind: ExportKind) {
   align-items: flex-end;
   width: 16px;
   height: 144px;
-  border-bottom: 1px solid #dce5e2;
+  border-bottom: 1px solid var(--analytics-ui-border, #dce5e2);
 }
 
 .stacked-inactive {
   position: relative;
   width: 100%;
   border-radius: 3px 3px 0 0;
-  background: #BAD7B8;
+  background: var(--analytics-ui-selected, #BAD7B8);
 }
 
 .stacked-active {
@@ -1426,7 +1523,7 @@ function exportCsv(kind: ExportKind) {
 
 .stacked-item span {
   margin-top: 4px;
-  color: #697c78;
+  color: var(--analytics-ui-muted, #697c78);
   font-size: 8px;
 }
 
@@ -1451,14 +1548,14 @@ function exportCsv(kind: ExportKind) {
   height: 24px;
   place-items: center;
   border-radius: 7px;
-  background: #f2f5f8;
-  color: #445f5b;
+  background: var(--analytics-ui-soft, #f2f5f8);
+  color: var(--analytics-ui-muted, #445f5b);
   font-size: 10px;
   font-weight: 800;
 }
 
 .rank-name {
-  color: #415d59;
+  color: var(--analytics-ui-muted, #415d59);
   font-size: 10px;
 }
 
@@ -1467,14 +1564,14 @@ function exportCsv(kind: ExportKind) {
 }
 
 .ranking-list strong {
-  color: #2e534d;
+  color: var(--analytics-ui-text, #2e534d);
   font-size: 10px;
   text-align: right;
 }
 
 .insights-card h2 i {
   margin-right: 7px;
-  color: #5279a5;
+  color: var(--analytics-ui-secondary, #5279a5);
 }
 
 .insights-list {
@@ -1502,13 +1599,13 @@ function exportCsv(kind: ExportKind) {
   font-size: 12px;
 }
 
-.insight-red strong { background: #BAD7B8; color: #174243; }
-.insight-orange strong { background: #F1E5A6; color: #174243; }
+.insight-red strong { background: var(--analytics-ui-soft, #BAD7B8); color: var(--analytics-ui-text, #174243); }
+.insight-orange strong { background: var(--analytics-ui-warning-bg, #F1E5A6); color: var(--analytics-ui-text, #174243); }
 .insight-purple strong { background: #5EA99E; color: #FFFFFF; }
 .insight-blue strong { background: #39687B; color: #FFFFFF; }
 
 .insight-row span {
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
 }
 
 
@@ -1627,7 +1724,7 @@ function exportCsv(kind: ExportKind) {
 .donut-selection-label {
   max-width: 88px;
   margin-bottom: 2px;
-  color: #506965 !important;
+  color: var(--analytics-ui-muted, #506965) !important;
   font-size: 10px !important;
   font-weight: 700;
   text-align: center;
@@ -1644,7 +1741,7 @@ function exportCsv(kind: ExportKind) {
 
 .donut-legend-row:hover,
 .donut-legend-row.selected {
-  background: #f2f7f5;
+  background: var(--analytics-ui-selected, #f2f7f5);
 }
 
 
@@ -1660,21 +1757,21 @@ function exportCsv(kind: ExportKind) {
   flex-direction: column;
   justify-content: space-between;
   padding: 2px 0 24px;
-  color: #7a8984;
+  color: var(--analytics-ui-muted, #7a8984);
   font-size: 10px;
   line-height: 1;
   text-align: right;
 }
 
 .y-axis-line {
-  border-left: 1px solid #d9e2df;
+  border-left: 1px solid var(--analytics-ui-border, #d9e2df);
   padding-left: 8px;
 }
 
 .y-axis-title {
   margin-top: 6px;
   padding-bottom: 2px;
-  color: #52615c;
+  color: var(--analytics-ui-muted, #52615c);
   font-size: 10px;
   line-height: 14px;
   font-weight: 700;
@@ -1686,9 +1783,9 @@ function exportCsv(kind: ExportKind) {
 .purple-bar { background: #5EA99E !important; }
 .blue-bar { background: #39687B !important; }
 .active-dot { background: #017151 !important; }
-.inactive-dot { background: #BAD7B8 !important; }
+.inactive-dot { background: var(--analytics-ui-selected, #BAD7B8) !important; }
 .stacked-active { background: #017151 !important; }
-.stacked-inactive { background: #BAD7B8 !important; }
+.stacked-inactive { background: var(--analytics-ui-selected, #BAD7B8) !important; }
 
 /* Group Activity spacing refinement */
 .analytics-card:has(> h2:first-child) {
@@ -1726,7 +1823,7 @@ function exportCsv(kind: ExportKind) {
 /* Requested large-data layout */
 .groups-custom-grid {
   display: grid !important;
-  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1.45fr) minmax(220px, 0.7fr) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 14px !important;
   align-items: stretch;
 }
@@ -1740,15 +1837,25 @@ function exportCsv(kind: ExportKind) {
 }
 
 .mentor-coverage-card {
+  grid-column: 2 / 3;
+}
+
+.student-assignment-card {
   grid-column: 3 / 4;
+}
+
+.student-assignment-unavailable {
+  display: grid;
+  height: calc(100% - 30px);
+  margin: 0;
+  place-items: center;
+  color: var(--analytics-ui-muted, #687a76);
+  font-size: 12px;
+  text-align: center;
 }
 
 .group-size-card {
   grid-column: 1 / 2;
-}
-
-.ratio-card {
-  grid-column: 2 / 3;
 }
 
 .compact-insights-card {
@@ -1820,15 +1927,15 @@ function exportCsv(kind: ExportKind) {
   .group-activity-card,
   .group-status-card,
   .mentor-coverage-card,
+  .student-assignment-card,
   .group-size-card,
-  .ratio-card,
   .compact-insights-card {
     grid-column: auto;
   }
 }
 
-.activity-definition { margin:5px 0 10px; color:#687a76; font-size:11px; line-height:1.4; }
-.activity-definition strong { color:#174243; }
+.activity-definition { margin:5px 0 10px; color:var(--analytics-ui-muted, #687a76); font-size:11px; line-height:1.4; }
+.activity-definition strong { color:var(--analytics-ui-text, #174243); }
 
 /* Restore the original donut-card proportions: Group Status is wide, Mentor Coverage keeps its own card width. */
 @media (min-width: 1280px) {
@@ -1837,35 +1944,32 @@ function exportCsv(kind: ExportKind) {
     gap: 14px !important;
   }
 
-  /* Row 1: Group Status and Mentor Coverage use matching widths; Key Insights stays one narrow card. */
+  /* Row 1: group status, mentor coverage and student assignment align. */
   .group-status-card {
-    grid-column: 1 / 34 !important;
+    grid-column: 1 / 29 !important;
     grid-row: 1;
   }
 
   .mentor-coverage-card {
-    grid-column: 34 / 67 !important;
+    grid-column: 29 / 57 !important;
     grid-row: 1;
   }
 
-  /* Key Insights runs down both chart rows so every insight fits at the
-     shared Key Insights text size. */
-  .compact-insights-card {
-    grid-column: 67 / 85 !important;
-    grid-row: 1 / 3;
-    height: auto !important;
+  .student-assignment-card {
+    grid-column: 57 / 85 !important;
+    grid-row: 1;
   }
 
-  /* Row 2: group size (0–5 students) and the ratio chart share the width
-     beside Key Insights. */
+  /* Row 2: Key Insights matches the Group Size Distribution height. */
   .group-size-card {
-    grid-column: 1 / 34 !important;
+    grid-column: 1 / 57 !important;
     grid-row: 2;
   }
 
-  .ratio-card {
-    grid-column: 34 / 67 !important;
+  .compact-insights-card {
+    grid-column: 57 / 85 !important;
     grid-row: 2;
+    height: 270px !important;
   }
 
   /* Row 3: Group Activity is full width. */
@@ -1875,7 +1979,8 @@ function exportCsv(kind: ExportKind) {
   }
 
   .group-status-card .donut-layout,
-  .mentor-coverage-card .donut-layout {
+  .mentor-coverage-card .donut-layout,
+  .student-assignment-card .donut-layout {
     display: flex !important;
     align-items: center;
     justify-content: center;
@@ -1884,7 +1989,8 @@ function exportCsv(kind: ExportKind) {
   }
 
   .group-status-card .group-donut-wrap,
-  .mentor-coverage-card .group-donut-wrap {
+  .mentor-coverage-card .group-donut-wrap,
+  .student-assignment-card .group-donut-wrap {
     flex: 0 0 172px;
     width: 172px;
     height: 172px;
@@ -1892,7 +1998,8 @@ function exportCsv(kind: ExportKind) {
   }
 
   .group-status-card .group-donut-svg,
-  .mentor-coverage-card .group-donut-svg {
+  .mentor-coverage-card .group-donut-svg,
+  .student-assignment-card .group-donut-svg {
     display: block;
     width: 172px !important;
     height: 172px !important;
@@ -1901,12 +2008,12 @@ function exportCsv(kind: ExportKind) {
   }
 
   .group-status-card .legend-list,
-  .mentor-coverage-card .legend-list {
-    min-width: 150px;
+  .mentor-coverage-card .legend-list,
+  .student-assignment-card .legend-list {
+    min-width: 128px;
   }
 
-  .group-size-card .vertical-chart,
-  .ratio-card .vertical-chart {
+  .group-size-card .vertical-chart {
     min-width: 0 !important;
     width: 100%;
     justify-content: space-between;
@@ -1919,21 +2026,14 @@ function exportCsv(kind: ExportKind) {
     padding-inline: 6px;
   }
 
-  .ratio-card .vertical-chart {
-    gap: 14px;
-    padding-inline: 12px;
-  }
-
-  .group-size-card .vertical-bar-item,
-  .ratio-card .vertical-bar-item {
+  .group-size-card .vertical-bar-item {
     flex: 1 1 0;
     width: auto;
     min-width: 30px;
     max-width: 64px;
   }
 
-  .group-size-card .vertical-track,
-  .ratio-card .vertical-track {
+  .group-size-card .vertical-track {
     width: 30px;
   }
 
@@ -1966,14 +2066,34 @@ function exportCsv(kind: ExportKind) {
   }
 }
 
+/* Compact KPI cards avoid the reserved two-line slots that previously
+   created excess vertical space. */
+.groups-analytics-page .kpi-grid .kpi-card {
+  align-items: center !important;
+}
+
+.groups-analytics-page .kpi-grid .kpi-card > .kpi-icon {
+  align-self: center !important;
+}
+
+.groups-analytics-page .kpi-card > div:not(.kpi-icon) {
+  align-self: center !important;
+}
+
+.groups-analytics-page .kpi-card > div:not(.kpi-icon) > .kpi-label,
+.groups-analytics-page .kpi-card > div:not(.kpi-icon) > small,
+.groups-analytics-page .kpi-card .analytics-value-row {
+  min-height: 0 !important;
+}
+
 
 
 /* Active / inactive group directory */
 .group-directory-card {
   margin-top: 14px;
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 14px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
   padding: 18px;
 }
@@ -1988,13 +2108,13 @@ function exportCsv(kind: ExportKind) {
 
 .group-directory-header h2 {
   margin: 0 0 5px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 18px;
 }
 
 .group-directory-header p {
   margin: 0;
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 12px;
 }
 
@@ -2010,10 +2130,10 @@ function exportCsv(kind: ExportKind) {
 .group-status-control,
 .group-clear-button {
   height: 40px;
-  border: 1px solid #cfe0dc;
+  border: 1px solid var(--analytics-ui-border, #cfe0dc);
   border-radius: 10px;
-  background: #fff;
-  color: #174844;
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174844);
 }
 
 .group-search-control {
@@ -2025,7 +2145,7 @@ function exportCsv(kind: ExportKind) {
 }
 
 .group-search-control i {
-  color: #6d827e;
+  color: var(--analytics-ui-muted, #6d827e);
 }
 
 .group-search-control input {
@@ -2034,7 +2154,7 @@ function exportCsv(kind: ExportKind) {
   border: 0;
   outline: 0;
   background: transparent;
-  color: #174844;
+  color: var(--analytics-ui-text, #174844);
   font: inherit;
   font-size: 12px;
 }
@@ -2063,31 +2183,31 @@ function exportCsv(kind: ExportKind) {
   justify-content: center;
   gap: 7px;
   padding: 0 12px;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .group-clear-button:hover {
-  background: #eef8f5;
+  background: var(--analytics-ui-selected, #eef8f5);
 }
 
 .group-directory-summary {
   margin: 0 0 9px;
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 11px;
 }
 
 .group-directory-summary strong {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .group-table-wrap {
   max-height: 430px;
   overflow-y: auto;
   overflow-x: hidden;
-  border: 1px solid #e4ecea;
+  border: 1px solid var(--analytics-ui-border, #e4ecea);
   border-radius: 11px;
 }
 
@@ -2095,7 +2215,7 @@ function exportCsv(kind: ExportKind) {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 12px;
 }
 
@@ -2110,16 +2230,16 @@ function exportCsv(kind: ExportKind) {
   z-index: 2;
   height: 46px;
   padding: 0 14px;
-  border-bottom: 1px solid #dce6e3;
-  background: #f1f6f4;
-  color: #174243;
+  border-bottom: 1px solid var(--analytics-ui-border, #dce6e3);
+  background: var(--analytics-ui-soft, #f1f6f4);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
 }
 
 .group-activity-table tbody td {
   height: 46px;
   padding: 0 14px;
-  border-bottom: 1px solid #edf2f0;
+  border-bottom: 1px solid var(--analytics-ui-border, #edf2f0);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2150,12 +2270,12 @@ function exportCsv(kind: ExportKind) {
 }
 
 .table-sort-button i {
-  color: #5EA99E;
+  color: var(--analytics-ui-muted, #5EA99E);
   font-size: 10px;
 }
 
 .group-name-cell {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
   font-weight: 700;
 }
 
@@ -2173,25 +2293,25 @@ function exportCsv(kind: ExportKind) {
 
 .group-status-chip.active {
   background: rgba(186, 215, 184, 0.55);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 .group-status-chip.inactive {
   background: rgba(241, 229, 166, 0.7);
-  color: #6b5b12;
+  color: var(--analytics-ui-text, #6b5b12);
 }
 
 .days-since-value {
-  color: #174243;
+  color: var(--analytics-ui-text, #174243);
 }
 
 .days-since-unit {
-  color: #71837f;
+  color: var(--analytics-ui-muted, #71837f);
 }
 
 .group-empty-state {
   height: 76px !important;
-  color: #71837f;
+  color: var(--analytics-ui-muted, #71837f);
   text-align: center;
 }
 
@@ -2225,9 +2345,9 @@ function exportCsv(kind: ExportKind) {
 .group-issue-detail-card {
   min-width: 0;
   padding: 16px;
-  border: 1px solid #e0e9e7;
+  border: 1px solid var(--analytics-ui-border, #e0e9e7);
   border-radius: 14px;
-  background: #ffffff;
+  background: var(--analytics-ui-surface, #ffffff);
   box-shadow: 0 3px 12px rgba(20, 64, 60, 0.04);
   scroll-margin-top: 120px;
 }
@@ -2242,13 +2362,13 @@ function exportCsv(kind: ExportKind) {
 
 .group-issue-detail-heading h2 {
   margin: 0 0 4px;
-  color: #163f3c;
+  color: var(--analytics-ui-text, #163f3c);
   font-size: 17px;
 }
 
 .group-issue-detail-heading p {
   margin: 0;
-  color: #667a76;
+  color: var(--analytics-ui-muted, #667a76);
   font-size: 11px;
 }
 
@@ -2259,21 +2379,21 @@ function exportCsv(kind: ExportKind) {
   place-items: center;
   border-radius: 9px;
   background: rgba(186, 215, 184, 0.55);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 17px;
 }
 
 .group-issue-table-wrap {
   max-height: 265px;
   overflow-y: auto;
-  border: 1px solid #e4ecea;
+  border: 1px solid var(--analytics-ui-border, #e4ecea);
   border-radius: 10px;
 }
 
 .group-issue-table {
   width: 100%;
   border-collapse: collapse;
-  color: #425e59;
+  color: var(--analytics-ui-muted, #425e59);
   font-size: 11px;
 }
 
@@ -2282,14 +2402,14 @@ function exportCsv(kind: ExportKind) {
   top: 0;
   z-index: 1;
   padding: 10px 12px;
-  background: #f1f6f4;
-  color: #174243;
+  background: var(--analytics-ui-soft, #f1f6f4);
+  color: var(--analytics-ui-text, #174243);
   text-align: left;
 }
 
 .group-issue-table td {
   padding: 10px 12px;
-  border-top: 1px solid #edf2f0;
+  border-top: 1px solid var(--analytics-ui-border, #edf2f0);
 }
 
 .group-issue-table-row--clickable {
@@ -2299,7 +2419,7 @@ function exportCsv(kind: ExportKind) {
 
 .group-issue-table-row--clickable:hover,
 .group-issue-table-row--clickable:focus-visible {
-  background: #f1f8f5;
+  background: var(--analytics-ui-selected, #f1f8f5);
 }
 
 .group-issue-table-row--clickable:focus-visible {
@@ -2319,12 +2439,12 @@ function exportCsv(kind: ExportKind) {
 
 .issue-status-chip.unassigned {
   background: rgba(241, 229, 166, 0.65);
-  color: #6b5b12;
+  color: var(--analytics-ui-text, #6b5b12);
 }
 
 .issue-status-chip.no-mentor {
   background: rgba(186, 215, 184, 0.55);
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
 }
 
 @media (max-width: 900px) {

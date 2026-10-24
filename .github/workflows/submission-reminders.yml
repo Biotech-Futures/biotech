@@ -2,7 +2,7 @@ name: Daily submission reminders
 
 # Nudges teams whose entry is still outstanding, every day for the last week
 # before their deadline. The backend decides who is due — including honouring
-# any extension a team has been granted — so this only has to fire once a day.
+# any extension a team has been granted — so it only has to run once a day.
 #
 # Firing more often than that is harmless: a team already written to today is
 # skipped, so a retry or an overlapping run cannot email anyone twice.
@@ -11,13 +11,10 @@ name: Daily submission reminders
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# 07:17 UTC is late afternoon in Sydney, where most teams are: a reminder that
-# lands during the day is acted on, one that lands overnight is buried by
-# morning. The odd minute avoids GitHub's top-of-hour cron congestion, which
-# can otherwise drift a run by ten minutes or more.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself daily at 21:00 UTC (8am in Sydney under daylight saving, 7am in
+# winter), last of the daily emails (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "17 7 * * *"
   workflow_dispatch:
 
 jobs:

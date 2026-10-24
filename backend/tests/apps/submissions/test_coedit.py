@@ -17,6 +17,8 @@ from apps.submissions.autosubmit import auto_submit_due
 from apps.submissions.models import Submission, SubmissionQuestion
 from apps.users.models import AdminScope, User
 
+from tests.apps._helpers import ConsumerConnectionMixin
+
 from .seed_data import CONFIRMED_CHECKLIST
 from .test_poster_checklist import ChecklistTestCase, _poster
 
@@ -61,7 +63,7 @@ def unreachable(error=None):
 
 
 @override_settings(SUBMISSION_COEDITING_ENABLED=True)
-class CoeditTestCase(ChecklistTestCase):
+class CoeditTestCase(ConsumerConnectionMixin, ChecklistTestCase):
     def setUp(self):
         super().setUp()
         coedit.store().clear()

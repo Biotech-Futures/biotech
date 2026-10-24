@@ -24,6 +24,10 @@ from django.utils.dateparse import parse_datetime
 
 INBOX = "INBOX"
 PER_PAGE = 100
+# Who's asking, by name: Cloudflare, in front of the Mail API, turns away
+# requests' own "python-requests/..." with a 403 page before the API sees the
+# key, so every check failed as if the key were refused.
+USER_AGENT = "BIOTechFutures-BounceCheck/1.0 (+https://biotechfutures.org)"
 
 
 class MailApiError(Exception):
@@ -50,7 +54,7 @@ def _get(path: str, params: dict | None = None) -> requests.Response:
         response = requests.get(
             url,
             params=params,
-            headers={"Authorization": f"Bearer {settings.HOSTINGER_MAIL_API_KEY}"},
+            headers={"Authorization": f"Bearer {settings.HOSTINGER_MAIL_API_KEY}", "User-Agent": USER_AGENT},
             timeout=settings.HOSTINGER_MAIL_TIMEOUT_SECONDS,
         )
     except requests.RequestException as exc:

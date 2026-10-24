@@ -92,7 +92,6 @@ export type GroupsAnalyticsYear = {
   overCapacity: number
   groupSizeDistribution: Array<{ label: string; value: number }>
   groupStatus: Array<{ label: string; value: number; color: string }>
-  ratioDistribution: Array<{ label: string; value: number }>
   groupActivity: Array<{ month: string; active: number; inactive: number }>
 }
 
@@ -143,6 +142,8 @@ export type UserAnalyticsYear = {
   mentorGrowth: number | null
   supervisorGrowth: number | null
   loginRates: { students: number; mentors: number; supervisors: number }
+  // False for a past year with no recorded logins, so its rates are unknown rather than 0%.
+  loginRatesAvailable: boolean
   dailyActivity: { labels: string[]; total: number[] }
   lastLogin: Array<{ label: string; value: number }>
   userLastLogins: Array<{
@@ -169,6 +170,9 @@ export interface AnalyticsMentor {
   capacity: number
   groupIds: string[]
   studentIds: string[]
+  region: string | null
+  interests: string[]
+  institution: string | null
   // Whether the mentor's account is activated (account_status "active").
   accountActive?: boolean
   // Account status as sent by the mentor source, e.g. "active" or "deactivated".
@@ -206,7 +210,7 @@ export type EmailLog = {
   sentAt: string
   // ISO 8601 UTC time of the send, for exports.
   sentAtIso: string
-  status: 'Delivered' | 'Partial' | 'Opened' | 'Failed'
+  status: 'Sending' | 'Delivered' | 'Partial' | 'Opened' | 'Failed'
   attempted: number
   delivered: number
   failed: number

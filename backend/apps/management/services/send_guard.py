@@ -17,7 +17,9 @@ whether or not the page stays open. One run sends at a time from each
 mailbox: one pressed while another is going waits its turn, and starts a few
 seconds after the one before it finishes (``BULK_EMAIL_QUEUE_GAP_SECONDS``).
 Who it emails is worked out when it starts. A run sends over a few mail
-server connections at once (``BULK_EMAIL_WORKERS``); once every email has
+server connections at once (``BULK_EMAIL_WORKERS``), each taking the next
+email as it's free; when the server pushes back one drops out at once, and
+that mailbox's runs use fewer for a while (see ``_Crew``). Once every email has
 been tried, it waits a few seconds (``BULK_EMAIL_RETRY_SECONDS``) and tries
 once more the ones that missed someone. Each copy that goes is recorded (see
 ``delivery``), so nobody is emailed twice: pressing Send again emails only the
@@ -30,6 +32,7 @@ import logging
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from importlib import import_module
@@ -53,7 +56,7 @@ from apps.submissions.models import GroupExtension
 from apps.submissions.services import active_deadline, current_cohort
 
 from ..models import EmailSendRun, QueuedEmailSend
-from .delivery import already_sent
+from .delivery import already_sent, server_trouble
 from .finalist_notify import SYMPOSIUM_TZ, _long_date
 
 logger = logging.getLogger(__name__)
@@ -379,6 +382,7 @@ def _begin(key: str, actor, work: list[Work]) -> None:
     EmailSendRun.objects.update_or_create(key=key, defaults={
         "held_until": now + SEND_LEASE, "started_at": now, "started_by": actor, "finished_at": None,
         "due": sum(len(item.people) for item in work), "emailed": 0, "failed": 0, "error": "", "missed": [],
+        "connections": None,
     })
 
 
@@ -401,8 +405,7 @@ def _send_queue(mailbox: str, first, *, threaded: bool) -> None:
             if isinstance(work, _Job):
                 _run_job(key, work, threaded=threaded)
                 continue
-            workers = max(1, settings.BULK_EMAIL_WORKERS) if threaded else 1
-            _run(key, work, workers=workers, threaded=threaded)
+            _run(key, work, workers=connections_for(key) if threaded else 1, threaded=threaded)
     except Exception:  # noqa: BLE001
         logger.exception("email queue failed")
     finally:
@@ -458,25 +461,80 @@ def _keep_held(key: str, stop: threading.Event) -> None:
         db_connection.close()
 
 
+class _Crew:
+    """A run's connections and the pile of its emails. Each connection takes
+    the next email as it's free, so none sits idle while there's more to
+    send. When the mail server pushes back (won't take a connection, or
+    emails start failing for anything but an address refused), one
+    connection drops out at once (``back_off``), down to
+    BULK_EMAIL_MIN_WORKERS."""
+
+    def __init__(self, key: str, size: int, items: list[Work]):
+        self.key = key
+        self.size = size
+        self.minimum = max(1, min(settings.BULK_EMAIL_MIN_WORKERS, size))
+        self._pile = deque(items)
+        self._lock = threading.Lock()
+
+    def take(self) -> Work | None:
+        with self._lock:
+            return self._pile.popleft() if self._pile else None
+
+    def back_off(self) -> bool:
+        """Whether the connection asking should stop: yes while there are
+        more than the minimum, and the mailbox's runs use fewer for a while."""
+        with self._lock:
+            if self.size <= self.minimum:
+                return False
+            self.size -= 1
+            size = self.size
+        _fewer_connections(self.key, size)
+        return True
+
+
+def _fewer_connections(key: str, size: int) -> None:
+    """Note that the mail server pushed back: this run is down to ``size``
+    connections, and its mailbox's runs start with the fewest for a while."""
+    logger.warning("email run %s: the mail server pushed back, sending over %s connections", key, size)
+    until = timezone.now() + timedelta(minutes=settings.BULK_EMAIL_FEWER_MINUTES)
+    EmailSendRun.objects.filter(key=key).update(connections=size)
+    EmailSendRun.objects.update_or_create(key=queue_key(lane(key)), defaults={"fewer_connections_until": until})
+
+
+def connections_for(key: str) -> int:
+    """How many mail server connections ``key``'s run starts with: the most,
+    unless its mailbox's server pushed back lately."""
+    most = max(1, settings.BULK_EMAIL_WORKERS)
+    row = EmailSendRun.objects.filter(key=queue_key(lane(key))).only("fewer_connections_until").first()
+    if row is not None and row.fewer_connections_until and row.fewer_connections_until > timezone.now():
+        return max(1, min(settings.BULK_EMAIL_MIN_WORKERS, most))
+    return most
+
+
 def _run(key: str, work: list[Work], *, workers: int, threaded: bool) -> None:
-    """Email every item of ``work``: the items are shared across ``workers``
-    threads, each with its own mail server connection, then those that
-    missed someone are tried once more (see ``_retry``)."""
+    """Email every item of ``work`` over ``workers`` connections, each taking
+    the next as it's free (side by side on threads, else in turn), then try
+    once more those that missed someone (see ``_retry``)."""
     try:
-        shares = [share for share in (work[i::workers] for i in range(workers)) if share]
+        crew = _Crew(key, max(1, workers), work)
+        EmailSendRun.objects.filter(key=key).update(connections=crew.size)
         # Each item that missed someone, with who: added to by every worker.
         failures: list[tuple[Work, list[dict]]] = []
+        senders = [_Sender(key, crew, failures, threaded) for _ in range(crew.size)]
         if threaded:
-            threads = [
-                threading.Thread(target=_work, args=(key, share, failures, True), daemon=True) for share in shares
-            ]
+            threads = [threading.Thread(target=sender.run, daemon=True) for sender in senders]
             for thread in threads:
                 thread.start()
             for thread in threads:
                 thread.join()
         else:
-            for share in shares:
-                _work(key, share, failures, False)
+            for sender in senders:
+                sender.open()
+            going = [sender for sender in senders if not sender.done]
+            while going:
+                going = [sender for sender in going if sender.step()]
+            for sender in senders:
+                sender.close()
         if failures:
             _retry(key, failures)
     except Exception:  # noqa: BLE001
@@ -547,38 +605,78 @@ def _close(connection) -> None:
         pass
 
 
-def _work(key: str, items: list[Work], failures: list, threaded: bool) -> None:
-    """One worker's share of a run, over one mail server connection. Who each
+class _Sender:
+    """One of a run's connections, signed in as ``key``'s sender. Who each
     item reaches counts at once; those that missed someone go on
-    ``failures`` for ``_retry``. Signed in as ``key``'s sender."""
-    connection = sender_connection(sender_for(key), fail_silently=False)
-    try:
+    ``failures`` for ``_retry``. When the server pushes back, it stops at
+    once if the crew can spare it."""
+
+    def __init__(self, key: str, crew: _Crew, failures: list, threaded: bool):
+        self.key = key
+        self.crew = crew
+        self.failures = failures
+        self.threaded = threaded
+        self.connection = None
+        self.cache: dict = {}
+        self.done = False
+
+    def run(self) -> None:
         try:
-            connection.open()
+            self.open()
+            while not self.done and self.step():
+                pass
+        finally:
+            self.close()
+
+    def open(self) -> None:
+        self.connection = sender_connection(sender_for(self.key), fail_silently=False)
+        try:
+            self.connection.open()
         except Exception as exc:  # noqa: BLE001
+            # The server wouldn't take this connection: one fewer, if spared.
+            if self.crew.back_off():
+                self.done = True
+                return
             # Each email tries again, and is kept to send later when the
             # server still can't be reached (see ``delivery``).
-            logger.error("email run %s: mail server unreachable error=%s", key, type(exc).__name__)
-        cache: dict = {}
-        for item in items:
-            # Switched off part way: the rest of this share isn't sent.
-            off = _switched_off(key)
-            if off:
-                _stop(key, off)
-                return
-            missed = _send(key, item, connection, cache)
-            waiting = [entry for entry in missed if _waiting(entry)]
-            missed = [entry for entry in missed if not _waiting(entry)]
-            # Those waiting are listed now, and come off once their emails go.
-            _note(
-                key, emailed=len(item.people) - len(missed) - len(waiting), missed=waiting,
-                error=WAITING_NOTE if waiting else "",
-            )
-            if missed:
-                failures.append((item, missed))
-    finally:
-        _close(connection)
-        if threaded:
+            logger.error("email run %s: mail server unreachable error=%s", self.key, type(exc).__name__)
+
+    def step(self) -> bool:
+        """Send the next email from the pile: False once there are none, the
+        email's switched off, or this connection has dropped out."""
+        if self.done:
+            return False
+        # Switched off part way: the rest isn't sent.
+        off = _switched_off(self.key)
+        if off:
+            _stop(self.key, off)
+            self.done = True
+            return False
+        item = self.crew.take()
+        if item is None:
+            self.done = True
+            return False
+        missed = _send(self.key, item, self.connection, self.cache)
+        waiting = [entry for entry in missed if _waiting(entry)]
+        missed = [entry for entry in missed if not _waiting(entry)]
+        # Those waiting are listed now, and come off once their emails go.
+        _note(
+            self.key, emailed=len(item.people) - len(missed) - len(waiting), missed=waiting,
+            error=WAITING_NOTE if waiting else "",
+        )
+        if missed:
+            self.failures.append((item, missed))
+        # Emails starting to fail (for anything but an address refused), or
+        # being kept until the server can be reached: one connection fewer.
+        if (waiting or any(server_trouble(entry["reason"]) for entry in missed)) and self.crew.back_off():
+            self.done = True
+            return False
+        return True
+
+    def close(self) -> None:
+        if self.connection is not None:
+            _close(self.connection)
+        if self.threaded:
             db_connection.close()
 
 
@@ -742,5 +840,7 @@ def run_state(key: str) -> dict:
             "missed": _with_addresses([_missed_entry(entry) for entry in run.missed]),
             "started_at": run.started_at,
             "finished_at": run.finished_at,
+            # Sent over fewer connections, the mail server having pushed back.
+            "limited": bool(run.connections and run.connections < max(1, settings.BULK_EMAIL_WORKERS)),
         } if run and run.started_at else None,
     }

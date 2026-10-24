@@ -6,6 +6,7 @@ import {
   payloadForRegistrationJourney,
   sanitizeRegistrationPayload,
   type MentorForm,
+  type SupervisorForm,
   type RegistrationForms,
   type RegistrationIntakeJourney,
   type StudentIndividualForm,
@@ -56,6 +57,11 @@ export interface MentorRegistrationRequest {
   payload: { mentor: MentorForm }
 }
 
+export interface SupervisorRegistrationRequest {
+  journey: 'supervisor'
+  payload: { supervisor: SupervisorForm }
+}
+
 export type RegistrationRequest =
   | StudentIndividualRegistrationRequest
   | StudentTeamRegistrationRequest
@@ -63,6 +69,7 @@ export type RegistrationRequest =
   | SupervisorGroupRegistrationRequest
   | SupervisorCsvRegistrationRequest
   | MentorRegistrationRequest
+  | SupervisorRegistrationRequest
 
 export interface RegistrationReceipt {
   referenceCode: string
@@ -71,6 +78,8 @@ export interface RegistrationReceipt {
   submittedAt: string
   /** A student group's code (6 digits), when one was registered. */
   groupCode?: string
+  /** Someone registering themselves: sets their first password next. */
+  passwordToken?: string
 }
 
 export interface RegistrationWarning {

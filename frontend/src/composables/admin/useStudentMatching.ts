@@ -255,7 +255,8 @@ export function useStudentMatching() {
     confirming.value = true
     error.value = ''
     try {
-      await confirmStudentAssignments(payload)
+      // The board places students who had no group when the match ran.
+      await confirmStudentAssignments(payload, { onlyUngrouped: true })
       // Re-run so the board reflects what is now actually in the database.
       await run()
       return true

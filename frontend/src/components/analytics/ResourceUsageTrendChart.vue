@@ -13,9 +13,16 @@
           {{ option.label }}
         </button>
       </div>
-      <select v-model.number="windowDays" aria-label="Resource trend period">
-        <option v-for="option in windowOptions" :key="option" :value="option">Last {{ option }} days</option>
-      </select>
+      <div class="resource-trend-view-controls">
+        <span class="resource-trend-series-actions">
+          <button type="button" @click="showTop">Top {{ DEFAULT_VISIBLE }}</button>
+          <button type="button" @click="visibleIds = new Set(seriesResources.map((resource) => resource.id))">All</button>
+          <button type="button" @click="visibleIds = new Set()">None</button>
+        </span>
+        <select v-model.number="windowDays" aria-label="Resource trend period">
+          <option v-for="option in windowOptions" :key="option" :value="option">Last {{ option }} days</option>
+        </select>
+      </div>
     </div>
 
     <div class="resource-trend-series" aria-label="Resources shown in the chart">
@@ -26,17 +33,21 @@
         class="resource-trend-chip"
         :class="{ active: visibleIds.has(resource.id) }"
         :aria-pressed="visibleIds.has(resource.id)"
-        :title="resource.name"
+        :title="`${resource.name} — ${styleFor(resource.id).label} line`"
         @click="toggleSeries(resource.id)"
       >
-        <i :style="{ background: colorFor(resource.id) }" aria-hidden="true"></i>
+        <svg class="resource-trend-swatch" viewBox="0 0 26 8" aria-hidden="true">
+          <line
+            x1="1"
+            x2="25"
+            y1="4"
+            y2="4"
+            :stroke="styleFor(resource.id).color"
+            :stroke-dasharray="styleFor(resource.id).dash || undefined"
+          />
+        </svg>
         <span>{{ resource.name }}</span>
       </button>
-      <span class="resource-trend-series-actions">
-        <button type="button" @click="showTop">Top {{ DEFAULT_VISIBLE }}</button>
-        <button type="button" @click="visibleIds = new Set(seriesResources.map((resource) => resource.id))">All</button>
-        <button type="button" @click="visibleIds = new Set()">None</button>
-      </span>
     </div>
 
     <p v-if="!seriesResources.length" class="resource-trend-empty">No resource clicks have been recorded yet.</p>
@@ -59,7 +70,7 @@
           :x="x(label.index)"
           :y="size.height - 8"
           text-anchor="middle"
-          class="resource-trend-axis"
+          class="resource-trend-axis resource-trend-x-axis"
         >{{ label.text }}</text>
 
         <line
@@ -75,6 +86,7 @@
           :key="series.id"
           :points="series.values.map((value, index) => `${x(index)},${y(value)}`).join(' ')"
           :stroke="series.color"
+          :stroke-dasharray="series.dash || undefined"
           class="resource-trend-line"
         />
         <template v-if="hoverIndex !== null">
@@ -95,11 +107,28 @@
         :style="readoutStyle"
         role="status"
       >
-        <strong>{{ formatDay(days[hoverIndex]!) }}</strong>
-        <span v-for="series in hoverRows" :key="series.id">
-          <i :style="{ background: series.color }" aria-hidden="true"></i>
-          {{ series.name }}<b>{{ series.value }}</b>
-        </span>
+        <div class="resource-trend-readout-header">
+          <strong>{{ formatDay(days[hoverIndex]!) }}</strong>
+          <small>{{ metricLabel }}</small>
+        </div>
+        <div class="resource-trend-readout-body">
+          <div v-for="series in hoverRows" :key="series.id" class="resource-trend-readout-row" :title="series.name">
+            <span class="resource-trend-readout-name">{{ series.name }}</span>
+            <span class="resource-trend-readout-value">
+              <b>{{ series.value }}</b>
+              <svg class="resource-trend-swatch" viewBox="0 0 30 8" aria-hidden="true">
+                <line
+                  x1="1"
+                  x2="29"
+                  y1="4"
+                  y2="4"
+                  :stroke="series.color"
+                  :stroke-dasharray="series.dash || undefined"
+                />
+              </svg>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
     <p class="resource-trend-note">
@@ -112,12 +141,29 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { ResourceDailyUsage } from '@/types/analytics'
+import { BTF_COLORS } from '@/constants/btfTheme'
 
 const props = defineProps<{ rows: ResourceDailyUsage[] }>()
 
-const DEFAULT_VISIBLE = 5
+const DEFAULT_VISIBLE = 6
 const PAD = { top: 18, right: 16, bottom: 30, left: 42 }
-const PALETTE = ['#017151', '#39687b', '#c9a227', '#5ea99e', '#8a5a9e', '#d9734e', '#2e86ab', '#7a9e3e', '#b0476a', '#5c6b73']
+const BTF_PALETTE = [
+  BTF_COLORS.darkGreen,
+  BTF_COLORS.teal,
+  BTF_COLORS.airForceBlue,
+  BTF_COLORS.mintGreen,
+  BTF_COLORS.lightGreen,
+  BTF_COLORS.yellow,
+]
+const FALLBACK_PALETTE = ['#8a5a9e', '#d9734e', '#2e86ab', '#7a9e3e', '#b0476a', '#5c6b73']
+const LINE_STYLES = [
+  { label: 'Solid', dash: '' },
+  { label: 'Dashed', dash: '10 6' },
+  { label: 'Dotted', dash: '2 6' },
+  { label: 'Dash-dot', dash: '10 5 2 5' },
+  { label: 'Long dashed', dash: '16 6' },
+  { label: 'Dash-dot-dot', dash: '14 5 2 5 2 5' },
+] as const
 const DAY = 86_400_000
 
 const metricOptions = [
@@ -130,6 +176,7 @@ const metric = ref<'clicks' | 'uniqueUsers'>('clicks')
 const windowDays = ref(30)
 const visibleIds = ref(new Set<number>())
 const hoverIndex = ref<number | null>(null)
+const hoverY = ref(PAD.top)
 
 // The window ends on the latest recorded day so older datasets still show data.
 const endDay = computed(() => props.rows.reduce((latest, row) => (row.date > latest ? row.date : latest), ''))
@@ -156,14 +203,28 @@ const seriesResources = computed(() => {
   return [...totals.values()].sort((a, b) => b.clicks - a.clicks || a.name.localeCompare(b.name))
 })
 
-// Colours follow overall busiest order so a resource keeps its colour.
-const colorById = computed(() => {
+// Stable colour-and-line combinations follow overall busiest order. The
+// diagonal sequence makes adjacent resources differ by both colour and line
+// style while still exhausting every BTF combination before any fallback.
+const styleById = computed(() => {
   const overall = new Map<number, number>()
   for (const row of props.rows) overall.set(row.resourceId, (overall.get(row.resourceId) ?? 0) + row.clicks)
   const ordered = [...overall.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])
-  return new Map(ordered.map(([id], index) => [id, PALETTE[index % PALETTE.length]!]))
+  const btfCombinations = BTF_PALETTE.length * LINE_STYLES.length
+  return new Map(ordered.map(([id], index) => {
+    if (index < btfCombinations) {
+      const group = Math.floor(index / LINE_STYLES.length)
+      const styleIndex = index % LINE_STYLES.length
+      const colorIndex = (group + styleIndex) % BTF_PALETTE.length
+      return [id, { color: BTF_PALETTE[colorIndex]!, ...LINE_STYLES[styleIndex]! }]
+    }
+
+    const fallbackIndex = index - btfCombinations
+    const lineStyle = LINE_STYLES[Math.floor(fallbackIndex / FALLBACK_PALETTE.length) % LINE_STYLES.length]!
+    return [id, { color: FALLBACK_PALETTE[fallbackIndex % FALLBACK_PALETTE.length]!, ...lineStyle }]
+  }))
 })
-const colorFor = (id: number) => colorById.value.get(id) ?? PALETTE[0]!
+const styleFor = (id: number) => styleById.value.get(id) ?? { color: BTF_PALETTE[0]!, ...LINE_STYLES[0]! }
 
 function showTop() {
   visibleIds.value = new Set(seriesResources.value.slice(0, DEFAULT_VISIBLE).map((resource) => resource.id))
@@ -193,7 +254,7 @@ const visibleSeries = computed(() => {
         const position = row.resourceId === resource.id ? index.get(row.date) : undefined
         if (position !== undefined) values[position] = metric.value === 'clicks' ? row.clicks : row.uniqueUsers
       }
-      return { id: resource.id, name: resource.name, color: colorFor(resource.id), values }
+      return { id: resource.id, name: resource.name, ...styleFor(resource.id), values }
     })
 })
 
@@ -229,17 +290,23 @@ function y(value: number) {
 }
 const xLabels = computed(() => {
   const count = days.value.length
-  const every = Math.max(1, Math.ceil(count / 8))
+  const latestIndex = count - 1
+  // Keep roughly eight labels at most. The interval remains a whole number of
+  // weeks and is anchored to the latest date so 30, 90 and 365-day views all
+  // stay readable.
+  const interval = 7 * Math.max(1, Math.ceil(count / (7 * 8)))
   return days.value
     .map((day, index) => ({ index, text: formatDay(day, false) }))
-    .filter((label) => label.index % every === 0 || label.index === count - 1)
+    .filter((label) => (latestIndex - label.index) % interval === 0)
 })
 
 function onHover(event: MouseEvent) {
   const svg = event.currentTarget as SVGSVGElement
   const rect = svg.getBoundingClientRect()
-  const scale = rect.width ? size.value.width / rect.width : 1
-  const pointer = (event.clientX - rect.left) * scale
+  const scaleX = rect.width ? size.value.width / rect.width : 1
+  const scaleY = rect.height ? size.value.height / rect.height : 1
+  const pointer = (event.clientX - rect.left) * scaleX
+  hoverY.value = (event.clientY - rect.top) * scaleY
   const count = days.value.length
   if (!count) return
   const span = size.value.width - PAD.left - PAD.right
@@ -250,16 +317,24 @@ const hoverRows = computed(() => {
   const index = hoverIndex.value
   if (index === null) return []
   return visibleSeries.value
-    .map((series) => ({ id: series.id, name: series.name, color: series.color, value: series.values[index] ?? 0 }))
+    .map((series) => ({
+      id: series.id,
+      name: series.name,
+      color: series.color,
+      dash: series.dash,
+      value: series.values[index] ?? 0,
+    }))
     .sort((a, b) => b.value - a.value)
 })
 const readoutStyle = computed(() => {
   const index = hoverIndex.value ?? 0
-  const left = x(index)
-  const alignRight = left > size.value.width / 2
-  return alignRight
-    ? { right: `${size.value.width - left + 12}px` }
-    : { left: `${left + 12}px` }
+  const pointX = x(index)
+  const tooltipWidth = Math.min(380, Math.max(0, size.value.width - 24))
+  const maxLeft = Math.max(0, size.value.width - tooltipWidth)
+  return {
+    left: `${Math.min(maxLeft, Math.max(0, pointX - tooltipWidth / 2))}px`,
+    top: `${hoverY.value + 12}px`,
+  }
 })
 
 function formatDay(day: string, withYear = true) {
@@ -288,9 +363,9 @@ function formatDay(day: string, withYear = true) {
 .resource-trend-metric {
   display: inline-flex;
   padding: 3px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 10px;
-  background: #fff;
+  background: var(--analytics-ui-surface, #fff);
 }
 
 .resource-trend-metric button {
@@ -298,7 +373,7 @@ function formatDay(day: string, withYear = true) {
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #39687b;
+  color: var(--analytics-ui-secondary, #39687b);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -312,12 +387,20 @@ function formatDay(day: string, withYear = true) {
 .resource-trend-controls select {
   height: 36px;
   padding: 0 12px;
-  border: 1px solid #bad7b8;
+  border: 1px solid var(--analytics-ui-border, #bad7b8);
   border-radius: 9px;
-  background-color: #fff;
-  color: #017151;
+  background-color: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-accent, #017151);
   font-size: 13px;
   font-weight: 700;
+}
+
+.resource-trend-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .resource-trend-series {
@@ -335,20 +418,24 @@ function formatDay(day: string, withYear = true) {
   gap: 6px;
   max-width: 220px;
   padding: 5px 10px;
-  border: 1px solid #dbe6e3;
+  border: 1px solid var(--analytics-ui-border, #dbe6e3);
   border-radius: 999px;
-  background: #f6f8f8;
-  color: #7a8c88;
+  background: var(--analytics-ui-surface, #f6f8f8);
+  color: var(--analytics-ui-muted, #7a8c88);
   font-size: 12px;
   cursor: pointer;
 }
 
-.resource-trend-chip i {
+.resource-trend-swatch {
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+  width: 26px;
+  height: 8px;
   opacity: 0.35;
+}
+
+.resource-trend-swatch line {
+  stroke-width: 3;
+  stroke-linecap: round;
 }
 
 .resource-trend-chip span {
@@ -358,27 +445,26 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-chip.active {
-  border-color: #bad7b8;
-  background: #fff;
-  color: #174243;
+  border-color: var(--analytics-ui-border, #bad7b8);
+  background: var(--analytics-ui-surface, #fff);
+  color: var(--analytics-ui-text, #174243);
   font-weight: 700;
 }
 
-.resource-trend-chip.active i {
+.resource-trend-chip.active .resource-trend-swatch {
   opacity: 1;
 }
 
 .resource-trend-series-actions {
   display: inline-flex;
   gap: 4px;
-  margin-left: auto;
 }
 
 .resource-trend-series-actions button {
   padding: 4px 8px;
   border: 0;
   background: transparent;
-  color: #017151;
+  color: var(--analytics-ui-accent, #017151);
   font-size: 12px;
   font-weight: 700;
   text-decoration: underline;
@@ -390,7 +476,7 @@ function formatDay(day: string, withYear = true) {
   height: 280px;
 }
 
-.resource-trend-plot svg {
+.resource-trend-plot > svg {
   position: absolute;
   inset: 0;
   display: block;
@@ -398,11 +484,11 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-grid {
-  stroke: #edf1f0;
+  stroke: var(--analytics-ui-border, #edf1f0);
 }
 
 .resource-trend-axis {
-  fill: #748683;
+  fill: var(--analytics-ui-muted, #748683);
   font-size: 11px;
   dominant-baseline: middle;
 }
@@ -415,49 +501,95 @@ function formatDay(day: string, withYear = true) {
 }
 
 .resource-trend-hover-line {
-  stroke: #9fbfb9;
+  stroke: var(--analytics-ui-control-border, #9fbfb9);
   stroke-dasharray: 3 3;
 }
 
 .resource-trend-readout {
   position: absolute;
-  top: 8px;
-  z-index: 2;
-  display: grid;
-  gap: 4px;
-  min-width: 180px;
-  max-width: 280px;
-  padding: 10px 12px;
-  border: 1px solid #dbe6e3;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 8px 20px rgba(23, 66, 67, 0.12);
-  color: #174243;
+  z-index: 4;
+  width: 380px;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  border: 1px solid var(--analytics-ui-border, #bad7bb);
+  border-radius: 12px;
+  background: var(--analytics-ui-surface, #fff);
+  box-shadow: 0 12px 30px rgba(23, 66, 67, 0.18);
+  color: var(--analytics-ui-text, #174243);
   font-size: 12px;
   pointer-events: none;
 }
 
-.resource-trend-readout span {
-  display: grid;
-  grid-template-columns: 9px minmax(0, 1fr) auto;
+.resource-trend-readout-header {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--analytics-ui-border, #dbe6e3);
+  background: var(--analytics-ui-soft, #eef4f1);
 }
 
-.resource-trend-readout i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+.resource-trend-readout-header strong {
+  color: var(--analytics-ui-text, #174243);
+  font-size: 14px;
 }
 
-.resource-trend-readout b {
-  padding-left: 10px;
+.resource-trend-readout-header small {
+  color: var(--analytics-ui-muted, #60726f);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.resource-trend-readout-body {
+  display: grid;
+  padding: 4px 0;
+}
+
+.resource-trend-readout-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 14px;
+  min-height: 42px;
+  padding: 7px 14px;
+}
+
+.resource-trend-readout-row + .resource-trend-readout-row {
+  border-top: 1px solid var(--analytics-ui-border, #edf1f0);
+}
+
+.resource-trend-readout-name {
+  overflow: hidden;
+  color: var(--analytics-ui-text, #314f4d);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-trend-readout-value {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 48px;
+}
+
+.resource-trend-readout-value b {
+  color: var(--analytics-ui-accent, #017151);
+  font-size: 14px;
+  text-align: center;
+}
+
+.resource-trend-readout-value .resource-trend-swatch {
+  width: 30px;
+  opacity: 1;
 }
 
 .resource-trend-note,
 .resource-trend-empty {
   margin: 0;
-  color: #60726f;
+  color: var(--analytics-ui-muted, #60726f);
   font-size: 12px;
   line-height: 1.5;
 }

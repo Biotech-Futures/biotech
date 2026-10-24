@@ -1,8 +1,8 @@
 name: Bounced email check
 
-# Starts the backend's check of the sending mailboxes for bounce notices about
-# every 10 minutes, so the Management pages and the System Emails log show who
-# our emails bounced back from soon after it happens. The backend reads only
+# Starts the backend's check of the sending mailboxes for bounce notices, so
+# the Management pages and the System Emails log show who our emails bounced
+# back from. The backend reads only
 # what's new since its last check, never changes a mailbox, and runs one check
 # at a time, so an overlapping or repeated trigger is harmless.
 #
@@ -12,11 +12,9 @@ name: Bounced email check
 #   backend HOSTINGER_MAIL_API_KEY   on the Azure app (biotechBe); until it's
 #                                    set the check answers "off" and does nothing
 #
-# Odd minutes (3,13,...) dodge GitHub's top-of-hour scheduler spike. Scheduled
-# runs can still lag a few minutes under load.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself every 10 minutes (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "3,13,23,33,43,53 * * * *"
   workflow_dispatch:
 
 concurrency:

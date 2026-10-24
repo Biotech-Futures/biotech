@@ -82,13 +82,13 @@
         <input
           v-model="search"
           type="search"
-          class="student-matching__search"
+          class="student-matching__search table-filter"
           placeholder="Search by group or tutor"
           aria-label="Search by group or tutor"
         />
         <AppSelect
           v-model="groupFilter"
-          class="student-matching__select"
+          class="student-matching__select table-filter"
           aria-label="Filter groups"
           :options="groupFilters"
         />
@@ -339,30 +339,10 @@ const onConfirm = () => {
   gap: 0.5rem;
 }
 
-/* Form controls don't inherit font-family from body. */
-.student-matching__search,
-.student-matching__select {
-  font-family: inherit;
-}
-
+/* Both are the table's filter boxes. The search takes the row's room. */
 .student-matching__search {
   flex: 1 1 260px;
   min-width: 0;
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-  font-size: 0.9rem;
-}
-
-.student-matching__select {
-  padding: 0.45rem 0.7rem;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background-color: var(--surface-elevated);
-  color: var(--teal);
-  font-size: 0.9rem;
 }
 
 /* Sections */

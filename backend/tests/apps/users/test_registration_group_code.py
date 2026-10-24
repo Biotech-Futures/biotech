@@ -1,14 +1,15 @@
 """A student creating a group sees its code while registering: numbers only,
 apart from the group's name, held for them so they can save it and share it
 with their teammates; the group takes it when it's registered."""
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.groups.models import GroupCodeReservation, GroupMembership, Groups
-from apps.users.models import User
+from apps.users.models import RegistrationWindow, User
 from tests.apps.users.test_registration_multi_student import MultiStudentSetup, batch
 
 URL = "/api/v1/registration/group-code/"
@@ -47,6 +48,42 @@ class GroupCodeHoldTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertRegex(response.json()["code"], r"^[0-9]{6}$")
         self.assertTrue(response.json()["token"])
+
+
+class GroupCodeExpiryTests(TestCase):
+    """A held code lasts until registration ends, so the code a student
+    shares is still their group's when they come back to register it."""
+
+    def setUp(self):
+        cache.clear()
+        self.year = timezone.now().year
+
+    def hold(self):
+        response = APIClient().post(URL)
+        self.assertEqual(response.status_code, 201)
+        return GroupCodeReservation.objects.get(code=response.json()["code"])
+
+    def test_a_held_code_lasts_until_registration_closes(self):
+        closes = timezone.now() + timedelta(days=30)
+        RegistrationWindow.objects.create(year=self.year, closes_at=closes)
+        self.assertEqual(self.hold().expires_at, closes)
+
+    def test_with_no_closing_date_a_held_code_lasts_the_year(self):
+        self.assertEqual(self.hold().expires_at, datetime(self.year + 1, 1, 1, tzinfo=dt_timezone.utc))
+
+    def test_a_held_code_moves_with_the_closing_date(self):
+        RegistrationWindow.objects.create(year=self.year, closes_at=timezone.now() + timedelta(days=30))
+        held = self.hold()
+        admin = User.objects.create_user(email="staff@example.com", password="pw-123456789", is_staff=True)
+        client = APIClient()
+        client.force_login(admin)
+        later = timezone.now() + timedelta(days=60)
+        response = client.post(
+            "/api/v1/registration-management/", {"action": "window", "closes_at": later.isoformat()}, format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        held.refresh_from_db()
+        self.assertEqual(held.expires_at, later)
 
 
 class StudentGroupCodeTests(MultiStudentSetup, TestCase):
@@ -109,7 +146,8 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["group_code"], code)
         group = Groups.objects.get(code=code)
-        self.assertEqual(GroupMembership.objects.filter(group=group).count(), 3)
+        students = GroupMembership.objects.filter(group=group, membership_role="student")
+        self.assertEqual(students.count(), 3)
         self.assertTrue(
             GroupMembership.objects.filter(group=group, user__email="learner50@students.example.test").exists()
         )
@@ -145,7 +183,7 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
         response = self.post_batch(batch("student_team", 1))
         self.assertEqual(response.status_code, 201, response.data)
         group = Groups.objects.get(code=response.data["group_code"])
-        self.assertEqual(GroupMembership.objects.filter(group=group).count(), 1)
+        self.assertEqual(GroupMembership.objects.filter(group=group, membership_role="student").count(), 1)
 
     def test_a_student_group_has_at_most_five(self):
         response = self.post_batch(batch("student_team", 6))
@@ -169,6 +207,32 @@ class JoinGroupTests(MultiStudentSetup, TestCase):
                 body["payload"]["group"] = {}
                 response = self.post_batch(body)
                 self.assertEqual(response.status_code, 201, response.data)
+
+
+class StudentGroupPlacedTests(MultiStudentSetup, TestCase):
+    """A student group goes onto the Groups board by itself once two of its
+    students have registered; one on its own waits in the Waiting Area."""
+
+    def test_two_registering_together_go_onto_the_board(self):
+        response = self.post_batch(batch("student_team"))
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNotNone(Groups.objects.get(code=response.data["group_code"]).placed_at)
+
+    def test_one_on_their_own_waits_until_a_teammate_joins(self):
+        response = self.post_batch(batch("student_team", 1))
+        self.assertEqual(response.status_code, 201, response.data)
+        group = Groups.objects.get(code=response.data["group_code"])
+        self.assertIsNone(group.placed_at)
+
+        body = batch("student_team", 1, offset=20)
+        body["payload"]["group"] = {"joinCode": group.code}
+        self.assertEqual(self.post_batch(body).status_code, 201)
+        group.refresh_from_db()
+        self.assertIsNotNone(group.placed_at)
+
+    def test_a_supervisors_group_still_waits_for_create_all_groups(self):
+        self.assertEqual(self.post_batch(batch("supervisor_group", offset=10)).status_code, 201)
+        self.assertIsNone(Groups.objects.get(formed_by=Groups.FormedBy.SUPERVISOR).placed_at)
 
 
 class FormedByTests(MultiStudentSetup, TestCase):

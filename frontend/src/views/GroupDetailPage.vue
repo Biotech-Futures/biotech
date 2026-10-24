@@ -813,7 +813,12 @@
                         <i class="fas fa-calendar" aria-hidden="true"></i>
                         <span>Due date</span>
                       </label>
-                      <AppDatePicker v-model="taskForm.dueDate" placeholder="Select due date" />
+                      <AppDatePicker
+                        id="task-dialog-due"
+                        v-model="taskForm.dueDate"
+                        class="task-dialog-input"
+                        placeholder="Select due date"
+                      />
                     </div>
 
                     <div v-if="taskForm.taskType === 'individual'" class="task-dialog-field task-dialog-field--half">
@@ -6599,12 +6604,6 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
-.task-filter-row input[type='date'],
-.task-filter-row .app-date-picker-wrapper {
-  width: 100%;
-  color: var(--teal);
-  font: inherit;
-}
 .task-filter-row {
   display: flex;
   flex-direction: column;
@@ -6613,7 +6612,9 @@ onBeforeUnmount(() => {
   font-weight: 700;
   color: #5b6770;
 }
-.task-filter-row .app-select {
+/* Its dropdowns and dates (AppDatePicker) alike. */
+.task-filter-row .app-select,
+.task-filter-row .app-picker {
   width: 100%;
   height: 34px;
   padding: 0 0.55rem;
@@ -7950,7 +7951,7 @@ onBeforeUnmount(() => {
 }
 
 .message-search-filters .app-select,
-.message-search-filters input[type="date"] {
+.message-search-filters .app-picker {
   border: 1px solid var(--border-default);
   border-radius: 8px;
   min-height: 38px;
@@ -10601,6 +10602,7 @@ onBeforeUnmount(() => {
 :root[data-theme='dark'] .task-toolbar-icon-btn:not(.is-active),
 :root[data-theme='dark'] .task-filter-panel,
 :root[data-theme='dark'] .task-filter-row .app-select,
+:root[data-theme='dark'] .task-filter-row .app-picker,
 :root[data-theme='dark'] .task-filter-clear,
 :root[data-theme='dark'] .task-filter-close,
 :root[data-theme='dark'] .task-state-menu,
