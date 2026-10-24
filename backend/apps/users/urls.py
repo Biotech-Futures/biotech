@@ -42,7 +42,7 @@ from .views import (
 from .email_precheck import EmailCheckStartView, EmailCheckStatusView
 from .email_field_check import EmailFieldCheckView
 from .registration_password import RegistrationPasswordView
-from .registration_sheet import RegistrationSheetView
+from .registration_sheet import RegistrationSheetView, RegistrationTemplateView
 from .registration_intake import (
     RegistrationCountriesView,
     RegistrationGroupCodeView,
@@ -115,6 +115,7 @@ urlpatterns = [
     path("registration/password/", RegistrationPasswordView.as_view(), name="registration-password"),
     # Upload student details, from an .xlsx: its first sheet as CSV text.
     path("registration/sheet/", RegistrationSheetView.as_view(), name="registration-sheet"),
+    path("registration/sheet/template/", RegistrationTemplateView.as_view(), name="registration-sheet-template"),
     # Check a registration's addresses before it's submitted (EMAIL_PRECHECK_ENABLED).
     path("registration/email-check/", EmailCheckStartView.as_view(), name="registration-email-check"),
     # Always on: unlike the pre-check, no switch, window gate or rate limit.

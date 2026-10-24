@@ -112,6 +112,16 @@ The registration page no longer asks for pronouns or a photo, so it sends
 neither. The API still accepts both, and a returning student keeps the pronouns
 already saved when none are sent.
 
+Upload student details (`supervisor_csv`) takes an .xlsx or a CSV. An .xlsx is
+read by `POST /api/v1/registration/sheet/` (its first sheet back as CSV text).
+**Download example template** is an .xlsx made by
+`POST /api/v1/registration/sheet/template/` from the page's own columns and
+example row (`registrationTemplateRows`), so they're said in one place; a CSV
+of the same if that can't be reached. Its example row (Alex Example) has
+addresses on the reserved `.invalid` domain and a note beside it that it won't
+be registered. Uploaded back, that row is left out and the page says so; any
+other `.invalid` address is the placeholder Submit refuses.
+
 If supplying a photo, use multipart `request` containing the same JSON and
 actual files in indexed fields `students.N`, at most one per student.
 Metadata alone is rejected. Main's shared

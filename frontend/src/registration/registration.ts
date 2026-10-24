@@ -134,6 +134,8 @@ export interface CsvRow {
 export interface CsvParseResult {
   rows: CsvRow[]
   errors: string[]
+  /** The template's example rows, left out (their row numbers). */
+  examples: number[]
 }
 
 export interface SupervisorCsvForm {
@@ -597,12 +599,13 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     return {
       rows: [],
       errors: [error instanceof Error ? error.message : 'The CSV could not be read.'],
+      examples: [],
     }
   }
 
-  if (!matrix.length) return { rows: [], errors: ['The CSV is empty.'] }
+  if (!matrix.length) return { rows: [], errors: ['The CSV is empty.'], examples: [] }
   if (matrix.length - 1 > MAX_CSV_ROWS) {
-    return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`] }
+    return { rows: [], errors: [`Upload no more than ${MAX_CSV_ROWS} students per CSV.`], examples: [] }
   }
 
   // The template's headers, in its order: its name for each (or the old one),
@@ -615,7 +618,7 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
           `Column ${index + 1} must be ${CSV_HEADER_LABELS[header]}${headers[index] ? `, not ${headers[index]}` : ''}.`,
         ],
   )
-  if (errors.length) return { rows: [], errors }
+  if (errors.length) return { rows: [], errors, examples: [] }
 
   const rows: CsvRow[] = matrix
     .slice(1)
@@ -630,9 +633,19 @@ export const parseRegistrationCsv = (text: string): CsvParseResult => {
     // A row with something only in the ignored columns is ignored too.
     .filter(({ values }) => Object.values(values).some(Boolean))
 
+  // The template's example row, if it's still there: never registered.
+  const examples = rows.filter(isTemplateExample).map(({ rowNumber }) => rowNumber)
+  const students = rows.filter((row) => !isTemplateExample(row))
   return {
-    rows: revalidateRegistrationCsvRows(rows),
-    errors: rows.length ? [] : ['The CSV has a header row but no student rows.'],
+    rows: revalidateRegistrationCsvRows(students),
+    errors: students.length
+      ? []
+      : [
+          examples.length
+            ? "The file only has the template's example row. Add a row for each student."
+            : 'The CSV has a header row but no student rows.',
+        ],
+    examples,
   }
 }
 
@@ -644,6 +657,37 @@ const headerMatches = (typed: string, header: CsvHeader) =>
 
 export const registrationCsvTemplate = (): string =>
   `${CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]).join(',')}\r\n`
+
+/** The template's example row, to show how each column is filled in. Its
+ *  addresses are on the reserved .invalid domain, so it's nobody's: uploaded
+ *  back, it's left out (isTemplateExample), never registered. */
+export const CSV_EXAMPLE_ROW: Record<CsvHeader, string> = {
+  first_name: 'Alex',
+  last_name: 'Example',
+  email: 'alex.example@school.invalid',
+  school: 'Example High School',
+  year_level: '10',
+  country: 'Australia',
+  state: 'NSW',
+  interests: 'Biomedical Innovations, AI & Robotics and Smart Systems',
+  guardian_first_name: 'Pat',
+  guardian_last_name: 'Example',
+  guardian_email: 'pat.example@family.invalid',
+}
+
+/** Beside the example row in the template (a column uploads ignore). */
+export const CSV_EXAMPLE_NOTE =
+  "Example only: this row won't be registered. Add your students below it, or type over it."
+
+/** The template: its header row, and its example row. */
+export const registrationTemplateRows = () => ({
+  header: CSV_HEADERS.map((header) => CSV_HEADER_LABELS[header]),
+  example: CSV_HEADERS.map((header) => CSV_EXAMPLE_ROW[header]),
+})
+
+/** The template's own example row, uploaded back (its student's address). */
+export const isTemplateExample = (row: Pick<CsvRow, 'values'>) =>
+  row.values.email.trim().toLowerCase() === CSV_EXAMPLE_ROW.email
 
 const normalizedEmail = (value: string) => value.trim().toLowerCase()
 

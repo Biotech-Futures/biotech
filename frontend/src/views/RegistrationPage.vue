@@ -742,6 +742,11 @@
                     <code>Guardian Last Name</code> and <code>Guardian Email</code> are optional.<br />
                     Extra columns and rows are ignored.
                   </p>
+                  <p class="template-example-note" data-test="template-example-note">
+                    The template has an example row ({{ CSV_EXAMPLE_ROW.first_name }}
+                    {{ CSV_EXAMPLE_ROW.last_name }}) to show how to fill it in. It won't be
+                    registered: leave it in or delete it.
+                  </p>
                 </div>
                 <label class="csv-upload">
                   <span
@@ -758,6 +763,9 @@
                     {{ errors['supervisorCsv.file'] }}
                   </strong>
                 </label>
+                <p v-if="csvExampleRows.length" class="template-example-note" role="status" data-test="template-example-left-out">
+                  Row {{ csvExampleRows.join(', ') }} is the template's example, so it won't be registered.
+                </p>
                 <div v-if="csvFileErrors.length" class="server-error" role="alert">
                   <strong>The CSV could not be previewed.</strong>
                   <span v-for="message in csvFileErrors" :key="message">{{ message }}</span>
@@ -1494,7 +1502,9 @@ import {
   LANGUAGE_OPTIONS,
   LANGUAGE_OTHER,
   parseRegistrationCsv,
-  registrationCsvTemplate,
+  registrationTemplateRows,
+  CSV_EXAMPLE_NOTE,
+  CSV_EXAMPLE_ROW,
   MENTOR_MAX_WORDS,
   revalidateRegistrationCsvRows,
   stateLabel,
@@ -1511,7 +1521,7 @@ import {
   type SupervisorDetails,
   type SupervisorGroupForm,
 } from '@/registration/registration'
-import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
+import { isXlsx, sheetAsCsv, templateSheet } from '@/registration/registrationSheet'
 import { holdRegistrationPassword, REGISTRATION_PASSWORD_PATH } from '@/registration/registrationPassword'
 
 interface StepDefinition {
@@ -3353,6 +3363,9 @@ const reindexErrorMap = (
   })
 }
 
+// The template's example rows left out of the file uploaded, to say so.
+const csvExampleRows = ref<number[]>([])
+
 const reindexStudentErrors = (prefix: string, removedIndex: number) => {
   reindexErrorMap(clientErrors, prefix, removedIndex)
   reindexErrorMap(serverFieldErrors, prefix, removedIndex)
@@ -3365,6 +3378,7 @@ const handleCsvUpload = async (event: Event) => {
   forms.supervisorCsv.rows = []
   forms.supervisorCsv.excludedRowNumbers = []
   forms.supervisorCsv.fileName = ''
+  csvExampleRows.value = []
   editingCsvRowNumber.value = null
   delete clientErrors['supervisorCsv.file']
   if (!file) return
@@ -3382,6 +3396,7 @@ const handleCsvUpload = async (event: Event) => {
     }
     forms.supervisorCsv.fileName = file.name
     forms.supervisorCsv.rows = result.rows
+    csvExampleRows.value = result.examples
   } catch (error) {
     csvFileErrors.value = [
       xlsx
@@ -3393,12 +3408,27 @@ const handleCsvUpload = async (event: Event) => {
   }
 }
 
-const downloadCsvTemplate = () => {
-  const blob = new Blob([registrationCsvTemplate()], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
+// The template, as an .xlsx: its columns, and an example row that's never
+// registered (it's left out when uploaded back). As a CSV if the server can't
+// make one.
+const downloadCsvTemplate = async () => {
+  const { header, example } = registrationTemplateRows()
+  let file: Blob
+  let name = 'biotech-registration-template.xlsx'
+  try {
+    file = await templateSheet(header, example, CSV_EXAMPLE_NOTE)
+  } catch {
+    const cell = (value: string) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value)
+    file = new Blob(
+      [`${header.map(cell).join(',')}\r\n${[...example, CSV_EXAMPLE_NOTE].map(cell).join(',')}\r\n`],
+      { type: 'text/csv;charset=utf-8' },
+    )
+    name = 'biotech-registration-template.csv'
+  }
+  const url = URL.createObjectURL(file)
   const link = document.createElement('a')
   link.href = url
-  link.download = 'biotech-registration-template.csv'
+  link.download = name
   document.body.appendChild(link)
   link.click()
   link.remove()
@@ -4578,6 +4608,15 @@ form,
 .upload-step {
   display: grid;
   gap: 30px;
+}
+
+/* The template's example row: said beside the download, and when an upload
+   still has it. */
+.template-example-note {
+  margin: 10px 0 0;
+  color: var(--registration-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .csv-upload {
