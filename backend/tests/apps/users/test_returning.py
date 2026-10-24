@@ -1,8 +1,8 @@
 """Coming back for a later year (apps.users.returning): Start new year
 deactivates every student, mentor and supervisor, and registering again is the
-only way back. A student or mentor registers with the same email; a supervisor
-confirms theirs with a code on the registration page and is signed in. Never
-an admin, and a student's guardian gives permission again for the new year."""
+only way back: a student, mentor or supervisor registers with the same email
+(a supervisor's is tested in test_registration_supervisor_email). Never an
+admin, and a student's guardian gives permission again for the new year."""
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -11,7 +11,6 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.resources.models import RoleAssignmentHistory, Roles
-from apps.services.models import LoginToken
 from apps.submissions.services import current_cohort
 from apps.users.models import (
     AdminScope, GuardianConsent, GuardianConsentRequest, MentorProfile, RegistrationSubmission,
@@ -22,8 +21,6 @@ from apps.users.serializers import UserRegisterBodySerializer
 from tests.apps.users.test_registration_latelink import RegistrationSetup
 from tests.apps.users.test_registration_mentor import mentor_body
 
-CODE_URL = "/api/v1/registration/returning-supervisor/"
-CONFIRM_URL = "/api/v1/registration/returning-supervisor/confirm/"
 SUPERVISED = "/api/v1/users/supervised-students/"
 
 
@@ -99,6 +96,18 @@ class ReturningStudentTests(RegistrationSetup, TestCase):
             sorted(RegistrationSubmission.objects.filter(student=user).values_list("window__year", flat=True)),
             [current_cohort() - 1, current_cohort()],
         )
+
+    def test_their_pronouns_stay_when_the_form_sends_none(self):
+        # The registration page no longer asks for pronouns.
+        user, _ = _last_years_student(pronouns="she/her")
+        student = self.body["payload"]["students"][0]
+        student.update(pronouns="", pronounsOther="")
+
+        response = self.submit()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        user.refresh_from_db()
+        self.assertEqual(user.pronouns, "she/her")
 
     def test_last_years_form_no_longer_counts_once_theyre_back(self):
         from apps.management.models import ChallengeYear
@@ -199,76 +208,6 @@ class ReturningMentorTests(RegistrationSetup, TestCase):
                 response = self.submit(body=mentor_body())
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("already exists", str(response.data))
-
-
-class ReturningSupervisorTests(RegistrationSetup, TestCase):
-    def setUp(self):
-        super().setUp()
-        self.user = User.objects.create_user(
-            email="sam@school.example", first_name="Sam", last_name="Teacher",
-            account_status=User.AccountStatus.DEACTIVATED,
-        )
-        SupervisorProfile.objects.create(user=self.user, school_name="Example High")
-
-    def confirm(self, code, email=None):
-        return self.client.post(CONFIRM_URL, {"email": email or self.user.email, "code": code}, format="json")
-
-    def test_a_code_goes_to_a_supervisors_email_alone_and_every_answer_is_the_same(self):
-        with patch("apps.users.returning_views.auth_service.send_login_code") as send:
-            answers = [
-                self.client.post(CODE_URL, {"email": email}, format="json")
-                for email in ("Sam@School.example", "nobody@example.com")
-            ]
-        self.assertEqual([answer.status_code for answer in answers], [200, 200])
-        self.assertEqual(answers[0].data, answers[1].data)
-        send.assert_called_once_with("sam@school.example")
-
-    def test_the_code_brings_them_back_and_signs_them_in_to_register_students(self):
-        token = LoginToken.create_for_user(self.user)
-
-        response = self.confirm(token.token)
-
-        self.assertEqual(response.status_code, 200, response.data)
-        self.assertIn("csrfToken", response.data)
-        self.user.refresh_from_db()
-        self.assertEqual((self.user.account_status, self.user.is_active), (User.AccountStatus.ACTIVE, True))
-        self.assertTrue(RoleAssignmentHistory.objects.filter(user=self.user, role__role_name="supervisor").exists())
-        # Signed in: their own page answers.
-        self.assertEqual(self.client.get("/api/v1/users/me/").status_code, 200)
-
-    def test_a_wrong_code_brings_nobody_back(self):
-        LoginToken.create_for_user(self.user)
-
-        response = self.confirm("000000")
-
-        self.assertEqual(response.status_code, 400)
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.account_status, User.AccountStatus.DEACTIVATED)
-
-    def test_never_an_admin_nor_anyone_while_registration_is_closed(self):
-        admin = User.objects.create_user(
-            email="admin@school.example", first_name="Ada", last_name="Admin",
-            account_status=User.AccountStatus.DEACTIVATED,
-        )
-        SupervisorProfile.objects.create(user=admin, school_name="Example High")
-        AdminScope.objects.create(user=admin)
-        with patch("apps.users.returning_views.auth_service.send_login_code") as send:
-            self.client.post(CODE_URL, {"email": admin.email}, format="json")
-        send.assert_not_called()
-        self.assertEqual(self.confirm(LoginToken.create_for_user(admin).token, admin.email).status_code, 400)
-        admin.refresh_from_db()
-        self.assertEqual(admin.account_status, User.AccountStatus.DEACTIVATED)
-
-        self.close_window()
-        token = LoginToken.create_for_user(self.user)
-        for response in (
-            self.client.post(CODE_URL, {"email": self.user.email}, format="json"),
-            self.confirm(token.token),
-        ):
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.data["code"], "registration_closed")
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.account_status, User.AccountStatus.DEACTIVATED)
 
 
 class GuardianTablesTests(TestCase):

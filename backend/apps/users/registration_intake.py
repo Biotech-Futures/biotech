@@ -527,7 +527,9 @@ def save_student(student, supervisor, now, *, registered_by, lookups=None):
     returning = user is not None
     if returning:
         user.first_name, user.last_name = student["firstName"], student["lastName"]
-        user.country, user.state, user.pronouns = country, state, pronouns
+        user.country, user.state = country, state
+        # The form no longer asks for pronouns: theirs stay unless some are sent.
+        user.pronouns = pronouns or user.pronouns
         user.activate(save=False)
         user.save()
     else:

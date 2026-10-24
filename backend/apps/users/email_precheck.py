@@ -197,14 +197,21 @@ def start_check(request) -> tuple[dict, int]:
     skipped = len(unchecked) - len(to_check)
     if skipped:
         logger.warning("email_precheck.budget_reached client=%s skipped=%s", tag, skipped)
+    job = _start_job(
+        addresses, on_file, to_check, skipped=skipped, tag=tag, user=request.user if signed_in else None,
+    )
+    return job, status.HTTP_202_ACCEPTED
 
+
+def _start_job(addresses, on_file, to_check, *, skipped, tag, user) -> dict:
+    """A job for ``addresses``, looking up ``to_check`` in the background."""
     EmailCheckJob.objects.filter(created_at__lt=timezone.now() - JOB_LIFETIME).delete()
     job = EmailCheckJob.objects.create(
         status=EmailCheckJob.Status.QUEUED if to_check else EmailCheckJob.Status.DONE,
         total=len(addresses), cached=len(on_file), skipped=skipped,
         done=len(on_file) + skipped,
         invalid=sum(answer.status == EmailVerification.Status.INVALID for answer in on_file.values()),
-        client_tag=tag, created_by=request.user if signed_in else None,
+        client_tag=tag, created_by=user,
     )
     if to_check:
         transaction.on_commit(lambda: _dispatch(job.pk, to_check), robust=True)
@@ -215,13 +222,31 @@ def start_check(request) -> tuple[dict, int]:
     return {
         "status": STARTED if to_check else job.status, "jobId": str(job.pk),
         "total": job.total, "done": job.done,
-    }, status.HTTP_202_ACCEPTED
+    }
+
+
+def start_lookups(addresses, *, tag, user) -> dict:
+    """Look up every one of ``addresses`` without an answer on file, as a
+    job (``lookup_status`` follows it): an admin's import (apps.admin.
+    import_email_check). Neither EMAIL_PRECHECK_ENABLED nor the registration
+    dates apply, nor a budget: only an admin starts one."""
+    try:
+        on_file = EmailVerification.reusable(addresses, max_age_days=_setting("QEV_RESULT_MAX_AGE_DAYS", 180))
+    except DatabaseError:
+        on_file = {}
+    to_check = [address for address in addresses if address not in on_file]
+    return _start_job(addresses, on_file, to_check, skipped=0, tag=tag, user=user)
 
 
 def job_status(job_id) -> tuple[dict, int]:
     """A job's progress, as the page polls it."""
     if not email_precheck_enabled():
         return {"status": DISABLED}, status.HTTP_200_OK
+    return lookup_status(job_id)
+
+
+def lookup_status(job_id) -> tuple[dict, int]:
+    """A job's progress, whatever started it."""
     job = EmailCheckJob.objects.filter(pk=job_id).first()
     if job is None:
         return {"status": "not_found"}, status.HTTP_404_NOT_FOUND

@@ -23,13 +23,6 @@ export const INTEREST_CATEGORIES = [
   'Ethical & Societal Impacts of Emerging Tech',
 ] as const
 
-export const PRONOUN_OPTIONS = [
-  'She/her',
-  'He/him',
-  'They/them',
-  'Other',
-] as const
-
 // Upload student details's columns, in this order (see parseRegistrationCsv).
 export const CSV_HEADERS = [
   'first_name',
@@ -68,12 +61,6 @@ export const CSV_HEADER_LABELS: Record<CsvHeader, string> = {
   guardian_email: 'Guardian Email',
 }
 
-export interface PhotoMetadata {
-  name: string
-  type: string
-  size: number
-}
-
 export interface GuardianDetails {
   firstName: string
   lastName: string
@@ -93,9 +80,6 @@ export interface StudentDetails {
   country: string
   state: string
   interests: string[]
-  pronouns: string
-  pronounsOther: string
-  profilePhoto: PhotoMetadata | null
   guardianDeferred: boolean
   guardian: GuardianDetails
 }
@@ -296,8 +280,7 @@ export const wwccFor = (state: string): WorkingWithChildrenCheck => {
   )
 }
 
-/** A supervisor registering themselves: who they are, their school, and
- *  (as a student may) their pronouns and photo. */
+/** A supervisor registering themselves: who they are and their school. */
 export interface SupervisorForm {
   firstName: string
   lastName: string
@@ -306,9 +289,6 @@ export interface SupervisorForm {
   relationship: '' | 'teacher' | 'parent'
   country: string
   state: string
-  pronouns: string
-  pronounsOther: string
-  profilePhoto: PhotoMetadata | null
 }
 
 /** The most words a mentor's written answer may have. */
@@ -360,9 +340,6 @@ export const createStudent = (options: { deferGuardian?: boolean } = {}): Studen
   country: '',
   state: '',
   interests: [],
-  pronouns: '',
-  pronounsOther: '',
-  profilePhoto: null,
   guardianDeferred: Boolean(options.deferGuardian),
   guardian: createGuardian(),
 })
@@ -377,13 +354,11 @@ export const isBlankStudent = (student: StudentDetails) =>
     student.school,
     student.yearLevel,
     student.state,
-    student.pronouns,
     student.guardian.firstName,
     student.guardian.lastName,
     student.guardian.email,
   ].some((value) => value.trim()) &&
-  !student.interests.length &&
-  !student.profilePhoto
+  !student.interests.length
 
 /** Whether any of a (optional) nominated supervisor's details were given. */
 export const hasSupervisor = (supervisor: SupervisorDetails) =>
@@ -476,9 +451,6 @@ export const createRegistrationForms = (): RegistrationForms => ({
     relationship: '',
     country: '',
     state: '',
-    pronouns: '',
-    pronounsOther: '',
-    profilePhoto: null,
   },
 })
 

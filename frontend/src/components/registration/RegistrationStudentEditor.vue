@@ -108,17 +108,6 @@
         :show-required="false"
         :error="fieldError('interests')"
       />
-
-      <RegistrationProfileExtras
-        v-if="showOptionalProfile"
-        v-model:pronouns="student.pronouns"
-        v-model:pronouns-other="student.pronounsOther"
-        :prefix="prefix"
-        :errors="errors"
-        :preview-url="previewUrl"
-        @photo-selected="emit('photo-selected', $event)"
-        @remove-photo="emit('remove-photo')"
-      />
     </template>
 
     <div v-if="showGuardian" class="guardian-editor">
@@ -176,7 +165,6 @@ import { computed, watch } from 'vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
-import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
 import {
   isAustralia,
@@ -192,9 +180,7 @@ const props = withDefaults(
     section: 'identity' | 'profile' | 'guardian' | 'full' | 'teammate'
     errors: Record<string, string>
     allowGuardianDefer?: boolean
-    showOptionalProfile?: boolean
     showInterests?: boolean
-    previewUrl?: string
     /** Schools the others in their group gave, offered as theirs is typed. */
     schoolSuggestions?: string[]
     /** States the others in their group gave, for a typed state (outside
@@ -208,9 +194,7 @@ const props = withDefaults(
   }>(),
   {
     allowGuardianDefer: false,
-    showOptionalProfile: false,
     showInterests: true,
-    previewUrl: '',
     schoolSuggestions: () => [],
     regionSuggestions: () => [],
     emailState: undefined,
@@ -219,8 +203,6 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  'photo-selected': [file: File]
-  'remove-photo': []
   // Its student's or guardian's email box left, or that box's warning
   // confirmed (or not): the page checks it (registration/emailFieldCheck).
   'email-left': [field: 'email' | 'guardian.email']

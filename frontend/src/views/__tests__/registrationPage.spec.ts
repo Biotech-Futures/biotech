@@ -426,7 +426,8 @@ describe('canonical registration intake', () => {
     expect(wrapper.text()).toContain(
       'before you can access most features of the program.',
     )
-    expect(wrapper.text()).toContain('It does not send a permission email or record consent.')
+    expect(wrapper.text()).toContain('Registration saves their contact details.')
+    expect(wrapper.text()).not.toContain('It does not send a permission email')
     // A nominated supervisor is their name and email: no type or school.
     expect(wrapper.text()).not.toContain('Teacher / school supervisor')
     expect(wrapper.text()).not.toContain('Nominated parent-supervisor')
@@ -1170,9 +1171,12 @@ describe('canonical registration intake', () => {
     expect(
       wrapper.get('#studentTeam-creator-guardian-firstName').attributes('required'),
     ).toBeDefined()
-    expect(html.indexOf('studentTeam-creator-profilePhoto')).toBeLessThan(
+    expect(html.indexOf('studentTeam-creator-state')).toBeLessThan(
       html.indexOf('studentTeam-creator-guardian-firstName'),
     )
+    // No pronouns or photo asked for.
+    expect(wrapper.find('#studentTeam-creator-pronouns').exists()).toBe(false)
+    expect(wrapper.find('#studentTeam-creator-profilePhoto').exists()).toBe(false)
     setup.currentStep = 2
     setup.maxReachedStep = 2
     await wrapper.vm.$nextTick()
@@ -1230,29 +1234,26 @@ describe('canonical registration intake', () => {
     Object.assign(setup.forms.supervisor, { firstName: 'Sam', lastName: 'Teacher', email: 'teacher@example.com' })
     expect(setup.validateCurrentStep()).toBe(true)
 
-    // Then their school with teacher or parent beside it, where it is (a
-    // state in Australia), and a student's optional pronouns and photo.
+    // Then their school with teacher or parent beside it and where it is (a
+    // state in Australia). No pronouns or photo.
     setup.currentStep = 1
     await wrapper.vm.$nextTick()
     expect(wrapper.find('#supervisor-email').exists()).toBe(false)
     const grid = wrapper.findAll('.field-grid .registration-field__label').map((label) => label.text())
     expect(grid.slice(0, 2)).toEqual(['School *', 'Teacher or parent *'])
-    expect(wrapper.find('#supervisor-pronouns').exists()).toBe(true)
-    expect(wrapper.find('#supervisor-profilePhoto').exists()).toBe(true)
+    expect(wrapper.find('#supervisor-pronouns').exists()).toBe(false)
+    expect(wrapper.find('#supervisor-profilePhoto').exists()).toBe(false)
     setup.forms.supervisor.country = 'Australia'
-    setup.forms.supervisor.pronouns = 'Other'
     expect(setup.validateCurrentStep()).toBe(false)
     expect(setup.errors).toMatchObject({
       'supervisor.school': 'Enter your school.',
       'supervisor.relationship': 'Choose teacher or parent.',
       'supervisor.state': 'Enter your state.',
-      'supervisor.pronounsOther': 'Enter your pronouns.',
     })
     Object.assign(setup.forms.supervisor, {
       school: 'Example High',
       relationship: 'parent',
       state: 'NSW',
-      pronouns: 'she/her',
     })
     expect(setup.validateCurrentStep()).toBe(true)
 
@@ -1278,7 +1279,6 @@ describe('canonical registration intake', () => {
         submittedAt: '2026-10-24T00:00:00Z',
       },
     }))
-    const blobUrls = { createObjectURL: URL.createObjectURL, revokeObjectURL: URL.revokeObjectURL }
     const wrapper = mount(RegistrationPage, {
       props: { mode: 'canonical' },
       global: {
@@ -1302,13 +1302,6 @@ describe('canonical registration intake', () => {
         relationship: 'teacher',
         country: 'New Zealand',
       })
-      // Their photo, chosen on the School & profile step (jsdom has no blob URLs).
-      Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:photo'), revokeObjectURL: vi.fn() })
-      setup.currentStep = setup.maxReachedStep = 1
-      await wrapper.vm.$nextTick()
-      const photo = new File(['png'], 'portrait.png', { type: 'image/png' })
-      Object.defineProperty(wrapper.get('#supervisor-profilePhoto').element, 'files', { value: [photo] })
-      await wrapper.get('#supervisor-profilePhoto').trigger('change')
       setup.currentStep = setup.maxReachedStep = 2
       await wrapper.vm.$nextTick()
       await wrapper.get('[data-test="policies-agree"]').setValue(true)
@@ -1325,14 +1318,9 @@ describe('canonical registration intake', () => {
             relationship: 'teacher',
             country: 'New Zealand',
             state: '',
-            pronouns: '',
-            pronounsOther: '',
-            profilePhoto: { name: 'portrait.png', type: 'image/png', size: 3 },
           },
         },
       })
-      // The file itself goes with it, as a student's does.
-      expect(submit.mock.calls[0]?.[1]?.attachments).toEqual({ supervisor: photo })
       // Active at once: no "we'll activate it", but sign in.
       expect(wrapper.get('.success-intro h3').text()).toBe('Registration Complete')
       expect(wrapper.get('.success-note').text()).toBe('You can now sign in to register your students.')
@@ -1340,7 +1328,6 @@ describe('canonical registration intake', () => {
       expect(wrapper.get('.form-footer .primary-action').attributes('href')).toBe('/login')
     } finally {
       wrapper.unmount()
-      Object.assign(URL, blobUrls)
     }
   })
 

@@ -145,6 +145,18 @@ describe('production registration normalization', () => {
     ).toThrow()
   })
 
+  it("sends the guardian-has-an-account and the named supervisor's name confirmations", () => {
+    const request = buildRegistrationRequest('student_individual', createRegistrationForms())
+    const normalized = buildProductionRegistrationRequest(request, {
+      'students.0.overrides.ConfirmGuardianEmailHasAccountOverride': true,
+      'students.0.overrides.ConfirmSupervisorNameEmailOverride': true,
+    })
+    expect(normalized.payload).toHaveProperty('students.0.overrides', {
+      ConfirmGuardianEmailHasAccountOverride: true,
+      ConfirmSupervisorNameEmailOverride: true,
+    })
+  })
+
   it("sends Member 1's own interests, and guardian details only when enabled", () => {
     const forms = createRegistrationForms()
     forms.studentTeam.creator.interests = ['Biomedical Innovations']

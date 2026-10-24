@@ -17,8 +17,12 @@ export const REGISTRATION_OVERRIDE_FIELDS = {
   // An address the email check found doesn't exist: the student's or their guardian's.
   ConfirmEmailInvalidOverride: 'email',
   ConfirmGuardianEmailInvalidOverride: 'guardian.email',
-  // The supervisor a student named: the whole registration's, confirmed on Member 1.
+  // A guardian address that already has an account.
+  ConfirmGuardianEmailHasAccountOverride: 'guardian.email',
+  // The supervisor a student named: the whole registration's, confirmed on
+  // Member 1. Their mailbox, and an address that looks like a typo of their name.
   ConfirmSupervisorEmailInvalidOverride: 'supervisor.email',
+  ConfirmSupervisorNameEmailOverride: 'supervisor.email',
 } as const
 
 export const REGISTRATION_OVERRIDE_NAMES = Object.keys(REGISTRATION_OVERRIDE_FIELDS) as Array<
@@ -28,7 +32,10 @@ export const REGISTRATION_OVERRIDE_NAMES = Object.keys(REGISTRATION_OVERRIDE_FIE
 type OverrideName = (typeof REGISTRATION_OVERRIDE_NAMES)[number]
 
 // Overrides about a field of the whole registration, not of one student's.
-const SHARED_OVERRIDES: ReadonlySet<OverrideName> = new Set(['ConfirmSupervisorEmailInvalidOverride'])
+const SHARED_OVERRIDES: ReadonlySet<OverrideName> = new Set([
+  'ConfirmSupervisorEmailInvalidOverride',
+  'ConfirmSupervisorNameEmailOverride',
+])
 
 /** The field a warning with this override is about: the student's own
  *  (students.N.…), or the registration's for a shared one. */

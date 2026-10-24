@@ -37,7 +37,7 @@ from .registration_intake import STUDENT_JOURNEYS, StrictInput, current_window, 
 from .serializers import (
     GUARDIAN_IS_SELF, MAILBOX_WHOSE, REGISTRATION_OVERRIDES, SUPERVISOR_IS_SELF, UNKNOWN_OVERRIDE,
     StrictBooleanField, UserRegisterBodySerializer, guardian_account_warning, mailbox_warning, name_email_warning,
-    refuse_invalid_mailbox, refuse_placeholder, school_warning,
+    refuse_invalid_mailbox, refuse_placeholder, school_warning, supervisor_name_email_warning,
 )
 from .supervisor_registration import (
     JOURNEY as SUPERVISOR_JOURNEY, SUPERVISOR_EMAIL_TAKEN, SUPERVISOR_NAME, supervisor_email_taken,
@@ -154,7 +154,10 @@ def _warning(item, answers):
             guardian_account_warning(email),
         ]
     elif kind == "supervisor":
-        found = [mailbox_warning(answers, email, "SupervisorEmail", invalid_is_error=True)]
+        found = [
+            mailbox_warning(answers, email, "SupervisorEmail", invalid_is_error=True),
+            named and supervisor_name_email_warning(item["firstName"], item["lastName"], email),
+        ]
     else:
         whose = OWN[kind][1] if kind in OWN else "the student's"
         found = [

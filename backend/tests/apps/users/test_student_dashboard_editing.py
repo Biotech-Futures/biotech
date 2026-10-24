@@ -28,24 +28,20 @@ class StudentDashboardEditingTests(TestCase):
         self.client.force_authenticate(self.user)
         self.url = reverse("MeListHTMLView")
 
-    def test_blank_email_does_not_clear_existing_consent(self):
+    def test_the_guardian_is_refused_here_and_nothing_is_saved(self):
+        # Only users/me/guardian/ changes it, with its checks and the consent email.
         previous = self.profile.joinperm_granted_at
-        response = self.client.patch(self.url, {"school_name": "New High", "pg_email": ""}, format="json")
-        self.assertEqual(response.status_code, 200, response.data)
+        for change in ({"pg_email": ""}, {"pg_email": "student@example.org"}, {"pg_firstname": "Robin"}):
+            response = self.client.patch(self.url, {"school_name": "New High", **change}, format="json")
+            self.assertEqual(response.status_code, 400, response.data)
+            field = next(iter(change))
+            self.assertEqual(
+                str(response.data["fields"][field]), "Change your guardian under Guardian Details on your profile.",
+            )
         self.profile.refresh_from_db()
+        self.assertEqual((self.profile.school_name, self.profile.pg_first_name, self.profile.pg_email), ("Test High", "Pat", None))
         self.assertTrue(self.profile.has_join_permission)
         self.assertEqual(self.profile.joinperm_granted_at, previous)
-
-    def test_real_guardian_change_clears_consent_and_old_reminders(self):
-        self.profile.guardian_reminder_sent_at = timezone.now()
-        self.profile.guardian_reminder_due_at = timezone.now()
-        self.profile.save()
-        response = self.client.patch(self.url, {"pg_email": "newguardian@example.org"}, format="json")
-        self.assertEqual(response.status_code, 200, response.data)
-        self.profile.refresh_from_db()
-        self.assertFalse(self.profile.has_join_permission)
-        for field in ("joinperm_granted_at", "joinperm_responseID", "guardian_reminder_sent_at", "guardian_reminder_due_at"):
-            self.assertIsNone(getattr(self.profile, field))
 
     def test_geography_and_interest_edits(self):
         country = Countries.objects.create(country_name="Australia")

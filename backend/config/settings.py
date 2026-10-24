@@ -254,6 +254,7 @@ REST_FRAMEWORK = {
         'registration_email_field_check': '30/min',
         # The same, on the admin portal's Add user.
         'admin_user_email_check': '60/min',
+        'admin_import_email_check': '30/min',
     },
 }
 

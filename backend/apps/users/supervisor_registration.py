@@ -1,7 +1,7 @@
 """A supervisor (a teacher, usually) registering on the public registration
 page (``journey: "supervisor"``): their contact details, their school, whether
-they're a teacher or a parent, where they are, and (as a student may) their
-pronouns and a profile photo.
+they're a teacher or a parent and where they are. Pronouns and a profile photo
+are still accepted, though the page no longer asks for them.
 
 As a mentor registers (``apps.users.mentor_registration``), but active at once:
 an account with the supervisor role and a supervisor profile, which signs in
@@ -125,7 +125,9 @@ def save_supervisor(supervisor: dict, now, *, returning: User | None = None) -> 
         return user
     user = returning
     user.first_name, user.last_name = supervisor["firstName"], supervisor["lastName"]
-    user.country, user.state, user.pronouns = country, state, pronouns
+    user.country, user.state = country, state
+    # The form no longer asks for pronouns: theirs stay unless some are sent.
+    user.pronouns = pronouns or user.pronouns
     user.activate(save=False)
     user.save()
     # Their supervisor role, unless they still hold it.

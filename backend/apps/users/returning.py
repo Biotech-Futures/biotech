@@ -1,9 +1,7 @@
 """Coming back for a later year. Start new year (Management > New Year)
 deactivates every student, mentor and supervisor, and registering again is
-the only way back: a student or mentor registers with the same email as
-before, and a supervisor confirms their email with a code on the
-registration page, which signs them in to register their students
-(``returning_views``). Never an admin's account, nor a suspended one, and a
+the only way back: a student, mentor or supervisor registers with the same
+email as before. Never an admin's account, nor a suspended one, and a
 student or mentor comes back once a year, to an account from an earlier one.
 An admin setting a student from an earlier year back to Active on Admin >
 Users brings them back the same way (``bring_back_for_this_year``)."""
@@ -66,23 +64,6 @@ def returning_self_supervisor(email: str) -> User | None:
     else, so their email stays taken."""
     user = _deactivated(email)
     if user is None or not SupervisorProfile.objects.filter(user=user).exists():
-        return None
-    return user
-
-
-def returning_supervisor(email: str) -> User | None:
-    """The supervisor confirming ``email`` on the registration page: one
-    Start new year deactivated, or one still active (who's simply signed in).
-    None for anyone else, an admin included."""
-    user = (
-        User.objects.filter(
-            email__iexact=email,
-            account_status__in=(User.AccountStatus.ACTIVE, User.AccountStatus.DEACTIVATED),
-        )
-        .order_by("pk")
-        .first()
-    )
-    if user is None or _admin(user) or not SupervisorProfile.objects.filter(user=user).exists():
         return None
     return user
 

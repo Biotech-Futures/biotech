@@ -60,11 +60,11 @@ const overridePrefix = (box: EmailBox) => {
   return `students.${box.kind === 'supervisor' ? 0 : (box.student ?? 0)}.overrides.`
 }
 // Which confirmations are a box's own: a student's mailbox and name, a
-// guardian's mailbox and account, the named supervisor's mailbox.
+// guardian's mailbox and account, the named supervisor's mailbox and name.
 const OWN_OVERRIDES: Record<EmailCheckKind, string[]> = {
   student: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
   guardian: ['ConfirmGuardianEmailInvalidOverride', 'ConfirmGuardianEmailHasAccountOverride'],
-  supervisor: ['ConfirmSupervisorEmailInvalidOverride'],
+  supervisor: ['ConfirmSupervisorEmailInvalidOverride', 'ConfirmSupervisorNameEmailOverride'],
   mentor: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
   supervisor_self: ['ConfirmEmailInvalidOverride', 'ConfirmNameEmailOverride'],
 }

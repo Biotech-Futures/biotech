@@ -108,6 +108,9 @@ Teams/groups supply `group:{"interests":[...]}` and empty personal-interest
 arrays. CSV source metadata supplies `fileName` and one unique, ordered
 `rowNumbers` entry for each included student. Optional guardian phone/relationship
 details, pronouns, grouping preference and personal interests are retained per student.
+The registration page no longer asks for pronouns or a photo, so it sends
+neither. The API still accepts both, and a returning student keeps the pronouns
+already saved when none are sent.
 
 If supplying a photo, use multipart `request` containing the same JSON and
 actual files in indexed fields `students.N`, at most one per student.
@@ -130,11 +133,15 @@ and the adapter use one shared soft-warning helper. Hard errors return field
 paths without warnings. Soft HTTP 400 responses include all unacknowledged
 `warnings:[{code,field,override_field,message}]`, using the original `students.N.*`
 indices. All students' hard checks run before any soft warnings are returned.
-Only literal boolean `ConfirmSchoolOverride`, `ConfirmNameEmailOverride`,
-`ConfirmEmailInvalidOverride` and `ConfirmGuardianEmailInvalidOverride` flags
-under `students.N.overrides` are accepted (the last two are described under
-[Email check before submission](#email-check-before-submission)); they never
-override hard errors. Failures and warnings do not consume links.
+Only literal boolean flags under `students.N.overrides` are accepted:
+`ConfirmSchoolOverride`, `ConfirmNameEmailOverride`,
+`ConfirmEmailInvalidOverride` and `ConfirmGuardianEmailInvalidOverride` (the
+last two are described under
+[Email check before submission](#email-check-before-submission)),
+`ConfirmGuardianEmailHasAccountOverride`, and for the supervisor a student
+names (on the first student) `ConfirmSupervisorEmailInvalidOverride` and
+`ConfirmSupervisorNameEmailOverride` (an address that looks like a typo of the
+supervisor's name). They never override hard errors. Failures and warnings do not consume links.
 
 Intake and management lock the current registration-year row before the
 invitation, recheck idempotency after waiting, and save every student, group, receipt
@@ -210,19 +217,19 @@ exception after close doesn't apply. An email that already has an account
 Once the save commits, the mentor gets the **Registration confirmation (to
 mentor)** email (the `registration_mentor` template, System Emails > Registration).
 
-Mentors aren't covered by the name/email typo warning, or by the
+Mentors aren't covered by the
 [email check before submission](#email-check-before-submission).
 
 ## Supervisor registration
 
 A supervisor (a teacher, usually) registers on the public registration page by
 choosing **Supervisor**, as a mentor does: Contact (name and email), School &
-profile (school, teacher or parent, country, state, and a student's optional
-pronouns and photo), then Review with the policies and **Submit
+profile (school, teacher or parent, country and state), then Review with the policies and **Submit
 registration**. `register()` hands `journey: "supervisor"` to
 `apps/users/supervisor_registration.py` before any student handling. The
 request needs the same session, `X-CSRFToken` and UUID `Idempotency-Key` as a
-mentor's. A photo is sent as a student's is: the same JSON in a multipart
+mentor's. The page asks for no pronouns or photo, but the API still accepts
+them. A photo is sent as a student's is: the same JSON in a multipart
 `request`, with the file as `supervisor` (at most one), checked by the shared
 profile-image validator.
 
@@ -525,7 +532,9 @@ leaves it (`POST /api/v1/registration/email-check/field/`,
 `apps/users/email_field_check.py`), with Submit's own checks: format, the
 template's placeholder, an address already used, a guardian or supervisor the
 same as the student, the mailbox (looked up once and kept, so Submit doesn't
-look it up again), and a name that looks like a typo of the address. Its kinds
+look it up again), and a name that looks like a typo of the address (the
+student's, a mentor's, a supervisor's own, or the supervisor a student
+names). Its kinds
 are `student`, `guardian`, `supervisor` (the one a student names), `mentor`
 and `supervisor_self` (a supervisor registering themselves), across every
 journey: the four sign-ups, a supervisor's three and an admin's three (a CSV
@@ -552,6 +561,27 @@ couldn't be checked, a likely typo, a guardian address with an account) is
 ticked to confirm before saving. Saving itself refuses a bad format, the
 placeholder, an address in use, a guardian who is the student, and a
 student's address as a guardian.
+
+Admin > Users > Import Students and Import Mentors check every address in the
+file once it's chosen, before Import (`POST /api/v1/admin/user/import-check/`,
+`apps/admin/import_email_check.py`, admins only, 30 a minute):
+
+- **A problem** moves the row to "Skipped before import", and importing
+  refuses it too: not an address, the placeholder, an address with an account,
+  a student or mentor listed twice, a guardian who is the student or a
+  student, or a supervisor who is the student, a student, or an account that
+  isn't a supervisor's (so importing never makes a student, mentor or admin a
+  supervisor).
+- **A warning** lists the row under "Check before importing", and it's still
+  imported: a mailbox that doesn't exist or couldn't be checked, a name that
+  looks like a typo of the address, a guardian address with an account, or a
+  new supervisor's address a letter or two off an existing supervisor's
+  ("Did you mean …?"; the new supervisor is still made).
+
+New addresses are looked up in the background with the pre-check's job and
+workers (`GET /api/v1/admin/user/import-check/<jobId>/` follows it), whatever
+`EMAIL_PRECHECK_ENABLED` says, and each is paid for once: the answers are kept
+and reused.
 
 ## Compatibility and deployment
 

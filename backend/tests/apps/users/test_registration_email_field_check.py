@@ -364,6 +364,7 @@ class MentorSubmitTests(RegistrationSetup, TestCase):
 
 UNKNOWN_STUDENT = "This email address couldn't be verified. Please check it, or confirm if this is correct."
 MISMATCH = "This email looks like it might have a typo compared to the student's name. Please confirm."
+SUPERVISOR_MISMATCH = "This email looks like it might have a typo compared to the supervisor's name. Please confirm."
 
 
 class SoftTests(FieldCheckSetup, QevTestCase):
@@ -396,6 +397,20 @@ class SoftTests(FieldCheckSetup, QevTestCase):
 
     def test_no_name_no_name_check(self):
         self.assertEqual(self.result(self.item("student", "jo@example.test"))["box"], ok())
+
+    def test_the_supervisor_a_student_names_is_checked_against_their_name(self):
+        item = self.item(
+            "supervisor", "samteachr@example.test", studentEmail="kid@example.test", firstName="Sam", lastName="Teacher",
+        )
+
+        self.assertEqual(self.result(item)["box"], warned(
+            "name_email_mismatch", SUPERVISOR_MISMATCH, "supervisor.email",
+            "students.0.overrides.ConfirmSupervisorNameEmailOverride",
+        ))
+        item["overrides"] = {"ConfirmSupervisorNameEmailOverride": True}
+        self.assertEqual(self.result(item)["box"], ok())
+        # Without their name, there's nothing to compare.
+        self.assertEqual(self.result(self.item("supervisor", "samteachr@example.test"))["box"], ok())
 
     def test_a_guardians_mailbox_warning_comes_before_its_account_warning(self):
         User.objects.create_user(email="no.role@example.test")

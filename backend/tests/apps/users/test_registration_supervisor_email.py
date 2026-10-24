@@ -114,6 +114,17 @@ class ReturningSupervisorTests(RegistrationSetup, TestCase):
         self.assertTrue(user_has_role(user, "supervisor"))
         self.assertEqual(User.objects.filter(email__iexact="teacher@example.com").count(), 1)
 
+    def test_their_pronouns_stay_when_the_form_sends_none(self):
+        # The registration page no longer asks for pronouns.
+        self.old.pronouns = "she/her"
+        self.old.save(update_fields=["pronouns"])
+
+        response = self.register()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.old.refresh_from_db()
+        self.assertEqual(self.old.pronouns, "she/her")
+
     def test_someone_elses_deactivated_account_still_takes_the_address(self):
         other = User.objects.create_user(
             email="former.student@example.com", account_status=User.AccountStatus.DEACTIVATED, is_active=False,

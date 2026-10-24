@@ -404,8 +404,14 @@ export const checkAdminUserEmails = (fields: AdminEmailCheckField[]) =>
     (body) => body.results,
   )
 
+// Each row as parsed, but for its place in the file.
+const withoutRowNumber = ({ rowNumber, ...row }: StudentImportRow) => {
+  void rowNumber
+  return row
+}
+
 export const importAdminStudents = (rows: StudentImportRow[]): Promise<StudentBulkImportResult> =>
-  adminPost<AdminEnvelope<StudentBulkImportData>>('/user/bulk/', rows).then((env) => ({
+  adminPost<AdminEnvelope<StudentBulkImportData>>('/user/bulk/', rows.map(withoutRowNumber)).then((env) => ({
     msg: env.msg,
     data: env.data
   }))

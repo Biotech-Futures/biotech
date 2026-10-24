@@ -151,7 +151,7 @@ const emailCheck = (
             })
             if (options.invitationToken)
               headers.set('X-Registration-Invitation', options.invitationToken)
-            // The registration as it would be submitted, without its photos.
+            // The registration as it would be submitted.
             const production = buildProductionRegistrationRequest(request, options.overrides)
             if (options.supervisorEmail?.trim()) {
               ;(production.payload as Record<string, unknown>).supervisorEmail =
@@ -234,7 +234,7 @@ export const createHttpRegistrationGateway = ({
       }
     }
 
-    let body: string | FormData
+    let body: string
     const headers = buildSessionHeaders({
       includeCSRF: true,
       csrfApiBaseUrl,
@@ -254,22 +254,6 @@ export const createHttpRegistrationGateway = ({
           options.supervisorEmail.trim()
       }
       body = JSON.stringify(production)
-      if (Object.keys(options.attachments || {}).length) {
-        const multipart = new FormData()
-        multipart.append('request', body)
-        for (const [prefix, file] of Object.entries(options.attachments || {})) {
-          // A supervisor registering themselves: their own photo.
-          if (request.journey === 'supervisor' && prefix === 'supervisor') {
-            multipart.append('supervisor', file)
-            continue
-          }
-          const index = studentRequestPrefixes(request).indexOf(prefix)
-          if (index < 0) throw new Error('Invalid registration photo field.')
-          multipart.append(`students.${index}`, file)
-        }
-        headers.delete('Content-Type')
-        body = multipart
-      }
     } catch (error) {
       return {
         ok: false,

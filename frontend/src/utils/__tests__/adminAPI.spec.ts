@@ -248,6 +248,7 @@ describe('bulk user actions', () => {
   it('importAdminStudents posts parsed student rows and unwraps the result envelope', async () => {
     const rows = [
       {
+        rowNumber: 2,
         firstName: 'Ada',
         lastName: 'Lovelace',
         email: 'ada.lovelace@example.edu',
@@ -297,7 +298,10 @@ describe('bulk user actions', () => {
 
     const [, init] = fetchMock.mock.calls.find(([u]) => String(u).includes('/user/bulk/')) as [string, RequestInit]
     expect(init!.method).toBe('POST')
-    expect(JSON.parse(String(init.body))).toEqual(rows)
+    // Each row as parsed, but for its place in the file.
+    const { rowNumber, ...sent } = rows[0]!
+    void rowNumber
+    expect(JSON.parse(String(init.body))).toEqual([sent])
     expect(result).toEqual(payload)
     expect(result.data.created).toHaveLength(1)
     expect(result.data.skipped[0]).toEqual({
@@ -313,6 +317,7 @@ describe('bulk user actions', () => {
   it('importAdminMentors posts parsed mentor rows as mentor users and unwraps the result envelope', async () => {
     const rows = [
       {
+        rowNumber: 2,
         firstName: 'Mary',
         lastName: 'Somerville',
         email: 'mary@example.edu',

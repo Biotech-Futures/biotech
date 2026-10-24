@@ -2,6 +2,7 @@ import hmac
 import logging
 from datetime import timedelta
 from django.conf import settings
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
@@ -55,6 +56,7 @@ from .serializers import (
 )
 from apps.audit.services import log_audit_event
 from .email_verification import check_one_address, invalid_address_message
+from .serializers import PLACEHOLDER_ADDRESS, is_placeholder_email, new_guardian_email_problem
 from .guardian_consent import latest_signature_data_url
 from .guardian_reminders import email_new_guardian
 from .returning import bring_back_for_this_year
@@ -114,11 +116,12 @@ class PasswordLoginView(APIView):
     
     @extend_schema(request=PasswordLoginBodySerializer, responses={200: UserSerializer})
     def post(self, request):
-        email = request.data.get("email")
+        email = str(request.data.get("email") or "").strip()
         password = request.data.get("password")
 
         ip = _client_ip(request)
-        email_key = f"pwd_login_attempts:{email}"
+        # In lower case, so typing it another way isn't more tries.
+        email_key = f"pwd_login_attempts:{email.lower()}"
         ip_key = f"pwd_login_attempts_ip:{ip}"
 
         # Dual brute-force guard: per-email blocks targeted attacks on one
@@ -136,7 +139,7 @@ class PasswordLoginView(APIView):
 
         # Single bcrypt check (was being done twice — once here, once inside
         # authenticate() — adding ~300ms per login).
-        user_obj = User.objects.filter(email=email).first()
+        user_obj = User.objects.by_email(email)
         if user_obj is None or not user_obj.check_password(password):
             cache.set(email_key, email_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
             cache.set(ip_key, ip_attempts + 1, PWD_LOGIN_WINDOW_SECONDS)
@@ -311,9 +314,13 @@ SELF_PATCHABLE_FIELDS: frozenset[str] = frozenset({"timezone"})
 
 STUDENT_SELF_PROFILE_FIELDS: frozenset[str] = frozenset({
     "first_name", "last_name", "pronouns", "school_name", "year_lvl",
-    "pg_firstname", "pg_lastname", "pg_email",
     "country_id", "state_id", "interest_ids",
 })
+
+# A student's guardian is changed through MeGuardianView alone, which checks
+# the address and emails the consent form; never here, around those checks.
+SELF_PATCH_GUARDIAN_FIELDS: frozenset[str] = frozenset({"pg_firstname", "pg_lastname", "pg_email"})
+SELF_PATCH_GUARDIAN_MESSAGE = "Change your guardian under Guardian Details on your profile."
 
 SELF_PATCH_REJECTED_FIELDS: frozenset[str] = frozenset({
     "role_id", "role",
@@ -451,6 +458,9 @@ class MeRetrieveView(generics.RetrieveAPIView):
             raise serializers.ValidationError(
                 {field: SELF_PATCH_REJECTED_MESSAGE for field in rejected}
             )
+        guardian = sorted(field for field in data if field in SELF_PATCH_GUARDIAN_FIELDS)
+        if guardian:
+            raise serializers.ValidationError({field: SELF_PATCH_GUARDIAN_MESSAGE for field in guardian})
 
         # A supervisor changes their own name and pronouns on their profile,
         # and nothing else of theirs; the rest of the student fields stay
@@ -503,8 +513,6 @@ class MeRetrieveView(generics.RetrieveAPIView):
                     UserInterest.objects.filter(user=user).exclude(interest_id__in=selected).delete()
                     for interest_id in selected:
                         UserInterest.objects.get_or_create(user=user, interest_id=interest_id)
-                if "pg_email" in cleaned:
-                    cleaned["pg_email"] = cleaned["pg_email"] or None
                 user_fields = {
                     field: cleaned[field]
                     for field in ("first_name", "last_name", "pronouns")
@@ -515,37 +523,11 @@ class MeRetrieveView(generics.RetrieveAPIView):
                         setattr(user, field, value)
                     user.save(update_fields=list(user_fields))
 
-                profile_field_map = {
-                    "school_name": "school_name",
-                    "year_lvl": "year_lvl",
-                    "pg_firstname": "pg_first_name",
-                    "pg_lastname": "pg_last_name",
-                    "pg_email": "pg_email",
-                }
-                guardian_fields = {"pg_firstname", "pg_lastname", "pg_email"}
-                guardian_changed = any(
-                    field in cleaned and (cleaned[field] or "") != (getattr(profile, profile_field_map[field]) or "")
-                    for field in guardian_fields
-                )
-                profile_update_fields = []
-                for request_field, model_field in profile_field_map.items():
-                    if request_field in cleaned:
-                        setattr(profile, model_field, cleaned[request_field])
-                        profile_update_fields.append(model_field)
-
-                # Changing guardian details invalidates a prior consent response.
-                if guardian_changed:
-                    profile.parent_guardian_flag = bool(
-                        profile.pg_first_name.strip() and profile.pg_last_name.strip() and profile.pg_email
-                    )
-                    profile.has_join_permission = False
-                    profile.joinperm_responseID = None
-                    profile.joinperm_granted_at = None
-                    profile.guardian_reminder_sent_at = None
-                    profile.guardian_reminder_due_at = None
-                    profile_update_fields.extend(["parent_guardian_flag", "has_join_permission", "joinperm_responseID", "joinperm_granted_at", "guardian_reminder_sent_at", "guardian_reminder_due_at"])
+                profile_update_fields = [field for field in ("school_name", "year_lvl") if field in cleaned]
+                for field in profile_update_fields:
+                    setattr(profile, field, cleaned[field])
                 if profile_update_fields:
-                    profile.save(update_fields=list(set(profile_update_fields)))
+                    profile.save(update_fields=profile_update_fields)
                 _log_edit(user, user.id, "profile_update", {"fields": sorted(student_update_data)})
 
         # Route every allowed field through ``UserSerializer`` so the same
@@ -705,6 +687,11 @@ class SupervisedStudentsView(APIView):
             raise serializers.ValidationError(
                 {"pg_email": "Guardian email cannot be the student's own email."}
             )
+        # A new guardian only: not a placeholder, nor a student's account.
+        if pg_email and any(pg_email != (profile.pg_email or "").strip().lower() for profile in profiles) and (
+            problem := new_guardian_email_problem(pg_email)
+        ):
+            raise serializers.ValidationError({"pg_email": problem})
 
         changing = {
             profile.pk for profile in profiles
@@ -1092,6 +1079,9 @@ def save_own_guardian(user, data) -> None:
     last_name = serializer.validated_data["last_name"]
     email = serializer.validated_data["email"]
     current = StudentProfile.objects.filter(user=user).values_list("pg_email", flat=True).first()
+    # A new guardian only: not a placeholder, nor a student's account.
+    if email != (current or "").strip().lower() and (problem := new_guardian_email_problem(email)):
+        raise serializers.ValidationError({"email": [problem]})
     if invalid := check_one_address(email, current=current):
         raise serializers.ValidationError(
             {"email": [invalid_address_message(invalid, "Your guardian's email address")]}
@@ -1255,6 +1245,8 @@ class SupervisedStudentDetailView(APIView):
             new_email = data["email"].strip().lower()
             if User.objects.filter(email__iexact=new_email).exclude(pk=user.pk).exists():
                 raise serializers.ValidationError({"email": "An account with this email already exists."})
+            if new_email != (user.email or "").strip().lower() and is_placeholder_email(new_email):
+                raise serializers.ValidationError({"email": PLACEHOLDER_ADDRESS})
             guardian_emails = {
                 (profile.pg_email or "").strip().lower(),
                 (profile.pending_pg_email or "").strip().lower(),
@@ -1381,7 +1373,9 @@ class ReceiveJoinPermissionView(APIView):
         data = request.data
         databody = data["body"]
 
-        user = get_object_or_404(User, email=databody["Email"])
+        user = User.objects.by_email(databody["Email"])
+        if user is None:
+            raise Http404
 
         sp = get_object_or_404(StudentProfile, user=user)
 

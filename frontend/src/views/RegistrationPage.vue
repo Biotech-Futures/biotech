@@ -184,67 +184,6 @@
       </div>
     </section>
 
-    <!-- A supervisor back for a new year: Start new year deactivated their
-         account, so a code to their email brings it back and signs them in,
-         to register their students. -->
-    <section
-      v-else-if="!journey && selectionStage === 'returningSupervisor'"
-      class="setup-layout"
-      aria-labelledby="returning-supervisor-title"
-    >
-      <button type="button" class="btn btn-outline back-button setup-back" @click="backToRoleSelection">
-        <i class="fas fa-arrow-left" aria-hidden="true"></i> Back to Roles
-      </button>
-      <header class="page-header">
-        <h1 id="returning-supervisor-title" class="page-title">Supervising Again</h1>
-      </header>
-      <form class="returning-supervisor" novalidate @submit.prevent="submitReturningSupervisor">
-        <p class="returning-supervisor__intro">
-          Enter the email you supervised with. We'll email you a code: entering it brings your
-          account back and signs you in, to register your students.
-        </p>
-        <RegistrationTextField
-          id="returning-supervisor-email"
-          v-model="returningSupervisor.email"
-          label="Your email"
-          type="email"
-          autocomplete="email"
-          :disabled="returningSupervisor.codeSent"
-          required
-          wide
-        />
-        <RegistrationTextField
-          v-if="returningSupervisor.codeSent"
-          id="returning-supervisor-code"
-          v-model="returningSupervisor.code"
-          label="Code"
-          hint="The 6-digit code in the email we sent you."
-          autocomplete="one-time-code"
-          required
-        />
-        <p v-if="returningSupervisor.codeSent" class="returning-supervisor__note" role="status">
-          If that's a supervisor's email, we've emailed it a code.
-        </p>
-        <div v-if="returningSupervisor.error" class="server-error" role="alert">
-          <span>{{ returningSupervisor.error }}</span>
-        </div>
-        <div class="returning-supervisor__actions">
-          <button type="submit" class="primary-action" :disabled="returningSupervisor.busy">
-            {{ returningSupervisor.codeSent ? 'Confirm' : 'Email Me a Code' }}
-          </button>
-          <button
-            v-if="returningSupervisor.codeSent"
-            type="button"
-            class="btn btn-outline btn-sm"
-            :disabled="returningSupervisor.busy"
-            @click="changeReturningEmail"
-          >
-            Use Another Email
-          </button>
-        </div>
-      </form>
-    </section>
-
     <section
       v-else-if="!journey && selectionStage === 'pathway'"
       class="setup-layout"
@@ -441,14 +380,6 @@
                 prefix="studentIndividual.student"
                 section="profile"
                 :errors="errors"
-                show-optional-profile
-                :preview-url="photoPreviews['studentIndividual.student']"
-                @photo-selected="
-                  handlePhoto(forms.studentIndividual.student, 'studentIndividual.student', $event)
-                "
-                @remove-photo="
-                  removePhoto(forms.studentIndividual.student, 'studentIndividual.student')
-                "
                 :email-state="emailChecks.stateOf"
                 :email-confirmed="emailConfirmed"
                 @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
@@ -679,12 +610,6 @@
                   prefix="studentTeam.creator"
                   section="profile"
                   :errors="errors"
-                  show-optional-profile
-                  :preview-url="photoPreviews['studentTeam.creator']"
-                  @photo-selected="
-                    handlePhoto(forms.studentTeam.creator, 'studentTeam.creator', $event)
-                  "
-                  @remove-photo="removePhoto(forms.studentTeam.creator, 'studentTeam.creator')"
                   :email-state="emailChecks.stateOf"
                   :email-confirmed="emailConfirmed"
                   @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
@@ -1366,17 +1291,6 @@
                   :optional="!isAustralia(forms.supervisor.country)"
                 />
               </div>
-              <RegistrationProfileExtras
-                v-if="currentStep === 1"
-                v-model:pronouns="forms.supervisor.pronouns"
-                v-model:pronouns-other="forms.supervisor.pronounsOther"
-                class="supervisor-extras"
-                prefix="supervisor"
-                :errors="errors"
-                :preview-url="photoPreviews['supervisor']"
-                @photo-selected="handlePhoto(forms.supervisor, 'supervisor', $event)"
-                @remove-photo="removePhoto(forms.supervisor, 'supervisor')"
-              />
             </template>
 
             <div v-if="isReviewStep" class="review-step">
@@ -1547,15 +1461,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { RouterLink, useRouter } from 'vue-router'
-import { SUPERVISOR_REGISTRATION_PATH } from '@/router/supervisorRegistrationRoute'
-import {
-  confirmReturningSupervisor,
-  sendReturningSupervisorCode,
-} from '@/registration/returningSupervisor'
-import { apiErrorFromUnknown } from '@/utils/apiError'
 
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import AppDataTable, { type DataTableColumn } from '@/components/AppDataTable.vue'
@@ -1565,7 +1473,6 @@ import MentorCapacityPills from '@/components/MentorCapacityPills.vue'
 import { fetchRegistrationSupervisors, type RegistrationSupervisor } from '@/utils/managementAPI'
 import RegistrationStudentEditor from '@/components/registration/RegistrationStudentEditor.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
-import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
 import SignaturePad from '@/components/consent/SignaturePad.vue'
 import { POLICIES_URL, SUPPORT_EMAIL } from '@/constants/brand'
 import { loadRegistrationOpen, useRegistrationOpen } from '@/composables/useRegistrationOpen'
@@ -1628,9 +1535,6 @@ import {
 import { isXlsx, sheetAsCsv } from '@/registration/registrationSheet'
 import { holdRegistrationPassword, REGISTRATION_PASSWORD_PATH } from '@/registration/registrationPassword'
 
-/** Whose photo: a student's, or a supervisor's registering themselves. */
-type PhotoHolder = Pick<StudentDetails, 'profilePhoto'>
-
 interface StepDefinition {
   label: string
   title: string
@@ -1646,8 +1550,7 @@ interface JourneyOption {
 }
 
 type RegistrationRole = 'student' | 'supervisor' | 'mentor'
-// ``returningSupervisor``: a supervisor from an earlier year confirming their email.
-type SelectionStage = 'role' | 'pathway' | 'returningSupervisor'
+type SelectionStage = 'role' | 'pathway'
 
 interface RoleOption {
   value: RegistrationRole
@@ -1692,15 +1595,13 @@ const memberParts = (student: StudentDetails) => [
   `Guardian ${student.guardianDeferred ? 'deferred' : 'provided'}`,
 ]
 
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 const MAX_CSV_BYTES = 2 * 1024 * 1024
 const initialInvitationToken =
   new URLSearchParams(window.location.hash.split('?')[1] || window.location.search).get('invite') ||
   undefined
-const allowedPhotoTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const emailLikePattern = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i
 const guardianContactExplanation =
-  'Your nominated guardian must provide permission through the existing guardian consent process before you can access most features of the program. Registration saves their contact details. It does not send a permission email or record consent.'
+  'Your nominated guardian must provide permission through the existing guardian consent process before you can access most features of the program. Registration saves their contact details.'
 
 const roleOptions: RoleOption[] = [
   {
@@ -1882,7 +1783,7 @@ const journeyOptions: JourneyOption[] = [
       {
         label: 'School & profile',
         title: 'Your school and profile',
-        description: 'The school your students attend, and optionally your pronouns and photo.',
+        description: 'The school your students attend.',
       },
       {
         label: 'Review',
@@ -2068,8 +1969,6 @@ const errors = computed<Record<string, string>>(() => ({
 const csvFileErrors = ref<string[]>([])
 const editingCsvRowNumber = ref<number | null>(null)
 const csvEditorHeadingRef = ref<HTMLElement | null>(null)
-const photoPreviews = reactive<Record<string, string>>({})
-const photoFiles = new WeakMap<PhotoHolder, File>()
 let submissionKey = ''
 let submissionSignature = ''
 const serverError = ref('')
@@ -2135,10 +2034,12 @@ const ownBoxes = {
   'studentIndividual.supervisor.email': (): EmailBox => ({
     field: 'studentIndividual.supervisor.email', kind: 'supervisor',
     email: forms.studentIndividual.supervisor.email, studentEmail: forms.studentIndividual.student.email,
+    firstName: forms.studentIndividual.supervisor.firstName, lastName: forms.studentIndividual.supervisor.lastName,
   }),
   'studentTeam.supervisor.email': (): EmailBox => ({
     field: 'studentTeam.supervisor.email', kind: 'supervisor',
     email: forms.studentTeam.supervisor.email, studentEmail: forms.studentTeam.creator.email,
+    firstName: forms.studentTeam.supervisor.firstName, lastName: forms.studentTeam.supervisor.lastName,
   }),
   'mentor.email': (): EmailBox => ({
     field: 'mentor.email', kind: 'mentor', email: forms.mentor.email,
@@ -2553,7 +2454,12 @@ const errorMessages = computed(() => {
   return [
     ...new Set([
       ...Object.values(serverFieldErrors),
-      ...reviewedEmailProblems.value.map((path) => live[path]).filter((message): message is string => !!message),
+      // A box's own message from the page or the server says it instead, as
+      // under the box: one message for one box.
+      ...reviewedEmailProblems.value
+        .filter((path) => !clientErrors[path] && !serverFieldErrors[path])
+        .map((path) => live[path])
+        .filter((message): message is string => !!message),
       ...Object.values(clientErrors),
     ]),
   ]
@@ -2972,9 +2878,6 @@ const validateStudentProfile = (student: StudentDetails, prefix: string) => {
   requireValue(`${prefix}.country`, student.country, 'Enter the student country.')
   if (isAustralia(student.country))
     requireValue(`${prefix}.state`, student.state, 'Enter the Australian state or territory.')
-  if (student.pronouns === 'Other') {
-    requireValue(`${prefix}.pronounsOther`, student.pronounsOther, 'Enter the student pronouns.')
-  }
 }
 
 // A guardian is their name and email, as on the Guardian Details form.
@@ -3098,8 +3001,6 @@ const validateCurrentStep = () => {
       requireValue('supervisor.country', forms.supervisor.country, 'Enter your country.')
       if (isAustralia(forms.supervisor.country))
         requireValue('supervisor.state', forms.supervisor.state, 'Enter your state.')
-      if (forms.supervisor.pronouns === 'Other')
-        requireValue('supervisor.pronounsOther', forms.supervisor.pronounsOther, 'Enter your pronouns.')
     }
   } else if (journey.value === 'mentor') {
     if (step === 0) {
@@ -3262,49 +3163,7 @@ const backToRoleSelection = () => {
   scrollToTop()
 }
 
-// A supervisor from an earlier year: their email, then the code emailed to it,
-// which brings their account back and signs them in to register students.
 const router = useRouter()
-const returningSupervisor = reactive({ email: '', code: '', codeSent: false, busy: false, error: '' })
-
-const startReturningSupervisor = () => {
-  Object.assign(returningSupervisor, { email: '', code: '', codeSent: false, busy: false, error: '' })
-  selectionStage.value = 'returningSupervisor'
-  scrollToTop()
-}
-
-const changeReturningEmail = () => {
-  Object.assign(returningSupervisor, { code: '', codeSent: false, error: '' })
-}
-
-const submitReturningSupervisor = async () => {
-  const email = returningSupervisor.email.trim().toLowerCase()
-  const code = returningSupervisor.code.trim()
-  if (!email) {
-    returningSupervisor.error = 'Enter your email.'
-    return
-  }
-  if (returningSupervisor.codeSent && !/^\d{6}$/.test(code)) {
-    returningSupervisor.error = 'Enter the 6-digit code from the email.'
-    return
-  }
-  returningSupervisor.busy = true
-  returningSupervisor.error = ''
-  try {
-    if (!returningSupervisor.codeSent) {
-      await sendReturningSupervisorCode(email)
-      returningSupervisor.codeSent = true
-      return
-    }
-    await confirmReturningSupervisor(email, code)
-    await auth.fetchUserData()
-    await router.push(SUPERVISOR_REGISTRATION_PATH)
-  } catch (error) {
-    returningSupervisor.error = apiErrorFromUnknown(error, "Couldn't reach the server. Try again.").message
-  } finally {
-    returningSupervisor.busy = false
-  }
-}
 
 const changeJourney = () => {
   leaveCsvEditor()
@@ -3508,34 +3367,6 @@ const reindexStudentErrors = (prefix: string, removedIndex: number) => {
   reindexErrorMap(serverFieldErrors, prefix, removedIndex)
 }
 
-const handlePhoto = (student: PhotoHolder, prefix: string, file: File) => {
-  delete clientErrors[`${prefix}.profilePhoto`]
-  if (!allowedPhotoTypes.has(file.type)) {
-    removePhoto(student, prefix)
-    clientErrors[`${prefix}.profilePhoto`] = 'Choose a JPG, PNG, or WebP image.'
-    return
-  }
-  if (file.size > MAX_PHOTO_BYTES) {
-    removePhoto(student, prefix)
-    clientErrors[`${prefix}.profilePhoto`] = 'Choose an image no larger than 5 MB.'
-    return
-  }
-  if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
-  photoPreviews[prefix] = URL.createObjectURL(file)
-  student.profilePhoto = { name: file.name, type: file.type, size: file.size }
-  photoFiles.set(student, file)
-  submissionKey = ''
-}
-
-const removePhoto = (student: PhotoHolder, prefix: string) => {
-  if (photoPreviews[prefix]) URL.revokeObjectURL(photoPreviews[prefix])
-  delete photoPreviews[prefix]
-  student.profilePhoto = null
-  photoFiles.delete(student)
-  submissionKey = ''
-  delete clientErrors[`${prefix}.profilePhoto`]
-}
-
 const handleCsvUpload = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
   clearCsvServerErrors()
@@ -3720,26 +3551,6 @@ const submitRegistration = async () => {
     const signature = JSON.stringify({ request, overrides: submitOverrides(), supervisorEmail })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
-    const attachments: Record<string, File> = {}
-    const attach = (student: PhotoHolder, prefix: string) => {
-      const file = photoFiles.get(student)
-      if (file) attachments[prefix] = file
-    }
-    if (journey.value === 'student_individual')
-      attach(forms.studentIndividual.student, 'studentIndividual.student')
-    if (journey.value === 'supervisor') attach(forms.supervisor, 'supervisor')
-    if (journey.value === 'student_team') {
-      attach(forms.studentTeam.creator, 'studentTeam.creator')
-      forms.studentTeam.teammates.forEach((student, index) =>
-        attach(student, `studentTeam.teammates.${index}`),
-      )
-    }
-    if (journey.value === 'supervisor_individual')
-      attach(forms.supervisorIndividual.student, 'supervisorIndividual.student')
-    if (journey.value === 'supervisor_group')
-      forms.supervisorGroup.students.forEach((student, index) =>
-        attach(student, `supervisorGroup.students.${index}`),
-      )
     // Any address found not to exist then comes back as a warning to correct
     // or confirm. Skipped whenever it can't be done; never holds this up.
     await checkEmails(registrationGateway, request, {
@@ -3748,7 +3559,6 @@ const submitRegistration = async () => {
       supervisorEmail: supervisorEmail || undefined,
     })
     const result = await registrationGateway.submit(request, {
-      attachments,
       invitationToken: invitationToken.value,
       idempotencyKey: submissionKey,
       overrides: submitOverrides(),
@@ -3833,8 +3643,6 @@ const resetRegistration = () => {
   registeredNote.value = ''
   submissionKey = ''
   submissionSignature = ''
-  Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
-  Object.keys(photoPreviews).forEach((key) => delete photoPreviews[key])
   Object.assign(forms, createRegistrationForms())
   journey.value = null
   selectedRole.value = isSupervisorMode.value ? 'supervisor' : null
@@ -3916,10 +3724,6 @@ watch(
   },
   { deep: true },
 )
-
-onBeforeUnmount(() => {
-  Object.values(photoPreviews).forEach((url) => URL.revokeObjectURL(url))
-})
 </script>
 
 <style scoped>
@@ -4164,45 +3968,6 @@ onBeforeUnmount(() => {
 .supervisor-guidance a {
   color: var(--registration-green);
   text-decoration: underline;
-}
-
-/* Confirm your email: a link in the sentence, as the guidance's email is. */
-.supervisor-guidance__action {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--registration-green);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.returning-supervisor {
-  max-width: 560px;
-  padding: 28px;
-  display: grid;
-  gap: 18px;
-  border: 1px solid rgba(20, 63, 57, 0.16);
-  border-radius: 8px;
-  background: var(--white);
-}
-
-.returning-supervisor__intro,
-.returning-supervisor__note {
-  margin: 0;
-  color: var(--registration-muted);
-  font-size: 0.9rem;
-}
-
-.returning-supervisor .server-error {
-  margin-bottom: 0;
-}
-
-.returning-supervisor__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
 }
 
 .pathway-choices {
@@ -5116,11 +4881,6 @@ dd {
   gap: 32px;
 }
 
-/* A supervisor's pronouns and photo, below their school and where it is. */
-.supervisor-extras {
-  margin-top: 30px;
-}
-
 /* The policies to agree to: a line of its own above Submit registration. */
 .policies-agree {
   margin-top: 32px;
@@ -5211,6 +4971,17 @@ dd {
   color: #7d2d28;
   font-size: 0.86rem;
   line-height: 1.45;
+}
+
+/* Last before Back and Continue: apart from the step's fields above it. */
+.error-summary {
+  margin-top: 46px;
+  margin-bottom: 36px;
+}
+
+/* After it, Back and Continue are 36px below it (not the footer's own 46px). */
+.error-summary + .form-footer {
+  margin-top: 0;
 }
 
 .error-summary:focus {

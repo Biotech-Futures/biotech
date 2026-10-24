@@ -33,18 +33,21 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.admin.permissions import IsAdminScoped
-from apps.common.role_names import ROLE_STUDENT
 from apps.users import email_verification
-from apps.users.models import StudentProfile, User
+from apps.common.role_names import ROLE_STUDENT, ROLE_SUPERVISOR
+from apps.users.models import StudentProfile, SupervisorProfile, User
 from apps.users.serializers import (
-    GUARDIAN_IS_SELF, GUARDIAN_IS_STUDENT, PLACEHOLDER_EMAIL, _has_role, guardian_account_warning,
-    is_placeholder_email, mailbox_warning, name_email_warning,
+    GUARDIAN_IS_SELF, PLACEHOLDER_ADDRESS, SUPERVISOR_IS_SELF, _has_role, guardian_account_warning,
+    is_placeholder_email, mailbox_warning, name_email_warning, new_guardian_email_problem,
 )
 
 MAX_FIELDS = 10
 KINDS = ("account", "guardian")
 NOT_AN_EMAIL = "Enter a valid email address."
 TAKEN = "Account email already exists"
+SUPERVISOR_NOT_AN_EMAIL = "Supervisor email is not a valid email address"
+SUPERVISOR_IS_STUDENT = "The supervisor's email belongs to a student, so they can't be a supervisor."
+SUPERVISOR_NOT_A_SUPERVISOR = "The supervisor's email belongs to an account that isn't a supervisor's."
 
 
 class FieldInput(serializers.Serializer):
@@ -68,7 +71,7 @@ def account_email_problem(email, *, user_id=None) -> str | None:
     except DjangoValidationError:
         return NOT_AN_EMAIL
     if is_placeholder_email(email):
-        return PLACEHOLDER_EMAIL
+        return PLACEHOLDER_ADDRESS
     taken = User.objects.filter(email__iexact=email)
     if user_id:
         taken = taken.exclude(pk=user_id)
@@ -82,13 +85,37 @@ def guardian_email_problem(email, account_email) -> str | None:
     except DjangoValidationError:
         return "Guardian email is not a valid email address"
     if is_placeholder_email(email):
-        return PLACEHOLDER_EMAIL
+        return PLACEHOLDER_ADDRESS
     if email == (account_email or "").strip().lower():
         return GUARDIAN_IS_SELF
-    existing = User.objects.filter(email__iexact=email).first()
-    if existing is not None and _has_role(existing, StudentProfile, ROLE_STUDENT):
-        return GUARDIAN_IS_STUDENT
+    return new_guardian_email_problem(email)
+
+
+def supervisor_email_problem(email, student_email) -> str | None:
+    """Why an imported student's supervisor can't have ``email``: as
+    registering refuses, so no student, mentor or admin is made one."""
+    if not email or not _is_email(email):
+        return SUPERVISOR_NOT_AN_EMAIL
+    if is_placeholder_email(email):
+        return PLACEHOLDER_ADDRESS
+    if email == (student_email or "").strip().lower():
+        return SUPERVISOR_IS_SELF
+    existing = User.objects.by_email(email)
+    if existing is None:
+        return None
+    if _has_role(existing, StudentProfile, ROLE_STUDENT):
+        return SUPERVISOR_IS_STUDENT
+    if not _has_role(existing, SupervisorProfile, ROLE_SUPERVISOR):
+        return SUPERVISOR_NOT_A_SUPERVISOR
     return None
+
+
+def _is_email(address) -> bool:
+    try:
+        validate_email(address)
+    except DjangoValidationError:
+        return False
+    return True
 
 
 def _check(item, answers):

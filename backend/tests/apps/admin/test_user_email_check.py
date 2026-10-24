@@ -9,7 +9,7 @@ from apps.admin.user_email_check import NOT_AN_EMAIL, TAKEN
 from apps.admin.services.user import create_user
 from apps.resources.models import RoleAssignmentHistory, Roles
 from apps.users.models import AdminScope, User
-from apps.users.serializers import GUARDIAN_HAS_ACCOUNT, GUARDIAN_IS_SELF, GUARDIAN_IS_STUDENT, PLACEHOLDER_EMAIL
+from apps.users.serializers import GUARDIAN_HAS_ACCOUNT, GUARDIAN_IS_SELF, GUARDIAN_IS_STUDENT, PLACEHOLDER_ADDRESS
 from tests.apps.users.test_email_verification import QevTestCase, qev
 from tests.apps.users.test_registration_email_warnings import answer
 
@@ -48,7 +48,7 @@ class UserEmailCheckTests(QevTestCase):
         User.objects.create_user(email="taken@example.test")
 
         self.assertEqual(self.one("account", "nope"), hard(NOT_AN_EMAIL))
-        self.assertEqual(self.one("account", "x@example.invalid"), hard(PLACEHOLDER_EMAIL))
+        self.assertEqual(self.one("account", "x@example.invalid"), hard(PLACEHOLDER_ADDRESS))
         self.assertEqual(self.one("account", "Taken@example.test"), hard(TAKEN))
         # Editing that user: their own address is theirs.
         taken = User.objects.get(email="taken@example.test")
@@ -107,6 +107,6 @@ class AddUserRefusesTests(QevTestCase):
 
     def test_what_the_check_refuses_saving_refuses(self):
         self.assertEqual(self.add(email="nope")["msg"], NOT_AN_EMAIL)
-        self.assertEqual(self.add(email="pip@example.invalid")["msg"], PLACEHOLDER_EMAIL)
+        self.assertEqual(self.add(email="pip@example.invalid")["msg"], PLACEHOLDER_ADDRESS)
         self.assertEqual(self.add(email="pip@example.test", guardianEmail="Pip@example.test")["msg"], GUARDIAN_IS_SELF)
         self.assertFalse(User.objects.filter(email__iexact="pip@example.test").exists())

@@ -15,7 +15,6 @@ import {
   registrationCsvTemplate,
   revalidateRegistrationCsvRows,
   type RegistrationForms,
-  type StudentDetails,
 } from '@/registration/registration'
 import { resetCsrfToken, setCsrfToken } from '@/utils/csrf'
 import { pickAppSelect } from '@/__tests__/appSelect'
@@ -42,7 +41,6 @@ type PageSetup = {
   goToStep: (index: number) => void
   changeJourney: () => void
   submitRegistration: () => Promise<void>
-  handlePhoto: (student: StudentDetails, prefix: string, file: File) => void
 }
 
 const mountWithGateway = (gateway: RegistrationGateway) =>
@@ -201,16 +199,7 @@ afterEach(() => {
 })
 
 describe('registration gateway UI integration', () => {
-  it('submits a selected image through the real HTTP adapter with CSRF, invitation and actual file bytes', async () => {
-    vi.stubGlobal(
-      'URL',
-      class extends URL {
-        static createObjectURL() {
-          return 'blob:selected-photo'
-        }
-        static revokeObjectURL() {}
-      },
-    )
+  it('submits through the real HTTP adapter as JSON with CSRF and the invitation', async () => {
     const endpoint = '/api/v1/registration'
     setCsrfToken('registration-csrf', window.location.origin)
     const send = vi.fn<typeof fetch>(
@@ -233,10 +222,6 @@ describe('registration gateway UI integration', () => {
     const wrapper = mountWithGateway(gateway)
     await wrapper.setProps({ invitationToken: 'signed-invitation' })
     await prepareStudent(wrapper)
-    const setup = setupOf(wrapper)
-    const photo = new File(['actual image bytes'], 'profile.png', { type: 'image/png' })
-    setup.handlePhoto(setup.forms.studentIndividual.student, 'studentIndividual.student', photo)
-    await wrapper.vm.$nextTick()
     await submit(wrapper)
     await vi.waitFor(() => expect(wrapper.get('.success-body h3').text()).toBe('Registration Complete'))
     const [url, init] = send.mock.calls[0]!
@@ -245,12 +230,10 @@ describe('registration gateway UI integration', () => {
     const headers = init?.headers as Headers
     expect(headers.get('X-CSRFToken')).toBe('registration-csrf')
     expect(headers.get('X-Registration-Invitation')).toBe('signed-invitation')
-    expect(headers.get('Content-Type')).toBeNull()
+    expect(headers.get('Content-Type')).toBe('application/json')
     expect(headers.get('Idempotency-Key')).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i)
-    const body = init?.body
-    if (!(body instanceof FormData)) throw new Error('Expected registration multipart data')
-    const serialized = body.get('request')
-    if (typeof serialized !== 'string') throw new Error('Expected JSON request part')
+    const serialized = init?.body
+    if (typeof serialized !== 'string') throw new Error('Expected a JSON request')
     expect(JSON.parse(serialized)).toMatchObject({
       journey: 'student_individual',
       payload: {
@@ -258,7 +241,9 @@ describe('registration gateway UI integration', () => {
         source: { method: 'student_individual' },
       },
     })
-    expect(body.get('students.0')).toBeInstanceOf(File)
+    // No pronouns or photo: the page no longer asks for them.
+    expect(JSON.parse(serialized).payload.students[0]).not.toHaveProperty('pronouns')
+    expect(JSON.parse(serialized).payload.students[0]).not.toHaveProperty('profilePhoto')
     wrapper.unmount()
   })
 

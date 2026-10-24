@@ -99,7 +99,6 @@ export type RegistrationGatewayResult =
     }
 
 export interface RegistrationSubmitOptions {
-  attachments?: Record<string, File>
   invitationToken?: string
   idempotencyKey?: string
   overrides?: Record<string, boolean>
