@@ -8,7 +8,10 @@ from apps.submissions.autosubmit import auto_submit_due
 
 
 class Command(BaseCommand):
-    help = "Submit complete, never-submitted drafts once each team's cut-off has passed."
+    help = (
+        "Submit complete, never-submitted drafts once each team's cut-off has passed, "
+        "until this year's finalist emails go out."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(

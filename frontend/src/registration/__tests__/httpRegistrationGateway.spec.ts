@@ -69,6 +69,34 @@ describe('HTTP registration gateway', () => {
       expect(await contents).toBe('image bytes')
     }
   })
+  it("sends a supervisor's own photo as theirs, and keeps the receipt's password token", async () => {
+    const request = buildRegistrationRequest('supervisor', createRegistrationForms())
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response({
+        reference_code: 'REG-SUP',
+        journey: 'supervisor',
+        student_count: 0,
+        created_at: '2026-10-24T10:00:00Z',
+        passwordToken: 'signed-password-token',
+      }),
+    )
+    const gateway = createHttpRegistrationGateway({ endpoint, fetchImpl, ensureCsrf })
+    const photo = new File(['image bytes'], 'photo.png', { type: 'image/png' })
+    const result = await gateway.submit(request, { attachments: { supervisor: photo }, idempotencyKey: retryKey })
+    const body = fetchImpl.mock.calls[0]?.[1]?.body as FormData
+    expect(body.get('supervisor')).toBeInstanceOf(File)
+    expect([...body.keys()].sort()).toEqual(['request', 'supervisor'])
+    expect(result).toEqual({
+      ok: true,
+      receipt: {
+        referenceCode: 'REG-SUP',
+        journey: 'supervisor',
+        studentCount: 0,
+        submittedAt: '2026-10-24T10:00:00Z',
+        passwordToken: 'signed-password-token',
+      },
+    })
+  })
   it('posts sanitized JSON with session and CSRF headers', async () => {
     const forms = createRegistrationForms()
     forms.studentIndividual.student.email = ' Student@Example.com '

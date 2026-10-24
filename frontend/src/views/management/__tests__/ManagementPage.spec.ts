@@ -51,7 +51,7 @@ describe('the management shell', () => {
 
   it.each([
     ['/management/late-registration', 'Registration', ['Registration', 'Late Registration'], 'Late Registration'],
-    ['/management/finalist-presentation', 'Symposium', ['Notify Finalists', 'Finalist Presentation'], 'Finalist Presentation'],
+    ['/management/finalist-presentation', 'Symposium', ['Notify Finalists', 'Finalist Presentation', 'Finalist Submissions'], 'Finalist Presentation'],
     ['/management/release-results', 'Results', ['Results', 'Release Results', 'Document Setup'], 'Release Results'],
     ['/management/known-universities', 'More', ['Email Checks', 'Known Universities'], 'Known Universities'],
   ])('on %s highlights %s and shows its pages, the open one selected', (path, section, pages, open) => {

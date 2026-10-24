@@ -75,6 +75,12 @@ def can_manage_chat_message(user, message) -> bool:
     if not user or not user.is_authenticated or message is None:
         return False
 
+    # Once automated screening has suppressed a message, the linked ticket is
+    # the only moderation surface. Neither the sender nor a group-page admin
+    # may edit/delete the evidence while support is deciding its outcome.
+    if getattr(message, "is_suppressed", False):
+        return False
+
     target_group = _group_from_value(getattr(message, "group", None) or getattr(message, "group_id", None))
     if target_group is None:
         return False

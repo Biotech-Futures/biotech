@@ -38,6 +38,7 @@ const intakeJourneys = new Set<RegistrationIntakeJourney>([
   'supervisor_group',
   'supervisor_csv',
   'mentor',
+  'supervisor',
 ])
 
 const csrfBaseUrl = (endpoint: string) => new URL(endpoint, window.location.origin).origin
@@ -72,12 +73,14 @@ const normalizeReceipt = (
   }
 
   const groupCode = source.group_code ?? source.groupCode
+  const passwordToken = source.passwordToken
   return {
     referenceCode,
     journey: journey as RegistrationIntakeJourney,
     studentCount,
     submittedAt,
     ...(typeof groupCode === 'string' && groupCode ? { groupCode } : {}),
+    ...(typeof passwordToken === 'string' && passwordToken ? { passwordToken } : {}),
   }
 }
 
@@ -135,7 +138,7 @@ const emailCheck = (
   const checkEndpoint = endpoint.replace(/\/?$/, '/')
   return {
     async checkEmails(request, options, onProgress) {
-      if (request.journey === 'mentor' || switchedOff) return 'skipped'
+      if (request.journey === 'mentor' || request.journey === 'supervisor' || switchedOff) return 'skipped'
       return runEmailCheck(
         {
           async start() {
@@ -229,6 +232,11 @@ export const createHttpRegistrationGateway = ({
         const multipart = new FormData()
         multipart.append('request', body)
         for (const [prefix, file] of Object.entries(options.attachments || {})) {
+          // A supervisor registering themselves: their own photo.
+          if (request.journey === 'supervisor' && prefix === 'supervisor') {
+            multipart.append('supervisor', file)
+            continue
+          }
           const index = studentRequestPrefixes(request).indexOf(prefix)
           if (index < 0) throw new Error('Invalid registration photo field.')
           multipart.append(`students.${index}`, file)

@@ -24,6 +24,8 @@ from apps.grading.models import FinalistFlag
 from apps.grading.services.text import natural_key
 from apps.groups.models.groups import Groups
 from apps.submissions.services import current_cohort
+from apps.submissions.finalist import finalist_deadline, finalist_round_open
+from apps.submissions.models import FinalistDeadline
 from apps.submissions.storage import FINALIST_SLIDES_FILES
 
 from ..models import (
@@ -309,7 +311,7 @@ def _read_slides(handed_in: list):
 
 
 def _zip_name() -> str:
-    return f"{current_cohort()}_Finalist_Slides.zip"
+    return f"{current_cohort()}_BTF_Finalist_Slides.zip"
 
 
 def _zip_key() -> str:
@@ -324,7 +326,7 @@ class PresentationSlidesZipView(APIView):
     Slides that can't be read leave a "_MISSING.txt" note in their place.
     404 until any team's are in.
 
-    Shape: {"file_name": "2026_Finalist_Slides.zip"}
+    Shape: {"file_name": "2026_BTF_Finalist_Slides.zip"}
     """
 
     permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
@@ -416,3 +418,40 @@ class PresentationAllocationView(APIView):
             )
         PresentationAllocation.objects.update_or_create(flag=flag, defaults={"slot": slot})
         return Response({"group_id": group_id, "slot_id": slot.id})
+
+
+def _finalist_close() -> dict | None:
+    """When finalist submissions close, as the Finalist Submissions tab shows
+    it; None while the round stays open."""
+    deadline = finalist_deadline()
+    if deadline is None:
+        return None
+    return {
+        "closes_at": deadline.closes_at,
+        "is_open": finalist_round_open(),
+        "set_by": person_name(deadline.set_by) if deadline.set_by else None,
+        "created_at": deadline.created_at,
+    }
+
+
+class _FinalistCloseSerializer(serializers.Serializer):
+    closes_at = serializers.DateTimeField()
+
+
+class FinalistSubmissionsCloseView(APIView):
+    """GET/POST /api/v1/management/finalists/submissions-close/ — when
+    finalist teams stop being able to change and submit their entries
+    (``{"close": {...} | null}``). POST ``{"closes_at"}`` sets a new time:
+    older ones are kept on record, the newest is the one in force."""
+
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        return Response({"close": _finalist_close()})
+
+    def post(self, request):
+        payload = _FinalistCloseSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        FinalistDeadline.objects.filter(is_active=True).update(is_active=False)
+        FinalistDeadline.objects.create(closes_at=payload.validated_data["closes_at"], set_by=request.user)
+        return Response({"close": _finalist_close()})

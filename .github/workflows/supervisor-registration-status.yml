@@ -4,7 +4,7 @@ name: Weekly supervisor registration status
 # permission form still to sign): how many are complete, waiting for a
 # signature, or waiting for guardian details. Once a week, until every one of
 # their students is complete. The backend decides who is due (not emailed in
-# the last 7 days), so this fires once a day: a missed run is made up the
+# the last 7 days), so it runs once a day: a missed run is made up the
 # next day.
 #
 # Firing more often than that is harmless: a supervisor emailed in the last
@@ -14,12 +14,11 @@ name: Weekly supervisor registration status
 #   secret  EMAIL_JOBS_TOKEN   shared by every email job; must match the
 #                              backend env of the same name
 #
-# 20:00 UTC (7am in Sydney under daylight saving, 6am in winter), an hour
-# after the guardian details reminders. The backend runs these itself once
-# SCHEDULER_ENABLED is set (apps.management.scheduler), at the same time.
+# Run by hand only (Actions > Run workflow), as a backup: the backend runs
+# this itself daily at 20:00 UTC (7am in Sydney under daylight saving, 6am in
+# winter), an hour after the guardian details reminders
+# (apps.management.scheduler).
 on:
-  schedule:
-    - cron: "0 20 * * *"
   workflow_dispatch:
 
 jobs:

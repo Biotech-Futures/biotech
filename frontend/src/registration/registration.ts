@@ -5,6 +5,7 @@ export const REGISTRATION_JOURNEYS = [
   'supervisor_group',
   'supervisor_csv',
   'mentor',
+  'supervisor',
 ] as const
 
 export type RegistrationJourney = (typeof REGISTRATION_JOURNEYS)[number]
@@ -173,6 +174,21 @@ export interface MentorForm {
   motivation: string
 }
 
+/** A supervisor registering themselves: who they are, their school, and
+ *  (as a student may) their pronouns and photo. */
+export interface SupervisorForm {
+  firstName: string
+  lastName: string
+  email: string
+  school: string
+  relationship: '' | 'teacher' | 'parent'
+  country: string
+  state: string
+  pronouns: string
+  pronounsOther: string
+  profilePhoto: PhotoMetadata | null
+}
+
 /** The most words a mentor's written answer may have. */
 export const MENTOR_MAX_WORDS = 150
 
@@ -185,6 +201,7 @@ export interface RegistrationForms {
   supervisorGroup: SupervisorGroupForm
   supervisorCsv: SupervisorCsvForm
   mentor: MentorForm
+  supervisor: SupervisorForm
   /** An admin's students' supervisor (Management > Registration): an existing
    *  supervisor's email, if they choose one, on every supervisor journey. */
   adminSupervisorEmail: string
@@ -320,6 +337,18 @@ export const createRegistrationForms = (): RegistrationForms => ({
     interests: [],
     capacity: '',
     motivation: '',
+  },
+  supervisor: {
+    firstName: '',
+    lastName: '',
+    email: '',
+    school: '',
+    relationship: '',
+    country: '',
+    state: '',
+    pronouns: '',
+    pronounsOther: '',
+    profilePhoto: null,
   },
 })
 
@@ -648,6 +677,8 @@ export const payloadForRegistrationJourney = (
       }
     case 'mentor':
       return { mentor: forms.mentor }
+    case 'supervisor':
+      return { supervisor: forms.supervisor }
   }
 }
 

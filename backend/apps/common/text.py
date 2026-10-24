@@ -8,13 +8,11 @@ the unit-test suite that runs without ``DJANGO_SETTINGS_MODULE``).
 
 Design decisions
 ----------------
-1. **Persistent mutation, not display-time filtering.**
-   ``sanitize_text`` is applied *before* ``serializer.save()`` so the cleaned
-   text is what is persisted to the database and broadcast over WebSocket. The
-   raw input is intentionally not preserved — the requirement is to protect
-   younger students, and a leaky audit trail (e.g. an admin endpoint that
-   bypassed the chat serializer) would defeat that. Capture raw text in an
-   audit log *before* this filter if you ever need it for moderation review.
+1. **Detection and replacement share one matcher.**
+   Chat message serializers use ``contains_blacklisted`` to reject blocked
+   content before persistence. Filename sanitisation still uses
+   ``sanitize_text`` to replace unsafe filename fragments. Both functions use
+   the same compiled pattern so the policies cannot drift.
 
 2. **Configurable via Django settings / env vars.** ``CHAT_SANITIZER_BLACKLIST``
    (comma-separated) and ``CHAT_SANITIZER_REPLACEMENT`` override the defaults

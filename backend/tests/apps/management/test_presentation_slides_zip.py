@@ -17,6 +17,7 @@ from apps.management.models import FinalistSlides
 from apps.management.views.presentation import MISSING_NOTE, SLIDES_FILES
 from apps.submissions.services import current_cohort
 
+from tests.apps._helpers import close_response
 from tests.apps.grading.fixtures import _GradingFixture
 
 ZIP = "management:presentation-slides-zip"
@@ -65,13 +66,13 @@ class FinalistSlidesZipTests(_GradingFixture):
     def _fetch(self):
         response = self.client.get(reverse(ZIP_FILE))
         # Lets go of the file, so the temporary folder can be removed.
-        self.addCleanup(response.close)
+        self.addCleanup(close_response, response)
         return response
 
     def _archive(self):
         made = self._make()
         self.assertEqual(made.status_code, status.HTTP_200_OK, made.content)
-        self.assertEqual(made.json(), {"file_name": f"{self.year}_Finalist_Slides.zip"})
+        self.assertEqual(made.json(), {"file_name": f"{self.year}_BTF_Finalist_Slides.zip"})
         response = self._fetch()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response, zipfile.ZipFile(io.BytesIO(b"".join(response.streaming_content)))
@@ -80,7 +81,7 @@ class FinalistSlidesZipTests(_GradingFixture):
         response, archive = self._archive()
 
         self.assertEqual(response["Content-Type"], "application/zip")
-        self.assertIn(f'filename="{self.year}_Finalist_Slides.zip"', response["Content-Disposition"])
+        self.assertIn(f'filename="{self.year}_BTF_Finalist_Slides.zip"', response["Content-Disposition"])
         self.assertTrue(response["Content-Disposition"].startswith("attachment"))
         self.assertEqual(
             archive.namelist(), [f"{self.year}_BTF3_Slides.pdf", f"{self.year}_BTF10_Slides.pptx"]
@@ -140,9 +141,9 @@ class FinalistSlidesZipTests(_GradingFixture):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], signed)
         key, = azure.backend.url.call_args.args
-        self.assertEqual(key, f"zips/{self.year}_Finalist_Slides.zip")
+        self.assertEqual(key, f"zips/{self.year}_BTF_Finalist_Slides.zip")
         self.assertEqual(azure.backend.url.call_args.kwargs["parameters"], {
-            "content_disposition": f'attachment; filename="{self.year}_Finalist_Slides.zip"',
+            "content_disposition": f'attachment; filename="{self.year}_BTF_Finalist_Slides.zip"',
             "content_type": "application/zip",
         })
 

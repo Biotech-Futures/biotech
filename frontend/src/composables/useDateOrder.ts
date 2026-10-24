@@ -5,13 +5,14 @@
 // can't be; the server refuses anything else, saying why.
 import { computed, ref } from 'vue'
 
-import { toLocalDateTimeInput } from '@/utils/date'
+import { toSydneyDateTimeInput } from '@/utils/date'
 import { fetchChallengeStart, fetchRegistrationOpen, fetchSubmissionDeadline } from '@/utils/managementAPI'
 
-/** The minute after (1) or before (-1) an instant, in this browser's time:
- *  a picker's earliest or latest for "later than" or "earlier than" it. */
+/** The minute after (1) or before (-1) an instant, in Sydney's time as
+ *  Management's dates are: a picker's earliest or latest for "later than"
+ *  or "earlier than" it. */
 export const minuteBeside = (value: string | null | undefined, side: 1 | -1): string =>
-  value ? toLocalDateTimeInput(new Date(Date.parse(value) + side * 60_000).toISOString()) : ''
+  value ? toSydneyDateTimeInput(new Date(Date.parse(value) + side * 60_000).toISOString()) : ''
 
 // Read on its own: one that can't be read just leaves its limit off.
 const quietly = async (read: () => Promise<void>) => {
