@@ -102,7 +102,7 @@ from apps.admin.services.role_task import (
 )
 from apps.admin.services.mentor_match import (
     match_mentor, get_mentors, get_unmatched_groups, get_matched_groups,
-    confirm_mentor_assignments, replace_mentor,
+    confirm_mentor_assignments, replace_mentor, DEFAULT_IDLE_DAYS,
     unassign_mentors, recommend_mentors_for_group,
 )
 from apps.admin.services.system_email import (
@@ -1266,6 +1266,20 @@ class MentorActiveStatusUpdateView(APIView):
 # ============================================================================
 # MENTOR MATCH ENDPOINTS
 # ============================================================================
+def _idle_days_param(request) -> int:
+    """The admin's own "idle after" setting, as their browser reports it.
+
+    It lives in their session rather than the database, so it arrives with the
+    request; anything missing or unusable falls back to what the page starts
+    from. Clamped to at least a day: zero would make every mentor idle.
+    """
+    raw = request.query_params.get("idleDays")
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_IDLE_DAYS
+
+
 class MentorMatchRecommendView(APIView):
     """GET /api/v1/mentor-match/recommend - Get mentor recommendations"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
@@ -1277,7 +1291,7 @@ class MentorMatchRecommendView(APIView):
             return Response({"msg": "Authentication required"}, status=401)
         raw_mode = request.query_params.get("mode")
         mode = raw_mode if raw_mode in ("strict", "coverage") else "balanced"
-        result = match_mentor(admin_user_id, mode)
+        result = match_mentor(admin_user_id, mode, _idle_days_param(request))
         return Response({"msg": "Mentor recommendations retrieved successfully", "data": result})
 
 
@@ -1313,7 +1327,7 @@ class MentorMatchConfirmView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = confirm_mentor_assignments(request.data)
+        result = confirm_mentor_assignments(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor assignments confirmed successfully", "data": result})
 
 
@@ -1322,7 +1336,7 @@ class MentorMatchReplaceView(APIView):
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def post(self, request):
-        result = replace_mentor(request.data)
+        result = replace_mentor(request.data, initiated_by=request.user)
         return Response({"msg": "Mentor replaced successfully", "data": result})
 
 
@@ -1344,7 +1358,7 @@ class MentorMatchReplaceSuggestionsView(APIView):
                 {"msg": "groupId must be an integer", "data": None},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        result = recommend_mentors_for_group(gid)
+        result = recommend_mentors_for_group(gid, _idle_days_param(request))
         code = status.HTTP_200_OK if result.get(
             "data") is not None else status.HTTP_404_NOT_FOUND
         return Response(result, status=code)
@@ -1356,7 +1370,11 @@ class MentorMatchUnassignView(APIView):
 
     def post(self, request):
         group_ids = request.data.get("groupIds", [])
-        result = unassign_mentors(group_ids)
+        result = unassign_mentors(
+            group_ids,
+            notify_departing=request.data.get('notifyDeparting', True),
+            initiated_by=request.user,
+        )
         return Response({"msg": "Mentors unassigned successfully", "data": result})
 
 

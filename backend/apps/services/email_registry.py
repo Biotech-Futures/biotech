@@ -828,6 +828,32 @@ EMAIL_TYPES = (
         ),
     ),
     EmailType(
+        key="mentor_unassigned",
+        delivery="Sent to the departing mentor only.",
+        name="Mentor removed from a group",
+        description="Sent to a mentor when an admin replaces them on a group.",
+        default_subject="Change to your mentoring group {{ group_name }}",
+        default_template="emails/mentor_unassigned.html",
+        merge_tags=(
+            MergeTag("mentor_first_name", "Departing mentor's first name", "Helen", "MENTOR_FIRST_NAME"),
+            MergeTag("group_name", "Group name", "BTF01", "GROUP_NAME"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
+        key="mentor_assigned",
+        delivery="Sent to the incoming mentor only.",
+        name="Mentor assigned to a group",
+        description="Sent to a mentor when an admin assigns them to a group.",
+        default_subject="Your new mentoring group {{ group_name }}",
+        default_template="emails/mentor_assigned.html",
+        merge_tags=(
+            MergeTag("mentor_first_name", "Incoming mentor's first name", "Samuel", "MENTOR_FIRST_NAME"),
+            MergeTag("group_name", "Group name", "BTF01", "GROUP_NAME"),
+            *_BRAND_TAGS,
+        ),
+    ),
+    EmailType(
         key="email_credits_low",
         name="Email verification credits low",
         description=(

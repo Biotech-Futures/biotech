@@ -1769,7 +1769,7 @@ export const fetchUnmatchedGroups = () =>
 export const fetchMentorMatchMatchedGroups = (params: Record<string, unknown> = {}) =>
   adminGet<PaginatedResult<unknown>>(`/mentor-match/matched-groups/${buildAdminQuery(params)}`)
 
-// --- Typed mentor-match surfaces (Replace Inactive Mentors) -----------------
+// --- Typed mentor-match surfaces (Replace Idle Mentors) ---------------------
 
 export interface MentorListItem {
   mentorId: number
@@ -1790,6 +1790,8 @@ export interface MatchedGroupMentor {
   mentorId: number
   name: string
   isActive: boolean
+  /** Null when they have never posted. Drives the "idle" state. */
+  lastMessageAt: string | null
   countryName: string | null
   institution: string | null
 }
@@ -1822,20 +1824,34 @@ export interface MentorAssignment {
   mentorUserId: number
 }
 
-export const confirmMentorAssignments = (assignments: MentorAssignment[]) =>
+export const confirmMentorAssignments = (
+  assignments: MentorAssignment[],
+  options: { notifyDeparting?: boolean; notifyIncoming?: boolean } = {}
+) =>
   adminPost<AdminEnvelope<{ confirmedCount: number }>>('/mentor-match/confirm/', {
-    assignments
+    assignments,
+    // Omitted means "notify" server-side; the admin opts out, not in.
+    notifyDeparting: options.notifyDeparting ?? true,
+    notifyIncoming: options.notifyIncoming ?? true
   }).then((env) => ({ msg: env.msg, confirmedCount: env.data.confirmedCount }))
 
-export const unassignMentors = (groupIds: number[]) =>
+export const unassignMentors = (
+  groupIds: number[],
+  options: { notifyDeparting?: boolean } = {}
+) =>
   adminPost<AdminEnvelope<{ unassignedCount: number }>>('/mentor-match/unassign/', {
-    groupIds
+    groupIds,
+    // Omitted means "notify" server-side; the admin opts out, not in.
+    notifyDeparting: options.notifyDeparting ?? true
   }).then((env) => ({ msg: env.msg, unassignedCount: env.data.unassignedCount }))
 
 export interface MentorReplacePayload {
   membershipId: number
   groupId: number
   newMentorUserId: number
+  /** Both default to true server-side when omitted. */
+  notifyDeparting?: boolean
+  notifyIncoming?: boolean
 }
 
 /** Swap one group's mentor for another (POST /mentor-match/replace/). Rejects
@@ -1861,10 +1877,15 @@ export interface MentorReplaceSuggestionsData {
   suggestions: MentorReplaceSuggestion[]
 }
 
-/** Scored replacement mentors for one group (GET /mentor-match/replace-suggestions/). */
-export const fetchMentorReplaceSuggestions = (groupId: number) =>
+/**
+ * Scored replacement mentors for one group (GET /mentor-match/replace-suggestions/).
+ * `idleDays` is this admin's own "idle after" setting: a mentor who has gone
+ * quiet for that long is not offered as a replacement.
+ */
+export const fetchMentorReplaceSuggestions = (groupId: number, idleDays?: number) =>
   adminGet<AdminEnvelope<MentorReplaceSuggestionsData>>(
-    `/mentor-match/replace-suggestions/?groupId=${groupId}`
+    `/mentor-match/replace-suggestions/?groupId=${groupId}` +
+      (idleDays ? `&idleDays=${idleDays}` : '')
   ).then((env) => env.data)
 
 // --- System emails ----------------------------------------------------------

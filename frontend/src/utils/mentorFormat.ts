@@ -9,12 +9,33 @@ export const daysSince = (dateStr: string | null): number | null => {
   return Math.floor(diff / (1000 * 60 * 60 * 24))
 }
 
-export const isEffectivelyInactive = (mentor: AdminMentorDetail, inactiveDaysValue: number): boolean => {
-  if (!mentor.isActive) return true
+/** Default threshold for "has gone quiet", in days. */
+export const DEFAULT_IDLE_DAYS = 30
+
+/**
+ * Why a mentor needs replacing, or null when they are fine.
+ *
+ * Two different situations used to share the word "inactive", which is why
+ * the Mentors page and Matched Groups disagreed on how many there were:
+ *
+ *  - `inactive` - the account itself is deactivated; they cannot take part.
+ *  - `idle`     - the account is fine, but they have not messaged recently.
+ */
+export type MentorConcern = 'inactive' | 'idle' | null
+
+export const mentorConcern = (
+  mentor: { isActive: boolean; lastMessageAt: string | null },
+  idleDays: number = DEFAULT_IDLE_DAYS,
+): MentorConcern => {
+  if (!mentor.isActive) return 'inactive'
   const days = daysSince(mentor.lastMessageAt)
-  if (days === null) return true // never sent a message
-  return days >= inactiveDaysValue
+  // Never posted counts as idle: there is nothing to suggest they are engaged.
+  if (days === null || days >= idleDays) return 'idle'
+  return null
 }
+
+export const isEffectivelyInactive = (mentor: AdminMentorDetail, inactiveDaysValue: number): boolean =>
+  mentorConcern(mentor, inactiveDaysValue) !== null
 
 export const lastMessageDays = (dateStr: string): number => daysSince(dateStr) ?? 0
 

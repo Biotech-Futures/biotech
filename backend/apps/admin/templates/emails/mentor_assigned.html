@@ -1,0 +1,30 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Your new mentoring group {{ GROUP_NAME }}{% endblock %}
+
+{% block preheader %}You are now the mentor for {{ GROUP_NAME }}.{% endblock %}
+
+{% block content %}
+              <p style="margin:0 0 8px 0; color:#6d7a72; font-size:14px; line-height:1.5;">
+                Dear {{ MENTOR_FIRST_NAME|default:"mentor" }},
+              </p>
+
+              <h1 class="headline" style="margin:0; color:#1a2e23; font-size:26px; line-height:1.2; font-weight:700;">
+                Your new mentoring group
+              </h1>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                You have been assigned as the mentor for {{ GROUP_NAME }}.
+              </p>
+
+              <p style="margin:14px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                You will now receive updates relating to the group and its participation.
+                Please contact the {{ BRAND_NAME }} team if you have any questions or need
+                assistance getting started.
+              </p>
+
+              <p style="margin:18px 0 0 0; color:#3d4b43; font-size:15px; line-height:1.65;">
+                Kind regards,<br>
+                {{ BRAND_NAME }} Team
+              </p>
+{% endblock %}
