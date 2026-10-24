@@ -36,6 +36,32 @@ describe('production registration normalization', () => {
     ).toHaveProperty('mentor')
   })
 
+  it("sends a mentor's or supervisor's own confirmed warnings with theirs", () => {
+    const forms = createRegistrationForms()
+    const mentor = buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms), {
+      'mentor.overrides.ConfirmEmailInvalidOverride': true,
+      'mentor.overrides.ConfirmNameEmailOverride': true,
+    })
+    expect(mentor.payload).toHaveProperty('mentor.overrides', {
+      ConfirmEmailInvalidOverride: true,
+      ConfirmNameEmailOverride: true,
+    })
+    const supervisor = buildProductionRegistrationRequest(buildRegistrationRequest('supervisor', forms), {
+      'supervisor.overrides.ConfirmNameEmailOverride': true,
+    })
+    expect(supervisor.payload).toHaveProperty('supervisor.overrides', { ConfirmNameEmailOverride: true })
+    // None confirmed: none sent.
+    expect(
+      buildProductionRegistrationRequest(buildRegistrationRequest('supervisor', forms)).payload,
+    ).not.toHaveProperty('supervisor.overrides')
+    // Another's confirmation isn't theirs.
+    expect(() =>
+      buildProductionRegistrationRequest(buildRegistrationRequest('mentor', forms), {
+        'students.0.overrides.ConfirmEmailInvalidOverride': true,
+      }),
+    ).toThrow('Invalid registration warning override.')
+  })
+
   it("sends a student group's held code token, for the group to take", () => {
     const forms = createRegistrationForms()
     expect(

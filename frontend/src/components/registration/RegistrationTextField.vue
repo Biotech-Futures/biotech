@@ -70,7 +70,7 @@
         :step="digits ? 1 : undefined"
         @input="onInput"
         @focus="openList"
-        @blur="listOpen = false"
+        @blur="onBlur"
         @keydown="onKeydown"
         @paste="digits && refuseNonDigitPaste($event)"
       />
@@ -167,11 +167,16 @@ const props = withDefaults(
   },
 )
 
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+// blur: focus left the box (a registration page checks an email box then).
+const emit = defineEmits<{ 'update:modelValue': [value: string]; blur: [] }>()
 
 // Suggestions: open while it has focus, those holding what's typed (but not
 // just what's typed), picked by a click or the arrows and Enter.
 const listOpen = ref(false)
+const onBlur = () => {
+  listOpen.value = false
+  emit('blur')
+}
 const active = ref(-1)
 const shownSuggestions = computed(() => {
   const typed = props.modelValue.trim().toLowerCase()

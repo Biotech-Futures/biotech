@@ -60,6 +60,16 @@ def returning_mentor(email: str, window) -> User | None:
     return user
 
 
+def returning_self_supervisor(email: str) -> User | None:
+    """The account a supervisor registering themselves with ``email`` comes
+    back to: a supervisor's, deactivated (Start new year). None for anyone
+    else, so their email stays taken."""
+    user = _deactivated(email)
+    if user is None or not SupervisorProfile.objects.filter(user=user).exists():
+        return None
+    return user
+
+
 def returning_supervisor(email: str) -> User | None:
     """The supervisor confirming ``email`` on the registration page: one
     Start new year deactivated, or one still active (who's simply signed in).

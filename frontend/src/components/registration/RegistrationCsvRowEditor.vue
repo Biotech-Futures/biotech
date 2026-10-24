@@ -7,6 +7,10 @@
     section="full"
     :errors="studentErrors"
     allow-guardian-defer
+    :email-state="emailState"
+    :email-confirmed="emailConfirmed"
+    @email-left="emit('email-left', $event)"
+    @email-confirm="(field, confirmed) => emit('email-confirm', field, confirmed)"
   />
 </template>
 
@@ -22,16 +26,26 @@ import {
   type CsvRow,
   type StudentDetails,
 } from '@/registration/registration'
+import type { EmailBoxState } from '@/registration/emailFieldCheck'
 
 const props = withDefaults(
   defineProps<{
     row: CsvRow
     errors?: Partial<Record<CsvHeader, string>>
+    /** Its email boxes' checks, as Register one student's (its paths are
+     *  csv-row-<row number>.email and .guardian.email). */
+    emailState?: (path: string, email: string) => EmailBoxState | undefined
+    emailConfirmed?: (path: string) => boolean
   }>(),
-  { errors: () => ({}) },
+  { errors: () => ({}), emailState: undefined, emailConfirmed: undefined },
 )
 
-const emit = defineEmits<{ 'update:values': [values: CsvRow['values']] }>()
+const emit = defineEmits<{
+  'update:values': [values: CsvRow['values']]
+  // An email box left, or its warning confirmed: the page checks it.
+  'email-left': [field: 'email' | 'guardian.email']
+  'email-confirm': [field: 'email' | 'guardian.email', confirmed: boolean]
+}>()
 
 // Each column's field on the student form.
 const FIELDS: Record<CsvHeader, string> = {

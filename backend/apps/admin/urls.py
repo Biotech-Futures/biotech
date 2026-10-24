@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import analytics_views
+from .user_email_check import UserEmailCheckView
 
 app_name = 'admin_api'
 
@@ -24,6 +25,8 @@ urlpatterns = [
     path('user/bulk-status/', views.UserBulkStatusUpdateView.as_view(), name='user-bulk-status-update'),
     path('user/bulk-delete/', views.UserBulkDeleteView.as_view(), name='user-bulk-delete'),
     path('user/ungrouped-check/', views.UserUngroupedCheckView.as_view(), name='user-ungrouped-check'),
+    # Add user's email boxes, checked as each is left.
+    path('user/email-check/', UserEmailCheckView.as_view(), name='user-email-check'),
     path('user/<str:user_id>/', views.UserDetailView.as_view(), name='user-detail'),
     path('user/<str:user_id>/status/', views.UserStatusUpdateView.as_view(), name='user-status-update'),
     path('user/<str:user_id>/supervisees/', views.UserSuperviseesView.as_view(), name='user-supervisees'),

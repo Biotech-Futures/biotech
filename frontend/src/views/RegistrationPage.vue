@@ -400,19 +400,6 @@
             <span>{{ serverError }}</span>
           </div>
 
-          <div
-            v-if="errorMessages.length"
-            ref="errorSummaryRef"
-            class="error-summary"
-            role="alert"
-            tabindex="-1"
-          >
-            <strong>Information to review</strong>
-            <ul>
-              <li v-for="message in errorMessages" :key="message">{{ message }}</li>
-            </ul>
-          </div>
-
           <section class="step-content" :aria-labelledby="stepHeadingId">
             <h2 :id="stepHeadingId" ref="stepHeadingRef" class="sr-only" tabindex="-1">
               {{ currentStepDefinition.title }}
@@ -442,6 +429,10 @@
                 prefix="studentIndividual.student"
                 section="identity"
                 :errors="errors"
+                :email-state="emailChecks.stateOf"
+                :email-confirmed="emailConfirmed"
+                @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
+                @email-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
               />
 
               <RegistrationStudentEditor
@@ -458,6 +449,10 @@
                 @remove-photo="
                   removePhoto(forms.studentIndividual.student, 'studentIndividual.student')
                 "
+                :email-state="emailChecks.stateOf"
+                :email-confirmed="emailConfirmed"
+                @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
+                @email-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -485,6 +480,14 @@
                     type="email"
                     :error="errors['studentIndividual.supervisor.email']"
                     wide
+                    @blur="checkOwnBox('studentIndividual.supervisor.email')"
+                  />
+                  <EmailCheckNote
+                    class="email-check-row"
+                    id="student-individual-supervisor-email"
+                    :state="ownBoxState('studentIndividual.supervisor.email')"
+                    :confirmed="emailConfirmed('studentIndividual.supervisor.email')"
+                    @confirm="confirmOwnBox('studentIndividual.supervisor.email', $event)"
                   />
                 </div>
 
@@ -499,6 +502,10 @@
                   prefix="studentIndividual.student"
                   section="guardian"
                   :errors="errors"
+                  :email-state="emailChecks.stateOf"
+                  :email-confirmed="emailConfirmed"
+                  @email-left="checkStudentBox('studentIndividual.student', forms.studentIndividual.student, $event)"
+                  @email-confirm="(field, confirmed) => confirmStudentBox('studentIndividual.student', forms.studentIndividual.student, field, confirmed)"
                 />
               </div>
             </template>
@@ -510,6 +517,10 @@
                 prefix="studentTeam.creator"
                 section="identity"
                 :errors="errors"
+                :email-state="emailChecks.stateOf"
+                :email-confirmed="emailConfirmed"
+                @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
+                @email-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
               />
 
               <div v-else-if="currentStep === 2" class="step-stack">
@@ -596,6 +607,14 @@
                       type="email"
                       :error="errors['studentTeam.supervisor.email']"
                       wide
+                      @blur="checkOwnBox('studentTeam.supervisor.email')"
+                    />
+                    <EmailCheckNote
+                      class="email-check-row"
+                      id="student-team-supervisor-email"
+                      :state="ownBoxState('studentTeam.supervisor.email')"
+                      :confirmed="emailConfirmed('studentTeam.supervisor.email')"
+                      @confirm="confirmOwnBox('studentTeam.supervisor.email', $event)"
                     />
                   </div>
                   <!-- Its members: Member 1 (the student), then the others. -->
@@ -645,6 +664,10 @@
                       :school-suggestions="teamSchoolsBesides(index)"
                       :region-suggestions="teamRegionsBesides(index)"
                       allow-guardian-defer
+                      :email-state="emailChecks.stateOf"
+                      :email-confirmed="emailConfirmed"
+                      @email-left="checkStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], $event)"
+                      @email-confirm="(field, confirmed) => confirmStudentBox(`studentTeam.teammates.${index}`, forms.studentTeam.teammates[index], field, confirmed)"
                     />
                   </div>
                 </template>
@@ -662,6 +685,10 @@
                     handlePhoto(forms.studentTeam.creator, 'studentTeam.creator', $event)
                   "
                   @remove-photo="removePhoto(forms.studentTeam.creator, 'studentTeam.creator')"
+                  :email-state="emailChecks.stateOf"
+                  :email-confirmed="emailConfirmed"
+                  @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
+                  @email-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
                 />
                 <div class="section-divider">
                   <h3>Guardian contact</h3>
@@ -672,6 +699,10 @@
                   prefix="studentTeam.creator"
                   section="guardian"
                   :errors="errors"
+                  :email-state="emailChecks.stateOf"
+                  :email-confirmed="emailConfirmed"
+                  @email-left="checkStudentBox('studentTeam.creator', forms.studentTeam.creator, $event)"
+                  @email-confirm="(field, confirmed) => confirmStudentBox('studentTeam.creator', forms.studentTeam.creator, field, confirmed)"
                 />
               </div>
             </template>
@@ -701,6 +732,10 @@
                     :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.student, supervisorIndividualStudents)"
                     allow-guardian-defer
+                    :email-state="emailChecks.stateOf"
+                    :email-confirmed="emailConfirmed"
+                    @email-left="checkStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, $event)"
+                    @email-confirm="(field, confirmed) => confirmStudentBox('supervisorIndividual.student', forms.supervisorIndividual.student, field, confirmed)"
                   />
                 </div>
                 <div
@@ -726,6 +761,10 @@
                     :school-suggestions="supervisedSchoolsBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     :region-suggestions="supervisedStatesBesides(forms.supervisorIndividual.extraStudents[index], supervisorIndividualStudents)"
                     allow-guardian-defer
+                    :email-state="emailChecks.stateOf"
+                    :email-confirmed="emailConfirmed"
+                    @email-left="checkStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], $event)"
+                    @email-confirm="(field, confirmed) => confirmStudentBox(`supervisorIndividual.extraStudents.${index}`, forms.supervisorIndividual.extraStudents[index], field, confirmed)"
                   />
                 </div>
               </div>
@@ -767,6 +806,10 @@
                     :school-suggestions="supervisedSchoolsBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     :region-suggestions="supervisedStatesBesides(forms.supervisorGroup.students[index], forms.supervisorGroup.students)"
                     allow-guardian-defer
+                    :email-state="emailChecks.stateOf"
+                    :email-confirmed="emailConfirmed"
+                    @email-left="checkStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], $event)"
+                    @email-confirm="(field, confirmed) => confirmStudentBox(`supervisorGroup.students.${index}`, forms.supervisorGroup.students[index], field, confirmed)"
                   />
                 </div>
               </div>
@@ -883,8 +926,13 @@
                     :errors="{
                       ...editingCsvRow.fieldErrors,
                       ...csvServerFieldsByRow[editingCsvRow.rowNumber],
+                      ...csvEmailProblems(editingCsvRow),
                     }"
+                    :email-state="emailChecks.stateOf"
+                    :email-confirmed="emailConfirmed"
                     @update:values="updateCsvRow(editingCsvRow, $event)"
+                    @email-left="checkEditingCsvBox"
+                    @email-confirm="confirmEditingCsvBox"
                   />
                   <footer class="csv-editor-footer">
                     <button type="button" class="primary-action" @click="closeCsvEditor">
@@ -969,6 +1017,14 @@
                   :error="errors['mentor.email']"
                   required
                   wide
+                  @blur="checkOwnBox('mentor.email')"
+                />
+                <EmailCheckNote
+                  class="email-check-row"
+                  id="mentor-email"
+                  :state="ownBoxState('mentor.email')"
+                  :confirmed="emailConfirmed('mentor.email')"
+                  @confirm="confirmOwnBox('mentor.email', $event)"
                 />
                 <RegistrationTextField
                   id="mentor-country"
@@ -1260,6 +1316,14 @@
                   :error="errors['supervisor.email']"
                   required
                   wide
+                  @blur="checkOwnBox('supervisor.email')"
+                />
+                <EmailCheckNote
+                  class="email-check-row"
+                  id="supervisor-email"
+                  :state="ownBoxState('supervisor.email')"
+                  :confirmed="emailConfirmed('supervisor.email')"
+                  @confirm="confirmOwnBox('supervisor.email', $event)"
                 />
               </div>
 
@@ -1404,6 +1468,20 @@
 
           </section>
 
+          <!-- What Continue or Submit was stopped by, last before them. -->
+          <div
+            v-if="errorMessages.length"
+            ref="errorSummaryRef"
+            class="error-summary"
+            role="alert"
+            tabindex="-1"
+          >
+            <strong>Information to review</strong>
+            <ul>
+              <li v-for="message in errorMessages" :key="message">{{ message }}</li>
+            </ul>
+          </div>
+
           <!-- On the right; the steps above go back, and Back to the
                options. A group's students are added here. -->
           <footer class="form-footer">
@@ -1502,6 +1580,9 @@ import { clearDraft, readDraft, saveDraft } from '@/registration/registrationDra
 import { useCountryOptions, useStateOptions, useUniversityNames } from '@/registration/useLocationOptions'
 import { useEmailPrecheck } from '@/registration/useEmailPrecheck'
 import EmailCheckProgress from '@/components/registration/EmailCheckProgress.vue'
+import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
+import { useEmailFieldChecks, type EmailBox } from '@/registration/emailFieldCheck'
+import { studentRequestPrefixes } from '@/registration/productionRegistration'
 import { formatDayMonthTime } from '@/utils/date'
 import {
   buildRegistrationRequest,
@@ -1980,6 +2061,8 @@ const clientErrors = reactive<Record<string, string>>({})
 const serverFieldErrors = reactive<Record<string, string>>({})
 const errors = computed<Record<string, string>>(() => ({
   ...serverFieldErrors,
+  // An email box's hard problem, once it's left (emailChecks, below).
+  ...emailChecks.hardProblems(boxEmail),
   ...clientErrors,
 }))
 const csvFileErrors = ref<string[]>([])
@@ -1993,6 +2076,140 @@ const serverError = ref('')
 const registrationWarnings = ref<RegistrationWarning[]>([])
 const warningAcknowledgements = reactive<Record<string, boolean>>({})
 const warningOverrides = ref<Record<string, boolean>>({})
+
+// Each email box, checked as it's left (registration/emailFieldCheck): a hard
+// problem is the box's error and keeps its step from going on; a warning is
+// shown under it to confirm. A box's confirmations are kept while its address
+// is (unlike Submit's own list, warningOverrides, which any change clears),
+// and go with Submit's (submitOverrides).
+const boxOverrides = reactive<Record<string, boolean>>({})
+const emailChecks = useEmailFieldChecks({
+  // Through the page's gateway, as Submit goes: none, no check.
+  request: (body) => registrationGateway.checkEmailField?.(body) ?? Promise.resolve(null),
+  overrides: () => boxOverrides,
+  setOverride: (path, confirmed) => {
+    if (confirmed) boxOverrides[path] = true
+    else delete boxOverrides[path]
+  },
+  journey: () => journey.value,
+})
+const emailConfirmed = (path: string) => {
+  const state = emailChecks.boxes[path]
+  return Boolean(state?.overrideField && boxOverrides[state.overrideField])
+}
+const submitOverrides = () => ({ ...boxOverrides, ...warningOverrides.value })
+// A student's place in the registration as Submit sends it, for their
+// warnings' confirmations: a supervisor's extra students follow Student 1.
+const studentIndexOf = (prefix: string) => {
+  const extra = /^supervisorIndividual\.extraStudents\.(\d+)$/.exec(prefix)
+  if (extra) return Number(extra[1]) + 1
+  if (!journey.value) return 0
+  try {
+    return Math.max(0, studentRequestPrefixes(buildRegistrationRequest(journey.value, forms)).indexOf(prefix))
+  } catch {
+    return 0
+  }
+}
+// A student's or their guardian's box (RegistrationStudentEditor's).
+const studentBox = (prefix: string, student: StudentDetails, field: 'email' | 'guardian.email'): EmailBox =>
+  field === 'email'
+    ? {
+        field: `${prefix}.email`, kind: 'student', email: student.email,
+        student: studentIndexOf(prefix), firstName: student.firstName, lastName: student.lastName,
+      }
+    : {
+        field: `${prefix}.guardian.email`, kind: 'guardian', email: student.guardian.email,
+        student: studentIndexOf(prefix), studentEmail: student.email,
+      }
+const checkStudentBox = (prefix: string, student: StudentDetails, field: 'email' | 'guardian.email') =>
+  emailChecks.check(studentBox(prefix, student, field))
+const confirmStudentBox = (
+  prefix: string,
+  student: StudentDetails,
+  field: 'email' | 'guardian.email',
+  confirmed: boolean,
+) => emailChecks.confirm(studentBox(prefix, student, field), confirmed)
+// The registration's own boxes: the supervisor a student names, and a mentor's
+// or supervisor's own address.
+const ownBoxes = {
+  'studentIndividual.supervisor.email': (): EmailBox => ({
+    field: 'studentIndividual.supervisor.email', kind: 'supervisor',
+    email: forms.studentIndividual.supervisor.email, studentEmail: forms.studentIndividual.student.email,
+  }),
+  'studentTeam.supervisor.email': (): EmailBox => ({
+    field: 'studentTeam.supervisor.email', kind: 'supervisor',
+    email: forms.studentTeam.supervisor.email, studentEmail: forms.studentTeam.creator.email,
+  }),
+  'mentor.email': (): EmailBox => ({
+    field: 'mentor.email', kind: 'mentor', email: forms.mentor.email,
+    firstName: forms.mentor.firstName, lastName: forms.mentor.lastName,
+  }),
+  'supervisor.email': (): EmailBox => ({
+    field: 'supervisor.email', kind: 'supervisor_self', email: forms.supervisor.email,
+    firstName: forms.supervisor.firstName, lastName: forms.supervisor.lastName,
+  }),
+}
+type OwnBox = keyof typeof ownBoxes
+const checkOwnBox = (path: OwnBox) => emailChecks.check(ownBoxes[path]())
+const confirmOwnBox = (path: OwnBox, confirmed: boolean) => emailChecks.confirm(ownBoxes[path](), confirmed)
+const ownBoxState = (path: OwnBox) => emailChecks.stateOf(path, ownBoxes[path]().email)
+// The forms' value at a dotted path ("studentTeam.teammates.1"), if any.
+const valueAtPath = (root: unknown, path: string): unknown =>
+  path.split('.').reduce<unknown>(
+    (value, key) => (value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined),
+    root,
+  )
+// A CSV row's boxes, as its editor names them (csv-row-<number>), the student
+// its place among the rows Submit sends.
+const csvRowIndex = (row: CsvRow) => {
+  try {
+    const request = buildRegistrationRequest('supervisor_csv', forms)
+    return request.journey === 'supervisor_csv'
+      ? Math.max(0, request.payload.rows.findIndex((sent) => sent.rowNumber === row.rowNumber))
+      : 0
+  } catch {
+    return 0
+  }
+}
+const csvBox = (row: CsvRow, field: 'email' | 'guardian.email'): EmailBox =>
+  field === 'email'
+    ? {
+        field: `csv-row-${row.rowNumber}.email`, kind: 'student', email: row.values.email,
+        student: csvRowIndex(row), firstName: row.values.first_name, lastName: row.values.last_name,
+      }
+    : {
+        field: `csv-row-${row.rowNumber}.guardian.email`, kind: 'guardian', email: row.values.guardian_email,
+        student: csvRowIndex(row), studentEmail: row.values.email,
+      }
+// The row being edited (editingCsvRow, below)'s boxes.
+const checkEditingCsvBox = (field: 'email' | 'guardian.email') => {
+  const row = editingCsvRow.value
+  return row ? emailChecks.check(csvBox(row, field)) : Promise.resolve()
+}
+const confirmEditingCsvBox = (field: 'email' | 'guardian.email', confirmed: boolean) => {
+  const row = editingCsvRow.value
+  return row ? emailChecks.confirm(csvBox(row, field), confirmed) : Promise.resolve()
+}
+// A row's hard problems, as its editor's own errors (by column).
+const csvEmailProblems = (row: CsvRow): Partial<Record<CsvHeader, string>> => {
+  const problems = emailChecks.hardProblems(boxEmail)
+  const email = problems[`csv-row-${row.rowNumber}.email`]
+  const guardian = problems[`csv-row-${row.rowNumber}.guardian.email`]
+  return { ...(email ? { email } : {}), ...(guardian ? { guardian_email: guardian } : {}) }
+}
+// What each checked box holds now, to tell a check about it from an older one.
+const boxEmail = (path: string): string => {
+  if (path in ownBoxes) return ownBoxes[path as OwnBox]().email
+  const csv = /^csv-row-(\d+)\.(email|guardian\.email)$/.exec(path)
+  if (csv) {
+    const row = forms.supervisorCsv.rows.find((item) => item.rowNumber === Number(csv[1]))
+    return row ? (csv[2] === 'email' ? row.values.email : row.values.guardian_email) : ''
+  }
+  const guardian = path.endsWith('.guardian.email')
+  const student = valueAtPath(forms, path.replace(guardian ? /\.guardian\.email$/ : /\.email$/, ''))
+  if (!student || typeof student !== 'object') return ''
+  return guardian ? (student as StudentDetails).guardian.email : (student as StudentDetails).email
+}
 const warningSummaryRef = ref<HTMLElement | null>(null)
 const isSubmitting = ref(false)
 const success = ref<RegistrationReceipt | null>(null)
@@ -2327,7 +2544,20 @@ const currentStepDefinition = computed(
     },
 )
 const stepHeadingId = computed(() => `registration-step-${currentStep.value + 1}`)
-const errorMessages = computed(() => [...new Set(Object.values(errors.value))])
+// What Continue or Submit was stopped by: the step's own errors, the server's,
+// and an email box's hard problem while it's there (under its box as soon as
+// it's left, but listed here only once Continue or Submit was pressed).
+const reviewedEmailProblems = ref<string[]>([])
+const errorMessages = computed(() => {
+  const live = emailChecks.hardProblems(boxEmail)
+  return [
+    ...new Set([
+      ...Object.values(serverFieldErrors),
+      ...reviewedEmailProblems.value.map((path) => live[path]).filter((message): message is string => !!message),
+      ...Object.values(clientErrors),
+    ]),
+  ]
+})
 const includedCsvRows = computed(() =>
   forms.supervisorCsv.rows.filter(
     (row) => !forms.supervisorCsv.excludedRowNumbers.includes(row.rowNumber),
@@ -2696,6 +2926,7 @@ const journeyReviewSections = computed<ReviewSection[]>(() => {
 
 const clearErrors = () => {
   Object.keys(clientErrors).forEach((key) => delete clientErrors[key])
+  reviewedEmailProblems.value = []
 }
 
 const clearServerErrors = () => {
@@ -2947,7 +3178,15 @@ const validateCurrentStep = () => {
   }
 
   if (journey.value !== 'supervisor_csv') validateCrossRoleEmails()
-  return !Object.keys(clientErrors).length
+  // An email box whose check found a hard problem (shown as its error while
+  // its address is there, `errors`): its step doesn't go on until the address
+  // is corrected (registration/emailFieldCheck).
+  const currentJourney = journey.value
+  const emailProblems = Object.keys(emailChecks.hardProblems(boxEmail)).filter(
+    (path) => earliestRegistrationErrorStep(currentJourney, [path]) === step,
+  )
+  reviewedEmailProblems.value = emailProblems
+  return !Object.keys(clientErrors).length && !emailProblems.length
 }
 
 const focusErrors = async () => {
@@ -3092,6 +3331,8 @@ const goToStep = (index: number) => {
 
 const continueJourney = async () => {
   leaveCsvEditor()
+  // A box left as Continue was pressed: its check first.
+  if (emailChecks.checking()) await emailChecks.settled()
   if (!validateCurrentStep()) {
     await focusErrors()
     return
@@ -3441,6 +3682,7 @@ const toCsvRow = (row: Record<string, unknown>) => row.row as CsvRow
 const submitRegistration = async () => {
   if (!journey.value || isSubmitting.value) return
   leaveCsvEditor()
+  if (emailChecks.checking()) await emailChecks.settled()
   if (!(await validateJourneyBeforeSubmit())) return
   if (
     registrationWarnings.value.some((warning) => !warningAcknowledgements[warning.overrideField])
@@ -3475,7 +3717,7 @@ const submitRegistration = async () => {
       : buildRegistrationRequest(journey.value, forms)
     // An admin's students' supervisor goes with it (Management > Registration).
     const supervisorEmail = adminChoosesSupervisor.value ? forms.adminSupervisorEmail.trim() : ''
-    const signature = JSON.stringify({ request, overrides: warningOverrides.value, supervisorEmail })
+    const signature = JSON.stringify({ request, overrides: submitOverrides(), supervisorEmail })
     if (!submissionKey || submissionSignature !== signature) submissionKey = crypto.randomUUID()
     submissionSignature = signature
     const attachments: Record<string, File> = {}
@@ -3502,14 +3744,14 @@ const submitRegistration = async () => {
     // or confirm. Skipped whenever it can't be done; never holds this up.
     await checkEmails(registrationGateway, request, {
       invitationToken: invitationToken.value,
-      overrides: { ...warningOverrides.value },
+      overrides: submitOverrides(),
       supervisorEmail: supervisorEmail || undefined,
     })
     const result = await registrationGateway.submit(request, {
       attachments,
       invitationToken: invitationToken.value,
       idempotencyKey: submissionKey,
-      overrides: { ...warningOverrides.value },
+      overrides: submitOverrides(),
       supervisorEmail: supervisorEmail || undefined,
     })
     clearServerErrors()
@@ -3605,6 +3847,9 @@ const resetRegistration = () => {
   editingCsvRowNumber.value = null
   clearErrors()
   clearServerErrors()
+  // The boxes' checks and their confirmations, for the old registration.
+  emailChecks.reset()
+  Object.keys(boxOverrides).forEach((key) => delete boxOverrides[key])
   scrollToTop()
 }
 
@@ -3678,6 +3923,11 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* An email box's check, the whole row under it (EmailCheckNote). */
+.email-check-row {
+  grid-column: 1 / -1;
+}
+
 .registration-warnings {
   margin-block: 1rem;
   padding: 1rem;

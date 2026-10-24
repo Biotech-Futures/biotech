@@ -193,6 +193,32 @@ export const createHttpRegistrationGateway = ({
   emailCheckEndpoint,
 }: HttpRegistrationGatewayOptions): RegistrationGateway => ({
   ...(emailCheckEndpoint ? emailCheck(emailCheckEndpoint, fetchImpl, ensureCsrf) : {}),
+  // An email box's check as it's left: beside the pre-check, its field/.
+  ...(emailCheckEndpoint
+    ? {
+        async checkEmailField(body: { journey?: string; fields: unknown[] }) {
+          const csrfApiBaseUrl = csrfBaseUrl(endpoint)
+          try {
+            await ensureCsrf(csrfApiBaseUrl)
+            const response = await fetchImpl(`${emailCheckEndpoint.replace(/\/+$/, '')}/field/`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: buildSessionHeaders({
+                includeCSRF: true,
+                csrfApiBaseUrl,
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+              }),
+              body: JSON.stringify(body),
+            })
+            if (!response.ok) return null
+            const data = (await response.json().catch(() => null)) as { results?: Record<string, unknown> } | null
+            return data?.results ?? null
+          } catch {
+            return null
+          }
+        },
+      }
+    : {}),
   async submit(request, options = {}): Promise<RegistrationGatewayResult> {
     const csrfApiBaseUrl = csrfBaseUrl(endpoint)
     let csrfReady = false

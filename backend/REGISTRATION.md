@@ -226,6 +226,15 @@ mentor's. A photo is sent as a student's is: the same JSON in a multipart
 `request`, with the file as `supervisor` (at most one), checked by the shared
 profile-image validator.
 
+Their email is checked as a mentor's is: a placeholder address or one whose
+mailbox doesn't exist is refused (`supervisor.email`); one that couldn't be
+checked, or that looks like a typo of their name, is a warning confirmed with
+`supervisor.overrides` (`ConfirmEmailInvalidOverride`,
+`ConfirmNameEmailOverride`). An address with an account is refused, except a
+supervisor's that Start new year deactivated (`returning_self_supervisor`):
+that account comes back, active, with this form's details in place of last
+year's, as a returning mentor's does.
+
 ```json
 {
   "journey": "supervisor",
@@ -508,6 +517,41 @@ QuickEmailVerification's free sandbox, which answers by the test address used
 | `QEV_TIMEOUT_SECONDS` | 5 | How long one lookup may take. |
 | `QEV_USE_SANDBOX` | `false` | Use QuickEmailVerification's free test endpoint. |
 | `QEV_ALERT_EMAIL` | `info@biotechfutures.org` | Where low-credit alerts go (the paid key's balance, below 500 then 100). |
+
+### Each email box, as it's left
+
+Separately from the check above, the page checks each email box as focus
+leaves it (`POST /api/v1/registration/email-check/field/`,
+`apps/users/email_field_check.py`), with Submit's own checks: format, the
+template's placeholder, an address already used, a guardian or supervisor the
+same as the student, the mailbox (looked up once and kept, so Submit doesn't
+look it up again), and a name that looks like a typo of the address. Its kinds
+are `student`, `guardian`, `supervisor` (the one a student names), `mentor`
+and `supervisor_self` (a supervisor registering themselves), across every
+journey: the four sign-ups, a supervisor's three and an admin's three (a CSV
+row as it's corrected in the review table). On the page
+(`frontend/src/registration/emailFieldCheck.ts`, through the gateway's
+`checkEmailField`):
+
+- **A hard problem** is the box's error, and its step doesn't go on until the
+  address is corrected.
+- **A warning** is shown under the box with a "Yes, this address is correct"
+  tick. The tick is kept while the address is, and goes to Submit as that
+  warning's override, so it isn't asked again.
+- **A check that can't be done** (no network, or past the limit) says
+  nothing. Submit still checks.
+
+It's limited to `registration_email_field_check` (30 a minute) per person,
+in `REST_FRAMEWORK`'s throttle rates, as each new address can cost a lookup.
+
+Admin > Users > Add user does the same for the user's own address and a
+student's guardian's (`POST /api/v1/admin/user/email-check/`,
+`apps/admin/user_email_check.py`, admins only, 60 a minute): what saving
+refuses is shown under the box, and a warning (a mailbox that doesn't exist or
+couldn't be checked, a likely typo, a guardian address with an account) is
+ticked to confirm before saving. Saving itself refuses a bad format, the
+placeholder, an address in use, a guardian who is the student, and a
+student's address as a guardian.
 
 ## Compatibility and deployment
 

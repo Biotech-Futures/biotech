@@ -26,6 +26,15 @@
         :error="fieldError('email')"
         :required="markRequired"
         wide
+        @blur="emit('email-left', 'email')"
+      />
+      <!-- Checked as it's left: a warning to confirm, under it. -->
+      <EmailCheckNote
+        class="student-editor__note"
+        :id="fieldId('email')"
+        :state="emailState?.(`${prefix}.email`, student.email)"
+        :confirmed="emailConfirmed?.(`${prefix}.email`)"
+        @confirm="emit('email-confirm', 'email', $event)"
       />
     </div>
 
@@ -147,6 +156,14 @@
           :error="fieldError('guardian.email')"
           :required="markRequired"
           wide
+          @blur="emit('email-left', 'guardian.email')"
+        />
+        <EmailCheckNote
+          class="student-editor__note"
+          :id="fieldId('guardian.email')"
+          :state="emailState?.(`${prefix}.guardian.email`, student.guardian.email)"
+          :confirmed="emailConfirmed?.(`${prefix}.guardian.email`)"
+          @confirm="emit('email-confirm', 'guardian.email', $event)"
         />
       </div>
     </div>
@@ -157,6 +174,7 @@
 import { computed, watch } from 'vue'
 
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
+import EmailCheckNote from '@/components/registration/EmailCheckNote.vue'
 import RegistrationInterestSelector from '@/components/registration/RegistrationInterestSelector.vue'
 import RegistrationProfileExtras from '@/components/registration/RegistrationProfileExtras.vue'
 import RegistrationTextField from '@/components/registration/RegistrationTextField.vue'
@@ -165,6 +183,7 @@ import {
   stateLabel,
   type StudentDetails,
 } from '@/registration/registration'
+import type { EmailBoxState } from '@/registration/emailFieldCheck'
 import { useCountryOptions, useStateOptions } from '@/registration/useLocationOptions'
 
 const props = withDefaults(
@@ -181,6 +200,11 @@ const props = withDefaults(
     /** States the others in their group gave, for a typed state (outside
      *  Australia, whose states are a dropdown). */
     regionSuggestions?: string[]
+    /** Its email boxes' checks, by their paths (registration/emailFieldCheck):
+     *  the state for the address there now, and whether its warning is
+     *  confirmed. */
+    emailState?: (path: string, email: string) => EmailBoxState | undefined
+    emailConfirmed?: (path: string) => boolean
   }>(),
   {
     allowGuardianDefer: false,
@@ -189,12 +213,18 @@ const props = withDefaults(
     previewUrl: '',
     schoolSuggestions: () => [],
     regionSuggestions: () => [],
+    emailState: undefined,
+    emailConfirmed: undefined,
   },
 )
 
 const emit = defineEmits<{
   'photo-selected': [file: File]
   'remove-photo': []
+  // Its student's or guardian's email box left, or that box's warning
+  // confirmed (or not): the page checks it (registration/emailFieldCheck).
+  'email-left': [field: 'email' | 'guardian.email']
+  'email-confirm': [field: 'email' | 'guardian.email', confirmed: boolean]
 }>()
 const student = defineModel<StudentDetails>('student', { required: true })
 
@@ -242,6 +272,11 @@ const fieldError = (field: string) => props.errors[`${props.prefix}.${field}`]
 .student-editor {
   display: grid;
   gap: 30px;
+}
+
+/* A box's check, the whole row under it. */
+.student-editor__note {
+  grid-column: 1 / -1;
 }
 
 .student-editor__grid {

@@ -1234,6 +1234,15 @@ def add_users_by_role(
             results.append({"input": input_data, "msg": refusal, "data": None})
             continue
 
+        # What Add user's own check refuses as each box is left
+        # (user_email_check): not an address, or the template's placeholder.
+        from apps.admin.user_email_check import TAKEN, account_email_problem, guardian_email_problem
+
+        problem = account_email_problem(email)
+        if problem and problem != TAKEN:
+            results.append({"input": input_data, "msg": problem, "data": None})
+            continue
+
         # Check if user exists
         if User.objects.filter(email=email).exists():
             results.append({
@@ -1242,6 +1251,14 @@ def add_users_by_role(
                 "data": None
             })
             continue
+
+        # A student's guardian: an address, not the student's own, nor a student's.
+        guardian_email = str(input_data.get("guardianEmail") or "").strip().lower()
+        if role == "student" and guardian_email:
+            problem = guardian_email_problem(guardian_email, email)
+            if problem:
+                results.append({"input": input_data, "msg": problem, "data": None})
+                continue
         
         # Only an email and a role are needed: an admin may add someone before
         # their country, school or year are known. A year given is 9 to 12.

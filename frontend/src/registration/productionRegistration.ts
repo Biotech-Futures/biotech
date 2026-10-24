@@ -112,6 +112,18 @@ export const registrationFormPath = (request: RegistrationRequest, path: string)
   return path
 }
 
+// A mentor's or supervisor's own warnings confirmed (mentor.overrides.<name>):
+// as their own `overrides`, none when there are none.
+const ownOverrides = (who: 'mentor' | 'supervisor', flags: Record<string, boolean>) => {
+  const overrides: Record<string, boolean> = {}
+  for (const [path, flag] of Object.entries(flags)) {
+    const match = new RegExp(`^${who}\\.overrides\\.(Confirm\\w+)$`).exec(path)
+    if (!match || typeof flag !== 'boolean') throw new Error('Invalid registration warning override.')
+    overrides[match[1]!] = flag
+  }
+  return Object.keys(overrides).length ? { overrides } : {}
+}
+
 export const buildProductionRegistrationRequest = (
   request: RegistrationRequest,
   overrideFlags: Record<string, boolean> = {},
@@ -121,10 +133,12 @@ export const buildProductionRegistrationRequest = (
   // mentor or supervisor registering themselves; a supervisor's journeys
   // registering students don't ask.
   if (request.journey === 'mentor') {
-    return { journey: request.journey, payload: { mentor: request.payload.mentor }, policiesAgreed: true }
+    const mentor = { ...request.payload.mentor, ...ownOverrides('mentor', overrideFlags) }
+    return { journey: request.journey, payload: { mentor }, policiesAgreed: true }
   }
   if (request.journey === 'supervisor') {
-    return { journey: request.journey, payload: { supervisor: request.payload.supervisor }, policiesAgreed: true }
+    const supervisor = { ...request.payload.supervisor, ...ownOverrides('supervisor', overrideFlags) }
+    return { journey: request.journey, payload: { supervisor }, policiesAgreed: true }
   }
   const students: SubmittedStudent[] = (() => {
     switch (request.journey) {

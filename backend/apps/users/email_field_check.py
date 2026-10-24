@@ -1,11 +1,14 @@
-"""Checking a registration page's boxes when its Continue is pressed
-(``POST /api/v1/registration/email-check/field/``), with what Submit would
-refuse (hard) or warn about (soft).
+"""Checking a registration page's boxes as each is left, and when its
+Continue is pressed (``POST /api/v1/registration/email-check/field/``), with
+what Submit would refuse (hard) or warn about (soft). At most
+``registration_email_field_check`` requests a minute from one person.
 
 Request: ``{"journey"?, "fields": [{"field", "kind", "email", "studentEmail"?,
 "student"?, "firstName"?, "lastName"?, "school"?, "overrides"?}]}`` with at
-most MAX_FIELDS fields. ``kind`` is student, guardian, supervisor, mentor or
-school (the student's school, from ``school``; no ``email``). ``student`` is the
+most MAX_FIELDS fields. ``kind`` is student, guardian, supervisor (the one a
+student names), mentor, supervisor_self (a supervisor registering
+themselves) or school (the student's school, from ``school``; no ``email``).
+``student`` is the
 student's place in the registration (0 when not given), for override paths;
 ``overrides`` are those already ticked, as at Submit.
 
@@ -23,6 +26,7 @@ from rest_framework import permissions, serializers
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from . import email_verification
@@ -35,9 +39,23 @@ from .serializers import (
     StrictBooleanField, UserRegisterBodySerializer, guardian_account_warning, mailbox_warning, name_email_warning,
     refuse_invalid_mailbox, refuse_placeholder, school_warning,
 )
+from .supervisor_registration import (
+    JOURNEY as SUPERVISOR_JOURNEY, SUPERVISOR_EMAIL_TAKEN, SUPERVISOR_NAME, supervisor_email_taken,
+)
 
 MAX_FIELDS = 50
-KINDS = {"student": "Title", "guardian": "GuardianEmail", "supervisor": "SupervisorEmail", "mentor": "Title"}
+# ``supervisor`` is the supervisor a student names; ``supervisor_self`` a
+# supervisor registering themselves, checked as Submit checks them
+# (supervisor_registration).
+KINDS = {
+    "student": "Title", "guardian": "GuardianEmail", "supervisor": "SupervisorEmail", "mentor": "Title",
+    "supervisor_self": "Title",
+}
+# Those registering themselves alone: their own email, and their own name.
+OWN = {
+    "mentor": ("mentor", MENTOR_NAME),
+    "supervisor_self": ("supervisor", SUPERVISOR_NAME),
+}
 SAME_AS_STUDENT = {
     "guardian": (GUARDIAN_IS_SELF, "guardian_same_as_student"),
     "supervisor": (SUPERVISOR_IS_SELF, "supervisor_same_as_student"),
@@ -82,7 +100,7 @@ class FieldInput(StrictInput):
 
 
 class FieldCheckInput(StrictInput):
-    journey = serializers.ChoiceField(choices=[*STUDENT_JOURNEYS, MENTOR_JOURNEY], required=False)
+    journey = serializers.ChoiceField(choices=[*STUDENT_JOURNEYS, MENTOR_JOURNEY, SUPERVISOR_JOURNEY], required=False)
     fields = serializers.ListField(child=FieldInput(), min_length=1, max_length=MAX_FIELDS)
 
     def validate_fields(self, value):
@@ -106,6 +124,12 @@ def _check(kind, email, student_email, answers):
         refuse_placeholder(value)
         if mentor_email_taken(value, current_window()):
             raise serializers.ValidationError(MENTOR_EMAIL_TAKEN, code="email_taken")
+        refuse_invalid_mailbox(answers, value, MAILBOX_WHOSE[name])
+        return
+    if kind == "supervisor_self":
+        refuse_placeholder(value)
+        if supervisor_email_taken(value):
+            raise serializers.ValidationError(SUPERVISOR_EMAIL_TAKEN, code="email_taken")
         refuse_invalid_mailbox(answers, value, MAILBOX_WHOSE[name])
         return
     if kind in SAME_AS_STUDENT:
@@ -132,17 +156,19 @@ def _warning(item, answers):
     elif kind == "supervisor":
         found = [mailbox_warning(answers, email, "SupervisorEmail", invalid_is_error=True)]
     else:
+        whose = OWN[kind][1] if kind in OWN else "the student's"
         found = [
             mailbox_warning(answers, email, "Title", invalid_is_error=True),
-            named and name_email_warning(
-                item["firstName"], item["lastName"], email, MENTOR_NAME if kind == "mentor" else "the student's",
-            ),
+            named and name_email_warning(item["firstName"], item["lastName"], email, whose),
         ]
     warning = next((w for w in found if w and not item["overrides"].get(w["override_field"])), None)
     if warning is None:
         return None
-    if kind == "mentor":
-        return {**warning, "field": "mentor.email", "override_field": f"mentor.overrides.{warning['override_field']}"}
+    if kind in OWN:
+        prefix = OWN[kind][0]
+        return {
+            **warning, "field": f"{prefix}.email", "override_field": f"{prefix}.overrides.{warning['override_field']}",
+        }
     index = 0 if kind == "supervisor" else item["student"]
     return {
         **warning, "field": registration_field(warning["field"], item["student"]),
@@ -174,6 +200,12 @@ class EmailFieldCheckView(APIView):
     permission_classes = [permissions.AllowAny]
     authentication_classes = [SessionAuthentication]
     parser_classes = [JSONParser]
+    # A page checks each box as it's left, and each new address can cost a
+    # QuickEmailVerification lookup: a limit per person (IP, or account when
+    # signed in) keeps a script from spending them. Past it, 429; Submit
+    # still checks.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "registration_email_field_check"
 
     def post(self, request):
         parser = FieldCheckInput(data=request.data)

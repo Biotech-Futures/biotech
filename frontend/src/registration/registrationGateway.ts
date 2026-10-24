@@ -121,6 +121,10 @@ export interface RegistrationGateway {
     options: Pick<RegistrationSubmitOptions, 'invitationToken' | 'overrides' | 'supervisorEmail'>,
     onProgress: (progress: EmailCheckProgress) => void,
   ): Promise<EmailCheckOutcome>
+  /** An email box's check as it's left (emailFieldCheck.ts), when this
+   *  gateway can: the server's results by box, or null when it can't be
+   *  done. Never throws. */
+  checkEmailField?(body: { journey?: string; fields: unknown[] }): Promise<Record<string, unknown> | null>
 }
 
 export const REGISTRATION_GATEWAY_KEY: InjectionKey<RegistrationGateway> =
