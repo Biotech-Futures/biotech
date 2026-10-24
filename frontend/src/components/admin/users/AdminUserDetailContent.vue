@@ -193,6 +193,24 @@
       </dl>
     </section>
 
+    <section v-if="user" class="admin-users-detail__section" data-test="admin-notes-section">
+      <h3>Internal Admin Notes</h3>
+      <div
+        v-if="hasAdminNotes"
+        class="admin-users-detail__notes-box"
+        data-test="admin-notes-display"
+      >
+        <div
+          class="admin-users-detail__notes-text"
+          data-test="admin-notes-content"
+          v-html="adminNotesHtml"
+        ></div>
+      </div>
+      <p v-else class="admin-users-detail__notes-empty" data-test="admin-notes-empty">
+        No private notes recorded.
+      </p>
+    </section>
+
     <section v-if="user?.role === 'student'" class="admin-users-detail__section" data-test="admin-supervisor-group">
       <div class="admin-users-detail__heading">
         <h3>Supervisor and Group</h3>
@@ -1158,6 +1176,7 @@ import {
   supervisorLabel,
   userName
 } from '@/utils/userFormat'
+import { sanitizeRichText } from '@/composables/useAnnouncements'
 import { INTEREST_OPTIONS } from '@/utils/userOptions'
 import {
   APPLICATION_QUESTIONS,
@@ -1192,6 +1211,23 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'updated', user: AdminUser): void
 }>()
+
+const hasAdminNotes = computed(() => {
+  const notesHtml = adminNotesHtml.value
+  if (!notesHtml) return false
+
+  const container = document.createElement('div')
+  container.innerHTML = notesHtml
+  return (
+    Boolean(container.textContent?.trim()) ||
+    Boolean(container.querySelector('img, video, audio, iframe, object, embed, canvas, svg'))
+  )
+})
+
+const adminNotesHtml = computed(() => {
+  if (!props.user?.adminNotes) return ''
+  return sanitizeRichText(props.user.adminNotes)
+})
 
 const guardian = computed(() => {
   const user = props.user

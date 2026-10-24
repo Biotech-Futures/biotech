@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'apps.grading',
     'apps.management',
     'apps.services',
+    'apps.system_logs',
     'drf_spectacular',
     'rest_framework',
     'django_filters',
@@ -265,7 +266,11 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
-    # First, so Azure's Always On calls are noted before anything redirects them.
+    # Outermost, so every line logged while serving a request carries its id,
+    # path and user on the System Logs page - including the ping below.
+    "apps.system_logs.context.RequestContextMiddleware",
+    # Above SecurityMiddleware, so Azure's Always On calls are noted before
+    # anything redirects them.
     "apps.services.always_on.AlwaysOnPingMiddleware",
     # Starts this process's timer for the timed jobs, when SCHEDULER_ENABLED.
     "apps.management.scheduler.SchedulerStartMiddleware",
@@ -473,24 +478,61 @@ LOGGING = {
             "class": "logging.StreamHandler",
             "formatter": "standard",
         },
+        # Also keeps records for the admin System Logs page; which ones is
+        # decided by the SYSTEM_LOG_DB_* settings below.
+        "system_log_db": {
+            "class": "apps.system_logs.handler.DatabaseLogHandler",
+            "level": "INFO",
+        },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", "system_log_db"],
         "level": "INFO",
     },
     "loggers": {
         "django.request": {
-            "handlers": ["console"],
+            "handlers": ["console", "system_log_db"],
             "level": "ERROR",
             "propagate": False,
         },
         "config": {
-            "handlers": ["console"],
+            "handlers": ["console", "system_log_db"],
             "level": "INFO",
             "propagate": False,
         },
     },
 }
+
+# --- System logs (admin System Logs page) -----------------------------------
+# Log records are also kept in the database so admins can read them without
+# Azure access (apps.system_logs). Days a record is kept before the daily
+# prune (.github/workflows/system-log-prune.yml) deletes it.
+SYSTEM_LOG_RETENTION_DAYS = config("SYSTEM_LOG_RETENTION_DAYS", default=30, cast=int)
+# Off switch: false stops new records being kept (the console is unaffected),
+# without a deploy.
+SYSTEM_LOG_DB_ENABLED = config("SYSTEM_LOG_DB_ENABLED", default="true", cast=env_bool)
+# Records at this level and above are kept, from every logger.
+SYSTEM_LOG_DB_LEVEL = config("SYSTEM_LOG_DB_LEVEL", default="WARNING")
+# INFO is kept too from these loggers (and their children): sign-ins and the
+# email sends, which admins ask about. Each is low volume.
+SYSTEM_LOG_DB_INFO_LOGGERS = tuple(
+    config(
+        "SYSTEM_LOG_DB_INFO_LOGGERS",
+        default=(
+            "apps.services.views,apps.services.auth_service,apps.services.mailer,"
+            "apps.services.system_email,apps.services.retry,apps.chat.services.digest,"
+            "apps.events.services,apps.submissions.emails,apps.management.services.finalist_notify"
+        ),
+        cast=Csv(),
+    )
+)
+# Records waiting for the background writer; past this, new ones are dropped
+# (and counted) rather than slow a request.
+SYSTEM_LOG_QUEUE_SIZE = config("SYSTEM_LOG_QUEUE_SIZE", default=10_000, cast=int)
+# Write inline instead of on the background thread, for tests and local
+# debugging (settings_test sets it directly). Ignored with DEBUG off: inline
+# writes would put a database write on every request that logs.
+SYSTEM_LOG_DISPATCH_SYNC = DEBUG and config("SYSTEM_LOG_DISPATCH_SYNC", default="false", cast=env_bool)
 
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
@@ -508,8 +550,9 @@ CORS_ALLOW_HEADERS = [
 # Response headers the SPA is allowed to read on cross-origin fetches.
 # Browsers hide everything but a small safelist otherwise: without this the
 # download filename in Content-Disposition (job exports) and the X-Request-ID
-# that apiError.ts attaches to error reports both read as null in JS.
-CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID"]
+# that apiError.ts attaches to error reports both read as null in JS, as
+# would the System Logs export's X-Export-Truncated and X-Export-Row-Limit.
+CORS_EXPOSE_HEADERS = ["Content-Disposition", "X-Request-ID", "X-Export-Truncated", "X-Export-Row-Limit"]
 
 # Azure App Service terminates TLS at the frontend and forwards plain HTTP to the
 # app, so request.is_secure()/request.scheme are wrong unless we trust the proxy's

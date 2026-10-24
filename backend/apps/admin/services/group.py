@@ -20,6 +20,8 @@ from apps.groups.models import (
 )
 from apps.groups.models.groups import default_group_year
 from apps.chat.models import Messages
+from apps.chat.serializers import MessageSerializer
+from apps.chat.views import publish_new_message
 from apps.users.models import User, StudentProfile, UserInterest
 from apps.audit.services import log_audit_event
 
@@ -43,13 +45,14 @@ class GroupSenderDict(TypedDict):
     id: str
     name: str
     email: str
-    role: Optional[str]  # "student", "mentor", or None
+    role: Optional[str]  # "student", "mentor", "admin" (sent as Administrator), or None
 
 
 class GroupMessageDict(TypedDict):
     id: str
     group_id: str
     sender: GroupSenderDict
+    sent_as_admin: bool
     text: str
     sent_at: str
     edited_at: Optional[str]
@@ -142,7 +145,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             group_id__in=group_ids,
             left_at__isnull=True
         )
-        .select_related("user")
+        .select_related("user", "user__studentprofile", "user__studentprofile__supervisor", "user__studentprofile__supervisor__user")
         .order_by("group_id", "id")
     )
     
@@ -160,7 +163,7 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
                 desc = ui.interest.interest_desc.strip()
                 if desc:
                     interests_by_user.setdefault(ui.user_id, []).append(desc)
-    
+
     # Organize members by group and role
     members_by_group_id = {}
     mentor_by_group_id = {}
@@ -186,9 +189,18 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
             "interests": user_ints,
         }
         
-        if role == "mentor":
+        if role == GroupMembership.MembershipRoleChoices.MENTOR:
             mentor_by_group_id[membership.group_id] = member
         else:
+            supervisor_name = ""
+            try:
+                student_profile = getattr(user, "studentprofile", None)
+                if student_profile and student_profile.supervisor_id:
+                    supervisor_user = student_profile.supervisor.user
+                    supervisor_name = f"{supervisor_user.first_name} {supervisor_user.last_name}".strip() or supervisor_user.email or ""
+            except Exception:
+                supervisor_name = ""
+            member["supervisorName"] = supervisor_name or None
             if membership.group_id not in members_by_group_id:
                 members_by_group_id[membership.group_id] = []
             members_by_group_id[membership.group_id].append(member)
@@ -220,10 +232,30 @@ def _build_groups(base_rows: List[GroupBaseRow]) -> List[GroupDict]:
     return result
 
 
+def _member_match(term: str) -> Exists:
+    """Groups with a current member whose name or email contains ``term``.
+
+    "Member" is any current ``GroupMembership`` - student, mentor or
+    supervisor - because each of them is attached to the group, which is what
+    an admin searching for a person means.
+    """
+    return Exists(
+        GroupMembership.objects.filter(
+            group_id=OuterRef("id"),
+            left_at__isnull=True,
+        ).filter(
+            Q(user__first_name__icontains=term)
+            | Q(user__last_name__icontains=term)
+            | Q(user__email__icontains=term)
+        )
+    )
+
+
 def _build_group_where(
     search_name: Optional[str] = None,
     search_group: Optional[str] = None,
     mentor_status: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> Q:
     """
     Build query conditions for filtering groups.
@@ -232,6 +264,12 @@ def _build_group_where(
         search_name: Search by member name
         search_group: Search by group name
         mentor_status: Filter by mentor status ("matched" or "unmatched")
+        search: Search by group name *or* member name (AM11)
+
+    Conditions are ANDed, so the search terms narrow each other. ``search`` is
+    the one the groups page sends: its single box matches either side, while
+    the two narrower terms stay available to a caller that wants to say which
+    it means.
 
     Returns:
         Q object with combined conditions
@@ -258,18 +296,12 @@ def _build_group_where(
     
     # Filter by member name
     if search_name:
-        search_pattern = f"%{search_name}%"
-        matching_member_exists = Exists(
-            GroupMembership.objects.filter(
-                group_id=OuterRef("id"),
-                left_at__isnull=True,
-            ).select_related("user").filter(
-                Q(user__first_name__icontains=search_name) |
-                Q(user__last_name__icontains=search_name) |
-                Q(user__email__icontains=search_name)
-            )
-        )
-        conditions.append(matching_member_exists)
+        conditions.append(_member_match(search_name))
+
+    # AM11: the groups page's one box. A group matches on its own name or on
+    # any of its current members', so searching a student finds their group.
+    if search:
+        conditions.append(Q(group_name__icontains=search) | _member_match(search))
     
     return Q(*conditions)
 
@@ -312,6 +344,7 @@ def query_groups(
     requesting_user=None,
     sort_by: str = "createdAt",
     sort_order: str = "desc",
+    search: Optional[str] = None,
 ) -> dict:
     """
     Query groups with pagination and filtering.
@@ -322,12 +355,13 @@ def query_groups(
         search_name: Search by member name
         search_group: Search by group name
         mentor_status: Filter by mentor status
+        search: Search by group name or member name
 
     Returns:
         Dictionary with groups, pagination, and metadata
     """
     offset = (page - 1) * limit
-    where = _build_group_where(search_name, search_group, mentor_status)
+    where = _build_group_where(search_name, search_group, mentor_status, search)
 
     # Get total count
     total = Groups.objects.filter(where).count()
@@ -433,6 +467,66 @@ def query_group_by_id(group_id: str) -> dict:
     }
 
 
+def _format_group_message(msg, gid: int) -> GroupMessageDict:
+    """One message as the admin history and send endpoints return it.
+
+    Admins see the real sender of a message sent as Administrator; ``role``
+    is "admin" and ``sent_as_admin`` is set so the UI can label it.
+    """
+    sender_user = msg.sender_user
+    role = "admin" if msg.sent_as_admin else _get_member_role(sender_user)
+
+    attachments = []
+    for att in msg.attachments.all():
+        attachments.append({
+            "id": att.id,
+            "filename": att.attachment_filename,
+            "mime_type": att.attachment_mime_type,
+            "size": att.attachment_size,
+            # Trailing slash matters: without it Django's APPEND_SLASH
+            # answers 301, and a browser will not follow a redirect on a
+            # cross-origin request that carried an Authorization header.
+            "download_url": (
+                f"/api/v1/chat/groups/{gid}/messages/{msg.id}"
+                f"/attachments/{att.id}/download/"
+            ),
+        })
+
+    gif = None
+    if hasattr(msg, "gif"):
+        g = msg.gif
+        gif = {
+            "gif_url": g.gif_url,
+            "preview_url": g.preview_url,
+            "title": g.title,
+        }
+
+    return {
+        "id": str(msg.id),
+        "group_id": str(msg.group_id),
+        "sender": {
+            "id": str(sender_user.id),
+            "name": f"{sender_user.first_name} {sender_user.last_name}".strip(),
+            "email": sender_user.email,
+            "role": role,
+        },
+        "sent_as_admin": msg.sent_as_admin,
+        "message_type": msg.message_type,
+        "text": msg.message_text,
+        "attachments": attachments,
+        "gif": gif,
+        "sent_at": msg.sent_at.isoformat(),
+        "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
+        "deleted_at": msg.deleted_at.isoformat() if msg.deleted_at else None,
+        "deleted_by": (
+            f"{msg.deleted_by.first_name} {msg.deleted_by.last_name}".strip()
+            or msg.deleted_by.email
+            if msg.deleted_by_id
+            else None
+        ),
+    }
+
+
 def query_group_messages(
     group_id: str,
     page: int = 1,
@@ -459,69 +553,27 @@ def query_group_messages(
         return {"msg": "Group not found", "data": None}
     
     offset = (page - 1) * limit
-    
-    # Get total count
-    total = Messages.objects.filter(
-        group_id=gid,
-        deleted_at__isnull=True
-    ).count()
-    
-    # Fetch paginated messages
+
+    # Soft-deleted messages are included: this endpoint is admin-only, and
+    # moderation needs to see what was removed, by whom, and put it back.
+    # Participants read chat through apps.chat, which filters them out.
+    total = Messages.objects.filter(group_id=gid).count()
+
     message_records = (
         Messages.objects
-        .filter(
-            group_id=gid,
-            deleted_at__isnull=True
+        .filter(group_id=gid)
+        .select_related(
+            "sender_user",
+            "sender_user__mentorprofile",
+            "sender_user__studentprofile",
+            "deleted_by",
         )
-        .select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
         .prefetch_related("attachments")
         .order_by("sent_at", "id")[offset:offset + limit]
     )
 
-    items = []
-    for msg in message_records:
-        sender_user = msg.sender_user
-        role = _get_member_role(sender_user)
+    items = [_format_group_message(msg, gid) for msg in message_records]
 
-        attachments = []
-        for att in msg.attachments.all():
-            attachments.append({
-                "id": att.id,
-                "filename": att.attachment_filename,
-                "mime_type": att.attachment_mime_type,
-                "size": att.attachment_size,
-                "download_url": (
-                    f"/api/v1/chat/groups/{gid}/messages/{msg.id}"
-                    f"/attachments/{att.id}/download"
-                ),
-            })
-
-        gif = None
-        if hasattr(msg, "gif"):
-            g = msg.gif
-            gif = {
-                "gif_url": g.gif_url,
-                "preview_url": g.preview_url,
-                "title": g.title,
-            }
-
-        items.append({
-            "id": str(msg.id),
-            "group_id": str(msg.group_id),
-            "sender": {
-                "id": str(sender_user.id),
-                "name": f"{sender_user.first_name} {sender_user.last_name}".strip(),
-                "email": sender_user.email,
-                "role": role,
-            },
-            "message_type": msg.message_type,
-            "text": msg.message_text,
-            "attachments": attachments,
-            "gif": gif,
-            "sent_at": msg.sent_at.isoformat(),
-            "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
-        })
-    
     has_more = offset + len(items) < total
     
     return {
@@ -749,6 +801,59 @@ def remove_group_member(group_id: str, user_id: int, initiated_by=None) -> dict:
 
 
 @transaction.atomic
+def send_group_message(group_id: str, text, initiated_by) -> dict:
+    """Post ``text`` into a group's chat as Administrator (AM6).
+
+    The admin is stored as the real sender with ``sent_as_admin`` set, so
+    members see "Administrator" while admins see who sent it. Text goes
+    through the chat API's own serializer, so it is validated and sanitised
+    exactly like a member's message; mentions, the live broadcast and link
+    previews then follow the same path as any new message.
+    """
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        return {"msg": "Group not found", "data": None}
+
+    if not _fetch_group_base_by_id(gid):
+        return {"msg": "Group not found", "data": None}
+
+    if not isinstance(text, str) or not text.strip():
+        return {"msg": "Message cannot be empty", "data": None}
+
+    serializer = MessageSerializer(data={"message_text": text})
+    if not serializer.is_valid():
+        errors = serializer.errors
+        detail = errors.get("non_field_errors") or errors.get("message_text") or ["Invalid message"]
+        return {"msg": str(detail[0]), "data": None}
+
+    with transaction.atomic():
+        message = serializer.save(sender_user=initiated_by, group_id=gid, sent_as_admin=True)
+        # Broadcast and link previews run on commit, after the audit row.
+        publish_new_message(message, viewer_id=initiated_by.id)
+        log_audit_event(
+            actor=initiated_by,
+            entity_type="message",
+            entity_id=message.id,
+            action="create",
+            after_state={
+                "id": message.id,
+                "groupId": message.group_id,
+                "senderUserId": message.sender_user_id,
+                "sentAsAdmin": True,
+                "messageText": message.message_text,
+                "sentAt": message.sent_at.isoformat() if message.sent_at else None,
+            },
+        )
+
+    message = (
+        Messages.objects.select_related("sender_user", "sender_user__mentorprofile", "sender_user__studentprofile")
+        .prefetch_related("attachments")
+        .get(pk=message.pk)
+    )
+    return {"msg": "Message sent", "data": _format_group_message(message, gid)}
+
+
 def remove_group_message(group_id: str, message_id: int, initiated_by=None) -> dict:
     """
     Soft-delete a message from a group.
@@ -935,6 +1040,9 @@ def bulk_delete_groups_by_filter(filters, exclude_ids=None, expected_count=None,
         search_name=filters.get("searchName"),
         search_group=filters.get("searchGroup"),
         mentor_status=filters.get("mentorStatus"),
+        # Without this a "select all matching" delete would sweep groups the
+        # admin never saw: the list is filtered by `search`, so this must be.
+        search=filters.get("search"),
     )
     ids = list(Groups.objects.filter(where).values_list("id", flat=True).distinct())
 

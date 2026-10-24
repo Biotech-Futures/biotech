@@ -213,3 +213,28 @@ describe('the bottom bar', () => {
     expect(box.style.minHeight).toBe('')
   })
 })
+
+describe('rows per page', () => {
+  // More rows than one page holds: the picker is disabled while everything
+  // already fits on screen, and a disabled one will not open to be read.
+  const manyRows = Array.from({ length: 40 }, (_, index) => ({
+    id: index + 1,
+    icon: 'x',
+    name: `Name ${index}`,
+    school: 'North',
+    open: false
+  }))
+  const pageSizeOptions = (props: Record<string, unknown> = {}) =>
+    appSelectLabels(mountTable({ rows: manyRows, ...props }), '.data-table-page-size')
+
+  it('offers All by default, as every other table does', async () => {
+    expect(await pageSizeOptions()).toContain('All Entries')
+  })
+
+  it('leaves All out when a page turns it off', async () => {
+    const options = await pageSizeOptions({ allowAllRows: false })
+
+    expect(options).not.toContain('All Entries')
+    expect(options.length).toBeGreaterThan(0)
+  })
+})

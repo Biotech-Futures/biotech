@@ -1,0 +1,178 @@
+"""What System Logs never stores: secrets in messages, tracebacks and extras.
+
+The logging calls in this codebase already avoid secrets (emails go through
+``email_log_tag``, failures log the exception type). This is the safety net for
+the ones that don't, and for third-party messages: anything shaped like a
+credential is replaced with ``[redacted]`` before a row is queued.
+"""
+import math
+import re
+
+REDACTED = "[redacted]"
+
+MESSAGE_MAX_CHARS = 8_000
+TRACEBACK_MAX_CHARS = 32_000
+EXTRA_VALUE_MAX_CHARS = 500
+EXTRA_MAX_KEYS = 20
+
+# Any URL's query string: reset links (?token=), magic links
+# (/services/magic/?...) and Azure SAS URLs (?sig=) all carry secrets there.
+# "#" is allowed before the "?": the SPA's links are hash-routed (/#/auth/...).
+_URL_QUERY = re.compile(r"(?P<url>\bhttps?://[^\s?\"'<>]+)\?[^\s\"'<>]*")
+# The password in a connection URL: postgresql://user:pass@host,
+# rediss://:pass@host. The user name is kept.
+_URL_USERINFO = re.compile(r"(?P<scheme>\b[a-zA-Z][a-zA-Z0-9+.-]*://)(?P<user>[^\s:/@]*):[^\s/@]+@")
+# "Bearer abc...", "Token abc..." as in an Authorization header.
+_AUTH_SCHEME = re.compile(r"(?i)\b(?P<scheme>bearer|token|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
+# A JSON Web Token on its own: three base64url parts, the first always "eyJ".
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
+_ANY_VALUE = r"\"[^\"]*\"|'[^']*'|[^\s&,;'\"}]+"
+
+
+def _pair(name, value=_ANY_VALUE, quote=r"[\"']?", sep=r"\s*[=:]\s*", before=r"\b"):
+    return re.compile(
+        rf"(?i){before}(?P<name>{name})(?P<quote>{quote})(?P<sep>{sep})(?P<value>{value})"
+    )
+
+
+# name=value / name: value pairs whose name says the value is secret, also
+# with the name quoted as in a dict or JSON ('password': 'x', "otp": "1"),
+# and the keys in Azure connection strings (AccountKey=...;).
+_SECRET_PAIR = _pair(
+    r"password|passwd|pwd|secret|client_secret|token|access_token|refresh_token"
+    r"|api_key|apikey|secret_key|account_key|accountkey|sharedaccesskey|access_key|sessionid|session_key"
+    r"|csrftoken|csrfmiddlewaretoken|otp|otp_code|login_code|verify_code|verification_code|reset_code"
+    r"|auth_code|signature|authorization|cookie"
+)
+
+# Short names that also mean harmless things, redacted only when the pair is
+# shaped like the secret they can stand for:
+#   code  "status code=500", "exit code: 1", DRF's {'code': 'invalid'}. Only
+#         the six-digit sign-in code (LoginToken.generate_token), as in magic
+#         links (&code=123456) and the login email ("enter code: 123456").
+#   sid   also a student or submission id here (sid=42). Only a value shaped
+#         like a session key (32 characters in user_sessions).
+#   sig   also a signal number (sig=15). Only as a URL parameter, as in Azure
+#         SAS strings (...&sig=...).
+#   pass  also a word ("First pass: ..."). Only as pass=value or a quoted key.
+_SHAPED_SECRET_PAIRS = (
+    _pair("code", value=r"\"\d{6}\"|'\d{6}'|\d{6}(?!\w)"),
+    _pair("sid", value=r"\"[\w-]{20,}\"|'[\w-]{20,}'|[\w-]{20,}"),
+    _pair("sig", before=r"(?<=[?&])", sep="="),
+    _pair("pass", quote="", sep=r"\s*=\s*"),
+    _pair("pass", quote=r"[\"']"),
+)
+
+# Extra keys kept as they are, even though a word in them looks sensitive.
+SAFE_EXTRA_KEYS = frozenset({"user_id", "reason", "status", "kind", "count", "duration_ms", "revoked_at", "ended_at"})
+_SENSITIVE_KEY_PARTS = frozenset({
+    "password", "passwd", "pwd", "secret", "token", "sid", "session", "sessionid", "cookie",
+    "authorization", "auth", "otp", "magic", "csrf", "signature", "sig", "credential",
+    "credentials", "apikey", "key",
+})
+# Sensitive only as the whole key: as a part, "code" is mostly harmless
+# (status_code, error_code).
+_SENSITIVE_KEYS = frozenset({"code", "login_code", "verify_code", "verification_code", "reset_code"})
+
+
+# Terminal colour and cursor codes, as servers colour their console lines
+# ("\x1b[31;1mHTTP POST ... 400\x1b[0m"): CSI sequences (7-bit and 8-bit),
+# OSC sequences (window titles, links), character set selection ("\x1b(B")
+# and the other two-character escapes.
+_ANSI_ESCAPE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x9b[0-?]*[ -/]*[@-~]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b[()*+#%][0-~]"
+    r"|\x1b[@-Z\\-_]"
+)
+
+
+def strip_ansi(text: str) -> str:
+    """``text`` without terminal escape codes; a stray ESC left over is
+    dropped too."""
+    return _ANSI_ESCAPE.sub("", text).replace("\x1b", "")
+
+
+def scrub_text(text: str) -> str:
+    """``text`` with terminal colour codes removed; passwords in connection
+    URLs, URL query strings, auth headers, JWTs and secret=value pairs
+    replaced; and NUL characters (which PostgreSQL text can't hold) removed."""
+    if not text:
+        return ""
+    # First, so a code next to a secret can't hide it from the patterns below.
+    text = strip_ansi(text.replace("\x00", ""))
+    text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}{m.group('user')}:{REDACTED}@", text)
+    text = _URL_QUERY.sub(lambda m: f"{m.group('url')}?{REDACTED}", text)
+    text = _AUTH_SCHEME.sub(lambda m: f"{m.group('scheme')} {REDACTED}", text)
+    text = _JWT.sub(REDACTED, text)
+    for pattern in (_SECRET_PAIR, *_SHAPED_SECRET_PAIRS):
+        text = pattern.sub(_redact_pair, text)
+    return text
+
+
+def _redact_pair(match: re.Match) -> str:
+    return f"{match.group('name')}{match.group('quote')}{match.group('sep')}{REDACTED}"
+
+
+def truncate(text: str, limit: int) -> str:
+    """``text`` cut to about ``limit`` characters, keeping the start and the
+    end (where a traceback names the actual error)."""
+    if len(text) <= limit:
+        return text
+    marker = "\n...[truncated]...\n"
+    head = limit // 4
+    tail = limit - head - len(marker)
+    return text[:head] + marker + text[-tail:]
+
+
+def is_sensitive_key(key: str) -> bool:
+    if key.lower() in SAFE_EXTRA_KEYS:
+        return False
+    if key.lower() in _SENSITIVE_KEYS:
+        return True
+    parts = re.split(r"[^a-z0-9]+", key.lower())
+    return any(part in _SENSITIVE_KEY_PARTS for part in parts) or any(
+        word in key.lower() for word in ("password", "token", "secret")
+    )
+
+
+# A path segment that looks like a token: long, only token characters, with
+# both letters and digits (so readable slugs like "guardian-consent-withdrawal"
+# are kept). Catches the guardian links (/consent/<token>/) even when the URL
+# didn't resolve.
+_TOKEN_SEGMENT = re.compile(r"^(?=[^/]*[A-Za-z])(?=[^/]*\d)[A-Za-z0-9_\-:.=]{24,}$")
+_SECRET_KWARG_WORDS = ("token", "secret", "signature", "password", "otp", "magic")
+
+
+def scrub_path(path: str, url_kwargs: dict | None = None) -> str:
+    """A request path safe to store: values of URL arguments named like
+    secrets (``<str:token>``) and token-shaped segments replaced."""
+    secrets = {
+        str(value)
+        for name, value in (url_kwargs or {}).items()
+        if value and any(word in name.lower() for word in _SECRET_KWARG_WORDS)
+    }
+    segments = [
+        REDACTED if segment in secrets or _TOKEN_SEGMENT.match(segment) else segment
+        for segment in path.split("/")
+    ]
+    return "/".join(segments).replace("\x00", "")
+
+
+def clean_extra(extra: dict) -> dict:
+    """A record's ``extra`` fields made safe to store: sensitive keys
+    redacted, values reduced to short JSON-safe scalars."""
+    cleaned = {}
+    for key, value in list(extra.items())[:EXTRA_MAX_KEYS]:
+        key = str(key)[:100]
+        if is_sensitive_key(key):
+            cleaned[key] = REDACTED
+        elif value is None or isinstance(value, (bool, int)):
+            cleaned[key] = value
+        elif isinstance(value, float):
+            # PostgreSQL's JSON rejects NaN and infinity.
+            cleaned[key] = value if math.isfinite(value) else str(value)
+        else:
+            cleaned[key] = truncate(scrub_text(str(value)), EXTRA_VALUE_MAX_CHARS)
+    return cleaned

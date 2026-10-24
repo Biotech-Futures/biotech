@@ -317,7 +317,7 @@ describe('bulk user actions', () => {
         interests: ['Genetics', 'Bioinformatics'],
         mentorReason: 'I want to support students exploring biotech careers.',
         mentorInstitution: 'University of Sydney',
-        mentorBackground: 'postgraduate',
+        mentorBackground: 'postgraduate' as const,
         mentorMaxGroupCount: 2
       }
     ]

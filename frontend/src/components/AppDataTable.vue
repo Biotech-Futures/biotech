@@ -367,6 +367,9 @@ const props = withDefaults(
     defaultSort?: DataTableSort
     // Ticked rows, when the page keeps track of them.
     selected?: RowKey[]
+    // Off: no "All" in rows per page, for a server that caps how many rows
+    // one page can hold (System Logs).
+    allowAllRows?: boolean
     // A row to bring into view (its rowKey's value), as a page asks on
     // coming back to it: Release Resources, back from a resource's page.
     focusRow?: RowKey
@@ -393,6 +396,7 @@ const props = withDefaults(
     sort: undefined,
     defaultSort: undefined,
     selected: undefined,
+    allowAllRows: true,
     focusRow: undefined,
   },
 )
@@ -811,12 +815,14 @@ const shownPageSize = computed(() =>
 const pickerDisabled = computed(() => !picked.value && totalPages.value <= 1 && allRowsOnScreen.value)
 
 // 7, 15 and 30, the table's own size among them (the rows there are, while
-// that's what it shows), then All.
+// that's what it shows), then All - unless a page turns All off, for a server
+// that caps how many rows one page can hold (System Logs).
 const sizeOptions = computed(() => {
   const sizes = DATA_TABLE_PAGE_SIZES.filter((size) => size !== DATA_TABLE_ALL)
   const own = shownPageSize.value !== pageSize.value ? shownPageSize.value : fittedSize.value
   if (own !== DATA_TABLE_ALL && !sizes.includes(own)) sizes.push(own)
-  return [...sizes.sort((a, b) => a - b), DATA_TABLE_ALL]
+  const ordered = sizes.sort((a, b) => a - b)
+  return props.allowAllRows ? [...ordered, DATA_TABLE_ALL] : [...ordered]
 })
 
 // Search is 252px wide, or wide enough for every word of its placeholder:

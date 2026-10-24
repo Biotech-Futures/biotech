@@ -80,6 +80,29 @@ describe('parseMentorCsv', () => {
     })
   })
 
+  it('maps each of the five categories by key or label, in any case', () => {
+    const rows = ['Academic', 'industry', 'UNDERGRADUATE', ' Postgraduate ', 'hdr', '']
+    const csv = [
+      'email,firstname,lastname,country,mentor reason,max group count,interests,background,institution',
+      ...rows.map((background, index) =>
+        `m${index}@example.edu,M,${index},Australia,Help,1,Genetics,${background},Uni`
+      )
+    ].join('\n')
+
+    const result = parseMentorCsv(csv)
+
+    expect(result.invalid).toEqual([])
+    expect(result.valid.map((row) => row.mentorBackground)).toEqual([
+      'academic',
+      'industry',
+      'undergraduate',
+      'postgraduate',
+      'hdr',
+      null
+    ])
+    expect(result.valid.every((row) => row.backgroundNote === undefined)).toBe(true)
+  })
+
   it('reports row-level validation problems without blocking valid rows', () => {
     const csv = [
       header,
@@ -156,5 +179,14 @@ describe('parseMentorCsv', () => {
         MENTOR_CSV_TEMPLATE.sampleRow.join(',')
       ].join('\n')).valid
     ).toHaveLength(1)
+
+    // Quoted as the downloaded file is: the interests sample holds a comma.
+    const quote = (cell: string) => (cell.includes(',') ? `"${cell}"` : cell)
+    const [row] = parseMentorCsv([
+      MENTOR_CSV_TEMPLATE.headers.map(quote).join(','),
+      MENTOR_CSV_TEMPLATE.sampleRow.map(quote).join(',')
+    ].join('\n')).valid
+    // The example background is one of the five categories, so it imports as-is.
+    expect(row).toMatchObject({ mentorBackground: 'postgraduate', backgroundNote: undefined })
   })
 })

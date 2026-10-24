@@ -3,6 +3,8 @@ from django.db import models
 from django.db.models import Q
 
 class MentorProfile(models.Model):
+    # Exactly these five, in this order (AM2). Each label lowercases to its
+    # key, so "HDR" and "hdr" name the same category.
     class BackgroundChoices(models.TextChoices):
         ACADEMIC = "academic", "Academic"
         INDUSTRY = "industry", "Industry"
@@ -40,3 +42,33 @@ class MentorProfile(models.Model):
     
     def __str__(self):
         return f"Mentor: {self.user}"
+
+
+MENTOR_BACKGROUND_ERROR = "Mentor background must be one of: " + ", ".join(
+    MentorProfile.BackgroundChoices.labels
+)
+
+
+def normalize_mentor_background(value):
+    """Return the stored key for ``value``, or None when it is blank.
+
+    Accepts a key or a label in any case ("Postgraduate", " HDR "). Raises
+    ValueError for anything else, so callers can reject it rather than store
+    free text the choices don't cover.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(MENTOR_BACKGROUND_ERROR)
+    key = value.strip().lower()
+    if not key:
+        return None
+    if key in MentorProfile.BackgroundChoices.values:
+        return key
+    # A label no longer lowercases to its key ("University Student –
+    # Undergraduate"), so match the labels explicitly rather than relying on
+    # the two happening to coincide.
+    for choice_key, label in MentorProfile.BackgroundChoices.choices:
+        if label.lower() == key:
+            return choice_key
+    raise ValueError(MENTOR_BACKGROUND_ERROR)

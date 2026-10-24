@@ -740,7 +740,14 @@ describe('admin user detail: a student edited part by part', () => {
     const wrapper = openDetail(student({ supervisorName: 'Sam Lee', supervisorEmail: 'sam@example.com', groupName: 'BTF1' }))
 
     const headings = wrapper.findAll('h3').map((h) => h.text())
-    expect(headings).toEqual(['Profile Photo', 'Account', 'Supervisor and Group', 'Student Details', 'Guardian Details'])
+    expect(headings).toEqual([
+      'Profile Photo',
+      'Account',
+      'Internal Admin Notes',
+      'Supervisor and Group',
+      'Student Details',
+      'Guardian Details'
+    ])
     for (const part of ['account', 'details', 'guardian', 'supervisor']) {
       expect(wrapper.find(`[data-test="admin-edit-${part}"]`).exists()).toBe(true)
     }
@@ -751,7 +758,12 @@ describe('admin user detail: a student edited part by part', () => {
   it('shows an admin their Admin Details, with no buttons below either', () => {
     const wrapper = openDetail(student({ role: 'admin' }))
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Profile Photo', 'Account', 'Admin Details'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Profile Photo',
+      'Account',
+      'Internal Admin Notes',
+      'Admin Details'
+    ])
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)
     expect(wrapper.findAll('button').map((b) => b.text())).not.toContain('Close')
   })
@@ -1270,6 +1282,7 @@ describe('admin user detail: a mentor edited part by part', () => {
     expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
       'Profile Photo',
       'Account',
+      'Internal Admin Notes',
       'Groups',
       'Mentor Details',
       'Weekly Availability',
@@ -1502,7 +1515,14 @@ describe('admin user detail: a supervisor edited part by part', () => {
   it('shows Account, Groups, Supervisor Details and Supervisees, and nothing at the bottom', () => {
     const wrapper = openDetail(supervisor())
 
-    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual(['Profile Photo', 'Account', 'Groups', 'Supervisor Details', 'Supervisees'])
+    expect(wrapper.findAll('h3').map((h) => h.text())).toEqual([
+      'Profile Photo',
+      'Account',
+      'Internal Admin Notes',
+      'Groups',
+      'Supervisor Details',
+      'Supervisees'
+    ])
     expect(wrapper.find('[data-test="admin-edit-account"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="admin-edit-supervisor-details"]').exists()).toBe(true)
     expect(wrapper.find('.admin-users-detail__footer').exists()).toBe(false)

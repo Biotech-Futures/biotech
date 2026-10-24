@@ -426,6 +426,17 @@
         <p class="admin-users-form__hint">PNG, JPEG or WebP, smaller than 5 MB.</p>
       </template>
 
+      <div class="form-field form-field--full" data-test="admin-notes-field">
+        <label class="form-label">Internal admin notes (visible only to admins)</label>
+        <RichEditor
+          :key="editorKey"
+          v-model="form.adminNotes"
+          placeholder="Add private context or notes about this user..."
+          compact
+          data-test="form-admin-notes"
+        />
+      </div>
+
       <div class="admin-users-form__footer">
         <button
           v-if="isEditing && !isSupervisorMode"
@@ -451,7 +462,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
+
+const RichEditor = defineAsyncComponent(
+  () => import('@/components/admin/RichEditor.vue')
+)
 import FormSheet from '@/components/admin/FormSheet.vue'
 import AppSelect, { type AppSelectOption } from '@/components/AppSelect.vue'
 import AppTimePicker from '@/components/AppTimePicker.vue'
@@ -519,6 +534,7 @@ interface UserForm {
   mediaGiven: boolean
   pendingConsentGiven: boolean
   active: boolean
+  adminNotes: string
   /** The group a new student joins once added; null for none. */
   groupId: number | null
   /** A student's pronouns, as registering takes them. */
@@ -583,6 +599,7 @@ const defaultForm = (): UserForm => ({
   mediaGiven: false,
   pendingConsentGiven: false,
   active: true,
+  adminNotes: '',
   groupId: null,
   pronounsChoice: '',
   pronounsOther: ''
@@ -598,6 +615,13 @@ const form = reactive<UserForm>(defaultForm())
 const formError = ref('')
 const saving = ref(false)
 const editingOriginalActive = ref(false)
+// Remounts the editor whenever the form opens on a different user, so a
+// draft can never carry over from the last one.
+const editorSessionKey = ref(0)
+const editorKey = computed(() => {
+  const userId = props.user?.id ? `edit-user-${props.user.id}` : 'new-user'
+  return `${userId}-${editorSessionKey.value}`
+})
 // What the guardian fields held when the form opened; only changes are sent,
 // so saving a student's year level can't discard a pending guardian change
 // or revoke consent.
@@ -670,6 +694,7 @@ const onInterestToggle = (option: string, event: Event) => {
 
 const initForm = (editingUser: AdminUser | null) => {
   formError.value = ''
+  editorSessionKey.value++
   createdUserId.value = null
   clearPhoto()
   if (!editingUser) {
@@ -720,7 +745,8 @@ const initForm = (editingUser: AdminUser | null) => {
     consentGiven: isStudent && Boolean(editingUser.joinPermissionReceived),
     mediaGiven: isStudent && Boolean(editingUser.joinPermissionReceived) && editingUser.mediaConsent === true,
     pendingConsentGiven: false,
-    active: editingUser.isActive
+    active: editingUser.isActive,
+    adminNotes: editingUser.adminNotes || ''
   })
 }
 
@@ -999,7 +1025,8 @@ const submitForm = async () => {
         lastName: form.lastName,
         role,
         countryId: role === 'admin' ? null : form.countryId,
-        stateId: role === 'admin' ? null : form.stateId
+        stateId: role === 'admin' ? null : form.stateId,
+        adminNotes: form.adminNotes.trim()
       }
       // A typed state, for a country with no list of states.
       if (role !== 'admin' && form.countryId !== undefined && !formStates.value.length) {
@@ -1034,7 +1061,8 @@ const submitForm = async () => {
         firstName: form.firstName,
         lastName: form.lastName,
         role,
-        active: form.active
+        active: form.active,
+        adminNotes: form.adminNotes.trim()
       }
       const countryName = resolveCountryName(form.countryId)
       const stateName =

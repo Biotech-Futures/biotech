@@ -52,7 +52,7 @@ from apps.admin.services.known_university import (
 )
 from apps.admin.services.group import (
     query_groups, query_group_by_id, query_group_messages, query_next_group_name,
-    create_group, update_group, remove_group_member, remove_group_message,
+    create_group, update_group, remove_group_member, remove_group_message, send_group_message,
     delete_group, bulk_delete_groups, bulk_delete_groups_by_filter,
 )
 from apps.admin.services.match import (
@@ -445,6 +445,7 @@ class GroupListView(APIView):
             limit=int(request.query_params.get("limit", 10)),
             search_name=request.query_params.get("searchName"),
             search_group=request.query_params.get("searchGroup"),
+            search=request.query_params.get("search"),
             mentor_status=request.query_params.get("mentorStatus"),
             requesting_user=request.user,
             sort_by=request.query_params.get("sortBy", "createdAt"),
@@ -543,7 +544,8 @@ class GroupBulkDeleteView(APIView):
 
 
 class GroupMessagesListView(APIView):
-    """GET /api/v1/group/{id}/messages - View group message history"""
+    """GET /api/v1/group/{id}/messages - View group message history
+    POST /api/v1/group/{id}/messages - Send a text message as Administrator"""
     permission_classes = [IsAuthenticated, IsAdminScoped]
 
     def get(self, request, group_id):
@@ -553,6 +555,17 @@ class GroupMessagesListView(APIView):
             limit=int(request.query_params.get("limit", 50)),
         )
         return Response(result)
+
+    def post(self, request, group_id):
+        text = request.data.get("text") if isinstance(request.data, dict) else None
+        result = send_group_message(group_id, text, initiated_by=request.user)
+        if result.get("data"):
+            code = status.HTTP_201_CREATED
+        elif result.get("msg") == "Group not found":
+            code = status.HTTP_404_NOT_FOUND
+        else:
+            code = status.HTTP_400_BAD_REQUEST
+        return Response(result, status=code)
 
 
 class GroupMessageDetailView(APIView):

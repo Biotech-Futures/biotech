@@ -287,6 +287,8 @@ export interface AdminUser {
   /** Who last changed this user's details (an admin, the user or their supervisor), and when. */
   lastEditedBy?: string | null
   lastEditedAt?: string | null
+  /** Private notes recorded by administrators, never visible to non-admins. */
+  adminNotes?: string | null
 }
 
 export interface UserListParams {
@@ -332,6 +334,7 @@ export type CreateUserPayload = Record<string, unknown> & {
   firstName: string
   lastName: string
   role: string
+  adminNotes?: string
 }
 
 export interface StudentImportSkippedRow {
@@ -726,6 +729,7 @@ export interface AdminGroupMember {
   role: string
   membershipId: number | null
   interests?: string[]
+  supervisorName?: string | null
 }
 
 export type { MutualInterestItem }
@@ -756,6 +760,8 @@ export interface GroupListDetailParams {
   limit?: number
   searchName?: string
   searchGroup?: string
+  /** Group name or member name, as the groups page's one box sends it (AM11). */
+  search?: string
   mentorStatus?: string
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
@@ -863,13 +869,20 @@ export interface AdminGroupMessageAttachment {
 export interface AdminGroupMessage {
   id: string
   group_id: string
+  /** The real sender, always; `role` is 'admin' for a message sent as Administrator. */
   sender: { id: string; name: string; email: string; role: string | null }
+  /** Sent from the admin panel: group members see the sender as "Administrator". */
+  sent_as_admin: boolean
   message_type: string
   text: string
   attachments: AdminGroupMessageAttachment[]
   gif: { gif_url: string; preview_url: string; title: string } | null
   sent_at: string
   edited_at: string | null
+  /** Set when the message has been soft-deleted. Participants no longer see it;
+   *  admins do, so moderation can review and undo. */
+  deleted_at: string | null
+  deleted_by: string | null
 }
 
 export interface AdminGroupMessagesData {
@@ -880,6 +893,110 @@ export interface AdminGroupMessagesData {
   has_more: boolean
 }
 
+/**
+ * Resolve a chat attachment to a short-lived signed URL.
+ *
+ * `download_url` on an admin message points at the chat app's download
+ * endpoint, which needs an Authorization header - so it cannot be used as an
+ * `<img src>` directly. `mode=url` asks that endpoint for a pre-signed URL the
+ * browser can load on its own, and `inline=1` makes it render rather than
+ * download. Admins are authorised there by `can_access_chat_group`, which
+ * grants access without group membership.
+ */
+export const resolveChatAttachmentUrl = async (
+  downloadUrl: string,
+  { inline = true }: { inline?: boolean } = {}
+): Promise<{ url: string; filename: string; mimeType: string | null }> => {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const separator = downloadUrl.includes('?') ? '&' : '?'
+  const headers = buildSessionHeaders({ headers: { Accept: 'application/json' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(
+    `${base}${downloadUrl}${separator}mode=url${inline ? '&inline=1' : ''}`,
+    { credentials: 'include', headers }
+  )
+  if (!res.ok) throw new Error('The attachment could not be opened.')
+
+  const data = await res.json()
+  if (!data?.download_url) throw new Error('The attachment could not be opened.')
+  // Azure hands back an absolute signed URL; local development serves files
+  // from disk and returns a path like "/media/chat/...", which would otherwise
+  // resolve against the frontend's own origin and 404.
+  const url: string = /^https?:\/\//i.test(data.download_url)
+    ? data.download_url
+    : `${base}${data.download_url}`
+  return { url, filename: data.filename, mimeType: data.mime_type ?? null }
+}
+
+/**
+ * Fetch a chat attachment's bytes with admin credentials.
+ *
+ * The signed URL is fine for an `<img src>` or a new tab, but an `<a download>`
+ * pointing at another origin has its filename hint ignored - the browser just
+ * navigates to the file. Pulling the bytes here and handing the anchor a blob
+ * URL keeps the save behaviour and the filename.
+ */
+export const downloadChatAttachment = async (
+  downloadUrl: string,
+  filename: string
+): Promise<void> => {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  const headers = buildSessionHeaders({ headers: {} })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  // No query string: the endpoint streams with Content-Disposition: attachment
+  // unless ``inline=1`` asks otherwise.
+  const res = await fetch(`${base}${downloadUrl}`, { credentials: 'include', headers })
+  if (!res.ok) throw new Error('The attachment could not be downloaded.')
+
+  const objectUrl = URL.createObjectURL(await res.blob())
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename || 'attachment'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Revoked on the next tick so the click has already been handled.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+}
+
+/**
+ * Undo a soft-delete. Restore lives on the chat app rather than the admin API
+ * (``POST /chat/groups/<gid>/messages/<id>/restore/``) and is admin-only there,
+ * so this calls it directly instead of proxying.
+ */
+export const restoreGroupMessage = async (
+  groupId: string | number,
+  messageId: string | number
+): Promise<void> => {
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+  await ensureCsrfCookie(base)
+  const headers = buildSessionHeaders({
+    includeCSRF: true,
+    headers: { Accept: 'application/json' }
+  })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(
+    `${base}/api/v1/chat/groups/${groupId}/messages/${messageId}/restore/`,
+    { method: 'POST', credentials: 'include', headers }
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    let detail = 'The message could not be restored.'
+    try {
+      detail = JSON.parse(body)?.detail || detail
+    } catch {
+      /* non-JSON error body: keep the default */
+    }
+    throw new Error(detail)
+  }
+}
+
 export const fetchGroupMessages = (
   groupId: string | number,
   params: { page?: number; limit?: number } = {}
@@ -887,6 +1004,15 @@ export const fetchGroupMessages = (
   adminGet<AdminEnvelope<AdminGroupMessagesData>>(
     `/group/${groupId}/messages/${buildAdminQuery(params)}`
   ).then((env) => env.data)
+
+/**
+ * Post a text message into a group's chat as Administrator. Members see the
+ * sender as "Administrator"; admins (and the history above) see who sent it.
+ */
+export const sendGroupMessage = (groupId: string | number, text: string): Promise<AdminGroupMessage> =>
+  adminPost<AdminEnvelope<AdminGroupMessage>>(`/group/${groupId}/messages/`, { text }).then(
+    (env) => env.data
+  )
 
 /** Soft-delete a message from a group. */
 export const removeGroupMessage = (groupId: string | number, messageId: string | number) =>
@@ -1912,3 +2038,124 @@ export const getAdminViewExportUrl = (
   return `${ADMIN_API_BASE}/view/${id}/export-csv/${query}`
 }
 
+
+// ---------------------------------------------------------------------------
+// System Logs (GET /system-logs/, backend apps.system_logs)
+// ---------------------------------------------------------------------------
+
+export interface SystemLogUser {
+  id: number
+  email: string
+  name: string
+}
+
+/** A row of the System Logs table: the message is a preview, its full text
+ *  and the traceback come from fetchSystemLog. */
+export interface SystemLogRow {
+  id: number
+  /** ISO datetime in UTC; shown in the admin's set timezone. */
+  created_at: string
+  level: number
+  level_name: string
+  logger_name: string
+  message: string
+  message_truncated: boolean
+  has_traceback: boolean
+  request_id: string
+  request_method: string
+  request_path: string
+  status_code: number | null
+  user: SystemLogUser | null
+}
+
+export interface SystemLogDetail {
+  id: number
+  created_at: string
+  level: number
+  level_name: string
+  logger_name: string
+  message: string
+  traceback: string
+  request_id: string
+  request_method: string
+  request_path: string
+  status_code: number | null
+  user: SystemLogUser | null
+  module: string
+  func_name: string
+  line_no: number | null
+  extra: Record<string, unknown>
+}
+
+/** The list and export filters. ``from`` and ``to`` are ISO datetimes with an
+ *  offset (see zonedDayBoundary); ``level`` is the lowest level shown. */
+export interface SystemLogFilterParams {
+  from?: string
+  to?: string
+  level?: string
+  source?: string
+  user?: string
+  q?: string
+  request_id?: string
+}
+
+export interface SystemLogListParams extends SystemLogFilterParams {
+  page?: number
+  page_size?: number
+}
+
+export type SystemLogExportType = 'csv' | 'json'
+
+/** The most rows one export holds: EXPORT_MAX_ROWS in
+ *  backend/apps/system_logs/export.py. */
+export const SYSTEM_LOG_EXPORT_MAX_ROWS = 100_000
+
+/** What an export's response headers say about the file. */
+export interface SystemLogExportResult {
+  /** More rows matched than the file holds; it has the newest ``rowLimit``. */
+  truncated: boolean
+  rowLimit: number
+}
+
+export const fetchSystemLogs = (params: SystemLogListParams = {}) =>
+  adminGet<PaginatedResult<SystemLogRow>>(`/system-logs/${buildAdminQuery(params)}`)
+
+export const fetchSystemLog = (id: number | string) =>
+  adminGet<SystemLogDetail>(`/system-logs/${id}/`)
+
+/** Download every log row the filters match as CSV (times in UTC) or JSON
+ *  lines, sent with the admin's session like any admin call. Resolves with
+ *  whether the file stopped at the row limit. */
+export const downloadSystemLogs = async (
+  params: SystemLogFilterParams = {},
+  type: SystemLogExportType = 'csv'
+): Promise<SystemLogExportResult> => {
+  const headers = buildSessionHeaders({ includeCSRF: false, headers: { Accept: '*/*' } })
+  const token = localStorage.getItem('access_token')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(`${ADMIN_API_BASE}/system-logs/export/${buildAdminQuery({ ...params, type })}`, {
+    credentials: 'include',
+    headers
+  })
+  if (!res.ok) throw await apiErrorFromResponse(res, 'Could not export the system logs.')
+
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const fileName =
+    disposition.match(/filename="?([^"]+)"?/i)?.[1] || `system-logs.${type === 'json' ? 'jsonl' : 'csv'}`
+
+  const blobUrl = window.URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(blobUrl)
+
+  const rowLimit = Number(res.headers.get('X-Export-Row-Limit'))
+  return {
+    truncated: res.headers.get('X-Export-Truncated') === 'true',
+    rowLimit: Number.isFinite(rowLimit) && rowLimit > 0 ? rowLimit : SYSTEM_LOG_EXPORT_MAX_ROWS
+  }
+}

@@ -27,6 +27,7 @@ const adminSubLinks = [
   '/admin/users',
   '/admin/groups',
   '/admin/tasks',
+  '/admin/logs',
 ]
 
 const analyticsSubLinks = [
@@ -101,6 +102,7 @@ describe('App sidebar admin section', () => {
 
     expect(wrapper!.find('a[href="#/admin"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/admin/users"]').exists()).toBe(false)
+    expect(wrapper!.find('a[href="#/admin/logs"]').exists()).toBe(false)
     expect(wrapper!.find('a[href="#/analytics"]').exists()).toBe(false)
   })
 
